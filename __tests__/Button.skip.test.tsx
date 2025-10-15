@@ -1,3 +1,4 @@
+// TODO(james): Unskip after RN test runtime is stabilized (see issue #1).
 /**
  * @jest-environment node
  */
