@@ -8,6 +8,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
 
 import { ThemeProvider } from './providers/ThemeProvider';
+import { RepoProvider } from './providers/RepoProvider';
+import { CortexProvider } from './providers/CortexProvider';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 
@@ -18,10 +20,14 @@ export default function App() {
       <SafeAreaProvider>
         <SheetProvider>
           <ThemeProvider>
-            <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-              <RootNavigator />
-              <OverlayHost />
-            </NavigationContainer>
+            <RepoProvider>
+              <CortexProvider>
+                <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+                  <RootNavigator />
+                  <OverlayHost />
+                </NavigationContainer>
+              </CortexProvider>
+            </RepoProvider>
           </ThemeProvider>
         </SheetProvider>
       </SafeAreaProvider>
