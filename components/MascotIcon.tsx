@@ -1,4 +1,3 @@
-import React from 'react';
 import { View } from 'react-native';
 import MascotSvg from '../assets/mascot/mascot.ai.svg';
 

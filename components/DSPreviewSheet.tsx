@@ -1,4 +1,3 @@
-import React from 'react';
 import { ScrollView } from 'react-native';
 import ActionSheet from 'react-native-actions-sheet';
 import DSPreview from '../app/(dev)/DSPreview';

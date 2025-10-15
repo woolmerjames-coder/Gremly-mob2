@@ -1,4 +1,3 @@
-import React from 'react';
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -6,6 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
+import ManualAddSheet from './ManualAddSheet';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -80,10 +80,11 @@ export const OverlayHost = () => {
   // Must call hooks before any conditional returns
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  // Render the NewSpaceModal component to make it available globally
+  // Render the NewSpaceModal and ManualAddSheet components to make them available globally
   return (
     <>
       <NewSpaceModal />
+      <ManualAddSheet />
       {/* DEV-ONLY: Floating debug button to access dev tools */}
       {__DEV__ && (
         <Pressable

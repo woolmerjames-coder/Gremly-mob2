@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import * as React from 'react';
+import { useState } from 'react';
 import { View, Pressable, Text, ScrollView, type ViewProps } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 

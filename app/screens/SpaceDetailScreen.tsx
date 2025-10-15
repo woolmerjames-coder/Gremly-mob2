@@ -3,6 +3,8 @@ import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
+import PlusFAB from '../../components/PlusFAB';
+import { openManualAdd } from '../../components/ManualAddSheet';
 import type { Space } from '../../lib/types';
 import type { GroupedByType } from '../../lib/repo/IRepo';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -74,6 +76,9 @@ export default function SpaceDetail() {
       <Section title="Habits" items={groups.habits} />
       <Section title="To-Dos" items={groups.todos} />
       <Section title="Notes" items={groups.notes} />
+
+      {/* Plus FAB for Manual Add with spaceId context */}
+      <PlusFAB onPress={() => openManualAdd({ spaceId: id })} />
     </ScrollView>
   );
 }

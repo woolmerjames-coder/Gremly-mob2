@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from 'react';
 import { Pressable, Text, ActivityIndicator, type PressableProps } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 
