@@ -1,8 +1,8 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Habit, Todo, Note, ID } from '../types';
+import type { AppRecord, Habit, Todo, Note, ID, Space } from '../types';
 import { genId, nowIso } from '../types';
-import { recordZ } from '../schemas';
-import type { IRepo, CreateRecordInput, UpdateRecordInput } from './IRepo';
+import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
+import type { IRepo, CreateRecordInput, UpdateRecordInput, GroupedByType } from './IRepo';
 
 /**
  * In-memory repository implementation for development and testing.
@@ -53,6 +53,7 @@ const seed = (ownerId: string): AppRecord[] => {
 
 export class MemoryRepo implements IRepo {
   private data: AppRecord[] = [];
+  private spaces: Space[] = [];
   private currentUserId: string = 'memory-user';
 
   constructor(userId?: string) {
@@ -175,6 +176,66 @@ export class MemoryRepo implements IRepo {
       (r): r is Todo =>
         r.type === 'todo' && r.owner_id === this.currentUserId && r.undefined_due === true,
     );
+  }
+
+  // ==========================
+  // SPACE METHODS (Phase 5)
+  // ==========================
+
+  async listSpaces(): Promise<Space[]> {
+    return this.spaces.filter((s) => s.owner_id === this.currentUserId);
+  }
+
+  async createSpace(input: SpaceInsert): Promise<Space> {
+    const payload = spaceInsertSchema.parse(input);
+    const now = nowIso();
+
+    const space: Space = {
+      id: genId('space'),
+      owner_id: this.currentUserId,
+      name: payload.name,
+      icon: payload.icon ?? null,
+      theme: payload.theme ?? 'deepTeal',
+      created_at: now,
+      updated_at: now,
+    };
+
+    this.spaces.unshift(space);
+    return space;
+  }
+
+  async getSpaceById(spaceId: string): Promise<Space | null> {
+    return this.spaces.find((s) => s.id === spaceId && s.owner_id === this.currentUserId) ?? null;
+  }
+
+  async updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space> {
+    const idx = this.spaces.findIndex((s) => s.id === spaceId && s.owner_id === this.currentUserId);
+    if (idx < 0) throw new Error('Space not found');
+
+    const updated: Space = {
+      ...this.spaces[idx],
+      ...patch,
+      updated_at: nowIso(),
+    };
+
+    this.spaces[idx] = updated;
+    return updated;
+  }
+
+  async deleteSpace(spaceId: string): Promise<void> {
+    this.spaces = this.spaces.filter(
+      (s) => !(s.id === spaceId && s.owner_id === this.currentUserId),
+    );
+  }
+
+  async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
+    const items = await this.listBySpace(spaceId);
+
+    return {
+      habits: items.filter((r) => r.type === 'habit'),
+      todos: items.filter((r) => r.type === 'todo'),
+      notes: items.filter((r) => r.type === 'note'),
+    };
   }
 
   // Buddy no-ops for Phase 4
