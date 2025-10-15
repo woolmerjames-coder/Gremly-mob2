@@ -7,8 +7,11 @@ describe('schemas', () => {
       type: 'habit',
       title: 'Run',
       frequency: 'daily',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      space_id: null,
+      ai_placed: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      owner_id: 'test-user',
     });
     expect(h.frequency).toBe('daily');
   });
@@ -18,9 +21,14 @@ describe('schemas', () => {
       id: 't1',
       type: 'todo',
       title: 'Call dentist',
-      dueDate: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      body: null,
+      due_date: null,
+      undefined_due: true,
+      space_id: null,
+      ai_placed: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      owner_id: 'test-user',
     });
     expect(t.type).toBe('todo');
   });
@@ -32,8 +40,11 @@ describe('schemas', () => {
       title: 'Day 1',
       subtype: 'journal',
       body: 'Hello',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      space_id: null,
+      ai_placed: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      owner_id: 'test-user',
     });
     expect(n.subtype).toBe('journal');
   });
@@ -45,8 +56,11 @@ describe('schemas', () => {
       title: 'List',
       subtype: 'list',
       body: '- a\n- b',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      space_id: null,
+      ai_placed: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      owner_id: 'test-user',
     });
     expect(r.type).toBe('note');
   });
