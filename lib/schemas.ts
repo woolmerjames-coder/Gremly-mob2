@@ -95,6 +95,20 @@ export const noteInsertSchema = z.object({
 });
 
 // ==========================
+// SPACE SCHEMAS
+// ==========================
+
+export const spaceThemeEnum = z.enum(['deepTeal', 'mint', 'cream', 'periwinkle']);
+
+export const spaceInsertSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  icon: z.string().optional(),
+  theme: spaceThemeEnum.optional(),
+});
+
+export type SpaceInsert = z.infer<typeof spaceInsertSchema>;
+
+// ==========================
 // Helper functions
 // ==========================
 

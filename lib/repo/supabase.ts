@@ -1,5 +1,5 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Todo, ID } from '../types';
+import type { AppRecord, Todo, ID, Space } from '../types';
 import {
   habitZ,
   todoZ,
@@ -7,8 +7,10 @@ import {
   habitInsertSchema,
   todoInsertSchema,
   noteInsertSchema,
+  spaceInsertSchema,
+  type SpaceInsert,
 } from '../schemas';
-import type { IRepo, CreateRecordInput, UpdateRecordInput } from './IRepo';
+import type { IRepo, CreateRecordInput, UpdateRecordInput, GroupedByType } from './IRepo';
 import { supabase } from '../supabase/client';
 
 /**
@@ -393,6 +395,135 @@ export class SupabaseRepo implements IRepo {
     if (!data) return [];
 
     return data.map((t) => todoZ.parse({ ...t, type: 'todo' }));
+  }
+
+  // ==========================
+  // SPACE METHODS (Phase 5)
+  // ==========================
+
+  async listSpaces(): Promise<Space[]> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to list spaces: ${error.message}`);
+    if (!data) return [];
+
+    return data as Space[];
+  }
+
+  async createSpace(input: SpaceInsert): Promise<Space> {
+    const userId = this.ensureUserId();
+
+    // Validate input
+    const payload = spaceInsertSchema.parse(input);
+
+    // Build insert payload
+    const insertData = compact({
+      name: payload.name,
+      icon: payload.icon ?? null,
+      theme: payload.theme ?? 'deepTeal',
+    });
+
+    const { data, error } = await supabase.from('spaces').insert(insertData).select().single();
+
+    if (error) throw new Error(`Failed to create space: ${error.message}`);
+    if (!data) throw new Error('No data returned from create space');
+
+    return data as Space;
+  }
+
+  async getSpaceById(spaceId: string): Promise<Space | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('*')
+      .eq('id', spaceId)
+      .eq('owner_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw new Error(`Failed to get space: ${error.message}`);
+    }
+
+    return data as Space;
+  }
+
+  async updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space> {
+    const userId = this.ensureUserId();
+
+    const updatePayload: Record<string, unknown> = {};
+
+    if ('name' in patch && patch.name !== undefined) updatePayload.name = patch.name;
+    if ('icon' in patch) updatePayload.icon = patch.icon ?? null;
+    if ('theme' in patch) updatePayload.theme = patch.theme ?? null;
+
+    const { data, error } = await supabase
+      .from('spaces')
+      .update(updatePayload)
+      .eq('id', spaceId)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update space: ${error.message}`);
+    if (!data) throw new Error('No data returned from update space');
+
+    return data as Space;
+  }
+
+  async deleteSpace(spaceId: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    const { error } = await supabase
+      .from('spaces')
+      .delete()
+      .eq('id', spaceId)
+      .eq('owner_id', userId);
+
+    if (error) throw new Error(`Failed to delete space: ${error.message}`);
+  }
+
+  async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
+    const userId = this.ensureUserId();
+
+    // Query all three tables in parallel
+    const [habitsResult, todosResult, notesResult] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('todos')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('notes')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    if (habitsResult.error) throw new Error(`Failed to list habits: ${habitsResult.error.message}`);
+    if (todosResult.error) throw new Error(`Failed to list todos: ${todosResult.error.message}`);
+    if (notesResult.error) throw new Error(`Failed to list notes: ${notesResult.error.message}`);
+
+    return {
+      habits: (habitsResult.data ?? []).map((h) => habitZ.parse({ ...h, type: 'habit' })),
+      todos: (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
+      notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
+    };
   }
 
   // Buddy no-ops for Phase 4

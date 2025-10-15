@@ -3,11 +3,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import TabNavigator from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
+import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
+  SpaceDetail: { id: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -16,6 +18,14 @@ export default function RootNavigator() {
   return (
     <Stack.Navigator>
       <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="SpaceDetail"
+        component={SpaceDetailScreen}
+        options={{
+          title: 'Space',
+          headerShown: true,
+        }}
+      />
       <Stack.Screen
         name="DSPreview"
         component={DSPreview}

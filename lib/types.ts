@@ -63,6 +63,19 @@ export interface Note {
 export type AppRecord = Habit | Todo | Note;
 
 /**
+ * Space - container for organizing Habits, Todos, and Notes
+ */
+export interface Space {
+  id: ID;
+  owner_id: ID;
+  name: string;
+  icon?: string | null;
+  theme?: 'deepTeal' | 'mint' | 'cream' | 'periwinkle' | null;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+}
+
+/**
  * Buddy system types (Phase 5+)
  */
 export type BuddyStatus = 'pending' | 'accepted' | 'declined' | 'revoked';

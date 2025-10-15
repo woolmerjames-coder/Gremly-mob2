@@ -1,4 +1,5 @@
-import type { AppRecord, Todo, ID, Frequency, NoteSubtype } from '../types';
+import type { AppRecord, Todo, ID, Frequency, NoteSubtype, Space } from '../types';
+import type { SpaceInsert } from '../schemas';
 
 /**
  * Input for creating a new record.
@@ -27,6 +28,15 @@ export interface UpdateRecordInput {
 }
 
 /**
+ * Grouped items by type for Space detail view
+ */
+export interface GroupedByType {
+  habits: AppRecord[];
+  todos: AppRecord[];
+  notes: AppRecord[];
+}
+
+/**
  * Repository interface - implemented by both memory and Supabase repos
  */
 export interface IRepo {
@@ -44,6 +54,14 @@ export interface IRepo {
   // Today screen helpers
   listDueToday(nowIso: string): Promise<AppRecord[]>;
   listUndefinedDue(): Promise<Todo[]>;
+
+  // Space methods (Phase 5)
+  listSpaces(): Promise<Space[]>;
+  createSpace(input: SpaceInsert): Promise<Space>;
+  getSpaceById(spaceId: string): Promise<Space | null>;
+  updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
+  deleteSpace(spaceId: string): Promise<void>;
+  listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
 
   // Buddy methods (Phase 5+ stubs)
   inviteBuddy(_habitId: ID, _email: string): Promise<void>;
