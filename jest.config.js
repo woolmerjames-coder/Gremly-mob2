@@ -23,4 +23,8 @@ module.exports = {
     __DEV__: true,
   },
   reporters: ['default'],
+  testTimeout: 10000,
+  maxWorkers: 1,
+  detectOpenHandles: true,
+  forceExit: true,
 };

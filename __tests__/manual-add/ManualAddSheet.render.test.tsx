@@ -1,5 +1,5 @@
 import { render, fireEvent } from '@testing-library/react-native';
-import ManualAddSheet, { openManualAdd } from '../../components/ManualAddSheet';
+import ManualAddSheet, { openManualAdd as _openManualAdd } from '../../components/ManualAddSheet';
 
 // Mock dependencies
 jest.mock('../../providers/RepoProvider', () => ({
@@ -14,7 +14,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('react-native-actions-sheet', () => {
-  const React = require('react');
+  const _React = require('react');
   return {
     __esModule: true,
     default: ({ children }: any) => <>{children}</>,
@@ -26,7 +26,7 @@ jest.mock('react-native-actions-sheet', () => {
 });
 
 jest.mock('../../components/JournalInspiration', () => {
-  const React = require('react');
+  const _React = require('react');
   const { View } = require('react-native');
   return {
     __esModule: true,

@@ -1,6 +1,9 @@
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
-import ManualAddSheet, { openManualAdd, closeManualAdd } from '../../components/ManualAddSheet';
+import ManualAddSheet, {
+  openManualAdd,
+  closeManualAdd as _closeManualAdd,
+} from '../../components/ManualAddSheet';
 
 // Mock Alert
 jest.spyOn(Alert, 'alert');
