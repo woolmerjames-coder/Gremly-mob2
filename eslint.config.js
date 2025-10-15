@@ -45,11 +45,14 @@ module.exports = [
     },
   },
   {
-    files: ['**/__tests__/**/*.{ts,tsx,js,jsx}', '__tests__/**/*.{ts,tsx,js,jsx}'],
+    files: ['**/__tests__/**/*.{ts,tsx}', '**/*.test.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-var-requires': 'off',
-      // keep "any" as warning (don't fail CI):
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
     },
   },
 ];
