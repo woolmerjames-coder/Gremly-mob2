@@ -1,6 +1,9 @@
 import React from 'react';
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
@@ -72,4 +75,26 @@ const styles = StyleSheet.create({
   },
 });
 
-export const OverlayHost = () => null;
+export const OverlayHost = () => {
+  // Must call hooks before any conditional returns
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  // DEV-ONLY: Floating debug button to access dev tools
+  if (!__DEV__) return null;
+
+  return (
+    <Pressable
+      className="absolute bottom-6 right-6 w-12 h-12 rounded-full items-center justify-center bg-black/60 active:bg-black/80"
+      onPress={() => navigation.navigate('DevLogin')}
+      style={{
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      }}
+    >
+      <Text className="text-white text-xs font-bold">DEV</Text>
+    </Pressable>
+  );
+};

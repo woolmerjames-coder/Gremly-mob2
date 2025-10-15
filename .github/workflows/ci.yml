@@ -2,35 +2,44 @@ name: CI
 
 on:
   push:
-    branches: [main, dev, feat/**]
+    branches: [ main ]
   pull_request:
-    branches: [main, dev]
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  build-and-test:
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        node-version: [20.19.4]
+    env:
+      CI: true
+      # Force in-memory backend to avoid network in tests
+      EXPO_PUBLIC_REPO_BACKEND: memory
+      # If any tests accidentally read these, keep them empty to fail fast (but we shouldn't need them)
+      EXPO_PUBLIC_SUPABASE_URL: ""
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ""
     
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
       
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Use Node.js 20.x
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 20.x
           cache: 'npm'
       
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+      - name: Install
+        run: npm ci
       
-      - name: Run linter
+      - name: Lint
         run: npm run lint
       
-      - name: Run type check
+      - name: Typecheck
         run: npm run typecheck
       
-      - name: Run tests
-        run: npm run test
+      - name: Test
+        run: npm test -- --ci --runInBand

@@ -3,7 +3,7 @@ import { memoryRepo } from '../../lib/repo/memory';
 import type { Todo } from '../../lib/types';
 
 describe('MemoryRepo - listDueToday', () => {
-  test('includes todo with dueDate set to today', async () => {
+  test('includes todo with due_date set to today', async () => {
     // Create a todo with today's date
     const today = new Date();
     const todayISO = today.toISOString();
@@ -11,7 +11,7 @@ describe('MemoryRepo - listDueToday', () => {
     const todo = await memoryRepo.create({
       type: 'todo',
       title: 'Todo due today',
-      dueDate: todayISO,
+      due_date: todayISO,
     });
 
     // Query for todos due today
@@ -21,17 +21,17 @@ describe('MemoryRepo - listDueToday', () => {
     const foundTodo = dueToday.find((r) => r.id === todo.id);
     expect(foundTodo).toBeDefined();
     expect(foundTodo?.title).toBe('Todo due today');
-    expect((foundTodo as Todo).dueDate).toBe(todayISO);
+    expect((foundTodo as Todo).due_date).toBe(todayISO);
   });
 
-  test('includes todo with dueDate at start of today', async () => {
+  test('includes todo with due_date at start of today', async () => {
     // Create a todo with date at start of day
     const startOfToday = startOfDay(new Date()).toISOString();
 
     const todo = await memoryRepo.create({
       type: 'todo',
       title: 'Todo at start of day',
-      dueDate: startOfToday,
+      due_date: startOfToday,
     });
 
     // Query for todos due today
@@ -42,14 +42,14 @@ describe('MemoryRepo - listDueToday', () => {
     expect(foundTodo).toBeDefined();
   });
 
-  test('includes todo with dueDate at end of today', async () => {
+  test('includes todo with due_date at end of today', async () => {
     // Create a todo with date at end of day
     const endOfToday = endOfDay(new Date()).toISOString();
 
     const todo = await memoryRepo.create({
       type: 'todo',
       title: 'Todo at end of day',
-      dueDate: endOfToday,
+      due_date: endOfToday,
     });
 
     // Query for todos due today
@@ -60,7 +60,7 @@ describe('MemoryRepo - listDueToday', () => {
     expect(foundTodo).toBeDefined();
   });
 
-  test('excludes todo with dueDate tomorrow', async () => {
+  test('excludes todo with due_date tomorrow', async () => {
     // Create a todo with tomorrow's date
     const tomorrow = addDays(new Date(), 1);
     const tomorrowISO = tomorrow.toISOString();
@@ -68,7 +68,7 @@ describe('MemoryRepo - listDueToday', () => {
     const todo = await memoryRepo.create({
       type: 'todo',
       title: 'Todo due tomorrow',
-      dueDate: tomorrowISO,
+      due_date: tomorrowISO,
     });
 
     // Query for todos due today
@@ -79,7 +79,7 @@ describe('MemoryRepo - listDueToday', () => {
     expect(foundTodo).toBeUndefined();
   });
 
-  test('excludes todo with dueDate yesterday', async () => {
+  test('excludes todo with due_date yesterday', async () => {
     // Create a todo with yesterday's date
     const yesterday = subDays(new Date(), 1);
     const yesterdayISO = yesterday.toISOString();
@@ -87,7 +87,7 @@ describe('MemoryRepo - listDueToday', () => {
     const todo = await memoryRepo.create({
       type: 'todo',
       title: 'Todo due yesterday',
-      dueDate: yesterdayISO,
+      due_date: yesterdayISO,
     });
 
     // Query for todos due today
@@ -98,11 +98,11 @@ describe('MemoryRepo - listDueToday', () => {
     expect(foundTodo).toBeUndefined();
   });
 
-  test('excludes todo with null dueDate', async () => {
+  test('excludes todo with null due_date', async () => {
     const todo = await memoryRepo.create({
       type: 'todo',
       title: 'Todo with no due date',
-      dueDate: null,
+      due_date: null,
     });
 
     // Query for todos due today
@@ -113,15 +113,15 @@ describe('MemoryRepo - listDueToday', () => {
     expect(foundTodo).toBeUndefined();
   });
 
-  test('includes habit with dueDate today', async () => {
-    // Habits can also have due dates
+  test.skip('includes habit with due_date today', async () => {
+    // NOTE: Habits don't have due_date in Phase 4 schema
+    // This test is skipped as habits are tracked by frequency, not due dates
     const todayISO = new Date().toISOString();
 
     const habit = await memoryRepo.create({
       type: 'habit',
       title: 'Habit due today',
       frequency: 'daily',
-      dueDate: todayISO,
     });
 
     // Query for records due today
@@ -141,7 +141,7 @@ describe('MemoryRepo - listDueToday', () => {
     await memoryRepo.create({
       type: 'todo',
       title: 'Future todo',
-      dueDate: tomorrow,
+      due_date: tomorrow,
     });
 
     // Query for today
@@ -161,7 +161,7 @@ describe('MemoryRepo - listDueToday', () => {
     const validTodo = await memoryRepo.create({
       type: 'todo',
       title: 'Valid todo',
-      dueDate: new Date().toISOString(),
+      due_date: new Date().toISOString(),
     });
 
     // listDueToday should not throw even if parsing encounters edge cases
