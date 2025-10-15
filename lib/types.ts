@@ -1,63 +1,87 @@
 /**
- * Core, stable app types used across UI and data layers.
- * Phase 3 scope: Habit | Todo | Note (journal | list | catchall) + shared fields.
- * Also includes Habit Buddy types as interfaces only (no logic yet).
+ * Core data types for Gremly Phase 4 with Supabase persistence.
+ * Includes owner_id for multi-user support.
  */
 
 export type ID = string;
-
 export type RecordType = 'habit' | 'todo' | 'note';
 export type NoteSubtype = 'journal' | 'list' | 'catchall';
+export type Frequency = 'daily' | 'weekly' | 'monthly';
 
-export interface BaseRecord {
+/**
+ * Habit - recurring activity tracked by user
+ */
+export interface Habit {
   id: ID;
-  type: RecordType;
-  title: string;
-  body?: string;
-  spaceId?: ID | null;
-  dueDate?: string | null; // ISO 8601 or null
-  frequency?: 'daily' | 'weekly' | 'monthly' | null;
-  aiPlaced?: boolean; // set true when Cortex made an assisted guess
-  createdAt: string; // ISO 8601
-  updatedAt: string; // ISO 8601
-}
-
-export interface Habit extends BaseRecord {
   type: 'habit';
-  frequency: 'daily' | 'weekly' | 'monthly'; // required for habits
-  body?: string; // optional description
+  title: string;
+  frequency: Frequency;
+  space_id?: ID | null;
+  ai_placed: boolean;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  owner_id: ID; // Supabase user ID
 }
 
-export interface Todo extends BaseRecord {
+/**
+ * Todo - task with optional due date
+ * undefined_due flag indicates if user explicitly left date undefined
+ */
+export interface Todo {
+  id: ID;
   type: 'todo';
-  // if dueDate is undefined or null, Today screen may surface it under "Might be today?"
+  title: string;
+  body?: string | null;
+  space_id?: ID | null;
+  due_date?: string | null; // ISO 8601 or null
+  undefined_due: boolean; // true if user wants "Might be today?" treatment
+  ai_placed: boolean;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  owner_id: ID;
 }
 
-export interface Note extends BaseRecord {
+/**
+ * Note - journal entry, list, or catch-all note
+ */
+export interface Note {
+  id: ID;
   type: 'note';
+  title?: string | null;
+  body?: string | null;
   subtype: NoteSubtype;
-  body: string; // notes always carry body text
+  space_id?: ID | null;
+  ai_placed: boolean;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  owner_id: ID;
 }
 
+/**
+ * Discriminated union of all record types
+ */
 export type AppRecord = Habit | Todo | Note;
 
-// --- Buddy (types only; no logic yet) ---
+/**
+ * Buddy system types (Phase 5+)
+ */
 export type BuddyStatus = 'pending' | 'accepted' | 'declined' | 'revoked';
 
 export interface HabitBuddy {
   id: ID;
-  habitId: ID;
-  ownerId: ID;
-  buddyUserId?: ID;
-  inviteEmail?: string;
+  habit_id: ID;
+  owner_id: ID;
+  buddy_user_id?: ID;
+  invite_email?: string;
   status: BuddyStatus;
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
 }
 
-// Small helper to create ISO timestamps
-export const nowIso = () => new Date().toISOString();
+/**
+ * Helper functions
+ */
+export const nowIso = (): string => new Date().toISOString();
 
-// Small helper to generate local IDs for memory repo (not for production)
 export const genId = (prefix = 'id'): ID =>
   `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

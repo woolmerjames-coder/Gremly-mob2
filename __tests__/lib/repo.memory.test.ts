@@ -1,30 +1,129 @@
-import { memoryRepo } from '../../lib/repo/memory';
+/**
+ * Tests for MemoryRepo to verify CRUD operations work correctly.
+ */
+
+import { MemoryRepo } from '../../lib/repo/memory';
+import type { CreateRecordInput } from '../../lib/repo/IRepo';
+
+// Mock date-fns
+jest.mock('date-fns', () => ({
+  isToday: jest.fn(() => true),
+  parseISO: jest.fn((str: string) => new Date(str)),
+}));
+
+const mockUserId = 'test-user-123';
 
 describe('MemoryRepo', () => {
-  test('can create and get habit', async () => {
-    const h = await memoryRepo.create({
+  let repo: MemoryRepo;
+
+  beforeEach(() => {
+    repo = new MemoryRepo(mockUserId);
+  });
+
+  test('creates and retrieves a habit', async () => {
+    const input: CreateRecordInput = {
       type: 'habit',
-      title: 'Read 10 pages',
+      title: 'Morning meditation',
       frequency: 'daily',
+      owner_id: mockUserId,
+    };
+
+    const habit = await repo.create(input);
+    expect(habit.id).toBeDefined();
+    expect(habit.type).toBe('habit');
+    expect(habit.title).toBe('Morning meditation');
+
+    const retrieved = await repo.getById(habit.id);
+    expect(retrieved).toBeDefined();
+    expect(retrieved?.id).toBe(habit.id);
+  });
+
+  test('creates and retrieves a todo', async () => {
+    const input: CreateRecordInput = {
+      type: 'todo',
+      title: 'Buy groceries',
+      body: 'Milk, eggs, bread',
+      owner_id: mockUserId,
+    };
+
+    const todo = await repo.create(input);
+    expect(todo.type).toBe('todo');
+    expect(todo.title).toBe('Buy groceries');
+  });
+
+  test('lists records by type', async () => {
+    await repo.create({
+      type: 'habit',
+      title: 'Exercise',
+      frequency: 'daily',
+      owner_id: mockUserId,
     });
-    const got = await memoryRepo.get(h.id);
-    expect(got?.title).toBe('Read 10 pages');
+
+    await repo.create({
+      type: 'todo',
+      title: 'Call dentist',
+      owner_id: mockUserId,
+    });
+
+    const habits = await repo.listByType('habit');
+    const todos = await repo.listByType('todo');
+
+    expect(habits.length).toBeGreaterThan(0);
+    expect(todos.length).toBeGreaterThan(0);
+    expect(habits.every((h) => h.type === 'habit')).toBe(true);
+    expect(todos.every((t) => t.type === 'todo')).toBe(true);
+  });
+
+  test('searches across records', async () => {
+    await repo.create({
+      type: 'todo',
+      title: 'Buy coffee',
+      owner_id: mockUserId,
+    });
+
+    const results = await repo.search('coffee');
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].title).toContain('coffee');
+  });
+
+  test('updates a record', async () => {
+    const todo = await repo.create({
+      type: 'todo',
+      title: 'Original title',
+      owner_id: mockUserId,
+    });
+
+    const updated = await repo.update({
+      id: todo.id,
+      patch: { title: 'Updated title' },
+    });
+
+    expect(updated.title).toBe('Updated title');
+  });
+
+  test('removes a record', async () => {
+    const todo = await repo.create({
+      type: 'todo',
+      title: 'To be deleted',
+      owner_id: mockUserId,
+    });
+
+    await repo.remove(todo.id);
+
+    const retrieved = await repo.getById(todo.id);
+    expect(retrieved).toBeNull();
   });
 
   test('lists undefined due todos', async () => {
-    const t = await memoryRepo.create({ type: 'todo', title: 'Buy milk' });
-    const undated = await memoryRepo.listUndefinedDue();
-    expect(undated.find((x) => x.id === t.id)).toBeTruthy();
-  });
-
-  test('search works', async () => {
-    await memoryRepo.create({
-      type: 'note',
-      title: 'Groceries',
-      subtype: 'list',
-      body: '- milk',
+    await repo.create({
+      type: 'todo',
+      title: 'Maybe today',
+      undefined_due: true,
+      owner_id: mockUserId,
     });
-    const hit = await memoryRepo.search('milk');
-    expect(hit.length).toBeGreaterThan(0);
+
+    const undefinedTodos = await repo.listUndefinedDue();
+    expect(undefinedTodos.length).toBeGreaterThan(0);
+    expect(undefinedTodos.every((t) => t.undefined_due === true)).toBe(true);
   });
 });

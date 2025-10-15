@@ -4,7 +4,12 @@ import { genId, nowIso } from '../types';
 import { recordZ } from '../schemas';
 import type { IRepo, CreateRecordInput, UpdateRecordInput } from './IRepo';
 
-const seed = (): AppRecord[] => {
+/**
+ * In-memory repository implementation for development and testing.
+ * No persistence - data resets on app restart.
+ */
+
+const seed = (ownerId: string): AppRecord[] => {
   const createdAt = nowIso();
   const updatedAt = createdAt;
 
@@ -13,19 +18,22 @@ const seed = (): AppRecord[] => {
     type: 'habit',
     title: 'Drink water',
     frequency: 'daily',
-    aiPlaced: false,
-    createdAt,
-    updatedAt,
+    ai_placed: false,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    owner_id: ownerId,
   };
 
   const t1: Todo = {
     id: genId('todo'),
     type: 'todo',
     title: 'Call the dentist',
-    dueDate: null,
-    aiPlaced: false,
-    createdAt,
-    updatedAt,
+    due_date: null,
+    undefined_due: true,
+    ai_placed: false,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    owner_id: ownerId,
   };
 
   const n1: Note = {
@@ -34,24 +42,33 @@ const seed = (): AppRecord[] => {
     subtype: 'journal',
     title: 'First entry',
     body: 'Kicking off Gremly.',
-    aiPlaced: false,
-    createdAt,
-    updatedAt,
+    ai_placed: false,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    owner_id: ownerId,
   };
 
   return [h1, t1, n1];
 };
 
 export class MemoryRepo implements IRepo {
-  private data: AppRecord[] = seed();
+  private data: AppRecord[] = [];
+  private currentUserId: string = 'memory-user';
+
+  constructor(userId?: string) {
+    this.currentUserId = userId || 'memory-user';
+    this.data = seed(this.currentUserId);
+  }
 
   private commit(r: AppRecord) {
-    // ensure shape stays valid
+    // Ensure shape stays valid
     recordZ.parse(r);
   }
 
   async create(input: CreateRecordInput): Promise<AppRecord> {
     const now = nowIso();
+    // Use provided owner_id or fall back to currentUserId
+    const ownerId = input.owner_id || this.currentUserId;
     let rec: AppRecord;
 
     if (input.type === 'habit') {
@@ -60,13 +77,12 @@ export class MemoryRepo implements IRepo {
         id: genId('habit'),
         type: 'habit',
         title: input.title,
-        body: input.body,
-        frequency: input.frequency!,
-        spaceId: input.spaceId ?? null,
-        dueDate: input.dueDate ?? null,
-        aiPlaced: !!input.aiPlaced,
-        createdAt: now,
-        updatedAt: now,
+        frequency: input.frequency,
+        space_id: input.space_id ?? null,
+        ai_placed: !!input.ai_placed,
+        created_at: now,
+        updated_at: now,
+        owner_id: ownerId,
       };
     } else if (input.type === 'todo') {
       rec = {
@@ -74,11 +90,13 @@ export class MemoryRepo implements IRepo {
         type: 'todo',
         title: input.title,
         body: input.body,
-        spaceId: input.spaceId ?? null,
-        dueDate: input.dueDate ?? null,
-        aiPlaced: !!input.aiPlaced,
-        createdAt: now,
-        updatedAt: now,
+        space_id: input.space_id ?? null,
+        due_date: input.due_date ?? null,
+        undefined_due: input.undefined_due ?? true,
+        ai_placed: !!input.ai_placed,
+        created_at: now,
+        updated_at: now,
+        owner_id: ownerId,
       };
     } else {
       // note
@@ -87,13 +105,13 @@ export class MemoryRepo implements IRepo {
         id: genId('note'),
         type: 'note',
         title: input.title,
-        body: input.body ?? '',
-        subtype: input.subtype!,
-        spaceId: input.spaceId ?? null,
-        dueDate: input.dueDate ?? null,
-        aiPlaced: !!input.aiPlaced,
-        createdAt: now,
-        updatedAt: now,
+        body: input.body,
+        subtype: input.subtype,
+        space_id: input.space_id ?? null,
+        ai_placed: !!input.ai_placed,
+        created_at: now,
+        updated_at: now,
+        owner_id: ownerId,
       };
     }
 
@@ -105,7 +123,7 @@ export class MemoryRepo implements IRepo {
   async update({ id, patch }: UpdateRecordInput): Promise<AppRecord> {
     const idx = this.data.findIndex((r) => r.id === id);
     if (idx < 0) throw new Error('Record not found');
-    const merged = { ...this.data[idx], ...patch, updatedAt: nowIso() } as AppRecord;
+    const merged = { ...this.data[idx], ...patch, updated_at: nowIso() } as AppRecord;
     this.commit(merged);
     this.data[idx] = merged;
     return merged;
@@ -115,34 +133,37 @@ export class MemoryRepo implements IRepo {
     this.data = this.data.filter((r) => r.id !== id);
   }
 
-  async get(id: ID): Promise<AppRecord | null> {
+  async getById(id: ID): Promise<AppRecord | null> {
     return this.data.find((r) => r.id === id) ?? null;
   }
 
-  async listAll(): Promise<AppRecord[]> {
-    return [...this.data];
-  }
-
   async listByType(type: AppRecord['type']): Promise<AppRecord[]> {
-    return this.data.filter((r) => r.type === type);
+    return this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
   }
 
   async listBySpace(spaceId: ID): Promise<AppRecord[]> {
-    return this.data.filter((r) => r.spaceId === spaceId);
+    return this.data.filter((r) => r.space_id === spaceId && r.owner_id === this.currentUserId);
   }
 
   async search(text: string): Promise<AppRecord[]> {
     const q = text.toLowerCase();
-    return this.data.filter(
-      (r) => r.title.toLowerCase().includes(q) || (r.body ?? '').toLowerCase().includes(q),
-    );
+    return this.data.filter((r) => {
+      if (r.owner_id !== this.currentUserId) return false;
+      const titleMatch = r.title?.toLowerCase().includes(q);
+      const bodyMatch =
+        (r.type === 'todo' || r.type === 'note') && r.body?.toLowerCase().includes(q);
+      return titleMatch || bodyMatch;
+    });
   }
 
-  async listDueToday(_todayIsoDate: string): Promise<AppRecord[]> {
+  async listDueToday(_nowIso: string): Promise<AppRecord[]> {
     return this.data.filter((r) => {
-      if (!r.dueDate) return false;
+      if (r.owner_id !== this.currentUserId) return false;
+      if (r.type !== 'todo' && r.type !== 'habit') return false;
+      const dueDate = r.type === 'todo' ? r.due_date : null;
+      if (!dueDate) return false;
       try {
-        return isToday(parseISO(r.dueDate));
+        return isToday(parseISO(dueDate));
       } catch {
         return false;
       }
@@ -151,11 +172,12 @@ export class MemoryRepo implements IRepo {
 
   async listUndefinedDue(): Promise<Todo[]> {
     return this.data.filter(
-      (r): r is Todo => r.type === 'todo' && (!r.dueDate || r.dueDate === null),
+      (r): r is Todo =>
+        r.type === 'todo' && r.owner_id === this.currentUserId && r.undefined_due === true,
     );
   }
 
-  // --- Buddy no-ops for Phase 3 ---
+  // Buddy no-ops for Phase 4
   async inviteBuddy(): Promise<void> {
     /* no-op */
   }
@@ -170,5 +192,5 @@ export class MemoryRepo implements IRepo {
   }
 }
 
-// default instance for dev
+// Default instance for dev
 export const memoryRepo = new MemoryRepo();
