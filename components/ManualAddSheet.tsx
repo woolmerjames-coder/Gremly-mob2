@@ -269,8 +269,10 @@ export default function ManualAddSheet() {
         Alert.alert('Success', 'Note saved to the Hub');
         closeManualAdd();
       }
-    } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Failed to save. Please try again.');
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to save. Please try again.';
+      Alert.alert('Error', errorMessage);
       setState((prev) => ({ ...prev, saving: false }));
     }
   };

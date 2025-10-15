@@ -22,14 +22,14 @@ import { supabase } from '../supabase/client';
  */
 
 // Helper to remove undefined values from objects
-function compact<T extends Record<string, any>>(obj: T): T {
-  const copy: any = {};
+function compact<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
   for (const k in obj) {
     if (obj[k] !== undefined) {
       copy[k] = obj[k];
     }
   }
-  return copy;
+  return copy as T;
 }
 
 // Map record type to Supabase table name
@@ -66,11 +66,8 @@ export class SupabaseRepo implements IRepo {
     this.ensureUserId();
 
     // Guard: Fail loudly if timestamps are accidentally present
-    if (
-      'created_at' in (input as any) ||
-      'updated_at' in (input as any) ||
-      'id' in (input as any)
-    ) {
+    const inputRecord = input as unknown as Record<string, unknown>;
+    if ('created_at' in inputRecord || 'updated_at' in inputRecord || 'id' in inputRecord) {
       throw new Error(
         'create() payload must not include id, created_at, or updated_at; rely on DB defaults',
       );
