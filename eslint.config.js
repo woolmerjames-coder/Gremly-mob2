@@ -44,4 +44,12 @@ module.exports = [
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
+  {
+    files: ['**/__tests__/**/*.{ts,tsx,js,jsx}', '__tests__/**/*.{ts,tsx,js,jsx}'],
+    rules: {
+      '@typescript-eslint/no-var-requires': 'off',
+      // keep "any" as warning (don't fail CI):
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
 ];
