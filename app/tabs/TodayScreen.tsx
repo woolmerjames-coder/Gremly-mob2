@@ -1,12 +1,47 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SheetManager } from 'react-native-actions-sheet';
+import { useNavigation } from '@react-navigation/native';
+import { Button } from '../../design-system';
+import Screen from '../../components/layout/Screen';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function TodayScreen() {
+  const navigation = useNavigation<NavigationProp>();
+
+  const openPreview = () => {
+    try {
+      // Prefer Stack modal route
+      navigation.navigate('DSPreview');
+    } catch {
+      // Fallback to sheet if route not available
+      console.log('Stack route not available, using sheet fallback');
+      SheetManager.show('ds-preview-sheet');
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Today</Text>
-      <Text style={styles.description}>Habits Today → Due Today → Might be today?</Text>
+    <Screen title="Today" scroll testID="screen-today">
+      {/* DEV-ONLY: Design System Preview Button */}
+      {__DEV__ && (
+        <View className="mb-4">
+          <Button
+            testID="btn-open-ds-preview"
+            label="🎨 Open Design System Preview"
+            variant="secondary"
+            size="sm"
+            onPress={openPreview}
+          />
+        </View>
+      )}
+
+      <Text className="text-base text-text-primary mb-6">
+        Habits Today → Due Today → Might be today?
+      </Text>
+
       <Pressable
         style={styles.button}
         onPress={async () => {
@@ -16,28 +51,11 @@ export default function TodayScreen() {
       >
         <Text style={styles.buttonText}>Open Demo Sheet</Text>
       </Pressable>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF7EA',
-    padding: 16,
-    paddingBottom: 80, // Space for tab bar
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#0F4C5C',
-  },
-  description: {
-    fontSize: 16,
-    marginBottom: 24,
-    color: '#1A1A1A',
-  },
   button: {
     alignSelf: 'flex-start',
     paddingHorizontal: 16,

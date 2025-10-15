@@ -1,6 +1,7 @@
 import React from 'react';
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import DSPreview from '../app/(dev)/DSPreview';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -12,6 +13,32 @@ registerSheet('demo-sheet', ({ sheetId }) => {
           <Text style={styles.buttonText}>Close</Text>
         </Pressable>
       </View>
+    </ActionSheet>
+  );
+});
+
+// DEV-ONLY: Design System Preview Sheet (fallback)
+registerSheet('ds-preview-sheet', ({ sheetId }) => {
+  return (
+    <ActionSheet
+      id={sheetId}
+      gestureEnabled
+      containerStyle={{
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        maxHeight: '85%',
+        backgroundColor: '#FFF7EA',
+      }}
+    >
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
+      >
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <DSPreview />
+        </View>
+      </ScrollView>
     </ActionSheet>
   );
 });
