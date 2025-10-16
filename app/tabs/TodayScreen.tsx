@@ -8,6 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
@@ -20,10 +21,12 @@ export default function TodayScreen() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const navigation = useNavigation<NavigationProp>();
   const repo = useRepo();
+  const { user } = useAuth();
 
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -36,19 +39,28 @@ export default function TodayScreen() {
 
   // Load due today items
   const load = useCallback(async () => {
+    // Skip if not authenticated
+    if (!user) {
+      setError('Please sign in to view your items');
+      return;
+    }
+
     setLoading(true);
+    setError(null);
     try {
       const nowIso = new Date().toISOString();
       const dueItems = await repo.listDueToday(nowIso);
       setItems(dueItems);
-    } catch (error) {
-      console.error('Failed to load today items:', error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load today items';
+      console.error('Failed to load today items:', err);
+      setError(message);
     } finally {
       setLoading(false);
     }
-  }, [repo]);
+  }, [repo, user]);
 
-  // Load on mount
+  // Load on mount and when user changes
   useEffect(() => {
     void load();
   }, [load]);
@@ -80,8 +92,29 @@ export default function TodayScreen() {
     <Screen title="Today" scroll padded testID="today-screen">
       {dsMarker}
       <Box gap={3}>
+        {/* Error state */}
+        {error && (
+          <Card>
+            <Box p={4} gap={3} style={{ alignItems: 'center' }}>
+              <Text variant="title" style={{ textAlign: 'center' }}>
+                Authentication Required
+              </Text>
+              <Text variant="body" style={{ textAlign: 'center', color: '#DC2626' }}>
+                {error}
+              </Text>
+              {__DEV__ && (
+                <Button
+                  title="Open Dev Login"
+                  onPress={() => navigation.navigate('DevLogin')}
+                  testID="dev-login-cta"
+                />
+              )}
+            </Box>
+          </Card>
+        )}
+
         {/* Loading state */}
-        {loading && !items.length && (
+        {loading && !items.length && !error && (
           <Box p={4}>
             <Text variant="body" style={{ textAlign: 'center' }}>
               Loading...
@@ -90,7 +123,7 @@ export default function TodayScreen() {
         )}
 
         {/* Empty state */}
-        {isEmpty && !loading && (
+        {isEmpty && !loading && !error && (
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
               <Text variant="title" style={{ textAlign: 'center' }}>
