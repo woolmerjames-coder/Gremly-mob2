@@ -3,7 +3,7 @@ import TabNavigator from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
-import NewSpaceScreen from '../app/screens/NewSpaceScreen';
+import NewSpaceScreen from '../app/screens/NewSpaceScreen.legacy';
 
 export type RootStackParamList = {
   Tabs: undefined;

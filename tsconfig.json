@@ -2,8 +2,8 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "types": ["nativewind/types", "jest", "react"]
+    "types": ["jest", "react"]
   },
-  "include": ["**/*.ts", "**/*.tsx", "nativewind-env.d.ts", "types", "__tests__/**/*"],
-  "exclude": ["node_modules"]
+  "include": ["**/*.ts", "**/*.tsx", "types", "__tests__/**/*"],
+  "exclude": ["node_modules", "_archive/**/*", "app/(dev)/**/*"]
 }

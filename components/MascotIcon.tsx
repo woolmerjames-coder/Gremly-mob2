@@ -1,33 +1,33 @@
-import { View } from 'react-native';
+import { View, type ViewStyle } from 'react-native';
 import MascotSvg from '../assets/mascot/mascot.ai.svg';
 
 interface MascotIconProps {
   pose?: 'neutral' | 'think' | 'celebrate' | 'default';
-  className?: string;
+  style?: ViewStyle;
   size?: number;
   accessibilityLabel?: string;
 }
 
 /**
  * MascotIcon - Static SVG mascot for empty states and success moments
- * Phase 5: Static only, no animations (respects reduced motion)
+ * Phase 6: Pure StyleSheet, no className
  *
  * Uses real SVG asset from assets/mascot/mascot.ai.svg
  * Future: pose prop can be used to swap different SVG assets
  */
 export default function MascotIcon({
   pose = 'neutral', // Reserved for future use (different SVG assets)
-  className,
+  style,
   size = 96,
   accessibilityLabel = 'Gremly mascot',
 }: MascotIconProps) {
-  // In future we can map pose -> different assets or layers
+  // In future we can map pose -> different SVG assets or layers
   // For now, we use the same mascot SVG for all poses
   // The pose parameter is kept for backward compatibility and future enhancements
   void pose; // Explicitly mark as intentionally unused
 
   return (
-    <View className={className} accessibilityLabel={accessibilityLabel} accessible>
+    <View style={style} accessibilityLabel={accessibilityLabel} accessible>
       <MascotSvg width={size} height={size} />
     </View>
   );

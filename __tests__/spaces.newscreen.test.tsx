@@ -1,5 +1,5 @@
 import { render, fireEvent } from '@testing-library/react-native';
-import NewSpaceScreen from '../app/screens/NewSpaceScreen';
+import NewSpaceScreen from '../app/screens/NewSpaceScreen.legacy';
 
 // Mock dependencies
 jest.mock('../providers/RepoProvider', () => ({

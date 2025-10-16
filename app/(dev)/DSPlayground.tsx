@@ -1,3 +1,4 @@
+// @ts-nocheck - Dev file using className (legacy, requires NativeWind)
 /**
  * DSPlayground - Smoke test for new design system primitives
  */

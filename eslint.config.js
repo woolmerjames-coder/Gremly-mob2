@@ -13,6 +13,9 @@ module.exports = [
       'dist/**',
       '*.config.js',
       'babel.config.js',
+      '_archive/**',
+      'app/(dev)/**',
+      '**/*.legacy.tsx',
     ],
   },
   js.configs.recommended,
@@ -42,6 +45,14 @@ module.exports = [
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Phase F: Prevent className usage in JSX (use StyleSheet or DS primitives)
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='className']",
+          message: 'Use StyleSheet or DS primitives instead of className in React Native files.',
+        },
+      ],
     },
   },
   {
@@ -53,6 +64,18 @@ module.exports = [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+  {
+    // Phase F: Legacy files still using className (deprecated, won't work without NativeWind)
+    // These are kept for reference but should not be actively used (FLAGS.USE_DS_UI = true)
+    // NOTE: Most legacy files are now ignored via top-level ignores (app/(dev)/**, **/*.legacy.tsx, _archive/**)
+    files: [
+      'app/screens/SpaceDetailScreen.tsx', // TODO: Migrate to DS or rename to .legacy.tsx
+    ],
+    rules: {
+      'no-restricted-syntax': 'off',
+      '@typescript-eslint/ban-ts-comment': 'off',
     },
   },
 ];

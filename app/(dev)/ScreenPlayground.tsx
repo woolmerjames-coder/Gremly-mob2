@@ -1,3 +1,4 @@
+// @ts-nocheck - Dev file using className (legacy, requires NativeWind)
 /**
  * ScreenPlayground - Smoke test for DS Screen component
  */

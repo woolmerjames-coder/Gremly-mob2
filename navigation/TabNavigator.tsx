@@ -36,7 +36,7 @@ const SpacesScreen = FLAGS.USE_DS_UI
   ? // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('../screens2/Spaces').default // DS version (separate file)
   : // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('../app/tabs/SpacesScreen').default; // Legacy Tailwind version
+    require('../app/tabs/SpacesScreen.legacy').default; // Legacy Tailwind version
 
 export default function TabNavigator() {
   return (

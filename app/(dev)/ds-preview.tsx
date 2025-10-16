@@ -1,3 +1,4 @@
+// @ts-nocheck - Dev file using className (legacy, requires NativeWind)
 import React, { useState } from 'react';
 import { SafeAreaView, ScrollView, View, Text } from 'react-native';
 import {
