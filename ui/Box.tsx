@@ -1,50 +1,63 @@
 /**
- * Box Component - Flexible container with StyleSheet
- * Replaces View with styled props
+ * Box Component - Layout View wrapper with ergonomic props
  */
 
 import React from 'react';
 import { View, ViewProps, ViewStyle } from 'react-native';
-import { useTheme } from '../design/theme';
-import { spacing, borderRadius } from '../design/tokens';
+import { useTokens } from '../design/makeStyles';
+import type { Tokens } from '../design/tokens';
 
-type SpacingKey = keyof typeof spacing;
-type BorderRadiusKey = keyof typeof borderRadius;
-
-export interface BoxProps extends ViewProps {
-  // Disallow Tailwind/NativeWind usage
+export interface BoxProps extends Omit<ViewProps, 'className'> {
+  /** Disallow className */
   className?: never;
 
-  // Spacing
-  p?: SpacingKey | number;
-  px?: SpacingKey | number;
-  py?: SpacingKey | number;
-  pt?: SpacingKey | number;
-  pb?: SpacingKey | number;
-  pl?: SpacingKey | number;
-  pr?: SpacingKey | number;
-  m?: SpacingKey | number;
-  mx?: SpacingKey | number;
-  my?: SpacingKey | number;
-  mt?: SpacingKey | number;
-  mb?: SpacingKey | number;
-  ml?: SpacingKey | number;
-  mr?: SpacingKey | number;
-  gap?: SpacingKey | number;
+  /** Padding (index into spacing) */
+  p?: number;
+  /** Padding horizontal */
+  px?: number;
+  /** Padding vertical */
+  py?: number;
+  /** Padding top */
+  pt?: number;
+  /** Padding right */
+  pr?: number;
+  /** Padding bottom */
+  pb?: number;
+  /** Padding left */
+  pl?: number;
 
-  // Layout
+  /** Margin (index into spacing) */
+  m?: number;
+  /** Margin horizontal */
+  mx?: number;
+  /** Margin vertical */
+  my?: number;
+  /** Margin top */
+  mt?: number;
+  /** Margin right */
+  mr?: number;
+  /** Margin bottom */
+  mb?: number;
+  /** Margin left */
+  ml?: number;
+
+  /** Gap between children (index into spacing) */
+  gap?: number;
+
+  /** Flex value */
   flex?: number;
+
+  /** Flex direction row */
   row?: boolean;
+  /** Center vertically and horizontally */
   center?: boolean;
-  items?: 'flex-start' | 'center' | 'flex-end' | 'stretch';
-  justify?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around';
 
-  // Styling
-  bg?: string;
-  radius?: BorderRadiusKey | number;
-  border?: { width: number; color: string };
+  /** Border radius (index into radius) */
+  radius?: number;
+  /** Background color (key from tokens.colors) */
+  bg?: keyof Tokens['colors'];
 
-  // Other
+  /** Test ID */
   testID?: string;
 }
 
@@ -57,84 +70,74 @@ export const Box = React.forwardRef<View, BoxProps>(
       px,
       py,
       pt,
+      pr,
       pb,
       pl,
-      pr,
       m,
       mx,
       my,
       mt,
+      mr,
       mb,
       ml,
-      mr,
       gap,
       flex,
       row,
       center,
-      items,
-      justify,
-      bg,
       radius,
-      border,
+      bg,
       testID,
       ...rest
     },
     ref,
   ) => {
-    const { theme } = useTheme();
+    const t = useTokens();
 
-    const resolveSpacing = (val: SpacingKey | number | undefined): number | undefined => {
-      if (val === undefined) return undefined;
-      if (typeof val === 'number') return val;
-      return spacing[val];
+    const getSpacing = (index: number | undefined): number | undefined => {
+      if (index === undefined) return undefined;
+      return t.spacing[index] ?? index;
     };
 
-    const resolveRadius = (val: BorderRadiusKey | number | undefined): number | undefined => {
-      if (val === undefined) return undefined;
-      if (typeof val === 'number') return val;
-      return borderRadius[val];
+    const getRadius = (index: number | undefined): number | undefined => {
+      if (index === undefined) return undefined;
+      return t.radius[index] ?? index;
     };
 
     const boxStyle: ViewStyle = {
       ...(flex !== undefined && { flex }),
       ...(row && { flexDirection: 'row' }),
       ...(center && { alignItems: 'center', justifyContent: 'center' }),
-      ...(items && { alignItems: items }),
-      ...(justify && { justifyContent: justify }),
-      ...(gap !== undefined && { gap: resolveSpacing(gap) }),
+      ...(gap !== undefined && { gap: getSpacing(gap) }),
 
       // Padding
-      ...(p !== undefined && { padding: resolveSpacing(p) }),
-      ...(px !== undefined && { paddingHorizontal: resolveSpacing(px) }),
-      ...(py !== undefined && { paddingVertical: resolveSpacing(py) }),
-      ...(pt !== undefined && { paddingTop: resolveSpacing(pt) }),
-      ...(pb !== undefined && { paddingBottom: resolveSpacing(pb) }),
-      ...(pl !== undefined && { paddingLeft: resolveSpacing(pl) }),
-      ...(pr !== undefined && { paddingRight: resolveSpacing(pr) }),
+      ...(p !== undefined && { padding: getSpacing(p) }),
+      ...(px !== undefined && { paddingHorizontal: getSpacing(px) }),
+      ...(py !== undefined && { paddingVertical: getSpacing(py) }),
+      ...(pt !== undefined && { paddingTop: getSpacing(pt) }),
+      ...(pr !== undefined && { paddingRight: getSpacing(pr) }),
+      ...(pb !== undefined && { paddingBottom: getSpacing(pb) }),
+      ...(pl !== undefined && { paddingLeft: getSpacing(pl) }),
 
       // Margin
-      ...(m !== undefined && { margin: resolveSpacing(m) }),
-      ...(mx !== undefined && { marginHorizontal: resolveSpacing(mx) }),
-      ...(my !== undefined && { marginVertical: resolveSpacing(my) }),
-      ...(mt !== undefined && { marginTop: resolveSpacing(mt) }),
-      ...(mb !== undefined && { marginBottom: resolveSpacing(mb) }),
-      ...(ml !== undefined && { marginLeft: resolveSpacing(ml) }),
-      ...(mr !== undefined && { marginRight: resolveSpacing(mr) }),
+      ...(m !== undefined && { margin: getSpacing(m) }),
+      ...(mx !== undefined && { marginHorizontal: getSpacing(mx) }),
+      ...(my !== undefined && { marginVertical: getSpacing(my) }),
+      ...(mt !== undefined && { marginTop: getSpacing(mt) }),
+      ...(mr !== undefined && { marginRight: getSpacing(mr) }),
+      ...(mb !== undefined && { marginBottom: getSpacing(mb) }),
+      ...(ml !== undefined && { marginLeft: getSpacing(ml) }),
 
       // Styling
-      ...(bg && { backgroundColor: bg }),
-      ...(radius !== undefined && { borderRadius: resolveRadius(radius) }),
-      ...(border && { borderWidth: border.width, borderColor: border.color }),
+      ...(radius !== undefined && { borderRadius: getRadius(radius) }),
+      ...(bg && { backgroundColor: t.colors[bg] }),
     };
 
-    // Strip any accidental className at runtime so it never reaches RN View
-    const { className: _ignoredClassName, ...cleanRest } =
-      (rest as unknown as {
-        className?: unknown;
-      }) || {};
+    // Strip any accidental className at runtime
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { className: _ignored, ...cleanRest } = rest as Record<string, unknown>;
 
     return (
-      <View ref={ref} style={[boxStyle, style]} testID={testID} {...(cleanRest as ViewProps)}>
+      <View ref={ref} style={[boxStyle, style]} testID={testID} {...cleanRest}>
         {children}
       </View>
     );

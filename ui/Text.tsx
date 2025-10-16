@@ -1,75 +1,85 @@
 /**
- * Text Component - Styled text with design system integration
+ * Text Component - Text primitive with variant-based styling
  */
 
 import React from 'react';
 import { Text as RNText, TextProps as RNTextProps, TextStyle } from 'react-native';
-import { useTheme } from '../design/theme';
-import { fontSize, fontWeight, lineHeight } from '../design/tokens';
+import { useTokens } from '../design/makeStyles';
 
-type FontSizeKey = keyof typeof fontSize;
-type FontWeightKey = keyof typeof fontWeight;
-type LineHeightKey = keyof typeof lineHeight;
+type Variant = 'label' | 'body' | 'title' | 'display' | 'subtle';
 
-export interface TextProps extends RNTextProps {
-  // Disallow Tailwind/NativeWind usage
+export interface TextProps extends Omit<RNTextProps, 'className'> {
+  /** Disallow className */
   className?: never;
-  // Typography
-  size?: FontSizeKey | number;
-  weight?: FontWeightKey;
-  leading?: LineHeightKey;
 
-  // Color (string or theme token path like 'text.primary')
-  color?: string;
+  /** Text variant */
+  variant?: Variant;
 
-  // Alignment
-  align?: 'left' | 'center' | 'right' | 'justify';
+  /** Number of lines to display */
+  numberOfLines?: number;
 
-  // Other
+  /** Test ID */
   testID?: string;
 }
 
 export const Text = React.forwardRef<RNText, TextProps>(
-  ({ children, style, size, weight, leading, color, align, testID, ...rest }, ref) => {
-    const { theme } = useTheme();
+  ({ children, style, variant = 'body', numberOfLines, testID, ...rest }, ref) => {
+    const t = useTokens();
 
-    const resolveFontSize = (val: FontSizeKey | number | undefined): number | undefined => {
-      if (val === undefined) return undefined;
-      if (typeof val === 'number') return val;
-      return fontSize[val];
+    const getVariantStyle = (v: Variant): TextStyle => {
+      switch (v) {
+        case 'label':
+          return {
+            fontSize: t.typography.size.sm,
+            lineHeight: t.typography.size.sm * t.typography.lineHeight.snug,
+            fontWeight: '500',
+            color: t.colors.text,
+          };
+        case 'body':
+          return {
+            fontSize: t.typography.size.md,
+            lineHeight: t.typography.size.md * t.typography.lineHeight.normal,
+            fontWeight: '400',
+            color: t.colors.text,
+          };
+        case 'title':
+          return {
+            fontSize: t.typography.size.lg,
+            lineHeight: t.typography.size.lg * t.typography.lineHeight.snug,
+            fontWeight: '600',
+            color: t.colors.text,
+          };
+        case 'display':
+          return {
+            fontSize: t.typography.size['2xl'],
+            lineHeight: t.typography.size['2xl'] * t.typography.lineHeight.tight,
+            fontWeight: '700',
+            color: t.colors.text,
+          };
+        case 'subtle':
+          return {
+            fontSize: t.typography.size.sm,
+            lineHeight: t.typography.size.sm * t.typography.lineHeight.normal,
+            fontWeight: '400',
+            color: t.colors.subtle,
+          };
+      }
     };
 
-    const resolveFontWeight = (val: FontWeightKey | undefined): string | undefined => {
-      if (val === undefined) return undefined;
-      return fontWeight[val];
-    };
+    const textStyle = getVariantStyle(variant);
 
-    const resolveLineHeight = (
-      val: LineHeightKey | undefined,
-      currentFontSize: number,
-    ): number | undefined => {
-      if (val === undefined) return undefined;
-      return currentFontSize * lineHeight[val];
-    };
-
-    const currentFontSize = resolveFontSize(size) || fontSize.base;
-
-    const textStyle: TextStyle = {
-      fontSize: currentFontSize,
-      ...(weight && { fontWeight: resolveFontWeight(weight) as TextStyle['fontWeight'] }),
-      ...(leading && { lineHeight: resolveLineHeight(leading, currentFontSize) }),
-      ...(color && { color }),
-      ...(align && { textAlign: align }),
-    };
-
-    // Strip any accidental className at runtime so it never reaches RN Text
-    const { className: _ignoredClassName, ...cleanRest } =
-      (rest as unknown as {
-        className?: unknown;
-      }) || {};
+    // Strip any accidental className at runtime
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { className: _ignored, ...cleanRest } = rest as Record<string, unknown>;
 
     return (
-      <RNText ref={ref} style={[textStyle, style]} testID={testID} {...(cleanRest as RNTextProps)}>
+      <RNText
+        ref={ref}
+        style={[textStyle, style]}
+        numberOfLines={numberOfLines}
+        testID={testID}
+        {...cleanRest}
+      >
         {children}
       </RNText>
     );

@@ -14,7 +14,7 @@ export interface ScreenProps extends Omit<BoxProps, 'style'> {
 }
 
 export const Screen = React.forwardRef<typeof SafeAreaView, ScreenProps>(
-  ({ children, edges = ['top', 'bottom'], style, bg, ...boxProps }, ref) => {
+  ({ children, edges = ['top', 'bottom'], style, bg, ...boxProps }, _ref) => {
     const { theme } = useTheme();
 
     return (
