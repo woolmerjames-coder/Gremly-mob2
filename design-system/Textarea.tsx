@@ -1,54 +1,28 @@
+/**
+ * Textarea - DS-based implementation (migrated from Tailwind)
+ */
 import * as React from 'react';
-import { View, TextInput, Text, type TextInputProps } from 'react-native';
-import { tv, type VariantProps } from 'tailwind-variants';
+import { TextInput, ViewStyle, TextStyle, type TextInputProps } from 'react-native';
+import { useTokens } from '../design/makeStyles';
+import { Box } from '../ui/Box';
+import { Text } from '../ui/Text';
 
-const textarea = tv({
-  slots: {
-    container: 'w-full',
-    label: 'text-sm font-medium text-text-primary mb-1',
-    inputWrapper: 'border rounded-md bg-white',
-    input: 'px-3 py-3 text-base text-text-primary',
-    footer: 'flex-row justify-between items-center mt-1',
-    error: 'text-sm text-error',
-    helper: 'text-sm text-text-muted',
-    counter: 'text-sm text-text-muted',
-  },
-  variants: {
-    variant: {
-      default: {
-        inputWrapper: 'border-border',
-      },
-      filled: {
-        inputWrapper: 'border-transparent bg-bg-100',
-      },
-    },
-    state: {
-      default: {},
-      error: {
-        inputWrapper: 'border-error',
-      },
-      disabled: {
-        inputWrapper: 'opacity-50 bg-bg-100',
-        input: 'opacity-50',
-      },
-    },
-  },
-  defaultVariants: {
-    variant: 'default',
-    state: 'default',
-  },
-});
+type Variant = 'default' | 'filled';
 
-export type TextareaVariants = VariantProps<typeof textarea>;
-
-export interface TextareaProps
-  extends Omit<TextInputProps, 'editable' | 'multiline'>,
-    TextareaVariants {
+export interface TextareaProps extends Omit<TextInputProps, 'editable' | 'multiline'> {
+  /** Label text */
   label?: string;
+  /** Error message */
   error?: string;
+  /** Helper text */
   helperText?: string;
+  /** Variant style */
+  variant?: Variant;
+  /** Disabled state */
   disabled?: boolean;
+  /** Max character length */
   maxLength?: number;
+  /** Number of rows */
   rows?: number;
 }
 
@@ -58,7 +32,7 @@ export const Textarea = React.forwardRef<React.ElementRef<typeof TextInput>, Tex
       label,
       error,
       helperText,
-      variant,
+      variant = 'default',
       disabled = false,
       maxLength,
       rows = 4,
@@ -67,39 +41,69 @@ export const Textarea = React.forwardRef<React.ElementRef<typeof TextInput>, Tex
     },
     ref,
   ) => {
-    const state = error ? 'error' : disabled ? 'disabled' : 'default';
-    const styles = textarea({ variant, state });
+    const t = useTokens();
     const charCount = value ? String(value).length : 0;
 
+    const containerStyle: ViewStyle = {
+      width: '100%',
+    };
+
+    const inputWrapperStyle: ViewStyle = {
+      borderWidth: 1,
+      borderColor: error ? t.colors.danger : t.colors.border,
+      borderRadius: t.radius[2],
+      backgroundColor: variant === 'filled' ? t.colors.surface : '#FFFFFF',
+      opacity: disabled ? 0.5 : 1,
+    };
+
+    const inputStyle: TextStyle = {
+      paddingHorizontal: t.spacing[3],
+      paddingVertical: t.spacing[3],
+      fontSize: t.typography.size.md,
+      color: t.colors.text,
+      minHeight: rows * 24,
+      textAlignVertical: 'top',
+    };
+
     return (
-      <View className={styles.container()}>
-        {label && <Text className={styles.label()}>{label}</Text>}
-        <View className={styles.inputWrapper()}>
+      <Box style={containerStyle}>
+        {label && (
+          <Text variant="label" style={{ marginBottom: t.spacing[1] }}>
+            {label}
+          </Text>
+        )}
+        <Box style={inputWrapperStyle}>
           <TextInput
             ref={ref}
             editable={!disabled}
             multiline
             numberOfLines={rows}
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={t.colors.subtle}
             maxLength={maxLength}
             value={value}
             {...textInputProps}
-            className={styles.input()}
-            style={{ minHeight: rows * 24, textAlignVertical: 'top' }}
+            style={inputStyle}
           />
-        </View>
-        <View className={styles.footer()}>
-          <View className="flex-1">
-            {error && <Text className={styles.error()}>{error}</Text>}
-            {helperText && !error && <Text className={styles.helper()}>{helperText}</Text>}
-          </View>
+        </Box>
+        <Box
+          row
+          style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: t.spacing[1] }}
+        >
+          <Box flex={1}>
+            {error && (
+              <Text variant="subtle" style={{ color: t.colors.danger }}>
+                {error}
+              </Text>
+            )}
+            {helperText && !error && <Text variant="subtle">{helperText}</Text>}
+          </Box>
           {maxLength && (
-            <Text className={styles.counter()}>
+            <Text variant="subtle">
               {charCount}/{maxLength}
             </Text>
           )}
-        </View>
-      </View>
+        </Box>
+      </Box>
     );
   },
 );

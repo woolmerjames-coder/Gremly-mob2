@@ -1,68 +1,31 @@
+/**
+ * Button - DS-based implementation (migrated from Tailwind)
+ * Maps old variants to DS primitives
+ */
 import * as React from 'react';
-import { Pressable, Text, ActivityIndicator, type PressableProps } from 'react-native';
-import { tv, type VariantProps } from 'tailwind-variants';
+import { ActivityIndicator, Pressable, ViewStyle, type PressableProps } from 'react-native';
+import { useTokens } from '../design/makeStyles';
+import { Text } from '../ui/Text';
 
-const button = tv({
-  slots: {
-    base: 'flex-row items-center justify-center rounded-md transition-all active:opacity-70',
-    text: 'font-semibold text-center',
-  },
-  variants: {
-    variant: {
-      primary: {
-        base: 'bg-primary',
-        text: 'text-white',
-      },
-      secondary: {
-        base: 'bg-accent',
-        text: 'text-primary',
-      },
-      outline: {
-        base: 'bg-transparent border-2 border-primary',
-        text: 'text-primary',
-      },
-      ghost: {
-        base: 'bg-transparent',
-        text: 'text-primary',
-      },
-    },
-    size: {
-      sm: {
-        base: 'px-3 py-2 min-h-[32px]',
-        text: 'text-sm',
-      },
-      md: {
-        base: 'px-4 py-3 min-h-[44px]',
-        text: 'text-base',
-      },
-      lg: {
-        base: 'px-6 py-4 min-h-[56px]',
-        text: 'text-lg',
-      },
-    },
-    disabled: {
-      true: {
-        base: 'opacity-50',
-      },
-    },
-    fullWidth: {
-      true: {
-        base: 'w-full',
-      },
-    },
-  },
-  defaultVariants: {
-    variant: 'primary',
-    size: 'md',
-  },
-});
+type Variant = 'primary' | 'secondary' | 'outline' | 'ghost';
+type Size = 'sm' | 'md' | 'lg';
 
-export type ButtonVariants = VariantProps<typeof button>;
-
-export interface ButtonProps extends Omit<PressableProps, 'children' | 'disabled'>, ButtonVariants {
+export interface ButtonProps extends Omit<PressableProps, 'children' | 'disabled'> {
+  /** Button label text */
   label: string;
+  /** Button variant (maps: primary→primary, secondary/outline/ghost→neutral) */
+  variant?: Variant;
+  /** Button size */
+  size?: Size;
+  /** Disabled state */
+  disabled?: boolean;
+  /** Full width */
+  fullWidth?: boolean;
+  /** Loading state */
   isLoading?: boolean;
+  /** Left icon */
   leftIcon?: React.ReactNode;
+  /** Right icon */
   rightIcon?: React.ReactNode;
 }
 
@@ -70,8 +33,8 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
   (
     {
       label,
-      variant,
-      size,
+      variant = 'primary',
+      size = 'md',
       disabled,
       fullWidth,
       isLoading = false,
@@ -81,21 +44,75 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
     },
     ref,
   ) => {
-    const styles = button({ variant, size, disabled: disabled || undefined, fullWidth });
+    const t = useTokens();
+
+    // Map old variants to DS variants
+    const getDSVariant = (v: Variant): { bg: string; textColor: string; border?: string } => {
+      switch (v) {
+        case 'primary':
+          return { bg: t.colors.primary, textColor: '#FFFFFF' };
+        case 'secondary':
+        case 'ghost':
+          return { bg: t.colors.surface, textColor: t.colors.text };
+        case 'outline':
+          return { bg: 'transparent', textColor: t.colors.primary, border: t.colors.primary };
+      }
+    };
+
+    const getSizeStyle = (
+      s: Size,
+    ): { height: number; paddingHorizontal: number; fontSize: number } => {
+      switch (s) {
+        case 'sm':
+          return { height: 32, paddingHorizontal: t.spacing[3], fontSize: t.typography.size.sm };
+        case 'md':
+          return { height: 44, paddingHorizontal: t.spacing[4], fontSize: t.typography.size.md };
+        case 'lg':
+          return { height: 56, paddingHorizontal: t.spacing[5], fontSize: t.typography.size.lg };
+      }
+    };
+
+    const variantStyle = getDSVariant(variant);
+    const sizeStyle = getSizeStyle(size);
+
+    const buttonStyle: ViewStyle = {
+      height: sizeStyle.height,
+      paddingHorizontal: sizeStyle.paddingHorizontal,
+      backgroundColor: variantStyle.bg,
+      borderRadius: t.radius[2],
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: t.spacing[2],
+      opacity: disabled || isLoading ? 0.5 : 1,
+      ...(variantStyle.border && { borderWidth: 2, borderColor: variantStyle.border }),
+      ...(fullWidth && { width: '100%' }),
+    };
 
     return (
       <Pressable
         ref={ref}
         disabled={disabled || isLoading}
         {...pressableProps}
-        className={styles.base()}
+        style={({ pressed }) => [
+          buttonStyle,
+          pressed && !disabled && !isLoading && { opacity: 0.7 },
+        ]}
       >
         {isLoading ? (
-          <ActivityIndicator size="small" color={variant === 'primary' ? 'white' : '#0F4C5C'} />
+          <ActivityIndicator size="small" color={variantStyle.textColor} />
         ) : (
           <>
             {leftIcon}
-            <Text className={styles.text()}>{label}</Text>
+            <Text
+              style={{
+                color: variantStyle.textColor,
+                fontSize: sizeStyle.fontSize,
+                fontWeight: '600',
+              }}
+            >
+              {label}
+            </Text>
             {rightIcon}
           </>
         )}
