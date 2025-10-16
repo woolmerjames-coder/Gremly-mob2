@@ -4,17 +4,14 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Image } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useRepo } from '../providers/RepoProvider';
 import { Screen, Box, Text, Button, Input } from '../ui';
 import { Card } from '../design-system/Card';
 import { ListItem } from '../design-system/ListItem';
+import MascotIcon from '../components/MascotIcon';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const mascotImage = require('../assets/mascot/neutral.png');
 
 export default function SpacesScreen() {
   const repo = useRepo();
@@ -108,7 +105,7 @@ export default function SpacesScreen() {
         {isEmpty ? (
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
-              <Image source={mascotImage} style={{ width: 96, height: 96 }} resizeMode="contain" />
+              <MascotIcon pose="neutral" size={96} />
               <Text variant="title" style={{ textAlign: 'center' }}>
                 No Spaces yet
               </Text>
