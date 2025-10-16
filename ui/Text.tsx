@@ -12,6 +12,8 @@ type FontWeightKey = keyof typeof fontWeight;
 type LineHeightKey = keyof typeof lineHeight;
 
 export interface TextProps extends RNTextProps {
+  // Disallow Tailwind/NativeWind usage
+  className?: never;
   // Typography
   size?: FontSizeKey | number;
   weight?: FontWeightKey;
@@ -60,8 +62,14 @@ export const Text = React.forwardRef<RNText, TextProps>(
       ...(align && { textAlign: align }),
     };
 
+    // Strip any accidental className at runtime so it never reaches RN Text
+    const { className: _ignoredClassName, ...cleanRest } =
+      (rest as unknown as {
+        className?: unknown;
+      }) || {};
+
     return (
-      <RNText ref={ref} style={[textStyle, style]} testID={testID} {...rest}>
+      <RNText ref={ref} style={[textStyle, style]} testID={testID} {...(cleanRest as RNTextProps)}>
         {children}
       </RNText>
     );

@@ -12,6 +12,9 @@ type SpacingKey = keyof typeof spacing;
 type BorderRadiusKey = keyof typeof borderRadius;
 
 export interface BoxProps extends ViewProps {
+  // Disallow Tailwind/NativeWind usage
+  className?: never;
+
   // Spacing
   p?: SpacingKey | number;
   px?: SpacingKey | number;
@@ -124,8 +127,14 @@ export const Box = React.forwardRef<View, BoxProps>(
       ...(border && { borderWidth: border.width, borderColor: border.color }),
     };
 
+    // Strip any accidental className at runtime so it never reaches RN View
+    const { className: _ignoredClassName, ...cleanRest } =
+      (rest as unknown as {
+        className?: unknown;
+      }) || {};
+
     return (
-      <View ref={ref} style={[boxStyle, style]} testID={testID} {...rest}>
+      <View ref={ref} style={[boxStyle, style]} testID={testID} {...(cleanRest as ViewProps)}>
         {children}
       </View>
     );

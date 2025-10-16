@@ -42,14 +42,17 @@ import JournalInspiration from './JournalInspiration';
 // ============================================================================
 
 type TabKey = 'habit' | 'todo' | 'journal' | 'catchall';
+// UI (plural) keys for Habit/To-Do tabs
+type UITab = 'habits' | 'todos' | 'journal' | 'catchall';
+// Allow incoming/plural variants in state/options, but normalize to TabKey for logic
+type TabInput = TabKey | UITab;
 
 interface ManualAddOptions {
-  defaultTab?: TabKey;
+  defaultTab?: TabInput;
   spaceId?: string;
 }
 
 interface ManualAddState {
-  activeTab: TabKey;
   spaceId?: string;
   // Habit form
   habitName: string;
@@ -120,8 +123,19 @@ export default function ManualAddSheet() {
   const repo = useRepo();
   const { theme } = useTheme();
 
+  // UI tab state: default to 'habits' per spec
+  const toUIKey = (tab?: TabInput): UITab => {
+    if (tab === 'habit' || tab === 'habits' || tab === undefined) return 'habits';
+    if (tab === 'todo' || tab === 'todos') return 'todos';
+    if (tab === 'journal') return 'journal';
+    if (tab === 'catchall') return 'catchall';
+    return 'habits';
+  };
+  const [activeTab, setActiveTab] = useState<UITab>(
+    toUIKey((globalOptions.defaultTab as TabInput) || 'habits'),
+  );
+
   const [state, setState] = useState<ManualAddState>({
-    activeTab: globalOptions.defaultTab || 'habit',
     spaceId: globalOptions.spaceId,
     habitName: '',
     habitFrequency: 'daily',
@@ -134,18 +148,26 @@ export default function ManualAddSheet() {
     saving: false,
   });
 
+  // Normalize any plural/external tab keys to our internal TabKey
+  const normalizeTab = (tab: TabInput): TabKey => {
+    if (tab === 'habits') return 'habit';
+    if (tab === 'todos') return 'todo';
+    return tab as TabKey;
+  };
+  const logicTab: TabKey = normalizeTab(activeTab);
+
   // Derived enable/disable state for Save button
   const canSave = (() => {
-    if (state.activeTab === 'habit') {
+    if (logicTab === 'habit') {
       return state.habitName.trim().length > 0 && state.habitFrequency.trim().length > 0;
     }
-    if (state.activeTab === 'todo') {
+    if (logicTab === 'todo') {
       return state.todoName.trim().length > 0;
     }
-    if (state.activeTab === 'journal') {
+    if (logicTab === 'journal') {
       return state.journalBody.trim().length > 0;
     }
-    if (state.activeTab === 'catchall') {
+    if (logicTab === 'catchall') {
       return state.catchallBody.trim().length > 0;
     }
     return false;
@@ -296,11 +318,12 @@ export default function ManualAddSheet() {
 
   // Update state when sheet opens with new options
   const handleSheetOpen = () => {
+    // Reset UI tab to provided default or 'habits'
+    setActiveTab(toUIKey((globalOptions.defaultTab as TabInput) || 'habits'));
+    // Reset forms
     setState((prev) => ({
       ...prev,
-      activeTab: globalOptions.defaultTab || 'habit',
       spaceId: globalOptions.spaceId,
-      // Reset forms
       habitName: '',
       habitFrequency: 'daily',
       todoName: '',
@@ -317,8 +340,9 @@ export default function ManualAddSheet() {
   // TAB SWITCHING
   // ============================================================================
 
-  const switchTab = (tab: TabKey) => {
-    setState((prev) => ({ ...prev, activeTab: tab, errors: {} }));
+  const switchTab = (tab: UITab) => {
+    setActiveTab(tab);
+    setState((prev) => ({ ...prev, errors: {} }));
   };
 
   // ============================================================================
@@ -329,7 +353,7 @@ export default function ManualAddSheet() {
     setState((prev) => ({ ...prev, errors: {}, saving: true }));
 
     try {
-      if (state.activeTab === 'habit') {
+      if (logicTab === 'habit') {
         // Validate
         const result = habitFormSchema.safeParse({
           name: state.habitName,
@@ -356,7 +380,7 @@ export default function ManualAddSheet() {
 
         Alert.alert('Success', 'Habit saved to the Hub');
         closeManualAdd();
-      } else if (state.activeTab === 'todo') {
+      } else if (logicTab === 'todo') {
         // Validate
         const result = todoFormSchema.safeParse({
           name: state.todoName,
@@ -384,7 +408,7 @@ export default function ManualAddSheet() {
 
         Alert.alert('Success', 'To-Do saved to the Hub');
         closeManualAdd();
-      } else if (state.activeTab === 'journal') {
+      } else if (logicTab === 'journal') {
         // Validate
         const result = journalFormSchema.safeParse({
           title: state.journalTitle,
@@ -412,7 +436,7 @@ export default function ManualAddSheet() {
 
         Alert.alert('Success', 'Journal entry saved to the Hub');
         closeManualAdd();
-      } else if (state.activeTab === 'catchall') {
+      } else if (logicTab === 'catchall') {
         // Validate
         const result = catchallFormSchema.safeParse({
           body: state.catchallBody,
@@ -452,8 +476,8 @@ export default function ManualAddSheet() {
   // RENDER TAB BUTTONS
   // ============================================================================
 
-  const renderTabButton = (tab: TabKey, label: string) => {
-    const isActive = state.activeTab === tab;
+  const renderTabButton = (tab: UITab, label: string) => {
+    const isActive = activeTab === tab;
     return (
       <Pressable
         key={tab}
@@ -476,7 +500,7 @@ export default function ManualAddSheet() {
   // ============================================================================
 
   const renderFormContent = () => {
-    if (state.activeTab === 'habit') {
+    if (logicTab === 'habit') {
       return (
         <>
           <RNText style={styles.label}>Name</RNText>
@@ -532,7 +556,7 @@ export default function ManualAddSheet() {
       );
     }
 
-    if (state.activeTab === 'todo') {
+    if (logicTab === 'todo') {
       return (
         <>
           <RNText style={styles.label}>Name</RNText>
@@ -562,7 +586,7 @@ export default function ManualAddSheet() {
       );
     }
 
-    if (state.activeTab === 'journal') {
+    if (logicTab === 'journal') {
       return (
         <>
           <RNText style={styles.label}>Title (optional)</RNText>
@@ -597,7 +621,7 @@ export default function ManualAddSheet() {
       );
     }
 
-    if (state.activeTab === 'catchall') {
+    if (logicTab === 'catchall') {
       return (
         <>
           <RNText style={styles.label}>Note</RNText>
@@ -635,7 +659,8 @@ export default function ManualAddSheet() {
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         height: '85%',
-        backgroundColor: '#FFF7EA', // cream
+        // Prefer theme surface color; fallback to a light neutral
+        backgroundColor: (theme as any)?.colors?.surface ?? '#FFF7EA',
       }}
       indicatorStyle={{
         backgroundColor: '#E5E5E5',
@@ -656,8 +681,8 @@ export default function ManualAddSheet() {
 
               {/* Tab Buttons */}
               <View style={styles.tabContainer}>
-                {renderTabButton('habit', 'Habit')}
-                {renderTabButton('todo', 'To-Do')}
+                {renderTabButton('habits', 'Habit')}
+                {renderTabButton('todos', 'To-Do')}
                 {renderTabButton('journal', 'Journal')}
                 {renderTabButton('catchall', 'Catch All')}
               </View>
@@ -675,7 +700,7 @@ export default function ManualAddSheet() {
             {/* Sticky Footer Button */}
             <View style={styles.footerContainer}>
               <Pressable
-                testID="button-save"
+                testID="save-button"
                 accessibilityRole="button"
                 accessibilityLabel="Save to the Hub"
                 disabled={state.saving || !canSave}
@@ -686,7 +711,7 @@ export default function ManualAddSheet() {
                 ]}
               >
                 <RNText style={styles.saveButtonText}>
-                  {state.saving ? 'Saving...' : 'Save to the Hub'}
+                  {state.saving ? 'Saving...' : 'Save to The Hub'}
                 </RNText>
               </Pressable>
             </View>

@@ -114,6 +114,6 @@ describe('ManualAddSheet - Tabs', () => {
     renderSheet();
 
     expect(screen.getByTestId('button-save')).toBeTruthy();
-    expect(screen.getByText('Save to the Hub')).toBeTruthy();
+    expect(screen.getByText('Save to The Hub')).toBeTruthy();
   });
 });

@@ -100,7 +100,7 @@ describe('ManualAddSheet - Visibility', () => {
 
     const saveButton = getByTestId('button-save');
     expect(saveButton).toBeTruthy();
-    expect(getByText('Save to the Hub')).toBeTruthy();
+    expect(getByText('Save to The Hub')).toBeTruthy();
   });
 
   it('all text inputs accept user input', () => {

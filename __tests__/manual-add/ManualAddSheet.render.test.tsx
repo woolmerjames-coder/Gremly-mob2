@@ -62,7 +62,7 @@ describe('ManualAddSheet - Render', () => {
 
     // Should show save button
     expect(getByTestId('button-save')).toBeTruthy();
-    expect(getByText('Save to the Hub')).toBeTruthy();
+    expect(getByText('Save to The Hub')).toBeTruthy();
   });
 
   it('switches to To-Do tab when pressed', () => {
