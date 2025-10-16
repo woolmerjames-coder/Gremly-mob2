@@ -1,11 +1,12 @@
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
 import ManualAddSheet from './ManualAddSheet';
+import { Box, Text } from '../ui';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
