@@ -1,5 +1,10 @@
 import React from 'react';
-import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  renderWithProviders as render,
+  fireEvent,
+  screen,
+  waitFor,
+} from '../utils/renderWithProviders';
 import { Alert } from 'react-native';
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaView: ({ children }: any) => children,

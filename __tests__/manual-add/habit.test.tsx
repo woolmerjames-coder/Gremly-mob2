@@ -1,5 +1,10 @@
 import React from 'react';
-import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  renderWithProviders as render,
+  fireEvent,
+  screen,
+  waitFor,
+} from '../utils/renderWithProviders';
 import { Alert } from 'react-native';
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaView: ({ children }: any) => children,
@@ -122,7 +127,8 @@ describe('ManualAddSheet - Habit Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('habit-name'), 'Gym');
-    fireEvent.press(screen.getByTestId('frequency-custom'));
+    // Type a custom frequency instead of pressing a custom chip
+    fireEvent.changeText(screen.getByTestId('input-frequency'), 'custom');
 
     fireEvent.press(screen.getByTestId('button-save'));
 

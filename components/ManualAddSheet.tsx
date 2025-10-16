@@ -134,6 +134,23 @@ export default function ManualAddSheet() {
     saving: false,
   });
 
+  // Derived enable/disable state for Save button
+  const canSave = (() => {
+    if (state.activeTab === 'habit') {
+      return state.habitName.trim().length > 0 && state.habitFrequency.trim().length > 0;
+    }
+    if (state.activeTab === 'todo') {
+      return state.todoName.trim().length > 0;
+    }
+    if (state.activeTab === 'journal') {
+      return state.journalBody.trim().length > 0;
+    }
+    if (state.activeTab === 'catchall') {
+      return state.catchallBody.trim().length > 0;
+    }
+    return false;
+  })();
+
   // Create themed styles
   const styles = StyleSheet.create({
     container: {
@@ -464,12 +481,11 @@ export default function ManualAddSheet() {
         <>
           <RNText style={styles.label}>Name</RNText>
           <TextInput
-            testID="input-name"
+            testID="habit-name"
             accessibilityLabel="Habit name"
             value={state.habitName}
             onChangeText={(text) => setState((prev) => ({ ...prev, habitName: text }))}
             placeholder="e.g., Morning run"
-            placeholderTextColor={theme.colors.gray[400]}
             placeholderTextColor={theme.colors.gray[400]}
             style={styles.input}
           />
@@ -507,7 +523,6 @@ export default function ManualAddSheet() {
             onChangeText={(text) => setState((prev) => ({ ...prev, habitFrequency: text }))}
             placeholder="Or type custom frequency"
             placeholderTextColor={theme.colors.gray[400]}
-            placeholderTextColor={theme.colors.gray[400]}
             style={styles.input}
           />
           {state.errors.frequency && (
@@ -522,7 +537,7 @@ export default function ManualAddSheet() {
         <>
           <RNText style={styles.label}>Name</RNText>
           <TextInput
-            testID="input-name"
+            testID="todo-name"
             accessibilityLabel="To-Do name"
             value={state.todoName}
             onChangeText={(text) => setState((prev) => ({ ...prev, todoName: text }))}
@@ -534,7 +549,7 @@ export default function ManualAddSheet() {
 
           <RNText style={[styles.label, styles.spacer]}>Due Date (optional)</RNText>
           <TextInput
-            testID="input-dueDate"
+            testID="todo-date"
             accessibilityLabel="Due date"
             value={state.todoDueDate}
             onChangeText={(text) => setState((prev) => ({ ...prev, todoDueDate: text }))}
@@ -563,7 +578,7 @@ export default function ManualAddSheet() {
 
           <RNText style={styles.label}>Entry</RNText>
           <TextInput
-            testID="input-body"
+            testID="journal-body"
             accessibilityLabel="Journal entry"
             value={state.journalBody}
             onChangeText={(text) => setState((prev) => ({ ...prev, journalBody: text }))}
@@ -573,7 +588,6 @@ export default function ManualAddSheet() {
             numberOfLines={6}
             textAlignVertical="top"
             style={styles.textArea}
-            style={{ minHeight: 120 }}
           />
           {state.errors.body && <RNText style={styles.errorText}>{state.errors.body}</RNText>}
 
@@ -588,7 +602,7 @@ export default function ManualAddSheet() {
         <>
           <RNText style={styles.label}>Note</RNText>
           <TextInput
-            testID="input-body"
+            testID="catchall-body"
             accessibilityLabel="Catch-all note"
             value={state.catchallBody}
             onChangeText={(text) => setState((prev) => ({ ...prev, catchallBody: text }))}
@@ -598,7 +612,6 @@ export default function ManualAddSheet() {
             numberOfLines={6}
             textAlignVertical="top"
             style={styles.textArea}
-            style={{ minHeight: 120 }}
           />
           {state.errors.body && <RNText style={styles.errorText}>{state.errors.body}</RNText>}
         </>
@@ -638,11 +651,11 @@ export default function ManualAddSheet() {
         >
           <View style={{ flex: 1, position: 'relative' }}>
             {/* Header with Tabs */}
-            <View className="px-4 pt-4 pb-2">
-              <RNText className="text-2xl font-semibold mb-4 text-gray-900">Add to the Hub</RNText>
+            <View style={styles.header}>
+              <RNText style={styles.title}>Add to the Hub</RNText>
 
               {/* Tab Buttons */}
-              <View className="flex-row rounded-2xl bg-white/60 p-1 mb-4">
+              <View style={styles.tabContainer}>
                 {renderTabButton('habit', 'Habit')}
                 {renderTabButton('todo', 'To-Do')}
                 {renderTabButton('journal', 'Journal')}
@@ -653,36 +666,26 @@ export default function ManualAddSheet() {
             {/* Scrollable Form Content */}
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{
-                padding: 16,
-                paddingBottom: (insets.bottom || 16) + 100,
-              }}
+              contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
             >
               {renderFormContent()}
             </ScrollView>
 
             {/* Sticky Footer Button */}
-            <View
-              style={{
-                position: 'absolute',
-                left: 16,
-                right: 16,
-                bottom: (insets.bottom || 16) + 16,
-              }}
-            >
+            <View style={styles.footerContainer}>
               <Pressable
                 testID="button-save"
                 accessibilityRole="button"
                 accessibilityLabel="Save to the Hub"
-                disabled={state.saving}
+                disabled={state.saving || !canSave}
                 onPress={handleSave}
-                className={`${
-                  state.saving ? 'bg-gray-400' : 'bg-deepTeal'
-                } rounded-2xl py-3 items-center`}
-                style={{ minHeight: 48 }}
+                style={[
+                  styles.saveButton,
+                  state.saving || !canSave ? styles.saveButtonDisabled : styles.saveButtonEnabled,
+                ]}
               >
-                <RNText className="text-white font-semibold text-lg">
+                <RNText style={styles.saveButtonText}>
                   {state.saving ? 'Saving...' : 'Save to the Hub'}
                 </RNText>
               </Pressable>

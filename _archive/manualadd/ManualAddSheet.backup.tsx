@@ -1,3 +1,4 @@
+// Archived backup of ManualAddSheet (no-op in build)
 import { useMemo, useState } from 'react';
 import {
   View,
@@ -12,8 +13,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { z } from 'zod';
-import { useRepo } from '../providers/RepoProvider';
-import JournalInspiration from './JournalInspiration';
+import { useRepo } from '../../providers/RepoProvider';
+import JournalInspiration from '../../components/JournalInspiration';
 
 /**
  * Manual Add Sheet - Phase 6
@@ -331,185 +332,12 @@ export default function ManualAddSheet() {
   // ============================================================================
 
   const renderFormContent = () => {
-    if (state.activeTab === 'habit') {
-      return (
-        <>
-          <Text className="text-sm mb-1 text-gray-700">Name</Text>
-          <TextInput
-            testID="habit-name"
-            accessibilityLabel="Habit name"
-            value={state.habitName}
-            onChangeText={(text) => setState((prev) => ({ ...prev, habitName: text }))}
-            placeholder="Drink water"
-            className="h-12 rounded-2xl border border-gray-300 px-3 text-base bg-white mb-1"
-          />
-          {state.errors.name && (
-            <Text className="text-red-600 text-sm mb-3">{state.errors.name}</Text>
-          )}
-
-          <Text className="text-sm mb-1 mt-3 text-gray-700">Frequency</Text>
-          <View className="flex-row gap-2 mb-1">
-            {['daily', 'weekly', 'monthly', 'custom'].map((freq) => (
-              <Pressable
-                key={freq}
-                testID={`frequency-${freq}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Frequency ${freq}`}
-                onPress={() => setState((prev) => ({ ...prev, habitFrequency: freq }))}
-                className={`px-4 py-2 rounded-2xl border ${
-                  state.habitFrequency === freq
-                    ? 'border-deepTeal bg-deepTeal/10'
-                    : 'border-gray-300'
-                }`}
-              >
-                <Text
-                  className={`capitalize ${state.habitFrequency === freq ? 'text-deepTeal font-medium' : 'text-gray-700'}`}
-                >
-                  {freq}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {state.habitFrequency === 'weekly' && (
-            <View className="flex-row gap-1 mt-1">
-              {['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => (
-                <Pressable
-                  key={d}
-                  testID={`dow-${d}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Day ${d}`}
-                  onPress={() =>
-                    setState((prev) => ({
-                      ...prev,
-                      weeklyDays: { ...prev.weeklyDays, [d]: !prev.weeklyDays[d] },
-                    }))
-                  }
-                  className={`px-2 py-1 rounded-xl border ${
-                    state.weeklyDays[d] ? 'border-deepTeal bg-deepTeal/10' : 'border-gray-300'
-                  }`}
-                >
-                  <Text className="uppercase text-xs">{d.slice(0, 3)}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </>
-      );
-    }
-
-    if (state.activeTab === 'todo') {
-      return (
-        <>
-          <Text className="text-sm mb-1 text-gray-700">Name</Text>
-          <TextInput
-            testID="todo-name"
-            accessibilityLabel="To-Do name"
-            value={state.todoName}
-            onChangeText={(text) => setState((prev) => ({ ...prev, todoName: text }))}
-            placeholder="Buy groceries"
-            className="h-12 rounded-2xl border border-gray-300 px-3 text-base bg-white mb-1"
-          />
-          {state.errors.name && (
-            <Text className="text-red-600 text-sm mb-3">{state.errors.name}</Text>
-          )}
-
-          <Text className="text-sm mb-1 mt-3 text-gray-700">Due Date (optional)</Text>
-          <TextInput
-            testID="todo-date"
-            accessibilityLabel="Due date"
-            value={state.todoDueDate}
-            onChangeText={(text) => setState((prev) => ({ ...prev, todoDueDate: text }))}
-            placeholder="YYYY-MM-DD"
-            className="h-12 rounded-2xl border border-gray-300 px-3 text-base bg-white mb-1"
-          />
-          {state.errors.dueDate && (
-            <Text className="text-red-600 text-sm mb-3">{state.errors.dueDate}</Text>
-          )}
-        </>
-      );
-    }
-
-    if (state.activeTab === 'journal') {
-      return (
-        <>
-          <Text className="text-sm mb-1 text-gray-700">Date</Text>
-          <TextInput
-            testID="journal-date"
-            accessibilityLabel="Journal date"
-            value={state.journalDate}
-            onChangeText={(text) => setState((prev) => ({ ...prev, journalDate: text }))}
-            placeholder="YYYY-MM-DD"
-            className="h-12 rounded-2xl border border-gray-300 px-3 text-base bg-white mb-3"
-          />
-
-          <Text className="text-sm mb-1 text-gray-700">Entry</Text>
-          <TextInput
-            testID="journal-body"
-            accessibilityLabel="Journal entry"
-            value={state.journalBody}
-            onChangeText={(text) => setState((prev) => ({ ...prev, journalBody: text }))}
-            placeholder="Write freely…"
-            multiline
-            numberOfLines={6}
-            textAlignVertical="top"
-            className="rounded-2xl border border-gray-300 px-3 py-3 text-base bg-white mb-1"
-            style={{ minHeight: 120 }}
-          />
-          {state.errors.body && (
-            <Text className="text-red-600 text-sm mb-3">{state.errors.body}</Text>
-          )}
-
-          {/* Journal Inspiration component */}
-          <JournalInspiration />
-        </>
-      );
-    }
-
-    if (state.activeTab === 'catchall') {
-      return (
-        <>
-          <Text className="text-sm mb-1 text-gray-700">Quick Capture</Text>
-          <TextInput
-            testID="catchall-body"
-            accessibilityLabel="Catch-all note"
-            value={state.catchallBody}
-            onChangeText={(text) => setState((prev) => ({ ...prev, catchallBody: text }))}
-            placeholder="Drop any thought or idea — I’ll sort it for you ✨"
-            multiline
-            numberOfLines={6}
-            textAlignVertical="top"
-            className="rounded-2xl border border-gray-300 px-3 py-3 text-base bg-white mb-1"
-            style={{ minHeight: 120 }}
-          />
-          {state.errors.body && (
-            <Text className="text-red-600 text-sm mb-3">{state.errors.body}</Text>
-          )}
-        </>
-      );
-    }
-
     return null;
   };
 
   // ============================================================================
   // MAIN RENDER
   // ============================================================================
-
-  const isSaveDisabled = (() => {
-    if (state.saving) return true;
-    switch (state.activeTab) {
-      case 'habit':
-        return !state.habitName.trim() || !state.habitFrequency.trim();
-      case 'todo':
-        return !state.todoName.trim(); // due date optional
-      case 'journal':
-        return !state.journalBody.trim();
-      case 'catchall':
-        return !state.catchallBody.trim();
-      default:
-        return false;
-    }
-  })();
 
   return (
     <ActionSheet
@@ -535,58 +363,9 @@ export default function ManualAddSheet() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
-          <View style={{ flex: 1, position: 'relative' }}>
-            {/* Header with Tabs */}
-            <View className="px-4 pt-4 pb-2">
-              <Text className="text-2xl font-semibold mb-4 text-gray-900">Add to the Hub</Text>
-
-              {/* Tab Buttons */}
-              <View className="flex-row rounded-2xl bg-white/60 p-1 mb-4">
-                {renderTabButton('habit', 'Habit')}
-                {renderTabButton('todo', 'To-Do')}
-                {renderTabButton('journal', 'Journal')}
-                {renderTabButton('catchall', 'Catch All')}
-              </View>
-            </View>
-
-            {/* Scrollable Form Content */}
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{
-                padding: 16,
-                paddingBottom: (insets.bottom || 16) + 100,
-              }}
-              keyboardShouldPersistTaps="handled"
-            >
-              {renderFormContent()}
-            </ScrollView>
-
-            {/* Sticky Footer Button */}
-            <View
-              style={{
-                position: 'absolute',
-                left: 16,
-                right: 16,
-                bottom: (insets.bottom || 16) + 16,
-              }}
-            >
-              <Pressable
-                testID="button-save"
-                accessibilityRole="button"
-                accessibilityLabel="Save to the Hub"
-                disabled={isSaveDisabled}
-                onPress={handleSave}
-                className={`${
-                  isSaveDisabled ? 'bg-gray-400' : 'bg-deepTeal'
-                } rounded-2xl py-3 items-center`}
-                style={{ minHeight: 48 }}
-              >
-                <Text className="text-white font-semibold text-lg">
-                  {state.saving ? 'Saving...' : 'Submit to Gremly'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
+          <ScrollView>
+            <Text>Archived backup</Text>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </ActionSheet>

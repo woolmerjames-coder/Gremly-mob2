@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react-native';
+import { renderWithProviders as render, fireEvent, screen } from '../utils/renderWithProviders';
 import { Alert } from 'react-native';
 // Mock safe-area to avoid requiring a provider in tests
 jest.mock('react-native-safe-area-context', () => ({
@@ -79,7 +79,7 @@ describe('ManualAddSheet - Tabs', () => {
 
     fireEvent.press(screen.getByTestId('tab-habit'));
     expect(screen.getByTestId('habit-name')).toBeTruthy();
-    expect(screen.getByPlaceholderText('Drink water')).toBeTruthy();
+    expect(screen.getByPlaceholderText('e.g., Morning run')).toBeTruthy();
   });
 
   it('switches to todo tab and shows todo-name input', () => {
@@ -88,7 +88,7 @@ describe('ManualAddSheet - Tabs', () => {
 
     fireEvent.press(screen.getByTestId('tab-todo'));
     expect(screen.getByTestId('todo-name')).toBeTruthy();
-    expect(screen.getByPlaceholderText('Buy groceries')).toBeTruthy();
+    expect(screen.getByPlaceholderText('e.g., Buy groceries')).toBeTruthy();
   });
 
   it('switches to journal tab and shows journal-body input', () => {
@@ -97,7 +97,7 @@ describe('ManualAddSheet - Tabs', () => {
 
     fireEvent.press(screen.getByTestId('tab-journal'));
     expect(screen.getByTestId('journal-body')).toBeTruthy();
-    expect(screen.getByPlaceholderText('Write freely…')).toBeTruthy();
+    expect(screen.getByPlaceholderText("What's on your mind?")).toBeTruthy();
   });
 
   it('switches to catchall tab and shows catchall-body input', () => {
@@ -106,9 +106,7 @@ describe('ManualAddSheet - Tabs', () => {
 
     fireEvent.press(screen.getByTestId('tab-catchall'));
     expect(screen.getByTestId('catchall-body')).toBeTruthy();
-    expect(
-      screen.getByPlaceholderText('Drop any thought or idea — I’ll sort it for you ✨'),
-    ).toBeTruthy();
+    expect(screen.getByPlaceholderText('Quick note or idea...')).toBeTruthy();
   });
 
   it('renders save button', () => {
@@ -116,6 +114,6 @@ describe('ManualAddSheet - Tabs', () => {
     renderSheet();
 
     expect(screen.getByTestId('button-save')).toBeTruthy();
-    expect(screen.getByText('Submit to Gremly')).toBeTruthy();
+    expect(screen.getByText('Save to the Hub')).toBeTruthy();
   });
 });

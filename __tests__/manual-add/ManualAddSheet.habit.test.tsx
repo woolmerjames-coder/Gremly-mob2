@@ -1,4 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ManualAddSheet, {
   openManualAdd,
@@ -130,9 +131,9 @@ describe('ManualAddSheet - Habit', () => {
   it('allows custom frequency text', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
-    // Select custom frequency via chip
+    // Set custom frequency via input
     fireEvent.changeText(getByTestId('habit-name'), 'Meditation');
-    fireEvent.press(getByTestId('frequency-custom'));
+    fireEvent.changeText(getByTestId('input-frequency'), 'custom');
 
     // Submit
     fireEvent.press(getByTestId('button-save'));

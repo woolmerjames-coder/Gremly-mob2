@@ -1,4 +1,5 @@
-import { render, fireEvent } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent } from '@testing-library/react-native';
 import ManualAddSheet from '../../components/ManualAddSheet';
 
 // Mock dependencies
@@ -69,7 +70,7 @@ describe('ManualAddSheet - Visibility', () => {
     fireEvent.press(getByTestId('tab-todo'));
 
     // Should show To-Do specific inputs
-    expect(getByPlaceholderText('Buy groceries')).toBeTruthy();
+    expect(getByPlaceholderText('e.g., Buy groceries')).toBeTruthy();
     expect(getByPlaceholderText('YYYY-MM-DD')).toBeTruthy();
   });
 
@@ -80,7 +81,7 @@ describe('ManualAddSheet - Visibility', () => {
     fireEvent.press(getByTestId('tab-journal'));
 
     // Should show Journal specific inputs
-    expect(getByPlaceholderText('Write freely…')).toBeTruthy();
+    expect(getByPlaceholderText("What's on your mind?")).toBeTruthy();
     expect(getByTestId('journal-inspiration')).toBeTruthy();
   });
 
@@ -91,7 +92,7 @@ describe('ManualAddSheet - Visibility', () => {
     fireEvent.press(getByTestId('tab-catchall'));
 
     // Should show Catch All input
-    expect(getByPlaceholderText('Drop any thought or idea — I’ll sort it for you ✨')).toBeTruthy();
+    expect(getByPlaceholderText('Quick note or idea...')).toBeTruthy();
   });
 
   it('renders save button with correct text', () => {
@@ -99,7 +100,7 @@ describe('ManualAddSheet - Visibility', () => {
 
     const saveButton = getByTestId('button-save');
     expect(saveButton).toBeTruthy();
-    expect(getByText('Submit to Gremly')).toBeTruthy();
+    expect(getByText('Save to the Hub')).toBeTruthy();
   });
 
   it('all text inputs accept user input', () => {

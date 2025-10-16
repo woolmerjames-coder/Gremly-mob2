@@ -1,4 +1,5 @@
-import { render, fireEvent } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent } from '@testing-library/react-native';
 import ManualAddSheet, { openManualAdd as _openManualAdd } from '../../components/ManualAddSheet';
 
 // Mock dependencies
@@ -61,7 +62,7 @@ describe('ManualAddSheet - Render', () => {
 
     // Should show save button
     expect(getByTestId('button-save')).toBeTruthy();
-    expect(getByText('Submit to Gremly')).toBeTruthy();
+    expect(getByText('Save to the Hub')).toBeTruthy();
   });
 
   it('switches to To-Do tab when pressed', () => {
@@ -80,7 +81,6 @@ describe('ManualAddSheet - Render', () => {
     fireEvent.press(getByTestId('tab-journal'));
 
     // Should show Journal form fields
-    expect(getByTestId('journal-date')).toBeTruthy();
     expect(getByTestId('journal-body')).toBeTruthy();
     expect(getByTestId('journal-inspiration')).toBeTruthy();
   });

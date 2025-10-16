@@ -1,4 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ManualAddSheet from '../../components/ManualAddSheet';
 
@@ -75,7 +76,7 @@ describe('ManualAddSheet - To-Do', () => {
       expect(mockCreate).toHaveBeenCalledWith({
         type: 'todo',
         title: 'Submit report',
-        due_date: '2025-12-31',
+        due_date: '2025-12-31', // Updated to use the new testID
         undefined_due: false,
         space_id: null,
         ai_placed: false,

@@ -1,4 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ManualAddSheet, { openManualAdd } from '../../components/ManualAddSheet';
 
@@ -140,7 +141,6 @@ describe('ManualAddSheet - Space Context', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     // Journal tab should show journal fields
-    expect(getByTestId('journal-date')).toBeTruthy();
     expect(getByTestId('journal-body')).toBeTruthy();
     expect(getByTestId('journal-inspiration')).toBeTruthy();
   });
