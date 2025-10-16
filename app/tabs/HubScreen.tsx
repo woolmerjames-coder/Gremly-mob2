@@ -9,6 +9,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button, Input } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
@@ -25,6 +26,7 @@ export default function HubScreen() {
   const navigation = useNavigation<NavigationProp>();
   const repo = useRepo();
   const { user } = useAuth();
+  const { theme } = useTheme();
 
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
@@ -141,7 +143,7 @@ export default function HubScreen() {
               <Text variant="title" style={{ textAlign: 'center' }}>
                 Authentication Required
               </Text>
-              <Text variant="body" style={{ textAlign: 'center', color: '#DC2626' }}>
+              <Text variant="body" style={{ textAlign: 'center', color: theme.colors.error }}>
                 {error}
               </Text>
               {__DEV__ && (

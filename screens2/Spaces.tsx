@@ -8,6 +8,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useRepo } from '../providers/RepoProvider';
 import { useAuth } from '../providers/AuthProvider';
+import { useTheme } from '../providers/ThemeProvider';
 import { Screen, Box, Text, Button, Input } from '../ui';
 import { Card } from '../design-system/Card';
 import { ListItem } from '../design-system/ListItem';
@@ -17,6 +18,7 @@ import type { RootStackParamList } from '../navigation/RootNavigator';
 export default function SpacesScreen() {
   const repo = useRepo();
   const { user } = useAuth();
+  const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // State
@@ -113,7 +115,7 @@ export default function SpacesScreen() {
               <Text variant="title" style={{ textAlign: 'center' }}>
                 Authentication Required
               </Text>
-              <Text variant="body" style={{ textAlign: 'center', color: '#DC2626' }}>
+              <Text variant="body" style={{ textAlign: 'center', color: theme.colors.error }}>
                 {error}
               </Text>
               {__DEV__ && (
