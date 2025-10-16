@@ -16,7 +16,7 @@ export const FLAGS = {
    * Phase F: NativeWind removed; legacy screens no longer functional
    * Override: Can be toggled at runtime in __DEV__ mode via App.tsx
    */
-  USE_DS_UI: false,
+  USE_DS_UI: true,
 } as const;
 
 export type FeatureFlags = typeof FLAGS;
