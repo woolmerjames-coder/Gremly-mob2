@@ -17,7 +17,7 @@
  *   openManualAdd({ spaceId: 'space_123' }) - Links created items to a Space
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text as RNText,
@@ -28,13 +28,16 @@ import {
   Platform,
   Alert,
   StyleSheet,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Check } from 'lucide-react-native';
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { z } from 'zod';
 import { useRepo } from '../providers/RepoProvider';
-import { useTheme } from '../providers/ThemeProvider';
 import { spacing, borderRadius, fontSize, fontWeight } from '../design/tokens';
+import { useTokens } from '../design/makeStyles';
 import JournalInspiration from './JournalInspiration';
 
 // ============================================================================
@@ -121,7 +124,12 @@ export function closeManualAdd(): void {
 export default function ManualAddSheet() {
   const insets = useSafeAreaInsets();
   const repo = useRepo();
-  const { theme } = useTheme();
+  const tokens = useTokens();
+
+  // Animation values (not refs to avoid render warnings)
+  const [tabTransition] = useState(() => new Animated.Value(1));
+  const [submitAnimation] = useState(() => new Animated.Value(0));
+  const [submitSuccess, setSubmitSuccess] = useState(false);
 
   // UI tab state: default to 'habits' per spec
   const toUIKey = (tab?: TabInput): UITab => {
@@ -188,13 +196,11 @@ export default function ManualAddSheet() {
       fontSize: fontSize['2xl'],
       fontWeight: fontWeight.semibold,
       marginBottom: spacing.base,
-      color: theme.colors.gray[900],
+      color: tokens.colors.text,
     },
     tabContainer: {
       flexDirection: 'row',
-      borderRadius: borderRadius['2xl'],
-      backgroundColor: 'rgba(255, 255, 255, 0.6)',
-      padding: 4,
+      gap: 8,
       marginBottom: spacing.base,
     },
     tabButton: {
@@ -204,58 +210,74 @@ export default function ManualAddSheet() {
       borderRadius: borderRadius.xl,
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 1,
     },
     tabButtonActive: {
-      backgroundColor: theme.colors.deepTeal.DEFAULT,
+      backgroundColor: tokens.colors.primary,
+      borderColor: tokens.colors.primary,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
     },
     tabButtonInactive: {
       backgroundColor: 'transparent',
+      borderColor: tokens.colors.border,
     },
     tabText: {
       fontSize: fontSize.sm,
       fontWeight: fontWeight.medium,
     },
     tabTextActive: {
-      color: theme.colors.white,
+      color: '#FFFFFF',
     },
     tabTextInactive: {
-      color: theme.colors.gray[700],
+      color: tokens.colors.subtle,
     },
     scrollContent: {
       padding: spacing.base,
       paddingBottom: (insets.bottom || spacing.base) + 100,
     },
+    formContent: {
+      opacity: 1,
+    },
     label: {
       fontSize: fontSize.sm,
       marginBottom: 4,
-      color: theme.colors.gray[700],
+      color: tokens.colors.text,
+      fontWeight: fontWeight.medium,
     },
     input: {
       height: 48,
       borderRadius: borderRadius['2xl'],
       borderWidth: 1,
-      borderColor: theme.colors.gray[300],
+      borderColor: tokens.colors.border,
       paddingHorizontal: spacing.md,
       fontSize: fontSize.base,
-      backgroundColor: theme.colors.white,
+      backgroundColor: tokens.colors.surface,
       marginBottom: 4,
-      color: theme.colors.text.primary,
+      color: tokens.colors.text,
+    },
+    inputError: {
+      borderColor: tokens.colors.danger,
+      borderWidth: 2,
     },
     textArea: {
       borderRadius: borderRadius['2xl'],
       borderWidth: 1,
-      borderColor: theme.colors.gray[300],
+      borderColor: tokens.colors.border,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
       fontSize: fontSize.base,
-      backgroundColor: theme.colors.white,
+      backgroundColor: tokens.colors.surface,
       marginBottom: 4,
       minHeight: 120,
       textAlignVertical: 'top',
-      color: theme.colors.text.primary,
+      color: tokens.colors.text,
     },
     errorText: {
-      color: theme.colors.error,
+      color: tokens.colors.danger,
       fontSize: fontSize.sm,
       marginBottom: spacing.md,
     },
@@ -263,6 +285,7 @@ export default function ManualAddSheet() {
       flexDirection: 'row',
       gap: spacing.sm,
       marginBottom: 4,
+      flexWrap: 'wrap',
     },
     chip: {
       paddingHorizontal: spacing.base,
@@ -271,48 +294,84 @@ export default function ManualAddSheet() {
       borderWidth: 1,
     },
     chipActive: {
-      borderColor: theme.colors.deepTeal.DEFAULT,
-      backgroundColor: 'rgba(13, 59, 58, 0.1)',
+      borderColor: tokens.colors.primary,
+      backgroundColor: tokens.colors.primary,
     },
     chipInactive: {
-      borderColor: theme.colors.gray[300],
+      borderColor: tokens.colors.border,
       backgroundColor: 'transparent',
     },
     chipText: {
       textTransform: 'capitalize',
+      fontSize: fontSize.sm,
     },
     chipTextActive: {
-      color: theme.colors.deepTeal.DEFAULT,
-      fontWeight: fontWeight.medium,
+      color: '#FFFFFF',
+      fontWeight: fontWeight.semibold,
     },
     chipTextInactive: {
-      color: theme.colors.gray[700],
+      color: tokens.colors.subtle,
     },
     spacer: {
       marginTop: spacing.md,
     },
     footerContainer: {
       position: 'absolute',
-      left: spacing.base,
-      right: spacing.base,
-      bottom: (insets.bottom || spacing.base) + spacing.base,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: tokens.colors.bg,
+      borderTopWidth: 1,
+      borderTopColor: tokens.colors.border,
+      paddingHorizontal: spacing.base,
+      paddingTop: spacing.md,
+      paddingBottom: (insets.bottom || spacing.base) + spacing.sm,
+      flexDirection: 'row',
+      gap: spacing.md,
     },
-    saveButton: {
+    exitButton: {
+      flex: 1,
       borderRadius: borderRadius['2xl'],
       paddingVertical: spacing.md,
       alignItems: 'center',
       minHeight: 48,
+      borderWidth: 1,
+      borderColor: tokens.colors.border,
+      backgroundColor: 'transparent',
+    },
+    exitButtonText: {
+      color: tokens.colors.text,
+      fontWeight: fontWeight.medium,
+      fontSize: fontSize.base,
+    },
+    saveButton: {
+      flex: 2,
+      borderRadius: borderRadius['2xl'],
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 48,
+      flexDirection: 'row',
+      gap: 8,
     },
     saveButtonEnabled: {
-      backgroundColor: theme.colors.deepTeal.DEFAULT,
+      backgroundColor: tokens.colors.primary,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 4,
     },
     saveButtonDisabled: {
-      backgroundColor: theme.colors.gray[400],
+      backgroundColor: tokens.colors.border,
     },
     saveButtonText: {
-      color: theme.colors.white,
+      color: '#FFFFFF',
       fontWeight: fontWeight.semibold,
       fontSize: fontSize.lg,
+    },
+    saveButtonSuccess: {
+      backgroundColor: tokens.colors.success,
     },
   });
 
@@ -341,9 +400,34 @@ export default function ManualAddSheet() {
   // ============================================================================
 
   const switchTab = (tab: UITab) => {
-    setActiveTab(tab);
-    setState((prev) => ({ ...prev, errors: {} }));
+    if (tab === activeTab) return;
+
+    // Fade out current content
+    Animated.timing(tabTransition, {
+      toValue: 0,
+      duration: 100,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start(() => {
+      // Switch tab
+      setActiveTab(tab);
+      setState((prev) => ({ ...prev, errors: {} }));
+
+      // Fade in new content
+      Animated.timing(tabTransition, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    });
   };
+
+  // Initialize tab transition on mount
+  useEffect(() => {
+    tabTransition.setValue(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ============================================================================
   // FORM SUBMISSION
@@ -373,13 +457,31 @@ export default function ManualAddSheet() {
         await repo.create({
           type: 'habit',
           title: state.habitName.trim(),
-          frequency: state.habitFrequency.trim() as any, // Allow custom frequency strings
+          frequency: state.habitFrequency.trim() as any,
           space_id: state.spaceId || null,
           ai_placed: false,
         });
 
-        Alert.alert('Success', 'Habit saved to the Hub');
-        closeManualAdd();
+        // Success animation
+        setSubmitSuccess(true);
+        Animated.sequence([
+          Animated.timing(submitAnimation, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.back(1.5)),
+            useNativeDriver: true,
+          }),
+          Animated.timing(submitAnimation, {
+            toValue: 0,
+            duration: 200,
+            delay: 500,
+            easing: Easing.in(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          setSubmitSuccess(false);
+          closeManualAdd();
+        });
       } else if (logicTab === 'todo') {
         // Validate
         const result = todoFormSchema.safeParse({
@@ -406,8 +508,26 @@ export default function ManualAddSheet() {
           ai_placed: false,
         });
 
-        Alert.alert('Success', 'To-Do saved to the Hub');
-        closeManualAdd();
+        // Success animation
+        setSubmitSuccess(true);
+        Animated.sequence([
+          Animated.timing(submitAnimation, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.back(1.5)),
+            useNativeDriver: true,
+          }),
+          Animated.timing(submitAnimation, {
+            toValue: 0,
+            duration: 200,
+            delay: 500,
+            easing: Easing.in(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          setSubmitSuccess(false);
+          closeManualAdd();
+        });
       } else if (logicTab === 'journal') {
         // Validate
         const result = journalFormSchema.safeParse({
@@ -434,8 +554,26 @@ export default function ManualAddSheet() {
           ai_placed: false,
         });
 
-        Alert.alert('Success', 'Journal entry saved to the Hub');
-        closeManualAdd();
+        // Success animation
+        setSubmitSuccess(true);
+        Animated.sequence([
+          Animated.timing(submitAnimation, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.back(1.5)),
+            useNativeDriver: true,
+          }),
+          Animated.timing(submitAnimation, {
+            toValue: 0,
+            duration: 200,
+            delay: 500,
+            easing: Easing.in(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          setSubmitSuccess(false);
+          closeManualAdd();
+        });
       } else if (logicTab === 'catchall') {
         // Validate
         const result = catchallFormSchema.safeParse({
@@ -454,15 +592,33 @@ export default function ManualAddSheet() {
         // Create Catch-All Note
         await repo.create({
           type: 'note',
-          title: '', // Required by interface but not used for catch-all
+          title: '',
           body: state.catchallBody.trim(),
           subtype: 'catchall',
           space_id: state.spaceId || null,
           ai_placed: false,
         });
 
-        Alert.alert('Success', 'Note saved to the Hub');
-        closeManualAdd();
+        // Success animation
+        setSubmitSuccess(true);
+        Animated.sequence([
+          Animated.timing(submitAnimation, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.back(1.5)),
+            useNativeDriver: true,
+          }),
+          Animated.timing(submitAnimation, {
+            toValue: 0,
+            duration: 200,
+            delay: 500,
+            easing: Easing.in(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          setSubmitSuccess(false);
+          closeManualAdd();
+        });
       }
     } catch (error) {
       const errorMessage =
@@ -507,11 +663,12 @@ export default function ManualAddSheet() {
           <TextInput
             testID="habit-name"
             accessibilityLabel="Habit name"
+            accessibilityHint="Enter the name of your habit"
             value={state.habitName}
             onChangeText={(text) => setState((prev) => ({ ...prev, habitName: text }))}
             placeholder="e.g., Morning run"
-            placeholderTextColor={theme.colors.gray[400]}
-            style={styles.input}
+            placeholderTextColor={tokens.colors.subtle}
+            style={[styles.input, state.errors.name && styles.inputError]}
           />
           {state.errors.name && <RNText style={styles.errorText}>{state.errors.name}</RNText>}
 
@@ -521,8 +678,9 @@ export default function ManualAddSheet() {
               <Pressable
                 key={freq}
                 testID={`frequency-${freq}`}
-                accessibilityRole="button"
+                accessibilityRole="radio"
                 accessibilityLabel={`Frequency ${freq}`}
+                accessibilityState={{ checked: state.habitFrequency === freq }}
                 onPress={() => setState((prev) => ({ ...prev, habitFrequency: freq }))}
                 style={[
                   styles.chip,
@@ -543,11 +701,12 @@ export default function ManualAddSheet() {
           <TextInput
             testID="input-frequency"
             accessibilityLabel="Custom frequency"
+            accessibilityHint="Or type a custom frequency"
             value={state.habitFrequency}
             onChangeText={(text) => setState((prev) => ({ ...prev, habitFrequency: text }))}
             placeholder="Or type custom frequency"
-            placeholderTextColor={theme.colors.gray[400]}
-            style={styles.input}
+            placeholderTextColor={tokens.colors.subtle}
+            style={[styles.input, state.errors.frequency && styles.inputError]}
           />
           {state.errors.frequency && (
             <RNText style={styles.errorText}>{state.errors.frequency}</RNText>
@@ -563,11 +722,12 @@ export default function ManualAddSheet() {
           <TextInput
             testID="todo-name"
             accessibilityLabel="To-Do name"
+            accessibilityHint="Enter the name of your to-do"
             value={state.todoName}
             onChangeText={(text) => setState((prev) => ({ ...prev, todoName: text }))}
             placeholder="e.g., Buy groceries"
-            placeholderTextColor={theme.colors.gray[400]}
-            style={styles.input}
+            placeholderTextColor={tokens.colors.subtle}
+            style={[styles.input, state.errors.name && styles.inputError]}
           />
           {state.errors.name && <RNText style={styles.errorText}>{state.errors.name}</RNText>}
 
@@ -575,11 +735,12 @@ export default function ManualAddSheet() {
           <TextInput
             testID="todo-date"
             accessibilityLabel="Due date"
+            accessibilityHint="Enter due date in YYYY-MM-DD format"
             value={state.todoDueDate}
             onChangeText={(text) => setState((prev) => ({ ...prev, todoDueDate: text }))}
             placeholder="YYYY-MM-DD"
-            placeholderTextColor={theme.colors.gray[400]}
-            style={styles.input}
+            placeholderTextColor={tokens.colors.subtle}
+            style={[styles.input, state.errors.dueDate && styles.inputError]}
           />
           {state.errors.dueDate && <RNText style={styles.errorText}>{state.errors.dueDate}</RNText>}
         </>
@@ -593,10 +754,11 @@ export default function ManualAddSheet() {
           <TextInput
             testID="input-title"
             accessibilityLabel="Journal title"
+            accessibilityHint="Enter an optional title for your journal entry"
             value={state.journalTitle}
             onChangeText={(text) => setState((prev) => ({ ...prev, journalTitle: text }))}
             placeholder="e.g., Morning thoughts"
-            placeholderTextColor={theme.colors.gray[400]}
+            placeholderTextColor={tokens.colors.subtle}
             style={styles.input}
           />
 
@@ -604,14 +766,15 @@ export default function ManualAddSheet() {
           <TextInput
             testID="journal-body"
             accessibilityLabel="Journal entry"
+            accessibilityHint="Write your journal entry"
             value={state.journalBody}
             onChangeText={(text) => setState((prev) => ({ ...prev, journalBody: text }))}
             placeholder="What's on your mind?"
-            placeholderTextColor={theme.colors.gray[400]}
+            placeholderTextColor={tokens.colors.subtle}
             multiline
             numberOfLines={6}
             textAlignVertical="top"
-            style={styles.textArea}
+            style={[styles.textArea, state.errors.body && styles.inputError]}
           />
           {state.errors.body && <RNText style={styles.errorText}>{state.errors.body}</RNText>}
 
@@ -628,14 +791,15 @@ export default function ManualAddSheet() {
           <TextInput
             testID="catchall-body"
             accessibilityLabel="Catch-all note"
+            accessibilityHint="Write a quick note or idea"
             value={state.catchallBody}
             onChangeText={(text) => setState((prev) => ({ ...prev, catchallBody: text }))}
             placeholder="Quick note or idea..."
-            placeholderTextColor={theme.colors.gray[400]}
+            placeholderTextColor={tokens.colors.subtle}
             multiline
             numberOfLines={6}
             textAlignVertical="top"
-            style={styles.textArea}
+            style={[styles.textArea, state.errors.body && styles.inputError]}
           />
           {state.errors.body && <RNText style={styles.errorText}>{state.errors.body}</RNText>}
         </>
@@ -656,11 +820,15 @@ export default function ManualAddSheet() {
       backgroundInteractionEnabled={false}
       onOpen={handleSheetOpen}
       containerStyle={{
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
         height: '85%',
-        // Prefer theme surface color; fallback to a light neutral
-        backgroundColor: (theme as any)?.colors?.surface ?? '#FFF7EA',
+        backgroundColor: tokens.colors.surface,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 8,
       }}
       indicatorStyle={{
         backgroundColor: '#E5E5E5',
@@ -689,31 +857,80 @@ export default function ManualAddSheet() {
             </View>
 
             {/* Scrollable Form Content */}
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
+            <Animated.View
+              style={{
+                flex: 1,
+                opacity: tabTransition,
+                transform: [
+                  {
+                    translateX: tabTransition.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [20, 0],
+                    }),
+                  },
+                ],
+              }}
             >
-              {renderFormContent()}
-            </ScrollView>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={styles.scrollContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {renderFormContent()}
+              </ScrollView>
+            </Animated.View>
 
-            {/* Sticky Footer Button */}
+            {/* Sticky Footer with Exit and Submit */}
             <View style={styles.footerContainer}>
               <Pressable
-                testID="save-button"
                 accessibilityRole="button"
-                accessibilityLabel="Save to the Hub"
-                disabled={state.saving || !canSave}
-                onPress={handleSave}
+                accessibilityLabel="Exit without saving"
+                onPress={closeManualAdd}
+                style={styles.exitButton}
+              >
+                <RNText style={styles.exitButtonText}>Exit</RNText>
+              </Pressable>
+
+              <Animated.View
                 style={[
-                  styles.saveButton,
-                  state.saving || !canSave ? styles.saveButtonDisabled : styles.saveButtonEnabled,
+                  { flex: 2 },
+                  {
+                    transform: [
+                      {
+                        scale: submitAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 1.05],
+                        }),
+                      },
+                    ],
+                  },
                 ]}
               >
-                <RNText style={styles.saveButtonText}>
-                  {state.saving ? 'Saving...' : 'Save to The Hub'}
-                </RNText>
-              </Pressable>
+                <Pressable
+                  testID="save-button"
+                  accessibilityRole="button"
+                  accessibilityLabel={submitSuccess ? 'Saved successfully' : 'Submit to Gremly'}
+                  accessibilityState={{ disabled: state.saving || !canSave }}
+                  disabled={state.saving || !canSave || submitSuccess}
+                  onPress={handleSave}
+                  style={[
+                    styles.saveButton,
+                    submitSuccess
+                      ? styles.saveButtonSuccess
+                      : state.saving || !canSave
+                        ? styles.saveButtonDisabled
+                        : styles.saveButtonEnabled,
+                  ]}
+                >
+                  {submitSuccess ? (
+                    <Check size={24} color="#FFFFFF" strokeWidth={3} />
+                  ) : (
+                    <RNText style={styles.saveButtonText}>
+                      {state.saving ? 'Submitting...' : 'Submit to Gremly'}
+                    </RNText>
+                  )}
+                </Pressable>
+              </Animated.View>
             </View>
           </View>
         </KeyboardAvoidingView>
