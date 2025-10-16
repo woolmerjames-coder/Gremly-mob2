@@ -1,8 +1,10 @@
 /**
- * DsToggleContext - Runtime toggle for DS UI feature flag
+ * DsToggleContext - DEPRECATED Runtime toggle for DS UI feature flag
  *
- * Provides a context for overriding FLAGS.USE_DS_UI at runtime in dev mode.
- * Source of truth is FLAGS.USE_DS_UI; this context adds a runtime override.
+ * @deprecated Phase H: Legacy UI removed. DS is now the only implementation.
+ * This provider is kept for backward compatibility with DevLogin screen only.
+ * The toggle no longer affects routing (all screens use DS).
+ * Will be removed in a future phase.
  */
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
