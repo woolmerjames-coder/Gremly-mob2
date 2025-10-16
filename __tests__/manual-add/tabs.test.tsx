@@ -57,8 +57,8 @@ describe('ManualAddSheet - Tabs', () => {
   it('renders the sheet with tabs visible', () => {
     renderSheet();
     openManualAdd();
-    expect(screen.getByTestId('tab-habit')).toBeTruthy();
-    expect(screen.getByTestId('tab-todo')).toBeTruthy();
+    expect(screen.getByTestId('tab-habits')).toBeTruthy();
+    expect(screen.getByTestId('tab-todos')).toBeTruthy();
     expect(screen.getByTestId('tab-journal')).toBeTruthy();
     expect(screen.getByTestId('tab-catchall')).toBeTruthy();
   });
@@ -67,8 +67,8 @@ describe('ManualAddSheet - Tabs', () => {
     openManualAdd();
     renderSheet();
 
-    expect(screen.getByTestId('tab-habit')).toBeTruthy();
-    expect(screen.getByTestId('tab-todo')).toBeTruthy();
+    expect(screen.getByTestId('tab-habits')).toBeTruthy();
+    expect(screen.getByTestId('tab-todos')).toBeTruthy();
     expect(screen.getByTestId('tab-journal')).toBeTruthy();
     expect(screen.getByTestId('tab-catchall')).toBeTruthy();
   });
@@ -77,7 +77,7 @@ describe('ManualAddSheet - Tabs', () => {
     openManualAdd({ defaultTab: 'habit' });
     renderSheet();
 
-    fireEvent.press(screen.getByTestId('tab-habit'));
+    fireEvent.press(screen.getByTestId('tab-habits'));
     expect(screen.getByTestId('habit-name')).toBeTruthy();
     expect(screen.getByPlaceholderText('e.g., Morning run')).toBeTruthy();
   });
@@ -86,7 +86,7 @@ describe('ManualAddSheet - Tabs', () => {
     openManualAdd({ defaultTab: 'todo' });
     renderSheet();
 
-    fireEvent.press(screen.getByTestId('tab-todo'));
+    fireEvent.press(screen.getByTestId('tab-todos'));
     expect(screen.getByTestId('todo-name')).toBeTruthy();
     expect(screen.getByPlaceholderText('e.g., Buy groceries')).toBeTruthy();
   });
@@ -113,7 +113,7 @@ describe('ManualAddSheet - Tabs', () => {
     openManualAdd();
     renderSheet();
 
-    expect(screen.getByTestId('button-save')).toBeTruthy();
-    expect(screen.getByText('Save to The Hub')).toBeTruthy();
+    expect(screen.getByTestId('save-button')).toBeTruthy();
+    expect(screen.getByText('Submit to Gremly')).toBeTruthy();
   });
 });

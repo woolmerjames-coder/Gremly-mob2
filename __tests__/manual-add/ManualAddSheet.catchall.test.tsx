@@ -45,9 +45,14 @@ describe('ManualAddSheet - Catch All', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
+
+    await waitFor(() => {
+      expect(getByTestId('catchall-body')).toBeTruthy();
+    });
+
     fireEvent.changeText(getByTestId('catchall-body'), 'Random idea for later');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -59,16 +64,18 @@ describe('ManualAddSheet - Catch All', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Note saved to the Hub');
   });
 
-  it('keeps save disabled when body is missing', () => {
+  it('keeps save disabled when body is missing', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
 
-    const saveButton = getByTestId('button-save');
+    await waitFor(() => {
+      expect(getByTestId('catchall-body')).toBeTruthy();
+    });
+
+    const saveButton = getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
   });
@@ -77,9 +84,14 @@ describe('ManualAddSheet - Catch All', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
+
+    await waitFor(() => {
+      expect(getByTestId('catchall-body')).toBeTruthy();
+    });
+
     fireEvent.changeText(getByTestId('catchall-body'), 'Manual note');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(

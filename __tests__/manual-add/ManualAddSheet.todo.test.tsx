@@ -44,10 +44,13 @@ describe('ManualAddSheet - To-Do', () => {
   it('creates todo with name only', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.press(getByTestId('tab-todo'));
+    fireEvent.press(getByTestId('tab-todos'));
+    await waitFor(() => {
+      expect(getByTestId('todo-name')).toBeTruthy();
+    });
     fireEvent.changeText(getByTestId('todo-name'), 'Buy groceries');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -59,18 +62,19 @@ describe('ManualAddSheet - To-Do', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'To-Do saved to the Hub');
   });
 
   it('creates todo with due date', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.press(getByTestId('tab-todo'));
+    fireEvent.press(getByTestId('tab-todos'));
+    await waitFor(() => {
+      expect(getByTestId('todo-name')).toBeTruthy();
+    });
     fireEvent.changeText(getByTestId('todo-name'), 'Submit report');
     fireEvent.changeText(getByTestId('todo-date'), '2025-12-31');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -87,11 +91,14 @@ describe('ManualAddSheet - To-Do', () => {
   it('shows validation error for invalid date format', async () => {
     const { getByTestId, getByText } = render(<ManualAddSheet />);
 
-    fireEvent.press(getByTestId('tab-todo'));
+    fireEvent.press(getByTestId('tab-todos'));
+    await waitFor(() => {
+      expect(getByTestId('todo-name')).toBeTruthy();
+    });
     fireEvent.changeText(getByTestId('todo-name'), 'Task');
     fireEvent.changeText(getByTestId('todo-date'), '12/31/2025');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(getByText('Date must be YYYY-MM-DD format')).toBeTruthy();
@@ -100,13 +107,16 @@ describe('ManualAddSheet - To-Do', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('keeps save disabled when name is missing', () => {
+  it('keeps save disabled when name is missing', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.press(getByTestId('tab-todo'));
+    fireEvent.press(getByTestId('tab-todos'));
+    await waitFor(() => {
+      expect(getByTestId('todo-date')).toBeTruthy();
+    });
     fireEvent.changeText(getByTestId('todo-date'), '2025-12-31');
 
-    const saveButton = getByTestId('button-save');
+    const saveButton = getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
   });

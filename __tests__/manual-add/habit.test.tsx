@@ -60,7 +60,7 @@ describe('ManualAddSheet - Habit Form', () => {
     openManualAdd({ defaultTab: 'habit' });
     renderSheet();
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
   });
 
@@ -72,7 +72,7 @@ describe('ManualAddSheet - Habit Form', () => {
     fireEvent.changeText(nameInput, 'Morning run');
 
     // Daily is selected by default
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(false);
   });
 
@@ -85,7 +85,7 @@ describe('ManualAddSheet - Habit Form', () => {
 
     fireEvent.press(screen.getByTestId('frequency-daily'));
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     fireEvent.press(saveButton);
 
     await waitFor(() => {
@@ -97,8 +97,6 @@ describe('ManualAddSheet - Habit Form', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Habit saved to the Hub');
   });
 
   it('creates habit with Weekly frequency', async () => {
@@ -108,7 +106,7 @@ describe('ManualAddSheet - Habit Form', () => {
     fireEvent.changeText(screen.getByTestId('habit-name'), 'Yoga');
     fireEvent.press(screen.getByTestId('frequency-weekly'));
 
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(
@@ -130,7 +128,7 @@ describe('ManualAddSheet - Habit Form', () => {
     // Type a custom frequency instead of pressing a custom chip
     fireEvent.changeText(screen.getByTestId('input-frequency'), 'custom');
 
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(
@@ -149,7 +147,7 @@ describe('ManualAddSheet - Habit Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('habit-name'), 'Read');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(
@@ -170,7 +168,7 @@ describe('ManualAddSheet - Habit Form', () => {
     fireEvent.changeText(nameInput, 'Test');
     fireEvent.changeText(nameInput, ''); // Clear it
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
   });
 });

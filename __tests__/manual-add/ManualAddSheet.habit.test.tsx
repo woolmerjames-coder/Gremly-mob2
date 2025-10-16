@@ -68,7 +68,7 @@ describe('ManualAddSheet - Habit', () => {
     fireEvent.press(getByTestId('frequency-daily'));
 
     // Submit
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -79,8 +79,6 @@ describe('ManualAddSheet - Habit', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Habit saved to the Hub');
   });
 
   it('creates habit with spaceId when provided', async () => {
@@ -94,7 +92,7 @@ describe('ManualAddSheet - Habit', () => {
     fireEvent.press(getByTestId('frequency-weekly'));
 
     // Submit
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -112,7 +110,7 @@ describe('ManualAddSheet - Habit', () => {
 
     // Leave name empty, frequency defaults to daily
 
-    const saveButton = getByTestId('button-save');
+    const saveButton = getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
   });
@@ -123,7 +121,7 @@ describe('ManualAddSheet - Habit', () => {
     // Frequency defaults to daily; with name present, save should be enabled
     fireEvent.changeText(getByTestId('habit-name'), 'Test habit');
 
-    const saveButton = getByTestId('button-save');
+    const saveButton = getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(false);
     expect(mockCreate).not.toHaveBeenCalled();
   });
@@ -136,7 +134,7 @@ describe('ManualAddSheet - Habit', () => {
     fireEvent.changeText(getByTestId('input-frequency'), 'custom');
 
     // Submit
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({

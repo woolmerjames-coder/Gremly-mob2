@@ -59,7 +59,7 @@ describe('ManualAddSheet - Space Context', () => {
     fireEvent.changeText(getByTestId('habit-name'), 'Space habit');
     fireEvent.press(getByTestId('frequency-daily'));
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -79,7 +79,7 @@ describe('ManualAddSheet - Space Context', () => {
 
     fireEvent.changeText(getByTestId('todo-name'), 'Space task');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -100,7 +100,7 @@ describe('ManualAddSheet - Space Context', () => {
 
     fireEvent.changeText(getByTestId('journal-body'), 'Reflection on this space');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -121,7 +121,7 @@ describe('ManualAddSheet - Space Context', () => {
 
     fireEvent.changeText(getByTestId('catchall-body'), 'Random space note');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({

@@ -1,5 +1,5 @@
 import { renderWithProviders as render } from '../utils/renderWithProviders';
-import { fireEvent } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import ManualAddSheet, { openManualAdd as _openManualAdd } from '../../components/ManualAddSheet';
 
 // Mock dependencies
@@ -51,8 +51,8 @@ describe('ManualAddSheet - Render', () => {
     const { getByTestId, getByText } = render(<ManualAddSheet />);
 
     // Should show tabs
-    expect(getByTestId('tab-habit')).toBeTruthy();
-    expect(getByTestId('tab-todo')).toBeTruthy();
+    expect(getByTestId('tab-habits')).toBeTruthy();
+    expect(getByTestId('tab-todos')).toBeTruthy();
     expect(getByTestId('tab-journal')).toBeTruthy();
     expect(getByTestId('tab-catchall')).toBeTruthy();
 
@@ -61,36 +61,41 @@ describe('ManualAddSheet - Render', () => {
     expect(getByTestId('frequency-daily')).toBeTruthy();
 
     // Should show save button
-    expect(getByTestId('button-save')).toBeTruthy();
-    expect(getByText('Save to The Hub')).toBeTruthy();
+    expect(getByTestId('save-button')).toBeTruthy();
+    expect(getByText('Submit to Gremly')).toBeTruthy();
   });
 
-  it('switches to To-Do tab when pressed', () => {
+  it('switches to To-Do tab when pressed', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.press(getByTestId('tab-todo'));
+    fireEvent.press(getByTestId('tab-todos'));
 
+    await waitFor(() => {
+      expect(getByTestId('todo-name')).toBeTruthy();
+    });
     // Should show To-Do form fields
-    expect(getByTestId('todo-name')).toBeTruthy();
     expect(getByTestId('todo-date')).toBeTruthy();
   });
 
-  it('switches to Journal tab when pressed', () => {
+  it('switches to Journal tab when pressed', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-journal'));
 
+    await waitFor(() => {
+      expect(getByTestId('journal-body')).toBeTruthy();
+    });
     // Should show Journal form fields
-    expect(getByTestId('journal-body')).toBeTruthy();
     expect(getByTestId('journal-inspiration')).toBeTruthy();
   });
 
-  it('switches to Catch All tab when pressed', () => {
+  it('switches to Catch All tab when pressed', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
 
-    // Should show Catch All form field
-    expect(getByTestId('catchall-body')).toBeTruthy();
+    await waitFor(() => {
+      expect(getByTestId('catchall-body')).toBeTruthy();
+    });
   });
 });

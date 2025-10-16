@@ -25,7 +25,7 @@ describe('frequency normalization', () => {
 
     // pick each chip and ensure frequency is lowercase in payload
     fireEvent.press(getByTestId('frequency-daily'));
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(

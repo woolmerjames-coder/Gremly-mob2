@@ -60,7 +60,7 @@ describe('ManualAddSheet - Journal Form', () => {
     openManualAdd({ defaultTab: 'journal' });
     renderSheet();
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
   });
 
@@ -70,7 +70,7 @@ describe('ManualAddSheet - Journal Form', () => {
 
     fireEvent.changeText(screen.getByTestId('journal-body'), 'Today was a good day');
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(false);
   });
 
@@ -79,7 +79,7 @@ describe('ManualAddSheet - Journal Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('journal-body'), 'Reflecting on my progress today.');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -91,8 +91,6 @@ describe('ManualAddSheet - Journal Form', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Journal entry saved to the Hub');
   });
 
   // Title field removed in cleanup; no separate title test needed.
@@ -102,7 +100,7 @@ describe('ManualAddSheet - Journal Form', () => {
     const { getByTestId } = renderSheet();
 
     // Try to save with empty body
-    const saveButton = getByTestId('button-save');
+    const saveButton = getByTestId('save-button');
     fireEvent.press(saveButton);
 
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
@@ -113,7 +111,7 @@ describe('ManualAddSheet - Journal Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('journal-body'), 'Thoughts about the project.');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(

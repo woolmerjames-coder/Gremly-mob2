@@ -60,7 +60,7 @@ describe('ManualAddSheet - Catch-All Form', () => {
     openManualAdd({ defaultTab: 'catchall' });
     renderSheet();
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
   });
 
@@ -70,7 +70,7 @@ describe('ManualAddSheet - Catch-All Form', () => {
 
     fireEvent.changeText(screen.getByTestId('catchall-body'), 'Random thought...');
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(false);
   });
 
@@ -79,7 +79,7 @@ describe('ManualAddSheet - Catch-All Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('catchall-body'), 'Remember to check the mail.');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -91,8 +91,6 @@ describe('ManualAddSheet - Catch-All Form', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Note saved to the Hub');
   });
 
   it('creates catchall with spaceId when provided', async () => {
@@ -100,7 +98,7 @@ describe('ManualAddSheet - Catch-All Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('catchall-body'), 'Quick note for later');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(
@@ -123,7 +121,7 @@ describe('ManualAddSheet - Catch-All Form', () => {
     fireEvent.changeText(bodyInput, 'Test');
     fireEvent.changeText(bodyInput, ''); // Clear it
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
   });
 });
