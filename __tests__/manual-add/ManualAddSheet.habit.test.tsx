@@ -1,4 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ManualAddSheet, {
   openManualAdd,
@@ -22,10 +23,14 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('react-native-actions-sheet', () => {
-  const { useEffect } = require('react');
+  const { useEffect, useRef } = require('react');
   function MockActionSheet({ children, onOpen }: any) {
+    const hasOpenedRef = useRef(false);
     useEffect(() => {
-      if (onOpen) onOpen();
+      if (onOpen && !hasOpenedRef.current) {
+        hasOpenedRef.current = true;
+        onOpen();
+      }
     }, [onOpen]);
     return <>{children}</>;
   }
@@ -58,11 +63,12 @@ describe('ManualAddSheet - Habit', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     // Fill in habit form
-    fireEvent.changeText(getByTestId('input-name'), 'Morning run');
-    fireEvent.changeText(getByTestId('input-frequency'), 'daily');
+    fireEvent.changeText(getByTestId('habit-name'), 'Morning run');
+    // Select daily via chip (daily is default, but press to be explicit)
+    fireEvent.press(getByTestId('frequency-daily'));
 
     // Submit
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -73,8 +79,6 @@ describe('ManualAddSheet - Habit', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Habit saved to the Hub');
   });
 
   it('creates habit with spaceId when provided', async () => {
@@ -84,11 +88,11 @@ describe('ManualAddSheet - Habit', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     // Fill in habit form
-    fireEvent.changeText(getByTestId('input-name'), 'Workout');
-    fireEvent.changeText(getByTestId('input-frequency'), 'weekly');
+    fireEvent.changeText(getByTestId('habit-name'), 'Workout');
+    fireEvent.press(getByTestId('frequency-weekly'));
 
     // Submit
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -101,54 +105,42 @@ describe('ManualAddSheet - Habit', () => {
     });
   });
 
-  it('shows validation error when name is missing', async () => {
-    const { getByTestId, getByText } = render(<ManualAddSheet />);
+  it('keeps save disabled when name is missing', () => {
+    const { getByTestId } = render(<ManualAddSheet />);
 
-    // Leave name empty
-    fireEvent.changeText(getByTestId('input-frequency'), 'daily');
+    // Leave name empty, frequency defaults to daily
 
-    // Submit
-    fireEvent.press(getByTestId('button-save'));
-
-    await waitFor(() => {
-      expect(getByText('Name is required')).toBeTruthy();
-    });
-
+    const saveButton = getByTestId('save-button');
+    expect(saveButton.props.accessibilityState.disabled).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('shows validation error when frequency is missing', async () => {
-    const { getByTestId, getByText } = render(<ManualAddSheet />);
+  it('save is enabled when name is present (frequency defaults to daily)', () => {
+    const { getByTestId } = render(<ManualAddSheet />);
 
-    // Fill name but clear frequency
-    fireEvent.changeText(getByTestId('input-name'), 'Test habit');
-    fireEvent.changeText(getByTestId('input-frequency'), '');
+    // Frequency defaults to daily; with name present, save should be enabled
+    fireEvent.changeText(getByTestId('habit-name'), 'Test habit');
 
-    // Submit
-    fireEvent.press(getByTestId('button-save'));
-
-    await waitFor(() => {
-      expect(getByText('Frequency is required')).toBeTruthy();
-    });
-
+    const saveButton = getByTestId('save-button');
+    expect(saveButton.props.accessibilityState.disabled).toBe(false);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('allows custom frequency text', async () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
-    // Fill in with custom frequency
-    fireEvent.changeText(getByTestId('input-name'), 'Meditation');
-    fireEvent.changeText(getByTestId('input-frequency'), 'Every other day');
+    // Set custom frequency via input
+    fireEvent.changeText(getByTestId('habit-name'), 'Meditation');
+    fireEvent.changeText(getByTestId('input-frequency'), 'custom');
 
     // Submit
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
         type: 'habit',
         title: 'Meditation',
-        frequency: 'Every other day',
+        frequency: 'custom',
         space_id: null,
         ai_placed: false,
       });

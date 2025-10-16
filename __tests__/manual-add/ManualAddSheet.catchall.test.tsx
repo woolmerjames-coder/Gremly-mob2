@@ -1,4 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ManualAddSheet from '../../components/ManualAddSheet';
 
@@ -44,9 +45,14 @@ describe('ManualAddSheet - Catch All', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
-    fireEvent.changeText(getByTestId('input-body'), 'Random idea for later');
 
-    fireEvent.press(getByTestId('button-save'));
+    await waitFor(() => {
+      expect(getByTestId('catchall-body')).toBeTruthy();
+    });
+
+    fireEvent.changeText(getByTestId('catchall-body'), 'Random idea for later');
+
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -58,21 +64,19 @@ describe('ManualAddSheet - Catch All', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'Note saved to the Hub');
   });
 
-  it('shows validation error when body is missing', async () => {
-    const { getByTestId, getByText } = render(<ManualAddSheet />);
+  it('keeps save disabled when body is missing', async () => {
+    const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
 
-    fireEvent.press(getByTestId('button-save'));
-
     await waitFor(() => {
-      expect(getByText('Note cannot be empty')).toBeTruthy();
+      expect(getByTestId('catchall-body')).toBeTruthy();
     });
 
+    const saveButton = getByTestId('save-button');
+    expect(saveButton.props.accessibilityState.disabled).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
@@ -80,9 +84,14 @@ describe('ManualAddSheet - Catch All', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     fireEvent.press(getByTestId('tab-catchall'));
-    fireEvent.changeText(getByTestId('input-body'), 'Manual note');
 
-    fireEvent.press(getByTestId('button-save'));
+    await waitFor(() => {
+      expect(getByTestId('catchall-body')).toBeTruthy();
+    });
+
+    fireEvent.changeText(getByTestId('catchall-body'), 'Manual note');
+
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(

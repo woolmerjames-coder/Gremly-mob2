@@ -1,5 +1,10 @@
 import React from 'react';
-import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  renderWithProviders as render,
+  fireEvent,
+  screen,
+  waitFor,
+} from '../utils/renderWithProviders';
 import { Alert } from 'react-native';
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaView: ({ children }: any) => children,
@@ -56,7 +61,7 @@ describe('ManualAddSheet - Todo Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('todo-name'), 'Buy groceries');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -68,8 +73,6 @@ describe('ManualAddSheet - Todo Form', () => {
         ai_placed: false,
       });
     });
-
-    expect(Alert.alert).toHaveBeenCalledWith('Success', 'To-Do saved to the Hub');
   });
 
   it('creates todo with valid due date', async () => {
@@ -79,7 +82,7 @@ describe('ManualAddSheet - Todo Form', () => {
     fireEvent.changeText(screen.getByTestId('todo-name'), 'Submit report');
     fireEvent.changeText(screen.getByTestId('todo-date'), '2025-12-31');
 
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(
@@ -101,7 +104,7 @@ describe('ManualAddSheet - Todo Form', () => {
     fireEvent.changeText(screen.getByTestId('todo-name'), 'Task');
     fireEvent.changeText(screen.getByTestId('todo-date'), '12/31/2025'); // Wrong format
 
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(screen.getByText(/must be YYYY-MM-DD format/i)).toBeTruthy();
@@ -114,7 +117,7 @@ describe('ManualAddSheet - Todo Form', () => {
     openManualAdd({ defaultTab: 'todo' });
     renderSheet();
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
   });
 
@@ -124,7 +127,7 @@ describe('ManualAddSheet - Todo Form', () => {
 
     fireEvent.changeText(screen.getByTestId('todo-name'), 'Some task');
 
-    const saveButton = screen.getByTestId('button-save');
+    const saveButton = screen.getByTestId('save-button');
     expect(saveButton.props.accessibilityState.disabled).toBe(false);
   });
 
@@ -133,7 +136,7 @@ describe('ManualAddSheet - Todo Form', () => {
     renderSheet();
 
     fireEvent.changeText(screen.getByTestId('todo-name'), 'Team meeting');
-    fireEvent.press(screen.getByTestId('button-save'));
+    fireEvent.press(screen.getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(

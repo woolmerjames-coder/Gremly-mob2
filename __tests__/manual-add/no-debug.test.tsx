@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
 import ManualAddSheet from '../../components/ManualAddSheet';
 
 // Mock repo provider to avoid pulling expo env in tests

@@ -1,6 +1,5 @@
 import 'react-native-gesture-handler'; // must be first
 import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
-import './app.css'; // CRITICAL: Import Tailwind directives for NativeWind
 import React, { useEffect } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -12,6 +11,7 @@ import { ThemeProvider } from './providers/ThemeProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { RepoProvider } from './providers/RepoProvider';
 import { CortexProvider } from './providers/CortexProvider';
+import { DsToggleProvider } from './providers/DsToggleProvider';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
@@ -49,18 +49,20 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <SheetProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <RepoProvider>
-                <CortexProvider>
-                  <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-                    <RootNavigator />
-                    <OverlayHost />
-                  </NavigationContainer>
-                </CortexProvider>
-              </RepoProvider>
-            </AuthProvider>
-          </ThemeProvider>
+          <DsToggleProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <RepoProvider>
+                  <CortexProvider>
+                    <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+                      <RootNavigator />
+                      <OverlayHost />
+                    </NavigationContainer>
+                  </CortexProvider>
+                </RepoProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </DsToggleProvider>
         </SheetProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

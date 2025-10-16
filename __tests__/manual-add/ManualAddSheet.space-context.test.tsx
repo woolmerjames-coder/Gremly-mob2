@@ -1,4 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders as render } from '../utils/renderWithProviders';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ManualAddSheet, { openManualAdd } from '../../components/ManualAddSheet';
 
@@ -17,10 +18,14 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('react-native-actions-sheet', () => {
-  const { useEffect } = require('react');
+  const { useEffect, useRef } = require('react');
   function MockActionSheet({ children, onOpen }: any) {
+    const hasOpenedRef = useRef(false);
     useEffect(() => {
-      if (onOpen) onOpen();
+      if (onOpen && !hasOpenedRef.current) {
+        hasOpenedRef.current = true;
+        onOpen();
+      }
     }, [onOpen]);
     return <>{children}</>;
   }
@@ -51,10 +56,10 @@ describe('ManualAddSheet - Space Context', () => {
 
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.changeText(getByTestId('input-name'), 'Space habit');
-    fireEvent.changeText(getByTestId('input-frequency'), 'daily');
+    fireEvent.changeText(getByTestId('habit-name'), 'Space habit');
+    fireEvent.press(getByTestId('frequency-daily'));
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -72,9 +77,9 @@ describe('ManualAddSheet - Space Context', () => {
 
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.changeText(getByTestId('input-name'), 'Space task');
+    fireEvent.changeText(getByTestId('todo-name'), 'Space task');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -93,9 +98,9 @@ describe('ManualAddSheet - Space Context', () => {
 
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.changeText(getByTestId('input-body'), 'Reflection on this space');
+    fireEvent.changeText(getByTestId('journal-body'), 'Reflection on this space');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -114,9 +119,9 @@ describe('ManualAddSheet - Space Context', () => {
 
     const { getByTestId } = render(<ManualAddSheet />);
 
-    fireEvent.changeText(getByTestId('input-body'), 'Random space note');
+    fireEvent.changeText(getByTestId('catchall-body'), 'Random space note');
 
-    fireEvent.press(getByTestId('button-save'));
+    fireEvent.press(getByTestId('save-button'));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
@@ -136,8 +141,7 @@ describe('ManualAddSheet - Space Context', () => {
     const { getByTestId } = render(<ManualAddSheet />);
 
     // Journal tab should show journal fields
-    expect(getByTestId('input-title')).toBeTruthy();
-    expect(getByTestId('input-body')).toBeTruthy();
+    expect(getByTestId('journal-body')).toBeTruthy();
     expect(getByTestId('journal-inspiration')).toBeTruthy();
   });
 });

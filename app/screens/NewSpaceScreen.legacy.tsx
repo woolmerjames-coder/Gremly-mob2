@@ -1,3 +1,5 @@
+// @ts-nocheck - Legacy file using className (deprecated, requires NativeWind)
+// This file is kept for reference only. Use DS version via FLAGS.USE_DS_UI = true
 import { useState } from 'react';
 import {
   View,

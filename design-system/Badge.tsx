@@ -1,76 +1,93 @@
+/**
+ * Badge - DS-based implementation (migrated from Tailwind)
+ */
 import * as React from 'react';
-import { View, Text, type ViewProps } from 'react-native';
-import { tv, type VariantProps } from 'tailwind-variants';
+import { ViewStyle, TextStyle, type ViewProps } from 'react-native';
+import { useTokens } from '../design/makeStyles';
+import { Box } from '../ui/Box';
+import { Text } from '../ui/Text';
 
-const badge = tv({
-  slots: {
-    base: 'flex-row items-center justify-center rounded-full',
-    text: 'font-medium',
-  },
-  variants: {
-    variant: {
-      primary: {
-        base: 'bg-primary',
-        text: 'text-white',
-      },
-      success: {
-        base: 'bg-success',
-        text: 'text-white',
-      },
-      warning: {
-        base: 'bg-warning',
-        text: 'text-white',
-      },
-      error: {
-        base: 'bg-error',
-        text: 'text-white',
-      },
-      info: {
-        base: 'bg-info',
-        text: 'text-white',
-      },
-      neutral: {
-        base: 'bg-bg-200',
-        text: 'text-text-primary',
-      },
-    },
-    size: {
-      sm: {
-        base: 'px-2 py-0.5 min-h-[20px]',
-        text: 'text-xs',
-      },
-      md: {
-        base: 'px-3 py-1 min-h-[24px]',
-        text: 'text-sm',
-      },
-      lg: {
-        base: 'px-4 py-1.5 min-h-[28px]',
-        text: 'text-base',
-      },
-    },
-  },
-  defaultVariants: {
-    variant: 'neutral',
-    size: 'md',
-  },
-});
+type Variant = 'primary' | 'success' | 'warning' | 'error' | 'info' | 'neutral';
+type Size = 'sm' | 'md' | 'lg';
 
-export type BadgeVariants = VariantProps<typeof badge>;
-
-export interface BadgeProps extends Omit<ViewProps, 'children'>, BadgeVariants {
+export interface BadgeProps extends Omit<ViewProps, 'children'> {
+  /** Badge label */
   label: string;
+  /** Badge variant */
+  variant?: Variant;
+  /** Badge size */
+  size?: Size;
+  /** Left icon */
   leftIcon?: React.ReactNode;
 }
 
-export const Badge = React.forwardRef<React.ElementRef<typeof View>, BadgeProps>(
-  ({ label, variant, size, leftIcon, ...viewProps }, ref) => {
-    const styles = badge({ variant, size });
+export const Badge = React.forwardRef<React.ElementRef<typeof Box>, BadgeProps>(
+  ({ label, variant = 'neutral', size = 'md', leftIcon, ...viewProps }, ref) => {
+    const t = useTokens();
+
+    const getVariantStyle = (v: Variant): { bg: string; textColor: string } => {
+      switch (v) {
+        case 'primary':
+          return { bg: t.colors.primary, textColor: '#FFFFFF' };
+        case 'success':
+          return { bg: t.colors.success, textColor: '#FFFFFF' };
+        case 'warning':
+          return { bg: '#F59E0B', textColor: '#FFFFFF' };
+        case 'error':
+          return { bg: t.colors.danger, textColor: '#FFFFFF' };
+        case 'info':
+          return { bg: '#3B82F6', textColor: '#FFFFFF' };
+        case 'neutral':
+          return { bg: t.colors.surface, textColor: t.colors.text };
+      }
+    };
+
+    const getSizeStyle = (
+      s: Size,
+    ): { px: number; py: number; minHeight: number; fontSize: number } => {
+      switch (s) {
+        case 'sm':
+          return { px: 2, py: 0, minHeight: 20, fontSize: t.typography.size.xs };
+        case 'md':
+          return { px: 3, py: 1, minHeight: 24, fontSize: t.typography.size.sm };
+        case 'lg':
+          return { px: 4, py: 1, minHeight: 28, fontSize: t.typography.size.md };
+      }
+    };
+
+    const variantStyle = getVariantStyle(variant);
+    const sizeStyle = getSizeStyle(size);
+
+    const badgeStyle: ViewStyle = {
+      backgroundColor: variantStyle.bg,
+      borderRadius: 9999,
+      minHeight: sizeStyle.minHeight,
+    };
+
+    const textStyle: TextStyle = {
+      color: variantStyle.textColor,
+      fontSize: sizeStyle.fontSize,
+      fontWeight: '500',
+    };
+
+    // Strip className if present
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { className: _ignored, ...cleanProps } = viewProps as Record<string, unknown>;
 
     return (
-      <View ref={ref} {...viewProps} className={styles.base()}>
-        {leftIcon && <View className="mr-1">{leftIcon}</View>}
-        <Text className={styles.text()}>{label}</Text>
-      </View>
+      <Box
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ref={ref as any}
+        row
+        center
+        px={sizeStyle.px}
+        py={sizeStyle.py}
+        style={badgeStyle}
+        {...cleanProps}
+      >
+        {leftIcon && <Box mr={1}>{leftIcon}</Box>}
+        <Text style={textStyle}>{label}</Text>
+      </Box>
     );
   },
 );

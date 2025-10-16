@@ -1,52 +1,41 @@
+/**
+ * Tabs - DS-based implementation (migrated from Tailwind)
+ */
 import * as React from 'react';
 import { useState } from 'react';
-import { View, Pressable, Text, ScrollView, type ViewProps } from 'react-native';
-import { tv, type VariantProps } from 'tailwind-variants';
+import { Pressable, ScrollView, ViewStyle, TextStyle, type ViewProps } from 'react-native';
+import { useTokens } from '../design/makeStyles';
+import { Box } from '../ui/Box';
+import { Text } from '../ui/Text';
 
-const tabs = tv({
-  slots: {
-    container: 'w-full',
-    tabList: 'flex-row border-b border-border',
-    tab: 'px-4 py-3 border-b-2 border-transparent active:bg-bg-100 transition-colors',
-    tabActive: 'border-primary',
-    tabText: 'text-base text-text-muted',
-    tabTextActive: 'text-primary font-semibold',
-    tabPanel: 'py-4',
-  },
-  variants: {
-    variant: {
-      default: {},
-      pills: {
-        tabList: 'border-b-0 bg-bg-100 rounded-lg p-1',
-        tab: 'rounded-md border-0 mx-0.5',
-        tabActive: 'bg-white shadow-sm border-0',
-      },
-    },
-  },
-  defaultVariants: {
-    variant: 'default',
-  },
-});
-
-export type TabsVariants = VariantProps<typeof tabs>;
+type Variant = 'default' | 'pills';
 
 export interface Tab {
+  /** Tab ID */
   id: string;
+  /** Tab label */
   label: string;
+  /** Tab content */
   content: React.ReactNode;
+  /** Disabled state */
   disabled?: boolean;
 }
 
-export interface TabsProps extends ViewProps, TabsVariants {
+export interface TabsProps extends Omit<ViewProps, 'style'> {
+  /** Tab items */
   tabs: Tab[];
+  /** Default active tab ID */
   defaultTabId?: string;
+  /** Tab change callback */
   onTabChange?: (tabId: string) => void;
+  /** Variant style */
+  variant?: Variant;
 }
 
-export const Tabs = React.forwardRef<React.ElementRef<typeof View>, TabsProps>(
-  ({ tabs: tabItems, defaultTabId, onTabChange, variant, ...viewProps }, ref) => {
+export const Tabs = React.forwardRef<React.ElementRef<typeof Box>, TabsProps>(
+  ({ tabs: tabItems, defaultTabId, onTabChange, variant = 'default', ...viewProps }, ref) => {
     const [activeTabId, setActiveTabId] = useState(defaultTabId || tabItems[0]?.id || '');
-    const styles = tabs({ variant });
+    const t = useTokens();
 
     const handleTabPress = (tabId: string, disabled?: boolean) => {
       if (disabled) return;
@@ -56,27 +45,90 @@ export const Tabs = React.forwardRef<React.ElementRef<typeof View>, TabsProps>(
 
     const activeTab = tabItems.find((tab) => tab.id === activeTabId);
 
+    const getTabListStyle = (v: Variant): ViewStyle => {
+      if (v === 'pills') {
+        return {
+          backgroundColor: t.colors.surface,
+          borderRadius: t.radius[2],
+          padding: t.spacing[1],
+        };
+      }
+      return {
+        borderBottomWidth: 1,
+        borderBottomColor: t.colors.border,
+      };
+    };
+
+    const getTabStyle = (v: Variant, isActive: boolean): ViewStyle => {
+      const base: ViewStyle = {
+        paddingHorizontal: t.spacing[4],
+        paddingVertical: t.spacing[3],
+      };
+
+      if (v === 'pills') {
+        return {
+          ...base,
+          borderRadius: t.radius[2],
+          marginHorizontal: t.spacing[0],
+          ...(isActive && {
+            backgroundColor: '#FFFFFF',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.05,
+            shadowRadius: 2,
+            elevation: 1,
+          }),
+        };
+      }
+
+      return {
+        ...base,
+        borderBottomWidth: 2,
+        borderBottomColor: isActive ? t.colors.primary : 'transparent',
+      };
+    };
+
+    const getTabTextStyle = (v: Variant, isActive: boolean): TextStyle => {
+      return {
+        fontSize: t.typography.size.md,
+        color: isActive ? t.colors.primary : t.colors.subtle,
+        fontWeight: isActive ? '600' : '400',
+      };
+    };
+
+    // Strip className if present
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { className: _ignored, ...cleanProps } = viewProps as Record<string, unknown>;
+
     return (
-      <View ref={ref} {...viewProps} className={styles.container()}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className={styles.tabList()}>
-          {tabItems.map((tab) => {
-            const isActive = tab.id === activeTabId;
-            return (
-              <Pressable
-                key={tab.id}
-                onPress={() => handleTabPress(tab.id, tab.disabled)}
-                disabled={tab.disabled}
-                className={`${styles.tab()} ${isActive ? styles.tabActive() : ''}`}
-              >
-                <Text className={`${styles.tabText()} ${isActive ? styles.tabTextActive() : ''}`}>
-                  {tab.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      <Box ref={ref as any} style={{ width: '100%' }} {...cleanProps}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={getTabListStyle(variant)}
+        >
+          <Box row>
+            {tabItems.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              return (
+                <Pressable
+                  key={tab.id}
+                  onPress={() => handleTabPress(tab.id, tab.disabled)}
+                  disabled={tab.disabled}
+                  style={({ pressed }) => [
+                    getTabStyle(variant, isActive),
+                    pressed && { backgroundColor: t.colors.surface },
+                  ]}
+                >
+                  <Text style={getTabTextStyle(variant, isActive)}>{tab.label}</Text>
+                </Pressable>
+              );
+            })}
+          </Box>
         </ScrollView>
-        <View className={styles.tabPanel()}>{activeTab?.content}</View>
-      </View>
+        <Box py={4}>{activeTab?.content}</Box>
+      </Box>
     );
   },
 );

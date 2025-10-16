@@ -1,10 +1,12 @@
 module.exports = function (api) {
+  // Cache config forever; avoid api.env here to prevent cache conflicts under Jest
   api.cache(true);
+  const isTest = process.env.NODE_ENV === 'test' || process.env.BABEL_ENV === 'test';
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      'nativewind/babel',
-      'react-native-reanimated/plugin', // MUST be last
+      // Keep Reanimated plugin LAST
+      'react-native-reanimated/plugin',
     ],
   };
 };

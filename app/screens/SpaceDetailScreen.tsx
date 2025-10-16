@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { ScrollView, ActivityIndicator } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
@@ -8,6 +8,9 @@ import { openManualAdd } from '../../components/ManualAddSheet';
 import type { Space, AppRecord } from '../../lib/types';
 import type { GroupedByType } from '../../lib/repo/IRepo';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { Box, Text } from '../../ui';
+import { Card, ListItem } from '../../design-system';
+import { useTokens } from '../../design/makeStyles';
 
 type SpaceDetailRouteProp = RouteProp<RootStackParamList, 'SpaceDetail'>;
 
@@ -19,6 +22,7 @@ export default function SpaceDetail() {
   const route = useRoute<SpaceDetailRouteProp>();
   const { id } = route.params;
   const repo = useRepo();
+  const tokens = useTokens();
   const [space, setSpace] = useState<Space | null>(null);
   const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
   const [loading, setLoading] = useState(true);
@@ -44,34 +48,43 @@ export default function SpaceDetail() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-bg">
-        <ActivityIndicator size="large" color="#0D3B3A" />
-      </View>
+      <Box center style={{ flex: 1, backgroundColor: tokens.colors.bg }}>
+        <ActivityIndicator size="large" color={tokens.colors.primary} />
+      </Box>
     );
   }
 
   if (!space) {
     return (
-      <View className="flex-1 items-center justify-center bg-bg px-6">
-        <MascotIcon pose="think" className="mb-4" />
-        <Text className="text-center text-base text-gray-800">Space not found</Text>
-      </View>
+      <Box center px={6} style={{ flex: 1, backgroundColor: tokens.colors.bg }}>
+        <Box mb={4}>
+          <MascotIcon pose="think" />
+        </Box>
+        <Text variant="body" style={{ textAlign: 'center' }}>
+          Space not found
+        </Text>
+      </Box>
     );
   }
 
   const Banner = (
-    <View className="p-5" style={{ backgroundColor: themeToColor(space.theme) }}>
-      <Text className="text-white text-xl font-semibold">{space.name}</Text>
+    <Box p={5} style={{ backgroundColor: themeToColor(space.theme) }}>
+      <Text variant="title" style={{ color: '#FFF', fontSize: 20 }}>
+        {space.name}
+      </Text>
       {space.icon ? (
-        <Text className="text-white text-3xl mt-2" accessibilityLabel={`Icon: ${space.icon}`}>
+        <Text
+          style={{ color: '#FFF', fontSize: 28, marginTop: tokens.spacing[2] }}
+          accessibilityLabel={`Icon: ${space.icon}`}
+        >
           {space.icon}
         </Text>
       ) : null}
-    </View>
+    </Box>
   );
 
   return (
-    <ScrollView className="flex-1 bg-bg">
+    <ScrollView style={{ flex: 1, backgroundColor: tokens.colors.bg }}>
       {Banner}
       <Section title="Habits" items={groups.habits} />
       <Section title="To-Dos" items={groups.todos} />
@@ -90,28 +103,33 @@ interface SectionProps {
 
 function Section({ title, items }: SectionProps) {
   return (
-    <View className="px-4 py-3">
-      <Text className="text-lg font-semibold mb-2 text-gray-900">{title}</Text>
+    <Box px={4} py={3}>
+      <Text variant="title" style={{ marginBottom: 8 }}>
+        {title}
+      </Text>
       {items.length === 0 ? (
-        <View className="rounded-2xl bg-white p-4 items-center">
-          <MascotIcon pose="think" className="mb-2" size={48} />
-          <Text className="text-gray-600">Nothing here yet.</Text>
-        </View>
+        <Card variant="elevated">
+          <Box center>
+            <Box mb={2}>
+              <MascotIcon pose="think" size={48} />
+            </Box>
+            <Text variant="body" style={{ color: '#6A6F76' }}>
+              Nothing here yet.
+            </Text>
+          </Box>
+        </Card>
       ) : (
         items.map((item) => (
-          <View key={item.id} className="rounded-2xl bg-white p-4 mb-2 shadow-sm">
-            <Text className="font-medium text-gray-900">
-              {item.type === 'habit' || item.type === 'todo' ? item.title : '(untitled)'}
-            </Text>
-            {item.type === 'todo' && item.body ? (
-              <Text className="text-sm text-gray-600 mt-1" numberOfLines={2}>
-                {item.body}
-              </Text>
-            ) : null}
-          </View>
+          <ListItem
+            key={item.id}
+            testID={`space-detail-${item.type}-${item.id}`}
+            title={item.type === 'habit' || item.type === 'todo' ? item.title : '(untitled)'}
+            subtitle={item.type === 'todo' && item.body ? item.body : undefined}
+            style={{ marginBottom: 8 }}
+          />
         ))
       )}
-    </View>
+    </Box>
   );
 }
 

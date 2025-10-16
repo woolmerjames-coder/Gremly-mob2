@@ -1,29 +1,20 @@
+/**
+ * Icon - DS-based implementation (migrated from Tailwind)
+ */
 import * as React from 'react';
-import { View } from 'react-native';
-import { tv, type VariantProps } from 'tailwind-variants';
 import * as Icons from 'lucide-react-native';
+import { Box } from '../ui/Box';
 
-const icon = tv({
-  base: 'items-center justify-center',
-  variants: {
-    size: {
-      xs: 'w-4 h-4',
-      sm: 'w-5 h-5',
-      md: 'w-6 h-6',
-      lg: 'w-8 h-8',
-      xl: 'w-10 h-10',
-    },
-  },
-  defaultVariants: {
-    size: 'md',
-  },
-});
+type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
-export type IconVariants = VariantProps<typeof icon>;
-
-export interface IconProps extends IconVariants {
+export interface IconProps {
+  /** Icon name from lucide-react-native */
   name: keyof typeof Icons;
+  /** Icon size */
+  size?: Size;
+  /** Icon color */
   color?: string;
+  /** Stroke width */
   strokeWidth?: number;
 }
 
@@ -35,9 +26,8 @@ const sizeMap = {
   xl: 40,
 };
 
-export const Icon = React.forwardRef<React.ElementRef<typeof View>, IconProps>(
+export const Icon = React.forwardRef<React.ElementRef<typeof Box>, IconProps>(
   ({ name, size = 'md', color = '#0F4C5C', strokeWidth = 2 }, ref) => {
-    const styles = icon({ size });
     const LucideIcon = Icons[name] as React.ComponentType<{
       size: number;
       color: string;
@@ -50,9 +40,10 @@ export const Icon = React.forwardRef<React.ElementRef<typeof View>, IconProps>(
     }
 
     return (
-      <View ref={ref} className={styles}>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      <Box ref={ref as any} center style={{ width: sizeMap[size], height: sizeMap[size] }}>
         <LucideIcon size={sizeMap[size]} color={color} strokeWidth={strokeWidth} />
-      </View>
+      </Box>
     );
   },
 );

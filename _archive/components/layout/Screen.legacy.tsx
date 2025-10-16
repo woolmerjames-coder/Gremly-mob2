@@ -1,3 +1,5 @@
+// @ts-nocheck - Legacy file using className (deprecated, requires NativeWind)
+// This file is kept for reference only. Use ui/Screen.tsx with DS instead
 import { ScrollView, View, Text } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 

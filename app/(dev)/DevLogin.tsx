@@ -6,18 +6,24 @@
  * - Test magic link authentication
  * - Create test records to verify Supabase integration
  * - Check current auth state
+ * - Toggle DS UI feature flag override
  *
  * This screen is only accessible in development builds via the floating debug button.
  */
 
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
+import { TextInput, ScrollView, Alert } from 'react-native';
+import { Screen, Box, Text } from '../../ui';
+import { Button, Card } from '../../design-system';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
+import { useDsToggle } from '../../providers/DsToggleProvider';
+import { FLAGS } from '../../config/flags';
 
 export default function DevLogin() {
   const { user, userId, loading, signInWithEmail, signOut } = useAuth();
   const repo = useRepo();
+  const { useDs, useDsOverride, toggleDsOverride } = useDsToggle();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -77,39 +83,20 @@ export default function DevLogin() {
     setTestResult('Creating test todo...');
 
     try {
-      // Create todo with minimal fields - DB will auto-generate id, owner_id, timestamps
       const createInput = {
         type: 'todo' as const,
         title: 'Phase 4 smoke',
-        body: 'created from Dev Login',
+        due_date: null,
         undefined_due: true,
+        space_id: null,
         ai_placed: false,
-        // Do NOT send: owner_id, created_at, updated_at, id
       };
 
-      if (__DEV__) {
-        console.log('[DevLogin] Calling repo.create() with:', JSON.stringify(createInput, null, 2));
-      }
-
-      const todo = await repo.create(createInput);
-
-      if (__DEV__) {
-        console.log('[DevLogin] Todo created successfully:', JSON.stringify(todo, null, 2));
-      }
-
-      setTestResult(`✅ Todo created! ID: ${todo.id.substring(0, 8)}...`);
-
-      // Verify we can read it back
-      const retrieved = await repo.getById(todo.id);
-      if (retrieved) {
-        setTestResult((prev) => prev + '\n✅ Todo verified via getById()');
-      }
+      const result = await repo.create(createInput);
+      setTestResult(`✅ Created todo: ${result.id}`);
     } catch (error) {
-      if (__DEV__) {
-        console.error('[DevLogin] Error creating todo:', error);
-      }
       setTestResult(
-        `❌ Error creating todo: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `❌ Create failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     } finally {
       setIsCreating(false);
@@ -117,140 +104,181 @@ export default function DevLogin() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-[#FFF7EA]">
-      <View className="p-4 pb-20">
+    <ScrollView style={{ flex: 1, backgroundColor: '#FFF7EA' }}>
+      <Box p={4} pb={20}>
         {/* Header */}
-        <View className="mb-6">
-          <Text className="text-2xl font-bold text-[#0F4C5C] mb-2">🔧 Dev Login & Smoke Test</Text>
-          <Text className="text-sm text-gray-600">
-            Development-only screen for testing Supabase auth and repo integration
-          </Text>
-        </View>
+        <Box mb={6}>
+          <Box mb={2}>
+            <Text variant="display">🔧 Dev Login & Smoke Test</Text>
+          </Box>
+          <Text variant="subtle">Test authentication, create test records, check DS UI state</Text>
+        </Box>
+
+        {/* DS Feature Flag */}
+        <Box mb={4}>
+          <Card>
+            <Box mb={2}>
+              <Text variant="title">�� DS UI Feature Flag</Text>
+            </Box>
+            <Box mb={2}>
+              <Box mb={1}>
+                <Text variant="label">
+                  Compile-time (FLAGS.USE_DS_UI): {FLAGS.USE_DS_UI ? 'ON' : 'OFF'}
+                </Text>
+              </Box>
+              <Box mb={1}>
+                <Text variant="label">Runtime Override: {useDsOverride ? 'ON' : 'OFF'}</Text>
+              </Box>
+              <Text variant="label">Current UI: {useDs ? 'DS UI' : 'Legacy UI'}</Text>
+            </Box>
+            <Button
+              label={useDsOverride ? 'Disable DS Override' : 'Enable DS Override'}
+              variant="primary"
+              onPress={toggleDsOverride}
+            />
+            <Box mt={2}>
+              <Text variant="subtle">
+                Toggle to test switching between DS and Legacy UI at runtime (dev only)
+              </Text>
+            </Box>
+          </Card>
+        </Box>
 
         {/* Auth Status */}
-        <View className="bg-white rounded-2xl p-4 mb-4 border border-gray-200">
-          <Text className="text-sm font-semibold text-[#0F4C5C] mb-2">Auth Status</Text>
-          {loading ? (
-            <Text className="text-gray-600">Loading...</Text>
-          ) : user ? (
-            <>
-              <Text className="text-sm text-gray-800 mb-1">
-                ✅ Signed in as: <Text className="font-mono">{user.email}</Text>
-              </Text>
-              <Text className="text-xs text-gray-500 font-mono">
-                User ID: {userId?.substring(0, 16)}...
-              </Text>
-            </>
-          ) : (
-            <Text className="text-gray-600">❌ Not signed in</Text>
-          )}
-        </View>
+        <Box mb={4}>
+          <Card>
+            <Box mb={2}>
+              <Text variant="title">Auth Status</Text>
+            </Box>
+            <Box gap={1}>
+              <Text variant="label">Status: {user ? '✅ Signed In' : '❌ Not Signed In'}</Text>
+              {user && (
+                <>
+                  <Text variant="label">User ID: {user.id?.slice(0, 8)}...</Text>
+                  <Text variant="label">Email: {user.email || 'N/A'}</Text>
+                </>
+              )}
+              {loading && <Text variant="label">⏳ Loading...</Text>}
+            </Box>
+          </Card>
+        </Box>
 
-        {/* Email Input */}
-        <View className="mb-4">
-          <Text className="text-sm font-medium text-gray-700 mb-2">Email</Text>
-          <TextInput
-            className="bg-white border border-gray-300 rounded-xl px-4 py-3 text-base"
-            placeholder="dev@example.com"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoCorrect={false}
-          />
-        </View>
+        {/* Email/Password Form */}
+        {!user && (
+          <Box mb={4}>
+            <Card>
+              <Box mb={2}>
+                <Text variant="title">Sign In</Text>
+              </Box>
+              <Box gap={3}>
+                <Box>
+                  <Box mb={1}>
+                    <Text variant="label">Email</Text>
+                  </Box>
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="dev@example.com"
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#E5E7EB',
+                      borderRadius: 16,
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      fontSize: 16,
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <Box mb={1}>
+                    <Text variant="label">Password (optional for magic link)</Text>
+                  </Box>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="••••••••"
+                    secureTextEntry
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#E5E7EB',
+                      borderRadius: 16,
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      fontSize: 16,
+                    }}
+                  />
+                </Box>
+                <Button
+                  label="Sign In (Password)"
+                  variant="primary"
+                  onPress={handlePasswordSignIn}
+                  disabled={!email || !password}
+                />
+                <Button
+                  label="Sign In (Magic Link)"
+                  variant="secondary"
+                  onPress={handleMagicLinkSignIn}
+                  disabled={!email}
+                />
+              </Box>
+            </Card>
+          </Box>
+        )}
 
-        {/* Password Input */}
-        <View className="mb-4">
-          <Text className="text-sm font-medium text-gray-700 mb-2">
-            Password <Text className="text-gray-400">(optional for magic link)</Text>
-          </Text>
-          <TextInput
-            className="bg-white border border-gray-300 rounded-xl px-4 py-3 text-base"
-            placeholder="Enter password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
+        {/* Sign Out Button */}
+        {user && (
+          <Box mb={4}>
+            <Button label="Sign Out" variant="outline" onPress={handleSignOut} />
+          </Box>
+        )}
 
-        {/* Auth Buttons */}
-        <View className="mb-6">
-          {!user ? (
-            <>
-              <Pressable
-                className="bg-[#0F4C5C] rounded-2xl py-3 px-4 mb-3 active:opacity-70"
-                onPress={handlePasswordSignIn}
-              >
-                <Text className="text-white text-center font-semibold">Sign In (Password)</Text>
-              </Pressable>
-
-              <Pressable
-                className="bg-[#E9724C] rounded-2xl py-3 px-4 active:opacity-70"
-                onPress={handleMagicLinkSignIn}
-              >
-                <Text className="text-white text-center font-semibold">Sign In (Magic Link)</Text>
-              </Pressable>
-            </>
-          ) : (
-            <Pressable
-              className="bg-gray-600 rounded-2xl py-3 px-4 active:opacity-70"
-              onPress={handleSignOut}
-            >
-              <Text className="text-white text-center font-semibold">Sign Out</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {/* Smoke Test Section */}
-        <View className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
-          <Text className="text-sm font-semibold text-blue-900 mb-3">
-            🧪 Smoke Test: Create Test To-Do
-          </Text>
-          <Pressable
-            className={`rounded-2xl py-3 px-4 active:opacity-70 ${
-              !userId || isCreating ? 'bg-gray-300' : 'bg-blue-600'
-            }`}
-            onPress={handleCreateTestTodo}
-            disabled={!userId || isCreating}
-          >
-            <Text className="text-white text-center font-semibold">
-              {isCreating ? 'Creating...' : 'Create Test To-Do'}
-            </Text>
-          </Pressable>
-          {!userId && (
-            <Text className="text-xs text-blue-700 mt-2">
-              ℹ️ Sign in first to test repo operations
-            </Text>
-          )}
-        </View>
-
-        {/* Test Results */}
-        {testResult ? (
-          <View className="bg-gray-100 rounded-2xl p-4">
-            <Text className="text-sm font-semibold text-gray-700 mb-2">Result:</Text>
-            <Text className="text-sm text-gray-800 font-mono whitespace-pre-wrap">
-              {testResult}
-            </Text>
-          </View>
-        ) : null}
+        {/* Test Record Creation */}
+        {userId && (
+          <Box mb={4}>
+            <Card>
+              <Box mb={2}>
+                <Text variant="title">ℹ️ Supabase Smoke Test</Text>
+              </Box>
+              <Box mb={2}>
+                <Text variant="body">
+                  Create a test todo to verify Supabase schema, RLS, and repo layer are working.
+                </Text>
+              </Box>
+              <Button
+                label={isCreating ? 'Creating...' : 'Create Test Todo'}
+                variant="primary"
+                onPress={handleCreateTestTodo}
+                disabled={isCreating}
+              />
+              {testResult && (
+                <Box mt={2}>
+                  <Text variant="label">{testResult}</Text>
+                </Box>
+              )}
+            </Card>
+          </Box>
+        )}
 
         {/* Environment Info */}
-        <View className="mt-6 bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
-          <Text className="text-xs font-semibold text-yellow-900 mb-2">ℹ️ Environment Info</Text>
-          <Text className="text-xs text-yellow-800 mb-1">
-            Repo Backend: {process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory'}
-          </Text>
-          <Text className="text-xs text-yellow-800 mb-1">
-            Supabase URL: {process.env.EXPO_PUBLIC_SUPABASE_URL ? '✅ Set' : '❌ Not set'}
-          </Text>
-          <Text className="text-xs text-yellow-800">
-            Supabase Key: {process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? '✅ Set' : '❌ Not set'}
-          </Text>
-        </View>
-      </View>
+        <Box mb={4}>
+          <Card>
+            <Box mb={2}>
+              <Text variant="title">ℹ️ Environment Info</Text>
+            </Box>
+            <Box gap={1}>
+              <Text variant="label">
+                Supabase URL: {process.env.EXPO_PUBLIC_SUPABASE_URL?.slice(0, 30)}...
+              </Text>
+              <Text variant="label">
+                Anon Key: {process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 20)}...
+              </Text>
+              <Text variant="label">__DEV__: {__DEV__ ? 'true' : 'false'}</Text>
+            </Box>
+          </Card>
+        </Box>
+      </Box>
     </ScrollView>
   );
 }

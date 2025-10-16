@@ -1,60 +1,80 @@
+/**
+ * ListItem - DS-based implementation (migrated from Tailwind)
+ */
 import * as React from 'react';
-import { Pressable, View, Text, type PressableProps } from 'react-native';
-import { tv, type VariantProps } from 'tailwind-variants';
+import { Pressable, ViewStyle, type PressableProps } from 'react-native';
+import { useTokens } from '../design/makeStyles';
+import { Box } from '../ui/Box';
+import { Text } from '../ui/Text';
 
-const listItem = tv({
-  slots: {
-    base: 'flex-row items-center px-4 py-3 bg-white active:bg-bg-100 transition-colors',
-    leftContainer: 'mr-3',
-    contentContainer: 'flex-1',
-    title: 'text-base font-medium text-text-primary',
-    subtitle: 'text-sm text-text-muted mt-0.5',
-    rightContainer: 'ml-3',
-  },
-  variants: {
-    variant: {
-      default: {},
-      bordered: {
-        base: 'border-b border-border-subtle',
-      },
-    },
-    disabled: {
-      true: {
-        base: 'opacity-50',
-      },
-    },
-  },
-  defaultVariants: {
-    variant: 'default',
-  },
-});
+type Variant = 'default' | 'bordered';
 
-export type ListItemVariants = VariantProps<typeof listItem>;
-
-export interface ListItemProps extends Omit<PressableProps, 'disabled'>, ListItemVariants {
+export interface ListItemProps extends Omit<PressableProps, 'disabled'> {
+  /** Title text */
   title: string;
+  /** Subtitle text */
   subtitle?: string;
+  /** Left icon */
   leftIcon?: React.ReactNode;
+  /** Right icon */
   rightIcon?: React.ReactNode;
+  /** Right content */
   rightContent?: React.ReactNode;
+  /** Variant style */
+  variant?: Variant;
+  /** Disabled state */
+  disabled?: boolean;
 }
 
 export const ListItem = React.forwardRef<React.ElementRef<typeof Pressable>, ListItemProps>(
   (
-    { title, subtitle, leftIcon, rightIcon, rightContent, variant, disabled, ...pressableProps },
+    {
+      title,
+      subtitle,
+      leftIcon,
+      rightIcon,
+      rightContent,
+      variant = 'default',
+      disabled,
+      ...pressableProps
+    },
     ref,
   ) => {
-    const styles = listItem({ variant, disabled: disabled || undefined });
+    const t = useTokens();
+
+    const baseStyle: ViewStyle = {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: t.spacing[4],
+      paddingVertical: t.spacing[3],
+      backgroundColor: '#FFFFFF',
+      opacity: disabled ? 0.5 : 1,
+      ...(variant === 'bordered' && {
+        borderBottomWidth: 1,
+        borderBottomColor: t.colors.border,
+      }),
+    };
 
     return (
-      <Pressable ref={ref} disabled={disabled} {...pressableProps} className={styles.base()}>
-        {leftIcon && <View className={styles.leftContainer()}>{leftIcon}</View>}
-        <View className={styles.contentContainer()}>
-          <Text className={styles.title()}>{title}</Text>
-          {subtitle && <Text className={styles.subtitle()}>{subtitle}</Text>}
-        </View>
-        {rightContent && <View className={styles.rightContainer()}>{rightContent}</View>}
-        {rightIcon && <View className={styles.rightContainer()}>{rightIcon}</View>}
+      <Pressable
+        ref={ref}
+        disabled={disabled}
+        {...pressableProps}
+        style={({ pressed }) => [baseStyle, pressed && { backgroundColor: t.colors.surface }]}
+      >
+        {leftIcon && <Box mr={3}>{leftIcon}</Box>}
+        <Box flex={1}>
+          <Text variant="body" style={{ fontWeight: '500' }}>
+            {title}
+          </Text>
+          {subtitle && (
+            <Text variant="subtle" style={{ marginTop: t.spacing[0] }}>
+              {subtitle}
+            </Text>
+          )}
+        </Box>
+        {rightContent && <Box ml={3}>{rightContent}</Box>}
+        {rightIcon && <Box ml={3}>{rightIcon}</Box>}
       </Pressable>
     );
   },
