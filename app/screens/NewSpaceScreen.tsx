@@ -40,8 +40,9 @@ export default function NewSpaceScreen() {
       const created = await repo.createSpace(payload);
       // Navigate straight to the detail page
       navigation.replace('SpaceDetail', { id: created.id });
-    } catch (e: any) {
-      setError(e?.message ?? 'Something went wrong');
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : 'Something went wrong';
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }

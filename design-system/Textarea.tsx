@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from 'react';
 import { View, TextInput, Text, type TextInputProps } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 

@@ -12,11 +12,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
+import type { Space } from '../lib/types';
 
 // Store callback in module scope (simpler than fighting with payload types)
-let onCreatedCallback: ((space: any) => void) | null = null;
+let onCreatedCallback: ((space: Space) => void) | null = null;
 
-export function setNewSpaceCallback(callback: ((space: any) => void) | null) {
+export function setNewSpaceCallback(callback: ((space: Space) => void) | null) {
   onCreatedCallback = callback;
 }
 
@@ -58,8 +59,9 @@ export default function NewSpaceModal() {
       setIcon('');
       setTheme('deepTeal');
       await SheetManager.hide('new-space');
-    } catch (e: any) {
-      setError(e?.message ?? 'Please check your inputs');
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : 'Please check your inputs';
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }

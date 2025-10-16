@@ -15,7 +15,7 @@
     "lint": "eslint \"**/*.{js,jsx,ts,tsx}\"",
     "lint:fix": "eslint \"**/*.{js,jsx,ts,tsx}\" --fix",
     "typecheck": "tsc --noEmit",
-    "test": "jest",
+    "test": "jest --no-watchman",
     "test:watch": "jest --watch",
     "ci": "npm run lint && npm run typecheck && npm run test",
     "prepare": "husky"
