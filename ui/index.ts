@@ -18,3 +18,4 @@ export { Chip } from './Chip';
 export type { ChipProps } from './Chip';
 
 export { Screen } from './Screen';
+export type { ScreenProps } from './Screen';

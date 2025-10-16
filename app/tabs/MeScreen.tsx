@@ -1,5 +1,5 @@
 import { Text } from 'react-native';
-import Screen from '../../components/layout/Screen';
+import { Screen } from '../../ui';
 
 export default function MeScreen() {
   return (

@@ -1,5 +1,5 @@
 import { Text } from 'react-native';
-import Screen from '../../components/layout/Screen';
+import { Screen } from '../../ui';
 import PlusFAB from '../../components/PlusFAB';
 import { openManualAdd } from '../../components/ManualAddSheet';
 

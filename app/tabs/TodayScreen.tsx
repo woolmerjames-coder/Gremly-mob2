@@ -2,7 +2,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SheetManager } from 'react-native-actions-sheet';
 import { useNavigation } from '@react-navigation/native';
 import { Button } from '../../design-system';
-import Screen from '../../components/layout/Screen';
+import { Screen } from '../../ui';
 import NWCheck from '../../components/NWCheck';
 import PlusFAB from '../../components/PlusFAB';
 import { openManualAdd } from '../../components/ManualAddSheet';
