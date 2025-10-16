@@ -1,9 +1,11 @@
-import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SheetManager } from 'react-native-actions-sheet';
 import { useNavigation } from '@react-navigation/native';
 import { Button } from '../../design-system';
 import Screen from '../../components/layout/Screen';
+import NWCheck from '../../components/NWCheck';
+import PlusFAB from '../../components/PlusFAB';
+import { openManualAdd } from '../../components/ManualAddSheet';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
@@ -25,6 +27,8 @@ export default function TodayScreen() {
 
   return (
     <Screen title="Today" scroll testID="screen-today">
+      {/* TEMP: NativeWind diagnostic — remove after validation */}
+      <NWCheck />
       {/* DEV-ONLY: Design System Preview Button */}
       {__DEV__ && (
         <View className="mb-4">
@@ -51,6 +55,9 @@ export default function TodayScreen() {
       >
         <Text style={styles.buttonText}>Open Demo Sheet</Text>
       </Pressable>
+
+      {/* Plus FAB for Manual Add */}
+      <PlusFAB onPress={() => openManualAdd()} />
     </Screen>
   );
 }

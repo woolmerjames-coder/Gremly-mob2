@@ -1,13 +1,6 @@
-import React, { PropsWithChildren } from 'react';
-import { View, StyleSheet } from 'react-native';
+/**
+ * ThemeProvider - Re-export from design system
+ * Provides theme context to the entire app
+ */
 
-export function ThemeProvider({ children }: PropsWithChildren) {
-  return <View style={styles.container}>{children}</View>;
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF7EA',
-  },
-});
+export { ThemeProvider, useTheme, type ThemeMode, type Theme } from '../design/theme';

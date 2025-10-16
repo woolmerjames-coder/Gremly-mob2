@@ -3,7 +3,9 @@ import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
-import type { Space } from '../../lib/types';
+import PlusFAB from '../../components/PlusFAB';
+import { openManualAdd } from '../../components/ManualAddSheet';
+import type { Space, AppRecord } from '../../lib/types';
 import type { GroupedByType } from '../../lib/repo/IRepo';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
@@ -74,13 +76,16 @@ export default function SpaceDetail() {
       <Section title="Habits" items={groups.habits} />
       <Section title="To-Dos" items={groups.todos} />
       <Section title="Notes" items={groups.notes} />
+
+      {/* Plus FAB for Manual Add with spaceId context */}
+      <PlusFAB onPress={() => openManualAdd({ spaceId: id })} />
     </ScrollView>
   );
 }
 
 interface SectionProps {
   title: string;
-  items: any[];
+  items: AppRecord[];
 }
 
 function Section({ title, items }: SectionProps) {
@@ -93,12 +98,12 @@ function Section({ title, items }: SectionProps) {
           <Text className="text-gray-600">Nothing here yet.</Text>
         </View>
       ) : (
-        items.map((item: any) => (
+        items.map((item) => (
           <View key={item.id} className="rounded-2xl bg-white p-4 mb-2 shadow-sm">
             <Text className="font-medium text-gray-900">
-              {item.title ?? item.name ?? '(untitled)'}
+              {item.type === 'habit' || item.type === 'todo' ? item.title : '(untitled)'}
             </Text>
-            {item.body ? (
+            {item.type === 'todo' && item.body ? (
               <Text className="text-sm text-gray-600 mt-1" numberOfLines={2}>
                 {item.body}
               </Text>

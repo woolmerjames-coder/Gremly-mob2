@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler'; // must be first
 import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
-import './app.css'; // CRITICAL: Import Tailwind directives for NativeWind
+import './global.css'; // CRITICAL: Import Tailwind directives for NativeWind
 import React, { useEffect } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';

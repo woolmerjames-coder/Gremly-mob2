@@ -22,11 +22,18 @@ export const noteSubtypeZ = z.union([
   z.literal('catchall'),
 ]) as z.ZodType<NoteSubtype>;
 
-export const frequencyZ = z.union([
-  z.literal('daily'),
-  z.literal('weekly'),
-  z.literal('monthly'),
-]) as z.ZodType<Frequency>;
+// Accept both lowercase (correct) and capitalized (legacy data) frequencies
+// Transform to lowercase to ensure consistency
+export const frequencyZ = z
+  .union([
+    z.literal('daily'),
+    z.literal('weekly'),
+    z.literal('monthly'),
+    z.literal('Daily'),
+    z.literal('Weekly'),
+    z.literal('Monthly'),
+  ])
+  .transform((val) => val.toLowerCase() as Frequency) as z.ZodType<Frequency>;
 
 // ==========================
 // ROW SCHEMAS (from database)
