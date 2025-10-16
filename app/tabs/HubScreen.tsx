@@ -1,17 +1,245 @@
-import { Text } from 'react-native';
-import { Screen } from '../../ui';
-import PlusFAB from '../../components/PlusFAB';
+/**
+ * Hub Screen - DS-only implementation (no Tailwind)
+ * Central hub showing recent activity, spaces, and sorting tray
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useRepo } from '../../providers/RepoProvider';
+import { Screen, Box, Text, Button, Input } from '../../ui';
+import { Card } from '../../design-system/Card';
+import { ListItem } from '../../design-system/ListItem';
+import { Chip } from '../../ui/Chip';
 import { openManualAdd } from '../../components/ManualAddSheet';
+import type { AppRecord, Space } from '../../lib/types';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+type FilterType = 'all' | 'habits' | 'todos' | 'notes';
 
 export default function HubScreen() {
-  return (
-    <Screen title="Hub" scroll testID="screen-hub">
-      <Text className="text-base text-text-primary">
-        All | Habits | To-Dos | Journal | Lists + Sorting Tray
-      </Text>
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const navigation = useNavigation<NavigationProp>();
+  const repo = useRepo();
 
-      {/* Plus FAB for Manual Add */}
-      <PlusFAB onPress={() => openManualAdd()} />
+  // State
+  const [items, setItems] = useState<AppRecord[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+
+  // Load data
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Load all items and spaces
+      const [allHabits, allTodos, allNotes, allSpaces] = await Promise.all([
+        repo.listByType('habit'),
+        repo.listByType('todo'),
+        repo.listByType('note'),
+        repo.listSpaces(),
+      ]);
+
+      const allItems = [...allHabits, ...allTodos, ...allNotes];
+
+      // Sort by updated_at (most recent first)
+      allItems.sort((a, b) => {
+        const dateA = new Date(a.updated_at || a.created_at).getTime();
+        const dateB = new Date(b.updated_at || b.created_at).getTime();
+        return dateB - dateA;
+      });
+
+      setItems(allItems);
+      setSpaces(allSpaces);
+    } catch (error) {
+      console.error('Failed to load hub data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [repo]);
+
+  // Load on mount
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Filter items
+  const filteredItems = items.filter((item) => {
+    // Apply type filter
+    if (activeFilter !== 'all') {
+      if (activeFilter === 'habits' && item.type !== 'habit') return false;
+      if (activeFilter === 'todos' && item.type !== 'todo') return false;
+      if (activeFilter === 'notes' && item.type !== 'note') return false;
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      const titleMatch = item.title?.toLowerCase().includes(query) || false;
+      const bodyMatch =
+        item.type === 'note' && item.body ? item.body.toLowerCase().includes(query) : false;
+      return titleMatch || bodyMatch;
+    }
+
+    return true;
+  });
+
+  // Recent items (top 10)
+  const recentItems = filteredItems.slice(0, 10);
+
+  // Items in sorting tray (AI-placed items)
+  const sortingTrayItems = items.filter((item) => item.ai_placed);
+
+  // Empty state
+  const isEmpty = items.length === 0;
+
+  // Navigate to item (placeholder)
+  const handleItemPress = (item: AppRecord) => {
+    console.log('Item pressed:', item.id, item.type);
+    // TODO: Navigate to detail screen based on type
+  };
+
+  // Navigate to space
+  const handleSpacePress = (space: Space) => {
+    console.log('Space pressed:', space.id);
+    // TODO: Navigate to space detail
+    // navigation.navigate('SpaceDetail', { id: space.id });
+  };
+
+  return (
+    <Screen title="Hub" scroll padded testID="hub-screen">
+      <Box gap={3}>
+        {/* Search and Filter Row */}
+        <Box gap={2}>
+          <Input
+            placeholder="Search the Hub…"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            testID="hub-search"
+          />
+
+          <Box row gap={2} style={{ flexWrap: 'wrap' }}>
+            <Chip
+              label="All"
+              selected={activeFilter === 'all'}
+              onPress={() => setActiveFilter('all')}
+              testID="hub-filter-all"
+            />
+            <Chip
+              label="Habits"
+              selected={activeFilter === 'habits'}
+              onPress={() => setActiveFilter('habits')}
+              testID="hub-filter-habits"
+            />
+            <Chip
+              label="To-Dos"
+              selected={activeFilter === 'todos'}
+              onPress={() => setActiveFilter('todos')}
+              testID="hub-filter-todos"
+            />
+            <Chip
+              label="Notes"
+              selected={activeFilter === 'notes'}
+              onPress={() => setActiveFilter('notes')}
+              testID="hub-filter-notes"
+            />
+          </Box>
+        </Box>
+
+        {/* Loading state */}
+        {loading && !items.length && (
+          <Box p={4}>
+            <Text variant="body" style={{ textAlign: 'center' }}>
+              Loading...
+            </Text>
+          </Box>
+        )}
+
+        {/* Empty state */}
+        {isEmpty && !loading && (
+          <Card>
+            <Box p={4} gap={3} style={{ alignItems: 'center' }}>
+              <Text variant="title" style={{ textAlign: 'center' }}>
+                Nothing here yet
+              </Text>
+              <Text variant="body" style={{ textAlign: 'center' }}>
+                Try adding something from Today or Spaces.
+              </Text>
+              <Button
+                title="Open Manual Add"
+                onPress={() => openManualAdd()}
+                testID="hub-empty-add"
+              />
+            </Box>
+          </Card>
+        )}
+
+        {/* Recent Activity Section */}
+        {!isEmpty && recentItems.length > 0 && (
+          <Box gap={2}>
+            <Text variant="title">
+              Recent {activeFilter !== 'all' && `(${filteredItems.length})`}
+            </Text>
+            {recentItems.map((item) => (
+              <ListItem
+                key={item.id}
+                title={item.title || 'Untitled'}
+                subtitle={`${item.type} • ${new Date(item.updated_at || item.created_at).toLocaleDateString()}`}
+                onPress={() => handleItemPress(item)}
+                testID={`hub-recent-${item.id}`}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* Spaces Overview Section */}
+        {spaces.length > 0 && (
+          <Box gap={2}>
+            <Text variant="title">Spaces ({spaces.length})</Text>
+            {spaces.map((space) => (
+              <ListItem
+                key={space.id}
+                title={space.name}
+                subtitle="Space"
+                onPress={() => handleSpacePress(space)}
+                testID={`hub-space-${space.id}`}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* Sorting Tray Section (AI-placed items) */}
+        {sortingTrayItems.length > 0 && (
+          <Box gap={2}>
+            <Text variant="title">Sorting Tray ({sortingTrayItems.length})</Text>
+            <Text variant="body">Items needing your attention</Text>
+            {sortingTrayItems.map((item) => (
+              <ListItem
+                key={item.id}
+                title={item.title || 'Untitled'}
+                subtitle={`${item.type} • AI placed`}
+                onPress={() => handleItemPress(item)}
+                testID={`hub-tray-${item.id}`}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* Quick Add Button */}
+        {!isEmpty && (
+          <Box mt={3}>
+            <Button
+              title="Add More"
+              variant="neutral"
+              onPress={() => openManualAdd()}
+              testID="hub-add-more"
+            />
+          </Box>
+        )}
+      </Box>
     </Screen>
   );
 }
