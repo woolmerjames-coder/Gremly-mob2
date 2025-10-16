@@ -37,31 +37,12 @@ export default function SpacesScreen() {
     </Box>
   ) : null;
 
-  // Load spaces
-  const load = useCallback(async () => {
-    // Skip if not authenticated
-    if (!user) {
-      setError('Please sign in to view your spaces');
-      return;
-    }
-
-    setError(null);
-    try {
-      setSpaces(await repo.listSpaces());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load spaces';
-      console.error('Failed to load spaces:', err);
-      setError(message);
-    }
-  }, [repo, user]);
-
-  // Load on mount
+  // Load on mount and when dependencies change
   useEffect(() => {
     let mounted = true;
     const loadData = async () => {
-      // Skip if not authenticated
+      // Skip if not authenticated - don't set error to avoid infinite loop
       if (!user) {
-        setError('Please sign in to view your spaces');
         return;
       }
 
@@ -79,14 +60,7 @@ export default function SpacesScreen() {
     return () => {
       mounted = false;
     };
-  }, [repo]);
-
-  // Reload on focus
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
+  }, [repo, user]);
 
   // Navigate to create
   const onCreateSpace = useCallback(() => {
@@ -113,12 +87,12 @@ export default function SpacesScreen() {
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
               <Text variant="title" style={{ textAlign: 'center' }}>
-                Authentication Required
+                Error
               </Text>
               <Text variant="body" style={{ textAlign: 'center', color: theme.colors.error }}>
                 {error}
               </Text>
-              {__DEV__ && (
+              {__DEV__ && !user && (
                 <Button
                   title="Open Dev Login"
                   onPress={() => navigation.navigate('DevLogin')}

@@ -9,6 +9,17 @@ import React from 'react';
 import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import SpacesScreen from '../screens2/Spaces';
 
+// Mock the auth provider to return an authenticated user
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user-id', email: 'test@example.com' },
+    userId: 'test-user-id',
+    loading: false,
+    signInWithEmail: jest.fn(),
+    signOut: jest.fn(),
+  }),
+}));
+
 // Mock the repo to return controlled test data
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
