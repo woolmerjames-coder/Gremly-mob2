@@ -11,13 +11,15 @@ import { Box, Text } from '../ui';
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
     <ActionSheet id={sheetId}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Hello from a Global Sheet</Text>
-        <Text style={styles.description}>This will host Manual Add and Reviews later.</Text>
+      <Box p={4} bg="surface">
+        <Text variant="title">Hello from a Global Sheet</Text>
+        <Text variant="body" style={{ marginBottom: 16 }}>
+          This will host Manual Add and Reviews later.
+        </Text>
         <Pressable style={styles.button} onPress={() => SheetManager.hide('demo-sheet')}>
           <Text style={styles.buttonText}>Close</Text>
         </Pressable>
-      </View>
+      </Box>
     </ActionSheet>
   );
 });
@@ -40,9 +42,9 @@ registerSheet('ds-preview-sheet', ({ sheetId }) => {
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
       >
-        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <Box px={4} pt={3}>
           <DSPreview />
-        </View>
+        </Box>
       </ScrollView>
     </ActionSheet>
   );
@@ -89,9 +91,18 @@ export const OverlayHost = () => {
       {/* DEV-ONLY: Floating debug button to access dev tools */}
       {__DEV__ && (
         <Pressable
-          className="absolute bottom-6 right-6 w-12 h-12 rounded-full items-center justify-center bg-black/60 active:bg-black/80"
+          testID="dev-button"
           onPress={() => navigation.navigate('DevLogin')}
           style={{
+            position: 'absolute',
+            bottom: 24,
+            right: 24,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            alignItems: 'center',
+            justifyContent: 'center',
             elevation: 5,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
@@ -99,7 +110,9 @@ export const OverlayHost = () => {
             shadowRadius: 4,
           }}
         >
-          <Text className="text-white text-xs font-bold">DEV</Text>
+          <Text variant="label" style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>
+            DEV
+          </Text>
         </Pressable>
       )}
     </>

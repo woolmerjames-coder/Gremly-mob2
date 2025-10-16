@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text } from 'react-native';
 import MascotIcon from './MascotIcon';
+import { Box, Text } from '../ui';
+import { Card } from '../design-system';
+import { useTokens } from '../design/makeStyles';
 
 /**
  * JournalInspiration Component
@@ -21,6 +23,7 @@ const PROMPTS = [
 
 export default function JournalInspiration() {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const tokens = useTokens();
 
   useEffect(() => {
     // Rotate prompts every 6 seconds
@@ -32,18 +35,34 @@ export default function JournalInspiration() {
   }, []);
 
   return (
-    <View
-      className="rounded-2xl border border-gray-300 bg-white/50 p-3 flex-row items-center gap-3 mt-4"
+    <Card
+      testID="journal-inspiration"
+      variant="outlined"
+      style={{
+        marginTop: tokens.spacing[4],
+        backgroundColor: 'rgba(255, 255, 255, 0.5)',
+      }}
       accessibilityRole="text"
       accessibilityLabel={`Journal inspiration: ${PROMPTS[currentIndex]}`}
     >
-      {/* Mascot icon - static for reduced motion */}
-      <View className="shrink-0">
-        <MascotIcon pose="celebrate" size={32} />
-      </View>
+      <Box row center gap={3}>
+        {/* Mascot icon - static for reduced motion */}
+        <Box style={{ flexShrink: 0 }}>
+          <MascotIcon pose="celebrate" size={32} />
+        </Box>
 
-      {/* Rotating prompt text */}
-      <Text className="text-sm text-gray-700 flex-1 italic">{PROMPTS[currentIndex]}</Text>
-    </View>
+        {/* Rotating prompt text */}
+        <Text
+          variant="body"
+          style={{
+            flex: 1,
+            fontStyle: 'italic',
+            color: tokens.colors.subtle,
+          }}
+        >
+          {PROMPTS[currentIndex]}
+        </Text>
+      </Box>
+    </Card>
   );
 }

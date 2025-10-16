@@ -1,18 +1,12 @@
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
 import type { Space } from '../lib/types';
+import { Box, Text, Input, Button, Chip } from '../ui';
+import { useTokens } from '../design/makeStyles';
 
 // Store callback in module scope (simpler than fighting with payload types)
 let onCreatedCallback: ((space: Space) => void) | null = null;
@@ -67,101 +61,107 @@ export default function NewSpaceModal() {
     }
   }
 
+  const tokens = useTokens();
+
   return (
     <ActionSheet
       id="new-space"
+      testID="new-space-overlay"
       gestureEnabled
       backgroundInteractionEnabled={false}
       containerStyle={{
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         height: '85%',
-        backgroundColor: '#FFF7EA', // cream background
+        backgroundColor: tokens.colors.bg,
       }}
-      indicatorStyle={{ backgroundColor: '#E5E5E5', width: 72, height: 5, borderRadius: 3 }}
+      indicatorStyle={{
+        backgroundColor: tokens.colors.border,
+        width: 72,
+        height: 5,
+        borderRadius: 3,
+      }}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
         {/* IMPORTANT: parent must be relative + full height so footer can stick to bottom */}
-        <View style={{ flex: 1, position: 'relative', backgroundColor: 'transparent' }}>
+        <Box style={{ flex: 1, position: 'relative', backgroundColor: 'transparent' }}>
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{
-              padding: 16,
-              paddingBottom: (insets.bottom || 16) + 120,
+              padding: tokens.spacing[4],
+              paddingBottom: (insets.bottom || tokens.spacing[4]) + 120,
               backgroundColor: 'transparent',
             }}
             keyboardShouldPersistTaps="handled"
           >
-            <Text className="text-lg font-semibold mb-3">New Space</Text>
+            <Text variant="title" style={{ marginBottom: tokens.spacing[3] }}>
+              New Space
+            </Text>
 
-            <Text className="text-sm mb-1">Name</Text>
-            <TextInput
-              accessibilityLabel="Space name"
+            <Input
+              label="Name"
+              testID="space-name"
               value={name}
               onChangeText={setName}
               placeholder="e.g., Fitness"
-              className="border border-gray-300 rounded-2xl px-3 py-3 mb-3 bg-white"
-              style={{ minHeight: 44 }}
             />
 
-            <Text className="text-sm mb-1">Icon (optional)</Text>
-            <TextInput
-              accessibilityLabel="Space icon"
+            <Input
+              label="Icon (optional)"
+              testID="space-icon"
               value={icon}
               onChangeText={setIcon}
               placeholder="e.g., 🏋️"
-              className="border border-gray-300 rounded-2xl px-3 py-3 mb-3 bg-white"
-              style={{ minHeight: 44 }}
             />
 
-            <Text className="text-sm mb-1">Theme</Text>
-            <View className="flex-row gap-2 mb-4">
-              {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
-                <Pressable
-                  key={t}
-                  accessibilityRole="button"
-                  onPress={() => setTheme(t)}
-                  className={`px-3 py-2 rounded-2xl border ${
-                    theme === t ? 'border-black bg-gray-100' : 'border-gray-300 bg-white'
-                  }`}
-                >
-                  <Text className="capitalize">{t}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Box mb={1}>
+              <Text variant="label" style={{ marginBottom: tokens.spacing[2] }}>
+                Theme
+              </Text>
+              <Box row gap={2}>
+                {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
+                  <Chip
+                    key={t}
+                    testID={`theme-${t}`}
+                    label={t.charAt(0).toUpperCase() + t.slice(1)}
+                    selected={theme === t}
+                    onPress={() => setTheme(t)}
+                  />
+                ))}
+              </Box>
+            </Box>
 
-            {error ? <Text className="text-red-600 mb-3">{error}</Text> : null}
+            {error ? (
+              <Text
+                variant="body"
+                style={{ color: tokens.colors.danger, marginBottom: tokens.spacing[3] }}
+              >
+                {error}
+              </Text>
+            ) : null}
           </ScrollView>
 
           {/* Sticky footer button — ALWAYS visible at bottom */}
-          <View
+          <Box
             style={{
               position: 'absolute',
-              left: 16,
-              right: 16,
-              bottom: (insets.bottom || 16) + 16,
+              left: tokens.spacing[4],
+              right: tokens.spacing[4],
+              bottom: (insets.bottom || tokens.spacing[4]) + tokens.spacing[4],
             }}
           >
-            <Pressable
-              testID="create-space"
-              accessibilityRole="button"
-              accessibilityLabel="Create Space"
-              disabled={!canCreate}
+            <Button
+              testID="new-space-submit"
+              variant={canCreate ? 'primary' : 'neutral'}
+              title={saving ? 'Saving...' : 'Create Space'}
               onPress={onSave}
-              className={`${
-                canCreate ? 'bg-deepTeal' : 'bg-gray-300'
-              } rounded-2xl py-3 items-center`}
-              style={{ minHeight: 48 }}
-            >
-              <Text className="text-white font-semibold text-lg">
-                {saving ? 'Saving...' : 'Create Space'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
+              disabled={!canCreate}
+            />
+          </Box>
+        </Box>
       </KeyboardAvoidingView>
     </ActionSheet>
   );

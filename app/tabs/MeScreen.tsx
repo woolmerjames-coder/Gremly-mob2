@@ -1,12 +1,9 @@
-import { Text } from 'react-native';
-import { Screen } from '../../ui';
+import { Screen, Text } from '../../ui';
 
 export default function MeScreen() {
   return (
     <Screen title="Me" scroll testID="screen-me">
-      <Text className="text-base text-text-primary">
-        Streaks & Wins, Progress %, Mood check + mini journal.
-      </Text>
+      <Text variant="body">Streaks & Wins, Progress %, Mood check + mini journal.</Text>
     </Screen>
   );
 }
