@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useRepo } from '../providers/RepoProvider';
+import { useAuth } from '../providers/AuthProvider';
 import { Screen, Box, Text, Button, Input } from '../ui';
 import { Card } from '../design-system/Card';
 import { ListItem } from '../design-system/ListItem';
@@ -15,6 +16,7 @@ import type { RootStackParamList } from '../navigation/RootNavigator';
 
 export default function SpacesScreen() {
   const repo = useRepo();
+  const { user } = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // State
@@ -22,6 +24,7 @@ export default function SpacesScreen() {
     [],
   );
   const [q, setQ] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -34,22 +37,40 @@ export default function SpacesScreen() {
 
   // Load spaces
   const load = useCallback(async () => {
+    // Skip if not authenticated
+    if (!user) {
+      setError('Please sign in to view your spaces');
+      return;
+    }
+
+    setError(null);
     try {
       setSpaces(await repo.listSpaces());
-    } catch (error) {
-      console.error('Failed to load spaces:', error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load spaces';
+      console.error('Failed to load spaces:', err);
+      setError(message);
     }
-  }, [repo]);
+  }, [repo, user]);
 
   // Load on mount
   useEffect(() => {
     let mounted = true;
     const loadData = async () => {
+      // Skip if not authenticated
+      if (!user) {
+        setError('Please sign in to view your spaces');
+        return;
+      }
+
+      setError(null);
       try {
         const data = await repo.listSpaces();
         if (mounted) setSpaces(data);
-      } catch (error) {
-        console.error('Failed to load spaces:', error);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load spaces';
+        console.error('Failed to load spaces:', err);
+        if (mounted) setError(message);
       }
     };
     void loadData();
@@ -85,24 +106,49 @@ export default function SpacesScreen() {
     <Screen title="Spaces" padded scroll testID="spaces-screen">
       {dsMarker}
       <Box gap={3}>
+        {/* Error state */}
+        {error && (
+          <Card>
+            <Box p={4} gap={3} style={{ alignItems: 'center' }}>
+              <Text variant="title" style={{ textAlign: 'center' }}>
+                Authentication Required
+              </Text>
+              <Text variant="body" style={{ textAlign: 'center', color: '#DC2626' }}>
+                {error}
+              </Text>
+              {__DEV__ && (
+                <Button
+                  title="Open Dev Login"
+                  onPress={() => navigation.navigate('DevLogin')}
+                  testID="dev-login-cta"
+                />
+              )}
+            </Box>
+          </Card>
+        )}
+
         {/* Header row */}
-        <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text variant="subtle">{spaceCountLabel}</Text>
-          <Button title="New Space" onPress={onCreateSpace} testID="spaces-new" />
-        </Box>
+        {!error && (
+          <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text variant="subtle">{spaceCountLabel}</Text>
+            <Button title="New Space" onPress={onCreateSpace} testID="spaces-new" />
+          </Box>
+        )}
 
         {/* Search */}
-        <Box>
-          <Input
-            testID="spaces-search"
-            placeholder="Search spaces…"
-            value={q}
-            onChangeText={setQ}
-          />
-        </Box>
+        {!error && (
+          <Box>
+            <Input
+              testID="spaces-search"
+              placeholder="Search spaces…"
+              value={q}
+              onChangeText={setQ}
+            />
+          </Box>
+        )}
 
         {/* List or Empty State */}
-        {isEmpty ? (
+        {isEmpty && !error ? (
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
               <MascotIcon pose="neutral" size={96} />

@@ -8,6 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import { Screen, Box, Text, Button, Input } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
@@ -23,11 +24,13 @@ export default function HubScreen() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const navigation = useNavigation<NavigationProp>();
   const repo = useRepo();
+  const { user } = useAuth();
 
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
@@ -42,7 +45,14 @@ export default function HubScreen() {
 
   // Load data
   const load = useCallback(async () => {
+    // Skip if not authenticated
+    if (!user) {
+      setError('Please sign in to view your items');
+      return;
+    }
+
     setLoading(true);
+    setError(null);
     try {
       // Load all items and spaces
       const [allHabits, allTodos, allNotes, allSpaces] = await Promise.all([
@@ -63,12 +73,14 @@ export default function HubScreen() {
 
       setItems(allItems);
       setSpaces(allSpaces);
-    } catch (error) {
-      console.error('Failed to load hub data:', error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load hub data';
+      console.error('Failed to load hub data:', err);
+      setError(message);
     } finally {
       setLoading(false);
     }
-  }, [repo]);
+  }, [repo, user]);
 
   // Load on mount
   useEffect(() => {
@@ -122,16 +134,39 @@ export default function HubScreen() {
     <Screen title="Hub" scroll padded testID="hub-screen">
       {dsMarker}
       <Box gap={3}>
+        {/* Error state */}
+        {error && (
+          <Card>
+            <Box p={4} gap={3} style={{ alignItems: 'center' }}>
+              <Text variant="title" style={{ textAlign: 'center' }}>
+                Authentication Required
+              </Text>
+              <Text variant="body" style={{ textAlign: 'center', color: '#DC2626' }}>
+                {error}
+              </Text>
+              {__DEV__ && (
+                <Button
+                  title="Open Dev Login"
+                  onPress={() => navigation.navigate('DevLogin')}
+                  testID="dev-login-cta"
+                />
+              )}
+            </Box>
+          </Card>
+        )}
+
         {/* Search Input */}
-        <Input
-          testID="hub-search"
-          placeholder="Search everything..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
+        {!error && (
+          <Input
+            testID="hub-search"
+            placeholder="Search everything..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        )}
 
         {/* Loading state */}
-        {loading && !items.length && (
+        {loading && !items.length && !error && (
           <Box p={4}>
             <Text variant="body" style={{ textAlign: 'center' }}>
               Loading...
@@ -140,7 +175,7 @@ export default function HubScreen() {
         )}
 
         {/* Empty state */}
-        {isEmpty && !loading && (
+        {isEmpty && !loading && !error && (
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
               <Text variant="title" style={{ textAlign: 'center' }}>
