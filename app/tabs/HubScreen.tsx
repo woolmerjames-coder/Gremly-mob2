@@ -13,7 +13,6 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button, Input } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { Chip } from '../../ui/Chip';
 import { openManualAdd } from '../../components/ManualAddSheet';
 import type { AppRecord, Space } from '../../lib/types';
 
@@ -34,7 +33,7 @@ export default function HubScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [activeFilter] = useState<FilterType>('all'); // TODO: Add filter chip UI
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
