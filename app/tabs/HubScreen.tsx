@@ -31,6 +31,15 @@ export default function HubScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
+  // DEV: DS marker for QA
+  const dsMarker = __DEV__ ? (
+    <Box style={{ position: 'absolute', top: 8, right: 8, opacity: 0.5, zIndex: 10 }}>
+      <Text testID="ds-marker" variant="subtle" style={{ fontSize: 10 }}>
+        DS
+      </Text>
+    </Box>
+  ) : null;
+
   // Load data
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,43 +120,15 @@ export default function HubScreen() {
 
   return (
     <Screen title="Hub" scroll padded testID="hub-screen">
+      {dsMarker}
       <Box gap={3}>
-        {/* Search and Filter Row */}
-        <Box gap={2}>
-          <Input
-            placeholder="Search the Hub…"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            testID="hub-search"
-          />
-
-          <Box row gap={2} style={{ flexWrap: 'wrap' }}>
-            <Chip
-              label="All"
-              selected={activeFilter === 'all'}
-              onPress={() => setActiveFilter('all')}
-              testID="hub-filter-all"
-            />
-            <Chip
-              label="Habits"
-              selected={activeFilter === 'habits'}
-              onPress={() => setActiveFilter('habits')}
-              testID="hub-filter-habits"
-            />
-            <Chip
-              label="To-Dos"
-              selected={activeFilter === 'todos'}
-              onPress={() => setActiveFilter('todos')}
-              testID="hub-filter-todos"
-            />
-            <Chip
-              label="Notes"
-              selected={activeFilter === 'notes'}
-              onPress={() => setActiveFilter('notes')}
-              testID="hub-filter-notes"
-            />
-          </Box>
-        </Box>
+        {/* Search Input */}
+        <Input
+          testID="hub-search"
+          placeholder="Search everything..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
 
         {/* Loading state */}
         {loading && !items.length && (

@@ -84,6 +84,7 @@ export const OverlayHost = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // Render the NewSpaceModal and ManualAddSheet components to make them available globally
+  // Note: Both are already DS-migrated (C6), no legacy versions to conditionally load
   return (
     <>
       <NewSpaceModal />

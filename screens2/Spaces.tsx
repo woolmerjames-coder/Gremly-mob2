@@ -26,6 +26,15 @@ export default function SpacesScreen() {
   );
   const [q, setQ] = useState('');
 
+  // DEV: DS marker for QA
+  const dsMarker = __DEV__ ? (
+    <Box style={{ position: 'absolute', top: 8, right: 8, opacity: 0.5, zIndex: 10 }}>
+      <Text testID="ds-marker" variant="subtle" style={{ fontSize: 10 }}>
+        DS
+      </Text>
+    </Box>
+  ) : null;
+
   // Load spaces
   const load = useCallback(async () => {
     try {
@@ -77,6 +86,7 @@ export default function SpacesScreen() {
 
   return (
     <Screen title="Spaces" padded scroll testID="spaces-screen">
+      {dsMarker}
       <Box gap={3}>
         {/* Header row */}
         <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>

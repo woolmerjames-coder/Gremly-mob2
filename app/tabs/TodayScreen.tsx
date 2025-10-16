@@ -25,6 +25,15 @@ export default function TodayScreen() {
   const [items, setItems] = useState<AppRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // DEV: DS marker for QA
+  const dsMarker = __DEV__ ? (
+    <Box style={{ position: 'absolute', top: 8, right: 8, opacity: 0.5 }}>
+      <Text testID="ds-marker" variant="subtle" style={{ fontSize: 10 }}>
+        DS
+      </Text>
+    </Box>
+  ) : null;
+
   // Load due today items
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,6 +78,7 @@ export default function TodayScreen() {
 
   return (
     <Screen title="Today" scroll padded testID="today-screen">
+      {dsMarker}
       <Box gap={3}>
         {/* Loading state */}
         {loading && !items.length && (

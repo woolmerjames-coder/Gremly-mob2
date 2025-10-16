@@ -12,6 +12,7 @@ import { ThemeProvider } from './providers/ThemeProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { RepoProvider } from './providers/RepoProvider';
 import { CortexProvider } from './providers/CortexProvider';
+import { DsToggleProvider } from './providers/DsToggleProvider';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
@@ -49,18 +50,20 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <SheetProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <RepoProvider>
-                <CortexProvider>
-                  <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-                    <RootNavigator />
-                    <OverlayHost />
-                  </NavigationContainer>
-                </CortexProvider>
-              </RepoProvider>
-            </AuthProvider>
-          </ThemeProvider>
+          <DsToggleProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <RepoProvider>
+                  <CortexProvider>
+                    <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+                      <RootNavigator />
+                      <OverlayHost />
+                    </NavigationContainer>
+                  </CortexProvider>
+                </RepoProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </DsToggleProvider>
         </SheetProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -10,14 +10,30 @@
  * This screen is only accessible in development builds via the floating debug button.
  */
 
+/**
+ * DEV-ONLY: Development Login & Supabase Smoke Test
+ *
+ * This screen allows developers to:
+ * - Test email/password authentication
+ * - Test magic link authentication
+ * - Create test records to verify Supabase integration
+ * - Check current auth state
+ * - Toggle DS UI feature flag override
+ *
+ * This screen is only accessible in development builds via the floating debug button.
+ */
+
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
+import { useDsToggle } from '../../providers/DsToggleProvider';
+import { FLAGS } from '../../config/flags';
 
 export default function DevLogin() {
   const { user, userId, loading, signInWithEmail, signOut } = useAuth();
   const repo = useRepo();
+  const { useDs, useDsOverride, toggleDsOverride } = useDsToggle();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -124,6 +140,35 @@ export default function DevLogin() {
           <Text className="text-2xl font-bold text-[#0F4C5C] mb-2">🔧 Dev Login & Smoke Test</Text>
           <Text className="text-sm text-gray-600">
             Development-only screen for testing Supabase auth and repo integration
+          </Text>
+        </View>
+
+        {/* DS UI Toggle */}
+        <View className="bg-white rounded-2xl p-4 mb-4 border border-gray-200">
+          <Text className="text-sm font-semibold text-[#0F4C5C] mb-2">🎨 DS UI Feature Flag</Text>
+          <View className="mb-2">
+            <Text className="text-xs text-gray-600 mb-1">
+              Flag (config/flags.ts):{' '}
+              <Text className="font-mono">{FLAGS.USE_DS_UI ? 'ON' : 'OFF'}</Text>
+            </Text>
+            <Text className="text-xs text-gray-600 mb-1">
+              Runtime Override: <Text className="font-mono">{useDsOverride ? 'ON' : 'OFF'}</Text>
+            </Text>
+            <Text className="text-xs text-gray-600">
+              Effective:{' '}
+              <Text className="font-mono font-bold">{useDs ? 'DS UI' : 'Legacy UI'}</Text>
+            </Text>
+          </View>
+          <Pressable
+            className="bg-[#0F4C5C] rounded-2xl py-3 px-4 items-center"
+            onPress={toggleDsOverride}
+          >
+            <Text className="text-white text-sm font-semibold">
+              {useDsOverride ? '🔴 Disable DS Override' : '🟢 Enable DS Override'}
+            </Text>
+          </Pressable>
+          <Text className="text-xs text-gray-500 mt-2">
+            ⚠️ Note: Requires app reload to take effect due to require() caching
           </Text>
         </View>
 
