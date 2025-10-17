@@ -1,18 +1,22 @@
 /**
- * Design tokens for the Gremly design system.
- * Provides role-based colors, spacing, radius, and typography scales.
+ * Design tokens for the Gremly design system - Updated with brand colors
  */
+
+export type Tokens = typeof lightTokens;
 
 export const lightTokens = {
   colors: {
-    bg: '#FFFFFF',
-    surface: '#F8F9FB',
+    bg: '#FFFDF8',
+    surface: '#FFFFFF',
     text: '#0E1116',
     subtle: '#6A6F76',
     primary: '#0D3B3A',
+    onPrimary: '#FFFFFF',
+    accentMint: '#A5F3C1',
+    accentPeri: '#AEB8FF',
     success: '#34C759',
     danger: '#E25555',
-    border: '#DADDE3',
+    border: '#E7E2D9',
     card: '#FFFFFF',
   },
   spacing: [0, 4, 8, 12, 16, 20, 24, 32] as const,
@@ -50,20 +54,20 @@ export const lightTokens = {
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.05,
-      shadowRadius: 2,
+      shadowRadius: 4,
       elevation: 1,
     },
     md: {
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
       elevation: 2,
     },
     lg: {
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.15,
+      shadowOpacity: 0.1,
       shadowRadius: 8,
       elevation: 3,
     },
@@ -78,80 +82,61 @@ export const lightTokens = {
 
 export const darkTokens = {
   colors: {
-    bg: '#0B0E13',
-    surface: '#11151C',
-    text: '#EAF0F7',
-    subtle: '#6A6F76',
-    primary: '#8EE3D2',
+    bg: '#0C1110',
+    surface: '#121716',
+    text: '#F8FAF9',
+    subtle: '#9BA4A9',
+    primary: '#A5F3C1',
+    onPrimary: '#0C1110',
+    accentMint: '#A5F3C1',
+    accentPeri: '#AEB8FF',
     success: '#34C759',
     danger: '#E25555',
-    border: '#DADDE3',
-    card: '#11151C',
+    border: '#23302E',
+    card: '#161B1A',
   },
-  spacing: [0, 4, 8, 12, 16, 20, 24, 32] as const,
-  radius: [0, 6, 12, 16, 20] as const,
-  typography: {
-    fontFamily: {
-      regular: 'System',
-      medium: 'System',
-      bold: 'System',
-    },
-    size: {
-      xs: 12,
-      sm: 14,
-      md: 16,
-      lg: 20,
-      xl: 24,
-      '2xl': 32,
-    },
-    lineHeight: {
-      tight: 1.1,
-      snug: 1.25,
-      normal: 1.4,
-      relaxed: 1.6,
-    },
+  spacing: lightTokens.spacing,
+  radius: lightTokens.radius,
+  typography: lightTokens.typography,
+  elevation: lightTokens.elevation,
+  blur: lightTokens.blur,
+} as const;
+
+// Legacy exports for backward compatibility
+export const colors = {
+  deepTeal: {
+    DEFAULT: '#0A2F2E',
+    600: '#0D3B3A',
+    700: '#0B3332',
+    900: '#072524',
   },
-  elevation: {
-    none: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0,
-      shadowRadius: 0,
-      elevation: 0,
-    },
-    sm: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.2,
-      shadowRadius: 2,
-      elevation: 1,
-    },
-    md: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 4,
-      elevation: 2,
-    },
-    lg: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.4,
-      shadowRadius: 8,
-      elevation: 3,
-    },
+  mint: '#B7F7E1',
+  cream: '#FFF9F0',
+  periwinkle: '#C9D4FF',
+  bg: {
+    DEFAULT: '#FFFDF8',
+    secondary: '#FFF4E6',
   },
-  blur: {
-    none: 0,
-    sm: 10,
-    md: 20,
-    lg: 40,
+  text: {
+    primary: '#1A1A1A',
+    secondary: '#4B5563',
+    tertiary: '#9CA3AF',
+  },
+  border: {
+    DEFAULT: '#E7E2D9',
+    light: '#F3F4F6',
+    focus: '#0D3B3A',
+  },
+  white: '#FFFFFF',
+  black: '#000000',
+  status: {
+    success: '#10B981',
+    warning: '#F59E0B',
+    error: '#EF4444',
+    info: '#3B82F6',
   },
 } as const;
 
-export type Tokens = typeof lightTokens;
-
-// Legacy exports for backward compatibility
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -189,46 +174,4 @@ export const fontWeight = {
   medium: '500' as const,
   semibold: '600' as const,
   bold: '700' as const,
-} as const;
-
-export const colors = {
-  deepTeal: {
-    DEFAULT: '#0A2F2E', // Deeper, richer teal
-    600: '#0D3B3A',
-    700: '#0B3332',
-    900: '#072524',
-  },
-  mint: '#B7F7E1',
-  cream: '#FFF9F0', // Warmer cream with slight yellow tint
-  periwinkle: '#C9D4FF',
-  bg: {
-    DEFAULT: '#FFF9F0', // Match warmer cream
-    secondary: '#FFF4E6',
-  },
-  text: {
-    primary: '#1A1A1A',
-    secondary: '#4B5563',
-    tertiary: '#9CA3AF',
-  },
-  border: {
-    DEFAULT: '#E5E5E5',
-    focus: '#0A2F2E', // Match deeper teal
-  },
-  white: '#FFFFFF',
-  black: '#000000',
-  error: '#DC2626',
-  success: '#10B981',
-  warning: '#F59E0B',
-  gray: {
-    50: '#F9FAFB',
-    100: '#F3F4F6',
-    200: '#E5E7EB',
-    300: '#D1D5DB',
-    400: '#9CA3AF',
-    500: '#6B7280',
-    600: '#4B5563',
-    700: '#374151',
-    800: '#1F2937',
-    900: '#111827',
-  },
 } as const;
