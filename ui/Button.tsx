@@ -37,6 +37,9 @@ export interface ButtonProps {
 
   /** Test ID */
   testID?: string;
+
+  /** Accessibility label */
+  accessibilityLabel?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -48,6 +51,7 @@ export const Button: React.FC<ButtonProps> = ({
   iconLeft,
   iconRight,
   testID,
+  accessibilityLabel,
 }) => {
   const t = useTokens();
 
@@ -96,6 +100,9 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <Pressable
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
       style={({ pressed }) => [buttonStyle, pressed && !disabled && { opacity: 0.85 }]}
       onPress={onPress}
       disabled={disabled}

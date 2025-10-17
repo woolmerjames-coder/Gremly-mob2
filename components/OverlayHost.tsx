@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
 import { Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -5,8 +6,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-import { Box, Text } from '../ui';
+import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
+import { useRepo } from '../providers/RepoProvider';
+import type { AppRecord, Space } from '../lib/types';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -22,6 +25,15 @@ registerSheet('demo-sheet', ({ sheetId }) => {
       </Box>
     </ActionSheet>
   );
+});
+
+type MoveItemPayload = {
+  itemId: string;
+  itemType: AppRecord['type'];
+};
+
+registerSheet('move-item', ({ payload, sheetId }) => {
+  return <MoveItemSheet payload={payload as MoveItemPayload | undefined} sheetId={sheetId} />;
 });
 
 // DEV-ONLY: Design System Preview Sheet (fallback)
@@ -78,6 +90,70 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+type MoveItemSheetProps = {
+  payload?: MoveItemPayload;
+  sheetId: string;
+};
+
+const MoveItemSheet = ({ payload, sheetId }: MoveItemSheetProps) => {
+  const repo = useRepo();
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const itemId = payload?.itemId;
+  const itemType = payload?.itemType;
+
+  useEffect(() => {
+    let isMounted = true;
+    repo
+      .listSpaces()
+      .then((result) => {
+        if (isMounted) setSpaces(result);
+      })
+      .catch((err) => {
+        console.error('[MoveItemSheet] Failed to load spaces', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [repo]);
+
+  const moveTo = async (spaceId: string) => {
+    if (!itemId || !itemType) return;
+    try {
+      await repo.update({ id: itemId, patch: { space_id: spaceId, ai_placed: false } });
+      await SheetManager.hide(sheetId);
+      console.log('[MoveItem] Moved item', itemId, 'to', spaceId);
+    } catch (err) {
+      console.error('[MoveItemSheet] Move failed', err);
+    }
+  };
+
+  return (
+    <ActionSheet id={sheetId} gestureEnabled>
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <Text variant="title">Move to Space</Text>
+        <Box gap={2} mt={2}>
+          {spaces.map((sp) => (
+            <Button
+              key={sp.id}
+              title={sp.name}
+              variant="neutral"
+              size="md"
+              onPress={() => moveTo(sp.id)}
+              accessibilityLabel={`Move item to ${sp.name}`}
+              testID={`move-space-${sp.id}`}
+            />
+          ))}
+          {spaces.length === 0 && (
+            <Text variant="body" style={{ marginTop: 8 }}>
+              No spaces available yet.
+            </Text>
+          )}
+        </Box>
+      </ScrollView>
+    </ActionSheet>
+  );
+};
 
 export const OverlayHost = () => {
   // Must call hooks before any conditional returns

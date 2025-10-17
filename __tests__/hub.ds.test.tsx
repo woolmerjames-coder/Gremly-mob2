@@ -6,8 +6,9 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
 import HubScreen from '../app/tabs/HubScreen';
+import { SheetManager } from 'react-native-actions-sheet';
 
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({
@@ -28,6 +29,9 @@ const mockDataStore = {
       type: 'habit',
       title: 'Morning Workout',
       frequency: 'daily',
+      space_id: null,
+      ai_placed: false,
+      why_string: null,
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-15T10:00:00Z',
     },
@@ -38,6 +42,11 @@ const mockDataStore = {
       type: 'todo',
       title: 'Submit report',
       due_date: '2025-01-20',
+      undefined_due: false,
+      space_id: null,
+      ai_placed: false,
+      why_string: null,
+      body: 'Submit the quarterly report',
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-15T09:00:00Z',
     },
@@ -47,38 +56,35 @@ const mockDataStore = {
     {
       id: 'space-1',
       name: 'Fitness',
+      owner_id: 'test-user-id',
+      icon: null,
+      theme: null,
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-01T00:00:00Z',
     },
     {
       id: 'space-2',
       name: 'Work',
+      owner_id: 'test-user-id',
+      icon: null,
+      theme: null,
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-01T00:00:00Z',
     },
   ] as any[],
 };
 
+const mockRepo = {
+  listByType: jest.fn(),
+  listSpaces: jest.fn(),
+  create: jest.fn(),
+  update: jest.fn(),
+  remove: jest.fn(),
+};
+
 // Mock the repo to return controlled test data
 jest.mock('../providers/RepoProvider', () => ({
-  useRepo: () => ({
-    listByType: jest.fn((type: string) => {
-      if (type === 'habit') {
-        return Promise.resolve([...mockDataStore.habitsData]);
-      }
-      if (type === 'todo') {
-        return Promise.resolve([...mockDataStore.todosData]);
-      }
-      if (type === 'note') {
-        return Promise.resolve([...mockDataStore.notesData]);
-      }
-      return Promise.resolve([]);
-    }),
-    listSpaces: jest.fn(() => Promise.resolve([...mockDataStore.spacesData])),
-    create: jest.fn(),
-    update: jest.fn(),
-    remove: jest.fn(),
-  }),
+  useRepo: () => mockRepo,
 }));
 
 describe('Hub DS Screen', () => {
@@ -91,6 +97,9 @@ describe('Hub DS Screen', () => {
         type: 'habit',
         title: 'Morning Workout',
         frequency: 'daily',
+        space_id: null,
+        ai_placed: false,
+        why_string: null,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-15T10:00:00Z',
       },
@@ -101,6 +110,11 @@ describe('Hub DS Screen', () => {
         type: 'todo',
         title: 'Submit report',
         due_date: '2025-01-20',
+        undefined_due: false,
+        space_id: null,
+        ai_placed: false,
+        why_string: null,
+        body: 'Submit the quarterly report',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-15T09:00:00Z',
       },
@@ -110,16 +124,37 @@ describe('Hub DS Screen', () => {
       {
         id: 'space-1',
         name: 'Fitness',
+        owner_id: 'test-user-id',
+        icon: null,
+        theme: null,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       },
       {
         id: 'space-2',
         name: 'Work',
+        owner_id: 'test-user-id',
+        icon: null,
+        theme: null,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       },
     ];
+
+    mockRepo.listByType.mockImplementation((type: string) => {
+      if (type === 'habit') {
+        return Promise.resolve([...mockDataStore.habitsData]);
+      }
+      if (type === 'todo') {
+        return Promise.resolve([...mockDataStore.todosData]);
+      }
+      if (type === 'note') {
+        return Promise.resolve([...mockDataStore.notesData]);
+      }
+      return Promise.resolve([]);
+    });
+    mockRepo.listSpaces.mockImplementation(() => Promise.resolve([...mockDataStore.spacesData]));
+    mockRepo.update.mockResolvedValue(null as any);
   });
 
   it('renders hub screen with correct testID', async () => {
@@ -130,21 +165,82 @@ describe('Hub DS Screen', () => {
     });
   });
 
-  it('displays search input with correct testID', async () => {
+  it('renders filter chips and search input', async () => {
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
+      expect(screen.getByTestId('hub-filter-all')).toBeTruthy();
+      expect(screen.getByTestId('hub-filter-habits')).toBeTruthy();
+      expect(screen.getByTestId('hub-filter-todos')).toBeTruthy();
+      expect(screen.getByTestId('hub-filter-journal')).toBeTruthy();
+      expect(screen.getByTestId('hub-filter-lists')).toBeTruthy();
       expect(screen.getByTestId('hub-search')).toBeTruthy();
     });
   });
 
-  it('displays recent activity section', async () => {
+  it('filters items via search query', async () => {
+    mockDataStore.todosData.push({
+      id: 'todo-2',
+      type: 'todo',
+      title: 'Plan vacation',
+      due_date: null,
+      undefined_due: true,
+      space_id: null,
+      ai_placed: false,
+      why_string: null,
+      body: 'Plan the family trip itinerary',
+      created_at: '2025-01-14T00:00:00Z',
+      updated_at: '2025-01-16T10:00:00Z',
+    });
+
+    renderWithProviders(<HubScreen />);
+
+    const searchInput = await screen.findByTestId('hub-search');
+    fireEvent.changeText(searchInput, 'vacation');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('hub-item-todo-2')).toBeTruthy();
+      expect(screen.queryByTestId('hub-item-todo-1')).toBeNull();
+    });
+  });
+
+  it('shows sorting tray items with move action', async () => {
+    const trayItem = {
+      id: 'todo-99',
+      type: 'todo',
+      title: 'AI Drafted Task',
+      due_date: null,
+      undefined_due: true,
+      space_id: null,
+      ai_placed: true,
+      why_string: 'I noticed this matches your recent schedule.',
+      body: 'Automatically added by Cortex',
+      created_at: '2025-01-10T00:00:00Z',
+      updated_at: '2025-01-17T12:00:00Z',
+    } as any;
+    mockDataStore.todosData = [trayItem];
+
+    const sheetShowMock = SheetManager.show as jest.Mock;
+    sheetShowMock.mockResolvedValueOnce(undefined);
+
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText(/recent/i)).toBeTruthy();
-      expect(screen.getByTestId('hub-recent-habit-1')).toBeTruthy();
-      expect(screen.getByTestId('hub-recent-todo-1')).toBeTruthy();
+      const trayInstances = screen.getAllByTestId('hub-tray-todo-99');
+      expect(trayInstances.length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/AI placed/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/matches your recent schedule/i)).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('hub-move-todo-99'));
+
+    await waitFor(() => {
+      expect(sheetShowMock).toHaveBeenCalledWith(
+        'move-item',
+        expect.objectContaining({
+          payload: { itemId: 'todo-99', itemType: 'todo' },
+        }),
+      );
     });
   });
 
@@ -152,28 +248,11 @@ describe('Hub DS Screen', () => {
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText(/spaces/i)).toBeTruthy();
+      expect(screen.getByText(/Spaces/)).toBeTruthy();
       expect(screen.getByTestId('hub-space-space-1')).toBeTruthy();
       expect(screen.getByTestId('hub-space-space-2')).toBeTruthy();
-    });
-  });
-
-  it('displays space names correctly', async () => {
-    renderWithProviders(<HubScreen />);
-
-    await waitFor(() => {
       expect(screen.getByText('Fitness')).toBeTruthy();
       expect(screen.getByText('Work')).toBeTruthy();
-    });
-  });
-
-  it('displays tray items section', async () => {
-    renderWithProviders(<HubScreen />);
-
-    await waitFor(() => {
-      // Check for tray items (dynamic IDs based on mock data)
-      const trayItems = screen.queryAllByTestId(/hub-tray-/);
-      expect(trayItems.length).toBeGreaterThanOrEqual(0);
     });
   });
 

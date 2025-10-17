@@ -3,24 +3,33 @@
  * Central hub showing recent activity, spaces, and sorting tray
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../providers/ThemeProvider';
-import { Screen, Box, Text, Button, Input } from '../../ui';
+import { Screen, Box, Text, Button, Input, Chip } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
 import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord, Space } from '../../lib/types';
+import { SheetManager } from 'react-native-actions-sheet';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-type FilterType = 'all' | 'habits' | 'todos' | 'notes';
+type FilterType = 'all' | 'habits' | 'todos' | 'notes' | 'journal' | 'lists';
+
+const FILTER_OPTIONS: ReadonlyArray<{ key: FilterType; label: string; testID: string }> = [
+  { key: 'all', label: 'All', testID: 'hub-filter-all' },
+  { key: 'habits', label: 'Habits', testID: 'hub-filter-habits' },
+  { key: 'todos', label: 'To-Dos', testID: 'hub-filter-todos' },
+  { key: 'journal', label: 'Journal', testID: 'hub-filter-journal' },
+  { key: 'lists', label: 'Lists', testID: 'hub-filter-lists' },
+];
 
 export default function HubScreen() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -35,7 +44,8 @@ export default function HubScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter] = useState<FilterType>('all'); // TODO: Add filter chip UI
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [overlayVisible, setOverlayVisible] = useState(false);
 
   // DEV: DS marker for QA
@@ -91,32 +101,49 @@ export default function HubScreen() {
     void load();
   }, [load]);
 
-  // Filter items
-  const filteredItems = items.filter((item) => {
-    // Apply type filter
-    if (activeFilter !== 'all') {
-      if (activeFilter === 'habits' && item.type !== 'habit') return false;
-      if (activeFilter === 'todos' && item.type !== 'todo') return false;
-      if (activeFilter === 'notes' && item.type !== 'note') return false;
-    }
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchDebounced(searchQuery.trim().toLowerCase());
+    }, 200);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [searchQuery]);
 
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      const titleMatch = item.title?.toLowerCase().includes(query) || false;
-      const bodyMatch =
-        item.type === 'note' && item.body ? item.body.toLowerCase().includes(query) : false;
-      return titleMatch || bodyMatch;
-    }
+  const filteredItems = useMemo(() => {
+    const needle = searchDebounced || searchQuery.trim().toLowerCase();
 
-    return true;
-  });
+    return items.filter((item) => {
+      if (activeFilter !== 'all') {
+        if (activeFilter === 'habits' && item.type !== 'habit') return false;
+        if (activeFilter === 'todos' && item.type !== 'todo') return false;
+        if (activeFilter === 'notes' && item.type !== 'note') return false;
+        if (activeFilter === 'journal' && !(item.type === 'note' && item.subtype === 'journal')) {
+          return false;
+        }
+        if (activeFilter === 'lists' && !(item.type === 'note' && item.subtype === 'list')) {
+          return false;
+        }
+      }
 
-  // Recent items (top 10)
-  const recentItems = filteredItems.slice(0, 10);
+      if (needle) {
+        const haystack =
+          `${item.title ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
+        if (!haystack.includes(needle)) {
+          return false;
+        }
+      }
 
-  // Items in sorting tray (AI-placed items)
-  const sortingTrayItems = items.filter((item) => item.ai_placed);
+      return true;
+    });
+  }, [items, activeFilter, searchDebounced, searchQuery]);
+
+  const sortingTrayItems = filteredItems.filter((item) => item.ai_placed === true);
+  const listItems = filteredItems.filter((item) => item.ai_placed !== true);
+  const filterLabel = useMemo(() => {
+    const option = FILTER_OPTIONS.find((f) => f.key === activeFilter);
+    return option?.label ?? 'All';
+  }, [activeFilter]);
 
   // Empty state
   const isEmpty = items.length === 0;
@@ -133,6 +160,20 @@ export default function HubScreen() {
     // TODO: Navigate to space detail
     // navigation.navigate('SpaceDetail', { id: space.id });
   };
+
+  const handleMovePress = useCallback(
+    async (item: AppRecord) => {
+      try {
+        await SheetManager.show('move-item', {
+          payload: { itemId: item.id, itemType: item.type },
+        } as never);
+        await load();
+      } catch (err) {
+        console.error('[HubScreen] Move sheet error', err);
+      }
+    },
+    [load],
+  );
 
   // Handle manual add submission
   const handleManualAddSubmit = async (payload: ManualAddPayload) => {
@@ -214,14 +255,35 @@ export default function HubScreen() {
           </Card>
         )}
 
-        {/* Search Input */}
+        {/* Filters and Search */}
         {!error && (
-          <Input
-            testID="hub-search"
-            placeholder="Search everything..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
+          <>
+            <Box row gap={2} style={{ flexWrap: 'wrap' }}>
+              {FILTER_OPTIONS.map((filter) => {
+                const selected = activeFilter === filter.key;
+                return (
+                  <Chip
+                    key={filter.key}
+                    label={filter.label}
+                    selected={selected}
+                    onPress={() => setActiveFilter(filter.key)}
+                    testID={filter.testID}
+                    accessibilityLabel={`Filter ${filter.label}`}
+                  />
+                );
+              })}
+            </Box>
+
+            <Box mt={2}>
+              <Input
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search the Hub"
+                testID="hub-search"
+                accessibilityLabel="Search the Hub"
+              />
+            </Box>
+          </>
         )}
 
         {/* Loading state */}
@@ -241,7 +303,7 @@ export default function HubScreen() {
                 Nothing here yet
               </Text>
               <Text variant="body" style={{ textAlign: 'center' }}>
-                Try adding something from Today or Spaces.
+                Drop something in Catch All to start.
               </Text>
               <Button
                 title="Open Manual Add"
@@ -252,19 +314,65 @@ export default function HubScreen() {
           </Card>
         )}
 
-        {/* Recent Activity Section */}
-        {!isEmpty && recentItems.length > 0 && (
+        {/* Sorting Tray Section (AI-placed items) */}
+        {sortingTrayItems.length > 0 && (
+          <Box gap={2}>
+            <Text variant="title">Sorting Tray ({sortingTrayItems.length})</Text>
+            <Text variant="subtle">Items needing your attention</Text>
+            {sortingTrayItems.map((item) => (
+              <Box key={item.id} gap={1}>
+                <ListItem
+                  title={item.title || 'Untitled'}
+                  subtitle={`${item.type} • AI placed`}
+                  onPress={() => handleItemPress(item)}
+                  testID={`hub-tray-${item.id}`}
+                  accessibilityLabel={`Open ${item.title || 'item'} from sorting tray`}
+                  rightContent={
+                    <Button
+                      title="Move"
+                      variant="neutral"
+                      size="sm"
+                      onPress={() => handleMovePress(item)}
+                      accessibilityLabel={`Move ${item.title || 'item'}`}
+                      testID={`hub-move-${item.id}`}
+                    />
+                  }
+                />
+                {item.why_string ? (
+                  <Text variant="subtle" style={{ marginLeft: 16 }}>
+                    {item.why_string}
+                  </Text>
+                ) : null}
+              </Box>
+            ))}
+          </Box>
+        )}
+
+        {/* No matches state */}
+        {!isEmpty && !loading && filteredItems.length === 0 && (
+          <Box p={4}>
+            <Text variant="body" style={{ textAlign: 'center' }}>
+              No matches. Try clearing filters.
+            </Text>
+          </Box>
+        )}
+
+        {/* Filtered Items */}
+        {listItems.length > 0 && (
           <Box gap={2}>
             <Text variant="title">
-              Recent {activeFilter !== 'all' && `(${filteredItems.length})`}
+              {filterLabel === 'All'
+                ? `All Items (${listItems.length})`
+                : `${filterLabel} (${listItems.length})`}
             </Text>
-            {recentItems.map((item) => (
+            {listItems.map((item) => (
               <ListItem
                 key={item.id}
                 title={item.title || 'Untitled'}
                 subtitle={`${item.type} • ${new Date(item.updated_at || item.created_at).toLocaleDateString()}`}
                 onPress={() => handleItemPress(item)}
-                testID={`hub-recent-${item.id}`}
+                testID={`hub-item-${item.id}`}
+                accessibilityLabel={`Open ${item.title || 'item'}`}
               />
             ))}
           </Box>
@@ -281,6 +389,7 @@ export default function HubScreen() {
                 subtitle="Space"
                 onPress={() => handleSpacePress(space)}
                 testID={`hub-space-${space.id}`}
+                accessibilityLabel={`Open space ${space.name}`}
               />
             ))}
           </Box>
