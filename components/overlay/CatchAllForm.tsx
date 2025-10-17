@@ -1,6 +1,6 @@
 /**
  * CatchAllForm - Phase 6
- * Minimal form for quick capture
+ * Minimal form for quick capture - classification handled by parent overlay
  */
 
 import React, { useState } from 'react';
@@ -16,41 +16,27 @@ interface CatchAllFormProps {
 
 export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
   const [entry, setEntry] = useState('');
-  const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (DEBUG) {
-    console.log('[CATCHALL][FORM] render, entry length:', entry.length);
-  }
+  const handleCapture = async () => {
+    const inputText = entry?.trim() ?? '';
+    if (!inputText) return;
 
-  const handleSubmit = () => {
-    if (DEBUG) {
-      console.log(
-        '[CATCHALL][CAPTURE] submit dispatched, text:',
-        entry.trim().substring(0, 50) + (entry.length > 50 ? '...' : ''),
-      );
-    }
+    setIsSubmitting(true);
 
     try {
-      const data = CatchAllSchema.parse({ entry });
+      // Validate with schema
+      const data = CatchAllSchema.parse({ entry: inputText });
 
-      if (DEBUG) {
-        console.log('[CATCHALL][FORM] validation success, submitting payload');
-      }
-
+      // Pass to parent (ManualAddOverlay handles classification + save)
       onSubmit({
         type: 'catchall',
         data,
       });
-
-      if (DEBUG) {
-        console.log('[CATCHALL][FORM] onSubmit dispatched');
-      }
     } catch (error) {
-      if (DEBUG) {
-        console.error('[CATCHALL][FORM] validation error:', error);
-      } else {
-        console.error('Validation error:', error);
-      }
+      console.error('Validation error:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -75,8 +61,8 @@ export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
         <Button
           label="Capture"
           variant="primary"
-          onPress={handleSubmit}
-          disabled={!isValid}
+          onPress={handleCapture}
+          disabled={!isValid || isSubmitting}
           testID="capture-catchall"
         />
       </View>

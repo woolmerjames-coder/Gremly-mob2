@@ -1,9 +1,19 @@
 import type { ID } from '../lib/types';
 
 export type CortexOutput =
-  | { type: 'habit'; frequency: 'daily' | 'weekly' | 'monthly'; aiPlaced: boolean; why: string }
-  | { type: 'todo'; undefinedDue: boolean; aiPlaced: boolean; why: string }
-  | { type: 'note'; subtype: 'journal' | 'list' | 'catchall'; aiPlaced: boolean; why: string };
+  | {
+      type: 'habit';
+      frequency: 'daily' | 'weekly' | 'monthly';
+      aiPlaced: boolean;
+      whyString: string;
+    }
+  | { type: 'todo'; undefinedDue: boolean; aiPlaced: boolean; whyString: string }
+  | {
+      type: 'note';
+      subtype: 'journal' | 'list' | 'catchall';
+      aiPlaced: boolean;
+      whyString: string;
+    };
 
 export interface CortexInput {
   text: string;

@@ -138,14 +138,9 @@ export default function TodayScreen() {
           });
           break;
         case 'catchall':
-          await repo.create({
-            type: 'note',
-            title: '',
-            body: payload.data.entry,
-            subtype: 'catchall',
-            space_id: null,
-            ai_placed: false,
-          });
+          // Catch-all is now handled internally by ManualAddOverlay
+          // Just reload to show the new item
+          console.log('[TodayScreen] Catch-all saved by overlay, reloading...');
           break;
       }
       // Reload data after successful submission

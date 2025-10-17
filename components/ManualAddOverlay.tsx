@@ -1,6 +1,7 @@
 /**
- * ManualAddOverlay - Phase 6 (Brand Refresh)
+ * ManualAddOverlay - Phase 6 (Brand Refresh + Cortex Integration)
  * Full-screen modal for manual data entry with Gremly brand styling
+ * Handles Cortex classification and repo persistence internally for catch-all
  */
 
 import React, { useState } from 'react';
@@ -12,6 +13,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { overlayStyles } from '../app/styles/manualAdd.styles';
@@ -23,6 +25,10 @@ import { TodoForm } from './overlay/TodoForm';
 import { JournalForm } from './overlay/JournalForm';
 import { CatchAllForm } from './overlay/CatchAllForm';
 import type { ManualAddPayload, TReminderRule } from '../app/schemas/manualAdd';
+import { useCortex } from '../providers/CortexProvider';
+import { useRepo } from '../providers/RepoProvider';
+import type { CortexOutput } from '../cortex/ICortexEngine';
+import type { CreateRecordInput } from '../lib/repo/IRepo';
 
 type TabType = 'habits' | 'todos' | 'journal' | 'catchall';
 
@@ -30,7 +36,7 @@ interface ManualAddOverlayProps {
   visible: boolean;
   defaultTab?: TabType;
   onClose: () => void;
-  onSubmit: (payload: ManualAddPayload) => void;
+  onSubmit?: (payload: ManualAddPayload) => void; // Optional - catch-all handles internally
 }
 
 export function ManualAddOverlay({
@@ -42,6 +48,11 @@ export function ManualAddOverlay({
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [reminders, setReminders] = useState<TReminderRule[]>([]);
   const insets = useSafeAreaInsets();
+  const cortex = useCortex();
+  const repo = useRepo();
+
+  const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
+  const classifyFlag = (process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL ?? 'false') === 'true';
 
   console.log('[ManualAddOverlay] RENDER - activeTab:', activeTab, 'visible:', visible);
 
@@ -53,9 +64,100 @@ export function ManualAddOverlay({
   };
 
   // Handle submit from child forms
-  const handleSubmit = (payload: ManualAddPayload) => {
-    onSubmit(payload);
-    handleClose();
+  const handleSubmit = async (payload: ManualAddPayload) => {
+    // For catch-all: handle classification and persistence internally
+    if (payload.type === 'catchall' && payload.data?.entry) {
+      try {
+        const inputText = payload.data.entry.trim();
+
+        if (DEBUG) {
+          console.log('[OVERLAY][CATCHALL] start', { len: inputText.length, classifyFlag });
+        }
+
+        let res: CortexOutput | null = null;
+
+        if (classifyFlag && inputText) {
+          try {
+            if (DEBUG) console.log('[OVERLAY][CATCHALL] invoking engine.classify...');
+            res = await cortex.classify({ text: inputText, spaceId: null });
+            if (DEBUG) console.log('[OVERLAY][CATCHALL] result:', res);
+          } catch (e) {
+            if (DEBUG) console.error('[OVERLAY][CATCHALL] error, fallback:', String(e));
+            // ManagedCortexEngine handles fallback to heuristic automatically
+          }
+        }
+
+        // Map classification to repo payload
+        const finalPayload: CreateRecordInput = res
+          ? res.type === 'note'
+            ? {
+                type: 'note' as const,
+                title: '',
+                body: inputText,
+                subtype: res.subtype || 'catchall',
+                space_id: null,
+                ai_placed: res.aiPlaced || false,
+                why_string: res.whyString || 'Heuristic default.',
+              }
+            : res.type === 'todo'
+              ? {
+                  type: 'todo' as const,
+                  title: inputText,
+                  body: inputText,
+                  due_date: null,
+                  undefined_due: true,
+                  space_id: null,
+                  ai_placed: res.aiPlaced || false,
+                  why_string: res.whyString || 'Classified as todo.',
+                }
+              : {
+                  type: 'habit' as const,
+                  title: inputText,
+                  frequency: (res as any).frequency || 'daily',
+                  space_id: null,
+                  ai_placed: res.aiPlaced || false,
+                  why_string: res.whyString || 'Classified as habit.',
+                }
+          : {
+              type: 'note' as const,
+              title: '',
+              body: inputText,
+              subtype: 'catchall',
+              space_id: null,
+              ai_placed: false,
+              why_string: 'Heuristic default.',
+            };
+
+        if (DEBUG) {
+          console.log('[OVERLAY][CATCHALL] final payload:', finalPayload);
+        }
+
+        await repo.create(finalPayload);
+
+        // Show success
+        const toastMessage = finalPayload.ai_placed
+          ? 'Saved to the Hub. I put this here.'
+          : 'Saved to the Hub.';
+
+        if (Platform.OS === 'web') {
+          alert(toastMessage);
+        } else {
+          Alert.alert('Success', toastMessage);
+        }
+
+        handleClose();
+      } catch (err) {
+        console.error('[OVERLAY][CATCHALL] save error:', err);
+        Alert.alert('Error', 'Failed to save. Please try again.');
+      }
+      return;
+    }
+
+    // For other tabs, delegate to parent if provided
+    if (onSubmit) {
+      onSubmit(payload);
+      handleClose();
+    }
   };
 
   // Determine if reminders should be visible

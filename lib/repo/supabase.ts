@@ -85,6 +85,7 @@ export class SupabaseRepo implements IRepo {
           title: input.title,
           frequency: input.frequency,
           ai_placed: input.ai_placed ?? false,
+          why_string: input.why_string ?? null,
         }),
       );
 
@@ -102,6 +103,7 @@ export class SupabaseRepo implements IRepo {
           due_date: input.due_date ?? null,
           undefined_due: input.undefined_due ?? true,
           ai_placed: input.ai_placed ?? false,
+          why_string: input.why_string ?? null,
         }),
       );
 
@@ -120,6 +122,7 @@ export class SupabaseRepo implements IRepo {
           body: input.body ?? null,
           subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
+          why_string: input.why_string ?? null,
         }),
       );
 
@@ -182,18 +185,21 @@ export class SupabaseRepo implements IRepo {
       if ('due_date' in patch) updatePayload.due_date = patch.due_date ?? null;
       if ('undefined_due' in patch) updatePayload.undefined_due = !!patch.undefined_due;
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
+      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
     } else if (existing.type === 'habit') {
       if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
       if ('frequency' in patch && patch.frequency !== undefined)
         updatePayload.frequency = patch.frequency;
       if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
+      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
     } else if (existing.type === 'note') {
       if ('title' in patch) updatePayload.title = patch.title ?? null;
       if ('body' in patch) updatePayload.body = patch.body ?? null;
       if ('subtype' in patch && patch.subtype !== undefined) updatePayload.subtype = patch.subtype;
       if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
+      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
     }
 
     // Database trigger or default will handle updated_at

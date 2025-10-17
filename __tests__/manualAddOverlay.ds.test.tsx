@@ -7,6 +7,50 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ManualAddOverlay } from '../components/ManualAddOverlay';
+import { CortexProvider } from '../providers/CortexProvider';
+import { RepoProvider } from '../providers/RepoProvider';
+import { AuthProvider } from '../providers/AuthProvider';
+
+// Mock Cortex engine
+const mockClassify = jest.fn();
+jest.mock('../providers/CortexProvider', () => {
+  const actual = jest.requireActual('../providers/CortexProvider');
+  return {
+    ...actual,
+    useCortex: () => ({
+      classify: mockClassify,
+    }),
+  };
+});
+
+// Mock repo
+const mockRepoCreate = jest.fn();
+jest.mock('../providers/RepoProvider', () => {
+  const actual = jest.requireActual('../providers/RepoProvider');
+  return {
+    ...actual,
+    useRepo: () => ({
+      create: mockRepoCreate,
+      list: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
+      delete: jest.fn(),
+    }),
+  };
+});
+
+// Mock auth
+jest.mock('../providers/AuthProvider', () => {
+  const actual = jest.requireActual('../providers/AuthProvider');
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: { id: 'test-user-1', email: 'test@example.com' },
+      signIn: jest.fn(),
+      signOut: jest.fn(),
+      loading: false,
+    }),
+  };
+});
 
 // Mock providers if needed
 const renderWithProviders = (component: React.ReactElement) => {
@@ -17,7 +61,11 @@ const renderWithProviders = (component: React.ReactElement) => {
         insets: { top: 47, left: 0, right: 0, bottom: 34 },
       }}
     >
-      {component}
+      <AuthProvider>
+        <CortexProvider>
+          <RepoProvider>{component}</RepoProvider>
+        </CortexProvider>
+      </AuthProvider>
     </SafeAreaProvider>,
   );
 };
@@ -29,6 +77,14 @@ describe('ManualAddOverlay', () => {
   beforeEach(() => {
     mockOnClose.mockClear();
     mockOnSubmit.mockClear();
+    mockClassify.mockClear();
+    mockRepoCreate.mockClear();
+    // Set up env for classification
+    process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL;
   });
 
   describe('Overlay Rendering', () => {
@@ -260,7 +316,63 @@ describe('ManualAddOverlay', () => {
       });
     });
 
-    it('submits Catch-All form with valid data', async () => {
+    it('submits Catch-All form and saves internally with Cortex classification', async () => {
+      // Mock Cortex to return a classification
+      const mockClassification = {
+        type: 'todo' as const,
+        subtype: 'task',
+        aiPlaced: true,
+        whyString: 'AI detected todo item',
+      };
+      mockClassify.mockResolvedValue(mockClassification);
+      mockRepoCreate.mockResolvedValue({ id: 'new-item-1' });
+
+      renderWithProviders(
+        <ManualAddOverlay
+          visible={true}
+          defaultTab="catchall"
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+        />,
+      );
+
+      // Fill form
+      const entryInput = screen.getByTestId('catchall-entry');
+      fireEvent.changeText(entryInput, 'Buy milk tomorrow');
+
+      // Submit
+      const submitButton = screen.getByTestId('capture-catchall');
+      fireEvent.press(submitButton);
+
+      await waitFor(() => {
+        // Verify classification was called
+        expect(mockClassify).toHaveBeenCalledWith({
+          text: 'Buy milk tomorrow',
+          spaceId: null,
+        });
+
+        // Verify repo.create was called with classified payload
+        expect(mockRepoCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'todo',
+            ai_placed: true,
+            why_string: 'AI detected todo item',
+          }),
+        );
+
+        // Verify overlay closed
+        expect(mockOnClose).toHaveBeenCalled();
+      });
+
+      // onSubmit should NOT be called for catch-all (handled internally)
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+
+    it('saves catch-all with heuristic when classification disabled', async () => {
+      // Disable classification
+      process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL = 'false';
+      mockRepoCreate.mockResolvedValue({ id: 'new-item-2' });
+
       renderWithProviders(
         <ManualAddOverlay
           visible={true}
@@ -279,14 +391,21 @@ describe('ManualAddOverlay', () => {
       fireEvent.press(submitButton);
 
       await waitFor(() => {
-        expect(mockOnSubmit).toHaveBeenCalledWith(
+        // Verify classification was NOT called
+        expect(mockClassify).not.toHaveBeenCalled();
+
+        // Verify repo.create was called with default payload
+        expect(mockRepoCreate).toHaveBeenCalledWith(
           expect.objectContaining({
-            type: 'catchall',
-            data: expect.objectContaining({
-              entry: 'Random thought',
-            }),
+            type: 'note',
+            subtype: 'catchall',
+            ai_placed: false,
+            why_string: 'Heuristic default.',
           }),
         );
+
+        // Verify overlay closed
+        expect(mockOnClose).toHaveBeenCalled();
       });
     });
   });

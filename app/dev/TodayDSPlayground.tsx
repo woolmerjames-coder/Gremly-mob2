@@ -1,12 +1,14 @@
 /**
  * TodayDSPlayground - Preview for DS-only Today screen
  * Shows mocked data for visual testing
+ *
+ * NOTE: ManualAddSheet removed - use ManualAddOverlay instead
  */
 
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { openManualAdd } from '../../components/ManualAddSheet';
+// import { openManualAdd } from '../../components/ManualAddSheet'; // DEPRECATED - removed
 
 // Mock data
 const mockHabits = [
@@ -98,7 +100,7 @@ export default function TodayDSPlayground() {
           <Button
             title="Add More"
             variant="neutral"
-            onPress={() => openManualAdd()}
+            onPress={() => console.log('TODO: Open ManualAddOverlay')}
             testID="today-add-more"
           />
         </Box>
@@ -114,7 +116,11 @@ export default function TodayDSPlayground() {
               <Text variant="body" style={{ textAlign: 'center' }}>
                 No items due today. Add something to get started.
               </Text>
-              <Button title="Add Item" onPress={() => openManualAdd()} testID="today-empty-add" />
+              <Button
+                title="Add Item"
+                onPress={() => console.log('TODO: Open ManualAddOverlay')}
+                testID="today-empty-add"
+              />
             </Box>
           </Card>
         </Box>

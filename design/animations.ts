@@ -34,7 +34,10 @@ export function useReducedMotion(): boolean {
 type BezierArgs = [number, number, number, number];
 type EasingLike = (value: number) => number;
 
-const linearFallback: EasingLike = (value) => value;
+const linearFallback: EasingLike = (value) => {
+  'worklet';
+  return value;
+};
 
 const toBezier = (...args: BezierArgs): EasingLike => {
   const bezierFactory = (

@@ -18,6 +18,7 @@ export interface Habit {
   frequency: Frequency;
   space_id?: ID | null;
   ai_placed: boolean;
+  why_string?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID
@@ -36,6 +37,7 @@ export interface Todo {
   due_date?: string | null; // ISO 8601 or null
   undefined_due: boolean; // true if user wants "Might be today?" treatment
   ai_placed: boolean;
+  why_string?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
@@ -52,6 +54,7 @@ export interface Note {
   subtype: NoteSubtype;
   space_id?: ID | null;
   ai_placed: boolean;
+  why_string?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;

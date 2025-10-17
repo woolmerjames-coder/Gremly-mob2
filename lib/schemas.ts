@@ -44,6 +44,7 @@ const baseRecordZ = z.object({
   type: recordTypeZ,
   space_id: z.string().optional().nullable(),
   ai_placed: z.boolean(),
+  why_string: z.string().optional().nullable(),
   created_at: z.string(), // Accept any string format from DB
   updated_at: z.string(), // Accept any string format from DB
   owner_id: z.string().min(1),
@@ -82,6 +83,7 @@ export const habitInsertSchema = z.object({
   title: z.string().min(1),
   frequency: z.string().min(1),
   ai_placed: z.boolean().default(false),
+  why_string: z.string().optional().nullable(),
 });
 
 export const todoInsertSchema = z.object({
@@ -91,6 +93,7 @@ export const todoInsertSchema = z.object({
   due_date: z.string().datetime().nullable().optional(),
   undefined_due: z.boolean().default(true),
   ai_placed: z.boolean().default(false),
+  why_string: z.string().optional().nullable(),
 });
 
 export const noteInsertSchema = z.object({
@@ -99,6 +102,7 @@ export const noteInsertSchema = z.object({
   body: z.string().optional().nullable(),
   subtype: z.enum(['journal', 'list', 'catchall']),
   ai_placed: z.boolean().default(false),
+  why_string: z.string().optional().nullable(),
 });
 
 // ==========================

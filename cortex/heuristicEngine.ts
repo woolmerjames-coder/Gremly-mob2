@@ -19,6 +19,10 @@ const containsAny = (s: string, arr: string[]) => arr.some((w) => s.includes(w))
 
 export class HeuristicEngine implements ICortexEngine {
   async classify({ text }: CortexInput): Promise<CortexOutput> {
+    const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
+    const logPayload: CortexInput = { text };
+    if (DEBUG) console.log('[CORTEX][HEURISTIC] classify input:', logPayload);
+
     const t = text.trim().toLowerCase();
 
     // Habit detection
@@ -30,7 +34,7 @@ export class HeuristicEngine implements ICortexEngine {
         type: 'habit',
         frequency,
         aiPlaced: true,
-        why: `Matched habit keywords; guessed frequency = ${frequency}.`,
+        whyString: `Matched habit keywords; guessed frequency = ${frequency}.`,
       };
     }
 
@@ -40,7 +44,7 @@ export class HeuristicEngine implements ICortexEngine {
         type: 'note',
         subtype: 'journal',
         aiPlaced: true,
-        why: 'Matched journal keywords.',
+        whyString: 'Matched journal keywords.',
       };
     }
     if (t.split('\n').some((line) => LIST_MARKERS.some((m) => line.startsWith(m)))) {
@@ -48,7 +52,7 @@ export class HeuristicEngine implements ICortexEngine {
         type: 'note',
         subtype: 'list',
         aiPlaced: true,
-        why: 'Detected list markers (- or *).',
+        whyString: 'Detected list markers (- or *).',
       };
     }
 
@@ -58,7 +62,7 @@ export class HeuristicEngine implements ICortexEngine {
         type: 'todo',
         undefinedDue: true,
         aiPlaced: true,
-        why: 'Action verb detected; leaving date undefined.',
+        whyString: 'Action verb detected; leaving date undefined.',
       };
     }
 
@@ -66,8 +70,8 @@ export class HeuristicEngine implements ICortexEngine {
     return {
       type: 'note',
       subtype: 'catchall',
-      aiPlaced: true,
-      why: 'No strong signal; storing in Catch All.',
+      aiPlaced: false,
+      whyString: 'No strong signal; storing in Catch All.',
     };
   }
 }
