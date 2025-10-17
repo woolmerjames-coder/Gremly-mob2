@@ -1,7 +1,7 @@
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
 import type { Space } from '../lib/types';
@@ -31,8 +31,6 @@ export default function NewSpaceModal() {
   const [saving, setSaving] = useState(false);
 
   const canCreate = name.trim().length > 0 && !saving;
-
-  console.log('[NewSpaceModal] RENDER - tokens loaded, insets:', insets);
 
   async function onSave() {
     if (!canCreate) return;
@@ -65,9 +63,6 @@ export default function NewSpaceModal() {
 
   const tokens = useTokens();
 
-  console.log('[NewSpaceModal] tokens.colors.bg:', tokens.colors.bg);
-  console.log('[NewSpaceModal] tokens.colors.text:', tokens.colors.text);
-
   return (
     <ActionSheet
       id="new-space"
@@ -78,7 +73,7 @@ export default function NewSpaceModal() {
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         height: '85%',
-        backgroundColor: tokens.colors.bg,
+        backgroundColor: tokens.colors.surface,
       }}
       indicatorStyle={{
         backgroundColor: tokens.colors.border,
@@ -87,95 +82,70 @@ export default function NewSpaceModal() {
         borderRadius: 3,
       }}
     >
-      <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-        >
-          {/* IMPORTANT: parent must be relative + full height so footer can stick to bottom */}
-          <Box style={{ flex: 1, position: 'relative', backgroundColor: tokens.colors.bg }}>
-            <ScrollView
-              style={{ flex: 1, backgroundColor: tokens.colors.bg }}
-              contentContainerStyle={{
-                flexGrow: 1,
-                padding: tokens.spacing[4],
-                paddingBottom: (insets.bottom || tokens.spacing[4]) + 120,
-                backgroundColor: tokens.colors.bg,
-              }}
-              keyboardShouldPersistTaps="handled"
-              testID="new-space-scroll"
-            >
-              <Text
-                variant="title"
-                style={{ marginBottom: tokens.spacing[3] }}
-                testID="new-space-title"
-              >
-                New Space
-              </Text>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: tokens.spacing[4],
+          paddingBottom: insets.bottom + tokens.spacing[4] + 80,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text variant="title" style={{ marginBottom: tokens.spacing[3] }}>
+          New Space
+        </Text>
 
-              <Input
-                label="Name"
-                testID="space-name"
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g., Fitness"
+        <Input
+          label="Name"
+          testID="space-name"
+          value={name}
+          onChangeText={setName}
+          placeholder="e.g., Fitness"
+        />
+
+        <Input
+          label="Icon (optional)"
+          testID="space-icon"
+          value={icon}
+          onChangeText={setIcon}
+          placeholder="e.g., 🏋️"
+        />
+
+        <Box mb={1}>
+          <Text variant="label" style={{ marginBottom: tokens.spacing[2] }}>
+            Theme
+          </Text>
+          <Box row gap={2}>
+            {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
+              <Chip
+                key={t}
+                testID={`theme-${t}`}
+                label={t.charAt(0).toUpperCase() + t.slice(1)}
+                selected={theme === t}
+                onPress={() => setTheme(t)}
               />
-
-              <Input
-                label="Icon (optional)"
-                testID="space-icon"
-                value={icon}
-                onChangeText={setIcon}
-                placeholder="e.g., 🏋️"
-              />
-
-              <Box mb={1}>
-                <Text variant="label" style={{ marginBottom: tokens.spacing[2] }}>
-                  Theme
-                </Text>
-                <Box row gap={2}>
-                  {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
-                    <Chip
-                      key={t}
-                      testID={`theme-${t}`}
-                      label={t.charAt(0).toUpperCase() + t.slice(1)}
-                      selected={theme === t}
-                      onPress={() => setTheme(t)}
-                    />
-                  ))}
-                </Box>
-              </Box>
-
-              {error ? (
-                <Text
-                  variant="body"
-                  style={{ color: tokens.colors.danger, marginBottom: tokens.spacing[3] }}
-                >
-                  {error}
-                </Text>
-              ) : null}
-            </ScrollView>
-
-            {/* Sticky footer button — ALWAYS visible at bottom */}
-            <Box
-              style={{
-                position: 'absolute',
-                left: tokens.spacing[4],
-                right: tokens.spacing[4],
-                bottom: (insets.bottom || tokens.spacing[4]) + tokens.spacing[4],
-              }}
-            >
-              <Button
-                testID="new-space-submit"
-                variant={canCreate ? 'primary' : 'neutral'}
-                title={saving ? 'Saving...' : 'Create Space'}
-                onPress={onSave}
-                disabled={!canCreate}
-              />
-            </Box>
+            ))}
           </Box>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+        </Box>
+
+        {error ? (
+          <Text
+            variant="body"
+            style={{ color: tokens.colors.danger, marginBottom: tokens.spacing[3] }}
+          >
+            {error}
+          </Text>
+        ) : null}
+
+        <View style={{ height: 20 }} />
+
+        <Button
+          testID="new-space-submit"
+          variant={canCreate ? 'primary' : 'neutral'}
+          title={saving ? 'Saving...' : 'Create Space'}
+          onPress={onSave}
+          disabled={!canCreate}
+        />
+      </ScrollView>
     </ActionSheet>
   );
 }
