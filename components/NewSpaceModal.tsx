@@ -87,13 +87,12 @@ export default function NewSpaceModal() {
         style={{ flex: 1 }}
       >
         {/* IMPORTANT: parent must be relative + full height so footer can stick to bottom */}
-        <Box style={{ flex: 1, position: 'relative', backgroundColor: 'transparent' }}>
+        <Box style={{ flex: 1, position: 'relative' }}>
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{
               padding: tokens.spacing[4],
               paddingBottom: (insets.bottom || tokens.spacing[4]) + 120,
-              backgroundColor: 'transparent',
             }}
             keyboardShouldPersistTaps="handled"
           >
