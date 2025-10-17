@@ -5,7 +5,19 @@
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+
+const safeAreaMetrics =
+  initialWindowMetrics ??
+  ({
+    frame: { x: 0, y: 0, width: 360, height: 640 },
+    insets: { top: 0, bottom: 0, left: 0, right: 0 },
+  } as const);
+
+const renderWithSafeArea = (ui: React.ReactElement) => {
+  return render(<SafeAreaProvider initialMetrics={safeAreaMetrics}>{ui}</SafeAreaProvider>);
+};
 
 describe('ManualAddOverlay - Diagnostic Render Test', () => {
   const mockOnClose = jest.fn();
@@ -16,7 +28,7 @@ describe('ManualAddOverlay - Diagnostic Render Test', () => {
   });
 
   it('DIAGNOSTIC: renders overlay and checks tab switching', () => {
-    render(
+    renderWithSafeArea(
       <ManualAddOverlay
         visible={true}
         defaultTab="habits"
@@ -27,8 +39,9 @@ describe('ManualAddOverlay - Diagnostic Render Test', () => {
 
     // Log all testIDs on screen
     console.log('=== ALL ELEMENTS WITH TESTID ===');
-    const allElements = screen.UNSAFE_getAllByType(() => true);
-    console.log('Total elements:', allElements.length);
+    const tree = screen.toJSON();
+    const elementCount = Array.isArray(tree) ? tree.length : tree ? 1 : 0;
+    console.log('Total elements:', elementCount);
 
     // Check if overlay renders
     const overlay = screen.queryByTestId('manual-overlay');
@@ -95,7 +108,7 @@ describe('ManualAddOverlay - Diagnostic Render Test', () => {
   });
 
   it('DIAGNOSTIC: checks if forms are in DOM but hidden', () => {
-    const { debug } = render(
+    const { debug } = renderWithSafeArea(
       <ManualAddOverlay
         visible={true}
         defaultTab="habits"
