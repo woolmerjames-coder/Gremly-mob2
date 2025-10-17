@@ -1,11 +1,11 @@
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { View, TextInput, Pressable, Text as RNText, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
 import type { Space } from '../lib/types';
-import { Box, Text, Input, Button, Chip } from '../ui';
+import { Box, Text, Button, Chip } from '../ui';
 import { useTokens } from '../design/makeStyles';
 
 // Store callback in module scope
@@ -17,7 +17,7 @@ export function setNewSpaceCallback(callback: ((space: Space) => void) | null) {
 
 /**
  * NewSpaceModal - Modal for creating a new Space
- * Fixed version with proper spacing and layout
+ * Simplified version that ensures form renders
  */
 export default function NewSpaceModal() {
   const insets = useSafeAreaInsets();
@@ -49,7 +49,7 @@ export default function NewSpaceModal() {
         onCreatedCallback = null;
       }
 
-      // Reset form
+      // Reset form after successful save
       setName('');
       setIcon('');
       setTheme('deepTeal');
@@ -63,14 +63,61 @@ export default function NewSpaceModal() {
     }
   }
 
-  // Reset form when sheet opens
-  const handleSheetOpen = () => {
-    setName('');
-    setIcon('');
-    setTheme('deepTeal');
-    setError(null);
-    setSaving(false);
-  };
+  const styles = StyleSheet.create({
+    container: {
+      padding: tokens.spacing[4],
+      paddingBottom: (insets.bottom || 0) + tokens.spacing[4],
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: '600',
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[4],
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[2],
+    },
+    input: {
+      height: 44,
+      borderWidth: 1,
+      borderColor: tokens.colors.border,
+      borderRadius: tokens.radius[2],
+      paddingHorizontal: tokens.spacing[3],
+      fontSize: 16,
+      backgroundColor: tokens.colors.surface,
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[4],
+    },
+    themeContainer: {
+      marginBottom: tokens.spacing[4],
+    },
+    chipContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: tokens.spacing[2],
+    },
+    error: {
+      color: tokens.colors.danger,
+      fontSize: 14,
+      marginBottom: tokens.spacing[3],
+    },
+    button: {
+      backgroundColor: canCreate ? tokens.colors.primary : tokens.colors.border,
+      height: 48,
+      borderRadius: tokens.radius[2],
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: tokens.spacing[4],
+    },
+    buttonText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+  });
 
   return (
     <ActionSheet
@@ -78,120 +125,73 @@ export default function NewSpaceModal() {
       testID="new-space-overlay"
       gestureEnabled
       backgroundInteractionEnabled={false}
-      onOpen={handleSheetOpen}
       containerStyle={{
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         backgroundColor: tokens.colors.bg,
-        maxHeight: '80%',
       }}
       indicatorStyle={{
         backgroundColor: tokens.colors.border,
         width: 72,
         height: 5,
         borderRadius: 3,
-        marginTop: 8,
-        marginBottom: 8,
       }}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <View style={{ flex: 1 }}>
-          <ScrollView
-            contentContainerStyle={{
-              padding: tokens.spacing[4],
-              paddingBottom: 100, // Space for the button
-            }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Title */}
-            <Box mb={4}>
-              <Text variant="title">New Space</Text>
-            </Box>
+      <View style={styles.container}>
+        {/* Title */}
+        <RNText style={styles.title}>New Space</RNText>
 
-            {/* Name Input */}
-            <Box mb={4}>
-              <Input
-                label="Name"
-                testID="space-name"
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g., Fitness"
+        {/* Name Input */}
+        <RNText style={styles.label}>Name</RNText>
+        <TextInput
+          testID="space-name"
+          value={name}
+          onChangeText={setName}
+          placeholder="e.g., Fitness"
+          placeholderTextColor={tokens.colors.subtle}
+          style={styles.input}
+        />
+
+        {/* Icon Input */}
+        <RNText style={styles.label}>Icon (optional)</RNText>
+        <TextInput
+          testID="space-icon"
+          value={icon}
+          onChangeText={setIcon}
+          placeholder="e.g., 🏋️"
+          placeholderTextColor={tokens.colors.subtle}
+          style={styles.input}
+        />
+
+        {/* Theme Selection */}
+        <View style={styles.themeContainer}>
+          <RNText style={styles.label}>Theme</RNText>
+          <Box row gap={2} style={{ flexWrap: 'wrap', marginTop: 8 }}>
+            {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
+              <Chip
+                key={t}
+                testID={`theme-${t}`}
+                label={t.charAt(0).toUpperCase() + t.slice(1)}
+                selected={theme === t}
+                onPress={() => setTheme(t)}
               />
-            </Box>
-
-            {/* Icon Input */}
-            <Box mb={4}>
-              <Input
-                label="Icon (optional)"
-                testID="space-icon"
-                value={icon}
-                onChangeText={setIcon}
-                placeholder="e.g., 🏋️"
-              />
-            </Box>
-
-            {/* Theme Selection */}
-            <Box mb={4}>
-              <Box mb={2}>
-                <Text variant="label">Theme</Text>
-              </Box>
-              <Box row gap={2} style={{ flexWrap: 'wrap' }}>
-                {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
-                  <Chip
-                    key={t}
-                    testID={`theme-${t}`}
-                    label={t.charAt(0).toUpperCase() + t.slice(1)}
-                    selected={theme === t}
-                    onPress={() => setTheme(t)}
-                  />
-                ))}
-              </Box>
-            </Box>
-
-            {/* Error Message */}
-            {error && (
-              <Box mb={3}>
-                <Text variant="body" style={{ color: tokens.colors.danger }}>
-                  {error}
-                </Text>
-              </Box>
-            )}
-          </ScrollView>
-
-          {/* Fixed Footer Button */}
-          <View
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              backgroundColor: tokens.colors.bg,
-              paddingHorizontal: tokens.spacing[4],
-              paddingTop: tokens.spacing[3],
-              paddingBottom: (insets.bottom || 0) + tokens.spacing[4],
-              borderTopWidth: 1,
-              borderTopColor: tokens.colors.border,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: -2 },
-              shadowOpacity: 0.05,
-              shadowRadius: 4,
-              elevation: 5,
-            }}
-          >
-            <Button
-              testID="new-space-submit"
-              variant={canCreate ? 'primary' : 'neutral'}
-              title={saving ? 'Creating...' : 'Create Space'}
-              onPress={onSave}
-              disabled={!canCreate}
-            />
-          </View>
+            ))}
+          </Box>
         </View>
-      </KeyboardAvoidingView>
+
+        {/* Error Message */}
+        {error && <RNText style={styles.error}>{error}</RNText>}
+
+        {/* Submit Button */}
+        <Pressable
+          testID="new-space-submit"
+          onPress={onSave}
+          disabled={!canCreate}
+          style={styles.button}
+        >
+          <RNText style={styles.buttonText}>{saving ? 'Creating...' : 'Create Space'}</RNText>
+        </Pressable>
+      </View>
     </ActionSheet>
   );
 }
