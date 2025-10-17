@@ -9,6 +9,7 @@ import React from 'react';
 import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
 import HubScreen from '../app/tabs/HubScreen';
 import { SheetManager } from 'react-native-actions-sheet';
+import { ActivityLog } from '../lib/activityLog';
 
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({
@@ -155,6 +156,11 @@ describe('Hub DS Screen', () => {
     });
     mockRepo.listSpaces.mockImplementation(() => Promise.resolve([...mockDataStore.spacesData]));
     mockRepo.update.mockResolvedValue(null as any);
+    ActivityLog.clear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('renders hub screen with correct testID', async () => {
@@ -173,7 +179,7 @@ describe('Hub DS Screen', () => {
       expect(screen.getByTestId('hub-filter-habits')).toBeTruthy();
       expect(screen.getByTestId('hub-filter-todos')).toBeTruthy();
       expect(screen.getByTestId('hub-filter-journal')).toBeTruthy();
-      expect(screen.getByTestId('hub-filter-lists')).toBeTruthy();
+      expect(screen.getByTestId('hub-filter-catchall')).toBeTruthy();
       expect(screen.getByTestId('hub-search')).toBeTruthy();
     });
   });
@@ -238,10 +244,66 @@ describe('Hub DS Screen', () => {
       expect(sheetShowMock).toHaveBeenCalledWith(
         'move-item',
         expect.objectContaining({
-          payload: { itemId: 'todo-99', itemType: 'todo' },
+          payload: expect.objectContaining({
+            itemId: 'todo-99',
+            itemType: 'todo',
+            itemTitle: 'AI Drafted Task',
+            origin: null,
+          }),
         }),
       );
     });
+  });
+
+  it('renders catch-all filters and activity log entries', async () => {
+    const catchallNote = {
+      id: 'note-1',
+      type: 'note',
+      title: '',
+      body: 'Quick idea from catch-all',
+      subtype: 'catchall',
+      space_id: null,
+      ai_placed: true,
+      why_string: 'Cortex dropped this here.',
+      origin: 'catchall',
+      created_at: '2025-01-19T11:00:00Z',
+      updated_at: '2025-01-19T11:00:00Z',
+    } as any;
+
+    mockDataStore.notesData = [catchallNote];
+
+    ActivityLog.add({
+      id: 'event-1',
+      timestamp: Date.now() - 2 * 60 * 1000,
+      source: 'catchall',
+      destination: 'note:catchall',
+      itemId: 'note-1',
+      itemTitle: 'Quick idea from catch-all',
+    });
+
+    renderWithProviders(<HubScreen />);
+
+    fireEvent.press(await screen.findByTestId('hub-filter-catchall'));
+
+    expect(await screen.findByTestId('ca-filter-all')).toBeTruthy();
+    expect(await screen.findByTestId('ca-filter-lists')).toBeTruthy();
+    expect(await screen.findByTestId('ca-filter-notes')).toBeTruthy();
+    expect(await screen.findByTestId('ca-filter-sorting')).toBeTruthy();
+    expect(await screen.findByTestId('ca-filter-archived')).toBeTruthy();
+
+    expect(await screen.findByTestId('ca-item-note-1')).toBeTruthy();
+    expect(screen.getByText(/Placed by Gremly from Catch-All/i)).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('ca-filter-sorting'));
+    await waitFor(() => {
+      expect(screen.getByTestId('ca-item-note-1')).toBeTruthy();
+      expect(screen.getByTestId('ca-move-note-1')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('ca-filter-archived'));
+    const activityRow = await screen.findByTestId('catchall-activity-event-1');
+    expect(activityRow).toBeTruthy();
+    expect(screen.getByText(/ago/i)).toBeTruthy();
   });
 
   it('displays spaces section', async () => {

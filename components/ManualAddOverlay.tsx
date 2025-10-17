@@ -37,6 +37,7 @@ interface ManualAddOverlayProps {
   defaultTab?: TabType;
   onClose: () => void;
   onSubmit?: (payload: ManualAddPayload) => void; // Optional - catch-all handles internally
+  onCatchAllSaved?: () => void;
 }
 
 export function ManualAddOverlay({
@@ -44,6 +45,7 @@ export function ManualAddOverlay({
   defaultTab = 'habits',
   onClose,
   onSubmit,
+  onCatchAllSaved,
 }: ManualAddOverlayProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [reminders, setReminders] = useState<TReminderRule[]>([]);
@@ -88,51 +90,70 @@ export function ManualAddOverlay({
         }
 
         // Map classification to repo payload
-        const finalPayload: CreateRecordInput = res
-          ? res.type === 'note'
-            ? {
-                type: 'note' as const,
+        let finalPayload: CreateRecordInput;
+
+        if (!res) {
+          finalPayload = {
+            type: 'note',
+            title: '',
+            body: inputText,
+            subtype: 'catchall',
+            space_id: null,
+            ai_placed: false,
+            why_string: 'Heuristic default.',
+          };
+        } else {
+          switch (res.type) {
+            case 'note':
+              finalPayload = {
+                type: 'note',
                 title: '',
                 body: inputText,
                 subtype: res.subtype || 'catchall',
                 space_id: null,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Heuristic default.',
-              }
-            : res.type === 'todo'
-              ? {
-                  type: 'todo' as const,
-                  title: inputText,
-                  body: inputText,
-                  due_date: null,
-                  undefined_due: true,
-                  space_id: null,
-                  ai_placed: res.aiPlaced || false,
-                  why_string: res.whyString || 'Classified as todo.',
-                }
-              : {
-                  type: 'habit' as const,
-                  title: inputText,
-                  frequency: (res as any).frequency || 'daily',
-                  space_id: null,
-                  ai_placed: res.aiPlaced || false,
-                  why_string: res.whyString || 'Classified as habit.',
-                }
-          : {
-              type: 'note' as const,
-              title: '',
-              body: inputText,
-              subtype: 'catchall',
-              space_id: null,
-              ai_placed: false,
-              why_string: 'Heuristic default.',
-            };
+              };
+              break;
+            case 'todo':
+              finalPayload = {
+                type: 'todo',
+                title: inputText,
+                body: inputText,
+                due_date: null,
+                undefined_due: res.undefinedDue,
+                space_id: null,
+                ai_placed: res.aiPlaced || false,
+                why_string: res.whyString || 'Classified as todo.',
+              };
+              break;
+            case 'habit':
+            default:
+              finalPayload = {
+                type: 'habit',
+                title: inputText,
+                frequency: res.type === 'habit' ? res.frequency : 'daily',
+                space_id: null,
+                ai_placed: res.aiPlaced || false,
+                why_string: res.whyString || 'Classified as habit.',
+              };
+              break;
+          }
+        }
 
         if (DEBUG) {
           console.log('[OVERLAY][CATCHALL] final payload:', finalPayload);
         }
 
+        finalPayload.origin = 'catchall';
+
+        if (finalPayload.type === 'note' && finalPayload.subtype === 'catchall') {
+          finalPayload.ai_placed = true;
+          finalPayload.why_string = finalPayload.why_string ?? 'Saved from Catch All.';
+        }
+
         await repo.create(finalPayload);
+        onCatchAllSaved?.();
 
         // Show success
         const toastMessage = finalPayload.ai_placed

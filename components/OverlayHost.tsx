@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import * as React from 'react';
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
 import { Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -9,7 +9,8 @@ import NewSpaceModal from './NewSpaceModal';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
 import { useRepo } from '../providers/RepoProvider';
-import type { AppRecord, Space } from '../lib/types';
+import type { AppRecord, NoteSubtype, Space } from '../lib/types';
+import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -30,14 +31,34 @@ registerSheet('demo-sheet', ({ sheetId }) => {
 type MoveItemPayload = {
   itemId: string;
   itemType: AppRecord['type'];
+  itemSubtype?: NoteSubtype;
+  itemTitle?: string;
+  origin?: AppRecord['origin'];
 };
 
-registerSheet('move-item', ({ payload, sheetId }) => {
-  return <MoveItemSheet payload={payload as MoveItemPayload | undefined} sheetId={sheetId} />;
-});
+function resolveDestination(
+  itemType: AppRecord['type'],
+  itemSubtype?: NoteSubtype,
+): ActivityEvent['destination'] {
+  if (itemType === 'habit') return 'habit';
+  if (itemType === 'todo') return 'todo';
+  if (itemType === 'note') {
+    if (itemSubtype === 'journal') return 'note:journal';
+    if (itemSubtype === 'list') return 'note:list';
+    return 'note:catchall';
+  }
+  return 'note:catchall';
+}
+
+registerSheet(
+  'move-item',
+  ({ sheetId, payload }: { sheetId: string; payload: MoveItemPayload }) => (
+    <MoveItemSheet sheetId={sheetId} payload={payload} />
+  ),
+);
 
 // DEV-ONLY: Design System Preview Sheet (fallback)
-registerSheet('ds-preview-sheet', ({ sheetId }) => {
+registerSheet('ds-preview-sheet', ({ sheetId }: { sheetId: string }) => {
   return (
     <ActionSheet
       id={sheetId}
@@ -91,18 +112,12 @@ const styles = StyleSheet.create({
   },
 });
 
-type MoveItemSheetProps = {
-  payload?: MoveItemPayload;
-  sheetId: string;
-};
-
-const MoveItemSheet = ({ payload, sheetId }: MoveItemSheetProps) => {
+function MoveItemSheet({ sheetId, payload }: { sheetId: string; payload: MoveItemPayload }) {
   const repo = useRepo();
-  const [spaces, setSpaces] = useState<Space[]>([]);
-  const itemId = payload?.itemId;
-  const itemType = payload?.itemType;
+  const [spaces, setSpaces] = React.useState<Space[]>([]);
+  const { itemId } = payload;
 
-  useEffect(() => {
+  React.useEffect(() => {
     let isMounted = true;
     repo
       .listSpaces()
@@ -117,31 +132,36 @@ const MoveItemSheet = ({ payload, sheetId }: MoveItemSheetProps) => {
     };
   }, [repo]);
 
-  const moveTo = async (spaceId: string) => {
-    if (!itemId || !itemType) return;
+  async function moveTo(spaceId: string) {
+    if (!itemId) return;
     try {
       await repo.update({ id: itemId, patch: { space_id: spaceId, ai_placed: false } });
+      if (payload.origin === 'catchall') {
+        ActivityLog.recordCatchAllMove({
+          itemId,
+          destination: resolveDestination(payload.itemType, payload.itemSubtype),
+          itemTitle: payload.itemTitle,
+        });
+      }
       await SheetManager.hide(sheetId);
-      console.log('[MoveItem] Moved item', itemId, 'to', spaceId);
-    } catch (err) {
-      console.error('[MoveItemSheet] Move failed', err);
+    } catch (e) {
+      console.error('Move failed', e);
     }
-  };
+  }
 
   return (
     <ActionSheet id={sheetId} gestureEnabled>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <Text variant="title">Move to Space</Text>
         <Box gap={2} mt={2}>
-          {spaces.map((sp) => (
+          {spaces.map((sp: Space) => (
             <Button
               key={sp.id}
               title={sp.name}
               variant="neutral"
               size="md"
+              testID={`hub-space-${sp.id}`}
               onPress={() => moveTo(sp.id)}
-              accessibilityLabel={`Move item to ${sp.name}`}
-              testID={`move-space-${sp.id}`}
             />
           ))}
           {spaces.length === 0 && (
@@ -153,7 +173,7 @@ const MoveItemSheet = ({ payload, sheetId }: MoveItemSheetProps) => {
       </ScrollView>
     </ActionSheet>
   );
-};
+}
 
 export const OverlayHost = () => {
   // Must call hooks before any conditional returns

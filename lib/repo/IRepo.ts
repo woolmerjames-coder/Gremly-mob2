@@ -16,6 +16,7 @@ export interface CreateRecordInput {
   undefined_due?: boolean; // for todos
   ai_placed?: boolean;
   why_string?: string | null;
+  origin?: 'catchall';
   // owner_id is optional - Supabase will set from auth context, Memory repo will use constructor userId
   owner_id?: ID;
 }

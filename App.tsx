@@ -84,22 +84,22 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <SheetProvider>
-          <DsToggleProvider>
-            <ThemeProvider>
-              <AuthProvider>
-                <RepoProvider>
+        <DsToggleProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <RepoProvider>
+                <SheetProvider>
                   <CortexProvider>
                     <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
                       <RootNavigator />
                       <OverlayHost />
                     </NavigationContainer>
                   </CortexProvider>
-                </RepoProvider>
-              </AuthProvider>
-            </ThemeProvider>
-          </DsToggleProvider>
-        </SheetProvider>
+                </SheetProvider>
+              </RepoProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </DsToggleProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

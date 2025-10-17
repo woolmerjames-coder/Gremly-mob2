@@ -18,17 +18,33 @@ import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord, Space } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
+import { formatDistanceToNow } from 'date-fns';
+import { ActivityLog, type ActivityEvent } from '../../lib/activityLog';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-type FilterType = 'all' | 'habits' | 'todos' | 'notes' | 'journal' | 'lists';
+type MainFilter = 'all' | 'habits' | 'todos' | 'journal' | 'catchall';
 
-const FILTER_OPTIONS: ReadonlyArray<{ key: FilterType; label: string; testID: string }> = [
+type CatchAllFilter = 'all' | 'lists' | 'notes' | 'sorting' | 'archived';
+
+const FILTER_OPTIONS: ReadonlyArray<{ key: MainFilter; label: string; testID: string }> = [
   { key: 'all', label: 'All', testID: 'hub-filter-all' },
   { key: 'habits', label: 'Habits', testID: 'hub-filter-habits' },
   { key: 'todos', label: 'To-Dos', testID: 'hub-filter-todos' },
   { key: 'journal', label: 'Journal', testID: 'hub-filter-journal' },
-  { key: 'lists', label: 'Lists', testID: 'hub-filter-lists' },
+  { key: 'catchall', label: 'Catch-All', testID: 'hub-filter-catchall' },
+];
+
+const CATCHALL_FILTER_OPTIONS: ReadonlyArray<{
+  key: CatchAllFilter;
+  label: string;
+  testID: string;
+}> = [
+  { key: 'all', label: 'All', testID: 'ca-filter-all' },
+  { key: 'lists', label: 'Lists', testID: 'ca-filter-lists' },
+  { key: 'notes', label: 'Notes', testID: 'ca-filter-notes' },
+  { key: 'sorting', label: 'Sorting Tray', testID: 'ca-filter-sorting' },
+  { key: 'archived', label: 'Archived', testID: 'ca-filter-archived' },
 ];
 
 export default function HubScreen() {
@@ -45,8 +61,10 @@ export default function HubScreen() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
-  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [activeMainFilter, setActiveMainFilter] = useState<MainFilter>('all');
   const [overlayVisible, setOverlayVisible] = useState(false);
+  const [catchAllFilter, setCatchAllFilter] = useState<CatchAllFilter>('all');
+  const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -77,6 +95,15 @@ export default function HubScreen() {
       ]);
 
       const allItems = [...allHabits, ...allTodos, ...allNotes];
+      console.log(
+        '[Hub] items from repo:',
+        allItems.map((item) => ({
+          id: item.id,
+          type: item.type,
+          subtype: 'subtype' in item ? item.subtype : undefined,
+          title: item.title,
+        })),
+      );
 
       // Sort by updated_at (most recent first)
       allItems.sort((a, b) => {
@@ -87,6 +114,7 @@ export default function HubScreen() {
 
       setItems(allItems);
       setSpaces(allSpaces);
+      setActivityEvents([...ActivityLog.list()]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load hub data';
       console.error('Failed to load hub data:', err);
@@ -110,40 +138,90 @@ export default function HubScreen() {
     };
   }, [searchQuery]);
 
+  const matchesNeedle = useCallback((item: AppRecord, needleValue: string) => {
+    if (!needleValue) return true;
+    const haystack = `${item.title ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
+    return haystack.includes(needleValue);
+  }, []);
+
   const filteredItems = useMemo(() => {
     const needle = searchDebounced || searchQuery.trim().toLowerCase();
 
     return items.filter((item) => {
-      if (activeFilter !== 'all') {
-        if (activeFilter === 'habits' && item.type !== 'habit') return false;
-        if (activeFilter === 'todos' && item.type !== 'todo') return false;
-        if (activeFilter === 'notes' && item.type !== 'note') return false;
-        if (activeFilter === 'journal' && !(item.type === 'note' && item.subtype === 'journal')) {
+      if (activeMainFilter !== 'all') {
+        if (activeMainFilter === 'habits' && item.type !== 'habit') return false;
+        if (activeMainFilter === 'todos' && item.type !== 'todo') return false;
+        if (
+          activeMainFilter === 'journal' &&
+          !(item.type === 'note' && item.subtype === 'journal')
+        ) {
           return false;
         }
-        if (activeFilter === 'lists' && !(item.type === 'note' && item.subtype === 'list')) {
-          return false;
-        }
-      }
-
-      if (needle) {
-        const haystack =
-          `${item.title ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
-        if (!haystack.includes(needle)) {
+        if (activeMainFilter === 'catchall' && item.origin !== 'catchall') {
           return false;
         }
       }
 
-      return true;
+      return matchesNeedle(item, needle);
     });
-  }, [items, activeFilter, searchDebounced, searchQuery]);
+  }, [items, activeMainFilter, matchesNeedle, searchDebounced, searchQuery]);
 
-  const sortingTrayItems = filteredItems.filter((item) => item.ai_placed === true);
-  const listItems = filteredItems.filter((item) => item.ai_placed !== true);
+  const sortingTrayItems = useMemo(
+    () => filteredItems.filter((item) => item.ai_placed === true),
+    [filteredItems],
+  );
+  const listItems = useMemo(
+    () => filteredItems.filter((item) => item.ai_placed !== true),
+    [filteredItems],
+  );
+  const catchAllAll = useMemo(() => items.filter((item) => item.origin === 'catchall'), [items]);
+  const catchAllWithSearch = useMemo(() => {
+    const needle = searchDebounced || searchQuery.trim().toLowerCase();
+    if (!needle) return catchAllAll;
+    return catchAllAll.filter((item) => matchesNeedle(item, needle));
+  }, [catchAllAll, matchesNeedle, searchDebounced, searchQuery]);
+  const catchAllLists = useMemo(
+    () => catchAllWithSearch.filter((item) => item.type === 'note' && item.subtype === 'list'),
+    [catchAllWithSearch],
+  );
+  const catchAllNotes = useMemo(
+    () =>
+      catchAllWithSearch.filter(
+        (item) =>
+          item.type === 'note' &&
+          (item.subtype === 'catchall' || item.subtype === 'journal' || !item.subtype),
+      ),
+    [catchAllWithSearch],
+  );
+  const catchAllSorting = useMemo(
+    () => catchAllWithSearch.filter((item) => item.ai_placed === true),
+    [catchAllWithSearch],
+  );
+  const catchAllArchived = useMemo(() => activityEvents, [activityEvents]);
+  const catchAllRecordsForView = useMemo(() => {
+    switch (catchAllFilter) {
+      case 'lists':
+        return catchAllLists;
+      case 'notes':
+        return catchAllNotes;
+      case 'sorting':
+        return catchAllSorting;
+      case 'all':
+        return catchAllWithSearch;
+      case 'archived':
+      default:
+        return [] as AppRecord[];
+    }
+  }, [catchAllFilter, catchAllLists, catchAllNotes, catchAllSorting, catchAllWithSearch]);
+  const catchAllEventsForView = catchAllFilter === 'archived' ? catchAllArchived : [];
+  const isCatchAllArchivedView = catchAllFilter === 'archived';
+  const catchAllEmpty = isCatchAllArchivedView
+    ? catchAllEventsForView.length === 0
+    : catchAllRecordsForView.length === 0;
   const filterLabel = useMemo(() => {
-    const option = FILTER_OPTIONS.find((f) => f.key === activeFilter);
+    const option = FILTER_OPTIONS.find((f) => f.key === activeMainFilter);
     return option?.label ?? 'All';
-  }, [activeFilter]);
+  }, [activeMainFilter]);
 
   // Empty state
   const isEmpty = items.length === 0;
@@ -165,7 +243,13 @@ export default function HubScreen() {
     async (item: AppRecord) => {
       try {
         await SheetManager.show('move-item', {
-          payload: { itemId: item.id, itemType: item.type },
+          payload: {
+            itemId: item.id,
+            itemType: item.type,
+            itemSubtype: item.type === 'note' ? item.subtype : undefined,
+            itemTitle: displayTitle(item),
+            origin: item.origin ?? null,
+          },
         } as never);
         await load();
       } catch (err) {
@@ -174,6 +258,41 @@ export default function HubScreen() {
     },
     [load],
   );
+
+  const handleActivityEventPress = (itemId: string) => {
+    const target = items.find((record) => record.id === itemId);
+    if (target) {
+      handleItemPress(target);
+      return;
+    }
+    console.warn('[HubScreen] Activity item no longer available', itemId);
+  };
+
+  function displayTitle(item: AppRecord): string {
+    if (item.title && item.title.trim()) return item.title.trim();
+    if (item.type === 'note' && item.body) {
+      const line =
+        item.body
+          .split('\n')
+          .map((segment) => segment.trim())
+          .find(Boolean) ?? '';
+      if (line.length) {
+        return line.length > 60 ? `${line.slice(0, 57)}…` : line;
+      }
+    }
+    return 'Untitled';
+  }
+
+  function displayType(item: AppRecord): string {
+    if (item.type === 'habit') return 'Habit';
+    if (item.type === 'todo') return 'To-Do';
+    if (item.type === 'note') {
+      if (item.subtype === 'journal') return 'Journal';
+      if (item.subtype === 'list') return 'List';
+      return 'Catch-All Note';
+    }
+    return 'Item';
+  }
 
   // Handle manual add submission
   const handleManualAddSubmit = async (payload: ManualAddPayload) => {
@@ -260,13 +379,18 @@ export default function HubScreen() {
           <>
             <Box row gap={2} style={{ flexWrap: 'wrap' }}>
               {FILTER_OPTIONS.map((filter) => {
-                const selected = activeFilter === filter.key;
+                const selected = activeMainFilter === filter.key;
                 return (
                   <Chip
                     key={filter.key}
                     label={filter.label}
                     selected={selected}
-                    onPress={() => setActiveFilter(filter.key)}
+                    onPress={() => {
+                      setActiveMainFilter(filter.key);
+                      if (filter.key === 'catchall') {
+                        setCatchAllFilter('all');
+                      }
+                    }}
                     testID={filter.testID}
                     accessibilityLabel={`Filter ${filter.label}`}
                   />
@@ -315,35 +439,131 @@ export default function HubScreen() {
         )}
 
         {/* Sorting Tray Section (AI-placed items) */}
-        {sortingTrayItems.length > 0 && (
+        {activeMainFilter !== 'catchall' && sortingTrayItems.length > 0 && (
           <Box gap={2}>
             <Text variant="title">Sorting Tray ({sortingTrayItems.length})</Text>
             <Text variant="subtle">Items needing your attention</Text>
-            {sortingTrayItems.map((item) => (
-              <Box key={item.id} gap={1}>
+            {sortingTrayItems.map((item) => {
+              const title = displayTitle(item);
+              return (
+                <Box key={item.id} gap={1}>
+                  <ListItem
+                    title={title}
+                    subtitle={`${item.type} • AI placed`}
+                    onPress={() => handleItemPress(item)}
+                    testID={`hub-tray-${item.id}`}
+                    accessibilityLabel={`Open ${title} from sorting tray`}
+                    rightContent={
+                      <Button
+                        title="Move"
+                        variant="neutral"
+                        size="sm"
+                        onPress={() => handleMovePress(item)}
+                        accessibilityLabel={`Move ${title}`}
+                        testID={`hub-move-${item.id}`}
+                      />
+                    }
+                  />
+                  {item.why_string ? (
+                    <Text variant="subtle" style={{ marginLeft: 16 }}>
+                      {item.why_string}
+                    </Text>
+                  ) : null}
+                  {item.origin === 'catchall' ? (
+                    <Text variant="subtle" style={{ marginLeft: 16 }}>
+                      Placed by Gremly from Catch-All.
+                    </Text>
+                  ) : null}
+                </Box>
+              );
+            })}
+          </Box>
+        )}
+
+        {activeMainFilter === 'catchall' && (
+          <Box gap={2}>
+            <Text variant="title">Catch-All ({catchAllWithSearch.length})</Text>
+            <Box row gap={2} style={{ flexWrap: 'wrap' }}>
+              {CATCHALL_FILTER_OPTIONS.map((option) => {
+                const selected = catchAllFilter === option.key;
+                return (
+                  <Chip
+                    key={option.key}
+                    label={option.label}
+                    selected={selected}
+                    onPress={() => setCatchAllFilter(option.key)}
+                    testID={option.testID}
+                    accessibilityLabel={`Catch-All filter ${option.label}`}
+                  />
+                );
+              })}
+            </Box>
+            {catchAllEmpty ? (
+              <Text variant="body" style={{ marginTop: 8 }}>
+                {isCatchAllArchivedView ? 'No archived moves yet.' : 'No items in this view yet.'}
+              </Text>
+            ) : isCatchAllArchivedView ? (
+              catchAllEventsForView.map((event) => (
                 <ListItem
-                  title={item.title || 'Untitled'}
-                  subtitle={`${item.type} • AI placed`}
-                  onPress={() => handleItemPress(item)}
-                  testID={`hub-tray-${item.id}`}
-                  accessibilityLabel={`Open ${item.title || 'item'} from sorting tray`}
-                  rightContent={
-                    <Button
-                      title="Move"
-                      variant="neutral"
-                      size="sm"
-                      onPress={() => handleMovePress(item)}
-                      accessibilityLabel={`Move ${item.title || 'item'}`}
-                      testID={`hub-move-${item.id}`}
-                    />
-                  }
+                  key={event.id}
+                  title={event.itemTitle || 'Untitled'}
+                  subtitle={`${destinationLabel(event.destination)} • ${formatRelativeTime(event.timestamp)}`}
+                  onPress={() => handleActivityEventPress(event.itemId)}
+                  testID={`catchall-activity-${event.id}`}
+                  accessibilityLabel={`Open ${event.itemTitle || 'item'} from activity log`}
                 />
-                {item.why_string ? (
-                  <Text variant="subtle" style={{ marginLeft: 16 }}>
-                    {item.why_string}
-                  </Text>
-                ) : null}
-              </Box>
+              ))
+            ) : (
+              catchAllRecordsForView.map((item) => {
+                const title = displayTitle(item);
+                return (
+                  <Box key={item.id} gap={1}>
+                    <ListItem
+                      title={title}
+                      subtitle={`${displayType(item)} • ${new Date(
+                        item.updated_at || item.created_at,
+                      ).toLocaleDateString()}`}
+                      onPress={() => handleItemPress(item)}
+                      testID={`ca-item-${item.id}`}
+                      accessibilityLabel={`Open ${title} from Catch-All`}
+                      rightContent={
+                        catchAllFilter === 'sorting' && item.ai_placed ? (
+                          <Button
+                            title="Move"
+                            variant="neutral"
+                            size="sm"
+                            onPress={() => handleMovePress(item)}
+                            accessibilityLabel={`Move ${title}`}
+                            testID={`ca-move-${item.id}`}
+                          />
+                        ) : undefined
+                      }
+                    />
+                    {item.origin === 'catchall' ? (
+                      <Text variant="subtle" style={{ marginLeft: 16 }}>
+                        Placed by Gremly from Catch-All.
+                      </Text>
+                    ) : null}
+                  </Box>
+                );
+              })
+            )}
+          </Box>
+        )}
+
+        {activeMainFilter !== 'catchall' && activityEvents.length > 0 && (
+          <Box gap={2}>
+            <Text variant="title">Recently Placed</Text>
+            <Text variant="subtle">Moves from Catch-All</Text>
+            {activityEvents.map((event) => (
+              <ListItem
+                key={event.id}
+                title={event.itemTitle || 'Untitled'}
+                subtitle={`${destinationLabel(event.destination)} • ${formatRelativeTime(event.timestamp)}`}
+                onPress={() => handleActivityEventPress(event.itemId)}
+                testID={`catchall-activity-${event.id}`}
+                accessibilityLabel={`Open ${event.itemTitle || 'item'} from activity log`}
+              />
             ))}
           </Box>
         )}
@@ -358,23 +578,26 @@ export default function HubScreen() {
         )}
 
         {/* Filtered Items */}
-        {listItems.length > 0 && (
+        {activeMainFilter !== 'catchall' && listItems.length > 0 && (
           <Box gap={2}>
             <Text variant="title">
               {filterLabel === 'All'
                 ? `All Items (${listItems.length})`
                 : `${filterLabel} (${listItems.length})`}
             </Text>
-            {listItems.map((item) => (
-              <ListItem
-                key={item.id}
-                title={item.title || 'Untitled'}
-                subtitle={`${item.type} • ${new Date(item.updated_at || item.created_at).toLocaleDateString()}`}
-                onPress={() => handleItemPress(item)}
-                testID={`hub-item-${item.id}`}
-                accessibilityLabel={`Open ${item.title || 'item'}`}
-              />
-            ))}
+            {listItems.map((item) => {
+              const title = displayTitle(item);
+              return (
+                <ListItem
+                  key={item.id}
+                  title={title}
+                  subtitle={`${item.type} • ${new Date(item.updated_at || item.created_at).toLocaleDateString()}`}
+                  onPress={() => handleItemPress(item)}
+                  testID={`hub-item-${item.id}`}
+                  accessibilityLabel={`Open ${title}`}
+                />
+              );
+            })}
           </Box>
         )}
 
@@ -390,23 +613,6 @@ export default function HubScreen() {
                 onPress={() => handleSpacePress(space)}
                 testID={`hub-space-${space.id}`}
                 accessibilityLabel={`Open space ${space.name}`}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* Sorting Tray Section (AI-placed items) */}
-        {sortingTrayItems.length > 0 && (
-          <Box gap={2}>
-            <Text variant="title">Sorting Tray ({sortingTrayItems.length})</Text>
-            <Text variant="body">Items needing your attention</Text>
-            {sortingTrayItems.map((item) => (
-              <ListItem
-                key={item.id}
-                title={item.title || 'Untitled'}
-                subtitle={`${item.type} • AI placed`}
-                onPress={() => handleItemPress(item)}
-                testID={`hub-tray-${item.id}`}
               />
             ))}
           </Box>
@@ -431,7 +637,36 @@ export default function HubScreen() {
         defaultTab="habits"
         onClose={() => setOverlayVisible(false)}
         onSubmit={handleManualAddSubmit}
+        onCatchAllSaved={() => {
+          void load();
+        }}
       />
     </Screen>
   );
+}
+
+function formatRelativeTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) return 'just now';
+  try {
+    return formatDistanceToNow(timestamp, { addSuffix: true });
+  } catch (err) {
+    console.error('[HubScreen] Failed to format timestamp', err);
+    return 'just now';
+  }
+}
+
+function destinationLabel(destination: ActivityEvent['destination']): string {
+  switch (destination) {
+    case 'habit':
+      return 'Habit';
+    case 'todo':
+      return 'To-Do';
+    case 'note:journal':
+      return 'Journal';
+    case 'note:list':
+      return 'List';
+    case 'note:catchall':
+    default:
+      return 'Catch-All Note';
+  }
 }
