@@ -1,137 +1,81 @@
-# feat(cortex): Phase 6.5 Catch-All early AI (flag-gated)
+# feat(manual-add): Overlay-only + Cortex wiring (Phase 6.5)
 
-## Overview
-Wires the Catch-All "Capture" submit flow to the Cortex classification engine with comprehensive debug logging, rate-limit fallback, and payload rationale persistence.
+## Summary
 
-## Changes
+This PR consolidates Manual Add functionality to use **ManualAddOverlay exclusively**, removing the duplicate ManualAddSheet (ActionSheet) implementation. It wires **OpenAI LLM classification** directly into the overlay's catch-all submit flow with intelligent rate-limiting and heuristic fallback.
 
-### 1. Pipeline Integration (`components/ManualAddSheet.tsx`)
-- Added classification point in catch-all submit branch
-- Reads `EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL` flag to enable/disable AI
-- Calls `cortex.classify()` when flag is enabled
-- Maps classification result to repo payload with `ai_placed` and `why_string`
-- Graceful fallback to heuristic on error
-- Added success toast: "Saved to the Hub." + "I put this here." (when AI-placed)
+### Key Changes:
 
-### 2. Rate Limiter Enhancement (`cortex/createEngine.ts`)
-- Added DEBUG logging when rate limit is hit
-- Log message: `[CORTEX][RATE] limit reached; using heuristic`
-- `ManagedCortexEngine` automatically falls back to heuristic when primary is rate-limited
+1. **Single Source of Truth**: Removed ManualAddSheet.tsx (~1060 lines) and consolidated on ManualAddOverlay
+2. **Cortex Integration**: Wired LLM classification directly into overlay's catch-all handler
+3. **Rate-Limited with Fallback**: OpenAI API calls are rate-limited (5 requests/60s), automatically falling back to heuristic classification
+4. **Rationale Persistence**: All classifications persist `why_string` field explaining the AI's decision
+5. **Never Auto-Today**: System never automatically assigns items to "today" - respects `undefined_due` flag
+6. **Simplified Architecture**: Screens no longer need classification logic (~180 lines removed across 3 screens)
 
-### 3. Button & Logging (`components/overlay/CatchAllForm.tsx`)
-- Updated testID from `catchall-submit` to `capture-catchall` (per spec)
-- Added `[CATCHALL][CAPTURE]` log at submit with text preview
+---
 
-### 4. Rate-Limit Tests (`__tests__/cortex/rate-limit.test.ts`)
-- New test suite verifying rate limiter behavior
-- Tests:
-  - Falls back to heuristic when limit exceeded
-  - Allows requests again after window expires
-  - Disables rate limiting when `EXPO_PUBLIC_CORTEX_RATE_MAX=0`
+## Technical Implementation
 
-### 5. Documentation
-- `CATCHALL_PIPELINE_WIRING_COMPLETE.md` - Comprehensive implementation guide
-- `CATCHALL_PIPELINE_FLOW.md` - Visual flowcharts and log examples
-
-## Debug Logs
-
-When `EXPO_PUBLIC_DEBUG_CORTEX=true`:
+### Classification Flow:
 
 ```
-[CATCHALL][CAPTURE] submit dispatched, text: "Buy milk and eggs..."
-[CATCHALL][PIPE] start. classifyFlag: true, text length: 34
-[CATCHALL][PIPE] invoking cortex.classify...
-[CATCHALL][PIPE] engine result: { type: 'todo', aiPlaced: true, ... }
-[CATCHALL][PIPE] final payload: { type: 'todo', ai_placed: true, why_string: '...' }
-```
+User Input → CatchAllForm
+           ↓
+    ManualAddOverlay.handleSubmit()
+           ↓
+    [OVERLAY][CATCHALL] start
+           ↓
+    cortex.classify() (if enabled)
+           ↓
+---
 
-Rate limit hit:
-```
-[CORTEX][RATE] limit reached; using heuristic
-```
+## QA Checklist
 
-## Environment Flags
+### ✅ Code Quality Gates
 
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL` | `false` | Enable AI classification |
-| `EXPO_PUBLIC_CORTEX_ENGINE` | `HEURISTIC` | Engine type (`LLM` or `HEURISTIC`) |
-| `EXPO_PUBLIC_OPENAI_API_KEY` | *(required)* | OpenAI API key |
-| `EXPO_PUBLIC_DEBUG_CORTEX` | `false` | Verbose debug logging |
-| `EXPO_PUBLIC_CORTEX_RATE_MAX` | `5` | Max requests per window |
-| `EXPO_PUBLIC_CORTEX_RATE_WINDOW_S` | `60` | Rate limit window (seconds) |
+- [x] **Lint**: 0 errors, 2 pre-existing warnings
+- [x] **TypeCheck**: 0 errors
+- [x] **Tests**: 23/23 passing in manualAddOverlay.ds.test.tsx
 
-## Quality Gates
+### ✅ Functional Testing
 
-- ✅ **Lint:** 0 errors, 1 pre-existing warning
-- ✅ **TypeScript:** Zero errors
-- ✅ **Tests:** 21 suites passed, 128 tests passed
-  - ✅ Rate-limit fallback verified
-  - ✅ Catch-all submission tests passing
-  - ✅ Classification payload mapping correct
+- [x] **Flag OFF** → Heuristic path works
+- [x] **Flag ON** → LLM path works (classifies as note/todo/habit)
+- [x] **Rate Limiting** → Gracefully falls back after 5 requests/60s
+- [x] **why_string** → Persisted in all cases
+- [x] **Toast Messages**: "Saved to the Hub." + "I put this here." (when AI)
+- [x] **undefined_due** → Never auto-assigned to "today"
 
-## PR Checklist
-
-- [x] Lint/typecheck/tests green
-- [x] Flag off → heuristic path OK
-- [x] Flag on → LLM path OK (when key provided)
-- [x] Rate-limit triggers fallback without crash
-- [x] `why_string` persisted in repos
-- [x] "Saved to the Hub." + "I put this here." toasts display as expected
-- [x] Button testID updated to `capture-catchall`
-- [x] Comprehensive debug logging added
-- [x] Documentation complete
+---
 
 ## Testing Instructions
 
-### 1. Flag Disabled (Default)
 ```bash
-# .env.local
-EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL=false
+# Install dependencies
+npm install
+
+# Run quality gates
+npm run typecheck
+npm run lint
+npm test -- __tests__/manualAddOverlay.ds.test.tsx
+
+# Start app
+npm start
 ```
-- Catch-all saves immediately without AI
-- `ai_placed: false`, `why_string: null`
 
-### 2. Flag Enabled (Heuristic)
-```bash
-EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL=true
-EXPO_PUBLIC_CORTEX_ENGINE=HEURISTIC
-```
-- Uses keyword-based heuristic
-- Fast, no API calls
+---
 
-### 3. Flag Enabled (LLM)
-```bash
-EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL=true
-EXPO_PUBLIC_CORTEX_ENGINE=LLM
-EXPO_PUBLIC_OPENAI_API_KEY=sk-...
-EXPO_PUBLIC_DEBUG_CORTEX=true
-```
-- Uses OpenAI for classification
-- Watch console for `[CATCHALL][PIPE]` logs
-- Try entering "Buy groceries tomorrow" → should classify as todo
+## Related Documentation
 
-### 4. Rate Limit Testing
-```bash
-EXPO_PUBLIC_CORTEX_RATE_MAX=2
-EXPO_PUBLIC_CORTEX_RATE_WINDOW_S=10
-```
-- Submit 3+ catch-all items rapidly
-- 3rd should fallback to heuristic
-- Watch for `[CORTEX][RATE] limit reached` log
+- `MANUAL_ADD_CONSOLIDATION_SUMMARY.md` - Implementation details
+- `CATCHALL_CORTEX_REFACTOR.md` - Earlier phase context
 
-## Screenshots
-
-*Add screenshots of:*
-- Toast notification after successful save
-- Debug logs in console
-- Rate limit warning in console
-
-## Related Issues
-
-Closes #[issue-number] (if applicable)
+---
 
 ## Breaking Changes
+
+None
 
 - Button testID changed from `catchall-submit` → `capture-catchall`
   - Update any E2E tests that reference the old ID
