@@ -13,7 +13,8 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { openManualAdd } from '../../components/ManualAddSheet';
+import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord } from '../../lib/types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -29,6 +30,7 @@ export default function TodayScreen() {
   const [items, setItems] = useState<AppRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overlayVisible, setOverlayVisible] = useState(false);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -90,6 +92,68 @@ export default function TodayScreen() {
     // await load();
   };
 
+  // Handle manual add submission
+  const handleManualAddSubmit = async (payload: ManualAddPayload) => {
+    try {
+      switch (payload.type) {
+        case 'habits':
+          if (payload.subType === 'start') {
+            await repo.create({
+              type: 'habit',
+              title: payload.data.name,
+              frequency: payload.data.frequency as any,
+              space_id: payload.data.spaceId || null,
+              ai_placed: false,
+            });
+          } else {
+            // Break habit - create as habit with notes about breaking
+            await repo.create({
+              type: 'habit',
+              title: `Break: ${payload.data.name}`,
+              frequency: 'daily',
+              space_id: payload.data.spaceId || null,
+              ai_placed: false,
+            });
+          }
+          break;
+        case 'todos':
+          await repo.create({
+            type: 'todo',
+            title: payload.data.name,
+            due_date: payload.data.deadline || null,
+            undefined_due: !payload.data.deadline,
+            space_id: null,
+            ai_placed: false,
+          });
+          break;
+        case 'journal':
+          await repo.create({
+            type: 'note',
+            title: '',
+            body: payload.data.entry,
+            subtype: 'journal',
+            space_id: payload.data.spaceId || null,
+            ai_placed: false,
+          });
+          break;
+        case 'catchall':
+          await repo.create({
+            type: 'note',
+            title: '',
+            body: payload.data.entry,
+            subtype: 'catchall',
+            space_id: null,
+            ai_placed: false,
+          });
+          break;
+      }
+      // Reload data after successful submission
+      await load();
+    } catch (err) {
+      console.error('Failed to create item:', err);
+    }
+  };
+
   return (
     <Screen title="Today" scroll padded testID="today-screen">
       {dsMarker}
@@ -134,7 +198,11 @@ export default function TodayScreen() {
               <Text variant="body" style={{ textAlign: 'center' }}>
                 No items due today. Add something to get started.
               </Text>
-              <Button title="Add Item" onPress={() => openManualAdd()} testID="today-empty-add" />
+              <Button
+                title="Add Item"
+                onPress={() => setOverlayVisible(true)}
+                testID="today-empty-add"
+              />
             </Box>
           </Card>
         )}
@@ -181,12 +249,20 @@ export default function TodayScreen() {
             <Button
               title="Add More"
               variant="neutral"
-              onPress={() => openManualAdd()}
+              onPress={() => setOverlayVisible(true)}
               testID="today-add-more"
             />
           </Box>
         )}
       </Box>
+
+      {/* Manual Add Overlay */}
+      <ManualAddOverlay
+        visible={overlayVisible}
+        defaultTab="habits"
+        onClose={() => setOverlayVisible(false)}
+        onSubmit={handleManualAddSubmit}
+      />
     </Screen>
   );
 }
