@@ -38,6 +38,42 @@ export const lightTokens = {
       relaxed: 1.6,
     },
   },
+  elevation: {
+    none: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
+    },
+    sm: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 1,
+    },
+    md: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    lg: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+  },
+  blur: {
+    none: 0,
+    sm: 10,
+    md: 20,
+    lg: 40,
+  },
 } as const;
 
 export const darkTokens = {
@@ -74,6 +110,42 @@ export const darkTokens = {
       normal: 1.4,
       relaxed: 1.6,
     },
+  },
+  elevation: {
+    none: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
+    },
+    sm: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 1,
+    },
+    md: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    lg: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+  },
+  blur: {
+    none: 0,
+    sm: 10,
+    md: 20,
+    lg: 40,
   },
 } as const;
 
@@ -121,17 +193,17 @@ export const fontWeight = {
 
 export const colors = {
   deepTeal: {
-    DEFAULT: '#0D3B3A',
-    600: '#0F4C4B',
+    DEFAULT: '#0A2F2E', // Deeper, richer teal
+    600: '#0D3B3A',
     700: '#0B3332',
     900: '#072524',
   },
   mint: '#B7F7E1',
-  cream: '#FFF7EA',
+  cream: '#FFF9F0', // Warmer cream with slight yellow tint
   periwinkle: '#C9D4FF',
   bg: {
-    DEFAULT: '#FFF7EA',
-    secondary: '#FFF1E5',
+    DEFAULT: '#FFF9F0', // Match warmer cream
+    secondary: '#FFF4E6',
   },
   text: {
     primary: '#1A1A1A',
@@ -140,7 +212,7 @@ export const colors = {
   },
   border: {
     DEFAULT: '#E5E5E5',
-    focus: '#0D3B3A',
+    focus: '#0A2F2E', // Match deeper teal
   },
   white: '#FFFFFF',
   black: '#000000',
