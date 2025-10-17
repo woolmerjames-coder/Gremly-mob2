@@ -35,6 +35,9 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Check } from 'lucide-react-native';
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { z } from 'zod';
+import type { CortexOutput } from '../cortex/ICortexEngine';
+import { useCortex } from '../providers/CortexProvider';
+import type { CreateRecordInput } from '../lib/repo/IRepo';
 import { useRepo } from '../providers/RepoProvider';
 import { toRepoFrequency } from '../app/schemas/manualAdd';
 import { spacing, borderRadius, fontSize, fontWeight } from '../design/tokens';
@@ -102,6 +105,56 @@ const catchallFormSchema = z.object({
   body: z.string().min(1, 'Note cannot be empty'),
 });
 
+const MAX_AUTO_TITLE_LENGTH = 120;
+
+const buildAutoTitle = (body: string, fallback = 'Untitled'): string => {
+  const firstLine = body.split('\n')[0]?.trim() ?? '';
+  const candidate = firstLine.length > 0 ? firstLine : fallback;
+  return candidate.slice(0, MAX_AUTO_TITLE_LENGTH);
+};
+
+const mapClassificationToCreateInput = (
+  classification: CortexOutput,
+  body: string,
+  spaceId?: string | null,
+): CreateRecordInput => {
+  const normalizedSpace = spaceId ?? null;
+
+  if (classification.type === 'habit') {
+    return {
+      type: 'habit',
+      title: buildAutoTitle(body),
+      frequency: classification.frequency,
+      space_id: normalizedSpace,
+      ai_placed: classification.aiPlaced,
+      why_string: classification.whyString,
+    } satisfies CreateRecordInput;
+  }
+
+  if (classification.type === 'todo') {
+    return {
+      type: 'todo',
+      title: buildAutoTitle(body),
+      body,
+      due_date: null,
+      undefined_due: classification.undefinedDue,
+      space_id: normalizedSpace,
+      ai_placed: classification.aiPlaced,
+      why_string: classification.whyString,
+    } satisfies CreateRecordInput;
+  }
+
+  return {
+    type: 'note',
+    title: classification.subtype === 'catchall' ? '' : buildAutoTitle(body, 'Untitled'),
+    body,
+    subtype: classification.subtype,
+    space_id: normalizedSpace,
+    ai_placed: classification.aiPlaced,
+    why_string: classification.whyString,
+  } satisfies CreateRecordInput;
+};
+
 // ============================================================================
 // MODULE-SCOPED STATE (for openManualAdd helper)
 // ============================================================================
@@ -125,6 +178,7 @@ export function closeManualAdd(): void {
 export default function ManualAddSheet() {
   const insets = useSafeAreaInsets();
   const repo = useRepo();
+  const cortex = useCortex();
   const tokens = useTokens();
 
   // Animation values (not refs to avoid render warnings)
@@ -576,6 +630,19 @@ export default function ManualAddSheet() {
           closeManualAdd();
         });
       } else if (logicTab === 'catchall') {
+        const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
+        const classifyFlag =
+          (process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL ?? 'false') === 'true';
+
+        if (DEBUG) {
+          console.log(
+            '[CATCHALL][PIPE] start. classifyFlag:',
+            classifyFlag,
+            'text length:',
+            state.catchallBody?.length ?? 0,
+          );
+        }
+
         // Validate
         const result = catchallFormSchema.safeParse({
           body: state.catchallBody,
@@ -590,15 +657,66 @@ export default function ManualAddSheet() {
           return;
         }
 
-        // Create Catch-All Note
-        await repo.create({
-          type: 'note',
-          title: '',
-          body: state.catchallBody.trim(),
-          subtype: 'catchall',
-          space_id: state.spaceId || null,
-          ai_placed: false,
-        });
+        const trimmedBody = state.catchallBody.trim();
+        let res: CortexOutput | null = null;
+
+        if (classifyFlag) {
+          try {
+            if (DEBUG) console.log('[CATCHALL][PIPE] invoking cortex.classify...');
+            res = await cortex.classify({
+              text: trimmedBody,
+              spaceId: state.spaceId || null,
+            });
+            if (DEBUG) console.log('[CATCHALL][PIPE] engine result:', res);
+          } catch (classificationError) {
+            if (DEBUG)
+              console.error(
+                '[CATCHALL][PIPE] engine error, falling back to heuristic:',
+                classificationError,
+              );
+            if (__DEV__) {
+              console.warn(
+                '[ManualAddSheet] Cortex classification failed; defaulting to catch-all.',
+                classificationError,
+              );
+            }
+          }
+        } else {
+          if (DEBUG) console.log('[CATCHALL][PIPE] classification disabled by flag');
+        }
+
+        const payload: CreateRecordInput = res
+          ? mapClassificationToCreateInput(res, trimmedBody, state.spaceId)
+          : {
+              type: 'note',
+              title: '',
+              body: trimmedBody,
+              subtype: 'catchall',
+              space_id: state.spaceId || null,
+              ai_placed: false,
+              why_string: null,
+            };
+
+        if (DEBUG) {
+          console.log('[CATCHALL][PIPE] final payload:', {
+            type: payload.type,
+            subtype: 'subtype' in payload ? payload.subtype : undefined,
+            ai_placed: payload.ai_placed,
+            why_string: payload.why_string,
+          });
+        }
+
+        await repo.create(payload);
+
+        // Show success feedback
+        const toastMessage = 'Saved to the Hub.';
+        const toastSubcopy = payload.ai_placed ? '\nI put this here.' : '';
+        if (Platform.OS === 'web') {
+          // Simple alert for web
+          alert(toastMessage + toastSubcopy);
+        } else {
+          Alert.alert('Success', toastMessage + toastSubcopy);
+        }
 
         // Success animation
         setSubmitSuccess(true);

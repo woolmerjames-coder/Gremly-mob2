@@ -16,19 +16,41 @@ interface CatchAllFormProps {
 
 export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
   const [entry, setEntry] = useState('');
+  const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
 
-  console.log('[CatchAllForm] RENDER');
+  if (DEBUG) {
+    console.log('[CATCHALL][FORM] render, entry length:', entry.length);
+  }
 
   const handleSubmit = () => {
+    if (DEBUG) {
+      console.log(
+        '[CATCHALL][CAPTURE] submit dispatched, text:',
+        entry.trim().substring(0, 50) + (entry.length > 50 ? '...' : ''),
+      );
+    }
+
     try {
       const data = CatchAllSchema.parse({ entry });
+
+      if (DEBUG) {
+        console.log('[CATCHALL][FORM] validation success, submitting payload');
+      }
 
       onSubmit({
         type: 'catchall',
         data,
       });
+
+      if (DEBUG) {
+        console.log('[CATCHALL][FORM] onSubmit dispatched');
+      }
     } catch (error) {
-      console.error('Validation error:', error);
+      if (DEBUG) {
+        console.error('[CATCHALL][FORM] validation error:', error);
+      } else {
+        console.error('Validation error:', error);
+      }
     }
   };
 
@@ -55,7 +77,7 @@ export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
           variant="primary"
           onPress={handleSubmit}
           disabled={!isValid}
-          testID="catchall-submit"
+          testID="capture-catchall"
         />
       </View>
     </View>

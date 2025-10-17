@@ -275,7 +275,7 @@ describe('ManualAddOverlay', () => {
       fireEvent.changeText(entryInput, 'Random thought');
 
       // Submit
-      const submitButton = screen.getByTestId('catchall-submit');
+      const submitButton = screen.getByTestId('capture-catchall');
       fireEvent.press(submitButton);
 
       await waitFor(() => {
