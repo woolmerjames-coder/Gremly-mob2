@@ -44,3 +44,7 @@ yarn-error.*
 _archive/
 *.backup
 *.legacy.tsx
+
+# Environment files
+.env
+.env.local
