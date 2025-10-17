@@ -5,16 +5,16 @@
  * All animations respect reduced motion accessibility settings.
  */
 
-import { useReducedMotion as useReanimatedReducedMotion } from 'react-native-reanimated';
 import {
+  useReducedMotion as useReanimatedReducedMotion,
   withTiming,
   withSpring,
   withSequence,
   withDelay,
+  Easing,
   type WithTimingConfig,
   type WithSpringConfig,
 } from 'react-native-reanimated';
-import { Easing } from 'react-native';
 
 // ============================================================================
 // ACCESSIBILITY - Reduced Motion
