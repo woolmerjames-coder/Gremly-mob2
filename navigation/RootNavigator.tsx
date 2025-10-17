@@ -3,14 +3,13 @@ import TabNavigator from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
-import NewSpaceScreen from '../app/screens/NewSpaceScreen.legacy';
 
 export type RootStackParamList = {
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
   SpaceDetail: { id: string };
-  NewSpace: undefined;
+  // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -19,13 +18,6 @@ export default function RootNavigator() {
   return (
     <Stack.Navigator>
       <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
-      <Stack.Screen
-        name="NewSpace"
-        component={NewSpaceScreen}
-        options={{
-          headerShown: false,
-        }}
-      />
       <Stack.Screen
         name="SpaceDetail"
         component={SpaceDetailScreen}

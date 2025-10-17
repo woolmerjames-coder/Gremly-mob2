@@ -1,3 +1,16 @@
+/**
+ * SKIPPED TEST - NewSpaceScreen.legacy removed in Phase H
+ *
+ * NewSpace functionality now uses NewSpaceModal component instead of a screen route.
+ * This test is preserved for reference but no longer runs.
+ */
+
+test.skip('NewSpaceScreen tests skipped - screen removed in Phase H', () => {
+  // All tests for NewSpaceScreen.legacy have been skipped
+  // NewSpace functionality now uses components/NewSpaceModal.tsx
+});
+
+/*
 import { render, fireEvent } from '@testing-library/react-native';
 import NewSpaceScreen from '../app/screens/NewSpaceScreen.legacy';
 
@@ -34,3 +47,4 @@ test('create disabled until name typed', () => {
   const create2 = getByLabelText('Create Space');
   expect(create2.props.accessibilityState?.disabled ?? create2.props.disabled).toBeFalsy();
 });
+*/

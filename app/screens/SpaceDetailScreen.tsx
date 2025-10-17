@@ -4,13 +4,16 @@ import { useRoute, RouteProp } from '@react-navigation/native';
 import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
 import PlusFAB from '../../components/PlusFAB';
-import { openManualAdd } from '../../components/ManualAddSheet';
+import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { toRepoFrequency } from '../../app/schemas/manualAdd';
+import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { Space, AppRecord } from '../../lib/types';
 import type { GroupedByType } from '../../lib/repo/IRepo';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Box, Text } from '../../ui';
 import { Card, ListItem } from '../../design-system';
 import { useTokens } from '../../design/makeStyles';
+import { lightTokens } from '../../design/tokens';
 
 type SpaceDetailRouteProp = RouteProp<RootStackParamList, 'SpaceDetail'>;
 
@@ -26,25 +29,86 @@ export default function SpaceDetail() {
   const [space, setSpace] = useState<Space | null>(null);
   const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
   const [loading, setLoading] = useState(true);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+
+  const load = async () => {
+    try {
+      const [spaceData, groupedData] = await Promise.all([
+        repo.getSpaceById(id),
+        repo.listBySpaceGrouped(id),
+      ]);
+      setSpace(spaceData);
+      setGroups(groupedData);
+    } catch (error) {
+      console.error('Failed to load space:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function load() {
-      try {
-        const [spaceData, groupedData] = await Promise.all([
-          repo.getSpaceById(id),
-          repo.listBySpaceGrouped(id),
-        ]);
-        setSpace(spaceData);
-        setGroups(groupedData);
-      } catch (error) {
-        console.error('Failed to load space:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  const handleManualAddSubmit = async (payload: ManualAddPayload) => {
+    try {
+      switch (payload.type) {
+        case 'habits':
+          if (payload.subType === 'start') {
+            await repo.create({
+              type: 'habit',
+              title: payload.data.name,
+              frequency: toRepoFrequency(payload.data.frequency),
+              space_id: id,
+              ai_placed: false,
+            });
+          } else {
+            await repo.create({
+              type: 'habit',
+              title: `Break: ${payload.data.name}`,
+              frequency: 'daily',
+              space_id: id,
+              ai_placed: false,
+            });
+          }
+          break;
+        case 'todos':
+          await repo.create({
+            type: 'todo',
+            title: payload.data.name,
+            due_date: payload.data.deadline || null,
+            undefined_due: !payload.data.deadline,
+            space_id: id,
+            ai_placed: false,
+          });
+          break;
+        case 'journal':
+          await repo.create({
+            type: 'note',
+            title: '',
+            body: payload.data.entry,
+            subtype: 'journal',
+            space_id: id,
+            ai_placed: false,
+          });
+          break;
+        case 'catchall':
+          await repo.create({
+            type: 'note',
+            title: '',
+            body: payload.data.entry,
+            subtype: 'catchall',
+            space_id: id,
+            ai_placed: false,
+          });
+          break;
+      }
+      await load();
+    } catch (err) {
+      console.error('Failed to create item:', err);
+    }
+  };
 
   if (loading) {
     return (
@@ -91,7 +155,15 @@ export default function SpaceDetail() {
       <Section title="Notes" items={groups.notes} />
 
       {/* Plus FAB for Manual Add with spaceId context */}
-      <PlusFAB onPress={() => openManualAdd({ spaceId: id })} />
+      <PlusFAB onPress={() => setOverlayVisible(true)} />
+
+      {/* Manual Add Overlay */}
+      <ManualAddOverlay
+        visible={overlayVisible}
+        defaultTab="habits"
+        onClose={() => setOverlayVisible(false)}
+        onSubmit={handleManualAddSubmit}
+      />
     </ScrollView>
   );
 }
@@ -102,6 +174,8 @@ interface SectionProps {
 }
 
 function Section({ title, items }: SectionProps) {
+  const t = useTokens();
+
   return (
     <Box px={4} py={3}>
       <Text variant="title" style={{ marginBottom: 8 }}>
@@ -113,7 +187,7 @@ function Section({ title, items }: SectionProps) {
             <Box mb={2}>
               <MascotIcon pose="think" size={48} />
             </Box>
-            <Text variant="body" style={{ color: '#6A6F76' }}>
+            <Text variant="body" style={{ color: t.colors.subtle }}>
               Nothing here yet.
             </Text>
           </Box>
@@ -134,14 +208,15 @@ function Section({ title, items }: SectionProps) {
 }
 
 function themeToColor(t?: string | null) {
+  const { colors } = lightTokens;
   switch (t) {
     case 'mint':
-      return '#B7F7E1';
+      return colors.accentMint;
     case 'cream':
-      return '#FFF6E5';
+      return colors.bg;
     case 'periwinkle':
-      return '#C9D4FF';
+      return colors.accentPeri;
     default:
-      return '#0D3B3A'; // deepTeal
+      return colors.primary;
   }
 }

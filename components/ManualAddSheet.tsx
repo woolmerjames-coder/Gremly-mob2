@@ -29,13 +29,14 @@ import {
   Alert,
   StyleSheet,
   Animated,
-  Easing,
 } from 'react-native';
+import { Easing } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { z } from 'zod';
 import { useRepo } from '../providers/RepoProvider';
+import { toRepoFrequency } from '../app/schemas/manualAdd';
 import { spacing, borderRadius, fontSize, fontWeight } from '../design/tokens';
 import { useTokens } from '../design/makeStyles';
 import JournalInspiration from './JournalInspiration';
@@ -457,7 +458,7 @@ export default function ManualAddSheet() {
         await repo.create({
           type: 'habit',
           title: state.habitName.trim(),
-          frequency: state.habitFrequency.trim() as any,
+          frequency: toRepoFrequency(state.habitFrequency.trim()),
           space_id: state.spaceId || null,
           ai_placed: false,
         });

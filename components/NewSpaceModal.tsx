@@ -1,14 +1,14 @@
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, TextInput, Pressable, Text as RNText, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
 import type { Space } from '../lib/types';
-import { Box, Text, Input, Button, Chip } from '../ui';
+import { Box, Chip } from '../ui';
 import { useTokens } from '../design/makeStyles';
 
-// Store callback in module scope (simpler than fighting with payload types)
+// Store callback in module scope
 let onCreatedCallback: ((space: Space) => void) | null = null;
 
 export function setNewSpaceCallback(callback: ((space: Space) => void) | null) {
@@ -17,12 +17,12 @@ export function setNewSpaceCallback(callback: ((space: Space) => void) | null) {
 
 /**
  * NewSpaceModal - Modal for creating a new Space
- * Phase 5: Form with name (required), icon (optional), theme (optional)
- * UX: Keyboard-safe sticky footer, disabled button until valid, proper overlay
+ * Simplified version that ensures form renders
  */
 export default function NewSpaceModal() {
   const insets = useSafeAreaInsets();
   const repo = useRepo();
+  const tokens = useTokens();
 
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
@@ -43,15 +43,17 @@ export default function NewSpaceModal() {
       });
       setSaving(true);
       const created = await repo.createSpace(payloadInput);
-      // Call the callback
+
       if (onCreatedCallback) {
         onCreatedCallback(created);
-        onCreatedCallback = null; // Clear after use
+        onCreatedCallback = null;
       }
-      // Reset form
+
+      // Reset form after successful save
       setName('');
       setIcon('');
       setTheme('deepTeal');
+      setError(null);
       await SheetManager.hide('new-space');
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : 'Please check your inputs';
@@ -61,7 +63,61 @@ export default function NewSpaceModal() {
     }
   }
 
-  const tokens = useTokens();
+  const styles = StyleSheet.create({
+    container: {
+      padding: tokens.spacing[4],
+      paddingBottom: (insets.bottom || 0) + tokens.spacing[4],
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: '600',
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[4],
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[2],
+    },
+    input: {
+      height: 44,
+      borderWidth: 1,
+      borderColor: tokens.colors.border,
+      borderRadius: tokens.radius[2],
+      paddingHorizontal: tokens.spacing[3],
+      fontSize: 16,
+      backgroundColor: tokens.colors.surface,
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[4],
+    },
+    themeContainer: {
+      marginBottom: tokens.spacing[4],
+    },
+    chipContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: tokens.spacing[2],
+    },
+    error: {
+      color: tokens.colors.danger,
+      fontSize: 14,
+      marginBottom: tokens.spacing[3],
+    },
+    button: {
+      backgroundColor: canCreate ? tokens.colors.primary : tokens.colors.border,
+      height: 48,
+      borderRadius: tokens.radius[2],
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: tokens.spacing[4],
+    },
+    buttonText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+  });
 
   return (
     <ActionSheet
@@ -72,7 +128,6 @@ export default function NewSpaceModal() {
       containerStyle={{
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
-        height: '85%',
         backgroundColor: tokens.colors.bg,
       }}
       indicatorStyle={{
@@ -82,87 +137,61 @@ export default function NewSpaceModal() {
         borderRadius: 3,
       }}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-      >
-        {/* IMPORTANT: parent must be relative + full height so footer can stick to bottom */}
-        <Box style={{ flex: 1, position: 'relative', backgroundColor: 'transparent' }}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{
-              padding: tokens.spacing[4],
-              paddingBottom: (insets.bottom || tokens.spacing[4]) + 120,
-              backgroundColor: 'transparent',
-            }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text variant="title" style={{ marginBottom: tokens.spacing[3] }}>
-              New Space
-            </Text>
+      <View style={styles.container}>
+        {/* Title */}
+        <RNText style={styles.title}>New Space</RNText>
 
-            <Input
-              label="Name"
-              testID="space-name"
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g., Fitness"
-            />
+        {/* Name Input */}
+        <RNText style={styles.label}>Name</RNText>
+        <TextInput
+          testID="space-name"
+          value={name}
+          onChangeText={setName}
+          placeholder="e.g., Fitness"
+          placeholderTextColor={tokens.colors.subtle}
+          style={styles.input}
+        />
 
-            <Input
-              label="Icon (optional)"
-              testID="space-icon"
-              value={icon}
-              onChangeText={setIcon}
-              placeholder="e.g., 🏋️"
-            />
+        {/* Icon Input */}
+        <RNText style={styles.label}>Icon (optional)</RNText>
+        <TextInput
+          testID="space-icon"
+          value={icon}
+          onChangeText={setIcon}
+          placeholder="e.g., 🏋️"
+          placeholderTextColor={tokens.colors.subtle}
+          style={styles.input}
+        />
 
-            <Box mb={1}>
-              <Text variant="label" style={{ marginBottom: tokens.spacing[2] }}>
-                Theme
-              </Text>
-              <Box row gap={2}>
-                {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
-                  <Chip
-                    key={t}
-                    testID={`theme-${t}`}
-                    label={t.charAt(0).toUpperCase() + t.slice(1)}
-                    selected={theme === t}
-                    onPress={() => setTheme(t)}
-                  />
-                ))}
-              </Box>
-            </Box>
-
-            {error ? (
-              <Text
-                variant="body"
-                style={{ color: tokens.colors.danger, marginBottom: tokens.spacing[3] }}
-              >
-                {error}
-              </Text>
-            ) : null}
-          </ScrollView>
-
-          {/* Sticky footer button — ALWAYS visible at bottom */}
-          <Box
-            style={{
-              position: 'absolute',
-              left: tokens.spacing[4],
-              right: tokens.spacing[4],
-              bottom: (insets.bottom || tokens.spacing[4]) + tokens.spacing[4],
-            }}
-          >
-            <Button
-              testID="new-space-submit"
-              variant={canCreate ? 'primary' : 'neutral'}
-              title={saving ? 'Saving...' : 'Create Space'}
-              onPress={onSave}
-              disabled={!canCreate}
-            />
+        {/* Theme Selection */}
+        <View style={styles.themeContainer}>
+          <RNText style={styles.label}>Theme</RNText>
+          <Box row gap={2} style={{ flexWrap: 'wrap', marginTop: 8 }}>
+            {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
+              <Chip
+                key={t}
+                testID={`theme-${t}`}
+                label={t.charAt(0).toUpperCase() + t.slice(1)}
+                selected={theme === t}
+                onPress={() => setTheme(t)}
+              />
+            ))}
           </Box>
-        </Box>
-      </KeyboardAvoidingView>
+        </View>
+
+        {/* Error Message */}
+        {error && <RNText style={styles.error}>{error}</RNText>}
+
+        {/* Submit Button */}
+        <Pressable
+          testID="new-space-submit"
+          onPress={onSave}
+          disabled={!canCreate}
+          style={styles.button}
+        >
+          <RNText style={styles.buttonText}>{saving ? 'Creating...' : 'Create Space'}</RNText>
+        </Pressable>
+      </View>
     </ActionSheet>
   );
 }

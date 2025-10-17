@@ -1,13 +1,13 @@
 /**
  * Spaces DS Screen Tests
  *
- * Tests for the Design System version of Spaces screen (/screens2/Spaces.tsx)
+ * Tests for the Design System version of Spaces screen (/app/tabs/SpacesScreen.tsx)
  * Verifies testIDs, search functionality, empty states, and space list rendering
  */
 
 import React from 'react';
 import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
-import SpacesScreen from '../screens2/Spaces';
+import SpacesScreen from '../app/tabs/SpacesScreen';
 
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({

@@ -13,7 +13,9 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button, Input } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { openManualAdd } from '../../components/ManualAddSheet';
+import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { toRepoFrequency } from '../../app/schemas/manualAdd';
+import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord, Space } from '../../lib/types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -34,6 +36,7 @@ export default function HubScreen() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter] = useState<FilterType>('all'); // TODO: Add filter chip UI
+  const [overlayVisible, setOverlayVisible] = useState(false);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -131,6 +134,66 @@ export default function HubScreen() {
     // navigation.navigate('SpaceDetail', { id: space.id });
   };
 
+  // Handle manual add submission
+  const handleManualAddSubmit = async (payload: ManualAddPayload) => {
+    try {
+      switch (payload.type) {
+        case 'habits':
+          if (payload.subType === 'start') {
+            await repo.create({
+              type: 'habit',
+              title: payload.data.name,
+              frequency: toRepoFrequency(payload.data.frequency),
+              space_id: payload.data.spaceId || null,
+              ai_placed: false,
+            });
+          } else {
+            await repo.create({
+              type: 'habit',
+              title: `Break: ${payload.data.name}`,
+              frequency: 'daily',
+              space_id: payload.data.spaceId || null,
+              ai_placed: false,
+            });
+          }
+          break;
+        case 'todos':
+          await repo.create({
+            type: 'todo',
+            title: payload.data.name,
+            due_date: payload.data.deadline || null,
+            undefined_due: !payload.data.deadline,
+            space_id: null,
+            ai_placed: false,
+          });
+          break;
+        case 'journal':
+          await repo.create({
+            type: 'note',
+            title: '',
+            body: payload.data.entry,
+            subtype: 'journal',
+            space_id: payload.data.spaceId || null,
+            ai_placed: false,
+          });
+          break;
+        case 'catchall':
+          await repo.create({
+            type: 'note',
+            title: '',
+            body: payload.data.entry,
+            subtype: 'catchall',
+            space_id: null,
+            ai_placed: false,
+          });
+          break;
+      }
+      await load();
+    } catch (err) {
+      console.error('Failed to create item:', err);
+    }
+  };
+
   return (
     <Screen title="Hub" scroll padded testID="hub-screen">
       {dsMarker}
@@ -187,7 +250,7 @@ export default function HubScreen() {
               </Text>
               <Button
                 title="Open Manual Add"
-                onPress={() => openManualAdd()}
+                onPress={() => setOverlayVisible(true)}
                 testID="hub-empty-add"
               />
             </Box>
@@ -251,12 +314,20 @@ export default function HubScreen() {
             <Button
               title="Add More"
               variant="neutral"
-              onPress={() => openManualAdd()}
+              onPress={() => setOverlayVisible(true)}
               testID="hub-add-more"
             />
           </Box>
         )}
       </Box>
+
+      {/* Manual Add Overlay */}
+      <ManualAddOverlay
+        visible={overlayVisible}
+        defaultTab="habits"
+        onClose={() => setOverlayVisible(false)}
+        onSubmit={handleManualAddSubmit}
+      />
     </Screen>
   );
 }

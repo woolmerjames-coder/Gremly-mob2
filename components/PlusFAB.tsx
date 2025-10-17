@@ -1,6 +1,8 @@
 import { Pressable, Text, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
+import { lightTokens } from '../design/tokens';
+import { z } from '../design/z';
 
 /**
  * PlusFAB - Floating Action Button
@@ -67,26 +69,20 @@ export default function PlusFAB({ onPress, testID = 'plus-fab' }: PlusFABProps) 
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    zIndex: 999,
+    zIndex: z.fab,
   },
   button: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#0F4C5C', // deepTeal
+    backgroundColor: lightTokens.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    // Shadow for iOS
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    // Elevation for Android
-    elevation: 8,
+    ...lightTokens.elevation.lg,
   },
   plusIcon: {
     fontSize: 32,
-    color: '#FFFFFF',
+    color: lightTokens.colors.onPrimary,
     fontWeight: '300',
     lineHeight: 32,
   },

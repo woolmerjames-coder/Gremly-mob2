@@ -70,20 +70,15 @@ export const Badge = React.forwardRef<React.ElementRef<typeof Box>, BadgeProps>(
       fontWeight: '500',
     };
 
-    // Strip className if present
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { className: _ignored, ...cleanProps } = viewProps as Record<string, unknown>;
-
     return (
       <Box
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ref={ref as any}
+        ref={ref}
         row
         center
         px={sizeStyle.px}
         py={sizeStyle.py}
         style={badgeStyle}
-        {...cleanProps}
+        {...viewProps}
       >
         {leftIcon && <Box mr={1}>{leftIcon}</Box>}
         <Text style={textStyle}>{label}</Text>

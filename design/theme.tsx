@@ -29,10 +29,12 @@ const darkColors = {
   },
   white: lightColors.white,
   black: lightColors.black,
-  error: lightColors.error,
-  success: lightColors.success,
-  warning: lightColors.warning,
-  gray: lightColors.gray,
+  // Map to existing keys on tokens (keep shape identical to lightColors)
+  error: lightColors.status.error,
+  success: lightColors.status.success,
+  warning: lightColors.status.warning,
+  gray: lightColors.text.tertiary,
+  status: lightColors.status,
 } as const;
 
 export type ThemeColors = typeof lightColors | typeof darkColors;

@@ -1,19 +1,23 @@
 /**
  * Spaces Screen - DS-only implementation (no Tailwind)
  * Grid view of user's Spaces with search
+ * Phase H: Updated to use NewSpaceModal instead of NewSpace screen route
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useRepo } from '../providers/RepoProvider';
-import { useAuth } from '../providers/AuthProvider';
-import { useTheme } from '../providers/ThemeProvider';
-import { Screen, Box, Text, Button, Input } from '../ui';
-import { Card } from '../design-system/Card';
-import { ListItem } from '../design-system/ListItem';
-import MascotIcon from '../components/MascotIcon';
-import type { RootStackParamList } from '../navigation/RootNavigator';
+import { SheetManager } from 'react-native-actions-sheet';
+
+import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
+import { useTheme } from '../../providers/ThemeProvider';
+import { Screen, Box, Text, Button, Input } from '../../ui';
+import { Card } from '../../design-system/Card';
+import { ListItem } from '../../design-system/ListItem';
+import MascotIcon from '../../components/MascotIcon';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { setNewSpaceCallback } from '../../components/NewSpaceModal';
 
 export default function SpacesScreen() {
   const repo = useRepo();
@@ -62,10 +66,14 @@ export default function SpacesScreen() {
     };
   }, [repo, user]);
 
-  // Navigate to create
+  // Navigate to create (now opens modal instead of screen route)
   const onCreateSpace = useCallback(() => {
-    navigation.navigate('NewSpace');
-  }, [navigation]);
+    // Set callback to refresh spaces list when new space is created
+    setNewSpaceCallback((newSpace) => {
+      setSpaces((prev) => [...prev, newSpace]);
+    });
+    SheetManager.show('new-space');
+  }, []);
 
   // Filter spaces by search query
   const filteredSpaces = q.trim()

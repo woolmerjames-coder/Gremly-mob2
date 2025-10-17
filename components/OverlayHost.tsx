@@ -5,8 +5,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-import ManualAddSheet from './ManualAddSheet';
 import { Box, Text } from '../ui';
+import { lightTokens } from '../design/tokens';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -34,7 +34,7 @@ registerSheet('ds-preview-sheet', ({ sheetId }) => {
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         maxHeight: '85%',
-        backgroundColor: '#FFF7EA',
+        backgroundColor: lightTokens.colors.bg,
       }}
     >
       <ScrollView
@@ -53,27 +53,27 @@ registerSheet('ds-preview-sheet', ({ sheetId }) => {
 const styles = StyleSheet.create({
   container: {
     padding: 16,
-    backgroundColor: '#FFF7EA',
+    backgroundColor: lightTokens.colors.bg,
   },
   title: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#0F4C5C',
+    color: lightTokens.colors.primary,
   },
   description: {
     fontSize: 16,
     marginBottom: 16,
-    color: '#1A1A1A',
+    color: lightTokens.colors.text,
   },
   button: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 18,
-    backgroundColor: '#0F4C5C',
+    backgroundColor: lightTokens.colors.primary,
   },
   buttonText: {
-    color: '#FFF',
+    color: lightTokens.colors.onPrimary,
     textAlign: 'center',
     fontWeight: '600',
   },
@@ -83,12 +83,11 @@ export const OverlayHost = () => {
   // Must call hooks before any conditional returns
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  // Render the NewSpaceModal and ManualAddSheet components to make them available globally
-  // Note: Both are already DS-migrated (C6), no legacy versions to conditionally load
+  // Render global modals
+  // Note: ManualAddOverlay is now managed locally in each screen
   return (
     <>
       <NewSpaceModal />
-      <ManualAddSheet />
       {/* DEV-ONLY: Floating debug button to access dev tools */}
       {__DEV__ && (
         <Pressable
