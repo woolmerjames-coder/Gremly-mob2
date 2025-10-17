@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
 import type { Space } from '../lib/types';
-import { Box, Text, Button, Chip } from '../ui';
+import { Box, Chip } from '../ui';
 import { useTokens } from '../design/makeStyles';
 
 // Store callback in module scope

@@ -6,7 +6,6 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { overlayStyles } from '../../app/styles/manualAdd.styles';
-import { theme } from '../../app/design/theme';
 import { HabitStartForm } from './HabitStartForm';
 import { HabitBreakForm } from './HabitBreakForm';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';

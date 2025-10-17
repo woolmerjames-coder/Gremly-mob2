@@ -14,6 +14,7 @@ import { Screen, Box, Text, Button, Input } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord, Space } from '../../lib/types';
 
@@ -142,7 +143,7 @@ export default function HubScreen() {
             await repo.create({
               type: 'habit',
               title: payload.data.name,
-              frequency: payload.data.frequency as any,
+              frequency: toRepoFrequency(payload.data.frequency),
               space_id: payload.data.spaceId || null,
               ai_placed: false,
             });

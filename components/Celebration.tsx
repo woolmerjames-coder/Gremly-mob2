@@ -1,22 +1,32 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-// Optional: If lottie-react-native isn't installed in tests, fall back to a simple View
-let LottieView: any;
+import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+
+type LottieComponentProps = {
+  source: unknown;
+  autoPlay?: boolean;
+  loop?: boolean;
+  style?: StyleProp<ViewStyle>;
+} & Record<string, unknown>;
+
+const fallbackLottieStyle: ViewStyle = {
+  width: 220,
+  height: 220,
+  backgroundColor: 'rgba(183,247,225,0.3)',
+  borderRadius: 110,
+};
+
+let LottieView: React.ComponentType<LottieComponentProps>;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  LottieView = require('lottie-react-native');
-  LottieView = LottieView.default || LottieView;
+  const rawModule = require('lottie-react-native');
+  const candidate = rawModule.default ?? rawModule;
+  if (typeof candidate === 'function') {
+    LottieView = candidate as React.ComponentType<LottieComponentProps>;
+  } else {
+    throw new Error('Lottie module is not a component');
+  }
 } catch {
-  LottieView = () => (
-    <View
-      style={{
-        width: 220,
-        height: 220,
-        backgroundColor: 'rgba(183,247,225,0.3)',
-        borderRadius: 110,
-      }}
-    />
-  );
+  LottieView = ({ style }) => <View style={[fallbackLottieStyle, style]} />;
 }
 
 export default function Celebration({ visible }: { visible: boolean }) {

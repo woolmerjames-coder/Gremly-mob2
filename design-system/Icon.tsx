@@ -40,8 +40,7 @@ export const Icon = React.forwardRef<React.ElementRef<typeof Box>, IconProps>(
     }
 
     return (
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      <Box ref={ref as any} center style={{ width: sizeMap[size], height: sizeMap[size] }}>
+      <Box ref={ref} center style={{ width: sizeMap[size], height: sizeMap[size] }}>
         <LucideIcon size={sizeMap[size]} color={color} strokeWidth={strokeWidth} />
       </Box>
     );

@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import type { Frequency } from '../../lib/types';
 
 // ============================================================================
 // REMINDER RULE
@@ -116,3 +117,15 @@ export type ManualAddPayload =
   | { type: 'todos'; data: TTodo }
   | { type: 'journal'; data: TJournal }
   | { type: 'catchall'; data: TCatchAll };
+
+const repoFrequencies: readonly Frequency[] = ['daily', 'weekly', 'monthly'] as const;
+
+const isRepoFrequency = (value: string): value is Frequency =>
+  repoFrequencies.some((frequency) => frequency === value);
+
+export const toRepoFrequency = (value: string): Frequency => {
+  if (isRepoFrequency(value)) {
+    return value;
+  }
+  return 'daily';
+};

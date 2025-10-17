@@ -14,6 +14,7 @@ import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord } from '../../lib/types';
 
@@ -101,7 +102,7 @@ export default function TodayScreen() {
             await repo.create({
               type: 'habit',
               title: payload.data.name,
-              frequency: payload.data.frequency as any,
+              frequency: toRepoFrequency(payload.data.frequency),
               space_id: payload.data.spaceId || null,
               ai_placed: false,
             });

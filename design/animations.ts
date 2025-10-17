@@ -31,15 +31,37 @@ export function useReducedMotion(): boolean {
 // TIMING CONFIGS
 // ============================================================================
 
+type BezierArgs = [number, number, number, number];
+type EasingLike = (value: number) => number;
+
+const linearFallback: EasingLike = (value) => value;
+
+const toBezier = (...args: BezierArgs): EasingLike => {
+  const bezierFactory = (
+    Easing as unknown as {
+      bezier?: (...params: BezierArgs) => unknown;
+    }
+  ).bezier;
+
+  if (typeof bezierFactory === 'function') {
+    const candidate = bezierFactory(...args);
+    if (typeof candidate === 'function') {
+      return candidate as EasingLike;
+    }
+  }
+
+  return linearFallback;
+};
+
 /**
  * Standard easing curve for most animations
  * Cubic bezier: ease-out
  */
 export const EASING = {
-  standard: Easing.bezier(0.4, 0.0, 0.2, 1),
-  emphasized: Easing.bezier(0.0, 0.0, 0.2, 1),
-  decelerate: Easing.bezier(0.0, 0.0, 0.2, 1),
-  accelerate: Easing.bezier(0.4, 0.0, 1, 1),
+  standard: toBezier(0.4, 0.0, 0.2, 1),
+  emphasized: toBezier(0.0, 0.0, 0.2, 1),
+  decelerate: toBezier(0.0, 0.0, 0.2, 1),
+  accelerate: toBezier(0.4, 0.0, 1, 1),
 };
 
 /**

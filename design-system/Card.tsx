@@ -56,19 +56,14 @@ export const Card = React.forwardRef<React.ElementRef<typeof Box>, CardProps>(
       }
     };
 
-    // Strip className if present
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { className: _ignored, ...cleanProps } = viewProps as Record<string, unknown>;
-
     return (
       <Box
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ref={ref as any}
+        ref={ref}
         p={getPadding(padding)}
         bg="card"
         radius={3}
         style={[{ overflow: 'hidden' }, getVariantStyle(variant), style]}
-        {...cleanProps}
+        {...viewProps}
       >
         {children}
       </Box>

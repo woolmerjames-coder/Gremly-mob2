@@ -96,13 +96,8 @@ export const Tabs = React.forwardRef<React.ElementRef<typeof Box>, TabsProps>(
       };
     };
 
-    // Strip className if present
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { className: _ignored, ...cleanProps } = viewProps as Record<string, unknown>;
-
     return (
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      <Box ref={ref as any} style={{ width: '100%' }} {...cleanProps}>
+      <Box ref={ref} style={{ width: '100%' }} {...viewProps}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}

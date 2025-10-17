@@ -3,7 +3,12 @@
  * Features: press animations, haptic feedback, reduced motion support
  */
 import * as React from 'react';
-import { ActivityIndicator, Pressable, type PressableProps } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  type PressableProps,
+  type GestureResponderEvent,
+} from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -107,7 +112,7 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
     // Handle press in
     // Shared values (scale, opacity) intentionally excluded from deps - they're mutable refs
     const handlePressIn = React.useCallback(
-      (e: any) => {
+      (event: GestureResponderEvent) => {
         if (!disabled && !isLoading && !isReducedMotion) {
           scale.value = pressDown();
           opacity.value = withTiming(0.9, { duration: 100 });
@@ -122,7 +127,7 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
           }
         }
 
-        onPressIn?.(e);
+        onPressIn?.(event);
       },
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [disabled, isLoading, isReducedMotion, variant, onPressIn],
@@ -131,12 +136,12 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
     // Handle press out
     // Shared values (scale, opacity) intentionally excluded from deps - they're mutable refs
     const handlePressOut = React.useCallback(
-      (e: any) => {
+      (event: GestureResponderEvent) => {
         if (!disabled && !isLoading && !isReducedMotion) {
           scale.value = pressUp();
           opacity.value = withSpring(1, { damping: 15, stiffness: 150 });
         }
-        onPressOut?.(e);
+        onPressOut?.(event);
       },
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [disabled, isLoading, isReducedMotion, onPressOut],

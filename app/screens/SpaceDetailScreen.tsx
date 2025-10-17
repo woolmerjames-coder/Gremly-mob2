@@ -5,6 +5,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
 import PlusFAB from '../../components/PlusFAB';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { Space, AppRecord } from '../../lib/types';
 import type { GroupedByType } from '../../lib/repo/IRepo';
@@ -58,7 +59,7 @@ export default function SpaceDetail() {
             await repo.create({
               type: 'habit',
               title: payload.data.name,
-              frequency: payload.data.frequency as any,
+              frequency: toRepoFrequency(payload.data.frequency),
               space_id: id,
               ai_placed: false,
             });
