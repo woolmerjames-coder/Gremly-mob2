@@ -129,6 +129,11 @@ export const colors = {
   },
   white: '#FFFFFF',
   black: '#000000',
+  // Top-level status colors for convenience (mirrors status.* below)
+  success: '#10B981',
+  warning: '#F59E0B',
+  error: '#EF4444',
+  gray: '#9CA3AF',
   status: {
     success: '#10B981',
     warning: '#F59E0B',
