@@ -1,11 +1,11 @@
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { View, TextInput, Pressable, Text as RNText } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spaceInsertSchema } from '../lib/schemas';
 import { useRepo } from '../providers/RepoProvider';
 import type { Space } from '../lib/types';
-import { Box, Text, Input, Button, Chip } from '../ui';
+import { Text, Input, Button, Chip } from '../ui';
 import { useTokens } from '../design/makeStyles';
 
 // Store callback in module scope (simpler than fighting with payload types)
@@ -62,6 +62,7 @@ export default function NewSpaceModal() {
   }
 
   const tokens = useTokens();
+  const [usePlain, setUsePlain] = useState(false);
 
   return (
     <ActionSheet
@@ -82,70 +83,153 @@ export default function NewSpaceModal() {
         borderRadius: 3,
       }}
     >
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          padding: tokens.spacing[4],
-          paddingBottom: insets.bottom + tokens.spacing[4] + 80,
-        }}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text variant="title" style={{ marginBottom: tokens.spacing[3] }}>
-          New Space
-        </Text>
+      <View style={{ flex: 1, padding: 16, paddingBottom: insets.bottom + 16 + 80 }}>
+        {/* Debug toggle removed to satisfy eslint (no-constant-binary-expression). */}
 
-        <Input
-          label="Name"
-          testID="space-name"
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g., Fitness"
-        />
+        <View style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
+          {!usePlain ? (
+            <>
+              <Text variant="title" style={{ marginBottom: 16 }}>
+                New Space
+              </Text>
 
-        <Input
-          label="Icon (optional)"
-          testID="space-icon"
-          value={icon}
-          onChangeText={setIcon}
-          placeholder="e.g., 🏋️"
-        />
+              <View style={{ width: '100%', marginBottom: 16 }}>
+                <Input
+                  label="Name"
+                  testID="space-name"
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="e.g., Fitness"
+                />
+              </View>
 
-        <Box mb={1}>
-          <Text variant="label" style={{ marginBottom: tokens.spacing[2] }}>
-            Theme
-          </Text>
-          <Box row gap={2}>
-            {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
-              <Chip
-                key={t}
-                testID={`theme-${t}`}
-                label={t.charAt(0).toUpperCase() + t.slice(1)}
-                selected={theme === t}
-                onPress={() => setTheme(t)}
+              <View style={{ width: '100%', marginBottom: 16 }}>
+                <Input
+                  label="Icon (optional)"
+                  testID="space-icon"
+                  value={icon}
+                  onChangeText={setIcon}
+                  placeholder="e.g., 🏋️"
+                />
+              </View>
+
+              <View style={{ width: '100%', marginTop: 8, marginBottom: 16 }}>
+                <Text variant="label" style={{ marginBottom: 8 }}>
+                  Theme
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                  {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
+                    <View key={t} style={{ marginRight: 8, marginBottom: 8 }}>
+                      <Chip
+                        testID={`theme-${t}`}
+                        label={t.charAt(0).toUpperCase() + t.slice(1)}
+                        selected={theme === t}
+                        onPress={() => setTheme(t)}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {error ? (
+                <Text variant="body" style={{ color: tokens.colors.danger, marginBottom: 16 }}>
+                  {error}
+                </Text>
+              ) : null}
+
+              <View style={{ height: 12 }} />
+
+              <View style={{ width: '100%' }}>
+                <Button
+                  testID="new-space-submit"
+                  variant={canCreate ? 'primary' : 'neutral'}
+                  title={saving ? 'Saving...' : 'Create Space'}
+                  onPress={onSave}
+                  disabled={!canCreate}
+                />
+              </View>
+            </>
+          ) : (
+            <>
+              <RNText style={{ fontSize: 20, fontWeight: '600', marginBottom: 16 }}>
+                New Space
+              </RNText>
+              <RNText style={{ marginBottom: 8 }}>Name</RNText>
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="e.g., Fitness"
+                style={{
+                  height: 44,
+                  borderWidth: 1,
+                  borderColor: '#DDD',
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  marginBottom: 16,
+                  width: '100%',
+                }}
               />
-            ))}
-          </Box>
-        </Box>
-
-        {error ? (
-          <Text
-            variant="body"
-            style={{ color: tokens.colors.danger, marginBottom: tokens.spacing[3] }}
-          >
-            {error}
-          </Text>
-        ) : null}
-
-        <View style={{ height: 20 }} />
-
-        <Button
-          testID="new-space-submit"
-          variant={canCreate ? 'primary' : 'neutral'}
-          title={saving ? 'Saving...' : 'Create Space'}
-          onPress={onSave}
-          disabled={!canCreate}
-        />
-      </ScrollView>
+              <RNText style={{ marginBottom: 8 }}>Icon (optional)</RNText>
+              <TextInput
+                value={icon}
+                onChangeText={setIcon}
+                placeholder="e.g., 🏋️"
+                style={{
+                  height: 44,
+                  borderWidth: 1,
+                  borderColor: '#DDD',
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  marginBottom: 16,
+                  width: '100%',
+                }}
+              />
+              <RNText style={{ marginBottom: 8 }}>Theme</RNText>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 }}>
+                {(['deepTeal', 'mint', 'cream', 'periwinkle'] as const).map((t) => (
+                  <Pressable
+                    key={t}
+                    onPress={() => setTheme(t)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: theme === t ? '#0D3B3A' : '#E7E2D9',
+                      backgroundColor: theme === t ? '#0D3B3A' : '#FFFFFF',
+                      marginRight: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <RNText style={{ color: theme === t ? '#FFFFFF' : '#0E1116' }}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </RNText>
+                  </Pressable>
+                ))}
+              </View>
+              {error ? (
+                <RNText style={{ color: '#E25555', marginBottom: 16 }}>{error}</RNText>
+              ) : null}
+              <Pressable
+                onPress={onSave}
+                disabled={!canCreate}
+                style={{
+                  height: 44,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: canCreate ? '#0D3B3A' : '#EEE',
+                  width: '100%',
+                }}
+              >
+                <RNText style={{ color: canCreate ? '#FFF' : '#999', fontWeight: '600' }}>
+                  {saving ? 'Saving...' : 'Create Space'}
+                </RNText>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </View>
     </ActionSheet>
   );
 }
