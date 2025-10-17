@@ -2,7 +2,7 @@ export type ActivityEvent = {
   id: string;
   timestamp: number;
   source: 'catchall';
-  destination: 'habit' | 'todo' | 'note:journal' | 'note:list' | 'note:catchall';
+  destination: 'habit' | 'todo' | 'note:journal' | 'note:list' | 'note:catchall' | 'space';
   itemId: string;
   itemTitle?: string;
 };

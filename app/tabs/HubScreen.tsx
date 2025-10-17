@@ -242,7 +242,7 @@ export default function HubScreen() {
   const handleMovePress = useCallback(
     async (item: AppRecord) => {
       try {
-        await SheetManager.show('move-item', {
+        await SheetManager.show('destination-picker', {
           payload: {
             itemId: item.id,
             itemType: item.type,

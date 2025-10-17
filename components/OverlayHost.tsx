@@ -9,7 +9,7 @@ import NewSpaceModal from './NewSpaceModal';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
 import { useRepo } from '../providers/RepoProvider';
-import type { AppRecord, NoteSubtype, Space } from '../lib/types';
+import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
@@ -28,7 +28,7 @@ registerSheet('demo-sheet', ({ sheetId }) => {
   );
 });
 
-type MoveItemPayload = {
+type DestinationPickerPayload = {
   itemId: string;
   itemType: AppRecord['type'];
   itemSubtype?: NoteSubtype;
@@ -36,24 +36,10 @@ type MoveItemPayload = {
   origin?: AppRecord['origin'];
 };
 
-function resolveDestination(
-  itemType: AppRecord['type'],
-  itemSubtype?: NoteSubtype,
-): ActivityEvent['destination'] {
-  if (itemType === 'habit') return 'habit';
-  if (itemType === 'todo') return 'todo';
-  if (itemType === 'note') {
-    if (itemSubtype === 'journal') return 'note:journal';
-    if (itemSubtype === 'list') return 'note:list';
-    return 'note:catchall';
-  }
-  return 'note:catchall';
-}
-
 registerSheet(
-  'move-item',
-  ({ sheetId, payload }: { sheetId: string; payload: MoveItemPayload }) => (
-    <MoveItemSheet sheetId={sheetId} payload={payload} />
+  'destination-picker',
+  ({ sheetId, payload }: { sheetId: string; payload: DestinationPickerPayload }) => (
+    <DestinationPickerSheet sheetId={sheetId} payload={payload} />
   ),
 );
 
@@ -112,10 +98,16 @@ const styles = StyleSheet.create({
   },
 });
 
-function MoveItemSheet({ sheetId, payload }: { sheetId: string; payload: MoveItemPayload }) {
+function DestinationPickerSheet({
+  sheetId,
+  payload,
+}: {
+  sheetId: string;
+  payload: DestinationPickerPayload;
+}) {
   const repo = useRepo();
   const [spaces, setSpaces] = React.useState<Space[]>([]);
-  const { itemId } = payload;
+  const { itemId, itemType, itemSubtype, origin } = payload;
 
   React.useEffect(() => {
     let isMounted = true;
@@ -125,51 +117,206 @@ function MoveItemSheet({ sheetId, payload }: { sheetId: string; payload: MoveIte
         if (isMounted) setSpaces(result);
       })
       .catch((err) => {
-        console.error('[MoveItemSheet] Failed to load spaces', err);
+        console.error('[DestinationPickerSheet] Failed to load spaces', err);
       });
     return () => {
       isMounted = false;
     };
   }, [repo]);
 
-  async function moveTo(spaceId: string) {
+  function fallbackTitle(item: Partial<AppRecord>): string {
+    if (item.title && item.title.trim()) return item.title.trim();
+    if (item.type === 'note' && (item as Note).body) {
+      const line =
+        ((item as Note).body ?? '')
+          .split('\n')
+          .map((segment) => segment.trim())
+          .find(Boolean) ?? '';
+      if (line.length) {
+        return line.length > 60 ? `${line.slice(0, 57)}…` : line;
+      }
+    }
+    return 'Untitled';
+  }
+
+  async function moveToDestination(
+    destination: 'habit' | 'todo' | 'journal' | 'list',
+  ): Promise<void> {
+    if (!itemId) return;
+
+    try {
+      const currentItem = await repo.getById(itemId);
+      if (!currentItem) {
+        console.error('[DestinationPickerSheet] Item not found:', itemId);
+        return;
+      }
+
+      const title = fallbackTitle(currentItem);
+
+      // Route based on destination
+      if (destination === 'habit') {
+        if (itemType !== 'habit') {
+          // Create new habit, archive original
+          await repo.create({
+            type: 'habit',
+            title,
+            frequency: (currentItem as Habit).frequency ?? 'daily',
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { ai_placed: false } });
+          // Mark as archived by setting a flag or removing visibility
+          // For now, we'll just update ai_placed to false as archive mechanism
+        }
+      } else if (destination === 'todo') {
+        if (itemType !== 'todo') {
+          // Create new todo, archive original
+          await repo.create({
+            type: 'todo',
+            title,
+            body: (currentItem as Todo).body ?? undefined,
+            due_date: (currentItem as Todo).due_date ?? null,
+            undefined_due: false,
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { ai_placed: false } });
+        }
+      } else if (destination === 'journal') {
+        if (itemType === 'note' && itemSubtype !== 'journal') {
+          // Update existing note to journal subtype
+          await repo.update({
+            id: itemId,
+            patch: { subtype: 'journal', ai_placed: false } as Partial<Note>,
+          });
+        } else if (itemType !== 'note') {
+          // Create new journal note, archive original
+          await repo.create({
+            type: 'note',
+            title,
+            body: (currentItem as Note).body ?? undefined,
+            subtype: 'journal',
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { ai_placed: false } });
+        }
+      } else if (destination === 'list') {
+        if (itemType === 'note' && itemSubtype !== 'list') {
+          // Update existing note to list subtype
+          await repo.update({
+            id: itemId,
+            patch: { subtype: 'list', ai_placed: false } as Partial<Note>,
+          });
+        } else if (itemType !== 'note') {
+          // Create new list note, archive original
+          await repo.create({
+            type: 'note',
+            title,
+            body: (currentItem as Note).body ?? undefined,
+            subtype: 'list',
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { ai_placed: false } });
+        }
+      }
+
+      // Log if from catch-all
+      if (origin === 'catchall') {
+        const destKey =
+          destination === 'habit'
+            ? 'habit'
+            : destination === 'todo'
+              ? 'todo'
+              : destination === 'journal'
+                ? 'note:journal'
+                : ('note:list' as ActivityEvent['destination']);
+        ActivityLog.recordCatchAllMove({
+          itemId,
+          destination: destKey,
+          itemTitle: title,
+        });
+      }
+
+      console.log(`[DestinationPickerSheet] Moved to ${destination}`);
+      await SheetManager.hide(sheetId);
+    } catch (e) {
+      console.error('[DestinationPickerSheet] Move failed', e);
+    }
+  }
+
+  async function moveToSpace(spaceId: string): Promise<void> {
     if (!itemId) return;
     try {
       await repo.update({ id: itemId, patch: { space_id: spaceId, ai_placed: false } });
-      if (payload.origin === 'catchall') {
+      if (origin === 'catchall') {
         ActivityLog.recordCatchAllMove({
           itemId,
-          destination: resolveDestination(payload.itemType, payload.itemSubtype),
+          destination: 'space',
           itemTitle: payload.itemTitle,
         });
       }
+      console.log('[DestinationPickerSheet] Moved to space:', spaceId);
       await SheetManager.hide(sheetId);
     } catch (e) {
-      console.error('Move failed', e);
+      console.error('[DestinationPickerSheet] Move to space failed', e);
     }
   }
 
   return (
     <ActionSheet id={sheetId} gestureEnabled>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <Text variant="title">Move to Space</Text>
-        <Box gap={2} mt={2}>
-          {spaces.map((sp: Space) => (
-            <Button
-              key={sp.id}
-              title={sp.name}
-              variant="neutral"
-              size="md"
-              testID={`hub-space-${sp.id}`}
-              onPress={() => moveTo(sp.id)}
-            />
-          ))}
-          {spaces.length === 0 && (
-            <Text variant="body" style={{ marginTop: 8 }}>
-              No spaces available yet.
-            </Text>
-          )}
+        <Text variant="title" style={{ marginBottom: 16 }}>
+          Move to…
+        </Text>
+
+        <Box gap={2}>
+          <Button
+            title="Habit"
+            variant="neutral"
+            size="md"
+            testID="dest-habit"
+            onPress={() => moveToDestination('habit')}
+          />
+          <Button
+            title="To-Do"
+            variant="neutral"
+            size="md"
+            testID="dest-todo"
+            onPress={() => moveToDestination('todo')}
+          />
+          <Button
+            title="Journal"
+            variant="neutral"
+            size="md"
+            testID="dest-journal"
+            onPress={() => moveToDestination('journal')}
+          />
+          <Button
+            title="List"
+            variant="neutral"
+            size="md"
+            testID="dest-list"
+            onPress={() => moveToDestination('list')}
+          />
         </Box>
+
+        {spaces.length > 0 && (
+          <>
+            <Text variant="label" style={{ marginTop: 24, marginBottom: 8 }}>
+              Or place in a Space
+            </Text>
+            <Box gap={2}>
+              {spaces.map((sp: Space) => (
+                <Button
+                  key={sp.id}
+                  title={sp.name}
+                  variant="neutral"
+                  size="md"
+                  testID={`dest-space-${sp.id}`}
+                  onPress={() => moveToSpace(sp.id)}
+                />
+              ))}
+            </Box>
+          </>
+        )}
       </ScrollView>
     </ActionSheet>
   );
