@@ -65,6 +65,42 @@ export const overlayStyles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
 
+  tabTile: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.md,
+    backgroundColor: colors.mint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  tabTileActive: {
+    backgroundColor: colors.deepTeal,
+    ...shadow.small,
+  },
+
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.deepTeal,
+  },
+
+  tabTextActive: {
+    color: colors.white,
+  },
+
+  underlineWrap: {
+    height: 4,
+    marginTop: spacing.xs,
+    borderRadius: 2,
+    backgroundColor: 'transparent',
+  },
+
+  underlineActive: {
+    backgroundColor: colors.deepTeal,
+  },
+
+  // Legacy tab styles (for backward compatibility)
   tab: {
     flex: 1,
     paddingVertical: spacing.sm,
@@ -78,16 +114,6 @@ export const overlayStyles = StyleSheet.create({
   tabActive: {
     backgroundColor: colors.deepTeal,
     ...shadow.small,
-  },
-
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.deepTeal,
-  },
-
-  tabTextActive: {
-    color: colors.white,
   },
 
   // Body

@@ -1,10 +1,10 @@
 /**
  * ManualAddHeader - Phase 6 (Brand Refresh)
- * Header with exit button and segmented tabs
+ * Header with exit button and tile tabs with active underline
  */
 
 import React from 'react';
-import { View, TouchableOpacity, Text } from 'react-native';
+import { View, Pressable, Text, TouchableOpacity } from 'react-native';
 import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { theme } from '../../app/design/theme';
 
@@ -16,11 +16,11 @@ interface ManualAddHeaderProps {
   onClose: () => void;
 }
 
-const TABS: { key: TabType; label: string }[] = [
-  { key: 'habits', label: 'Habits' },
-  { key: 'todos', label: 'To-Dos' },
-  { key: 'journal', label: 'Journal' },
-  { key: 'catchall', label: 'Catch-All' },
+const TABS: { key: TabType; label: string; testID: string }[] = [
+  { key: 'habits', label: 'Habits', testID: 'tab-habits' },
+  { key: 'todos', label: 'To-Dos', testID: 'tab-todos' },
+  { key: 'journal', label: 'Journal', testID: 'tab-journal' },
+  { key: 'catchall', label: 'Catch-All', testID: 'tab-catchall' },
 ];
 
 export function ManualAddHeader({ activeTab, onTabChange, onClose }: ManualAddHeaderProps) {
@@ -30,26 +30,37 @@ export function ManualAddHeader({ activeTab, onTabChange, onClose }: ManualAddHe
       <View style={overlayStyles.headerRow}>
         <View style={{ width: 40 }} />
         <Text style={overlayStyles.headerTitle}>Add Manually</Text>
-        <TouchableOpacity onPress={onClose} testID="exit-button">
+        <TouchableOpacity
+          onPress={onClose}
+          testID="exit-button"
+          accessibilityRole="button"
+          accessibilityLabel="Close overlay"
+        >
           <Text style={{ fontSize: 24, color: theme.colors.charcoal }}>×</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Tabs */}
+      {/* Tile Tabs with Underline */}
       <View style={overlayStyles.tabsRow}>
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;
           return (
-            <TouchableOpacity
+            <Pressable
               key={tab.key}
-              style={[overlayStyles.tab, isActive && overlayStyles.tabActive]}
               onPress={() => onTabChange(tab.key)}
-              testID={`tab-${tab.key}`}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              testID={tab.testID}
             >
-              <Text style={[overlayStyles.tabText, isActive && overlayStyles.tabTextActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
+              <View style={[overlayStyles.tabTile, isActive && overlayStyles.tabTileActive]}>
+                <Text style={[overlayStyles.tabText, isActive && overlayStyles.tabTextActive]}>
+                  {tab.label}
+                </Text>
+              </View>
+              <View
+                style={[overlayStyles.underlineWrap, isActive && overlayStyles.underlineActive]}
+              />
+            </Pressable>
           );
         })}
       </View>
