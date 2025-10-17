@@ -45,6 +45,8 @@ export function ManualAddOverlay({
   const [fadeAnim] = useState(new Animated.Value(1));
   const insets = useSafeAreaInsets();
 
+  console.log('[ManualAddOverlay] RENDER - activeTab:', activeTab, 'visible:', visible);
+
   // Reset state when modal closes
   const handleClose = () => {
     setActiveTab(defaultTab);
@@ -64,6 +66,8 @@ export function ManualAddOverlay({
   // Animate tab transitions
   const handleTabChange = (newTab: TabType) => {
     if (newTab === activeTab) return;
+
+    console.log('[ManualAddOverlay] Tab change:', activeTab, '→', newTab);
 
     Animated.sequence([
       Animated.timing(fadeAnim, {
@@ -114,23 +118,26 @@ export function ManualAddOverlay({
                     contentContainerStyle={overlayStyles.scrollContent}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
+                    testID="manual-body-scroll"
                   >
-                    {activeTab === 'habits' && (
-                      <HabitsTab reminders={reminders} onSubmit={handleSubmit} />
-                    )}
-                    {activeTab === 'todos' && (
-                      <TodoForm reminders={reminders} onSubmit={handleSubmit} />
-                    )}
-                    {activeTab === 'journal' && (
-                      <JournalForm reminders={reminders} onSubmit={handleSubmit} />
-                    )}
-                    {activeTab === 'catchall' && <CatchAllForm onSubmit={handleSubmit} />}
+                    <View testID="manual-body">
+                      {activeTab === 'habits' && (
+                        <HabitsTab reminders={reminders} onSubmit={handleSubmit} />
+                      )}
+                      {activeTab === 'todos' && (
+                        <TodoForm reminders={reminders} onSubmit={handleSubmit} />
+                      )}
+                      {activeTab === 'journal' && (
+                        <JournalForm reminders={reminders} onSubmit={handleSubmit} />
+                      )}
+                      {activeTab === 'catchall' && <CatchAllForm onSubmit={handleSubmit} />}
+                    </View>
                   </ScrollView>
                 </Animated.View>
 
                 {/* Pinned reminders (except Catch-All) */}
                 {showReminders && (
-                  <View style={overlayStyles.pinnedReminders}>
+                  <View style={overlayStyles.pinnedReminders} testID="reminders-pinned">
                     <ReminderSelector value={reminders} onChange={setReminders} />
                   </View>
                 )}

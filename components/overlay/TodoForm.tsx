@@ -21,6 +21,8 @@ export function TodoForm({ reminders, onSubmit }: TodoFormProps) {
   const [deadline, setDeadline] = useState('');
   const [notes, setNotes] = useState('');
 
+  console.log('[TodoForm] RENDER');
+
   const handleSubmit = () => {
     try {
       const data = TodoSchema.parse({
@@ -42,7 +44,7 @@ export function TodoForm({ reminders, onSubmit }: TodoFormProps) {
   const isValid = name.trim().length > 0;
 
   return (
-    <View>
+    <View testID="todo-form">
       {/* Required: Name */}
       <View style={overlayStyles.fieldRow}>
         <Text style={overlayStyles.label}>Task Name *</Text>

@@ -17,6 +17,8 @@ interface CatchAllFormProps {
 export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
   const [entry, setEntry] = useState('');
 
+  console.log('[CatchAllForm] RENDER');
+
   const handleSubmit = () => {
     try {
       const data = CatchAllSchema.parse({ entry });
@@ -33,7 +35,7 @@ export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
   const isValid = entry.trim().length > 0;
 
   return (
-    <View>
+    <View testID="catchall-form">
       <Text style={overlayStyles.label}>Quick Capture *</Text>
       <TextInput
         style={[overlayStyles.textarea, { minHeight: 150 }]}

@@ -28,6 +28,8 @@ export function HabitStartForm({ reminders, onSubmit }: HabitStartFormProps) {
   const [notesFocused, setNotesFocused] = useState(false);
   const [categoryFocused, setCategoryFocused] = useState(false);
 
+  console.log('[HabitStartForm] RENDER');
+
   const handleSubmit = () => {
     try {
       const data = HabitStartSchema.parse({
@@ -51,7 +53,7 @@ export function HabitStartForm({ reminders, onSubmit }: HabitStartFormProps) {
   const isValid = name.trim().length > 0 && frequency.trim().length > 0;
 
   return (
-    <View>
+    <View testID="habit-start-form">
       {/* Required: Name */}
       <View style={overlayStyles.fieldRow}>
         <Text style={overlayStyles.label}>Habit Name *</Text>

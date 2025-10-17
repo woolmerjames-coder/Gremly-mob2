@@ -45,7 +45,7 @@ export function HabitBreakForm({ reminders, onSubmit }: HabitBreakFormProps) {
   const isValid = name.trim().length > 0;
 
   return (
-    <View>
+    <View testID="habit-break-form">
       {/* Required: Name */}
       <View style={overlayStyles.fieldRow}>
         <Text style={overlayStyles.label}>Habit to Break *</Text>

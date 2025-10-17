@@ -22,6 +22,8 @@ export function JournalForm({ reminders, onSubmit }: JournalFormProps) {
   const [showOptional, setShowOptional] = useState(false);
   const [category, setCategory] = useState('');
 
+  console.log('[JournalForm] RENDER');
+
   const handleSubmit = () => {
     try {
       const data = JournalSchema.parse({
@@ -43,7 +45,7 @@ export function JournalForm({ reminders, onSubmit }: JournalFormProps) {
   const isValid = date.trim().length > 0 && entry.trim().length > 0;
 
   return (
-    <View>
+    <View testID="journal-form">
       {/* Required: Date */}
       <View style={overlayStyles.fieldRow}>
         <Text style={overlayStyles.label}>Date *</Text>

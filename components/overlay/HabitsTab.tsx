@@ -21,8 +21,10 @@ type SubType = 'start' | 'break';
 export function HabitsTab({ reminders, onSubmit }: HabitsTabProps) {
   const [subType, setSubType] = useState<SubType>('start');
 
+  console.log('[HabitsTab] RENDER - subType:', subType);
+
   return (
-    <View>
+    <View testID="habits-tab">
       {/* Sub-toggle */}
       <View style={overlayStyles.subToggleRow}>
         <TouchableOpacity
