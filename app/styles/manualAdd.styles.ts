@@ -23,7 +23,7 @@ export const overlayStyles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     ...shadow.large,
-    display: 'flex',
+    flex: 1,
     flexDirection: 'column',
   },
 
