@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Archive and legacy
+_archive/
+*.backup
+*.legacy.tsx
