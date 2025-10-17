@@ -32,14 +32,27 @@ jest.mock('react-native-reanimated', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createAnimatedComponent: jest.fn((Component: any) => Component),
     useReducedMotion: jest.fn(() => true), // Always return true in tests to skip animations
-    Easing: {
-      linear: jest.fn(),
-      ease: jest.fn(),
-      quad: jest.fn(),
-      cubic: jest.fn(),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      inOut: jest.fn((fn: any) => fn),
-    },
+    Easing: (() => {
+      const identity = (value: number) => value;
+      const ensureFn = (fn: unknown) => (typeof fn === 'function' ? fn : identity);
+
+      return {
+        // Base easing curves
+        linear: identity,
+        ease: identity,
+        quad: identity,
+        cubic: identity,
+        // Transformers mirroring the public API surface
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        in: jest.fn((fn: any) => ensureFn(fn)),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        out: jest.fn((fn: any) => ensureFn(fn)),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        inOut: jest.fn((fn: any) => ensureFn(fn)),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        back: jest.fn(() => identity),
+      };
+    })(),
   };
 });
 

@@ -8,6 +8,47 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
 
+// Mock Cortex engine
+const mockClassify = jest.fn();
+jest.mock('../../providers/CortexProvider', () => {
+  const actual = jest.requireActual('../../providers/CortexProvider');
+  return {
+    ...actual,
+    useCortex: () => ({
+      classify: mockClassify,
+    }),
+  };
+});
+
+// Mock repo
+const mockRepoCreate = jest.fn();
+jest.mock('../../providers/RepoProvider', () => {
+  const actual = jest.requireActual('../../providers/RepoProvider');
+  return {
+    ...actual,
+    useRepo: () => ({
+      create: mockRepoCreate,
+      list: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
+      delete: jest.fn(),
+    }),
+  };
+});
+
+// Mock auth
+jest.mock('../../providers/AuthProvider', () => {
+  const actual = jest.requireActual('../../providers/AuthProvider');
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: { id: 'test-user-1', email: 'test@example.com' },
+      signIn: jest.fn(),
+      signOut: jest.fn(),
+      loading: false,
+    }),
+  };
+});
+
 const safeAreaMetrics =
   initialWindowMetrics ??
   ({
@@ -25,6 +66,8 @@ describe('ManualAddOverlay - Diagnostic Render Test', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRepoCreate.mockClear();
+    mockClassify.mockClear();
   });
 
   it('DIAGNOSTIC: renders overlay and checks tab switching', () => {

@@ -1,13 +1,15 @@
 /**
  * HubDSPlayground - Preview for DS-only Hub screen
  * Shows mocked data for visual testing
+ *
+ * NOTE: ManualAddSheet removed - use ManualAddOverlay instead
  */
 
 import { useState } from 'react';
 import { Screen, Box, Text, Button, Input, Chip } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { openManualAdd } from '../../components/ManualAddSheet';
+// import { openManualAdd } from '../../components/ManualAddSheet'; // DEPRECATED - removed
 
 // Mock data
 const mockRecentItems = [
@@ -154,7 +156,7 @@ export default function HubDSPlayground() {
           <Button
             title="Add More"
             variant="neutral"
-            onPress={() => openManualAdd()}
+            onPress={() => console.log('TODO: Open ManualAddOverlay')}
             testID="hub-add-more"
           />
         </Box>
@@ -172,7 +174,7 @@ export default function HubDSPlayground() {
               </Text>
               <Button
                 title="Open Manual Add"
-                onPress={() => openManualAdd()}
+                onPress={() => console.log('TODO: Open ManualAddOverlay')}
                 testID="hub-empty-add"
               />
             </Box>

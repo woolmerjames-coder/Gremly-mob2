@@ -1,6 +1,6 @@
 /**
  * CatchAllForm - Phase 6
- * Minimal form for quick capture
+ * Minimal form for quick capture - classification handled by parent overlay
  */
 
 import React, { useState } from 'react';
@@ -16,19 +16,27 @@ interface CatchAllFormProps {
 
 export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
   const [entry, setEntry] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  console.log('[CatchAllForm] RENDER');
+  const handleCapture = async () => {
+    const inputText = entry?.trim() ?? '';
+    if (!inputText) return;
 
-  const handleSubmit = () => {
+    setIsSubmitting(true);
+
     try {
-      const data = CatchAllSchema.parse({ entry });
+      // Validate with schema
+      const data = CatchAllSchema.parse({ entry: inputText });
 
+      // Pass to parent (ManualAddOverlay handles classification + save)
       onSubmit({
         type: 'catchall',
         data,
       });
     } catch (error) {
       console.error('Validation error:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -53,9 +61,9 @@ export function CatchAllForm({ onSubmit }: CatchAllFormProps) {
         <Button
           label="Capture"
           variant="primary"
-          onPress={handleSubmit}
-          disabled={!isValid}
-          testID="catchall-submit"
+          onPress={handleCapture}
+          disabled={!isValid || isSubmitting}
+          testID="capture-catchall"
         />
       </View>
     </View>

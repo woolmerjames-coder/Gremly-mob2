@@ -178,14 +178,9 @@ export default function HubScreen() {
           });
           break;
         case 'catchall':
-          await repo.create({
-            type: 'note',
-            title: '',
-            body: payload.data.entry,
-            subtype: 'catchall',
-            space_id: null,
-            ai_placed: false,
-          });
+          // Catch-all is now handled internally by ManualAddOverlay
+          // Just reload to show the new item
+          console.log('[HubScreen] Catch-all saved by overlay, reloading...');
           break;
       }
       await load();

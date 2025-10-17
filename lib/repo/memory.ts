@@ -19,6 +19,7 @@ const seed = (ownerId: string): AppRecord[] => {
     title: 'Drink water',
     frequency: 'daily',
     ai_placed: false,
+    why_string: null,
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -31,6 +32,7 @@ const seed = (ownerId: string): AppRecord[] => {
     due_date: null,
     undefined_due: true,
     ai_placed: false,
+    why_string: null,
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -43,6 +45,7 @@ const seed = (ownerId: string): AppRecord[] => {
     title: 'First entry',
     body: 'Kicking off Gremly.',
     ai_placed: false,
+    why_string: null,
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -84,6 +87,7 @@ export class MemoryRepo implements IRepo {
         created_at: now,
         updated_at: now,
         owner_id: ownerId,
+        why_string: input.why_string ?? null,
       };
     } else if (input.type === 'todo') {
       rec = {
@@ -95,6 +99,7 @@ export class MemoryRepo implements IRepo {
         due_date: input.due_date ?? null,
         undefined_due: input.undefined_due ?? true,
         ai_placed: !!input.ai_placed,
+        why_string: input.why_string ?? null,
         created_at: now,
         updated_at: now,
         owner_id: ownerId,
@@ -110,6 +115,7 @@ export class MemoryRepo implements IRepo {
         subtype: input.subtype,
         space_id: input.space_id ?? null,
         ai_placed: !!input.ai_placed,
+        why_string: input.why_string ?? null,
         created_at: now,
         updated_at: now,
         owner_id: ownerId,
