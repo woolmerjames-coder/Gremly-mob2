@@ -337,7 +337,6 @@ export const overlayStyles = StyleSheet.create({
 
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
   },
 });

@@ -53,7 +53,10 @@ export function HabitStartForm({ reminders, onSubmit }: HabitStartFormProps) {
   const isValid = name.trim().length > 0 && frequency.trim().length > 0;
 
   return (
-    <View testID="habit-start-form">
+    <View
+      testID="habit-start-form"
+      style={{ backgroundColor: '#FFD700', padding: 20, minHeight: 300 }}
+    >
       {/* Required: Name */}
       <View style={overlayStyles.fieldRow}>
         <Text style={overlayStyles.label}>Habit Name *</Text>

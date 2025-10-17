@@ -98,13 +98,16 @@ export function ManualAddOverlay({
 
                 {/* Scrollable body */}
                 <ScrollView
-                  style={overlayStyles.body}
+                  style={[overlayStyles.body, { backgroundColor: '#FF0000' }]}
                   contentContainerStyle={overlayStyles.scrollContent}
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                   testID="manual-body-scroll"
                 >
-                  <View testID="manual-body">
+                  <View
+                    testID="manual-body"
+                    style={{ backgroundColor: '#00FF00', minHeight: 400, padding: 10 }}
+                  >
                     {activeTab === 'habits' && (
                       <HabitsTab reminders={reminders} onSubmit={handleSubmit} />
                     )}
