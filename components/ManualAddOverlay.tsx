@@ -12,7 +12,6 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   ScrollView,
-  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { overlayStyles } from '../app/styles/manualAdd.styles';
@@ -42,7 +41,6 @@ export function ManualAddOverlay({
 }: ManualAddOverlayProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [reminders, setReminders] = useState<TReminderRule[]>([]);
-  const [fadeAnim] = useState(new Animated.Value(1));
   const insets = useSafeAreaInsets();
 
   console.log('[ManualAddOverlay] RENDER - activeTab:', activeTab, 'visible:', visible);
@@ -63,24 +61,11 @@ export function ManualAddOverlay({
   // Determine if reminders should be visible
   const showReminders = activeTab !== 'catchall';
 
-  // Animate tab transitions
+  // Handle tab transitions
   const handleTabChange = (newTab: TabType) => {
     if (newTab === activeTab) return;
 
     console.log('[ManualAddOverlay] Tab change:', activeTab, '→', newTab);
-
-    Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
 
     setActiveTab(newTab);
   };
@@ -111,29 +96,27 @@ export function ManualAddOverlay({
                   onClose={handleClose}
                 />
 
-                {/* Scrollable body with animation */}
-                <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-                  <ScrollView
-                    style={overlayStyles.body}
-                    contentContainerStyle={overlayStyles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                    testID="manual-body-scroll"
-                  >
-                    <View testID="manual-body">
-                      {activeTab === 'habits' && (
-                        <HabitsTab reminders={reminders} onSubmit={handleSubmit} />
-                      )}
-                      {activeTab === 'todos' && (
-                        <TodoForm reminders={reminders} onSubmit={handleSubmit} />
-                      )}
-                      {activeTab === 'journal' && (
-                        <JournalForm reminders={reminders} onSubmit={handleSubmit} />
-                      )}
-                      {activeTab === 'catchall' && <CatchAllForm onSubmit={handleSubmit} />}
-                    </View>
-                  </ScrollView>
-                </Animated.View>
+                {/* Scrollable body */}
+                <ScrollView
+                  style={overlayStyles.body}
+                  contentContainerStyle={overlayStyles.scrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  testID="manual-body-scroll"
+                >
+                  <View testID="manual-body">
+                    {activeTab === 'habits' && (
+                      <HabitsTab reminders={reminders} onSubmit={handleSubmit} />
+                    )}
+                    {activeTab === 'todos' && (
+                      <TodoForm reminders={reminders} onSubmit={handleSubmit} />
+                    )}
+                    {activeTab === 'journal' && (
+                      <JournalForm reminders={reminders} onSubmit={handleSubmit} />
+                    )}
+                    {activeTab === 'catchall' && <CatchAllForm onSubmit={handleSubmit} />}
+                  </View>
+                </ScrollView>
 
                 {/* Pinned reminders (except Catch-All) */}
                 {showReminders && (
