@@ -9,18 +9,22 @@ import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { HabitStartForm } from './HabitStartForm';
 import { HabitBreakForm } from './HabitBreakForm';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import type { AppRecord } from '../../lib/types';
 
 interface HabitsTabProps {
   reminders: TReminderRule[];
   onSubmit: (payload: ManualAddPayload) => void;
+  mode?: 'create' | 'edit';
+  initialValues?: Partial<AppRecord>;
 }
 
 type SubType = 'start' | 'break';
 
-export function HabitsTab({ reminders, onSubmit }: HabitsTabProps) {
+export function HabitsTab({ reminders, onSubmit, mode = 'create', initialValues }: HabitsTabProps) {
+  // In edit mode, always default to 'start' (we don't track break habits separately yet)
   const [subType, setSubType] = useState<SubType>('start');
 
-  console.log('[HabitsTab] RENDER - subType:', subType);
+  console.log('[HabitsTab] RENDER - subType:', subType, 'mode:', mode);
 
   return (
     <View testID="habits-tab">
@@ -61,9 +65,19 @@ export function HabitsTab({ reminders, onSubmit }: HabitsTabProps) {
 
       {/* Form */}
       {subType === 'start' ? (
-        <HabitStartForm reminders={reminders} onSubmit={onSubmit} />
+        <HabitStartForm
+          reminders={reminders}
+          onSubmit={onSubmit}
+          mode={mode}
+          initialValues={initialValues}
+        />
       ) : (
-        <HabitBreakForm reminders={reminders} onSubmit={onSubmit} />
+        <HabitBreakForm
+          reminders={reminders}
+          onSubmit={onSubmit}
+          mode={mode}
+          initialValues={initialValues}
+        />
       )}
     </View>
   );

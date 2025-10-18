@@ -9,15 +9,26 @@ import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { Button } from '../../design-system/Button';
 import { HabitBreakSchema } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import type { AppRecord } from '../../lib/types';
 
 interface HabitBreakFormProps {
   reminders: TReminderRule[];
   onSubmit: (payload: ManualAddPayload) => void;
+  mode?: 'create' | 'edit';
+  initialValues?: Partial<AppRecord>;
 }
 
-export function HabitBreakForm({ reminders, onSubmit }: HabitBreakFormProps) {
-  const [name, setName] = useState('');
-  const [showOptional, setShowOptional] = useState(false);
+export function HabitBreakForm({
+  reminders,
+  onSubmit,
+  mode = 'create',
+  initialValues,
+}: HabitBreakFormProps) {
+  // Initialize state from props (no effects needed)
+  const [name, setName] = useState(() =>
+    mode === 'edit' && initialValues ? initialValues.title || '' : '',
+  );
+  const [showOptional, setShowOptional] = useState(mode === 'edit');
   const [triggerPattern, setTriggerPattern] = useState('');
   const [notes, setNotes] = useState('');
   const [category, setCategory] = useState('');
@@ -124,11 +135,11 @@ export function HabitBreakForm({ reminders, onSubmit }: HabitBreakFormProps) {
       {/* Submit */}
       <View style={{ marginTop: 24 }}>
         <Button
-          label="Add Habit to Break"
+          label={mode === 'edit' ? 'Save changes' : 'Add Habit to Break'}
           variant="primary"
           onPress={handleSubmit}
           disabled={!isValid}
-          testID="habit-break-submit"
+          testID={mode === 'edit' ? 'edit-save' : 'habit-break-submit'}
         />
       </View>
     </View>

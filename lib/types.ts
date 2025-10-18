@@ -18,6 +18,7 @@ export interface Habit {
   frequency: Frequency;
   space_id?: ID | null;
   ai_placed: boolean;
+  archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | null;
   created_at: string; // ISO 8601
@@ -38,6 +39,7 @@ export interface Todo {
   due_date?: string | null; // ISO 8601 or null
   undefined_due: boolean; // true if user wants "Might be today?" treatment
   ai_placed: boolean;
+  archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | null;
   created_at: string; // ISO 8601
@@ -56,6 +58,7 @@ export interface Note {
   subtype: NoteSubtype;
   space_id?: ID | null;
   ai_placed: boolean;
+  archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | null;
   created_at: string; // ISO 8601

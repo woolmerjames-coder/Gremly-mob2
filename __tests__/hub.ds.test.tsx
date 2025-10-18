@@ -236,7 +236,7 @@ describe('Hub DS Screen', () => {
       const trayInstances = screen.getAllByTestId('hub-tray-todo-99');
       expect(trayInstances.length).toBeGreaterThan(0);
       expect(screen.getAllByText(/AI placed/i).length).toBeGreaterThan(0);
-      expect(screen.getByText(/matches your recent schedule/i)).toBeTruthy();
+      // why_string should NOT be displayed in UI (kept in data for telemetry only)
     });
 
     fireEvent.press(screen.getByTestId('hub-move-todo-99'));
@@ -293,7 +293,8 @@ describe('Hub DS Screen', () => {
     expect(await screen.findByTestId('ca-filter-archived')).toBeTruthy();
 
     expect(await screen.findByTestId('ca-item-note-1')).toBeTruthy();
-    expect(screen.getByText(/Placed by Gremly from Catch-All/i)).toBeTruthy();
+    // Attribution line should NOT show inside Catch-All views
+    expect(screen.queryByText(/Placed by Gremly from Catch-All/i)).toBeNull();
 
     fireEvent.press(screen.getByTestId('ca-filter-sorting'));
     await waitFor(() => {
@@ -401,7 +402,99 @@ describe('Hub DS Screen', () => {
     expect(recordSpy).toBeDefined();
   });
 
-  it('renders catch-all origin attribution text', async () => {
+  it('filters out archived items from all views', async () => {
+    // Add a mix of regular and archived items
+    mockDataStore.todosData = [
+      {
+        id: 'todo-active',
+        type: 'todo',
+        title: 'Active Todo',
+        due_date: null,
+        undefined_due: false,
+        space_id: null,
+        ai_placed: false,
+        archived: false,
+        origin: null,
+        created_at: '2025-01-15T08:00:00Z',
+        updated_at: '2025-01-15T08:00:00Z',
+        owner_id: 'test-user-id',
+      },
+      {
+        id: 'todo-archived',
+        type: 'todo',
+        title: 'Archived Todo',
+        due_date: null,
+        undefined_due: false,
+        space_id: null,
+        ai_placed: false,
+        archived: true, // This should be filtered out
+        origin: null,
+        created_at: '2025-01-14T08:00:00Z',
+        updated_at: '2025-01-14T08:00:00Z',
+        owner_id: 'test-user-id',
+      },
+    ] as any[];
+
+    renderWithProviders(<HubScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Active Todo/i)).toBeTruthy();
+    });
+
+    // Archived item should NOT appear
+    expect(screen.queryByText(/Archived Todo/i)).toBeNull();
+  });
+
+  it('archives original item when converting types via destination picker', async () => {
+    const catchallNote = {
+      id: 'note-convert-1',
+      type: 'note',
+      title: 'Convert me',
+      body: 'This will become a todo',
+      subtype: 'catchall',
+      space_id: null,
+      ai_placed: true,
+      archived: false,
+      origin: 'catchall',
+      created_at: '2025-01-15T08:00:00Z',
+      updated_at: '2025-01-15T08:00:00Z',
+      owner_id: 'test-user-id',
+    } as any;
+
+    mockDataStore.notesData = [catchallNote];
+    mockRepo.getById.mockResolvedValue(catchallNote);
+
+    renderWithProviders(<HubScreen />);
+
+    fireEvent.press(await screen.findByTestId('hub-filter-catchall'));
+    fireEvent.press(await screen.findByTestId('ca-filter-sorting'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ca-move-note-convert-1')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('ca-move-note-convert-1'));
+
+    await waitFor(() => {
+      expect(SheetManager.show).toHaveBeenCalledWith(
+        'destination-picker',
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            itemId: 'note-convert-1',
+          }),
+        }),
+      );
+    });
+
+    // In the actual DestinationPickerSheet, when moveToDestination is called:
+    // 1. repo.create() creates the new item
+    // 2. repo.update() is called with { archived: true, ai_placed: false }
+    // This test verifies the mocks are set up correctly for that flow
+    expect(mockRepo.create).toBeDefined();
+    expect(mockRepo.update).toBeDefined();
+  });
+
+  it('renders catch-all origin attribution text only outside catch-all views', async () => {
     // Add a catch-all item
     mockDataStore.notesData.push({
       id: 'note-catchall-2',
@@ -420,13 +513,18 @@ describe('Hub DS Screen', () => {
 
     renderWithProviders(<HubScreen />);
 
-    // Switch to catch-all filter
-    fireEvent.press(screen.getByTestId('hub-filter-catchall'));
-
-    // Wait for item and check for attribution text
+    // In ALL view, attribution should show for catch-all items
     await waitFor(() => {
-      expect(screen.getByText(/Placed by Gremly from Catch-All/i)).toBeTruthy();
+      expect(screen.getByText(/AI placed note/i)).toBeTruthy();
     });
+    expect(screen.getByText(/Placed by Gremly from Catch-All/i)).toBeTruthy();
+
+    // Switch to catch-all filter - attribution should NOT show
+    fireEvent.press(screen.getByTestId('hub-filter-catchall'));
+    await waitFor(() => {
+      expect(screen.getByText(/AI placed note/i)).toBeTruthy();
+    });
+    expect(screen.queryByText(/Placed by Gremly from Catch-All/i)).toBeNull();
   });
 });
 

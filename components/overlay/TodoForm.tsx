@@ -9,19 +9,29 @@ import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { Button } from '../../design-system/Button';
 import { TodoSchema } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import type { AppRecord } from '../../lib/types';
 
 interface TodoFormProps {
   reminders: TReminderRule[];
   onSubmit: (payload: ManualAddPayload) => void;
+  mode?: 'create' | 'edit';
+  initialValues?: Partial<AppRecord>;
 }
 
-export function TodoForm({ reminders, onSubmit }: TodoFormProps) {
-  const [name, setName] = useState('');
-  const [showOptional, setShowOptional] = useState(false);
-  const [deadline, setDeadline] = useState('');
-  const [notes, setNotes] = useState('');
+export function TodoForm({ reminders, onSubmit, mode = 'create', initialValues }: TodoFormProps) {
+  // Initialize state from props (no effects needed)
+  const [name, setName] = useState(() =>
+    mode === 'edit' && initialValues ? initialValues.title || '' : '',
+  );
+  const [showOptional, setShowOptional] = useState(mode === 'edit');
+  const [deadline, setDeadline] = useState(() =>
+    mode === 'edit' && initialValues?.type === 'todo' ? initialValues.due_date || '' : '',
+  );
+  const [notes, setNotes] = useState(() =>
+    mode === 'edit' && initialValues?.type === 'todo' ? initialValues.body || '' : '',
+  );
 
-  console.log('[TodoForm] RENDER');
+  console.log('[TodoForm] RENDER', { mode });
 
   const handleSubmit = () => {
     try {
@@ -107,11 +117,11 @@ export function TodoForm({ reminders, onSubmit }: TodoFormProps) {
       {/* Submit */}
       <View style={{ marginTop: 24 }}>
         <Button
-          label="Add To-Do"
+          label={mode === 'edit' ? 'Save changes' : 'Add To-Do'}
           variant="primary"
           onPress={handleSubmit}
           disabled={!isValid}
-          testID="todo-submit"
+          testID={mode === 'edit' ? 'edit-save' : 'todo-submit'}
         />
       </View>
     </View>

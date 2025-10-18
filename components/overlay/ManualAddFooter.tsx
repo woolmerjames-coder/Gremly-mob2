@@ -22,7 +22,14 @@ export function ManualAddFooter({
 }: ManualAddFooterProps) {
   return (
     <View style={overlayStyles.footer}>
-      <TouchableOpacity onPress={onExit} testID="footer-exit">
+      <TouchableOpacity
+        onPress={onExit}
+        testID="footer-exit"
+        style={styles.exitButton}
+        accessibilityRole="button"
+        accessibilityLabel="Exit"
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
         <Text style={styles.exitText}>Exit</Text>
       </TouchableOpacity>
       {onSubmit && (
@@ -41,6 +48,13 @@ export function ManualAddFooter({
 }
 
 const styles = StyleSheet.create({
+  exitButton: {
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   exitText: {
     ...theme.textStyles.label,
     color: theme.colors.deepTeal,
