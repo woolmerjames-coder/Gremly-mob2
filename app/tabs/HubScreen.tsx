@@ -66,6 +66,13 @@ export default function HubScreen() {
   const [catchAllFilter, setCatchAllFilter] = useState<CatchAllFilter>('all');
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
 
+  // Edit mode state
+  const [editMode, setEditMode] = useState(false);
+  const [editItem, setEditItem] = useState<AppRecord | null>(null);
+
+  // Helper to filter out archived items
+  const isVisible = useCallback((item: AppRecord) => !item.archived, []);
+
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
     <Box style={{ position: 'absolute', top: 8, right: 8, opacity: 0.5, zIndex: 10 }}>
@@ -148,6 +155,9 @@ export default function HubScreen() {
     const needle = searchDebounced || searchQuery.trim().toLowerCase();
 
     return items.filter((item) => {
+      // Filter out archived items
+      if (!isVisible(item)) return false;
+
       if (activeMainFilter !== 'all') {
         if (activeMainFilter === 'habits' && item.type !== 'habit') return false;
         if (activeMainFilter === 'todos' && item.type !== 'todo') return false;
@@ -164,7 +174,7 @@ export default function HubScreen() {
 
       return matchesNeedle(item, needle);
     });
-  }, [items, activeMainFilter, matchesNeedle, searchDebounced, searchQuery]);
+  }, [items, activeMainFilter, matchesNeedle, searchDebounced, searchQuery, isVisible]);
 
   const sortingTrayItems = useMemo(
     () => filteredItems.filter((item) => item.ai_placed === true),
@@ -174,7 +184,10 @@ export default function HubScreen() {
     () => filteredItems.filter((item) => item.ai_placed !== true),
     [filteredItems],
   );
-  const catchAllAll = useMemo(() => items.filter((item) => item.origin === 'catchall'), [items]);
+  const catchAllAll = useMemo(
+    () => items.filter((item) => item.origin === 'catchall' && isVisible(item)),
+    [items, isVisible],
+  );
   const catchAllWithSearch = useMemo(() => {
     const needle = searchDebounced || searchQuery.trim().toLowerCase();
     if (!needle) return catchAllAll;
@@ -226,10 +239,10 @@ export default function HubScreen() {
   // Empty state
   const isEmpty = items.length === 0;
 
-  // Navigate to item (placeholder)
+  // Navigate to item → open edit modal
   const handleItemPress = (item: AppRecord) => {
-    console.log('Item pressed:', item.id, item.type);
-    // TODO: Navigate to detail screen based on type
+    setEditItem(item);
+    setEditMode(true);
   };
 
   // Navigate to space
@@ -464,12 +477,7 @@ export default function HubScreen() {
                       />
                     }
                   />
-                  {item.why_string ? (
-                    <Text variant="subtle" style={{ marginLeft: 16 }}>
-                      {item.why_string}
-                    </Text>
-                  ) : null}
-                  {item.origin === 'catchall' ? (
+                  {item.origin === 'catchall' && (activeMainFilter as string) !== 'catchall' ? (
                     <Text variant="subtle" style={{ marginLeft: 16 }}>
                       Placed by Gremly from Catch-All.
                     </Text>
@@ -517,54 +525,31 @@ export default function HubScreen() {
               catchAllRecordsForView.map((item) => {
                 const title = displayTitle(item);
                 return (
-                  <Box key={item.id} gap={1}>
-                    <ListItem
-                      title={title}
-                      subtitle={`${displayType(item)} • ${new Date(
-                        item.updated_at || item.created_at,
-                      ).toLocaleDateString()}`}
-                      onPress={() => handleItemPress(item)}
-                      testID={`ca-item-${item.id}`}
-                      accessibilityLabel={`Open ${title} from Catch-All`}
-                      rightContent={
-                        catchAllFilter === 'sorting' && item.ai_placed ? (
-                          <Button
-                            title="Move"
-                            variant="neutral"
-                            size="sm"
-                            onPress={() => handleMovePress(item)}
-                            accessibilityLabel={`Move ${title}`}
-                            testID={`ca-move-${item.id}`}
-                          />
-                        ) : undefined
-                      }
-                    />
-                    {item.origin === 'catchall' ? (
-                      <Text variant="subtle" style={{ marginLeft: 16 }}>
-                        Placed by Gremly from Catch-All.
-                      </Text>
-                    ) : null}
-                  </Box>
+                  <ListItem
+                    key={item.id}
+                    title={title}
+                    subtitle={`${displayType(item)} • ${new Date(
+                      item.updated_at || item.created_at,
+                    ).toLocaleDateString()}`}
+                    onPress={() => handleItemPress(item)}
+                    testID={`ca-item-${item.id}`}
+                    accessibilityLabel={`Open ${title} from Catch-All`}
+                    rightContent={
+                      catchAllFilter === 'sorting' && item.ai_placed ? (
+                        <Button
+                          title="Move"
+                          variant="neutral"
+                          size="sm"
+                          onPress={() => handleMovePress(item)}
+                          accessibilityLabel={`Move ${title}`}
+                          testID={`ca-move-${item.id}`}
+                        />
+                      ) : undefined
+                    }
+                  />
                 );
               })
             )}
-          </Box>
-        )}
-
-        {activeMainFilter !== 'catchall' && activityEvents.length > 0 && (
-          <Box gap={2}>
-            <Text variant="title">Recently Placed</Text>
-            <Text variant="subtle">Moves from Catch-All</Text>
-            {activityEvents.map((event) => (
-              <ListItem
-                key={event.id}
-                title={event.itemTitle || 'Untitled'}
-                subtitle={`${destinationLabel(event.destination)} • ${formatRelativeTime(event.timestamp)}`}
-                onPress={() => handleActivityEventPress(event.itemId)}
-                testID={`catchall-activity-${event.id}`}
-                accessibilityLabel={`Open ${event.itemTitle || 'item'} from activity log`}
-              />
-            ))}
           </Box>
         )}
 
@@ -588,14 +573,20 @@ export default function HubScreen() {
             {listItems.map((item) => {
               const title = displayTitle(item);
               return (
-                <ListItem
-                  key={item.id}
-                  title={title}
-                  subtitle={`${item.type} • ${new Date(item.updated_at || item.created_at).toLocaleDateString()}`}
-                  onPress={() => handleItemPress(item)}
-                  testID={`hub-item-${item.id}`}
-                  accessibilityLabel={`Open ${title}`}
-                />
+                <Box key={item.id} gap={1}>
+                  <ListItem
+                    title={title}
+                    subtitle={`${item.type} • ${new Date(item.updated_at || item.created_at).toLocaleDateString()}`}
+                    onPress={() => handleItemPress(item)}
+                    testID={`hub-item-${item.id}`}
+                    accessibilityLabel={`Open ${title}`}
+                  />
+                  {item.origin === 'catchall' ? (
+                    <Text variant="subtle" style={{ marginLeft: 16 }}>
+                      Placed by Gremly from Catch-All.
+                    </Text>
+                  ) : null}
+                </Box>
               );
             })}
           </Box>
@@ -631,7 +622,7 @@ export default function HubScreen() {
         )}
       </Box>
 
-      {/* Manual Add Overlay */}
+      {/* Manual Add Overlay - Create Mode */}
       <ManualAddOverlay
         visible={overlayVisible}
         defaultTab="habits"
@@ -641,6 +632,27 @@ export default function HubScreen() {
           void load();
         }}
       />
+
+      {/* Manual Add Overlay - Edit Mode */}
+      {editItem && (
+        <ManualAddOverlay
+          visible={editMode}
+          mode="edit"
+          initialType={editItem.type}
+          initialSubtype={editItem.type === 'note' ? editItem.subtype : undefined}
+          itemId={editItem.id}
+          initialValues={editItem}
+          onClose={() => {
+            setEditMode(false);
+            setEditItem(null);
+          }}
+          onSaved={() => {
+            setEditMode(false);
+            setEditItem(null);
+            void load();
+          }}
+        />
+      )}
     </Screen>
   );
 }
