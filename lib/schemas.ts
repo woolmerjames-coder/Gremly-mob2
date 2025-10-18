@@ -20,6 +20,8 @@ export const noteSubtypeZ = z.union([
   z.literal('journal'),
   z.literal('list'),
   z.literal('catchall'),
+  z.literal('idea'),
+  z.literal('reference'),
 ]) as z.ZodType<NoteSubtype>;
 
 // Accept both lowercase (correct) and capitalized (legacy data) frequencies
@@ -124,7 +126,7 @@ export const noteInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
   title: z.string().optional().nullable(),
   body: z.string().optional().nullable(),
-  subtype: z.enum(['journal', 'list', 'catchall']),
+  subtype: z.enum(['journal', 'list', 'catchall', 'idea', 'reference']),
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
@@ -150,6 +152,39 @@ export const spaceInsertSchema = z.object({
 });
 
 export type SpaceInsert = z.infer<typeof spaceInsertSchema>;
+
+// ==========================
+// TAG SCHEMAS
+// ==========================
+
+export const entityTypeZ = z.enum(['habit', 'todo', 'note', 'space']);
+
+export const tagInsertSchema = z.object({
+  name: z.string().min(1, 'Tag name is required'),
+  color: z.string().optional().nullable(),
+});
+
+export const tagMapInsertSchema = z.object({
+  tag_id: z.string().uuid(),
+  entity_type: entityTypeZ,
+  entity_id: z.string().uuid(),
+});
+
+// ==========================
+// PERSON SCHEMAS
+// ==========================
+
+export const personInsertSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email().optional().nullable(),
+  avatar: z.string().optional().nullable(),
+});
+
+export const entityPersonInsertSchema = z.object({
+  person_id: z.string().uuid(),
+  entity_type: entityTypeZ,
+  entity_id: z.string().uuid(),
+});
 
 // ==========================
 // Helper functions

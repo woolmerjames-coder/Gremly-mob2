@@ -5,8 +5,9 @@
 
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
-export type NoteSubtype = 'journal' | 'list' | 'catchall';
+export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
 export type Frequency = 'daily' | 'weekly' | 'monthly';
+export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 
 /**
  * Habit - recurring activity tracked by user
@@ -97,6 +98,55 @@ export interface Space {
   theme?: 'deepTeal' | 'mint' | 'cream' | 'periwinkle' | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
+}
+
+/**
+ * Tag - organizing label for records
+ */
+export interface Tag {
+  id: ID;
+  owner_id: ID;
+  name: string;
+  color?: string | null;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+}
+
+/**
+ * TagMap - many-to-many relationship between tags and entities
+ */
+export interface TagMap {
+  id: ID;
+  tag_id: ID;
+  entity_type: EntityType;
+  entity_id: ID;
+  owner_id: ID;
+  created_at: string; // ISO 8601
+}
+
+/**
+ * Person - contact for collaboration
+ */
+export interface Person {
+  id: ID;
+  owner_id: ID;
+  name: string;
+  email?: string | null;
+  avatar?: string | null;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+}
+
+/**
+ * EntityPerson - many-to-many relationship between entities and people
+ */
+export interface EntityPerson {
+  id: ID;
+  person_id: ID;
+  entity_type: EntityType;
+  entity_id: ID;
+  owner_id: ID;
+  created_at: string; // ISO 8601
 }
 
 /**
