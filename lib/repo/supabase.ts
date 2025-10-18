@@ -87,6 +87,9 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
+          canonicalType: input.canonicalType ?? undefined,
+          labels: input.labels ?? undefined,
+          views: input.views ?? undefined,
         }),
       );
 
@@ -106,6 +109,9 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
+          canonicalType: input.canonicalType ?? undefined,
+          labels: input.labels ?? undefined,
+          views: input.views ?? undefined,
         }),
       );
 
@@ -126,6 +132,9 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
+          canonicalType: input.canonicalType ?? undefined,
+          labels: input.labels ?? undefined,
+          views: input.views ?? undefined,
         }),
       );
 
@@ -204,6 +213,11 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
       if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
     }
+
+    if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
+    if ('canonicalType' in patch) updatePayload.canonicalType = patch.canonicalType ?? null;
+    if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
+    if ('views' in patch) updatePayload.views = patch.views ?? null;
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase

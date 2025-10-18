@@ -21,6 +21,11 @@ export interface Habit {
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | null;
+  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  labels?: string[];
+  views?: {
+    alsoShowIn?: string[];
+  };
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID
@@ -42,6 +47,11 @@ export interface Todo {
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | null;
+  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  labels?: string[];
+  views?: {
+    alsoShowIn?: string[];
+  };
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
@@ -61,6 +71,11 @@ export interface Note {
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | null;
+  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  labels?: string[];
+  views?: {
+    alsoShowIn?: string[];
+  };
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;

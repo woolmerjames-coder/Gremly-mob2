@@ -92,6 +92,9 @@ export class MemoryRepo implements IRepo {
         owner_id: ownerId,
         why_string: input.why_string ?? null,
         origin: input.origin ?? null,
+        canonicalType: input.canonicalType,
+        labels: input.labels,
+        views: input.views,
       };
     } else if (input.type === 'todo') {
       rec = {
@@ -108,6 +111,9 @@ export class MemoryRepo implements IRepo {
         updated_at: now,
         owner_id: ownerId,
         origin: input.origin ?? null,
+        canonicalType: input.canonicalType,
+        labels: input.labels,
+        views: input.views,
       };
     } else {
       // note
@@ -125,6 +131,9 @@ export class MemoryRepo implements IRepo {
         updated_at: now,
         owner_id: ownerId,
         origin: input.origin ?? null,
+        canonicalType: input.canonicalType,
+        labels: input.labels,
+        views: input.views,
       };
     }
 

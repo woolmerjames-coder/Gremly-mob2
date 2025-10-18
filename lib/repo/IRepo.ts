@@ -17,6 +17,11 @@ export interface CreateRecordInput {
   ai_placed?: boolean;
   why_string?: string | null;
   origin?: 'catchall';
+  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  labels?: string[];
+  views?: {
+    alsoShowIn?: string[];
+  };
   // owner_id is optional - Supabase will set from auth context, Memory repo will use constructor userId
   owner_id?: ID;
 }

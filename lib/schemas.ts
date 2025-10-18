@@ -46,6 +46,13 @@ const baseRecordZ = z.object({
   ai_placed: z.boolean(),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional().nullable(),
+  canonicalType: z.enum(['note', 'todo', 'habit', 'journal']).optional(),
+  labels: z.array(z.string()).optional(),
+  views: z
+    .object({
+      alsoShowIn: z.array(z.string()).optional(),
+    })
+    .optional(),
   created_at: z.string(), // Accept any string format from DB
   updated_at: z.string(), // Accept any string format from DB
   owner_id: z.string().min(1),
@@ -86,6 +93,13 @@ export const habitInsertSchema = z.object({
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
+  canonicalType: z.enum(['note', 'todo', 'habit', 'journal']).optional(),
+  labels: z.array(z.string()).optional(),
+  views: z
+    .object({
+      alsoShowIn: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
 export const todoInsertSchema = z.object({
@@ -97,6 +111,13 @@ export const todoInsertSchema = z.object({
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
+  canonicalType: z.enum(['note', 'todo', 'habit', 'journal']).optional(),
+  labels: z.array(z.string()).optional(),
+  views: z
+    .object({
+      alsoShowIn: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
 export const noteInsertSchema = z.object({
@@ -107,6 +128,13 @@ export const noteInsertSchema = z.object({
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
+  canonicalType: z.enum(['note', 'todo', 'habit', 'journal']).optional(),
+  labels: z.array(z.string()).optional(),
+  views: z
+    .object({
+      alsoShowIn: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
 // ==========================

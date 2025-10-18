@@ -8,6 +8,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -111,6 +112,28 @@ export default function SpacesScreen() {
           </Card>
         )}
 
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('CatchAllNotepad')}
+          testID="spaces-catchall-button"
+          accessibilityRole="button"
+          accessibilityLabel="Open Gremly Catch-All"
+        >
+          <Card>
+            <View style={styles.catchallCard}>
+              <View style={styles.shimmerOverlay} />
+              <Box gap={1}>
+                <Text variant="title" style={styles.catchallTitle}>
+                  Catch-All
+                </Text>
+                <Text variant="body" style={styles.catchallSubtitle}>
+                  Drop anything — I’ll help you sort it.
+                </Text>
+              </Box>
+            </View>
+          </Card>
+        </TouchableOpacity>
+
         {/* Header row */}
         {!error && (
           <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
@@ -162,3 +185,31 @@ export default function SpacesScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  catchallCard: {
+    overflow: 'hidden',
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    backgroundColor: '#F1F7F5',
+  },
+  shimmerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    pointerEvents: 'none',
+  },
+  catchallTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1D4D4F',
+  },
+  catchallSubtitle: {
+    fontSize: 16,
+    color: '#3F6B6B',
+  },
+});
