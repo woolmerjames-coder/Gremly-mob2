@@ -9,18 +9,33 @@ import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { theme } from '../../app/design/theme';
 import { HabitStartSchema } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import type { AppRecord } from '../../lib/types';
 
 interface HabitStartFormProps {
   reminders: TReminderRule[];
   onSubmit: (payload: ManualAddPayload) => void;
+  mode?: 'create' | 'edit';
+  initialValues?: Partial<AppRecord>;
 }
 
-const FREQUENCIES = ['daily', 'weekly', 'monthly', 'custom'];
+const FREQUENCIES = ['daily', 'weekly', 'monthly', 'custom'] as const;
 
-export function HabitStartForm({ reminders, onSubmit }: HabitStartFormProps) {
-  const [name, setName] = useState('');
-  const [frequency, setFrequency] = useState('daily');
-  const [showOptional, setShowOptional] = useState(false);
+export function HabitStartForm({
+  reminders,
+  onSubmit,
+  mode = 'create',
+  initialValues,
+}: HabitStartFormProps) {
+  // Initialize state from props (no effects needed)
+  const [name, setName] = useState(() =>
+    mode === 'edit' && initialValues?.type === 'habit' ? initialValues.title || '' : '',
+  );
+  const [frequency, setFrequency] = useState<string>(() =>
+    mode === 'edit' && initialValues?.type === 'habit'
+      ? initialValues.frequency || 'daily'
+      : 'daily',
+  );
+  const [showOptional, setShowOptional] = useState(mode === 'edit');
   const [notes, setNotes] = useState('');
   const [category, setCategory] = useState('');
 
@@ -28,7 +43,7 @@ export function HabitStartForm({ reminders, onSubmit }: HabitStartFormProps) {
   const [notesFocused, setNotesFocused] = useState(false);
   const [categoryFocused, setCategoryFocused] = useState(false);
 
-  console.log('[HabitStartForm] RENDER');
+  console.log('[HabitStartForm] RENDER', { mode });
 
   const handleSubmit = () => {
     try {
@@ -149,9 +164,9 @@ export function HabitStartForm({ reminders, onSubmit }: HabitStartFormProps) {
           style={[styles.submitButton, !isValid && styles.submitDisabled]}
           onPress={handleSubmit}
           disabled={!isValid}
-          testID="habit-start-submit"
+          testID={mode === 'edit' ? 'edit-save' : 'habit-start-submit'}
         >
-          <Text style={styles.submitText}>Add Habit</Text>
+          <Text style={styles.submitText}>{mode === 'edit' ? 'Save changes' : 'Add Habit'}</Text>
         </TouchableOpacity>
       </View>
     </View>

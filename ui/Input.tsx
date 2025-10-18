@@ -34,6 +34,9 @@ export interface InputProps {
 
   /** Test ID */
   testID?: string;
+
+  /** Accessibility label */
+  accessibilityLabel?: string;
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -45,6 +48,7 @@ export const Input: React.FC<InputProps> = ({
   label,
   errorText,
   testID,
+  accessibilityLabel,
 }) => {
   const t = useTokens();
 
@@ -76,6 +80,8 @@ export const Input: React.FC<InputProps> = ({
         secureTextEntry={secureTextEntry}
         style={inputStyle}
         testID={testID}
+        accessible
+        accessibilityLabel={accessibilityLabel ?? label ?? placeholder}
       />
       {errorText && (
         <Text variant="subtle" style={{ color: t.colors.danger }}>

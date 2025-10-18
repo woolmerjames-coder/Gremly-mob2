@@ -86,6 +86,7 @@ export class SupabaseRepo implements IRepo {
           frequency: input.frequency,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
+          origin: input.origin ?? undefined,
         }),
       );
 
@@ -104,6 +105,7 @@ export class SupabaseRepo implements IRepo {
           undefined_due: input.undefined_due ?? true,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
+          origin: input.origin ?? undefined,
         }),
       );
 
@@ -123,6 +125,7 @@ export class SupabaseRepo implements IRepo {
           subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
+          origin: input.origin ?? undefined,
         }),
       );
 
@@ -405,12 +408,10 @@ export class SupabaseRepo implements IRepo {
   // ==========================
 
   async listSpaces(): Promise<Space[]> {
-    const userId = this.ensureUserId();
-
     const { data, error } = await supabase
       .from('spaces')
       .select('*')
-      .eq('owner_id', userId)
+      .eq('owner_id', this.ensureUserId())
       .order('created_at', { ascending: true });
 
     if (error) throw new Error(`Failed to list spaces: ${error.message}`);
@@ -420,7 +421,7 @@ export class SupabaseRepo implements IRepo {
   }
 
   async createSpace(input: SpaceInsert): Promise<Space> {
-    const userId = this.ensureUserId();
+    this.ensureUserId();
 
     // Validate input
     const payload = spaceInsertSchema.parse(input);

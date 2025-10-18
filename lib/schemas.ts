@@ -45,6 +45,7 @@ const baseRecordZ = z.object({
   space_id: z.string().optional().nullable(),
   ai_placed: z.boolean(),
   why_string: z.string().optional().nullable(),
+  origin: z.literal('catchall').optional().nullable(),
   created_at: z.string(), // Accept any string format from DB
   updated_at: z.string(), // Accept any string format from DB
   owner_id: z.string().min(1),
@@ -84,6 +85,7 @@ export const habitInsertSchema = z.object({
   frequency: z.string().min(1),
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
+  origin: z.literal('catchall').optional(),
 });
 
 export const todoInsertSchema = z.object({
@@ -94,6 +96,7 @@ export const todoInsertSchema = z.object({
   undefined_due: z.boolean().default(true),
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
+  origin: z.literal('catchall').optional(),
 });
 
 export const noteInsertSchema = z.object({
@@ -103,6 +106,7 @@ export const noteInsertSchema = z.object({
   subtype: z.enum(['journal', 'list', 'catchall']),
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
+  origin: z.literal('catchall').optional(),
 });
 
 // ==========================

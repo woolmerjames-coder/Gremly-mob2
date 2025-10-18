@@ -22,9 +22,18 @@ export interface ChipProps {
 
   /** Test ID */
   testID?: string;
+
+  /** Accessibility label */
+  accessibilityLabel?: string;
 }
 
-export const Chip: React.FC<ChipProps> = ({ label, selected = false, onPress, testID }) => {
+export const Chip: React.FC<ChipProps> = ({
+  label,
+  selected = false,
+  onPress,
+  testID,
+  accessibilityLabel,
+}) => {
   const t = useTokens();
 
   const chipStyle: ViewStyle = {
@@ -44,6 +53,10 @@ export const Chip: React.FC<ChipProps> = ({ label, selected = false, onPress, te
 
   return (
     <Pressable
+      accessible
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={accessibilityLabel ?? label}
       style={({ pressed }) => [chipStyle, pressed && { opacity: 0.85 }]}
       onPress={onPress}
       testID={testID}

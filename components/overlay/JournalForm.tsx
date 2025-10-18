@@ -10,17 +10,35 @@ import { Button } from '../../design-system/Button';
 import { JournalSchema } from '../../app/schemas/manualAdd';
 import { getTodayISO } from '../../app/utils/recurrence';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import type { AppRecord } from '../../lib/types';
 
 interface JournalFormProps {
   reminders: TReminderRule[];
   onSubmit: (payload: ManualAddPayload) => void;
+  mode?: 'create' | 'edit';
+  initialValues?: Partial<AppRecord>;
 }
 
-export function JournalForm({ reminders, onSubmit }: JournalFormProps) {
-  const [date, setDate] = useState(getTodayISO());
-  const [entry, setEntry] = useState('');
-  const [showOptional, setShowOptional] = useState(false);
-  const [category, setCategory] = useState('');
+export function JournalForm({
+  reminders,
+  onSubmit,
+  mode = 'create',
+  initialValues,
+}: JournalFormProps) {
+  // Initialize state from props (no effects needed)
+  const [date, setDate] = useState(() => {
+    if (mode === 'edit' && initialValues?.type === 'note' && initialValues.created_at) {
+      return initialValues.created_at.split('T')[0];
+    }
+    return getTodayISO();
+  });
+  const [entry, setEntry] = useState(() =>
+    mode === 'edit' && initialValues?.type === 'note' ? initialValues.body || '' : '',
+  );
+  const [showOptional, setShowOptional] = useState(mode === 'edit');
+  const [category, setCategory] = useState(() =>
+    mode === 'edit' && initialValues?.type === 'note' ? initialValues.title || '' : '',
+  );
 
   console.log('[JournalForm] RENDER');
 
@@ -103,11 +121,11 @@ export function JournalForm({ reminders, onSubmit }: JournalFormProps) {
       {/* Submit */}
       <View style={{ marginTop: 24 }}>
         <Button
-          label="Add Journal Entry"
+          label={mode === 'edit' ? 'Save changes' : 'Add Journal Entry'}
           variant="primary"
           onPress={handleSubmit}
           disabled={!isValid}
-          testID="journal-submit"
+          testID={mode === 'edit' ? 'edit-save' : 'journal-submit'}
         />
       </View>
     </View>

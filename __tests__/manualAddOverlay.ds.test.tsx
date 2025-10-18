@@ -357,6 +357,7 @@ describe('ManualAddOverlay', () => {
             type: 'todo',
             ai_placed: true,
             why_string: 'AI detected todo item',
+            origin: 'catchall',
           }),
         );
 
@@ -399,8 +400,9 @@ describe('ManualAddOverlay', () => {
           expect.objectContaining({
             type: 'note',
             subtype: 'catchall',
-            ai_placed: false,
+            ai_placed: true,
             why_string: 'Heuristic default.',
+            origin: 'catchall',
           }),
         );
 

@@ -35,8 +35,10 @@ export function ManualAddHeader({ activeTab, onTabChange, onClose }: ManualAddHe
           testID="exit-button"
           accessibilityRole="button"
           accessibilityLabel="Close overlay"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={{ padding: 4, minWidth: 40, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Text style={{ fontSize: 24, color: theme.colors.charcoal }}>×</Text>
+          <Text style={{ fontSize: 32, color: theme.colors.charcoal, lineHeight: 32 }}>×</Text>
         </TouchableOpacity>
       </View>
 
