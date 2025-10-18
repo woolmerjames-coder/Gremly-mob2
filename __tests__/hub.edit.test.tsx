@@ -157,10 +157,10 @@ describe('Hub Edit Item', () => {
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('hub-item-habit-edit-1')).toBeTruthy();
+      expect(screen.getByTestId('item-habit-edit-1')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('hub-item-habit-edit-1'));
+    fireEvent.press(screen.getByTestId('item-habit-edit-1'));
 
     // Check that the ManualAddOverlay in edit mode is rendered
     await waitFor(() => {
@@ -172,10 +172,10 @@ describe('Hub Edit Item', () => {
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('hub-item-todo-edit-1')).toBeTruthy();
+      expect(screen.getByTestId('item-todo-edit-1')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('hub-item-todo-edit-1'));
+    fireEvent.press(screen.getByTestId('item-todo-edit-1'));
 
     // Check that the ManualAddOverlay in edit mode is rendered
     await waitFor(() => {
@@ -187,10 +187,10 @@ describe('Hub Edit Item', () => {
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('hub-item-note-edit-1')).toBeTruthy();
+      expect(screen.getByTestId('item-note-edit-1')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('hub-item-note-edit-1'));
+    fireEvent.press(screen.getByTestId('item-note-edit-1'));
 
     // Check that the ManualAddOverlay in edit mode is rendered
     await waitFor(() => {
@@ -204,7 +204,7 @@ describe('Hub Edit Item', () => {
     renderWithProviders(<HubScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('hub-item-habit-edit-1')).toBeTruthy();
+      expect(screen.getByTestId('item-habit-edit-1')).toBeTruthy();
     });
 
     // Verify mock is available for ManualAddOverlay to use
