@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF9F0', // cream - will be overridden by theme
     borderTopLeftRadius: 24, // Rounded top corners
     borderTopRightRadius: 24,
-    maxHeight: '85%',
+    height: '85%', // Fixed height instead of maxHeight
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,
