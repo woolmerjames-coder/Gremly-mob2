@@ -58,6 +58,9 @@ export default function HubScreen() {
   const [unsortedCount, setUnsortedCount] = useState(0);
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [notesSubfilter, setNotesSubfilter] = useState<'all' | 'idea' | 'list' | 'reference'>(
+    'all',
+  );
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
@@ -135,9 +138,11 @@ export default function HubScreen() {
       } else if (tab === 'Journal') {
         data = await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] });
       } else if (tab === 'Notes') {
+        const subtypes =
+          notesSubfilter === 'all' ? ['idea', 'list', 'reference'] : [notesSubfilter];
         data = await repo.listByType('note', {
           ...scopeOpts,
-          subtypes: ['idea', 'list', 'reference'],
+          subtypes,
         });
       } else if (tab === 'People') {
         const allPeople = await repo.listPeople();
@@ -163,11 +168,18 @@ export default function HubScreen() {
     } finally {
       setLoading(false);
     }
-  }, [repo, user, tab, scope]);
+  }, [repo, user, tab, scope, notesSubfilter]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Reset notes subfilter when switching away from Notes tab
+  useEffect(() => {
+    if (tab !== 'Notes') {
+      setNotesSubfilter('all');
+    }
+  }, [tab]);
 
   // Filter by search (items are already filtered by tab via load())
   const filteredAll = useMemo(() => {
@@ -339,6 +351,62 @@ export default function HubScreen() {
             <View style={{ marginTop: spacing.md }}>
               <SegmentedTabs value={tab} onChange={setTab} />
             </View>
+
+            {/* Notes Subfilter Pills (only visible on Notes tab) */}
+            {tab === 'Notes' && (
+              <View style={styles.pillBar}>
+                <TouchableOpacity
+                  style={[styles.pill, notesSubfilter === 'all' && styles.pillActive]}
+                  onPress={() => setNotesSubfilter('all')}
+                  testID="notes-filter-all"
+                >
+                  <Text
+                    style={[styles.pillText, notesSubfilter === 'all' && styles.pillTextActive]}
+                  >
+                    All
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pill, notesSubfilter === 'idea' && styles.pillActive]}
+                  onPress={() => setNotesSubfilter('idea')}
+                  testID="notes-filter-idea"
+                >
+                  <Text
+                    style={[styles.pillText, notesSubfilter === 'idea' && styles.pillTextActive]}
+                  >
+                    Ideas
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pill, notesSubfilter === 'list' && styles.pillActive]}
+                  onPress={() => setNotesSubfilter('list')}
+                  testID="notes-filter-list"
+                >
+                  <Text
+                    style={[styles.pillText, notesSubfilter === 'list' && styles.pillTextActive]}
+                  >
+                    Lists
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pill, notesSubfilter === 'reference' && styles.pillActive]}
+                  onPress={() => setNotesSubfilter('reference')}
+                  testID="notes-filter-reference"
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      notesSubfilter === 'reference' && styles.pillTextActive,
+                    ]}
+                  >
+                    Reference
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.searchWrap}>
               <TextInput
@@ -637,5 +705,31 @@ const styles = StyleSheet.create({
   sheetContainer: {
     height: '70%',
     backgroundColor: 'transparent',
+  },
+  pillBar: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.md,
+    gap: spacing.xs,
+  },
+  pill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.xl,
+    backgroundColor: colors.gray100,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  pillActive: {
+    backgroundColor: colors.deepTeal,
+    borderColor: colors.deepTeal,
+  },
+  pillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.gray600,
+  },
+  pillTextActive: {
+    color: colors.white,
   },
 });
