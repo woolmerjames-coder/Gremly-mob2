@@ -54,7 +54,7 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
 
 const PLACEHOLDER_COLOR = '#B6A999';
 
-export default function CatchAllNotepad(): JSX.Element {
+export default function CatchAllNotepad(): React.JSX.Element {
   const repo = useRepo();
   const [mode, setMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');

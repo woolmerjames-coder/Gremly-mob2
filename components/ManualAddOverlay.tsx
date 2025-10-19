@@ -29,7 +29,7 @@ import { useCortex } from '../providers/CortexProvider';
 import { useRepo } from '../providers/RepoProvider';
 import type { CortexOutput } from '../cortex/ICortexEngine';
 import type { CreateRecordInput, UpdateRecordInput } from '../lib/repo/IRepo';
-import type { AppRecord } from '../lib/types';
+import type { AppRecord, NoteSubtype } from '../lib/types';
 
 type TabType = 'habits' | 'todos' | 'journal' | 'catchall';
 
@@ -42,7 +42,7 @@ interface ManualAddOverlayProps {
   // Edit mode props
   mode?: 'create' | 'edit';
   initialType?: 'habit' | 'todo' | 'note';
-  initialSubtype?: 'journal' | 'list' | 'catchall';
+  initialSubtype?: NoteSubtype;
   initialValues?: Partial<AppRecord>;
   itemId?: string;
   onSaved?: () => void;
