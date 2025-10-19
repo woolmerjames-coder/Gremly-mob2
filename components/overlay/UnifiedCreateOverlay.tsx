@@ -66,9 +66,18 @@ export function UnifiedCreateOverlay({
   const cortex = useCortex();
   const { theme } = useTheme();
 
-  // State
-  const [selectedType, setSelectedType] = useState<EntityType | null>(null);
-  const [aiMode, setAiMode] = useState(false);
+  // Feature flag check - default to true for tests
+  const useUnifiedOverlay =
+    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' || process.env.NODE_ENV === 'test';
+
+  // Safety log in dev
+  if (__DEV__ && visible) {
+    console.log('[UnifiedOverlay] Enabled:', useUnifiedOverlay);
+  }
+
+  // State - with robust defaults
+  const [selectedType, setSelectedType] = useState<EntityType | null>('todo'); // Default to todo instead of null
+  const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
   const [isLoading, setIsLoading] = useState(false);
 
@@ -157,7 +166,7 @@ export function UnifiedCreateOverlay({
   }, [mode, initialEntity, loadEntity]);
 
   const resetForm = () => {
-    setSelectedType(null);
+    setSelectedType('todo'); // Reset to default type instead of null
     setAiMode(false);
     setFreeformText('');
     setHabitName('');
@@ -183,7 +192,7 @@ export function UnifiedCreateOverlay({
 
   const handleTypeSelect = (type: EntityType) => {
     setSelectedType(type);
-    setAiMode(false);
+    setAiMode(false); // Exit AI mode when selecting a type
     // Fade in fields
     fadeAnim.setValue(0);
     Animated.timing(fadeAnim, {
@@ -195,10 +204,17 @@ export function UnifiedCreateOverlay({
 
   const handleAiModeToggle = () => {
     if (mode === 'edit') return; // No AI mode in edit
-    setAiMode(!aiMode);
-    if (!aiMode) {
+    const nextAiMode = !aiMode;
+    setAiMode(nextAiMode);
+
+    // When entering AI mode, clear type selection
+    if (nextAiMode) {
       setSelectedType(null);
+    } else {
+      // When exiting AI mode, restore default type
+      setSelectedType('todo');
     }
+
     // Fade in/out animation
     fadeAnim.setValue(0);
     Animated.timing(fadeAnim, {
@@ -381,18 +397,19 @@ export function UnifiedCreateOverlay({
 
   return (
     <Modal
-      visible={visible}
+      visible={visible && useUnifiedOverlay}
       transparent
       animationType="slide"
       onRequestClose={handleClose}
       statusBarTranslucent
+      testID="unified-overlay"
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.container}
-      >
-        <View style={styles.backdrop}>
-          <View
+      <Pressable style={styles.backdrop} onPress={handleClose} testID="overlay-backdrop">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.container}
+        >
+          <Pressable
             style={[
               styles.card,
               {
@@ -400,6 +417,7 @@ export function UnifiedCreateOverlay({
                 backgroundColor: theme.colors.cream,
               },
             ]}
+            onPress={(e) => e?.stopPropagation?.()} // Prevent backdrop close when tapping card
           >
             {/* Header */}
             <View style={styles.header}>
@@ -477,7 +495,7 @@ export function UnifiedCreateOverlay({
                 </View>
               )}
 
-              {/* AI freeform input */}
+              {/* AI freeform input - Robust guard: only show in AI mode */}
               {aiMode && (
                 <Animated.View
                   style={[
@@ -495,6 +513,16 @@ export function UnifiedCreateOverlay({
                     },
                   ]}
                 >
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: theme.colors.text.secondary,
+                      marginBottom: 12,
+                      lineHeight: 20,
+                    }}
+                  >
+                    🧠 Tell me what's on your mind… Gremly will sort it to the right place.
+                  </Text>
                   <TextInput
                     value={freeformText}
                     onChangeText={setFreeformText}
@@ -503,6 +531,7 @@ export function UnifiedCreateOverlay({
                     multiline
                     numberOfLines={8}
                     testID="freeform-input"
+                    autoFocus
                     style={[
                       styles.freeformInput,
                       {
@@ -515,7 +544,7 @@ export function UnifiedCreateOverlay({
                 </Animated.View>
               )}
 
-              {/* Structured fields */}
+              {/* Structured fields - Robust guard: show when NOT in AI mode AND type selected */}
               {!aiMode && selectedType && (
                 <Animated.View
                   style={[
@@ -605,32 +634,34 @@ export function UnifiedCreateOverlay({
                 testID="save-to-hub"
               />
             </View>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)', // Lighter backdrop
+    justifyContent: 'flex-end',
+  },
+  container: {
+    flex: 1,
     justifyContent: 'flex-end',
   },
   card: {
     backgroundColor: '#FFF9F0', // cream - will be overridden by theme
-    borderTopLeftRadius: 32, // 2xl radius
-    borderTopRightRadius: 32,
+    borderTopLeftRadius: 24, // Rounded top corners
+    borderTopRightRadius: 24,
     maxHeight: '90%',
+    minHeight: 400, // Minimum height to prevent collapse
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
-    elevation: 5,
+    elevation: 8, // Higher elevation for better prominence
   },
   header: {
     flexDirection: 'row',
@@ -649,6 +680,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingBottom: 20,
+    minHeight: 180, // Ensure minimum height to prevent collapse
+    flexGrow: 1,
   },
   section: {
     marginBottom: 20,
