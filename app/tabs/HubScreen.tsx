@@ -25,8 +25,9 @@ import { type as typeStyles } from '../../theme/typography';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
 import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
-import type { AppRecord, Space, Person } from '../../lib/types';
+import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
+import TagFilterBar from '../../components/filters/TagFilterBar';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
 
@@ -61,44 +62,54 @@ export default function HubScreen() {
   const [notesSubfilter, setNotesSubfilter] = useState<'all' | 'idea' | 'list' | 'reference'>(
     'all',
   );
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [itemTags, setItemTags] = useState<Map<string, Tag[]>>(new Map());
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
 
   // Convert AppRecord to HubItem
-  const toHubItem = useCallback((item: AppRecord): HubItem => {
-    let kind: 'habit' | 'todo' | 'note' = 'note';
-    if (item.type === 'habit') kind = 'habit';
-    else if (item.type === 'todo') kind = 'todo';
-    else kind = 'note';
+  const toHubItem = useCallback(
+    (item: AppRecord): HubItem => {
+      let kind: 'habit' | 'todo' | 'note' = 'note';
+      if (item.type === 'habit') kind = 'habit';
+      else if (item.type === 'todo') kind = 'todo';
+      else kind = 'note';
 
-    let title = item.title || '';
-    let note: string | undefined;
+      let title = item.title || '';
+      let note: string | undefined;
 
-    // For long text notes, condense title and keep original as note
-    if (item.type === 'note' && item.body && item.body.length > 60) {
-      title = suggestShortTitle(item.body);
-      note = item.body;
-    } else if (item.type === 'note' && item.body) {
-      title = item.body;
-    }
+      // For long text notes, condense title and keep original as note
+      if (item.type === 'note' && item.body && item.body.length > 60) {
+        title = suggestShortTitle(item.body);
+        note = item.body;
+      } else if (item.type === 'note' && item.body) {
+        title = item.body;
+      }
 
-    if (!title.trim()) {
-      title = 'Untitled';
-    }
+      if (!title.trim()) {
+        title = 'Untitled';
+      }
 
-    const date = item.updated_at || item.created_at;
-    const dateFormatted = date ? new Date(date).toLocaleDateString() : undefined;
+      const date = item.updated_at || item.created_at;
+      const dateFormatted = date ? new Date(date).toLocaleDateString() : undefined;
 
-    return {
-      id: item.id,
-      kind,
-      title,
-      note,
-      date: dateFormatted,
-      placedBy: item.ai_placed ? 'ai' : 'user',
-    };
-  }, []);
+      // Get tags for this item (up to 2 for display)
+      const tags = itemTags.get(item.id) || [];
+
+      return {
+        id: item.id,
+        kind,
+        title,
+        note,
+        date: dateFormatted,
+        placedBy: item.ai_placed ? 'ai' : 'user',
+        tags,
+      };
+    },
+    [itemTags],
+  );
 
   // Load data
   const load = useCallback(async () => {
@@ -110,9 +121,12 @@ export default function HubScreen() {
     setLoading(true);
     setError(null);
     try {
-      // Load spaces and unsorted count
+      // Load spaces, tags, and unsorted count
       const allSpaces = await repo.listSpaces();
       setSpaces(allSpaces);
+
+      const allTags = await repo.listTags();
+      setTags(allTags);
 
       const count = await repo.countUnsorted();
       setUnsortedCount(count);
@@ -128,20 +142,24 @@ export default function HubScreen() {
             ? { spaceId: scope.spaceId }
             : {}; // everywhere
 
+      // Add tag filtering if tags are selected
+      const filterOpts =
+        selectedTagIds.length > 0 ? { ...scopeOpts, tagIds: selectedTagIds } : scopeOpts;
+
       // Load data based on current tab
       let data: AppRecord[] | Person[] = [];
 
       if (tab === 'Habits') {
-        data = await repo.listByType('habit', scopeOpts);
+        data = await repo.listByType('habit', filterOpts);
       } else if (tab === 'To-Dos') {
-        data = await repo.listByType('todo', scopeOpts);
+        data = await repo.listByType('todo', filterOpts);
       } else if (tab === 'Journal') {
-        data = await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] });
+        data = await repo.listByType('note', { ...filterOpts, subtypes: ['journal'] });
       } else if (tab === 'Notes') {
         const subtypes =
           notesSubfilter === 'all' ? ['idea', 'list', 'reference'] : [notesSubfilter];
         data = await repo.listByType('note', {
-          ...scopeOpts,
+          ...filterOpts,
           subtypes,
         });
       } else if (tab === 'People') {
@@ -161,6 +179,25 @@ export default function HubScreen() {
       });
 
       setItems(records);
+
+      // Fetch linked tags for all items (Phase 7: read-only)
+      const tagsMap = new Map<string, Tag[]>();
+      await Promise.all(
+        records.map(async (record) => {
+          try {
+            const linkedTags = await repo.listLinkedTags({
+              type: record.type,
+              id: record.id,
+            });
+            if (linkedTags.length > 0) {
+              tagsMap.set(record.id, linkedTags);
+            }
+          } catch (err) {
+            console.error(`Failed to load tags for ${record.id}:`, err);
+          }
+        }),
+      );
+      setItemTags(tagsMap);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load hub data';
       console.error('Failed to load hub data:', err);
@@ -168,7 +205,7 @@ export default function HubScreen() {
     } finally {
       setLoading(false);
     }
-  }, [repo, user, tab, scope, notesSubfilter]);
+  }, [repo, user, tab, scope, notesSubfilter, selectedTagIds]);
 
   useEffect(() => {
     void load();
@@ -261,6 +298,15 @@ export default function HubScreen() {
     },
     [items, load],
   );
+
+  const handleToggleTag = useCallback((tagId: string) => {
+    setSelectedTagIds((prev) => {
+      if (prev.includes(tagId)) {
+        return prev.filter((id) => id !== tagId);
+      }
+      return [...prev, tagId];
+    });
+  }, []);
 
   const handleConfirmUnsorted = useCallback(
     async (id: string) => {
@@ -418,6 +464,16 @@ export default function HubScreen() {
                 testID="hub-search"
               />
             </View>
+
+            {/* Tag Filter Bar (only for non-People tabs) */}
+            {tab !== 'People' && (
+              <TagFilterBar
+                tags={tags}
+                selectedTagIds={selectedTagIds}
+                onToggleTag={handleToggleTag}
+                testID="tag-filter-bar"
+              />
+            )}
 
             {/* Unsorted Banner */}
             {unsortedCount > 0 && !bannerDismissed && (

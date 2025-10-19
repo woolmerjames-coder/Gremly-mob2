@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radii, spacing, shadows } from '../theme/tokens';
 import { type } from '../theme/typography';
+import type { Tag } from '../lib/types';
 
 export type HubKind = 'habit' | 'todo' | 'note';
 export type Placement = 'ai' | 'user';
@@ -13,6 +14,7 @@ export type HubItem = {
   note?: string;
   date?: string; // ISO or pretty
   placedBy?: Placement; // 'ai' => show sparkle
+  tags?: Tag[]; // Up to 2 tags to display
 };
 
 const kindIcon: Record<HubKind, string> = { habit: '✅', todo: '🔔', note: '📝' };
@@ -48,6 +50,24 @@ export default function HubItemCard({
           <View style={styles.metaRow}>
             {!!item.date && <Text style={type.meta}>{item.date}</Text>}
           </View>
+          {/* Tag chips (show up to 2) */}
+          {item.tags && item.tags.length > 0 && (
+            <View style={styles.tagRow}>
+              {item.tags.slice(0, 2).map((tag) => (
+                <View
+                  key={tag.id}
+                  style={[
+                    styles.tagChip,
+                    tag.color && { backgroundColor: tag.color, borderColor: tag.color },
+                  ]}
+                  testID={`tag-chip-${tag.id}`}
+                >
+                  <Text style={styles.tagChipText}>{tag.name}</Text>
+                </View>
+              ))}
+              {item.tags.length > 2 && <Text style={styles.tagMore}>+{item.tags.length - 2}</Text>}
+            </View>
+          )}
         </View>
         {showMove && (
           <TouchableOpacity onPress={onMove} style={styles.moveBtn} testID="move-btn">
@@ -95,4 +115,28 @@ const styles = StyleSheet.create({
   },
   moveText: { color: colors.deepTeal, fontWeight: '600' },
   notePreview: { marginTop: spacing.xs, color: colors.gray600, fontSize: 13 },
+  tagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+  },
+  tagChip: {
+    backgroundColor: colors.deepTeal,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+  },
+  tagChipText: {
+    fontSize: 10,
+    color: colors.white,
+    fontWeight: '600',
+  },
+  tagMore: {
+    fontSize: 10,
+    color: colors.gray600,
+    fontWeight: '600',
+  },
 });
