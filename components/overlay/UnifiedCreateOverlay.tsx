@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   TextInput,
   Pressable,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../ui/Text';
@@ -25,6 +26,7 @@ import { NoteFields } from './fields/NoteFields';
 import { PersonFields } from './fields/PersonFields';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
+import { useTheme } from '../../providers/ThemeProvider';
 import type { AppRecord, Frequency, NoteSubtype, HabitSubtype } from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 
@@ -62,12 +64,16 @@ export function UnifiedCreateOverlay({
   const insets = useSafeAreaInsets();
   const repo = useRepo();
   const cortex = useCortex();
+  const { theme } = useTheme();
 
   // State
   const [selectedType, setSelectedType] = useState<EntityType | null>(null);
   const [aiMode, setAiMode] = useState(false);
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
   const [isLoading, setIsLoading] = useState(false);
+
+  // Animation for subtype chips and fields
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
   // Freeform (AI mode)
   const [freeformText, setFreeformText] = useState('');
@@ -178,6 +184,13 @@ export function UnifiedCreateOverlay({
   const handleTypeSelect = (type: EntityType) => {
     setSelectedType(type);
     setAiMode(false);
+    // Fade in fields
+    fadeAnim.setValue(0);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
   };
 
   const handleAiModeToggle = () => {
@@ -186,6 +199,13 @@ export function UnifiedCreateOverlay({
     if (!aiMode) {
       setSelectedType(null);
     }
+    // Fade in/out animation
+    fadeAnim.setValue(0);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
   };
 
   const handleSave = async () => {
@@ -218,6 +238,7 @@ export function UnifiedCreateOverlay({
 
         const result = await repo.create(input);
         onSaved?.({ type: 'note', id: result.id });
+        console.log('✓ Saved to the Hub'); // TODO: Replace with toast
         handleClose();
         return;
       }
@@ -232,6 +253,7 @@ export function UnifiedCreateOverlay({
 
         const result = await repo.update(input);
         onSaved?.({ type: selectedType, id: result.id });
+        console.log('✓ Saved to the Hub'); // TODO: Replace with toast
         handleClose();
         return;
       }
@@ -241,6 +263,7 @@ export function UnifiedCreateOverlay({
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
         onSaved?.({ type: selectedType, id: result.id });
+        console.log('✓ Saved to the Hub'); // TODO: Replace with toast
         handleClose();
       }
     } catch (error) {
@@ -369,12 +392,22 @@ export function UnifiedCreateOverlay({
         style={styles.container}
       >
         <View style={styles.backdrop}>
-          <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
+          <View
+            style={[
+              styles.card,
+              {
+                paddingBottom: insets.bottom + 20,
+                backgroundColor: theme.colors.cream,
+              },
+            ]}
+          >
             {/* Header */}
             <View style={styles.header}>
-              <Text style={styles.title}>{mode === 'edit' ? 'Edit Item' : 'Add or Edit Item'}</Text>
+              <Text variant="title" style={{ color: theme.colors.text.primary }}>
+                Add or Edit Item
+              </Text>
               <TouchableOpacity onPress={handleClose} testID="close-button">
-                <Text style={styles.closeButton}>✕</Text>
+                <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
               </TouchableOpacity>
             </View>
 
@@ -386,17 +419,34 @@ export function UnifiedCreateOverlay({
               {/* Type row */}
               <View style={styles.section}>
                 <View style={styles.chipRow}>
-                  {TYPE_OPTIONS.map((opt) => (
-                    <Chip
-                      key={opt.value}
-                      label={`${opt.emoji} ${opt.label}`}
-                      selected={selectedType === opt.value && !aiMode}
-                      onPress={() => handleTypeSelect(opt.value)}
-                      testID={`type-pill-${opt.value}`}
-                      disabled={mode === 'edit'}
-                      style={styles.typeChip}
-                    />
-                  ))}
+                  {TYPE_OPTIONS.map((opt) => {
+                    const isSelected = selectedType === opt.value && !aiMode;
+                    const chipStyle = isSelected
+                      ? {
+                          backgroundColor: theme.colors.mint,
+                          borderColor: theme.colors.deepTeal.DEFAULT,
+                        }
+                      : {
+                          backgroundColor: 'transparent',
+                          borderColor: theme.colors.border.DEFAULT,
+                        };
+                    const chipTextStyle = isSelected
+                      ? { color: theme.colors.deepTeal.DEFAULT }
+                      : { color: theme.colors.text.secondary };
+
+                    return (
+                      <Chip
+                        key={opt.value}
+                        label={`${opt.emoji} ${opt.label}`}
+                        selected={isSelected}
+                        onPress={() => handleTypeSelect(opt.value)}
+                        testID={`type-pill-${opt.value}`}
+                        disabled={mode === 'edit'}
+                        style={{ ...styles.typeChip, ...chipStyle }}
+                        textStyle={chipTextStyle}
+                      />
+                    );
+                  })}
                 </View>
               </View>
 
@@ -405,11 +455,23 @@ export function UnifiedCreateOverlay({
                 <View style={styles.section}>
                   <Pressable
                     onPress={handleAiModeToggle}
-                    style={[styles.aiButton, aiMode && styles.aiButtonActive]}
+                    style={[
+                      styles.aiButton,
+                      aiMode && {
+                        backgroundColor: theme.colors.mint,
+                        borderColor: theme.colors.deepTeal.DEFAULT,
+                      },
+                    ]}
                     testID="ai-mode-button"
                   >
-                    <Text style={[styles.aiButtonText, aiMode && styles.aiButtonTextActive]}>
-                      🧠 Let Gremly decide
+                    <Text
+                      style={[
+                        styles.aiButtonText,
+                        { color: theme.colors.text.primary },
+                        aiMode && { color: theme.colors.deepTeal.DEFAULT },
+                      ]}
+                    >
+                      Not sure? Let Gremly decide 🧠
                     </Text>
                   </Pressable>
                 </View>
@@ -417,22 +479,60 @@ export function UnifiedCreateOverlay({
 
               {/* AI freeform input */}
               {aiMode && (
-                <View style={styles.section}>
+                <Animated.View
+                  style={[
+                    styles.section,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        {
+                          translateY: fadeAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [20, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
                   <TextInput
                     value={freeformText}
                     onChangeText={setFreeformText}
                     placeholder="Tell me what's on your mind…"
+                    placeholderTextColor={theme.colors.text.tertiary}
                     multiline
                     numberOfLines={8}
                     testID="freeform-input"
-                    style={styles.freeformInput}
+                    style={[
+                      styles.freeformInput,
+                      {
+                        backgroundColor: theme.colors.white,
+                        borderColor: theme.colors.border.DEFAULT,
+                        color: theme.colors.text.primary,
+                      },
+                    ]}
                   />
-                </View>
+                </Animated.View>
               )}
 
               {/* Structured fields */}
               {!aiMode && selectedType && (
-                <View style={styles.fieldsContainer}>
+                <Animated.View
+                  style={[
+                    styles.fieldsContainer,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        {
+                          translateY: fadeAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [20, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
                   {selectedType === 'habit' && (
                     <HabitFields
                       name={habitName}
@@ -488,7 +588,7 @@ export function UnifiedCreateOverlay({
                       disabled={false}
                     />
                   )}
-                </View>
+                </Animated.View>
               )}
 
               {/* Space selector placeholder */}
@@ -496,7 +596,7 @@ export function UnifiedCreateOverlay({
             </ScrollView>
 
             {/* CTA bar */}
-            <View style={styles.footer}>
+            <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
               <Button
                 label={isLoading ? 'Saving...' : 'Save to Hub'}
                 onPress={handleSave}
@@ -522,88 +622,74 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#FFF9F0', // warm cream
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: '#FFF9F0', // cream - will be overridden by theme
+    borderTopLeftRadius: 32, // 2xl radius
+    borderTopRightRadius: 32,
     maxHeight: '90%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
     elevation: 5,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
   },
   closeButton: {
-    fontSize: 24,
-    color: '#666',
+    fontSize: 26,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingBottom: 20,
   },
   section: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   typeChip: {
     minWidth: 90,
   },
   aiButton: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  aiButtonActive: {
-    backgroundColor: '#E0E7FF',
-    borderColor: '#6366F1',
+    borderColor: '#E7E2D9',
   },
   aiButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
-  },
-  aiButtonTextActive: {
-    color: '#4F46E5',
   },
   freeformInput: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 15,
-    minHeight: 160,
+    borderRadius: 16,
+    padding: 20,
+    fontSize: 16,
+    minHeight: 180,
     textAlignVertical: 'top',
-    backgroundColor: '#fff',
   },
   fieldsContainer: {
-    marginTop: 8,
+    marginTop: 12,
   },
   footer: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 8,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#F3F4F6',
   },
 });

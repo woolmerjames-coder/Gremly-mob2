@@ -30,19 +30,44 @@ jest.mock('../providers/CortexProvider', () => ({
 jest.mock('../providers/ThemeProvider', () => ({
   useTheme: () => ({
     theme: {
+      mode: 'light',
       colors: {
-        background: '#FFFFFF',
-        foreground: '#000000',
-        primary: '#007AFF',
-        secondary: '#5856D6',
-        muted: '#F2F2F7',
-        border: '#C6C6C8',
-        success: '#34C759',
-        warning: '#FF9500',
-        error: '#FF3B30',
+        deepTeal: {
+          DEFAULT: '#0A2F2E',
+          600: '#0D3B3A',
+          700: '#0B3332',
+          900: '#072524',
+        },
+        mint: '#B7F7E1',
+        cream: '#FFF9F0',
+        periwinkle: '#C9D4FF',
+        bg: {
+          DEFAULT: '#FFFDF8',
+          secondary: '#FFF4E6',
+        },
+        text: {
+          primary: '#1A1A1A',
+          secondary: '#4B5563',
+          tertiary: '#9CA3AF',
+        },
+        border: {
+          DEFAULT: '#E7E2D9',
+          light: '#F3F4F6',
+          focus: '#0D3B3A',
+        },
+        white: '#FFFFFF',
+        black: '#000000',
+        success: '#10B981',
+        warning: '#F59E0B',
+        error: '#EF4444',
+        gray: '#9CA3AF',
+        status: {
+          success: '#10B981',
+          warning: '#F59E0B',
+          error: '#EF4444',
+          info: '#3B82F6',
+        },
       },
-      spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 },
-      borderRadius: { sm: 4, md: 8, lg: 12, xl: 16 },
     },
   }),
 }));
