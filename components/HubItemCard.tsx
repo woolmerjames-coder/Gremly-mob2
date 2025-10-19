@@ -35,12 +35,17 @@ export default function HubItemCard({
       <View style={styles.row}>
         <Text style={styles.icon}>{kindIcon[item.kind]}</Text>
         <View style={styles.main}>
-          <Text numberOfLines={1} style={styles.title}>
-            {item.title}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text numberOfLines={1} style={styles.title}>
+              {item.title}
+            </Text>
+            {item.placedBy === 'ai' && (
+              <View style={styles.aiBadge} testID="ai-badge">
+                <Text style={styles.aiBadgeText}>✨ AI</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.metaRow}>
-            {item.placedBy === 'ai' && <Text style={styles.sparkle}>🪄 placed by Gremly</Text>}
-            {!!item.date && <Text style={styles.dot}> · </Text>}
             {!!item.date && <Text style={type.meta}>{item.date}</Text>}
           </View>
         </View>
@@ -70,9 +75,16 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   icon: { fontSize: 18, marginRight: spacing.md },
   main: { flex: 1 },
-  title: { fontSize: 16, fontWeight: '700', color: colors.ink },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  title: { fontSize: 16, fontWeight: '700', color: colors.ink, flex: 1 },
+  aiBadge: {
+    backgroundColor: colors.periwinkle,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+  },
+  aiBadgeText: { fontSize: 10, color: colors.white, fontWeight: '600' },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  sparkle: { fontSize: 12, color: colors.periwinkle, fontStyle: 'italic' },
   dot: { color: colors.gray400 },
   moveBtn: {
     paddingHorizontal: spacing.md,

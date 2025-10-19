@@ -19,6 +19,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import SegmentedTabs from '../../components/SegmentedTabs';
 import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
+import UnsortedReviewSheet, { type UnsortedItem } from '../../components/UnsortedReviewSheet';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
@@ -54,6 +55,9 @@ export default function HubScreen() {
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editItem, setEditItem] = useState<AppRecord | null>(null);
+  const [unsortedCount, setUnsortedCount] = useState(0);
+  const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
@@ -103,9 +107,15 @@ export default function HubScreen() {
     setLoading(true);
     setError(null);
     try {
-      // Load spaces
+      // Load spaces and unsorted count
       const allSpaces = await repo.listSpaces();
       setSpaces(allSpaces);
+
+      const count = await repo.countUnsorted();
+      setUnsortedCount(count);
+      if (count === 0) {
+        setBannerDismissed(false); // Reset banner when count is 0
+      }
 
       // Build scope options for listByType
       const scopeOpts =
@@ -182,6 +192,29 @@ export default function HubScreen() {
     [filteredAll, toHubItem],
   );
 
+  // Convert AppRecord to UnsortedItem (for review sheet)
+  const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
+    let title = item.title || '';
+    if (item.type === 'note' && item.body && !title) {
+      title = suggestShortTitle(item.body);
+    }
+    if (!title.trim()) {
+      title = 'Untitled';
+    }
+
+    return {
+      id: item.id,
+      type: item.type as 'habit' | 'todo' | 'note',
+      title,
+      subtype: item.type === 'note' ? item.subtype : undefined,
+    };
+  }, []);
+
+  const unsortedItems = useMemo(
+    () => items.filter((item) => item.ai_placed === true).map(toUnsortedItem),
+    [items, toUnsortedItem],
+  );
+
   // Handlers
   const handleItemPress = useCallback(
     (item: HubItem) => {
@@ -215,6 +248,23 @@ export default function HubScreen() {
       }
     },
     [items, load],
+  );
+
+  const handleConfirmUnsorted = useCallback(
+    async (id: string) => {
+      try {
+        // Flip ai_placed to false to confirm the item
+        await repo.update({
+          id,
+          patch: { ai_placed: false },
+        });
+        // Reload to refresh the count and lists
+        await load();
+      } catch (err) {
+        console.error('[HubScreen] Failed to confirm unsorted item:', err);
+      }
+    },
+    [repo, load],
   );
 
   const handleManualAddSubmit = async (payload: ManualAddPayload) => {
@@ -300,6 +350,31 @@ export default function HubScreen() {
                 testID="hub-search"
               />
             </View>
+
+            {/* Unsorted Banner */}
+            {unsortedCount > 0 && !bannerDismissed && (
+              <TouchableOpacity
+                style={styles.unsortedBanner}
+                onPress={() => setReviewSheetVisible(true)}
+                testID="unsorted-banner"
+              >
+                <View style={styles.bannerContent}>
+                  <Text style={styles.bannerText}>
+                    🌀 {unsortedCount} Unsorted {unsortedCount === 1 ? 'item' : 'items'} — Review
+                  </Text>
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      setBannerDismissed(true);
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    testID="unsorted-banner-dismiss"
+                  >
+                    <Text style={styles.bannerDismiss}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            )}
 
             {/* Error state */}
             {error && (
@@ -451,6 +526,25 @@ export default function HubScreen() {
           }}
         />
       )}
+
+      {/* Unsorted Review Sheet Modal */}
+      {reviewSheetVisible && (
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            onPress={() => setReviewSheetVisible(false)}
+            activeOpacity={1}
+          />
+          <View style={styles.sheetContainer}>
+            <UnsortedReviewSheet
+              items={unsortedItems}
+              onConfirm={handleConfirmUnsorted}
+              onClose={() => setReviewSheetVisible(false)}
+              testID="unsorted-review-sheet"
+            />
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -499,5 +593,49 @@ const styles = StyleSheet.create({
   },
   avatar: {
     fontSize: 32,
+  },
+  unsortedBanner: {
+    marginTop: spacing.md,
+    marginHorizontal: spacing.md,
+    backgroundColor: colors.periwinkle,
+    borderRadius: radii.xl,
+    padding: spacing.md,
+  },
+  bannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  bannerText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
+  bannerDismiss: {
+    color: colors.white,
+    fontSize: 20,
+    fontWeight: '600',
+    paddingHorizontal: spacing.sm,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  sheetContainer: {
+    height: '70%',
+    backgroundColor: 'transparent',
   },
 });
