@@ -15,6 +15,8 @@ export type HubItem = {
   date?: string; // ISO or pretty
   placedBy?: Placement; // 'ai' => show sparkle
   tags?: Tag[]; // Up to 2 tags to display
+  spaceName?: string; // Space name to display (only when scope is "Everywhere")
+  showSpaceChip?: boolean; // Whether to show space chip (true when scope is Everywhere)
 };
 
 const kindIcon: Record<HubKind, string> = { habit: '✅', todo: '🔔', note: '📝' };
@@ -41,33 +43,47 @@ export default function HubItemCard({
             <Text numberOfLines={1} style={styles.title}>
               {item.title}
             </Text>
+          </View>
+          {/* Meta row: [AI badge] [Space chip] [Tag chips] [Date] */}
+          <View style={styles.metaRow}>
+            {/* AI badge */}
             {item.placedBy === 'ai' && (
               <View style={styles.aiBadge} testID="ai-badge">
                 <Text style={styles.aiBadgeText}>✨ AI</Text>
               </View>
             )}
+
+            {/* Space chip (only when showSpaceChip is true and spaceName exists) */}
+            {item.showSpaceChip && item.spaceName && (
+              <View style={styles.spaceChip} testID="space-chip">
+                <Text style={styles.spaceChipText}>📍 {item.spaceName}</Text>
+              </View>
+            )}
+
+            {/* Tag chips (show up to 2) */}
+            {item.tags && item.tags.length > 0 && (
+              <>
+                {item.tags.slice(0, 2).map((tag) => (
+                  <View
+                    key={tag.id}
+                    style={[
+                      styles.tagChip,
+                      tag.color && { backgroundColor: tag.color, borderColor: tag.color },
+                    ]}
+                    testID={`tag-chip-${tag.id}`}
+                  >
+                    <Text style={styles.tagChipText}>{tag.name}</Text>
+                  </View>
+                ))}
+                {item.tags.length > 2 && (
+                  <Text style={styles.tagMore}>+{item.tags.length - 2}</Text>
+                )}
+              </>
+            )}
+
+            {/* Date (for todos) */}
+            {!!item.date && <Text style={[type.meta, styles.dateText]}>{item.date}</Text>}
           </View>
-          <View style={styles.metaRow}>
-            {!!item.date && <Text style={type.meta}>{item.date}</Text>}
-          </View>
-          {/* Tag chips (show up to 2) */}
-          {item.tags && item.tags.length > 0 && (
-            <View style={styles.tagRow}>
-              {item.tags.slice(0, 2).map((tag) => (
-                <View
-                  key={tag.id}
-                  style={[
-                    styles.tagChip,
-                    tag.color && { backgroundColor: tag.color, borderColor: tag.color },
-                  ]}
-                  testID={`tag-chip-${tag.id}`}
-                >
-                  <Text style={styles.tagChipText}>{tag.name}</Text>
-                </View>
-              ))}
-              {item.tags.length > 2 && <Text style={styles.tagMore}>+{item.tags.length - 2}</Text>}
-            </View>
-          )}
         </View>
         {showMove && (
           <TouchableOpacity onPress={onMove} style={styles.moveBtn} testID="move-btn">
@@ -97,6 +113,13 @@ const styles = StyleSheet.create({
   main: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   title: { fontSize: 16, fontWeight: '700', color: colors.ink, flex: 1 },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+  },
   aiBadge: {
     backgroundColor: colors.periwinkle,
     paddingHorizontal: spacing.xs,
@@ -104,23 +127,18 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   aiBadgeText: { fontSize: 10, color: colors.white, fontWeight: '600' },
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  dot: { color: colors.gray400 },
-  moveBtn: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.lg,
+  spaceChip: {
+    backgroundColor: colors.mint,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.mint,
   },
-  moveText: { color: colors.deepTeal, fontWeight: '600' },
-  notePreview: { marginTop: spacing.xs, color: colors.gray600, fontSize: 13 },
-  tagRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.xs,
-    gap: spacing.xs,
-    flexWrap: 'wrap',
+  spaceChipText: {
+    fontSize: 10,
+    color: colors.deepTeal,
+    fontWeight: '600',
   },
   tagChip: {
     backgroundColor: colors.deepTeal,
@@ -139,4 +157,16 @@ const styles = StyleSheet.create({
     color: colors.gray600,
     fontWeight: '600',
   },
+  dateText: {
+    marginLeft: 'auto', // Push date to the right
+  },
+  moveBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.mint,
+  },
+  moveText: { color: colors.deepTeal, fontWeight: '600' },
+  notePreview: { marginTop: spacing.xs, color: colors.gray600, fontSize: 13 },
 });

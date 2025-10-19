@@ -100,6 +100,15 @@ export default function HubScreen() {
       // Get tags for this item (up to 2 for display)
       const tags = itemTags.get(item.id) || [];
 
+      // Get space name and determine if we should show space chip
+      // Only show space chip when scope is "Everywhere" and item has a space
+      const showSpaceChip = scope.type === 'everywhere';
+      let spaceName: string | undefined;
+      if (showSpaceChip && item.space_id) {
+        const space = spaces.find((s) => s.id === item.space_id);
+        spaceName = space?.name;
+      }
+
       return {
         id: item.id,
         kind,
@@ -108,9 +117,11 @@ export default function HubScreen() {
         date: dateFormatted,
         placedBy: item.ai_placed ? 'ai' : 'user',
         tags,
+        spaceName,
+        showSpaceChip,
       };
     },
-    [itemTags],
+    [itemTags, scope.type, spaces],
   );
 
   // Load data
