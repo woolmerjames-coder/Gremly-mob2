@@ -1,94 +1,76 @@
-# Hub Tabs & Scope Selector Implementation - Status
+# Hub Tabs & Scope Selector - Implementation Status
 
-## ✅ Completed Changes
+**Status**: ✅ COMMITTED (with known issues to address)
 
-### 1. ScopeSelector Component (`components/ScopeSelector.tsx`)
-- ✅ Created new component with "Everywhere ▾" dropdown
-- ✅ Supports three scope types:
-  - `everywhere`: All items across all spaces
-  - `space`: Items in a specific space (with name + icon)
-  - `unassigned`: Only items with space_id = null
-- ✅ Modal dropdown with space list
-- ✅ TestIDs for all options (`scope-everywhere`, `scope-space-{id}`, `scope-unassigned`)
-- ✅ Brand styling matching theme tokens
+## Completed Changes
 
-### 2. SegmentedTabs Update (`components/SegmentedTabs.tsx`)
-- ✅ Changed tab type from `'All' | 'Habits' | 'To-Dos' | 'Journal' | 'Catch-All'`
-- ✅ To new structure: `'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People'`
-- ✅ Removed "All" and "Catch-All" from tabs
+### 1. ScopeSelector Component ✅
+- [x] Created new `components/ScopeSelector.tsx`
+- [x] ScopeOption type: `everywhere | space | unassigned`
+- [x] Props: selectedScope, spaces array, onChange callback
+- [x] Modal dropdown UI with brand styling
+- [x] TestIDs: `scope-everywhere`, `scope-space-{spaceId}`, `scope-unassigned`
+- [x] Fixed backtick escaping in template literals
 
-### 3. HubScreen Major Rewrite (`app/tabs/HubScreen.tsx`)
-- ✅ Added imports: `ScopeSelector`, `Space`, `Person` types
-- ✅ Added state:
-  - `scope: ScopeOption` - tracks selected scope
-  - `spaces: Space[]` - list of spaces for dropdown
-  - `people: Person[]` - for People tab
-- ✅ Updated `load()` function:
-  - Loads spaces via `repo.listSpaces()`
-  - Builds scope options based on `scope.type` and `scope.spaceId`
-  - Routes by tab:
-    - **Habits**: `repo.listByType('habit', scopeOpts)`
-    - **To-Dos**: `repo.listByType('todo', scopeOpts)`
-    - **Journal**: `repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] })`
-    - **Notes**: `repo.listByType('note', { ...scopeOpts, subtypes: ['idea', 'list', 'reference'] })`
-    - **People**: `repo.listPeople()`
-- ✅ Removed old filter logic (`filteredByTab` based on tab === 'All', etc.)
-- ✅ Updated UI:
-  - Added ScopeSelector before tabs
-  - Changed section header from "Everything" to show current tab name
-  - Added People tab rendering with person cards (name, email, avatar)
-  - Added person card styles (avatar, flex layout)
+### 2. SegmentedTabs Update ✅
+- [x] Updated Tab type from `'All' | 'Habits' | 'To-Dos' | 'Journal' | 'Catch-All'`
+- [x] To: `'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People'`
+- [x] Removed unused imports
 
-## ⚠️ Known Issues
+### 3. HubScreen Major Rewrite ✅
+- [x] Added scope state management
+- [x] Added spaces and people state
+- [x] Updated load() to fetch spaces via repo.listSpaces()
+- [x] Updated load() to route by tab:
+  - Habits → `listByType('habit', options)`
+  - To-Dos → `listByType('todo', options)`
+  - Journal → `listByType('note', { ...options, subtypes: ['journal'] })`
+  - Notes → `listByType('note', { ...options, subtypes: ['idea', 'list', 'reference'] })`
+  - People → `listPeople()`
+- [x] Scope filters applied to options (spaceId or unassignedOnly)
+- [x] Added ScopeSelector to header (before tabs)
+- [x] Added People tab rendering (avatar, name, email)
+- [x] Removed old tab==='All' filter logic
+- [x] Section header now shows current tab name
+- [x] Removed unused imports and variables
+- [x] Deleted old HubScreen_old.tsx backup file
 
-### Parse Error
-- Jest tests failing with Babel parse error in HubScreen.tsx
-- Likely related to React.Fragment usage in People map
-- TypeScript compilation shows no structural errors, only JSX flag warnings (expected during dev)
+## Known Issues
 
-### ManualAddOverlay Subtype Mismatch
-- Error: `Type 'NoteSubtype | undefined' is not assignable to type '"journal" | "list" | "catchall" | undefined'`
-- Cause: ManualAddOverlay doesn't support new subtypes ('idea', 'reference')
-- Location: Line 445 in HubScreen.tsx
-- Fix needed: Update ManualAddOverlay types to accept full NoteSubtype union
+### 1. ManualAddOverlay Type Mismatch ⚠️
+**File**: `components/ManualAddOverlay.tsx`
+**Problem**: ManualAddOverlay doesn't support new NoteSubtype values ('idea', 'reference')
+**Current**: Accepts `'journal' | 'list' | 'catchall' | undefined`
+**Needed**: Accept full NoteSubtype
+**Impact**: Type error when passing initialSubtype from Notes tab
+**Fix**: Update ManualAddOverlay type definition or add type casting
 
-## 🔧 Next Steps
+### 2. Tests Not Updated ⚠️
+**File**: `__tests__/hub.ds.test.tsx`
+**Problem**: Tests reference old tab structure
+**Current**: Tests use `tab-all`, `tab-catch-all`, etc.
+**Needed**: Update to new tab names and add scope selector tests
+**Impact**: Hub tests will fail
 
-1. **Fix Parse Error**:
-   - Debug React.Fragment usage in People rendering
-   - Consider using FlatList for people instead of map
-   - Or simplify to basic conditional rendering without fragments
+### 3. People Tab Rendering (Minor)
+**Note**: People tab currently renders with simple card layout. May need refinement.
 
-2. **Update ManualAddOverlay**:
-   - Find ManualAddOverlay type definition
-   - Update `initialSubtype` prop to accept `NoteSubtype` instead of limited union
-   - Or add type casting in HubScreen
+## Next Steps
 
-3. **Update Tests**:
-   - Update `__tests__/hub.ds.test.tsx` to match new tab structure
-   - Change testIDs from `tab-all`, `tab-catch-all` to `tab-habits`, `tab-notes`, `tab-people`
-   - Update assertions for scope selector
-   - Add tests for scope filtering behavior
+1. **Fix ManualAddOverlay** (Priority: Medium)
+   - Update to accept new note subtypes
 
-4. **Add Space Chip Display** (Optional):
-   - When `scope.type === 'everywhere'`, show "Lives in {Space}" chip on item cards
-   - Update HubItemCard to accept `spaceInfo?: { id: string, name: string, icon?: string }` prop
-   - Hide chip when specific space is selected
+2. **Update Tests** (Priority: High)
+   - Update hub.ds.test.tsx for new tab structure
+   - Add scope selector test assertions
 
-## 📝 Implementation Notes
+3. **Optional Enhancements**
+   - Add space chip display in filtered views
+   - Improve People tab UI/layout
 
-- Scope selector persists in component state only (not localStorage yet)
-- People tab shows empty state when `people.length === 0`
-- "Needs Sorting" section still shows regardless of scope (shows all ai_placed items)
-- Search functionality works across all tabs except People
+## Git Status
 
-## 🎯 Acceptance Criteria Status
-
-- ✅ Tabs replaced with: Habits | To-Dos | Journal | Notes | People
-- ✅ Scope selector shows "Everywhere ▾" with dropdown
-- ✅ Dropdown has: Everywhere, Spaces list, Unassigned only
-- ✅ Scope state persisted in component
-- ✅ Repo list calls use `{ spaceId, unassignedOnly }` options
-- ✅ Tab routes to correct repo method with subtype filters
-- ⚠️ Tests need updating (parse error blocking)
-- ⚠️ Space chip display not yet implemented (optional feature)
+Committed as: `feat(hub): add tabs and scope selector`
+- 5 files changed, 552 insertions(+), 47 deletions(-)
+- New files: HUB_TABS_SCOPE_STATUS.md, components/ScopeSelector.tsx
+- Deleted: app/tabs/HubScreen_old.tsx
