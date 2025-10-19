@@ -20,6 +20,7 @@ import SegmentedTabs from '../../components/SegmentedTabs';
 import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
 import UnsortedReviewSheet, { type UnsortedItem } from '../../components/UnsortedReviewSheet';
+import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
@@ -47,6 +48,7 @@ export default function HubScreen() {
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
+  const [peopleWithCounts, setPeopleWithCounts] = useState<PersonWithCounts[]>([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +167,43 @@ export default function HubScreen() {
       } else if (tab === 'People') {
         const allPeople = await repo.listPeople();
         setPeople(allPeople);
+
+        // Compute linked counts client-side (Phase 7: no entity_people table yet)
+        // Fetch all items to count links
+        const allHabits = await repo.listByType('habit', scopeOpts);
+        const allTodos = await repo.listByType('todo', scopeOpts);
+        const allJournal = await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] });
+        const allNotes = await repo.listByType('note', {
+          ...scopeOpts,
+          subtypes: ['idea', 'list', 'reference'],
+        });
+
+        // For Phase 7, since listLinkedPeople is a stub, we'll use placeholder counts
+        // In a real implementation, we'd query entity_people table or use listLinkedPeople
+        const peopleWithCountsData: PersonWithCounts[] = await Promise.all(
+          allPeople.map(async (person) => {
+            // Stub: listLinkedPeople returns empty array for now
+            // Future: when entity_people table exists, this will return actual links
+            const linkedHabits = await repo.listLinkedPeople({ type: 'habit', id: person.id });
+            const linkedTodos = await repo.listLinkedPeople({ type: 'todo', id: person.id });
+            const linkedJournal = await repo.listLinkedPeople({ type: 'note', id: person.id });
+            const linkedNotes = await repo.listLinkedPeople({ type: 'note', id: person.id });
+
+            // Since stub returns empty, counts will be 0 for Phase 7
+            // This structure is ready for when entity_people linking is implemented
+            return {
+              ...person,
+              linkedCounts: {
+                habits: linkedHabits.length,
+                todos: linkedTodos.length,
+                journal: linkedJournal.length,
+                notes: linkedNotes.length,
+              },
+            };
+          }),
+        );
+
+        setPeopleWithCounts(peopleWithCountsData);
         setItems([]);
         setLoading(false);
         return;
@@ -573,25 +612,15 @@ export default function HubScreen() {
             {/* People tab content */}
             {tab === 'People' && !loading && (
               <View style={styles.section}>
-                <Text style={typeStyles.h2}>People</Text>
-                {people.length === 0 && (
-                  <Text style={[typeStyles.body, { marginTop: spacing.md, color: colors.gray400 }]}>
-                    No people added yet
-                  </Text>
-                )}
-                {people.map((person) => (
-                  <View key={person.id} style={styles.personCard} testID={`person-${person.id}`}>
-                    {person.avatar && <Text style={styles.avatar}>{person.avatar}</Text>}
-                    <View style={{ flex: 1 }}>
-                      <Text style={typeStyles.body}>{person.name}</Text>
-                      {person.email && (
-                        <Text style={[typeStyles.meta, { color: colors.gray400 }]}>
-                          {person.email}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                ))}
+                <Text style={[typeStyles.h2, { marginBottom: spacing.md }]}>People</Text>
+                <PeopleList
+                  people={peopleWithCounts}
+                  onPersonPress={(person) => {
+                    // Future: Navigate to person detail view
+                    console.log('[HubScreen] Person pressed:', person.name);
+                  }}
+                  testID="people-list"
+                />
               </View>
             )}
           </View>
