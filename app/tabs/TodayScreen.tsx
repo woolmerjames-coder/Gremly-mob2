@@ -13,7 +13,7 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { ManualAddOverlay } from '../../legacy/overlays/ManualAddOverlay';
 import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord } from '../../lib/types';

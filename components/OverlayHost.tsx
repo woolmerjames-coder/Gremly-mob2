@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-import { ManualAddOverlay } from './ManualAddOverlay';
+import { ManualAddOverlay } from '../legacy/overlays/ManualAddOverlay';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
 import { theme } from '../app/design/theme';

@@ -16,6 +16,7 @@ module.exports = [
       '_archive/**',
       'app/(dev)/**',
       '**/*.legacy.tsx',
+      'legacy/**', // Exclude legacy from linting unless explicitly configured
     ],
   },
   js.configs.recommended,
@@ -53,6 +54,19 @@ module.exports = [
           message: 'Use StyleSheet or DS primitives instead of className in React Native files.',
         },
       ],
+      // Phase 7: Prevent imports from legacy/** except in tests
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/legacy/**', '../legacy/**', '../../legacy/**'],
+              message:
+                'Importing from legacy/ is deprecated. Use UnifiedCreateOverlay instead. (Allowed in tests only)',
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -64,6 +78,21 @@ module.exports = [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // Allow legacy imports in tests
+      'no-restricted-imports': 'off',
+    },
+  },
+  {
+    // Phase 7: Temporary exemption for files using legacy overlays (will be migrated to UnifiedCreateOverlay)
+    files: [
+      'app/tabs/HubScreen.tsx',
+      'app/tabs/TodayScreen.tsx',
+      'app/screens/SpaceDetailScreen.tsx',
+      'components/OverlayHost.tsx',
+      'examples/ManualAddOverlayExample.tsx',
+    ],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
   {

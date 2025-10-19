@@ -23,7 +23,7 @@ import UnsortedReviewSheet, { type UnsortedItem } from '../../components/Unsorte
 import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
-import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { ManualAddOverlay } from '../../legacy/overlays/ManualAddOverlay';
 import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord, Space, Person, Tag } from '../../lib/types';

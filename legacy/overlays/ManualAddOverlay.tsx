@@ -1,4 +1,6 @@
 /**
+ * @deprecated Archived in favor of UnifiedCreateOverlay (Phase 7). Do not import in new code.
+ *
  * ManualAddOverlay - Phase 6 (Brand Refresh + Cortex Integration)
  * Full-screen modal for manual data entry with Gremly brand styling
  * Handles Cortex classification and repo persistence internally for catch-all
@@ -16,20 +18,20 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { overlayStyles } from '../app/styles/manualAdd.styles';
-import { ManualAddHeader } from './overlay/ManualAddHeader';
-import { ManualAddFooter } from './overlay/ManualAddFooter';
-import { ReminderSelector } from './overlay/ReminderSelector';
-import { HabitsTab } from './overlay/HabitsTab';
-import { TodoForm } from './overlay/TodoForm';
-import { JournalForm } from './overlay/JournalForm';
-import { CatchAllForm } from './overlay/CatchAllForm';
-import type { ManualAddPayload, TReminderRule } from '../app/schemas/manualAdd';
-import { useCortex } from '../providers/CortexProvider';
-import { useRepo } from '../providers/RepoProvider';
-import type { CortexOutput } from '../cortex/ICortexEngine';
-import type { CreateRecordInput, UpdateRecordInput } from '../lib/repo/IRepo';
-import type { AppRecord, NoteSubtype } from '../lib/types';
+import { overlayStyles } from '../../app/styles/manualAdd.styles';
+import { ManualAddHeader } from '../../components/overlay/ManualAddHeader';
+import { ManualAddFooter } from '../../components/overlay/ManualAddFooter';
+import { ReminderSelector } from '../../components/overlay/ReminderSelector';
+import { HabitsTab } from '../../components/overlay/HabitsTab';
+import { TodoForm } from '../../components/overlay/TodoForm';
+import { JournalForm } from '../../components/overlay/JournalForm';
+import { CatchAllForm } from '../../components/overlay/CatchAllForm';
+import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import { useCortex } from '../../providers/CortexProvider';
+import { useRepo } from '../../providers/RepoProvider';
+import type { CortexOutput } from '../../cortex/ICortexEngine';
+import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
+import type { AppRecord, NoteSubtype } from '../../lib/types';
 
 type TabType = 'habits' | 'todos' | 'journal' | 'catchall';
 

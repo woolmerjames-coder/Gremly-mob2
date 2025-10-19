@@ -4,7 +4,7 @@ import { useRoute, RouteProp } from '@react-navigation/native';
 import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
 import PlusFAB from '../../components/PlusFAB';
-import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { ManualAddOverlay } from '../../legacy/overlays/ManualAddOverlay';
 import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { Space, AppRecord } from '../../lib/types';
