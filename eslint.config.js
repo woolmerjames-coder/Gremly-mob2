@@ -83,10 +83,15 @@ module.exports = [
     },
   },
   {
-    // Phase 7: Temporary exemption for example files still using legacy overlays
-    files: ['examples/ManualAddOverlayExample.tsx'],
+    // Phase 7: Exemption for feature flag layer and examples using legacy overlays
+    files: [
+      'examples/ManualAddOverlayExample.tsx',
+      'components/FeatureFlaggedOverlay.tsx',
+      'hooks/useOverlayController.ts',
+    ],
     rules: {
       'no-restricted-imports': 'off',
+      '@typescript-eslint/no-explicit-any': 'off', // Type adapters need any for flexibility
     },
   },
   {
