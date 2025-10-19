@@ -1,5 +1,5 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Todo, ID, Space } from '../types';
+import type { AppRecord, Todo, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
   todoZ,
@@ -10,7 +10,13 @@ import {
   spaceInsertSchema,
   type SpaceInsert,
 } from '../schemas';
-import type { IRepo, CreateRecordInput, UpdateRecordInput, GroupedByType } from './IRepo';
+import type {
+  IRepo,
+  CreateRecordInput,
+  UpdateRecordInput,
+  GroupedByType,
+  ListByTypeOptions,
+} from './IRepo';
 import { supabase } from '../supabase/client';
 
 /**
@@ -278,15 +284,31 @@ export class SupabaseRepo implements IRepo {
     return null;
   }
 
-  async listByType(type: AppRecord['type']): Promise<AppRecord[]> {
+  async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const table = tableFor(type);
 
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .eq('owner_id', userId)
-      .order('created_at', { ascending: false });
+    let query = supabase.from(table).select('*').eq('owner_id', userId);
+
+    // Apply space filter
+    if (opts?.unassignedOnly) {
+      query = query.is('space_id', null);
+    } else if (opts?.spaceId !== undefined) {
+      query = query.eq('space_id', opts.spaceId);
+    }
+    // If spaceId is omitted, no filter (Everywhere)
+
+    // Apply subtype filter (only for notes)
+    if (opts?.subtypes && opts.subtypes.length > 0 && type === 'note') {
+      query = query.in('subtype', opts.subtypes);
+    }
+
+    // TODO: Apply tag filter when tagIds is provided
+    // For now, tagIds is ignored (stub for future implementation)
+
+    query = query.order('created_at', { ascending: false });
+
+    const { data, error } = await query;
 
     if (error) throw new Error(`Failed to list ${type}s: ${error.message}`);
     if (!data) return [];
@@ -297,6 +319,37 @@ export class SupabaseRepo implements IRepo {
       if (type === 'todo') return todoZ.parse(record);
       return noteZ.parse(record);
     });
+  }
+
+  async countUnsorted(): Promise<number> {
+    const userId = this.ensureUserId();
+
+    // Count across all three tables
+    const [habitsResult, todosResult, notesResult] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('ai_placed', true),
+      supabase
+        .from('todos')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('ai_placed', true),
+      supabase
+        .from('notes')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('ai_placed', true),
+    ]);
+
+    if (habitsResult.error)
+      throw new Error(`Failed to count habits: ${habitsResult.error.message}`);
+    if (todosResult.error) throw new Error(`Failed to count todos: ${todosResult.error.message}`);
+    if (notesResult.error) throw new Error(`Failed to count notes: ${notesResult.error.message}`);
+
+    const total = (habitsResult.count ?? 0) + (todosResult.count ?? 0) + (notesResult.count ?? 0);
+    return total;
   }
 
   async listBySpace(spaceId: ID): Promise<AppRecord[]> {
@@ -543,6 +596,38 @@ export class SupabaseRepo implements IRepo {
       notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
     };
   }
+
+  // ==========================
+  // TAG AND PEOPLE METHODS (Phase 7+ stubs)
+  // ==========================
+
+  async listTags(): Promise<Tag[]> {
+    // Stub: Return empty array until tags table is implemented
+    // In future: query 'tags' table with owner_id filter
+    return [];
+  }
+
+  async listPeople(): Promise<Person[]> {
+    // Stub: Return empty array until people table is implemented
+    // In future: query 'people' table with owner_id filter
+    return [];
+  }
+
+  async listLinkedTags(_entity: { type: EntityType; id: ID }): Promise<Tag[]> {
+    // Stub: Return empty array until tag_maps table is implemented
+    // In future: JOIN tags with tag_maps where entity_type and entity_id match
+    return [];
+  }
+
+  async listLinkedPeople(_entity: { type: EntityType; id: ID }): Promise<Person[]> {
+    // Stub: Return empty array until entity_people table is implemented
+    // In future: JOIN people with entity_people where entity_type and entity_id match
+    return [];
+  }
+
+  // ==========================
+  // BUDDY METHODS (Phase 5+ stubs)
+  // ==========================
 
   // Buddy no-ops for Phase 4
   async inviteBuddy(): Promise<void> {

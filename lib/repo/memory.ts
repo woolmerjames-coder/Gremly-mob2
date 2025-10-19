@@ -1,8 +1,14 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Habit, Todo, Note, ID, Space } from '../types';
+import type { AppRecord, Habit, Todo, Note, ID, Space, Tag, Person, EntityType } from '../types';
 import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
-import type { IRepo, CreateRecordInput, UpdateRecordInput, GroupedByType } from './IRepo';
+import type {
+  IRepo,
+  CreateRecordInput,
+  UpdateRecordInput,
+  GroupedByType,
+  ListByTypeOptions,
+} from './IRepo';
 
 /**
  * In-memory repository implementation for development and testing.
@@ -60,6 +66,8 @@ const seed = (ownerId: string): AppRecord[] => {
 export class MemoryRepo implements IRepo {
   private data: AppRecord[] = [];
   private spaces: Space[] = [];
+  private tags: Tag[] = [];
+  private people: Person[] = [];
   private currentUserId: string = 'memory-user';
 
   constructor(userId?: string) {
@@ -159,8 +167,36 @@ export class MemoryRepo implements IRepo {
     return this.data.find((r) => r.id === id) ?? null;
   }
 
-  async listByType(type: AppRecord['type']): Promise<AppRecord[]> {
-    return this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
+  async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
+    let results = this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
+
+    // Apply space filter
+    if (opts?.unassignedOnly) {
+      results = results.filter((r) => r.space_id === null);
+    } else if (opts?.spaceId !== undefined) {
+      results = results.filter((r) => r.space_id === opts.spaceId);
+    }
+    // If spaceId is omitted, return all (Everywhere)
+
+    // Apply subtype filter (only for notes)
+    if (opts?.subtypes && opts.subtypes.length > 0) {
+      results = results.filter((r) => {
+        if (r.type === 'note') {
+          return opts.subtypes!.includes(r.subtype);
+        }
+        return true; // Don't filter non-notes
+      });
+    }
+
+    // TODO: Apply tag filter when tagIds is provided
+    // For now, tagIds is ignored (stub for future implementation)
+
+    return results;
+  }
+
+  async countUnsorted(): Promise<number> {
+    return this.data.filter((r) => r.owner_id === this.currentUserId && r.ai_placed === true)
+      .length;
   }
 
   async listBySpace(spaceId: ID): Promise<AppRecord[]> {
@@ -258,6 +294,32 @@ export class MemoryRepo implements IRepo {
       notes: items.filter((r) => r.type === 'note'),
     };
   }
+
+  // ==========================
+  // TAG AND PEOPLE METHODS (Phase 7+ stubs)
+  // ==========================
+
+  async listTags(): Promise<Tag[]> {
+    return this.tags.filter((t) => t.owner_id === this.currentUserId);
+  }
+
+  async listPeople(): Promise<Person[]> {
+    return this.people.filter((p) => p.owner_id === this.currentUserId);
+  }
+
+  async listLinkedTags(_entity: { type: EntityType; id: ID }): Promise<Tag[]> {
+    // Stub: return empty array until TagMap linking is implemented
+    return [];
+  }
+
+  async listLinkedPeople(_entity: { type: EntityType; id: ID }): Promise<Person[]> {
+    // Stub: return empty array until EntityPerson linking is implemented
+    return [];
+  }
+
+  // ==========================
+  // BUDDY METHODS (Phase 5+ stubs)
+  // ==========================
 
   // Buddy no-ops for Phase 4
   async inviteBuddy(): Promise<void> {

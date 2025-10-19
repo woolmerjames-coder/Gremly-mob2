@@ -1,4 +1,14 @@
-import type { AppRecord, Todo, ID, Frequency, NoteSubtype, Space } from '../types';
+import type {
+  AppRecord,
+  Todo,
+  ID,
+  Frequency,
+  NoteSubtype,
+  Space,
+  Tag,
+  Person,
+  EntityType,
+} from '../types';
 import type { SpaceInsert } from '../schemas';
 
 /**
@@ -35,6 +45,16 @@ export interface UpdateRecordInput {
 }
 
 /**
+ * Options for filtering records by type
+ */
+export interface ListByTypeOptions {
+  spaceId?: ID | null; // undefined = Everywhere, null = Unassigned, ID = specific space
+  unassignedOnly?: boolean; // true = only return items with space_id IS NULL
+  subtypes?: string[]; // filter when querying notes (e.g., ['idea','list'] or ['journal'])
+  tagIds?: ID[]; // filter by tags (optional - for future filtering)
+}
+
+/**
  * Grouped items by type for Space detail view
  */
 export interface GroupedByType {
@@ -54,9 +74,12 @@ export interface IRepo {
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;
-  listByType(type: AppRecord['type']): Promise<AppRecord[]>;
+  listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
   listBySpace(spaceId: ID): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;
+
+  // Hub helpers
+  countUnsorted(): Promise<number>; // counts ai_placed = true across all types
 
   // Today screen helpers
   listDueToday(nowIso: string): Promise<AppRecord[]>;
@@ -69,6 +92,12 @@ export interface IRepo {
   updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
   deleteSpace(spaceId: string): Promise<void>;
   listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
+
+  // Tag and People methods (Phase 7+ stubs)
+  listTags(): Promise<Tag[]>;
+  listPeople(): Promise<Person[]>;
+  listLinkedTags(entity: { type: EntityType; id: ID }): Promise<Tag[]>;
+  listLinkedPeople(entity: { type: EntityType; id: ID }): Promise<Person[]>;
 
   // Buddy methods (Phase 5+ stubs)
   inviteBuddy(_habitId: ID, _email: string): Promise<void>;
