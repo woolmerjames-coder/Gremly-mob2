@@ -404,264 +404,264 @@ export function UnifiedCreateOverlay({
       statusBarTranslucent
       testID="unified-overlay"
     >
-      <Pressable style={styles.backdrop} onPress={handleClose} testID="overlay-backdrop">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.container}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.container}
+      >
+        <Pressable style={styles.backdrop} onPress={handleClose} testID="overlay-backdrop" />
+        <View
+          style={[
+            styles.card,
+            {
+              paddingBottom: insets.bottom + 20,
+              backgroundColor: theme.colors.cream,
+            },
+          ]}
         >
-          <Pressable
-            style={[
-              styles.card,
-              {
-                paddingBottom: insets.bottom + 20,
-                backgroundColor: theme.colors.cream,
-              },
-            ]}
-            onPress={(e) => e?.stopPropagation?.()} // Prevent backdrop close when tapping card
+          {/* Header */}
+          <View style={styles.header}>
+            <Text variant="title" style={{ color: theme.colors.text.primary }}>
+              Add or Edit Item
+            </Text>
+            <TouchableOpacity onPress={handleClose} testID="close-button">
+              <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
           >
-            {/* Header */}
-            <View style={styles.header}>
-              <Text variant="title" style={{ color: theme.colors.text.primary }}>
-                Add or Edit Item
-              </Text>
-              <TouchableOpacity onPress={handleClose} testID="close-button">
-                <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Type row */}
-              <View style={styles.section}>
-                <View style={styles.chipRow}>
-                  {TYPE_OPTIONS.map((opt) => {
-                    const isSelected = selectedType === opt.value && !aiMode;
-                    const chipStyle = isSelected
-                      ? {
-                          backgroundColor: theme.colors.mint,
-                          borderColor: theme.colors.deepTeal.DEFAULT,
-                        }
-                      : {
-                          backgroundColor: 'transparent',
-                          borderColor: theme.colors.border.DEFAULT,
-                        };
-                    const chipTextStyle = isSelected
-                      ? { color: theme.colors.deepTeal.DEFAULT }
-                      : { color: theme.colors.text.secondary };
-
-                    return (
-                      <Chip
-                        key={opt.value}
-                        label={`${opt.emoji} ${opt.label}`}
-                        selected={isSelected}
-                        onPress={() => handleTypeSelect(opt.value)}
-                        testID={`type-pill-${opt.value}`}
-                        disabled={mode === 'edit'}
-                        style={{ ...styles.typeChip, ...chipStyle }}
-                        textStyle={chipTextStyle}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* AI mode button */}
-              {mode === 'create' && (
-                <View style={styles.section}>
-                  <Pressable
-                    onPress={handleAiModeToggle}
-                    style={[
-                      styles.aiButton,
-                      aiMode && {
+            {/* Type row */}
+            <View style={styles.section}>
+              <View style={styles.chipRow}>
+                {TYPE_OPTIONS.map((opt) => {
+                  const isSelected = selectedType === opt.value && !aiMode;
+                  const chipStyle = isSelected
+                    ? {
                         backgroundColor: theme.colors.mint,
                         borderColor: theme.colors.deepTeal.DEFAULT,
-                      },
-                    ]}
-                    testID="ai-mode-button"
-                  >
-                    <Text
-                      style={[
-                        styles.aiButtonText,
-                        { color: theme.colors.text.primary },
-                        aiMode && { color: theme.colors.deepTeal.DEFAULT },
-                      ]}
-                    >
-                      Not sure? Let Gremly decide 🧠
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
+                      }
+                    : {
+                        backgroundColor: 'transparent',
+                        borderColor: theme.colors.border.DEFAULT,
+                      };
+                  const chipTextStyle = isSelected
+                    ? { color: theme.colors.deepTeal.DEFAULT }
+                    : { color: theme.colors.text.secondary };
 
-              {/* AI freeform input - Robust guard: only show in AI mode */}
-              {aiMode && (
-                <Animated.View
+                  return (
+                    <Chip
+                      key={opt.value}
+                      label={`${opt.emoji} ${opt.label}`}
+                      selected={isSelected}
+                      onPress={() => handleTypeSelect(opt.value)}
+                      testID={`type-pill-${opt.value}`}
+                      disabled={mode === 'edit'}
+                      style={{ ...styles.typeChip, ...chipStyle }}
+                      textStyle={chipTextStyle}
+                    />
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* AI mode button */}
+            {mode === 'create' && (
+              <View style={styles.section}>
+                <Pressable
+                  onPress={handleAiModeToggle}
                   style={[
-                    styles.section,
-                    {
-                      opacity: fadeAnim,
-                      transform: [
-                        {
-                          translateY: fadeAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [20, 0],
-                          }),
-                        },
-                      ],
+                    styles.aiButton,
+                    aiMode && {
+                      backgroundColor: theme.colors.mint,
+                      borderColor: theme.colors.deepTeal.DEFAULT,
                     },
                   ]}
+                  testID="ai-mode-button"
                 >
                   <Text
-                    style={{
-                      fontSize: 14,
-                      color: theme.colors.text.secondary,
-                      marginBottom: 12,
-                      lineHeight: 20,
-                    }}
-                  >
-                    🧠 Tell me what's on your mind… Gremly will sort it to the right place.
-                  </Text>
-                  <TextInput
-                    value={freeformText}
-                    onChangeText={setFreeformText}
-                    placeholder="Tell me what's on your mind…"
-                    placeholderTextColor={theme.colors.text.tertiary}
-                    multiline
-                    numberOfLines={8}
-                    testID="freeform-input"
-                    autoFocus
                     style={[
-                      styles.freeformInput,
-                      {
-                        backgroundColor: theme.colors.white,
-                        borderColor: theme.colors.border.DEFAULT,
-                        color: theme.colors.text.primary,
-                      },
+                      styles.aiButtonText,
+                      { color: theme.colors.text.primary },
+                      aiMode && { color: theme.colors.deepTeal.DEFAULT },
                     ]}
-                  />
-                </Animated.View>
-              )}
+                  >
+                    Not sure? Let Gremly decide 🧠
+                  </Text>
+                </Pressable>
+              </View>
+            )}
 
-              {/* Structured fields - Robust guard: show when NOT in AI mode AND type selected */}
-              {!aiMode && selectedType && (
-                <Animated.View
+            {/* AI freeform input - Robust guard: only show in AI mode */}
+            {aiMode && (
+              <Animated.View
+                style={[
+                  styles.section,
+                  {
+                    opacity: fadeAnim,
+                    transform: [
+                      {
+                        translateY: fadeAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [20, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 14,
+                    color: theme.colors.text.secondary,
+                    marginBottom: 12,
+                    lineHeight: 20,
+                  }}
+                >
+                  🧠 Tell me what's on your mind… Gremly will sort it to the right place.
+                </Text>
+                <TextInput
+                  value={freeformText}
+                  onChangeText={setFreeformText}
+                  placeholder="Tell me what's on your mind…"
+                  placeholderTextColor={theme.colors.text.tertiary}
+                  multiline
+                  numberOfLines={8}
+                  testID="freeform-input"
+                  autoFocus
                   style={[
-                    styles.fieldsContainer,
+                    styles.freeformInput,
                     {
-                      opacity: fadeAnim,
-                      transform: [
-                        {
-                          translateY: fadeAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [20, 0],
-                          }),
-                        },
-                      ],
+                      backgroundColor: theme.colors.white,
+                      borderColor: theme.colors.border.DEFAULT,
+                      color: theme.colors.text.primary,
                     },
                   ]}
-                >
-                  {selectedType === 'habit' && (
-                    <HabitFields
-                      name={habitName}
-                      onNameChange={setHabitName}
-                      frequency={habitFrequency}
-                      onFrequencyChange={setHabitFrequency}
-                      subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
-                      onSubtypeChange={setHabitSubtype}
-                      disabled={false}
-                    />
-                  )}
-                  {selectedType === 'todo' && (
-                    <TodoFields
-                      name={todoName}
-                      onNameChange={setTodoName}
-                      dueDate={todoDueDate}
-                      onDueDateChange={setTodoDueDate}
-                      subtype={todoSubtype as 'reminder' | 'microproject' | null}
-                      onSubtypeChange={setTodoSubtype}
-                      disabled={false}
-                    />
-                  )}
-                  {selectedType === 'journal' && (
-                    <JournalFields
-                      date={journalDate}
-                      onDateChange={setJournalDate}
-                      entry={journalEntry}
-                      onEntryChange={setJournalEntry}
-                      subtype={
-                        journalSubtype as 'reflection' | 'gratitude' | 'dream' | 'review' | null
-                      }
-                      onSubtypeChange={setJournalSubtype}
-                      disabled={false}
-                    />
-                  )}
-                  {selectedType === 'note' && (
-                    <NoteFields
-                      title={noteTitle}
-                      onTitleChange={setNoteTitle}
-                      body={noteBody}
-                      onBodyChange={setNoteBody}
-                      subtype={noteSubtype as 'idea' | 'list' | 'reference' | null}
-                      onSubtypeChange={setNoteSubtype}
-                      disabled={false}
-                    />
-                  )}
-                  {selectedType === 'person' && (
-                    <PersonFields
-                      name={personName}
-                      onNameChange={setPersonName}
-                      email={personEmail}
-                      onEmailChange={setPersonEmail}
-                      disabled={false}
-                    />
-                  )}
-                </Animated.View>
-              )}
+                />
+              </Animated.View>
+            )}
 
-              {/* Space selector placeholder */}
-              {/* TODO: Add ScopeSelector integration */}
-            </ScrollView>
+            {/* Structured fields - Robust guard: show when NOT in AI mode AND type selected */}
+            {!aiMode && selectedType && (
+              <Animated.View
+                style={[
+                  styles.fieldsContainer,
+                  {
+                    opacity: fadeAnim,
+                    transform: [
+                      {
+                        translateY: fadeAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [20, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                {selectedType === 'habit' && (
+                  <HabitFields
+                    name={habitName}
+                    onNameChange={setHabitName}
+                    frequency={habitFrequency}
+                    onFrequencyChange={setHabitFrequency}
+                    subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
+                    onSubtypeChange={setHabitSubtype}
+                    disabled={false}
+                  />
+                )}
+                {selectedType === 'todo' && (
+                  <TodoFields
+                    name={todoName}
+                    onNameChange={setTodoName}
+                    dueDate={todoDueDate}
+                    onDueDateChange={setTodoDueDate}
+                    subtype={todoSubtype as 'reminder' | 'microproject' | null}
+                    onSubtypeChange={setTodoSubtype}
+                    disabled={false}
+                  />
+                )}
+                {selectedType === 'journal' && (
+                  <JournalFields
+                    date={journalDate}
+                    onDateChange={setJournalDate}
+                    entry={journalEntry}
+                    onEntryChange={setJournalEntry}
+                    subtype={
+                      journalSubtype as 'reflection' | 'gratitude' | 'dream' | 'review' | null
+                    }
+                    onSubtypeChange={setJournalSubtype}
+                    disabled={false}
+                  />
+                )}
+                {selectedType === 'note' && (
+                  <NoteFields
+                    title={noteTitle}
+                    onTitleChange={setNoteTitle}
+                    body={noteBody}
+                    onBodyChange={setNoteBody}
+                    subtype={noteSubtype as 'idea' | 'list' | 'reference' | null}
+                    onSubtypeChange={setNoteSubtype}
+                    disabled={false}
+                  />
+                )}
+                {selectedType === 'person' && (
+                  <PersonFields
+                    name={personName}
+                    onNameChange={setPersonName}
+                    email={personEmail}
+                    onEmailChange={setPersonEmail}
+                    disabled={false}
+                  />
+                )}
+              </Animated.View>
+            )}
 
-            {/* CTA bar */}
-            <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
-              <Button
-                label={isLoading ? 'Saving...' : 'Save to Hub'}
-                onPress={handleSave}
-                disabled={isSaveDisabled()}
-                fullWidth
-                testID="save-to-hub"
-              />
-            </View>
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Pressable>
+            {/* Space selector placeholder */}
+            {/* TODO: Add ScopeSelector integration */}
+          </ScrollView>
+
+          {/* CTA bar */}
+          <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
+            <Button
+              label={isLoading ? 'Saving...' : 'Save to Hub'}
+              onPress={handleSave}
+              disabled={isSaveDisabled()}
+              fullWidth
+              testID="save-to-hub"
+            />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)', // Lighter backdrop
-    justifyContent: 'flex-end',
-  },
   container: {
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)', // Darker backdrop for better contrast
   },
   card: {
     backgroundColor: '#FFF9F0', // cream - will be overridden by theme
     borderTopLeftRadius: 24, // Rounded top corners
     borderTopRightRadius: 24,
-    maxHeight: '90%',
-    minHeight: 400, // Minimum height to prevent collapse
+    maxHeight: '85%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 8, // Higher elevation for better prominence
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 10, // Higher elevation for better prominence
   },
   header: {
     flexDirection: 'row',
