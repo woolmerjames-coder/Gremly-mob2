@@ -6,6 +6,7 @@
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
 export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
+export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = 'daily' | 'weekly' | 'monthly';
 export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 
@@ -17,6 +18,7 @@ export interface Habit {
   type: 'habit';
   title: string;
   frequency: Frequency;
+  subtype?: HabitSubtype | null; // start_habit, break_habit, routine
   space_id?: ID | null;
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type

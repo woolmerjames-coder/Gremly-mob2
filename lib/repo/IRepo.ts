@@ -4,6 +4,7 @@ import type {
   ID,
   Frequency,
   NoteSubtype,
+  HabitSubtype,
   Space,
   Tag,
   Person,
@@ -19,7 +20,7 @@ export interface CreateRecordInput {
   type: AppRecord['type'];
   title: string;
   body?: string;
-  subtype?: NoteSubtype; // required when type === 'note'
+  subtype?: NoteSubtype | HabitSubtype; // required when type === 'note', optional for habits
   frequency?: Frequency; // required when type === 'habit'
   space_id?: ID | null;
   due_date?: string | null;

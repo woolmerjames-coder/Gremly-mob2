@@ -25,7 +25,7 @@ import { NoteFields } from './fields/NoteFields';
 import { PersonFields } from './fields/PersonFields';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
-import type { AppRecord, Frequency, NoteSubtype } from '../../lib/types';
+import type { AppRecord, Frequency, NoteSubtype, HabitSubtype } from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
@@ -107,6 +107,7 @@ export function UnifiedCreateOverlay({
           case 'habit':
             setHabitName(entity.title || '');
             setHabitFrequency(entity.frequency || 'daily');
+            setHabitSubtype(entity.subtype || null);
             break;
           case 'todo':
             setTodoName(entity.title || '');
@@ -262,6 +263,7 @@ export function UnifiedCreateOverlay({
           type: 'habit',
           title: habitName,
           frequency: habitFrequency,
+          subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
         };
       case 'todo':
         return {
@@ -306,6 +308,7 @@ export function UnifiedCreateOverlay({
         return {
           title: habitName,
           frequency: habitFrequency,
+          subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
         };
       case 'todo':
         return {

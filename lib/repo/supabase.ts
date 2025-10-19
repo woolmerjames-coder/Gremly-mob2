@@ -90,6 +90,7 @@ export class SupabaseRepo implements IRepo {
           space_id: input.space_id ?? null,
           title: input.title,
           frequency: input.frequency,
+          subtype: input.subtype ?? null,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
@@ -208,6 +209,7 @@ export class SupabaseRepo implements IRepo {
       if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
       if ('frequency' in patch && patch.frequency !== undefined)
         updatePayload.frequency = patch.frequency;
+      if ('subtype' in patch) updatePayload.subtype = patch.subtype ?? null;
       if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
       if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;

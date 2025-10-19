@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import type { AppRecord, Habit, Todo, Note, NoteSubtype, RecordType, Frequency } from './types';
+import type {
+  AppRecord,
+  Habit,
+  Todo,
+  Note,
+  NoteSubtype,
+  HabitSubtype,
+  RecordType,
+  Frequency,
+} from './types';
 
 /**
  * Zod schemas for runtime validation of app records.
@@ -23,6 +32,12 @@ export const noteSubtypeZ = z.union([
   z.literal('idea'),
   z.literal('reference'),
 ]) as z.ZodType<NoteSubtype>;
+
+export const habitSubtypeZ = z.union([
+  z.literal('start_habit'),
+  z.literal('break_habit'),
+  z.literal('routine'),
+]) as z.ZodType<HabitSubtype>;
 
 // Accept both lowercase (correct) and capitalized (legacy data) frequencies
 // Transform to lowercase to ensure consistency
@@ -64,6 +79,7 @@ export const habitZ = baseRecordZ.extend({
   type: z.literal('habit'),
   title: z.string().min(1),
   frequency: frequencyZ,
+  subtype: habitSubtypeZ.optional().nullable(),
 }) satisfies z.ZodType<Habit>;
 
 export const todoZ = baseRecordZ.extend({
@@ -92,6 +108,7 @@ export const habitInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
   title: z.string().min(1),
   frequency: z.string().min(1),
+  subtype: habitSubtypeZ.optional().nullable(),
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
