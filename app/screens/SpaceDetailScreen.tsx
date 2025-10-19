@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, ActivityIndicator } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useRepo } from '../../providers/RepoProvider';
 import MascotIcon from '../../components/MascotIcon';
 import PlusFAB from '../../components/PlusFAB';
-import { ManualAddOverlay } from '../../legacy/overlays/ManualAddOverlay';
-import { toRepoFrequency } from '../../app/schemas/manualAdd';
-import type { ManualAddPayload } from '../../app/schemas/manualAdd';
+import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { Space, AppRecord } from '../../lib/types';
 import type { GroupedByType } from '../../lib/repo/IRepo';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -26,12 +25,12 @@ export default function SpaceDetail() {
   const { id } = route.params;
   const repo = useRepo();
   const tokens = useTokens();
+  const overlayController = useUnifiedOverlayController();
   const [space, setSpace] = useState<Space | null>(null);
   const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
   const [loading, setLoading] = useState(true);
-  const [overlayVisible, setOverlayVisible] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [spaceData, groupedData] = await Promise.all([
         repo.getSpaceById(id),
@@ -44,66 +43,15 @@ export default function SpaceDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [repo, id]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [load]);
 
-  const handleManualAddSubmit = async (payload: ManualAddPayload) => {
-    try {
-      switch (payload.type) {
-        case 'habits':
-          if (payload.subType === 'start') {
-            await repo.create({
-              type: 'habit',
-              title: payload.data.name,
-              frequency: toRepoFrequency(payload.data.frequency),
-              space_id: id,
-              ai_placed: false,
-            });
-          } else {
-            await repo.create({
-              type: 'habit',
-              title: `Break: ${payload.data.name}`,
-              frequency: 'daily',
-              space_id: id,
-              ai_placed: false,
-            });
-          }
-          break;
-        case 'todos':
-          await repo.create({
-            type: 'todo',
-            title: payload.data.name,
-            due_date: payload.data.deadline || null,
-            undefined_due: !payload.data.deadline,
-            space_id: id,
-            ai_placed: false,
-          });
-          break;
-        case 'journal':
-          await repo.create({
-            type: 'note',
-            title: '',
-            body: payload.data.entry,
-            subtype: 'journal',
-            space_id: id,
-            ai_placed: false,
-          });
-          break;
-        case 'catchall':
-          // Catch-all is now handled internally by ManualAddOverlay
-          // Just reload to show the new item
-          console.log('[SpaceDetailScreen] Catch-all saved by overlay, reloading...');
-          break;
-      }
-      await load();
-    } catch (err) {
-      console.error('Failed to create item:', err);
-    }
-  };
+  const handleOverlaySaved = useCallback(() => {
+    load();
+  }, [load]);
 
   if (loading) {
     return (
@@ -150,14 +98,16 @@ export default function SpaceDetail() {
       <Section title="Notes" items={groups.notes} />
 
       {/* Plus FAB for Manual Add with spaceId context */}
-      <PlusFAB onPress={() => setOverlayVisible(true)} />
+      <PlusFAB onPress={() => overlayController.openCreate({ spaceId: id })} />
 
-      {/* Manual Add Overlay */}
-      <ManualAddOverlay
-        visible={overlayVisible}
-        defaultTab="habits"
-        onClose={() => setOverlayVisible(false)}
-        onSubmit={handleManualAddSubmit}
+      {/* Unified Create Overlay */}
+      <UnifiedCreateOverlay
+        visible={overlayController.state.visible}
+        mode={overlayController.state.mode}
+        initialEntity={overlayController.state.initialEntity}
+        initialSpaceId={overlayController.state.initialSpaceId}
+        onClose={overlayController.close}
+        onSaved={handleOverlaySaved}
       />
     </ScrollView>
   );

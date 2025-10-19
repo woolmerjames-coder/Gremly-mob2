@@ -6,10 +6,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-import { ManualAddOverlay } from '../legacy/overlays/ManualAddOverlay';
+// ManualAddOverlay import removed - replaced with UnifiedCreateOverlay in individual screens
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
-import { theme } from '../app/design/theme';
 import { useRepo } from '../providers/RepoProvider';
 import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
@@ -340,48 +339,14 @@ function DestinationPickerSheet({
   );
 }
 
-// Manual Edit Sheet - reuses ManualAddOverlay in edit mode
-type ManualEditPayload = {
-  itemId: string;
-  itemType: AppRecord['type'];
-  itemSubtype?: NoteSubtype;
-  initialValues: Partial<AppRecord>;
-};
-
-registerSheet(
-  'manual-edit',
-  ({ sheetId, payload }: { sheetId: string; payload: ManualEditPayload }) => (
-    <ActionSheet
-      id={sheetId}
-      gestureEnabled={true}
-      containerStyle={{
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        height: '95%',
-        backgroundColor: theme.colors.cream,
-      }}
-      indicatorStyle={{
-        width: 100,
-        backgroundColor: theme.colors.grayLine,
-      }}
-    >
-      <ManualAddOverlay
-        visible={true}
-        mode="edit"
-        initialType={payload.itemType}
-        initialSubtype={payload.itemSubtype}
-        itemId={payload.itemId}
-        initialValues={payload.initialValues}
-        isSheet={true}
-        onSaved={() => {
-          console.log('[manual-edit] Item saved, refreshing Hub');
-          SheetManager.hide(sheetId);
-        }}
-        onClose={() => SheetManager.hide(sheetId)}
-      />
-    </ActionSheet>
-  ),
-);
+/**
+ * DEPRECATED: manual-edit sheet registration removed
+ * All create/edit flows now use UnifiedCreateOverlay managed locally in each screen
+ * via useUnifiedOverlayController hook.
+ *
+ * Previous usage in HubScreen has been migrated to:
+ * overlayController.openEdit({ record, spaceId })
+ */
 
 export const OverlayHost = () => {
   // Must call hooks before any conditional returns

@@ -83,14 +83,8 @@ module.exports = [
     },
   },
   {
-    // Phase 7: Temporary exemption for files using legacy overlays (will be migrated to UnifiedCreateOverlay)
-    files: [
-      'app/tabs/HubScreen.tsx',
-      'app/tabs/TodayScreen.tsx',
-      'app/screens/SpaceDetailScreen.tsx',
-      'components/OverlayHost.tsx',
-      'examples/ManualAddOverlayExample.tsx',
-    ],
+    // Phase 7: Temporary exemption for example files still using legacy overlays
+    files: ['examples/ManualAddOverlayExample.tsx'],
     rules: {
       'no-restricted-imports': 'off',
     },

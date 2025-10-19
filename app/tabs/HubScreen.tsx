@@ -23,9 +23,8 @@ import UnsortedReviewSheet, { type UnsortedItem } from '../../components/Unsorte
 import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
-import { ManualAddOverlay } from '../../legacy/overlays/ManualAddOverlay';
-import { toRepoFrequency } from '../../app/schemas/manualAdd';
-import type { ManualAddPayload } from '../../app/schemas/manualAdd';
+import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import TagFilterBar from '../../components/filters/TagFilterBar';
@@ -47,6 +46,9 @@ export default function HubScreen() {
   const repo = useRepo();
   const { user } = useAuth();
 
+  // Unified overlay controller
+  const overlayController = useUnifiedOverlayController();
+
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -57,9 +59,6 @@ export default function HubScreen() {
   const [tab, setTab] = useState<Tab>('Habits');
   const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
-  const [overlayVisible, setOverlayVisible] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [editItem, setEditItem] = useState<AppRecord | null>(null);
   const [unsortedCount, setUnsortedCount] = useState(0);
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -321,11 +320,12 @@ export default function HubScreen() {
     (item: HubItem) => {
       const record = items.find((r) => r.id === item.id);
       if (record) {
-        setEditItem(record);
-        setEditMode(true);
+        // Get current spaceId from scope
+        const spaceId = scope.type === 'space' ? scope.spaceId : undefined;
+        overlayController.openEdit({ record, spaceId });
       }
     },
-    [items],
+    [items, scope, overlayController],
   );
 
   const handleMovePress = useCallback(
@@ -377,61 +377,10 @@ export default function HubScreen() {
     [repo, load],
   );
 
-  const handleManualAddSubmit = async (payload: ManualAddPayload) => {
-    try {
-      // Determine space_id from current scope
-      const spaceId =
-        scope.type === 'space' ? scope.spaceId : scope.type === 'unassigned' ? null : null;
-
-      switch (payload.type) {
-        case 'habits':
-          if (payload.subType === 'start') {
-            await repo.create({
-              type: 'habit',
-              title: payload.data.name,
-              frequency: toRepoFrequency(payload.data.frequency),
-              space_id: payload.data.spaceId || spaceId,
-              ai_placed: false,
-            });
-          } else {
-            await repo.create({
-              type: 'habit',
-              title: `Break: ${payload.data.name}`,
-              frequency: 'daily',
-              space_id: payload.data.spaceId || spaceId,
-              ai_placed: false,
-            });
-          }
-          break;
-        case 'todos':
-          await repo.create({
-            type: 'todo',
-            title: payload.data.name,
-            due_date: payload.data.deadline || null,
-            undefined_due: !payload.data.deadline,
-            space_id: spaceId,
-            ai_placed: false,
-          });
-          break;
-        case 'journal':
-          await repo.create({
-            type: 'note',
-            title: '',
-            body: payload.data.entry,
-            subtype: 'journal',
-            space_id: payload.data.spaceId || spaceId,
-            ai_placed: false,
-          });
-          break;
-        case 'catchall':
-          console.log('[HubScreen] Catch-all saved by overlay, reloading...');
-          break;
-      }
-      await load();
-    } catch (err) {
-      console.error('Failed to create item:', err);
-    }
-  };
+  const handleOverlaySaved = useCallback(async () => {
+    // Reload data after overlay save
+    await load();
+  }, [load]);
 
   const isEmpty = items.length === 0;
 
@@ -649,7 +598,15 @@ export default function HubScreen() {
           !isEmpty && !error && tab !== 'People' ? (
             <TouchableOpacity
               style={styles.addBtn}
-              onPress={() => setOverlayVisible(true)}
+              onPress={() => {
+                const spaceId =
+                  scope.type === 'space'
+                    ? scope.spaceId
+                    : scope.type === 'unassigned'
+                      ? null
+                      : undefined;
+                overlayController.openCreate({ spaceId });
+              }}
               testID="add-more-btn"
             >
               <Text style={styles.addText}>Add More</Text>
@@ -659,40 +616,15 @@ export default function HubScreen() {
         contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: spacing['2xl'] }}
       />
 
-      {/* Manual Add Overlay - Create Mode */}
-      <ManualAddOverlay
-        visible={overlayVisible}
-        defaultTab="habits"
-        onClose={() => setOverlayVisible(false)}
-        onSubmit={handleManualAddSubmit}
-        onCatchAllSaved={() => {
-          void load();
-        }}
-        currentSpaceId={
-          scope.type === 'space' ? scope.spaceId : scope.type === 'unassigned' ? null : undefined
-        }
+      {/* Unified Create/Edit Overlay */}
+      <UnifiedCreateOverlay
+        visible={overlayController.state.visible}
+        mode={overlayController.state.mode}
+        initialEntity={overlayController.state.initialEntity}
+        initialSpaceId={overlayController.state.initialSpaceId}
+        onClose={overlayController.close}
+        onSaved={handleOverlaySaved}
       />
-
-      {/* Manual Add Overlay - Edit Mode */}
-      {editItem && (
-        <ManualAddOverlay
-          visible={editMode}
-          mode="edit"
-          initialType={editItem.type}
-          initialSubtype={editItem.type === 'note' ? editItem.subtype : undefined}
-          itemId={editItem.id}
-          initialValues={editItem}
-          onClose={() => {
-            setEditMode(false);
-            setEditItem(null);
-          }}
-          onSaved={() => {
-            setEditMode(false);
-            setEditItem(null);
-            void load();
-          }}
-        />
-      )}
 
       {/* Unsorted Review Sheet Modal */}
       {reviewSheetVisible && (
