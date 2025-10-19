@@ -117,22 +117,24 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       });
       fireEvent.changeText(getByTestId('habit-name-input'), 'Morning meditation');
 
-      // Step 3: Select daily frequency
-      fireEvent.press(getByTestId('frequency-chip-daily'));
+      // Step 3: Select daily frequency (new frequency builder uses freq-chip-* prefix)
+      fireEvent.press(getByTestId('freq-chip-daily'));
 
       // Step 4: Save
       fireEvent.press(getByTestId('save-to-hub'));
 
       // Verify repo.create called with correct habit data
       await waitFor(() => {
-        expect(mockRepo.create).toHaveBeenCalledWith({
-          type: 'habit',
-          title: 'Morning meditation',
-          frequency: 'daily',
-          subtype: undefined,
-          space_id: null,
-          ai_placed: false,
-        });
+        expect(mockRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'habit',
+            title: 'Morning meditation',
+            frequency: 'daily',
+            subtype: undefined,
+            space_id: null,
+            ai_placed: false,
+          }),
+        );
         expect(onClose).toHaveBeenCalled();
       });
     });
@@ -155,8 +157,8 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       // Enter name
       fireEvent.changeText(getByTestId('habit-name-input'), 'Gym workout');
 
-      // Select break_habit subtype
-      fireEvent.press(getByTestId('subtype-pill-break_habit'));
+      // Select break habit mode using new toggle (not subtype pill)
+      fireEvent.press(getByTestId('habit-toggle-break'));
 
       // Select weekly frequency
       fireEvent.press(getByTestId('frequency-chip-weekly'));
@@ -165,14 +167,16 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       fireEvent.press(getByTestId('save-to-hub'));
 
       await waitFor(() => {
-        expect(mockRepo.create).toHaveBeenCalledWith({
-          type: 'habit',
-          title: 'Gym workout',
-          frequency: 'weekly',
-          subtype: 'break_habit',
-          space_id: null,
-          ai_placed: false,
-        });
+        expect(mockRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'habit',
+            title: 'Gym workout',
+            frequency: 'weekly',
+            subtype: 'break_habit',
+            space_id: null,
+            ai_placed: false,
+          }),
+        );
       });
     });
   });
@@ -252,9 +256,9 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       const existingHabit: AppRecord = {
         id: 'habit-edit-123',
         type: 'habit',
-        title: 'Original habit name',
+        name: 'Original habit name',
         frequency: 'daily',
-        subtype: undefined,
+        subtype: 'start_habit', // Required field per Phase 7 spec
         space_id: null,
         ai_placed: false,
         owner_id: 'user-123',
@@ -294,11 +298,11 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       await waitFor(() => {
         expect(mockRepo.update).toHaveBeenCalledWith({
           id: 'habit-edit-123',
-          patch: {
+          patch: expect.objectContaining({
             title: 'Updated habit name',
             frequency: 'daily',
             subtype: undefined,
-          },
+          }),
         });
         expect(onClose).toHaveBeenCalled();
       });
@@ -374,8 +378,8 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
         expect(getByTestId('habit-name-input')).toBeTruthy();
       });
 
-      // Don't enter name, just select frequency
-      fireEvent.press(getByTestId('frequency-chip-daily'));
+      // Don't enter name, just select frequency (new frequency builder uses freq-chip-* prefix)
+      fireEvent.press(getByTestId('freq-chip-daily'));
 
       // Try to save
       fireEvent.press(getByTestId('save-to-hub'));

@@ -77,9 +77,25 @@ const baseRecordZ = z.object({
 
 export const habitZ = baseRecordZ.extend({
   type: z.literal('habit'),
-  title: z.string().min(1),
+  name: z.string().min(1), // Changed from 'title' per Phase 7 spec
   frequency: frequencyZ,
-  subtype: habitSubtypeZ.optional().nullable(),
+  subtype: habitSubtypeZ, // Required (not optional)
+  // Extended habit fields (Phase 7+)
+  frequency_value: z.any().optional(),
+  reminders: z.array(z.any()).optional(),
+  notes: z.string().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
+  buddy_id: z.string().nullable().optional(),
+  buddy_email: z.string().nullable().optional(),
+  stack_with_id: z.string().nullable().optional(),
+  stack_position: z.enum(['before', 'after']).nullable().optional(),
+  stack_offset_minutes: z.number().nullable().optional(),
+  start_date: z.string().nullable().optional(),
+  end_date: z.string().nullable().optional(),
+  taper_plan: z.any().nullable().optional(),
+  triggers: z.array(z.string()).nullable().optional(),
+  replacement_habit_id: z.string().nullable().optional(),
+  replacement_text: z.string().nullable().optional(),
 }) satisfies z.ZodType<Habit>;
 
 export const todoZ = baseRecordZ.extend({
@@ -106,9 +122,9 @@ export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
 
 export const habitInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
-  title: z.string().min(1),
+  name: z.string().min(1), // Changed from 'title' per Phase 7 spec
   frequency: z.string().min(1),
-  subtype: habitSubtypeZ.optional().nullable(),
+  subtype: habitSubtypeZ, // Required
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
@@ -119,6 +135,22 @@ export const habitInsertSchema = z.object({
       alsoShowIn: z.array(z.string()).optional(),
     })
     .optional(),
+  // Extended habit fields (Phase 7+) - using database column names (_json suffix for jsonb)
+  frequency_json: z.any().optional(), // Maps to frequency_json column (jsonb)
+  reminders_json: z.array(z.any()).optional(), // Maps to reminders_json column (jsonb)
+  notes: z.string().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
+  buddy_id: z.string().uuid().nullable().optional(),
+  buddy_email: z.string().email().nullable().optional(),
+  stack_with_id: z.string().uuid().nullable().optional(),
+  stack_position: z.enum(['before', 'after']).nullable().optional(),
+  stack_offset_minutes: z.number().nullable().optional(),
+  start_date: z.string().nullable().optional(), // ISO date
+  end_date: z.string().nullable().optional(), // ISO date
+  taper_plan: z.any().nullable().optional(), // Maps to taper_plan column (jsonb)
+  triggers_json: z.array(z.string()).nullable().optional(), // Maps to triggers_json column (jsonb) - nullable
+  replacement_habit_id: z.string().uuid().nullable().optional(),
+  replacement_text: z.string().nullable().optional(),
 });
 
 export const todoInsertSchema = z.object({

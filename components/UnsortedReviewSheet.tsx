@@ -8,6 +8,7 @@ import React from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { colors, radii, spacing, shadows } from '../theme/tokens';
 import { type as typeStyles } from '../theme/typography';
+import { Icon } from './ui/Icon';
 
 export type UnsortedItem = {
   id: string;
@@ -16,7 +17,11 @@ export type UnsortedItem = {
   subtype?: string;
 };
 
-const typeIcon: Record<string, string> = { habit: '✅', todo: '🔔', note: '📝' };
+const typeIconName: Record<string, 'Activity' | 'CheckCircle2' | 'FileText'> = {
+  habit: 'Activity',
+  todo: 'CheckCircle2',
+  note: 'FileText',
+};
 
 export default function UnsortedReviewSheet({
   items,
@@ -32,7 +37,9 @@ export default function UnsortedReviewSheet({
   const renderItem = ({ item }: { item: UnsortedItem }) => (
     <View style={[styles.itemCard, shadows.card]} testID={`unsorted-item-${item.id}`}>
       <View style={styles.itemRow}>
-        <Text style={styles.icon}>{typeIcon[item.type] || '📄'}</Text>
+        <View style={styles.iconContainer}>
+          <Icon name={typeIconName[item.type] || 'FileText'} size="sm" color={colors.deepTeal} />
+        </View>
         <View style={styles.itemMain}>
           <Text numberOfLines={2} style={styles.itemTitle}>
             {item.title}
@@ -122,6 +129,13 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    marginRight: spacing.md,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   icon: {

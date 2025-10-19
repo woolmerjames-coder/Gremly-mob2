@@ -95,6 +95,7 @@ jest.mock('../providers/RepoProvider', () => ({
     listLinkedPeople: jest.fn().mockResolvedValue([]),
     listTags: jest.fn().mockResolvedValue(mockDataStore.tags),
     getUnsortedCount: jest.fn().mockResolvedValue(0),
+    countUnsorted: jest.fn().mockResolvedValue(0),
     update: jest.fn().mockResolvedValue(undefined),
   }),
 }));

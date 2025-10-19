@@ -59,7 +59,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('ca-mode-guided')).toBeTruthy();
       expect(screen.getByTestId('ca-mode-free')).toBeTruthy();
-      expect(screen.getByTestId('ca-textarea')).toBeTruthy();
+      expect(screen.getByTestId('ca-note-input')).toBeTruthy();
       expect(screen.getByTestId('ca-submit')).toBeTruthy();
     });
   });
@@ -74,7 +74,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
     fireEvent.press(screen.getByTestId('ca-mode-free'));
 
     // Enter text
-    const textarea = screen.getByTestId('ca-textarea');
+    const textarea = screen.getByTestId('ca-note-input');
     fireEvent.changeText(textarea, 'Free form entry');
 
     // Submit
@@ -103,7 +103,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
     renderWithProviders(<CatchAllNotepad />);
 
     // Guided mode is default
-    const textarea = screen.getByTestId('ca-textarea');
+    const textarea = screen.getByTestId('ca-note-input');
     fireEvent.changeText(textarea, 'Testing catch-all note');
 
     // Submit
@@ -137,7 +137,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
     renderWithProviders(<CatchAllNotepad />);
 
     // Switch to Guided mode (default)
-    const textarea = screen.getByTestId('ca-textarea');
+    const textarea = screen.getByTestId('ca-note-input');
 
     // Activate bullets toolbar
     await waitFor(() => {
@@ -160,7 +160,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
   it('shows thinking animation with correct duration in Guided mode', async () => {
     renderWithProviders(<CatchAllNotepad />);
 
-    const textarea = screen.getByTestId('ca-textarea');
+    const textarea = screen.getByTestId('ca-note-input');
     fireEvent.changeText(textarea, 'Test note');
 
     fireEvent.press(screen.getByTestId('ca-submit'));
@@ -201,7 +201,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
     // Switch to Free mode for immediate submit
     fireEvent.press(screen.getByTestId('ca-mode-free'));
 
-    const textarea = screen.getByTestId('ca-textarea');
+    const textarea = screen.getByTestId('ca-note-input');
     fireEvent.changeText(textarea, 'Quick note');
 
     fireEvent.press(screen.getByTestId('ca-submit'));
@@ -246,7 +246,7 @@ describe('Catch-All Notepad (Phase 7)', () => {
     // Switch to Free mode
     fireEvent.press(screen.getByTestId('ca-mode-free'));
 
-    const textarea = screen.getByTestId('ca-textarea');
+    const textarea = screen.getByTestId('ca-note-input');
     fireEvent.changeText(textarea, 'Test note');
 
     fireEvent.press(screen.getByTestId('ca-submit'));

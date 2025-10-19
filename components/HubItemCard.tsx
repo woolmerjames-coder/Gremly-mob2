@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radii, spacing, shadows } from '../theme/tokens';
 import { type } from '../theme/typography';
 import type { Tag } from '../lib/types';
+import { Icon } from './ui/Icon';
 
 export type HubKind = 'habit' | 'todo' | 'note';
 export type Placement = 'ai' | 'user';
@@ -19,7 +20,11 @@ export type HubItem = {
   showSpaceChip?: boolean; // Whether to show space chip (true when scope is Everywhere)
 };
 
-const kindIcon: Record<HubKind, string> = { habit: '✅', todo: '🔔', note: '📝' };
+const kindIconName: Record<HubKind, 'Activity' | 'CheckCircle2' | 'FileText'> = {
+  habit: 'Activity',
+  todo: 'CheckCircle2',
+  note: 'FileText',
+};
 
 export default function HubItemCard({
   item,
@@ -37,7 +42,9 @@ export default function HubItemCard({
   return (
     <TouchableOpacity onPress={onPress} style={[styles.card, shadows.card]} testID={testID}>
       <View style={styles.row}>
-        <Text style={styles.icon}>{kindIcon[item.kind]}</Text>
+        <View style={styles.iconContainer}>
+          <Icon name={kindIconName[item.kind]} size="sm" color={colors.deepTeal} />
+        </View>
         <View style={styles.main}>
           <View style={styles.titleRow}>
             <Text numberOfLines={1} style={styles.title}>
@@ -49,14 +56,16 @@ export default function HubItemCard({
             {/* AI badge */}
             {item.placedBy === 'ai' && (
               <View style={styles.aiBadge} testID="ai-badge">
-                <Text style={styles.aiBadgeText}>✨ AI</Text>
+                <Icon name="Sparkles" size="xs" color={colors.white} />
+                <Text style={styles.aiBadgeText}>AI</Text>
               </View>
             )}
 
             {/* Space chip (only when showSpaceChip is true and spaceName exists) */}
             {item.showSpaceChip && item.spaceName && (
               <View style={styles.spaceChip} testID="space-chip">
-                <Text style={styles.spaceChipText}>📍 {item.spaceName}</Text>
+                <Icon name="MapPin" size="xs" color={colors.deepTeal} />
+                <Text style={styles.spaceChipText}>{item.spaceName}</Text>
               </View>
             )}
 
@@ -109,6 +118,13 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xs,
   },
   row: { flexDirection: 'row', alignItems: 'center' },
+  iconContainer: {
+    marginRight: spacing.md,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   icon: { fontSize: 18, marginRight: spacing.md },
   main: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
@@ -125,6 +141,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
     borderRadius: radii.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   aiBadgeText: { fontSize: 10, color: colors.white, fontWeight: '600' },
   spaceChip: {
@@ -134,6 +153,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.mint,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   spaceChipText: {
     fontSize: 10,

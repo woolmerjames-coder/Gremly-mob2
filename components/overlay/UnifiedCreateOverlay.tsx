@@ -14,12 +14,15 @@ import {
   TextInput,
   Pressable,
   Animated,
+  ToastAndroid,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import Chip from '../ui/Chip';
-import { HabitFields } from './fields/HabitFields';
+import { Icon } from '../ui/Icon';
+import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fields/HabitFields';
 import { TodoFields } from './fields/TodoFields';
 import { JournalFields } from './fields/JournalFields';
 import { NoteFields } from './fields/NoteFields';
@@ -29,6 +32,8 @@ import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import type { AppRecord, Frequency, NoteSubtype, HabitSubtype } from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
+import type { FrequencyValue } from './fields/HabitFrequency';
+import type { ReminderRow } from './fields/RemindersList';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
 
@@ -45,12 +50,12 @@ export type UnifiedCreateOverlayProps = {
   onSaved?: (result: { type: string; id: string }) => void;
 };
 
-const TYPE_OPTIONS: { value: EntityType; label: string; emoji: string }[] = [
-  { value: 'habit', label: 'Habit', emoji: '🔄' },
-  { value: 'todo', label: 'To-Do', emoji: '✓' },
-  { value: 'journal', label: 'Journal', emoji: '📔' },
-  { value: 'note', label: 'Note', emoji: '📝' },
-  { value: 'person', label: 'Person', emoji: '👤' },
+const TYPE_OPTIONS: { value: string; label: string; iconName: string }[] = [
+  { value: 'habit', label: 'Habit', iconName: 'Activity' },
+  { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
+  { value: 'journal', label: 'Journal', iconName: 'BookOpen' },
+  { value: 'note', label: 'Note', iconName: 'FileText' },
+  { value: 'person', label: 'Person', iconName: 'User' },
 ];
 
 export function UnifiedCreateOverlay({
@@ -91,6 +96,10 @@ export function UnifiedCreateOverlay({
   const [habitName, setHabitName] = useState('');
   const [habitFrequency, setHabitFrequency] = useState<Frequency>('daily');
   const [habitSubtype, setHabitSubtype] = useState<string | null>(null);
+  const [habitFrequencyValue, setHabitFrequencyValue] = useState<FrequencyValue>({ kind: 'daily' });
+  const [habitReminders, setHabitReminders] = useState<ReminderRow[]>([]);
+  const [habitDetails, setHabitDetails] = useState<HabitDetailsState>({});
+  const [habitBreakState, setHabitBreakState] = useState<BreakHabitState>({});
 
   // Todo fields
   const [todoName, setTodoName] = useState('');
@@ -111,6 +120,71 @@ export function UnifiedCreateOverlay({
   const [personName, setPersonName] = useState('');
   const [personEmail, setPersonEmail] = useState('');
 
+  // Validation logic
+  const getValidationState = (): { isValid: boolean; hint: string | null } => {
+    // AI mode - just need some text
+    if (aiMode) {
+      if (!freeformText.trim()) {
+        return { isValid: false, hint: null }; // No hint for freeform
+      }
+      return { isValid: true, hint: null };
+    }
+
+    // Type-specific validation
+    switch (selectedType) {
+      case 'habit': {
+        const isStartHabit = habitSubtype === 'start_habit';
+        const isBreakHabit = habitSubtype === 'break_habit';
+
+        // Both Start and Break require Name
+        if (!habitName.trim()) {
+          return { isValid: false, hint: 'Name required' };
+        }
+
+        // Start Habit requires Frequency
+        if (isStartHabit && !habitFrequency) {
+          return { isValid: false, hint: 'Frequency required for Start Habit' };
+        }
+
+        // Break Habit only needs Name (subtype is already selected)
+        return { isValid: true, hint: null };
+      }
+      case 'todo':
+        if (!todoName.trim()) {
+          return { isValid: false, hint: 'Name required' };
+        }
+        return { isValid: true, hint: null };
+      case 'journal':
+        if (!journalEntry.trim()) {
+          return { isValid: false, hint: 'Entry required' };
+        }
+        return { isValid: true, hint: null };
+      case 'note':
+        if (!noteTitle.trim() && !noteBody.trim()) {
+          return { isValid: false, hint: 'Title or body required' };
+        }
+        return { isValid: true, hint: null };
+      case 'person':
+        if (!personName.trim()) {
+          return { isValid: false, hint: 'Name required' };
+        }
+        return { isValid: true, hint: null };
+      default:
+        return { isValid: false, hint: null };
+    }
+  };
+
+  const validation = getValidationState();
+
+  // Helper to show success toast cross-platform
+  const showToast = (message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Success', message);
+    }
+  };
+
   const loadEntity = React.useCallback(
     async (id: string) => {
       try {
@@ -120,7 +194,7 @@ export function UnifiedCreateOverlay({
         // Populate fields based on type
         switch (entity.type) {
           case 'habit':
-            setHabitName(entity.title || '');
+            setHabitName(entity.name || '');
             setHabitFrequency(entity.frequency || 'daily');
             setHabitSubtype(entity.subtype || null);
             break;
@@ -172,6 +246,10 @@ export function UnifiedCreateOverlay({
     setHabitName('');
     setHabitFrequency('daily');
     setHabitSubtype(null);
+    setHabitFrequencyValue({ kind: 'daily' });
+    setHabitReminders([]);
+    setHabitDetails({});
+    setHabitBreakState({});
     setTodoName('');
     setTodoDueDate('');
     setTodoSubtype(null);
@@ -254,7 +332,7 @@ export function UnifiedCreateOverlay({
 
         const result = await repo.create(input);
         onSaved?.({ type: 'note', id: result.id });
-        console.log('✓ Saved to the Hub'); // TODO: Replace with toast
+        showToast('Saved to the Hub.');
         handleClose();
         return;
       }
@@ -269,7 +347,7 @@ export function UnifiedCreateOverlay({
 
         const result = await repo.update(input);
         onSaved?.({ type: selectedType, id: result.id });
-        console.log('✓ Saved to the Hub'); // TODO: Replace with toast
+        showToast('Saved to the Hub.');
         handleClose();
         return;
       }
@@ -279,7 +357,7 @@ export function UnifiedCreateOverlay({
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
         onSaved?.({ type: selectedType, id: result.id });
-        console.log('✓ Saved to the Hub'); // TODO: Replace with toast
+        showToast('Saved to the Hub.');
         handleClose();
       }
     } catch (error) {
@@ -296,14 +374,52 @@ export function UnifiedCreateOverlay({
     };
 
     switch (type) {
-      case 'habit':
+      case 'habit': {
+        const isStartHabit = habitSubtype === 'start_habit';
+        const isBreakHabit = habitSubtype === 'break_habit';
+
         return {
           ...baseInput,
           type: 'habit',
           title: habitName,
           frequency: habitFrequency,
           subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
+
+          // Common fields for both Start & Break habits
+          reminders: habitReminders.length > 0 ? habitReminders : undefined,
+          notes: habitDetails.notes || null,
+          tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
+          buddy_id: habitDetails.buddyId || null,
+          buddy_email: habitDetails.buddyEmail || null,
+          space_id:
+            habitDetails.spaceId !== undefined
+              ? habitDetails.spaceId
+              : spaceId !== undefined
+                ? spaceId
+                : null,
+          start_date: habitDetails.startDate || null,
+          end_date: habitDetails.endDate || null,
+
+          // Start Habit specific fields
+          ...(isStartHabit && {
+            frequency_value: habitFrequencyValue,
+            stack_with_id: habitDetails.stackHabitId || null,
+            stack_position: habitDetails.stackPosition || null,
+            stack_offset_minutes: habitDetails.stackOffsetMinutes || null,
+          }),
+
+          // Break Habit specific fields
+          ...(isBreakHabit && {
+            taper_plan: habitBreakState.taperPlan || null,
+            triggers:
+              habitBreakState.triggers && habitBreakState.triggers.length > 0
+                ? habitBreakState.triggers
+                : null,
+            replacement_habit_id: habitBreakState.replacementHabitId || null,
+            replacement_text: habitBreakState.replacementFreeText || null,
+          }),
         };
+      }
       case 'todo':
         return {
           ...baseInput,
@@ -343,12 +459,45 @@ export function UnifiedCreateOverlay({
 
   const buildUpdatePatch = (type: EntityType): Partial<AppRecord> => {
     switch (type) {
-      case 'habit':
+      case 'habit': {
+        const isStartHabit = habitSubtype === 'start_habit';
+        const isBreakHabit = habitSubtype === 'break_habit';
+
         return {
           title: habitName,
           frequency: habitFrequency,
           subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
-        };
+
+          // Common fields for both Start & Break habits
+          reminders: habitReminders.length > 0 ? habitReminders : undefined,
+          notes: habitDetails.notes || null,
+          tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
+          buddy_id: habitDetails.buddyId || null,
+          buddy_email: habitDetails.buddyEmail || null,
+          space_id: habitDetails.spaceId !== undefined ? habitDetails.spaceId : undefined,
+          start_date: habitDetails.startDate || null,
+          end_date: habitDetails.endDate || null,
+
+          // Start Habit specific fields
+          ...(isStartHabit && {
+            frequency_value: habitFrequencyValue,
+            stack_with_id: habitDetails.stackHabitId || null,
+            stack_position: habitDetails.stackPosition || null,
+            stack_offset_minutes: habitDetails.stackOffsetMinutes || null,
+          }),
+
+          // Break Habit specific fields
+          ...(isBreakHabit && {
+            taper_plan: habitBreakState.taperPlan || null,
+            triggers:
+              habitBreakState.triggers && habitBreakState.triggers.length > 0
+                ? habitBreakState.triggers
+                : null,
+            replacement_habit_id: habitBreakState.replacementHabitId || null,
+            replacement_text: habitBreakState.replacementFreeText || null,
+          }),
+        } as Partial<AppRecord>;
+      }
       case 'todo':
         return {
           title: todoName,
@@ -375,24 +524,8 @@ export function UnifiedCreateOverlay({
   };
 
   const isSaveDisabled = () => {
-    if (isLoading) return true;
-    if (aiMode) return !freeformText.trim();
-    if (!selectedType) return true;
-
-    switch (selectedType) {
-      case 'habit':
-        return !habitName.trim();
-      case 'todo':
-        return !todoName.trim();
-      case 'journal':
-        return !journalEntry.trim();
-      case 'note':
-        return !noteBody.trim();
-      case 'person':
-        return !personName.trim();
-      default:
-        return true;
-    }
+    // Use centralized validation
+    return !validation.isValid || isLoading;
   };
 
   return (
@@ -450,17 +583,21 @@ export function UnifiedCreateOverlay({
                   const chipTextStyle = isSelected
                     ? { color: theme.colors.deepTeal.DEFAULT }
                     : { color: theme.colors.text.secondary };
+                  const iconColor = isSelected
+                    ? theme.colors.deepTeal.DEFAULT
+                    : theme.colors.text.secondary;
 
                   return (
                     <Chip
                       key={opt.value}
-                      label={`${opt.emoji} ${opt.label}`}
+                      label={opt.label}
                       selected={isSelected}
-                      onPress={() => handleTypeSelect(opt.value)}
+                      onPress={() => handleTypeSelect(opt.value as any)}
                       testID={`type-pill-${opt.value}`}
                       disabled={mode === 'edit'}
                       style={{ ...styles.typeChip, ...chipStyle }}
                       textStyle={chipTextStyle}
+                      leadingIcon={<Icon name={opt.iconName as any} size="xs" color={iconColor} />}
                     />
                   );
                 })}
@@ -481,6 +618,12 @@ export function UnifiedCreateOverlay({
                   ]}
                   testID="ai-mode-button"
                 >
+                  <Icon
+                    name="Sparkles"
+                    size="xs"
+                    color={aiMode ? theme.colors.deepTeal.DEFAULT : theme.colors.text.primary}
+                    strokeWidth={2}
+                  />
                   <Text
                     style={[
                       styles.aiButtonText,
@@ -488,7 +631,7 @@ export function UnifiedCreateOverlay({
                       aiMode && { color: theme.colors.deepTeal.DEFAULT },
                     ]}
                   >
-                    Not sure? Let Gremly decide 🧠
+                    Not sure? Let Gremly decide
                   </Text>
                 </Pressable>
               </View>
@@ -570,6 +713,14 @@ export function UnifiedCreateOverlay({
                     subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
                     onSubtypeChange={setHabitSubtype}
                     disabled={false}
+                    frequencyValue={habitFrequencyValue}
+                    onFrequencyValueChange={setHabitFrequencyValue}
+                    reminders={habitReminders}
+                    onRemindersChange={setHabitReminders}
+                    details={habitDetails}
+                    onDetailsChange={setHabitDetails}
+                    breakHabitState={habitBreakState}
+                    onBreakHabitStateChange={setHabitBreakState}
                   />
                 )}
                 {selectedType === 'todo' && (
@@ -622,6 +773,15 @@ export function UnifiedCreateOverlay({
             {/* Space selector placeholder */}
             {/* TODO: Add ScopeSelector integration */}
           </ScrollView>
+
+          {/* Validation hint */}
+          {validation.hint && (
+            <View style={styles.validationHint}>
+              <Text style={[styles.validationHintText, { color: theme.colors.text.secondary }]}>
+                {validation.hint}
+              </Text>
+            </View>
+          )}
 
           {/* CTA bar */}
           <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
@@ -700,6 +860,9 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 24,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
     borderWidth: 2,
     borderColor: '#E7E2D9',
   },
@@ -724,5 +887,13 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
+  },
+  validationHint: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+  },
+  validationHintText: {
+    fontSize: 13,
+    fontStyle: 'italic',
   },
 });

@@ -50,6 +50,19 @@ const tableFor = (type: AppRecord['type']): string => {
   }
 };
 
+// Helper to map database habit columns to TypeScript fields
+// Database has: frequency_json, reminders_json, triggers_json (jsonb columns)
+// TypeScript has: frequency_value, reminders, triggers (fields)
+function mapHabitFromDb(dbRecord: any): any {
+  return {
+    ...dbRecord,
+    // Map jsonb columns to TS fields
+    frequency_value: dbRecord.frequency_json,
+    reminders: dbRecord.reminders_json,
+    triggers: dbRecord.triggers_json,
+  };
+}
+
 export class SupabaseRepo implements IRepo {
   private currentUserId: string | null = null;
 
@@ -84,19 +97,37 @@ export class SupabaseRepo implements IRepo {
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
+      if (!input.subtype) throw new Error('Habit requires subtype');
       // Build minimal payload with Insert schema validation
+      // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          title: input.title,
+          name: input.name ?? input.title, // Support both name and title for transition
           frequency: input.frequency,
-          subtype: input.subtype ?? null,
+          subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
           canonicalType: input.canonicalType ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? undefined,
+          // Extended habit fields - map to jsonb columns
+          frequency_json: input.frequency_value ?? undefined,
+          reminders_json: input.reminders ?? undefined,
+          notes: input.notes ?? null,
+          tags: input.tags ?? null,
+          buddy_id: input.buddy_id ?? null,
+          buddy_email: input.buddy_email ?? null,
+          stack_with_id: input.stack_with_id ?? null,
+          stack_position: input.stack_position ?? null,
+          stack_offset_minutes: input.stack_offset_minutes ?? null,
+          start_date: input.start_date ?? null,
+          end_date: input.end_date ?? null,
+          taper_plan: input.taper_plan ?? null,
+          triggers_json: input.triggers ?? undefined,
+          replacement_habit_id: input.replacement_habit_id ?? null,
+          replacement_text: input.replacement_text ?? null,
         }),
       );
 
@@ -179,7 +210,7 @@ export class SupabaseRepo implements IRepo {
 
     // Parse with Row schema to validate returned data (includes all fields)
     const record = { ...result, type: input.type };
-    if (input.type === 'habit') return habitZ.parse(record);
+    if (input.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
     if (input.type === 'todo') return todoZ.parse(record);
     return noteZ.parse(record);
   }
@@ -239,7 +270,7 @@ export class SupabaseRepo implements IRepo {
     if (!result) throw new Error('No data returned from update');
 
     const record = { ...result, type: existing.type };
-    if (existing.type === 'habit') return habitZ.parse(record);
+    if (existing.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
     if (existing.type === 'todo') return todoZ.parse(record);
     return noteZ.parse(record);
   }
@@ -272,7 +303,7 @@ export class SupabaseRepo implements IRepo {
 
       if (data) {
         const record = { ...data, type };
-        if (type === 'habit') return habitZ.parse(record);
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
         if (type === 'todo') return todoZ.parse(record);
         return noteZ.parse(record);
       }
@@ -317,7 +348,7 @@ export class SupabaseRepo implements IRepo {
 
     return data.map((item) => {
       const record = { ...item, type };
-      if (type === 'habit') return habitZ.parse(record);
+      if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
       if (type === 'todo') return todoZ.parse(record);
       return noteZ.parse(record);
     });
@@ -373,7 +404,7 @@ export class SupabaseRepo implements IRepo {
       if (data) {
         const parsed = data.map((item) => {
           const record = { ...item, type };
-          if (type === 'habit') return habitZ.parse(record);
+          if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
           if (type === 'todo') return todoZ.parse(record);
           return noteZ.parse(record);
         });
@@ -394,11 +425,11 @@ export class SupabaseRepo implements IRepo {
       .from('habits')
       .select('*')
       .eq('owner_id', userId)
-      .ilike('title', `%${q}%`);
+      .ilike('name', `%${q}%`); // Changed from 'title' to 'name' per Phase 7 spec
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
     if (habits) {
-      results.push(...habits.map((h) => habitZ.parse({ ...h, type: 'habit' })));
+      results.push(...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))));
     }
 
     // Search todos (title and body)
@@ -593,7 +624,9 @@ export class SupabaseRepo implements IRepo {
     if (notesResult.error) throw new Error(`Failed to list notes: ${notesResult.error.message}`);
 
     return {
-      habits: (habitsResult.data ?? []).map((h) => habitZ.parse({ ...h, type: 'habit' })),
+      habits: (habitsResult.data ?? []).map((h) =>
+        habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })),
+      ),
       todos: (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
       notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
     };

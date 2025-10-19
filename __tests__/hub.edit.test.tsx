@@ -32,7 +32,7 @@ const mockDataStore = {
       title: 'Morning Meditation',
       frequency: 'daily',
       space_id: null,
-      ai_placed: true, // AI-placed item
+      ai_placed: false, // Sorted item (not in unsorted section)
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-15T10:00:00Z',
       owner_id: 'test-user-id',
@@ -94,6 +94,7 @@ jest.mock('../providers/RepoProvider', () => ({
     listLinkedPeople: jest.fn().mockResolvedValue([]),
     listTags: jest.fn().mockResolvedValue(mockDataStore.tags),
     getUnsortedCount: jest.fn().mockResolvedValue(0),
+    countUnsorted: jest.fn().mockResolvedValue(0),
     update: mockUpdate,
   }),
 }));
@@ -163,7 +164,7 @@ describe('Hub Edit Item (Phase 7)', () => {
     // ManualAddOverlay should open in edit mode
     await waitFor(() => {
       // The overlay should render with habit form
-      expect(screen.getByTestId('manual-overlay')).toBeTruthy();
+      expect(screen.getByTestId('unified-overlay')).toBeTruthy();
     });
   });
 
@@ -184,7 +185,7 @@ describe('Hub Edit Item (Phase 7)', () => {
     fireEvent.press(screen.getByTestId('item-todo-edit-1'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('manual-overlay')).toBeTruthy();
+      expect(screen.getByTestId('unified-overlay')).toBeTruthy();
     });
   });
 
@@ -200,7 +201,7 @@ describe('Hub Edit Item (Phase 7)', () => {
     fireEvent.press(screen.getByTestId('item-habit-edit-1'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('manual-overlay')).toBeTruthy();
+      expect(screen.getByTestId('unified-overlay')).toBeTruthy();
     });
 
     // Simulate saving (in real implementation, this would be triggered by save button)

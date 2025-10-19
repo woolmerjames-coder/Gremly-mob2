@@ -18,7 +18,8 @@ import type { SpaceInsert } from '../schemas';
  */
 export interface CreateRecordInput {
   type: AppRecord['type'];
-  title: string;
+  name?: string; // For habits (Phase 7+)
+  title?: string; // For todos and notes
   body?: string;
   subtype?: NoteSubtype | HabitSubtype; // required when type === 'note', optional for habits
   frequency?: Frequency; // required when type === 'habit'
@@ -35,6 +36,23 @@ export interface CreateRecordInput {
   };
   // owner_id is optional - Supabase will set from auth context, Memory repo will use constructor userId
   owner_id?: ID;
+
+  // Extended habit fields (Phase 7+)
+  frequency_value?: any; // FrequencyValue JSON
+  reminders?: any[]; // ReminderRow[] JSON
+  notes?: string | null;
+  tags?: string[] | null;
+  buddy_id?: ID | null;
+  buddy_email?: string | null;
+  stack_with_id?: ID | null;
+  stack_position?: 'before' | 'after' | null;
+  stack_offset_minutes?: number | null;
+  start_date?: string | null; // ISO date
+  end_date?: string | null; // ISO date
+  taper_plan?: any | null; // TaperPlanState JSON
+  triggers?: string[] | null;
+  replacement_habit_id?: ID | null;
+  replacement_text?: string | null;
 }
 
 /**

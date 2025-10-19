@@ -22,8 +22,9 @@ const seed = (ownerId: string): AppRecord[] => {
   const h1: Habit = {
     id: genId('habit'),
     type: 'habit',
-    title: 'Drink water',
+    name: 'Drink water',
     frequency: 'daily',
+    subtype: 'start_habit',
     ai_placed: false,
     why_string: null,
     origin: null,
@@ -88,12 +89,13 @@ export class MemoryRepo implements IRepo {
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
+      if (!input.subtype) throw new Error('Habit requires subtype');
       rec = {
         id: genId('habit'),
         type: 'habit',
-        title: input.title,
+        name: (input.name ?? input.title) || 'Untitled Habit', // Support both name and title for transition
         frequency: input.frequency,
-        subtype: (input.subtype as import('../types').HabitSubtype | undefined) ?? null,
+        subtype: input.subtype as import('../types').HabitSubtype,
         space_id: input.space_id ?? null,
         ai_placed: !!input.ai_placed,
         created_at: now,
@@ -104,8 +106,26 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        // Extended habit fields (Phase 7+)
+        frequency_value: input.frequency_value,
+        reminders: input.reminders,
+        notes: input.notes ?? null,
+        tags: input.tags ?? null,
+        buddy_id: input.buddy_id ?? null,
+        buddy_email: input.buddy_email ?? null,
+        stack_with_id: input.stack_with_id ?? null,
+        stack_position: input.stack_position ?? null,
+        stack_offset_minutes: input.stack_offset_minutes ?? null,
+        start_date: input.start_date ?? null,
+        end_date: input.end_date ?? null,
+        // Break habit specific fields
+        taper_plan: input.taper_plan ?? null,
+        triggers: input.triggers ?? null,
+        replacement_habit_id: input.replacement_habit_id ?? null,
+        replacement_text: input.replacement_text ?? null,
       };
     } else if (input.type === 'todo') {
+      if (!input.title) throw new Error('Todo requires title');
       rec = {
         id: genId('todo'),
         type: 'todo',
@@ -208,7 +228,11 @@ export class MemoryRepo implements IRepo {
     const q = text.toLowerCase();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
-      const titleMatch = r.title?.toLowerCase().includes(q);
+      // For habits, search in 'name'; for todos/notes, search in 'title'
+      const titleMatch =
+        r.type === 'habit'
+          ? r.name?.toLowerCase().includes(q)
+          : (r.type === 'todo' || r.type === 'note') && r.title?.toLowerCase().includes(q);
       const bodyMatch =
         (r.type === 'todo' || r.type === 'note') && r.body?.toLowerCase().includes(q);
       return titleMatch || bodyMatch;

@@ -16,9 +16,9 @@ export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 export interface Habit {
   id: ID;
   type: 'habit';
-  title: string;
+  name: string; // Changed from 'title' per Phase 7 spec
   frequency: Frequency;
-  subtype?: HabitSubtype | null; // start_habit, break_habit, routine
+  subtype: HabitSubtype; // Required: start_habit | break_habit | routine
   space_id?: ID | null;
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
@@ -32,6 +32,25 @@ export interface Habit {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID
+
+  // Extended habit fields (Phase 7+)
+  frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)
+  reminders?: any[]; // ReminderRow[] JSON
+  notes?: string | null;
+  tags?: string[] | null;
+  buddy_id?: ID | null;
+  buddy_email?: string | null;
+  stack_with_id?: ID | null;
+  stack_position?: 'before' | 'after' | null;
+  stack_offset_minutes?: number | null;
+  start_date?: string | null; // ISO date
+  end_date?: string | null; // ISO date
+
+  // Break habit specific fields
+  taper_plan?: any | null; // TaperPlanState JSON
+  triggers?: string[] | null;
+  replacement_habit_id?: ID | null;
+  replacement_text?: string | null;
 }
 
 /**
