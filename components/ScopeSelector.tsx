@@ -43,7 +43,7 @@ export default function ScopeSelector({ selectedScope, spaces, onChange }: Scope
       <TouchableOpacity
         style={styles.button}
         onPress={() => setDropdownVisible(true)}
-        testID="scope-selector-btn"
+        testID="scope-selector"
       >
         <Text style={styles.buttonText}>{selectedScope.label} ▾</Text>
       </TouchableOpacity>
@@ -77,7 +77,13 @@ export default function ScopeSelector({ selectedScope, spaces, onChange }: Scope
                           styles.optionActive,
                       ]}
                       onPress={() => handleSelect(item)}
-                      testID={`scope-${item.type}${item.spaceId ? `-${item.spaceId}` : ''}`}
+                      testID={
+                        item.type === 'everywhere'
+                          ? 'scope-option-everywhere'
+                          : item.type === 'unassigned'
+                            ? 'scope-option-unassigned'
+                            : `scope-option-space-${item.spaceId}`
+                      }
                     >
                       <View style={styles.optionContent}>
                         {item.icon && <Text style={styles.icon}>{item.icon}</Text>}
