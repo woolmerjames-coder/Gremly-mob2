@@ -182,14 +182,14 @@ export default function HubScreen() {
         setPeople(allPeople);
 
         // Compute linked counts client-side (Phase 7: no entity_people table yet)
-        // Fetch all items to count links
-        const allHabits = await repo.listByType('habit', scopeOpts);
-        const allTodos = await repo.listByType('todo', scopeOpts);
-        const allJournal = await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] });
-        const allNotes = await repo.listByType('note', {
+        // Fetch all items to count links (reserved for Phase 8 implementation)
+        void (await repo.listByType('habit', scopeOpts));
+        void (await repo.listByType('todo', scopeOpts));
+        void (await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] }));
+        void (await repo.listByType('note', {
           ...scopeOpts,
           subtypes: ['idea', 'list', 'reference'],
-        });
+        }));
 
         // For Phase 7, since listLinkedPeople is a stub, we'll use placeholder counts
         // In a real implementation, we'd query entity_people table or use listLinkedPeople

@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import { fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import { Alert, ToastAndroid } from 'react-native';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 import CatchAllNotepad, { THINKING_DURATION } from '../app/screens/CatchAllNotepad';

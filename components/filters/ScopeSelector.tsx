@@ -49,12 +49,12 @@ export default function ScopeSelector({ spaces, value, onChange, testID }: Scope
             keyExtractor={(_, idx) => String(idx)}
             ItemSeparatorComponent={() => <View style={styles.sep} />}
             renderItem={({ item }) => {
-              if ((item as any).kind === 'divider') return <View style={styles.divider} />;
-              const opt = item as ScopeOption;
+              if (item.kind === 'divider') return <View style={styles.divider} />;
+              const opt = item;
               const selected =
                 (value.kind === 'everywhere' && opt.kind === 'everywhere') ||
                 (value.kind === 'unassigned' && opt.kind === 'unassigned') ||
-                (value.kind === 'space' && opt.kind === 'space' && value.id === (opt as any).id);
+                (value.kind === 'space' && opt.kind === 'space' && value.id === opt.id);
 
               return (
                 <Pressable
@@ -65,14 +65,14 @@ export default function ScopeSelector({ spaces, value, onChange, testID }: Scope
                   }}
                   testID={
                     opt.kind === 'space'
-                      ? `scope-option-space-${(opt as any).id}`
+                      ? `scope-option-space-${opt.id}`
                       : opt.kind === 'everywhere'
                         ? 'scope-option-everywhere'
                         : 'scope-option-unassigned'
                   }
                 >
-                  {opt.kind === 'space' && (opt as any).icon ? (
-                    <View style={styles.icon}>{(opt as any).icon}</View>
+                  {opt.kind === 'space' && opt.icon ? (
+                    <View style={styles.icon}>{opt.icon}</View>
                   ) : null}
                   <Text style={styles.rowText}>{opt.label}</Text>
                 </Pressable>

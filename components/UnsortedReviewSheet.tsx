@@ -8,7 +8,6 @@ import React from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { colors, radii, spacing, shadows } from '../theme/tokens';
 import { type as typeStyles } from '../theme/typography';
-import type { AppRecord } from '../lib/types';
 
 export type UnsortedItem = {
   id: string;
