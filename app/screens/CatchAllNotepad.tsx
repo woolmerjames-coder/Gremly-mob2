@@ -112,8 +112,9 @@ export default function CatchAllNotepad(): JSX.Element {
         body: trimmed,
         subtype: 'catchall',
         origin: 'catchall',
-        ai_placed: true,
-        why_string: 'Needs decision',
+        ai_placed: false, // Phase 7: Save to Hub actions set ai_placed=false by default
+        space_id: null, // CatchAllNotepad is not space-scoped (always saves to unassigned)
+        why_string: 'Saved from Catch-All Notepad',
         canonicalType: 'note',
         labels: ['catchall'],
         views: {

@@ -48,6 +48,8 @@ interface ManualAddOverlayProps {
   onSaved?: () => void;
   // Sheet mode - when true, don't wrap in Modal (already in a Sheet)
   isSheet?: boolean;
+  // Space context - inherit from Hub scope or Space screen
+  currentSpaceId?: string | null; // null = unassigned, undefined = everywhere
 }
 
 export function ManualAddOverlay({
@@ -63,6 +65,7 @@ export function ManualAddOverlay({
   itemId,
   onSaved,
   isSheet = false,
+  currentSpaceId,
 }: ManualAddOverlayProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [reminders, setReminders] = useState<TReminderRule[]>([]);
@@ -206,13 +209,16 @@ export function ManualAddOverlay({
         // Map classification to repo payload
         let finalPayload: CreateRecordInput;
 
+        // Determine space_id: use currentSpaceId if provided, otherwise null
+        const spaceId = currentSpaceId !== undefined ? currentSpaceId : null;
+
         if (!res) {
           finalPayload = {
             type: 'note',
             title: '',
             body: inputText,
             subtype: 'catchall',
-            space_id: null,
+            space_id: spaceId,
             ai_placed: false,
             why_string: 'Heuristic default.',
           };
@@ -224,7 +230,7 @@ export function ManualAddOverlay({
                 title: '',
                 body: inputText,
                 subtype: res.subtype || 'catchall',
-                space_id: null,
+                space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Heuristic default.',
               };
@@ -236,7 +242,7 @@ export function ManualAddOverlay({
                 body: inputText,
                 due_date: null,
                 undefined_due: res.undefinedDue,
-                space_id: null,
+                space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as todo.',
               };
@@ -247,7 +253,7 @@ export function ManualAddOverlay({
                 type: 'habit',
                 title: inputText,
                 frequency: res.type === 'habit' ? res.frequency : 'daily',
-                space_id: null,
+                space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as habit.',
               };

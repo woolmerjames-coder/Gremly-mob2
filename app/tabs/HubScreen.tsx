@@ -366,6 +366,10 @@ export default function HubScreen() {
 
   const handleManualAddSubmit = async (payload: ManualAddPayload) => {
     try {
+      // Determine space_id from current scope
+      const spaceId =
+        scope.type === 'space' ? scope.spaceId : scope.type === 'unassigned' ? null : null;
+
       switch (payload.type) {
         case 'habits':
           if (payload.subType === 'start') {
@@ -373,7 +377,7 @@ export default function HubScreen() {
               type: 'habit',
               title: payload.data.name,
               frequency: toRepoFrequency(payload.data.frequency),
-              space_id: payload.data.spaceId || null,
+              space_id: payload.data.spaceId || spaceId,
               ai_placed: false,
             });
           } else {
@@ -381,7 +385,7 @@ export default function HubScreen() {
               type: 'habit',
               title: `Break: ${payload.data.name}`,
               frequency: 'daily',
-              space_id: payload.data.spaceId || null,
+              space_id: payload.data.spaceId || spaceId,
               ai_placed: false,
             });
           }
@@ -392,7 +396,7 @@ export default function HubScreen() {
             title: payload.data.name,
             due_date: payload.data.deadline || null,
             undefined_due: !payload.data.deadline,
-            space_id: null,
+            space_id: spaceId,
             ai_placed: false,
           });
           break;
@@ -402,7 +406,7 @@ export default function HubScreen() {
             title: '',
             body: payload.data.entry,
             subtype: 'journal',
-            space_id: payload.data.spaceId || null,
+            space_id: payload.data.spaceId || spaceId,
             ai_placed: false,
           });
           break;
@@ -657,6 +661,9 @@ export default function HubScreen() {
         onCatchAllSaved={() => {
           void load();
         }}
+        currentSpaceId={
+          scope.type === 'space' ? scope.spaceId : scope.type === 'unassigned' ? null : undefined
+        }
       />
 
       {/* Manual Add Overlay - Edit Mode */}
