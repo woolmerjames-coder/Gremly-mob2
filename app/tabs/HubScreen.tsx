@@ -29,6 +29,8 @@ import type { ManualAddPayload } from '../../app/schemas/manualAdd';
 import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import TagFilterBar from '../../components/filters/TagFilterBar';
+import Chip from '../../components/ui/Chip';
+import EmptyState from '../../components/EmptyState';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
 
@@ -455,56 +457,30 @@ export default function HubScreen() {
             {/* Notes Subfilter Pills (only visible on Notes tab) */}
             {tab === 'Notes' && (
               <View style={styles.pillBar}>
-                <TouchableOpacity
-                  style={[styles.pill, notesSubfilter === 'all' && styles.pillActive]}
+                <Chip
+                  label="All"
+                  selected={notesSubfilter === 'all'}
                   onPress={() => setNotesSubfilter('all')}
                   testID="notes-filter-all"
-                >
-                  <Text
-                    style={[styles.pillText, notesSubfilter === 'all' && styles.pillTextActive]}
-                  >
-                    All
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.pill, notesSubfilter === 'idea' && styles.pillActive]}
+                />
+                <Chip
+                  label="Ideas"
+                  selected={notesSubfilter === 'idea'}
                   onPress={() => setNotesSubfilter('idea')}
                   testID="notes-filter-idea"
-                >
-                  <Text
-                    style={[styles.pillText, notesSubfilter === 'idea' && styles.pillTextActive]}
-                  >
-                    Ideas
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.pill, notesSubfilter === 'list' && styles.pillActive]}
+                />
+                <Chip
+                  label="Lists"
+                  selected={notesSubfilter === 'list'}
                   onPress={() => setNotesSubfilter('list')}
                   testID="notes-filter-list"
-                >
-                  <Text
-                    style={[styles.pillText, notesSubfilter === 'list' && styles.pillTextActive]}
-                  >
-                    Lists
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.pill, notesSubfilter === 'reference' && styles.pillActive]}
+                />
+                <Chip
+                  label="Reference"
+                  selected={notesSubfilter === 'reference'}
                   onPress={() => setNotesSubfilter('reference')}
                   testID="notes-filter-reference"
-                >
-                  <Text
-                    style={[
-                      styles.pillText,
-                      notesSubfilter === 'reference' && styles.pillTextActive,
-                    ]}
-                  >
-                    Reference
-                  </Text>
-                </TouchableOpacity>
+                />
               </View>
             )}
 
@@ -578,21 +554,41 @@ export default function HubScreen() {
               </View>
             )}
 
-            {/* Empty state */}
-            {isEmpty && !loading && !error && (
-              <View style={styles.emptyCard}>
-                <Text style={[typeStyles.h2, { textAlign: 'center' }]}>Nothing here yet</Text>
-                <Text style={[typeStyles.body, { textAlign: 'center', marginTop: spacing.sm }]}>
-                  Add items to get started.
-                </Text>
-                <TouchableOpacity
-                  style={styles.addBtn}
-                  onPress={() => setOverlayVisible(true)}
-                  testID="hub-empty-add"
-                >
-                  <Text style={styles.addText}>Add More</Text>
-                </TouchableOpacity>
-              </View>
+            {/* Empty states per tab */}
+            {tab === 'Habits' && isEmpty && !loading && !error && (
+              <EmptyState
+                testID="empty-habits"
+                title="No Habits yet"
+                subtitle="Try a simple daily nudge."
+              />
+            )}
+            {tab === 'To-Dos' && isEmpty && !loading && !error && (
+              <EmptyState
+                testID="empty-todos"
+                title="No To-Dos yet"
+                subtitle="Start small. Add one thing for today."
+              />
+            )}
+            {tab === 'Journal' && isEmpty && !loading && !error && (
+              <EmptyState
+                testID="empty-journal"
+                title="No Journal entries"
+                subtitle="Write one line to begin."
+              />
+            )}
+            {tab === 'Notes' && isEmpty && !loading && !error && (
+              <EmptyState
+                testID="empty-notes"
+                title="No Notes yet"
+                subtitle="Capture ideas, lists, and references."
+              />
+            )}
+            {tab === 'People' && people.length === 0 && !loading && !error && (
+              <EmptyState
+                testID="empty-people"
+                title="No People yet"
+                subtitle="Add contacts in Phase 8."
+              />
             )}
 
             {/* Needs Sorting (AI / unsorted) */}
