@@ -13,24 +13,21 @@ import {
   TouchableOpacity,
   FlatList,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../../navigation/RootNavigator';
+
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import SegmentedTabs from '../../components/SegmentedTabs';
+import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { ManualAddOverlay } from '../../components/ManualAddOverlay';
 import { toRepoFrequency } from '../../app/schemas/manualAdd';
 import type { ManualAddPayload } from '../../app/schemas/manualAdd';
-import type { AppRecord } from '../../lib/types';
+import type { AppRecord, Space, Person } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-type Tab = 'All' | 'Habits' | 'To-Dos' | 'Journal' | 'Catch-All';
+type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
 
 // Helper to condense long text into short titles
 export function suggestShortTitle(text: string, maxWords = 5): string {
@@ -41,22 +38,25 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
 }
 
 export default function HubScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  // const navigation = useNavigation<NavigationProp>(); // Unused for now
   const repo = useRepo();
   const { user } = useAuth();
 
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('All');
+  const [tab, setTab] = useState<Tab>('Habits');
+  const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editItem, setEditItem] = useState<AppRecord | null>(null);
 
   // Helper to filter out archived items
-  const isVisible = useCallback((item: AppRecord) => !item.archived, []);
+  // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
 
   // Convert AppRecord to HubItem
   const toHubItem = useCallback((item: AppRecord): HubItem => {
@@ -103,22 +103,49 @@ export default function HubScreen() {
     setLoading(true);
     setError(null);
     try {
-      const [allHabits, allTodos, allNotes] = await Promise.all([
-        repo.listByType('habit'),
-        repo.listByType('todo'),
-        repo.listByType('note'),
-      ]);
+      // Load spaces
+      const allSpaces = await repo.listSpaces();
+      setSpaces(allSpaces);
 
-      const allItems = [...allHabits, ...allTodos, ...allNotes];
+      // Build scope options for listByType
+      const scopeOpts =
+        scope.type === 'unassigned'
+          ? { unassignedOnly: true }
+          : scope.type === 'space'
+            ? { spaceId: scope.spaceId }
+            : {}; // everywhere
+
+      // Load data based on current tab
+      let data: AppRecord[] | Person[] = [];
+
+      if (tab === 'Habits') {
+        data = await repo.listByType('habit', scopeOpts);
+      } else if (tab === 'To-Dos') {
+        data = await repo.listByType('todo', scopeOpts);
+      } else if (tab === 'Journal') {
+        data = await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] });
+      } else if (tab === 'Notes') {
+        data = await repo.listByType('note', {
+          ...scopeOpts,
+          subtypes: ['idea', 'list', 'reference'],
+        });
+      } else if (tab === 'People') {
+        const allPeople = await repo.listPeople();
+        setPeople(allPeople);
+        setItems([]);
+        setLoading(false);
+        return;
+      }
 
       // Sort by updated_at (most recent first)
-      allItems.sort((a, b) => {
+      const records = data as AppRecord[];
+      records.sort((a, b) => {
         const dateA = new Date(a.updated_at || a.created_at).getTime();
         const dateB = new Date(b.updated_at || b.created_at).getTime();
         return dateB - dateA;
       });
 
-      setItems(allItems);
+      setItems(records);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load hub data';
       console.error('Failed to load hub data:', err);
@@ -126,36 +153,23 @@ export default function HubScreen() {
     } finally {
       setLoading(false);
     }
-  }, [repo, user]);
+  }, [repo, user, tab, scope]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Filter items by tab
-  const filteredByTab = useMemo(() => {
-    return items.filter((item) => {
-      if (!isVisible(item)) return false;
-
-      if (tab === 'All') return true;
-      if (tab === 'Habits') return item.type === 'habit';
-      if (tab === 'To-Dos') return item.type === 'todo';
-      if (tab === 'Journal') return item.type === 'note' && item.subtype === 'journal';
-      if (tab === 'Catch-All') return item.origin === 'catchall';
-      return true;
-    });
-  }, [items, tab, isVisible]);
-
-  // Filter by search
+  // Filter by search (items are already filtered by tab via load())
   const filteredAll = useMemo(() => {
-    if (!search.trim()) return filteredByTab;
+    if (tab === 'People') return []; // People handled separately
+    if (!search.trim()) return items;
     const needle = search.toLowerCase();
-    return filteredByTab.filter((item) => {
+    return items.filter((item) => {
       const haystack =
         `${item.title ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [filteredByTab, search]);
+  }, [items, search, tab]);
 
   // Split into needs sorting (AI) and everything else
   const needsSorting = useMemo(
@@ -266,6 +280,12 @@ export default function HubScreen() {
               Hub
             </Text>
 
+            {/* Scope Selector */}
+            <View style={{ marginTop: spacing.md, marginHorizontal: spacing.md }}>
+              <ScopeSelector selectedScope={scope} spaces={spaces} onChange={setScope} />
+            </View>
+
+            {/* Tabs */}
             <View style={{ marginTop: spacing.md }}>
               <SegmentedTabs value={tab} onChange={setTab} />
             </View>
@@ -310,7 +330,7 @@ export default function HubScreen() {
               <View style={styles.emptyCard}>
                 <Text style={[typeStyles.h2, { textAlign: 'center' }]}>Nothing here yet</Text>
                 <Text style={[typeStyles.body, { textAlign: 'center', marginTop: spacing.sm }]}>
-                  Drop something in Catch All to start.
+                  Add items to get started.
                 </Text>
                 <TouchableOpacity
                   style={styles.addBtn}
@@ -341,18 +361,43 @@ export default function HubScreen() {
               </View>
             )}
 
-            {/* Everything */}
-            {!isEmpty && !error && (
+            {/* Section header for main list */}
+            {!isEmpty && !error && tab !== 'People' && (
               <View style={styles.section}>
-                <Text style={typeStyles.h2}>Everything</Text>
+                <Text style={typeStyles.h2}>{tab}</Text>
                 <Text style={[typeStyles.subtitle, { marginTop: 2 }]}>
                   {allItems.length} item(s)
                 </Text>
               </View>
             )}
+
+            {/* People tab content */}
+            {tab === 'People' && !loading && (
+              <View style={styles.section}>
+                <Text style={typeStyles.h2}>People</Text>
+                {people.length === 0 && (
+                  <Text style={[typeStyles.body, { marginTop: spacing.md, color: colors.gray400 }]}>
+                    No people added yet
+                  </Text>
+                )}
+                {people.map((person) => (
+                  <View key={person.id} style={styles.personCard} testID={`person-${person.id}`}>
+                    {person.avatar && <Text style={styles.avatar}>{person.avatar}</Text>}
+                    <View style={{ flex: 1 }}>
+                      <Text style={typeStyles.body}>{person.name}</Text>
+                      {person.email && (
+                        <Text style={[typeStyles.meta, { color: colors.gray400 }]}>
+                          {person.email}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         }
-        data={allItems}
+        data={tab === 'People' ? [] : allItems}
         keyExtractor={(x) => x.id}
         renderItem={({ item }) => (
           <HubItemCard
@@ -362,7 +407,7 @@ export default function HubScreen() {
           />
         )}
         ListFooterComponent={
-          !isEmpty && !error ? (
+          !isEmpty && !error && tab !== 'People' ? (
             <TouchableOpacity
               style={styles.addBtn}
               onPress={() => setOverlayVisible(true)}
@@ -443,4 +488,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   addText: { color: colors.cream, fontWeight: '700', fontSize: 16 },
+  personCard: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radii.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  avatar: {
+    fontSize: 32,
+  },
 });

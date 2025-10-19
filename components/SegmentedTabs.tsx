@@ -1,13 +1,13 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { colors, radii, spacing } from '../theme/tokens';
 
-type Tab = 'All' | 'Habits' | 'To-Dos' | 'Journal' | 'Catch-All';
+type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
 
 export default function SegmentedTabs({
   value,
   onChange,
-  tabs = ['All', 'Habits', 'To-Dos', 'Journal', 'Catch-All'] as Tab[],
+  tabs = ['Habits', 'To-Dos', 'Journal', 'Notes', 'People'] as Tab[],
 }: {
   value: Tab;
   onChange: (t: Tab) => void;
