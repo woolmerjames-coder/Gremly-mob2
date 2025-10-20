@@ -13,16 +13,20 @@ export default function TagFilterBar({
   tags,
   selectedTagIds,
   onToggleTag,
+  onClearAll,
   testID,
 }: {
   tags: Tag[];
   selectedTagIds: string[];
   onToggleTag: (tagId: string) => void;
+  onClearAll?: () => void;
   testID?: string;
 }) {
   if (tags.length === 0) {
     return null; // Don't show empty filter bar
   }
+
+  const hasSelection = selectedTagIds.length > 0;
 
   return (
     <View style={styles.container} testID={testID}>
@@ -45,11 +49,25 @@ export default function TagFilterBar({
               ]}
               onPress={() => onToggleTag(tag.id)}
               testID={`tag-filter-${tag.id}`}
+              accessibilityLabel={`${tag.name} tag. ${isSelected ? 'Selected' : 'Not selected'}`}
+              accessibilityRole="button"
+              accessibilityHint="Tap to toggle filter"
             >
               <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{tag.name}</Text>
             </TouchableOpacity>
           );
         })}
+        {hasSelection && onClearAll && (
+          <TouchableOpacity
+            style={styles.clearButton}
+            onPress={onClearAll}
+            testID="tag-filter-clear"
+            accessibilityLabel="Clear all filters"
+            accessibilityRole="button"
+          >
+            <Text style={styles.clearButtonText}>Clear</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   );
@@ -82,5 +100,18 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: colors.white,
+  },
+  clearButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.xl,
+    backgroundColor: colors.gray200,
+    borderWidth: 1,
+    borderColor: colors.gray400,
+  },
+  clearButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink,
   },
 });

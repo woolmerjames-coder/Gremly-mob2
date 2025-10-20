@@ -635,6 +635,24 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to delete space: ${error.message}`);
   }
 
+  async getSpaceSummary(spaceId: string): Promise<string | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('summary_cached')
+      .eq('id', spaceId)
+      .eq('owner_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw new Error(`Failed to get space summary: ${error.message}`);
+    }
+
+    return data?.summary_cached ?? null;
+  }
+
   async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
     const userId = this.ensureUserId();
 
@@ -674,13 +692,20 @@ export class SupabaseRepo implements IRepo {
   }
 
   // ==========================
-  // TAG AND PEOPLE METHODS (Phase 7+ stubs)
+  // TAG AND PEOPLE METHODS (Phase 7+)
   // ==========================
 
   async listTags(): Promise<Tag[]> {
-    // Stub: Return empty array until tags table is implemented
-    // In future: query 'tags' table with owner_id filter
-    return [];
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('user_id', this.currentUserId)
+      .order('name', { ascending: true });
+
+    if (error) throw new Error(`Failed to list tags: ${error.message}`);
+    return (data || []) as Tag[];
   }
 
   async listPeople(): Promise<Person[]> {
@@ -811,6 +836,166 @@ export class SupabaseRepo implements IRepo {
   }
 
   // ==========================
+  // PHASE 8: TAGS & PEOPLE LINKING
+  // ==========================
+
+  /**
+   * Upsert a tag (create if doesn't exist, return existing if it does)
+   */
+  async upsertTag(name: string): Promise<import('./types').Tag> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    // Try to insert
+    const { data: insertData, error: insertError } = await supabase
+      .from('tags')
+      .insert({ user_id: this.currentUserId, name })
+      .select()
+      .single();
+
+    // If no error, return the new tag
+    if (!insertError && insertData) {
+      return insertData;
+    }
+
+    // If unique constraint violation (code 23505), fetch existing tag
+    if (insertError && insertError.code === '23505') {
+      const { data: existingData, error: selectError } = await supabase
+        .from('tags')
+        .select('*')
+        .eq('user_id', this.currentUserId)
+        .eq('name', name)
+        .single();
+
+      if (selectError) throw new Error(`Failed to fetch existing tag: ${selectError.message}`);
+      if (!existingData) throw new Error('Tag not found after unique constraint violation');
+      return existingData;
+    }
+
+    // Other error
+    throw new Error(`Failed to upsert tag: ${insertError?.message || 'Unknown error'}`);
+  }
+
+  /**
+   * List all tags linked to a specific item
+   */
+  async listItemTags(itemId: string): Promise<import('./types').Tag[]> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('tag_map')
+      .select('tag_id, tags(*)')
+      .eq('user_id', this.currentUserId)
+      .eq('item_id', itemId);
+
+    if (error) throw new Error(`Failed to list item tags: ${error.message}`);
+
+    // Extract tags from joined data
+    return (data || []).map((row: any) => row.tags).filter(Boolean);
+  }
+
+  /**
+   * Link a tag to an item
+   */
+  async linkTag(params: {
+    itemId: string;
+    tagId: string;
+    itemType: import('./types').ItemType;
+  }): Promise<import('./types').TagMap> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('tag_map')
+      .insert({
+        user_id: this.currentUserId,
+        item_id: params.itemId,
+        tag_id: params.tagId,
+        item_type: params.itemType,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to link tag: ${error.message}`);
+    if (!data) throw new Error('Failed to link tag: no data returned');
+    return data;
+  }
+
+  /**
+   * Unlink a tag from an item
+   */
+  async unlinkTag(params: { itemId: string; tagId: string }): Promise<void> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { error } = await supabase
+      .from('tag_map')
+      .delete()
+      .eq('user_id', this.currentUserId)
+      .eq('item_id', params.itemId)
+      .eq('tag_id', params.tagId);
+
+    if (error) throw new Error(`Failed to unlink tag: ${error.message}`);
+  }
+
+  /**
+   * List all people linked to a specific item
+   */
+  async listLinkedPeopleByItem(itemId: string): Promise<import('./types').EntityPerson[]> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('entity_people')
+      .select('*')
+      .eq('user_id', this.currentUserId)
+      .eq('item_id', itemId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to list linked people: ${error.message}`);
+    return data || [];
+  }
+
+  /**
+   * Link a person to an item
+   */
+  async linkPerson(params: {
+    itemId: string;
+    itemType: import('./types').ItemType;
+    person_name?: string;
+    person_email?: string;
+  }): Promise<import('./types').EntityPerson> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('entity_people')
+      .insert({
+        user_id: this.currentUserId,
+        item_id: params.itemId,
+        item_type: params.itemType,
+        person_name: params.person_name || null,
+        person_email: params.person_email || null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to link person: ${error.message}`);
+    if (!data) throw new Error('Failed to link person: no data returned');
+    return data;
+  }
+
+  /**
+   * Unlink a person from an item
+   */
+  async unlinkPerson(entityPersonId: string): Promise<void> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { error } = await supabase
+      .from('entity_people')
+      .delete()
+      .eq('user_id', this.currentUserId)
+      .eq('id', entityPersonId);
+
+    if (error) throw new Error(`Failed to unlink person: ${error.message}`);
+  }
+
+  // ==========================
   // BUDDY METHODS (Phase 5+ stubs)
   // ==========================
 
@@ -826,5 +1011,105 @@ export class SupabaseRepo implements IRepo {
   }
   async unlinkBuddy(): Promise<void> {
     /* no-op */
+  }
+}
+
+/**
+ * SupabaseSpaceChatRepo - Space chat management (Phase 8+ Spaces v2)
+ */
+export class SupabaseSpaceChatRepo {
+  constructor(private currentUserId?: string) {}
+
+  private ensureUserId(): string {
+    if (!this.currentUserId) throw new Error('User ID not available');
+    return this.currentUserId;
+  }
+
+  async list(
+    spaceId: string,
+    opts?: { includeArchived?: boolean },
+  ): Promise<import('../types').SpaceChat[]> {
+    const userId = this.ensureUserId();
+
+    let query = supabase
+      .from('space_chats')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('space_id', spaceId);
+
+    if (!opts?.includeArchived) {
+      query = query.is('archived_at', null);
+    }
+
+    query = query.order('pinned', { ascending: false }).order('updated_at', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) throw new Error(`Failed to list space chats: ${error.message}`);
+
+    return (data || []) as import('../types').SpaceChat[];
+  }
+
+  async create(
+    spaceId: string,
+    input: import('../types').SpaceChatCreateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .insert({
+        user_id: userId,
+        space_id: spaceId,
+        title: input.title,
+        pinned: false,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create space chat: ${error.message}`);
+    if (!data) throw new Error('No data returned from create space chat');
+
+    return data as import('../types').SpaceChat;
+  }
+
+  async update(
+    chatId: string,
+    patch: import('../types').SpaceChatUpdateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const userId = this.ensureUserId();
+
+    const updatePayload: Record<string, unknown> = {};
+
+    if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
+    if ('pinned' in patch) updatePayload.pinned = patch.pinned;
+    if ('last_message_snippet' in patch)
+      updatePayload.last_message_snippet = patch.last_message_snippet ?? null;
+    if ('metadata_json' in patch) updatePayload.metadata_json = patch.metadata_json ?? null;
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .update(updatePayload)
+      .eq('id', chatId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update space chat: ${error.message}`);
+    if (!data) throw new Error('No data returned from update space chat');
+
+    return data as import('../types').SpaceChat;
+  }
+
+  async delete(chatId: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    const { error } = await supabase
+      .from('space_chats')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', chatId)
+      .eq('user_id', userId);
+
+    if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
   }
 }

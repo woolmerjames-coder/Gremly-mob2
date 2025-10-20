@@ -15,11 +15,13 @@ import { UnifiedCreateOverlay } from '../components/overlay/UnifiedCreateOverlay
 import { useRepo } from '../providers/RepoProvider';
 import { useCortex } from '../providers/CortexProvider';
 import { useTheme } from '../providers/ThemeProvider';
+import { useAuth } from '../providers/AuthProvider';
 
 // Mock dependencies
 jest.mock('../providers/RepoProvider');
 jest.mock('../providers/CortexProvider');
 jest.mock('../providers/ThemeProvider');
+jest.mock('../providers/AuthProvider');
 
 const mockRepo = {
   create: jest.fn(),
@@ -33,10 +35,22 @@ const mockCortex = {
   classify: jest.fn(),
 };
 
+const mockAuth = {
+  user: { id: 'test-user-123', email: 'test@example.com' },
+  userId: 'test-user-123',
+  session: null,
+  signIn: jest.fn(),
+  signOut: jest.fn(),
+  signUp: jest.fn(),
+  loading: false,
+  error: null,
+};
+
 // Helper to wrap with providers
 const renderWithProviders = (component: React.ReactElement) => {
   (useRepo as jest.Mock).mockReturnValue(mockRepo);
   (useCortex as jest.Mock).mockReturnValue(mockCortex);
+  (useAuth as jest.Mock).mockReturnValue(mockAuth);
   (useTheme as jest.Mock).mockReturnValue({
     theme: {
       mode: 'light',

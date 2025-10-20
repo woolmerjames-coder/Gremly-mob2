@@ -18,6 +18,7 @@ export type HubItem = {
   tags?: Tag[]; // Up to 2 tags to display
   spaceName?: string; // Space name to display (only when scope is "Everywhere")
   showSpaceChip?: boolean; // Whether to show space chip (true when scope is Everywhere)
+  spaceId?: string | null; // Space ID for navigation
 };
 
 const kindIconName: Record<HubKind, 'Activity' | 'CheckCircle2' | 'FileText'> = {
@@ -31,12 +32,14 @@ export default function HubItemCard({
   onPress,
   onMove,
   showMove,
+  onSpacePress,
   testID,
 }: {
   item: HubItem;
   onPress?: () => void;
   onMove?: () => void;
   showMove?: boolean;
+  onSpacePress?: (spaceId: string) => void;
   testID?: string;
 }) {
   return (
@@ -62,11 +65,15 @@ export default function HubItemCard({
             )}
 
             {/* Space chip (only when showSpaceChip is true and spaceName exists) */}
-            {item.showSpaceChip && item.spaceName && (
-              <View style={styles.spaceChip} testID="space-chip">
+            {item.showSpaceChip && item.spaceName && item.spaceId && (
+              <TouchableOpacity
+                style={styles.spaceChip}
+                onPress={() => onSpacePress?.(item.spaceId!)}
+                testID="space-chip"
+              >
                 <Icon name="MapPin" size="xs" color={colors.deepTeal} />
                 <Text style={styles.spaceChipText}>{item.spaceName}</Text>
-              </View>
+              </TouchableOpacity>
             )}
 
             {/* Tag chips (show up to 2) */}

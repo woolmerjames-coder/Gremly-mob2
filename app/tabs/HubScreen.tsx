@@ -13,6 +13,9 @@ import {
   TouchableOpacity,
   FlatList,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -42,7 +45,7 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
 }
 
 export default function HubScreen() {
-  // const navigation = useNavigation<NavigationProp>(); // Unused for now
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { user } = useAuth();
 
@@ -125,6 +128,7 @@ export default function HubScreen() {
         tags,
         spaceName,
         showSpaceChip,
+        spaceId: item.space_id, // Add space_id for navigation
       };
     },
     [itemTags, scope.type, spaces],
@@ -139,13 +143,35 @@ export default function HubScreen() {
 
     setLoading(true);
     setError(null);
+
+    // Phase 8 feature flag check (used throughout this function)
+    const usePhase8 = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
+
     try {
       // Load spaces, tags, and unsorted count
       const allSpaces = await repo.listSpaces();
       setSpaces(allSpaces);
 
-      const allTags = await repo.listTags();
-      setTags(allTags);
+      // Phase 8: Load tags from new Phase 8 table if feature enabled
+      if (usePhase8) {
+        try {
+          const phase8Tags = await (repo as any).listTags();
+          // Convert Phase 8 tags to old Tag format for compatibility
+          setTags(
+            phase8Tags.map((t: any) => ({
+              id: t.id,
+              name: t.name,
+              color: colors.deepTeal, // Phase 8 tags don't have color yet
+            })),
+          );
+        } catch (error) {
+          console.error('[Hub] Failed to load Phase 8 tags:', error);
+          setTags([]);
+        }
+      } else {
+        const allTags = await repo.listTags();
+        setTags(allTags);
+      }
 
       const count = await repo.countUnsorted();
       setUnsortedCount(count);
@@ -236,23 +262,50 @@ export default function HubScreen() {
 
       setItems(records);
 
-      // Fetch linked tags for all items (Phase 7: read-only)
+      // Phase 8: Fetch linked tags using new method if feature enabled
       const tagsMap = new Map<string, Tag[]>();
-      await Promise.all(
-        records.map(async (record) => {
-          try {
-            const linkedTags = await repo.listLinkedTags({
-              type: record.type,
-              id: record.id,
-            });
-            if (linkedTags.length > 0) {
-              tagsMap.set(record.id, linkedTags);
+
+      if (usePhase8) {
+        // Use Phase 8 listItemTags method
+        await Promise.all(
+          records.map(async (record) => {
+            try {
+              const linkedTags = await (repo as any).listItemTags(record.id);
+              if (linkedTags.length > 0) {
+                // Convert Phase 8 tags to old Tag format
+                tagsMap.set(
+                  record.id,
+                  linkedTags.map((t: any) => ({
+                    id: t.id,
+                    name: t.name,
+                    color: colors.deepTeal,
+                  })),
+                );
+              }
+            } catch (err) {
+              console.error(`[Hub] Failed to load Phase 8 tags for ${record.id}:`, err);
             }
-          } catch (err) {
-            console.error(`Failed to load tags for ${record.id}:`, err);
-          }
-        }),
-      );
+          }),
+        );
+      } else {
+        // Use old listLinkedTags method
+        await Promise.all(
+          records.map(async (record) => {
+            try {
+              const linkedTags = await repo.listLinkedTags({
+                type: record.type,
+                id: record.id,
+              });
+              if (linkedTags.length > 0) {
+                tagsMap.set(record.id, linkedTags);
+              }
+            } catch (err) {
+              console.error(`[Hub] Failed to load tags for ${record.id}:`, err);
+            }
+          }),
+        );
+      }
+
       setItemTags(tagsMap);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load hub data';
@@ -277,9 +330,25 @@ export default function HubScreen() {
   // Filter by search (items are already filtered by tab via load())
   const filteredAll = useMemo(() => {
     if (tab === 'People') return []; // People handled separately
-    if (!search.trim()) return items;
+
+    let filtered = items;
+
+    // Phase 8: Client-side tag filtering when tags are selected
+    if (selectedTagIds.length > 0) {
+      const usePhase8 = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
+      if (usePhase8) {
+        // Filter items by selected tags (item must have at least one selected tag)
+        filtered = filtered.filter((item) => {
+          const itemTagsList = itemTags.get(item.id) || [];
+          return itemTagsList.some((tag) => selectedTagIds.includes(tag.id));
+        });
+      }
+    }
+
+    // Then apply search filter
+    if (!search.trim()) return filtered;
     const needle = search.toLowerCase();
-    return items.filter((item) => {
+    return filtered.filter((item) => {
       const titleText =
         item.type === 'habit' || item.type === 'todo'
           ? 'name' in item
@@ -292,7 +361,7 @@ export default function HubScreen() {
         `${titleText ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [items, search, tab]);
+  }, [items, search, tab, selectedTagIds, itemTags]);
 
   // Split into needs sorting (AI) and everything else
   const needsSorting = useMemo(
@@ -373,8 +442,14 @@ export default function HubScreen() {
 
   const handleToggleTag = useCallback((tagId: string) => {
     setSelectedTagIds((prev) => {
+      // Phase 8 polish: Prevent duplicates explicitly
       if (prev.includes(tagId)) {
         return prev.filter((id) => id !== tagId);
+      }
+      // Guard against accidental duplicates
+      if (prev.find((id) => id === tagId)) {
+        console.warn('Tag already selected:', tagId);
+        return prev;
       }
       return [...prev, tagId];
     });
@@ -470,6 +545,7 @@ export default function HubScreen() {
                 tags={tags}
                 selectedTagIds={selectedTagIds}
                 onToggleTag={handleToggleTag}
+                onClearAll={() => setSelectedTagIds([])}
                 testID="tag-filter-bar"
               />
             )}
@@ -611,6 +687,7 @@ export default function HubScreen() {
           <HubItemCard
             item={item}
             onPress={() => handleItemPress(item)}
+            onSpacePress={(spaceId) => navigation.navigate('SpaceHome', { spaceId })}
             testID={`item-${item.id}`}
           />
         )}

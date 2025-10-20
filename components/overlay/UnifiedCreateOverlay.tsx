@@ -27,13 +27,18 @@ import { TodoFields } from './fields/TodoFields';
 import { JournalFields } from './fields/JournalFields';
 import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
 import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
+import { TagEditor } from './fields/TagEditor';
+import { PeopleLinker } from './fields/PeopleLinker';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import type { AppRecord, Frequency, HabitSubtype } from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
+import type { ItemType } from '../../lib/repo/types';
+import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import {
   mapHabitToForm,
   mapTodoToForm,
@@ -78,10 +83,12 @@ export function UnifiedCreateOverlay({
   const repo = useRepo();
   const cortex = useCortex();
   const { theme } = useTheme();
+  const { userId } = useAuth();
 
-  // Feature flag check - default to true for tests
+  // Feature flag checks
   const useUnifiedOverlay =
     process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' || process.env.NODE_ENV === 'test';
+  const usePhase8Features = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
 
   // Safety log in dev
   if (__DEV__ && visible) {
@@ -148,6 +155,21 @@ export function UnifiedCreateOverlay({
     spaceId: null,
     tags: [],
   });
+
+  // Phase 8: Tags and People linking state
+  const getItemType = (): ItemType | null => {
+    if (!selectedType) return null;
+    if (selectedType === 'journal') return 'note'; // journal is a note subtype
+    if (selectedType === 'person') return null; // persons don't support tags/people linking yet
+    return selectedType as ItemType;
+  };
+
+  const phase8Links = usePhase8LinksState(
+    repo,
+    userId || '',
+    mode === 'edit' ? initialEntity?.id || null : null,
+    getItemType(),
+  );
 
   // Validation logic
   const getValidationState = (): { isValid: boolean; hint: string | null } => {
@@ -427,6 +449,37 @@ export function UnifiedCreateOverlay({
         };
 
         const result = await repo.create(input);
+
+        // Phase 8: Flush pending tags and people for catchall too
+        if (
+          usePhase8Features &&
+          result.id &&
+          phase8Links.pendingTagIds.length + phase8Links.pendingPeople.length > 0
+        ) {
+          const itemType: ItemType = 'note'; // catchall is a note subtype
+
+          for (const tagId of phase8Links.pendingTagIds) {
+            try {
+              await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
+            } catch (error) {
+              console.error('[Phase8] Failed to link pending tag to catchall:', error);
+            }
+          }
+
+          for (const person of phase8Links.pendingPeople) {
+            try {
+              await (repo as any).linkPerson({
+                itemId: result.id,
+                itemType,
+                personName: person.personName,
+                personEmail: person.personEmail,
+              });
+            } catch (error) {
+              console.error('[Phase8] Failed to link pending person to catchall:', error);
+            }
+          }
+        }
+
         onSaved?.({ type: 'note', id: result.id });
         showToast('Saved to the Hub.');
         handleClose();
@@ -504,6 +557,37 @@ export function UnifiedCreateOverlay({
         // Other types use standard create
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
+
+        // Phase 8: Flush pending tags and people after successful create
+        if (usePhase8Features && result.id && getItemType()) {
+          const itemType = getItemType()!;
+
+          // Link pending tags
+          for (const tagId of phase8Links.pendingTagIds) {
+            try {
+              await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
+            } catch (error) {
+              console.error('[Phase8] Failed to link pending tag:', tagId, error);
+              // Continue - don't fail the save
+            }
+          }
+
+          // Link pending people
+          for (const person of phase8Links.pendingPeople) {
+            try {
+              await (repo as any).linkPerson({
+                itemId: result.id,
+                itemType,
+                personName: person.personName,
+                personEmail: person.personEmail,
+              });
+            } catch (error) {
+              console.error('[Phase8] Failed to link pending person:', person, error);
+              // Continue - don't fail the save
+            }
+          }
+        }
+
         onSaved?.({ type: selectedType, id: result.id });
         showToast('Saved to the Hub.');
         handleClose();
@@ -986,6 +1070,43 @@ export function UnifiedCreateOverlay({
                 );
               })()}
 
+            {/* Phase 8: Tags & People linking - behind feature flag */}
+            {usePhase8Features &&
+              !aiMode &&
+              selectedType &&
+              selectedType !== 'person' &&
+              getItemType() && (
+                <View style={styles.relationshipsSection}>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
+                    Tags & People
+                  </Text>
+                  <TagEditor
+                    userId={userId || ''}
+                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                    itemType={getItemType()!}
+                    currentTags={phase8Links.currentTags}
+                    allTags={phase8Links.allTags}
+                    onTagsChange={(tags) => {
+                      // Tags are managed by the hook; this is just for UI sync if needed
+                    }}
+                    onAddTag={phase8Links.addTag}
+                    onLinkTag={phase8Links.linkTag}
+                    onUnlinkTag={phase8Links.unlinkTag}
+                  />
+                  <PeopleLinker
+                    userId={userId || ''}
+                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                    itemType={getItemType()!}
+                    linkedPeople={phase8Links.linkedPeople}
+                    onPeopleChange={(people) => {
+                      // People are managed by the hook; this is just for UI sync if needed
+                    }}
+                    onLinkPerson={phase8Links.linkPerson}
+                    onUnlinkPerson={phase8Links.unlinkPerson}
+                  />
+                </View>
+              )}
+
             {/* Space selector placeholder */}
             {/* TODO: Add ScopeSelector integration */}
           </ScrollView>
@@ -1096,6 +1217,17 @@ const styles = StyleSheet.create({
   },
   fieldsContainer: {
     marginTop: 12,
+  },
+  relationshipsSection: {
+    marginTop: 24,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 16,
   },
   skeletonInput: {
     height: 48,

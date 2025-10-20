@@ -26,6 +26,18 @@ import { ToastAndroid, Platform } from 'react-native';
 jest.mock('../providers/RepoProvider');
 jest.mock('../providers/CortexProvider');
 jest.mock('../providers/ThemeProvider');
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user-123', email: 'test@example.com' },
+    userId: 'test-user-123',
+    session: null,
+    signIn: jest.fn(),
+    signOut: jest.fn(),
+    signUp: jest.fn(),
+    loading: false,
+    error: null,
+  }),
+}));
 
 const mockRepo = {
   create: jest.fn(),

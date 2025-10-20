@@ -16,6 +16,18 @@ import type { AppRecord } from '../lib/types';
 
 // Mock dependencies
 jest.mock('../providers/RepoProvider');
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user-123', email: 'test@example.com' },
+    userId: 'test-user-123',
+    session: null,
+    signIn: jest.fn(),
+    signOut: jest.fn(),
+    signUp: jest.fn(),
+    loading: false,
+    error: null,
+  }),
+}));
 jest.mock('../providers/CortexProvider', () => ({
   useCortex: () => ({
     classify: jest.fn(() =>

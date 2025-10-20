@@ -1,0 +1,213 @@
+/**
+ * Phase 8: Unit tests for Entity-People repository methods
+ */
+
+import { SupabaseRepo } from '../../lib/repo/supabase';
+import type { EntityPerson } from '../../lib/repo/types';
+
+// Mock the Supabase client
+jest.mock('../../lib/supabase/client', () => ({
+  supabase: {
+    from: jest.fn(),
+    auth: {
+      getSession: jest.fn(),
+      onAuthStateChange: jest.fn(() => ({
+        data: { subscription: { unsubscribe: jest.fn() } },
+      })),
+    },
+  },
+}));
+
+// Mock date-fns to avoid installation requirement in tests
+jest.mock('date-fns', () => ({
+  isToday: jest.fn(() => true),
+  parseISO: jest.fn((str: string) => new Date(str)),
+}));
+
+const mockUserId = 'test-user-123';
+
+describe('SupabaseRepo - Entity People (Phase 8)', () => {
+  let repo: SupabaseRepo;
+  let mockFrom: jest.Mock;
+
+  beforeEach(() => {
+    repo = new SupabaseRepo(mockUserId);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { supabase } = require('../../lib/supabase/client');
+    mockFrom = supabase.from as jest.Mock;
+    mockFrom.mockClear();
+  });
+
+  describe('listLinkedPeopleByItem', () => {
+    it('should return people linked to an item', async () => {
+      const itemId = 'habit-1';
+      const mockPeople: EntityPerson[] = [
+        {
+          id: 'ep-1',
+          user_id: mockUserId,
+          item_id: itemId,
+          item_type: 'habit',
+          person_name: 'John Doe',
+          person_email: 'john@example.com',
+          created_at: '2025-10-19T00:00:00Z',
+          updated_at: '2025-10-19T00:00:00Z',
+        },
+        {
+          id: 'ep-2',
+          user_id: mockUserId,
+          item_id: itemId,
+          item_type: 'habit',
+          person_name: 'Jane Smith',
+          person_email: null,
+          created_at: '2025-10-19T00:00:00Z',
+          updated_at: '2025-10-19T00:00:00Z',
+        },
+      ];
+
+      const mockOrder = jest.fn().mockResolvedValue({
+        data: mockPeople,
+        error: null,
+      });
+
+      const mockEq2 = jest.fn().mockReturnValue({
+        order: mockOrder,
+      });
+
+      const mockEq1 = jest.fn().mockReturnValue({
+        eq: mockEq2,
+      });
+
+      const mockSelect = jest.fn().mockReturnValue({
+        eq: mockEq1,
+      });
+
+      mockFrom.mockReturnValue({ select: mockSelect });
+
+      const result = await repo.listLinkedPeopleByItem(itemId);
+
+      expect(mockFrom).toHaveBeenCalledWith('entity_people');
+      expect(mockSelect).toHaveBeenCalledWith('*');
+      expect(mockEq1).toHaveBeenCalledWith('user_id', mockUserId);
+      expect(mockEq2).toHaveBeenCalledWith('item_id', itemId);
+      expect(mockOrder).toHaveBeenCalledWith('created_at', { ascending: true });
+      expect(result).toEqual(mockPeople);
+    });
+  });
+
+  describe('linkPerson', () => {
+    it('should link a person to an item with name and email', async () => {
+      const mockEntityPerson: EntityPerson = {
+        id: 'ep-1',
+        user_id: mockUserId,
+        item_id: 'habit-1',
+        item_type: 'habit',
+        person_name: 'John Doe',
+        person_email: 'john@example.com',
+        created_at: '2025-10-19T00:00:00Z',
+        updated_at: '2025-10-19T00:00:00Z',
+      };
+
+      const mockSingle = jest.fn().mockResolvedValue({
+        data: mockEntityPerson,
+        error: null,
+      });
+
+      const mockSelect = jest.fn().mockReturnValue({
+        single: mockSingle,
+      });
+
+      const mockInsert = jest.fn().mockReturnValue({
+        select: mockSelect,
+      });
+
+      mockFrom.mockReturnValue({ insert: mockInsert });
+
+      const result = await repo.linkPerson({
+        itemId: 'habit-1',
+        itemType: 'habit',
+        person_name: 'John Doe',
+        person_email: 'john@example.com',
+      });
+
+      expect(mockFrom).toHaveBeenCalledWith('entity_people');
+      expect(mockInsert).toHaveBeenCalledWith({
+        user_id: mockUserId,
+        item_id: 'habit-1',
+        item_type: 'habit',
+        person_name: 'John Doe',
+        person_email: 'john@example.com',
+      });
+      expect(result).toEqual(mockEntityPerson);
+    });
+
+    it('should link a person to an item with only name', async () => {
+      const mockEntityPerson: EntityPerson = {
+        id: 'ep-1',
+        user_id: mockUserId,
+        item_id: 'todo-1',
+        item_type: 'todo',
+        person_name: 'Jane Smith',
+        person_email: null,
+        created_at: '2025-10-19T00:00:00Z',
+        updated_at: '2025-10-19T00:00:00Z',
+      };
+
+      const mockSingle = jest.fn().mockResolvedValue({
+        data: mockEntityPerson,
+        error: null,
+      });
+
+      const mockSelect = jest.fn().mockReturnValue({
+        single: mockSingle,
+      });
+
+      const mockInsert = jest.fn().mockReturnValue({
+        select: mockSelect,
+      });
+
+      mockFrom.mockReturnValue({ insert: mockInsert });
+
+      const result = await repo.linkPerson({
+        itemId: 'todo-1',
+        itemType: 'todo',
+        person_name: 'Jane Smith',
+      });
+
+      expect(mockFrom).toHaveBeenCalledWith('entity_people');
+      expect(mockInsert).toHaveBeenCalledWith({
+        user_id: mockUserId,
+        item_id: 'todo-1',
+        item_type: 'todo',
+        person_name: 'Jane Smith',
+        person_email: null,
+      });
+      expect(result).toEqual(mockEntityPerson);
+    });
+  });
+
+  describe('unlinkPerson', () => {
+    it('should unlink a person from an item', async () => {
+      const mockEq2 = jest.fn().mockResolvedValue({
+        error: null,
+      });
+
+      const mockEq1 = jest.fn().mockReturnValue({
+        eq: mockEq2,
+      });
+
+      const mockDelete = jest.fn().mockReturnValue({
+        eq: mockEq1,
+      });
+
+      mockFrom.mockReturnValue({ delete: mockDelete });
+
+      await repo.unlinkPerson('ep-1');
+
+      expect(mockFrom).toHaveBeenCalledWith('entity_people');
+      expect(mockDelete).toHaveBeenCalled();
+      expect(mockEq1).toHaveBeenCalledWith('user_id', mockUserId);
+      expect(mockEq2).toHaveBeenCalledWith('id', 'ep-1');
+    });
+  });
+});

@@ -337,6 +337,11 @@ export class MemoryRepo implements IRepo {
     };
   }
 
+  async getSpaceSummary(spaceId: string): Promise<string | null> {
+    const space = await this.getSpaceById(spaceId);
+    return space?.summary_cached ?? null;
+  }
+
   // ==========================
   // TAG AND PEOPLE METHODS (Phase 7+ stubs)
   // ==========================
@@ -426,6 +431,79 @@ export class MemoryRepo implements IRepo {
   }
 
   // ==========================
+  // PHASE 8 - TAGS AND PEOPLE LINKING (stubs for MemoryRepo)
+  // ==========================
+
+  async upsertTag(name: string): Promise<import('./types').Tag> {
+    const existing = this.tags.find((t: any) => t.name === name);
+    if (existing) return existing as any;
+
+    const tag: any = {
+      id: genId('tag'),
+      user_id: this.currentUserId,
+      name,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+    this.tags.push(tag);
+    return tag;
+  }
+
+  async listItemTags(_itemId: string): Promise<import('./types').Tag[]> {
+    // Stub: return empty array
+    return [];
+  }
+
+  async linkTag(_params: {
+    itemId: string;
+    tagId: string;
+    itemType: import('./types').ItemType;
+  }): Promise<import('./types').TagMap> {
+    // Stub: return mock TagMap
+    return {
+      id: genId('tagmap'),
+      user_id: this.currentUserId,
+      item_id: _params.itemId,
+      tag_id: _params.tagId,
+      item_type: _params.itemType,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+  }
+
+  async unlinkTag(_params: { itemId: string; tagId: string }): Promise<void> {
+    // Stub: no-op
+  }
+
+  async listLinkedPeopleByItem(_itemId: string): Promise<import('./types').EntityPerson[]> {
+    // Stub: return empty array
+    return [];
+  }
+
+  async linkPerson(params: {
+    itemId: string;
+    itemType: import('./types').ItemType;
+    personName: string;
+    personEmail?: string;
+  }): Promise<import('./types').EntityPerson> {
+    // Stub: return mock EntityPerson
+    return {
+      id: genId('entityperson'),
+      user_id: this.currentUserId,
+      item_id: params.itemId,
+      item_type: params.itemType,
+      person_name: params.personName,
+      person_email: params.personEmail || null,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+  }
+
+  async unlinkPerson(_entityPersonId: string): Promise<void> {
+    // Stub: no-op
+  }
+
+  // ==========================
   // BUDDY METHODS (Phase 5+ stubs)
   // ==========================
 
@@ -441,6 +519,84 @@ export class MemoryRepo implements IRepo {
   }
   async unlinkBuddy(): Promise<void> {
     /* no-op */
+  }
+}
+
+/**
+ * MemorySpaceChatRepo - In-memory space chat storage (Phase 8+ Spaces v2)
+ */
+export class MemorySpaceChatRepo {
+  private chats: import('../types').SpaceChat[] = [];
+
+  constructor(private currentUserId: string = 'memory-user') {}
+
+  async list(
+    spaceId: string,
+    opts?: { includeArchived?: boolean },
+  ): Promise<import('../types').SpaceChat[]> {
+    let filtered = this.chats.filter(
+      (c) => c.user_id === this.currentUserId && c.space_id === spaceId,
+    );
+
+    if (!opts?.includeArchived) {
+      filtered = filtered.filter((c) => !c.archived_at);
+    }
+
+    // Sort by pinned first, then by updated_at desc
+    return filtered.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    });
+  }
+
+  async create(
+    spaceId: string,
+    input: import('../types').SpaceChatCreateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const now = nowIso();
+    const chat: import('../types').SpaceChat = {
+      id: genId('chat'),
+      user_id: this.currentUserId,
+      space_id: spaceId,
+      title: input.title,
+      pinned: false,
+      archived_at: null,
+      last_message_snippet: null,
+      updated_at: now,
+      metadata_json: null,
+      created_at: now,
+    };
+
+    this.chats.push(chat);
+    return chat;
+  }
+
+  async update(
+    chatId: string,
+    patch: import('../types').SpaceChatUpdateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const idx = this.chats.findIndex((c) => c.id === chatId && c.user_id === this.currentUserId);
+    if (idx < 0) throw new Error('Chat not found');
+
+    const updated: import('../types').SpaceChat = {
+      ...this.chats[idx],
+      ...patch,
+      updated_at: nowIso(),
+    };
+
+    this.chats[idx] = updated;
+    return updated;
+  }
+
+  async delete(chatId: string): Promise<void> {
+    const idx = this.chats.findIndex((c) => c.id === chatId && c.user_id === this.currentUserId);
+    if (idx < 0) throw new Error('Chat not found');
+
+    this.chats[idx] = {
+      ...this.chats[idx],
+      archived_at: nowIso(),
+      updated_at: nowIso(),
+    };
   }
 }
 

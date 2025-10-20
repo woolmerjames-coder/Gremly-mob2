@@ -128,6 +128,7 @@ export type AppRecord = Habit | Todo | Note;
 
 /**
  * Space - container for organizing Habits, Todos, and Notes
+ * Phase 8+: Enhanced with icon, theme, summary caching, layout state, and archiving
  */
 export interface Space {
   id: ID;
@@ -137,6 +138,43 @@ export interface Space {
   theme?: 'deepTeal' | 'mint' | 'cream' | 'periwinkle' | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
+
+  // Phase 8+ Spaces v2 enhancements
+  summary_cached?: string | null; // Cached AI-generated summary of space contents
+  summary_updated_at?: string | null; // ISO 8601 timestamp of last summary update
+  layout_state_json?: any | null; // JSON blob for saving UI layout state (collapsed sections, sort order, etc.)
+  archived_at?: string | null; // ISO 8601 timestamp when space was archived (null = active)
+}
+
+/**
+ * SpaceChat - Chat/thread within a space for notes, discussion, or context
+ * Phase 8+ Spaces v2 feature
+ */
+export interface SpaceChat {
+  id: ID;
+  user_id: ID;
+  space_id: ID;
+  title: string;
+  pinned: boolean;
+  archived_at?: string | null; // ISO 8601 timestamp when chat was archived (null = active)
+  last_message_snippet?: string | null; // Preview of last message
+  updated_at: string; // ISO 8601
+  metadata_json?: any | null; // JSON blob for additional metadata
+  created_at: string; // ISO 8601
+}
+
+/**
+ * Input types for SpaceChat operations
+ */
+export interface SpaceChatCreateInput {
+  title: string;
+}
+
+export interface SpaceChatUpdateInput {
+  title?: string;
+  pinned?: boolean;
+  last_message_snippet?: string;
+  metadata_json?: any;
 }
 
 /**
