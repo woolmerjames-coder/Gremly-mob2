@@ -11,17 +11,18 @@
  * - GestureHandler
  */
 
-import React, { PropsWithChildren, ReactElement } from 'react';
+import React, { PropsWithChildren, ReactElement, createContext, useContext } from 'react';
 import { render as rtlRender, RenderOptions } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
 import { ThemeProvider } from '../../providers/ThemeProvider';
-import { AuthProvider } from '../../providers/AuthProvider';
-import { RepoProvider } from '../../providers/RepoProvider';
-import { CortexProvider } from '../../providers/CortexProvider';
 import { DsToggleProvider } from '../../providers/DsToggleProvider';
+import type { IRepo } from '../../lib/repo/IRepo';
+import type { User } from '@supabase/supabase-js';
+import type { ICortexEngine } from '../../cortex/ICortexEngine';
+import type { AppRecord, Space, Tag, Person } from '../../lib/types';
 
 /**
  * Assert provider is valid and return it or a passthrough stub
@@ -77,9 +78,222 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// ============================================================================
+// Mock Contexts and Providers
+// ============================================================================
+
+// Auth Context
+interface AuthContextValue {
+  user: User | null;
+  userId: string | null;
+  session: any | null;
+  loading: boolean;
+  error: string | null;
+  signInWithEmail: (email: string, password?: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  clearError: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+// Repo Context
+const RepoContext = createContext<IRepo | null>(null);
+
+// Cortex Context
+const CortexContext = createContext<ICortexEngine | null>(null);
+
+// ============================================================================
+// Mock Factory Functions
+// ============================================================================
+
+/**
+ * Creates a mock user for testing
+ */
+export const makeMockUser = (overrides: Partial<User> = {}): User =>
+  ({
+    id: 'test-user-1',
+    email: 'test@example.com',
+    app_metadata: {},
+    user_metadata: {},
+    aud: 'authenticated',
+    created_at: new Date().toISOString(),
+    ...overrides,
+  }) as User;
+
+/**
+ * Creates a mock repository with default implementations
+ */
+export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
+  const defaultEmptyArray = jest.fn().mockResolvedValue([]);
+  const defaultNull = jest.fn().mockResolvedValue(null);
+  const defaultVoid = jest.fn().mockResolvedValue(undefined);
+  const defaultZero = jest.fn().mockResolvedValue(0);
+
+  return {
+    // CRUD operations
+    create: jest.fn().mockResolvedValue({
+      id: 'mock-id',
+      type: 'todo',
+      title: 'Mock Todo',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as AppRecord),
+    update: jest.fn().mockResolvedValue({
+      id: 'mock-id',
+      type: 'todo',
+      title: 'Updated Mock Todo',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as AppRecord),
+    remove: defaultVoid,
+    getById: defaultNull,
+    listByType: defaultEmptyArray,
+    listBySpace: defaultEmptyArray,
+    search: defaultEmptyArray,
+    countUnsorted: defaultZero,
+    listDueToday: defaultEmptyArray,
+    listUndefinedDue: defaultEmptyArray,
+    countPlannedToday: defaultZero,
+    countCompletedToday: defaultZero,
+    completeHabit: defaultVoid,
+    completeTodo: defaultVoid,
+    undoCompletion: defaultVoid,
+    listSpaces: defaultEmptyArray,
+    createSpace: jest.fn().mockResolvedValue({
+      id: 'mock-space-id',
+      name: 'Mock Space',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as Space),
+    getSpaceById: defaultNull,
+    updateSpace: jest.fn().mockResolvedValue({
+      id: 'mock-space-id',
+      name: 'Updated Mock Space',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as Space),
+    deleteSpace: defaultVoid,
+    listBySpaceGrouped: jest.fn().mockResolvedValue({
+      habits: [],
+      todos: [],
+      notes: [],
+    }),
+    getSpaceSummary: defaultNull,
+    listTags: defaultEmptyArray,
+    listPeople: defaultEmptyArray,
+    createPerson: jest.fn().mockResolvedValue({
+      id: 'mock-person-id',
+      display_name: 'Mock Person',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as Person),
+    updatePerson: jest.fn().mockResolvedValue({
+      id: 'mock-person-id',
+      display_name: 'Updated Mock Person',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as Person),
+    deletePerson: defaultVoid,
+    listLinkedTags: defaultEmptyArray,
+    listLinkedPeople: defaultEmptyArray,
+    upsertTag: jest.fn().mockResolvedValue({
+      id: 'mock-tag-id',
+      name: 'Mock Tag',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    } as Tag),
+    listItemTags: defaultEmptyArray,
+    linkTag: jest.fn().mockResolvedValue({
+      id: 'mock-tagmap-id',
+      item_id: 'item-1',
+      tag_id: 'tag-1',
+      item_type: 'todo',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    }),
+    unlinkTag: defaultVoid,
+    listLinkedPeopleByItem: defaultEmptyArray,
+    linkPerson: jest.fn().mockResolvedValue({
+      id: 'mock-entityperson-id',
+      item_id: 'item-1',
+      item_type: 'todo',
+      person_id: 'person-1',
+      created_at: new Date().toISOString(),
+      owner_id: 'test-user-1',
+    }),
+    unlinkPerson: defaultVoid,
+    inviteBuddy: defaultVoid,
+    acceptBuddy: defaultVoid,
+    nudgeBuddy: defaultVoid,
+    unlinkBuddy: defaultVoid,
+    ...overrides,
+  } as IRepo;
+};
+
+/**
+ * Creates a mock Cortex engine for testing
+ */
+export const makeMockCortex = (): ICortexEngine =>
+  ({
+    parseInbox: jest.fn().mockResolvedValue({
+      todos: [],
+      habits: [],
+      notes: [],
+    }),
+    suggestTasks: jest.fn().mockResolvedValue([]),
+    analyzeHabit: jest.fn().mockResolvedValue({
+      insights: [],
+      suggestions: [],
+    }),
+  }) as any;
+
+// Mock Auth Provider
+const MockAuthProvider: React.FC<PropsWithChildren<{ value: AuthContextValue }>> = ({
+  children,
+  value,
+}) => <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+
+// Mock Repo Provider
+const MockRepoProvider: React.FC<PropsWithChildren<{ value: IRepo }>> = ({ children, value }) => (
+  <RepoContext.Provider value={value}>{children}</RepoContext.Provider>
+);
+
+// Mock Cortex Provider
+const MockCortexProvider: React.FC<PropsWithChildren<{ value: ICortexEngine }>> = ({
+  children,
+  value,
+}) => <CortexContext.Provider value={value}>{children}</CortexContext.Provider>;
+
+// Export hook for tests to use
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
+};
+
+export const useRepo = () => {
+  const context = useContext(RepoContext);
+  if (!context) throw new Error('useRepo must be used within RepoProvider');
+  return context;
+};
+
+export const useCortex = () => {
+  const context = useContext(CortexContext);
+  if (!context) throw new Error('useCortex must be used within CortexProvider');
+  return context;
+};
+
 interface RenderWithProvidersOptions extends Omit<RenderOptions, 'wrapper'> {
   /** Whether to include navigation wrapper (default: true) */
   includeNavigation?: boolean;
+  /** Mock user (null for unauthenticated, undefined for default mock user) */
+  user?: Partial<User> | null;
+  /** Mock repo method overrides */
+  repo?: Partial<IRepo>;
+  /** Theme mode */
+  theme?: 'light' | 'dark';
 }
 
 // Validate providers once at module level
@@ -88,15 +302,43 @@ const Safe = assertProvider('SafeAreaProvider', SafeAreaProvider);
 const Sheets = assertProvider('SheetProvider', SheetProvider);
 const DsToggle = assertProvider('DsToggleProvider', DsToggleProvider);
 const Theme = assertProvider('ThemeProvider', ThemeProvider);
-const Auth = assertProvider('AuthProvider', AuthProvider);
-const Repo = assertProvider('RepoProvider', RepoProvider);
-const Cortex = assertProvider('CortexProvider', CortexProvider);
 const Nav = assertProvider('NavigationContainer', NavigationContainer);
 
 function AllProviders({
   children,
   includeNavigation = true,
-}: PropsWithChildren<{ includeNavigation?: boolean }>) {
+  user: userOverride,
+  repo: repoOverrides = {},
+  theme = 'light',
+}: PropsWithChildren<{
+  includeNavigation?: boolean;
+  user?: Partial<User> | null;
+  repo?: Partial<IRepo>;
+  theme?: 'light' | 'dark';
+}>) {
+  // Create mock instances
+  const mockUser = userOverride === null ? null : makeMockUser(userOverride);
+  const mockRepo = makeMockRepo(repoOverrides);
+  const mockCortex = makeMockCortex();
+
+  // Create auth context value
+  const authValue: AuthContextValue = {
+    user: mockUser,
+    userId: mockUser?.id || null,
+    session: mockUser
+      ? {
+          user: mockUser,
+          access_token: 'mock-token',
+          refresh_token: 'mock-refresh',
+        }
+      : null,
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn().mockResolvedValue(undefined),
+    signOut: jest.fn().mockResolvedValue(undefined),
+    clearError: jest.fn(),
+  };
+
   const content = includeNavigation ? <Nav>{children}</Nav> : children;
 
   return (
@@ -109,12 +351,12 @@ function AllProviders({
       >
         <Sheets>
           <DsToggle>
-            <Theme>
-              <Auth>
-                <Repo>
-                  <Cortex>{content}</Cortex>
-                </Repo>
-              </Auth>
+            <Theme initialMode={theme}>
+              <MockAuthProvider value={authValue}>
+                <MockRepoProvider value={mockRepo}>
+                  <MockCortexProvider value={mockCortex}>{content}</MockCortexProvider>
+                </MockRepoProvider>
+              </MockAuthProvider>
             </Theme>
           </DsToggle>
         </Sheets>
@@ -128,21 +370,35 @@ function AllProviders({
  *
  * @example
  * ```tsx
- * renderWithProviders(<TodayScreen />);
+ * const { mockRepo } = renderWithProviders(<TodayScreen />, {
+ *   repo: {
+ *     listDueToday: jest.fn().mockResolvedValue([...mockTodos]),
+ *   },
+ * });
  * expect(screen.getByTestId('today-screen')).toBeTruthy();
+ * expect(mockRepo.listDueToday).toHaveBeenCalled();
  * ```
  */
 export function renderWithProviders(
   ui: ReactElement,
-  { includeNavigation = true, ...options }: RenderWithProvidersOptions = {},
+  { includeNavigation = true, user, repo, theme, ...options }: RenderWithProvidersOptions = {},
 ) {
   // Clear mock calls before each render
   mockNavigate.mockClear();
   mockGoBack.mockClear();
   mockSetOptions.mockClear();
 
+  // Create mocks that will be used
+  const mockUser = user === null ? null : makeMockUser(user);
+  const mockRepo = makeMockRepo(repo);
+  const mockCortex = makeMockCortex();
+
   function Wrapper({ children }: PropsWithChildren) {
-    return <AllProviders includeNavigation={includeNavigation}>{children}</AllProviders>;
+    return (
+      <AllProviders includeNavigation={includeNavigation} user={user} repo={repo} theme={theme}>
+        {children}
+      </AllProviders>
+    );
   }
 
   return {
@@ -150,6 +406,9 @@ export function renderWithProviders(
     mockNavigate,
     mockGoBack,
     mockSetOptions,
+    mockUser,
+    mockRepo,
+    mockCortex,
   };
 }
 

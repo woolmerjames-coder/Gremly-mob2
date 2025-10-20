@@ -7,21 +7,14 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithProviders, useAuth, useRepo } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
 import { useTodayData } from '../lib/today/useTodayData';
-import { useAuth } from '../providers/AuthProvider';
-import { useRepo } from '../providers/RepoProvider';
-import { useTheme } from '../providers/ThemeProvider';
-import { useNavigation } from '@react-navigation/native';
 import type { EnrichedTodo } from '../lib/today/useTodayData';
 
 // Mock dependencies
 jest.mock('../lib/today/useTodayData');
-jest.mock('../providers/AuthProvider');
-jest.mock('../providers/RepoProvider');
-jest.mock('../providers/ThemeProvider');
-jest.mock('@react-navigation/native');
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
   useUnifiedOverlayController: () => ({
     openCreate: jest.fn(),
@@ -31,11 +24,23 @@ jest.mock('../hooks/useUnifiedOverlayController', () => ({
   }),
 }));
 
+// Mock the provider hooks to use our test context hooks
+jest.mock('../providers/AuthProvider', () => ({
+  ...jest.requireActual('../providers/AuthProvider'),
+  useAuth: () => require('./utils/renderWithProviders').useAuth(),
+}));
+
+jest.mock('../providers/RepoProvider', () => ({
+  ...jest.requireActual('../providers/RepoProvider'),
+  useRepo: () => require('./utils/renderWithProviders').useRepo(),
+}));
+
+jest.mock('../providers/CortexProvider', () => ({
+  ...jest.requireActual('../providers/CortexProvider'),
+  useCortex: () => require('./utils/renderWithProviders').useCortex(),
+}));
+
 const mockUseTodayData = useTodayData as jest.MockedFunction<typeof useTodayData>;
-const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
-const mockUseRepo = useRepo as jest.MockedFunction<typeof useRepo>;
-const mockUseTheme = useTheme as jest.MockedFunction<typeof useTheme>;
-const mockUseNavigation = useNavigation as jest.MockedFunction<typeof useNavigation>;
 
 describe('Today Screen - Grouping Features', () => {
   const mockTodos: EnrichedTodo[] = [
@@ -101,80 +106,18 @@ describe('Today Screen - Grouping Features', () => {
       plannedToday: 4,
     },
     timeWindow: 'morning' as const,
-    reducedMotion: false,
+    reducedMotion: true,
     reload: jest.fn().mockResolvedValue(undefined),
-  };
-
-  const mockTheme = {
-    colors: {
-      bg: '#FFF',
-      fg: '#000',
-      deepTeal: {
-        DEFAULT: '#0A2F2E',
-        600: '#0D3B3A',
-        700: '#0B3332',
-        900: '#072524',
-      },
-      cream: '#FFF9F0',
-      mint: '#B7F7E1',
-      periwinkle: '#C9D4FF',
-      coral: '#FFBAA3',
-      border: '#E5E5E5',
-      subtle: '#666',
-      error: '#D32F2F',
-      warning: '#FFA726',
-      success: '#66BB6A',
-      status: {
-        overdue: '#D32F2F',
-        nearDue: '#FFA726',
-      },
-    },
-    spacing: { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24 },
-    borderRadius: { sm: 4, md: 8, lg: 12 },
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    mockUseAuth.mockReturnValue({
-      user: {
-        id: 'u1',
-        email: 'test@example.com',
-        app_metadata: {},
-        user_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString(),
-      } as any,
-      userId: 'u1',
-      session: null,
-      loading: false,
-      error: null,
-      signInWithEmail: jest.fn(),
-      signOut: jest.fn(),
-      clearError: jest.fn(),
-    });
-
-    mockUseRepo.mockReturnValue({
-      completeHabit: jest.fn().mockResolvedValue(undefined),
-      completeTodo: jest.fn().mockResolvedValue(undefined),
-      undoCompletion: jest.fn().mockResolvedValue(undefined),
-      countPlannedToday: jest.fn().mockResolvedValue(4),
-      countCompletedToday: jest.fn().mockResolvedValue(2),
-    } as any);
-
-    mockUseTheme.mockReturnValue(mockTheme as any);
-
-    mockUseNavigation.mockReturnValue({
-      navigate: jest.fn(),
-      goBack: jest.fn(),
-    } as any);
-
     mockUseTodayData.mockReturnValue(defaultMockData);
   });
 
   describe('Space Grouping', () => {
     it('renders group headers with correct testIDs', () => {
-      const { getByTestId } = render(<TodayScreen />);
+      const { getByTestId } = renderWithProviders(<TodayScreen />);
 
       expect(getByTestId('due-group-work')).toBeTruthy();
       expect(getByTestId('due-group-mexico-trip')).toBeTruthy();
@@ -182,7 +125,7 @@ describe('Today Screen - Grouping Features', () => {
     });
 
     it('displays correct item counts in group headers', () => {
-      const { getByTestId, getByText } = render(<TodayScreen />);
+      const { getByTestId, getByText } = renderWithProviders(<TodayScreen />);
 
       // Work has 2 todos
       const workGroup = getByTestId('due-group-work');
@@ -197,9 +140,9 @@ describe('Today Screen - Grouping Features', () => {
     });
 
     it('orders groups alphabetically with "No Space" last', () => {
-      const { getAllByTestId } = render(<TodayScreen />);
+      const { queryAllByTestId } = renderWithProviders(<TodayScreen />);
 
-      const groupHeaders = getAllByTestId(/due-group-/);
+      const groupHeaders = queryAllByTestId(/due-group-/);
       const groupIds = groupHeaders.map((header) => header.props.testID);
 
       // Mexico Trip, Work, No Space (alphabetical, then No Space)
@@ -245,7 +188,7 @@ describe('Today Screen - Grouping Features', () => {
 
       mockUseTodayData.mockReturnValue(singleTodoData);
 
-      const { getByTestId, queryByTestId } = render(<TodayScreen />);
+      const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
 
       // Verify group exists initially
       expect(getByTestId('due-group-work')).toBeTruthy();
@@ -270,7 +213,7 @@ describe('Today Screen - Grouping Features', () => {
         reload: reloadMock,
       });
 
-      const { getByTestId } = render(<TodayScreen />);
+      const { getByTestId } = renderWithProviders(<TodayScreen />);
       const scrollView = getByTestId('today-screen');
 
       // Trigger refresh
@@ -301,7 +244,7 @@ describe('Today Screen - Grouping Features', () => {
         reload: reloadMock,
       });
 
-      const { getByTestId } = render(<TodayScreen />);
+      const { getByTestId } = renderWithProviders(<TodayScreen />);
       const scrollView = getByTestId('today-screen');
 
       // Trigger refresh
@@ -322,7 +265,7 @@ describe('Today Screen - Grouping Features', () => {
 
   describe('Section Collapse State', () => {
     it('persists collapse state in session', () => {
-      const { getByText, queryByTestId, rerender } = render(<TodayScreen />);
+      const { getByText, queryByTestId, rerender } = renderWithProviders(<TodayScreen />);
 
       // Toggle Due Today section
       const dueTodayHeader = getByText('Due Today');
@@ -339,7 +282,7 @@ describe('Today Screen - Grouping Features', () => {
     });
 
     it('maintains separate collapse state for each section', () => {
-      const { getByText, queryByTestId } = render(<TodayScreen />);
+      const { getByText, queryByTestId } = renderWithProviders(<TodayScreen />);
 
       // Collapse Habits Today
       const habitsHeader = getByText('Habits Today');
@@ -374,7 +317,7 @@ describe('Today Screen - Grouping Features', () => {
         },
       });
 
-      const { getByText } = render(<TodayScreen />);
+      const { getByText } = renderWithProviders(<TodayScreen />);
 
       expect(getByText('All clear for now ✨')).toBeTruthy();
     });
@@ -389,7 +332,7 @@ describe('Today Screen - Grouping Features', () => {
         },
       });
 
-      const { queryByTestId } = render(<TodayScreen />);
+      const { queryByTestId } = renderWithProviders(<TodayScreen />);
 
       expect(queryByTestId(/due-group-/)).toBeNull();
     });
