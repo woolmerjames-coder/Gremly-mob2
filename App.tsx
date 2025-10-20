@@ -15,45 +15,26 @@ import { DsToggleProvider } from './providers/DsToggleProvider';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
-import { callChat } from './lib/cortex/CortexClient';
+import { runCortexProxyDiag } from './lib/cortex/diag';
 import { env } from './lib/env';
-
-const DEBUG = env.cortex.debug;
-
-function runCortexProxyDiag() {
-  if (!DEBUG) return;
-
-  // Show cortex proxy configuration
-  console.log('[CORTEX][PROXY_CHECK]', {
-    hasUrl: !!env.cortexUrl,
-    urlPrefix: env.cortexUrl?.slice(0, 30),
-    model: env.cortex.model,
-    timeout: env.cortex.timeoutMs,
-  });
-
-  // Dev-only smoke test using secure proxy
-  if (__DEV__ && env.cortexUrl) {
-    (async () => {
-      try {
-        const data = await callChat([{ role: 'user', content: 'ping' }]);
-        console.log('[CORTEX][PROXY_TEST]', {
-          ok: true,
-          hasResponse: !!data,
-          platform: Platform.OS,
-        });
-      } catch (err) {
-        console.error('[CORTEX][PROXY_TEST] error:', String(err));
-      }
-    })();
-  }
-}
 
 export default function App() {
   const scheme = useColorScheme();
 
   useEffect(() => {
-    // Run Cortex proxy diagnostics
-    runCortexProxyDiag();
+    // Print env config in dev
+    if (__DEV__) {
+      console.log('[CORTEX] env', {
+        url: env.cortexUrl,
+        model: env.cortex.model,
+        timeoutMs: env.cortex.timeoutMs,
+      });
+    }
+
+    // Run Cortex proxy diagnostics (dev only)
+    if (__DEV__) {
+      runCortexProxyDiag();
+    }
 
     // Handle deep linking for magic link authentication
     const subscription = Linking.addEventListener('url', ({ url }) => {

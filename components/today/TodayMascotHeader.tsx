@@ -5,9 +5,18 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ToastAndroid,
+  Platform,
+  Pressable,
+} from 'react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
+import { runCortexProxyDiag } from '../../lib/cortex/diag';
 
 type TimeWindow = 'morning' | 'midday' | 'evening';
 
@@ -39,6 +48,17 @@ export default function TodayMascotHeader({
   const t = useTokens();
   const [isWaving, setIsWaving] = useState(false);
   const waveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Dev-only: Cortex ping via long-press
+  const devPing = async () => {
+    const res = await runCortexProxyDiag();
+    const msg = res.ok ? 'Cortex OK' : `Cortex FAIL: ${res.error}`;
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(msg, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Cortex Ping', msg);
+    }
+  };
 
   // Trigger wave animation when waveTick changes
   useEffect(() => {
@@ -107,11 +127,12 @@ export default function TodayMascotHeader({
       </View>
 
       {/* Mascot placeholder */}
-      <TouchableOpacity
+      <Pressable
         onPress={onMascotPress}
-        disabled={!onMascotPress}
-        activeOpacity={0.7}
-        testID="today-mascot-placeholder"
+        onLongPress={__DEV__ ? devPing : undefined}
+        delayLongPress={250}
+        disabled={!onMascotPress && !__DEV__}
+        testID="today-mascot"
       >
         <View
           style={[
@@ -133,7 +154,7 @@ export default function TodayMascotHeader({
             {!isWaving && timeWindow === 'evening' && 'Almost done!'}
           </Text>
         </View>
-      </TouchableOpacity>
+      </Pressable>
 
       {/* Test-only: Wave tick indicator */}
       {process.env.JEST_WORKAROUND === '1' && (
