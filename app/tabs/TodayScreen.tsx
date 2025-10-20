@@ -21,6 +21,7 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useTodayData, type EnrichedTodo, type Suggestion } from '../../lib/today/useTodayData';
 import { eventBus } from '../../lib/events';
+import { env } from '../../lib/env';
 import TodayMascotHeader from '../../components/today/TodayMascotHeader';
 import TodaySection from '../../components/today/TodaySection';
 import TodayHabitCard from '../../components/today/TodayHabitCard';
@@ -93,10 +94,10 @@ export default function TodayScreen() {
   // Undo timer ref
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Read feature flags
-  const celebrationEnabled = process.env.EXPO_PUBLIC_TODAY_CELEBRATION !== 'off';
-  const suggestionsEnabled = process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS !== 'off';
-  const eveningTeaserEnabled = process.env.EXPO_PUBLIC_TODAY_EVENING_TEASER !== 'off';
+  // Read feature flags from env module
+  const celebrationEnabled = env.feature.today.celebration;
+  const suggestionsEnabled = env.feature.today.suggestions;
+  const eveningTeaserEnabled = env.feature.today.eveningTeaser;
 
   // Check if we should show evening reflection teaser (18:00+)
   const shouldShowEveningTeaser = eveningTeaserEnabled && new Date().getHours() >= 18;

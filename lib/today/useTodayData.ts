@@ -12,8 +12,7 @@ import { useReducedMotion } from '../../design/animations';
 import { eventBus } from '../events';
 import type { Habit, Todo } from '../types';
 import { getGreeting, getSubline } from './copy';
-
-export type TimeWindow = 'morning' | 'midday' | 'evening';
+import { env, type TimeWindow } from '../env';
 
 export interface EnrichedHabit {
   id: string;
@@ -98,8 +97,7 @@ function buildSuggestions(ctx: {
   const out: Suggestion[] = [];
 
   // Feature flag check
-  const suggestionsEnabled = process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS !== 'off';
-  if (!suggestionsEnabled) {
+  if (!env.feature.today.suggestions) {
     return [];
   }
 
@@ -174,9 +172,8 @@ function buildSuggestions(ctx: {
  */
 function getTimeWindow(): TimeWindow {
   // DEV override for manual QA
-  const override = process.env.EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW as TimeWindow | undefined;
-  if (override && ['morning', 'midday', 'evening'].includes(override)) {
-    return override;
+  if (env.todayDebugWindow) {
+    return env.todayDebugWindow;
   }
 
   const hour = new Date().getHours();
