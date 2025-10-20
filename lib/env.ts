@@ -21,6 +21,7 @@ const raw = {
   TODAY_EVENING_TEASER: process.env.EXPO_PUBLIC_TODAY_EVENING_TEASER ?? 'on',
   DEBUG_TODAY_TIMEWINDOW: process.env.EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW,
 
+  CORTEX_URL: process.env.EXPO_PUBLIC_CORTEX_URL,
   CORTEX_ENGINE: process.env.EXPO_PUBLIC_CORTEX_ENGINE ?? 'LLM',
   CORTEX_MODEL: process.env.EXPO_PUBLIC_CORTEX_MODEL ?? 'gpt-4o-mini',
   CORTEX_CLASSIFY_CATCHALL: process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL ?? 'off',
@@ -98,11 +99,12 @@ export const env = {
   todayDebugWindow: debugWindow, // undefined unless set to 'morning' | 'midday' | 'evening'
 
   // Cortex/AI configuration
+  cortexUrl: raw.CORTEX_URL || null,
   cortex: {
     engine: raw.CORTEX_ENGINE,
     model: raw.CORTEX_MODEL,
     classifyCatchAll: flag(raw.CORTEX_CLASSIFY_CATCHALL),
-    timeoutMs: raw.CORTEX_TIMEOUT_MS ? Number(raw.CORTEX_TIMEOUT_MS) : 2500,
+    timeoutMs: raw.CORTEX_TIMEOUT_MS ? Number(raw.CORTEX_TIMEOUT_MS) : 12000,
     rate: {
       windowS: raw.CORTEX_RATE_WINDOW_S ? Number(raw.CORTEX_RATE_WINDOW_S) : 60,
       max: raw.CORTEX_RATE_MAX ? Number(raw.CORTEX_RATE_MAX) : 5,

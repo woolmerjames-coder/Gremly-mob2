@@ -48,3 +48,8 @@ _archive/
 # Environment files
 .env
 .env.local
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+supabase/seed.sql
