@@ -21,6 +21,7 @@ export interface TodaySectionProps {
   initiallyExpanded?: boolean;
   onToggle?: (expanded: boolean) => void;
   reducedMotion?: boolean;
+  footer?: React.ReactNode; // Optional footer for "Show more" buttons
 }
 
 export default function TodaySection({
@@ -29,6 +30,7 @@ export default function TodaySection({
   initiallyExpanded = true,
   onToggle,
   reducedMotion,
+  footer,
 }: TodaySectionProps) {
   const t = useTokens();
   const [expanded, setExpanded] = useState(initiallyExpanded);
@@ -99,10 +101,18 @@ export default function TodaySection({
       {/* Collapsible content */}
       {reducedMotion ? (
         // No animation for reduced motion - simple conditional render
-        expanded && <View style={styles.content}>{children}</View>
+        expanded && (
+          <>
+            <View style={styles.content}>{children}</View>
+            {footer && <View style={styles.footer}>{footer}</View>}
+          </>
+        )
       ) : (
         // Animated collapse/expand
-        <Animated.View style={[styles.content, animatedStyle]}>{children}</Animated.View>
+        <>
+          <Animated.View style={[styles.content, animatedStyle]}>{children}</Animated.View>
+          {footer && expanded && <View style={styles.footer}>{footer}</View>}
+        </>
       )}
     </View>
   );
@@ -129,5 +139,8 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     overflow: 'hidden',
+  },
+  footer: {
+    marginTop: 8,
   },
 });

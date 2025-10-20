@@ -1,12 +1,14 @@
 /**
  * useTodayData hook - Phase 9: Energy & Momentum
  * Fetches and enriches data for Today v2 screen
+ * Step 2: Adds ordering, capping, event bus sync, and real stats
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useReducedMotion } from '../../design/animations';
+import { eventBus } from '../events';
 import type { Habit, Todo } from '../types';
 import { getGreeting, getSubline } from './copy';
 
@@ -31,6 +33,7 @@ export interface EnrichedTodo {
   spaceId?: string;
   overdue?: boolean;
   nearDue?: boolean;
+  dueDate?: Date; // For sorting
 }
 
 export interface EnrichedSuggestion {
@@ -52,10 +55,22 @@ export interface TodayData {
   habits: EnrichedHabit[];
   todos: EnrichedTodo[];
   suggestions: EnrichedSuggestion[];
+  visible: {
+    habits: EnrichedHabit[];
+    todos: EnrichedTodo[];
+    suggestions: EnrichedSuggestion[];
+  };
+  hidden: {
+    habits: number;
+    todos: number;
+    suggestions: number;
+  };
   reducedMotion: boolean;
   loading: boolean;
   error: string | null;
 }
+
+const MAX_VISIBLE = 5;
 
 /**
  * Determines time window based on current hour (24h format)
@@ -76,7 +91,46 @@ function getTimeWindow(): TimeWindow {
 }
 
 /**
- * Hook to fetch and enrich Today screen data
+ * Order habits: with dueWindow first, then by name asc
+ */
+function orderHabits(habits: EnrichedHabit[]): EnrichedHabit[] {
+  return [...habits].sort((a, b) => {
+    // Priority 1: Has dueWindow
+    if (a.dueWindow && !b.dueWindow) return -1;
+    if (!a.dueWindow && b.dueWindow) return 1;
+
+    // Priority 2: Name alphabetically
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Order todos: overdue first, then nearDue, then by dueTime asc, then name
+ */
+function orderTodos(todos: EnrichedTodo[]): EnrichedTodo[] {
+  return [...todos].sort((a, b) => {
+    // Priority 1: Overdue
+    if (a.overdue && !b.overdue) return -1;
+    if (!a.overdue && b.overdue) return 1;
+
+    // Priority 2: Near due
+    if (a.nearDue && !b.nearDue) return -1;
+    if (!a.nearDue && b.nearDue) return 1;
+
+    // Priority 3: Due date/time
+    if (a.dueDate && b.dueDate) {
+      return a.dueDate.getTime() - b.dueDate.getTime();
+    }
+    if (a.dueDate && !b.dueDate) return -1;
+    if (!a.dueDate && b.dueDate) return 1;
+
+    // Priority 4: Name alphabetically
+    return a.title.localeCompare(b.title);
+  });
+}
+
+/**
+ * Hook to fetch and enrich Today screen data with ordering, capping, and event sync
  */
 export function useTodayData() {
   const repo = useRepo();
@@ -89,12 +143,22 @@ export function useTodayData() {
       greeting: getGreeting(getTimeWindow()),
       subline: getSubline(getTimeWindow()),
       streakCount: 0, // TODO: Calculate from habit completion history
-      completedToday: 0, // TODO: Calculate from today's completions
+      completedToday: 0,
       plannedToday: 0,
     },
     habits: [],
     todos: [],
     suggestions: [],
+    visible: {
+      habits: [],
+      todos: [],
+      suggestions: [],
+    },
+    hidden: {
+      habits: 0,
+      todos: 0,
+      suggestions: 0,
+    },
     reducedMotion: false,
     loading: true,
     error: null,
@@ -121,6 +185,12 @@ export function useTodayData() {
 
       // Fetch undefined due items for suggestions
       const undefinedDue = await repo.listUndefinedDue();
+
+      // Fetch stats in parallel
+      const [plannedCount, completedCount] = await Promise.all([
+        repo.countPlannedToday(),
+        repo.countCompletedToday(),
+      ]);
 
       // Split items by type
       const habitRecords = dueItems.filter((item): item is Habit => item.type === 'habit');
@@ -160,8 +230,10 @@ export function useTodayData() {
           const now = new Date();
           let overdue = false;
           let nearDue = false;
+          let dueDate: Date | undefined;
+
           if (todo.due_date) {
-            const dueDate = new Date(todo.due_date);
+            dueDate = new Date(todo.due_date);
             overdue = dueDate < now;
             nearDue = !overdue && dueDate.getTime() - now.getTime() < 3 * 60 * 60 * 1000; // Within 3 hours
           }
@@ -180,6 +252,7 @@ export function useTodayData() {
             spaceId: todo.space_id || undefined,
             overdue,
             nearDue,
+            dueDate,
           };
         }),
       );
@@ -192,23 +265,38 @@ export function useTodayData() {
         ctaLabel: 'Try it',
       }));
 
-      // Calculate stats
-      const plannedToday = enrichedHabits.length + enrichedTodos.length;
-      // TODO: Calculate completedToday from completion records
-      // TODO: Calculate streakCount from habit history
+      // Order lists
+      const orderedHabits = orderHabits(enrichedHabits);
+      const orderedTodos = orderTodos(enrichedTodos);
+      const orderedSuggestions = suggestions; // Already limited to 3
+
+      // Cap visible items
+      const visibleHabits = orderedHabits.slice(0, MAX_VISIBLE);
+      const visibleTodos = orderedTodos.slice(0, MAX_VISIBLE);
+      const visibleSuggestions = orderedSuggestions.slice(0, MAX_VISIBLE);
 
       setData({
         timeWindow,
         header: {
           greeting: getGreeting(timeWindow, user.email?.split('@')[0] || 'there'),
           subline: getSubline(timeWindow),
-          streakCount: 0, // TODO: Phase 9 step 2
-          completedToday: 0, // TODO: Phase 9 step 2
-          plannedToday,
+          streakCount: 0, // TODO: Phase 10 - Calculate from habit completion history
+          completedToday: completedCount,
+          plannedToday: plannedCount,
         },
-        habits: enrichedHabits,
-        todos: enrichedTodos,
-        suggestions,
+        habits: orderedHabits,
+        todos: orderedTodos,
+        suggestions: orderedSuggestions,
+        visible: {
+          habits: visibleHabits,
+          todos: visibleTodos,
+          suggestions: visibleSuggestions,
+        },
+        hidden: {
+          habits: Math.max(0, orderedHabits.length - MAX_VISIBLE),
+          todos: Math.max(0, orderedTodos.length - MAX_VISIBLE),
+          suggestions: Math.max(0, orderedSuggestions.length - MAX_VISIBLE),
+        },
         reducedMotion: false, // Will be set from props in components
         loading: false,
         error: null,
@@ -222,7 +310,20 @@ export function useTodayData() {
         error: message,
       }));
     }
-  }, [repo, user]); // Removed reducedMotion from dependencies
+  }, [repo, user]);
+
+  // Subscribe to event bus for auto-refresh
+  useEffect(() => {
+    const unsubscribeSaved = eventBus.on('ItemSaved', () => void load());
+    const unsubscribeCompleted = eventBus.on('ItemCompleted', () => void load());
+    const unsubscribeUpdated = eventBus.on('ItemUpdated', () => void load());
+
+    return () => {
+      unsubscribeSaved();
+      unsubscribeCompleted();
+      unsubscribeUpdated();
+    };
+  }, [load]);
 
   // Load on mount and when user changes
   useEffect(() => {

@@ -545,6 +545,119 @@ export class SupabaseRepo implements IRepo {
   }
 
   // ==========================
+  // TODAY STATS (Phase 9)
+  // ==========================
+
+  async countPlannedToday(): Promise<number> {
+    const userId = this.ensureUserId();
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // Count todos with due_date = today
+    const { count: todoCount, error: todoError } = await supabase
+      .from('todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_id', userId)
+      .gte('due_date', `${today}T00:00:00`)
+      .lt('due_date', `${today}T23:59:59`);
+
+    if (todoError) throw new Error(`Failed to count planned todos: ${todoError.message}`);
+
+    // For now, habits aren't date-based, so we return just todos
+    // TODO: Extend when habits have scheduling
+    return todoCount || 0;
+  }
+
+  async countCompletedToday(): Promise<number> {
+    const userId = this.ensureUserId();
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // Count todos completed today (completed_at = today)
+    const { count: todoCount, error: todoError } = await supabase
+      .from('todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_id', userId)
+      .not('completed_at', 'is', null)
+      .gte('completed_at', `${today}T00:00:00`)
+      .lt('completed_at', `${today}T23:59:59`);
+
+    if (todoError) throw new Error(`Failed to count completed todos: ${todoError.message}`);
+
+    // TODO: Add habit completions when we have a completion tracking table
+    return todoCount || 0;
+  }
+
+  // ==========================
+  // COMPLETION METHODS (Phase 9)
+  // ==========================
+
+  async completeHabit(id: ID, atIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    // For now, mark habit as completed by setting a completed_at field
+    // TODO: Phase 10+ - Create a separate habit_completions table for history
+    const { error } = await supabase
+      .from('habits')
+      .update({ completed_at: atIso })
+      .eq('id', id)
+      .eq('owner_id', userId);
+
+    if (error) throw new Error(`Failed to complete habit: ${error.message}`);
+
+    // Emit event for UI sync
+    const { eventBus } = await import('../events');
+    eventBus.emit('ItemCompleted', { id, type: 'habit' });
+  }
+
+  async completeTodo(id: ID, atIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    const { error } = await supabase
+      .from('todos')
+      .update({ completed_at: atIso })
+      .eq('id', id)
+      .eq('owner_id', userId);
+
+    if (error) throw new Error(`Failed to complete todo: ${error.message}`);
+
+    // Emit event for UI sync
+    const { eventBus } = await import('../events');
+    eventBus.emit('ItemCompleted', { id, type: 'todo' });
+  }
+
+  async undoCompletion(id: ID): Promise<void> {
+    const userId = this.ensureUserId();
+
+    // Try to clear completed_at from todos first
+    const { error: todoError } = await supabase
+      .from('todos')
+      .update({ completed_at: null })
+      .eq('id', id)
+      .eq('owner_id', userId);
+
+    if (!todoError) {
+      // Success - was a todo
+      const { eventBus } = await import('../events');
+      eventBus.emit('ItemUpdated', { id });
+      return;
+    }
+
+    // Try habits
+    const { error: habitError } = await supabase
+      .from('habits')
+      .update({ completed_at: null })
+      .eq('id', id)
+      .eq('owner_id', userId);
+
+    if (habitError) {
+      throw new Error(`Failed to undo completion: ${habitError.message}`);
+    }
+
+    // Emit event for UI sync
+    const { eventBus } = await import('../events');
+    eventBus.emit('ItemUpdated', { id });
+  }
+
+  // ==========================
   // SPACE METHODS (Phase 5)
   // ==========================
 
