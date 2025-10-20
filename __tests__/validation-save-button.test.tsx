@@ -39,24 +39,40 @@ const mockCortex = {
 };
 
 const mockTheme = {
-  colors: {
-    primary: '#FF6B35',
-    background: '#FFF9F0',
-    white: '#FFFFFF',
-    text: {
-      primary: '#1A1A1A',
-      secondary: '#666666',
-      tertiary: '#999999',
-    },
-    border: {
-      DEFAULT: '#E5E5E5',
+  theme: {
+    colors: {
+      primary: '#FF6B35',
+      background: '#FFF9F0',
+      white: '#FFFFFF',
+      cream: '#FFF9F0',
+      mint: '#E8F5E9',
+      deepTeal: {
+        DEFAULT: '#006064',
+      },
+      text: {
+        primary: '#1A1A1A',
+        secondary: '#666666',
+        tertiary: '#999999',
+      },
+      border: {
+        DEFAULT: '#E5E5E5',
+      },
     },
   },
 };
 
 // Helper to wrap components with SafeAreaProvider
 const renderWithSafeArea = (component: React.ReactElement) => {
-  return render(<SafeAreaProvider>{component}</SafeAreaProvider>);
+  return render(
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: 390, height: 844 },
+        insets: { top: 44, left: 0, right: 0, bottom: 34 },
+      }}
+    >
+      {component}
+    </SafeAreaProvider>,
+  );
 };
 
 describe('Validation & Save Button State', () => {
