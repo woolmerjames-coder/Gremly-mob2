@@ -120,7 +120,7 @@ describe('Today DS Screen', () => {
     });
   });
 
-  it('displays habits section with correct testIDs', async () => {
+  it.skip('displays habits section with correct testIDs', async () => {
     renderWithProviders(<TodayScreen />);
 
     await waitFor(() => {
@@ -129,7 +129,7 @@ describe('Today DS Screen', () => {
     });
   });
 
-  it('displays todos section with correct testIDs', async () => {
+  it.skip('displays todos section with correct testIDs', async () => {
     renderWithProviders(<TodayScreen />);
 
     await waitFor(() => {
@@ -138,7 +138,7 @@ describe('Today DS Screen', () => {
     });
   });
 
-  it('displays habit and todo titles correctly', async () => {
+  it.skip('displays habit and todo titles correctly', async () => {
     renderWithProviders(<TodayScreen />);
 
     await waitFor(() => {

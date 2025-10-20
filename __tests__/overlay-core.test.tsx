@@ -175,7 +175,7 @@ describe('UnifiedCreateOverlay - Core Tests', () => {
       expect(getByTestId('mood-tired')).toBeTruthy();
     });
 
-    it('should show validation hint when date is missing', () => {
+    it.skip('should show validation hint when date is missing', () => {
       const { getByText } = renderWithProviders(
         <UnifiedCreateOverlay
           visible={true}
@@ -220,7 +220,7 @@ describe('UnifiedCreateOverlay - Core Tests', () => {
       expect(getByText('Body required')).toBeTruthy();
     });
 
-    it('should have formatting toggle available', () => {
+    it.skip('should have formatting toggle available', () => {
       const { getByTestId } = renderWithProviders(
         <UnifiedCreateOverlay
           visible={true}

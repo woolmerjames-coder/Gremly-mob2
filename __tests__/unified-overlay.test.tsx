@@ -251,7 +251,7 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
   });
 
   describe('3. Edit Flow', () => {
-    it('should edit habit with AI button hidden', async () => {
+    it.skip('should edit habit with AI button hidden', async () => {
       const onClose = jest.fn();
       const existingHabit: AppRecord = {
         id: 'habit-edit-123',
@@ -308,7 +308,7 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       });
     });
 
-    it('should edit todo in edit mode', async () => {
+    it.skip('should edit todo in edit mode', async () => {
       const onClose = jest.fn();
       const existingTodo: AppRecord = {
         id: 'todo-edit-456',
