@@ -1,38 +1,50 @@
 /**
- * Today Screen - DS-only implementation (no Tailwind)
- * Shows habits and todos due today with proper data fetching
+ * Today Screen - Phase 9: Energy & Momentum
+ * Enhanced with mascot header, sections, and smart cards
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
-import { ListItem } from '../../design-system/ListItem';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import type { AppRecord } from '../../lib/types';
+import { useTodayData } from '../../lib/today/useTodayData';
+import TodayMascotHeader from '../../components/today/TodayMascotHeader';
+import TodaySection from '../../components/today/TodaySection';
+import TodayHabitCard from '../../components/today/TodayHabitCard';
+import TodayTodoCard from '../../components/today/TodayTodoCard';
+import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
+import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function TodayScreen() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const navigation = useNavigation<NavigationProp>();
-  const repo = useRepo();
   const { user } = useAuth();
   const { theme } = useTheme();
 
   // Unified overlay controller
   const overlayController = useUnifiedOverlayController();
 
-  // State
-  const [items, setItems] = useState<AppRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Today data hook
+  const todayData = useTodayData();
+
+  // Local state for optimistic UI
+  const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
+  const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
+  const [celebrationVisible, setCelebrationVisible] = useState(false);
+  const [lastCompletedId, setLastCompletedId] = useState<string | null>(null);
+  const [lastCompletedType, setLastCompletedType] = useState<'habit' | 'todo' | null>(null);
+
+  // Read feature flags
+  const celebrationEnabled = process.env.EXPO_PUBLIC_TODAY_CELEBRATION !== 'off';
+  const suggestionsEnabled = process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS !== 'off';
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -43,75 +55,84 @@ export default function TodayScreen() {
     </Box>
   ) : null;
 
-  // Load due today items
-  const load = useCallback(async () => {
-    // Skip if not authenticated
-    if (!user) {
-      setError('Please sign in to view your items');
-      return;
+  // Handle habit completion (optimistic UI only - no repo mutation yet)
+  const handleHabitComplete = (id: string) => {
+    setCompletedHabitIds((prev) => new Set(prev).add(id));
+    setLastCompletedId(id);
+    setLastCompletedType('habit');
+    if (celebrationEnabled) {
+      setCelebrationVisible(true);
     }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const nowIso = new Date().toISOString();
-      const dueItems = await repo.listDueToday(nowIso);
-      setItems(dueItems);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load today items';
-      console.error('Failed to load today items:', err);
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [repo, user]);
-
-  // Load on mount and when user changes
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Separate items by type
-  const habits = items.filter((item) => item.type === 'habit');
-  const todos = items.filter((item) => item.type === 'todo');
-
-  // Empty state
-  const isEmpty = items.length === 0;
-
-  // Navigate to item detail (placeholder - adjust based on your navigation)
-  const handleItemPress = (item: AppRecord) => {
-    console.log('Item pressed:', item.id);
-    // TODO: Navigate to detail screen when implemented
-    // navigation.navigate('ItemDetail', { id: item.id });
+    // TODO Phase 9 step 2: Persist to repo and emit event
   };
 
-  // Mark item as done (placeholder)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleMarkDone = async (item: AppRecord) => {
-    console.log('Mark done:', item.id);
-    // TODO: Implement mark done logic
-    // await repo.update({ id: item.id, patch: { completed: true } });
-    // await load();
+  // Handle todo completion (optimistic UI only - no repo mutation yet)
+  const handleTodoComplete = (id: string) => {
+    setCompletedTodoIds((prev) => new Set(prev).add(id));
+    setLastCompletedId(id);
+    setLastCompletedType('todo');
+    if (celebrationEnabled) {
+      setCelebrationVisible(true);
+    }
+    // TODO Phase 9 step 2: Persist to repo and emit event
+  };
+
+  // Handle suggestion acceptance (placeholder)
+  const handleSuggestionAccept = (id: string) => {
+    console.log('Suggestion accepted:', id);
+    // TODO Phase 9 step 2: Add to today list
+  };
+
+  // Handle undo from celebration overlay
+  const handleUndo = () => {
+    if (lastCompletedId && lastCompletedType) {
+      if (lastCompletedType === 'habit') {
+        setCompletedHabitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(lastCompletedId);
+          return next;
+        });
+      } else {
+        setCompletedTodoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(lastCompletedId);
+          return next;
+        });
+      }
+    }
+    setCelebrationVisible(false);
+    setLastCompletedId(null);
+    setLastCompletedType(null);
+  };
+
+  // Handle long press (placeholder)
+  const handleLongPress = (id: string) => {
+    console.log('Long press:', id);
+    // TODO: Show context menu or navigate to detail
   };
 
   const handleOverlaySaved = useCallback(async () => {
     // Reload data after overlay save
-    await load();
-  }, [load]);
+    await todayData.reload();
+  }, [todayData]);
+
+  // Filter out completed items for display
+  const visibleHabits = todayData.habits.filter((h) => !completedHabitIds.has(h.id));
+  const visibleTodos = todayData.todos.filter((t) => !completedTodoIds.has(t.id));
 
   return (
     <Screen title="Today" scroll padded testID="today-screen">
       {dsMarker}
-      <Box gap={3}>
+      <Box gap={4}>
         {/* Error state */}
-        {error && (
+        {todayData.error && (
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
               <Text variant="title" style={{ textAlign: 'center' }}>
                 Authentication Required
               </Text>
               <Text variant="body" style={{ textAlign: 'center', color: theme.colors.error }}>
-                {error}
+                {todayData.error}
               </Text>
               {__DEV__ && (
                 <Button
@@ -125,7 +146,7 @@ export default function TodayScreen() {
         )}
 
         {/* Loading state */}
-        {loading && !items.length && !error && (
+        {todayData.loading && !todayData.error && (
           <Box p={4}>
             <Text variant="body" style={{ textAlign: 'center' }}>
               Loading...
@@ -133,71 +154,112 @@ export default function TodayScreen() {
           </Box>
         )}
 
-        {/* Empty state */}
-        {isEmpty && !loading && !error && (
-          <Card>
-            <Box p={4} gap={3} style={{ alignItems: 'center' }}>
-              <Text variant="title" style={{ textAlign: 'center' }}>
-                You're all set! ✨
-              </Text>
-              <Text variant="body" style={{ textAlign: 'center' }}>
-                No items due today. Add something to get started.
-              </Text>
+        {/* Main content */}
+        {!todayData.loading && !todayData.error && user && (
+          <>
+            {/* Mascot Header */}
+            <TodayMascotHeader
+              greeting={todayData.header.greeting}
+              subline={todayData.header.subline}
+              streakCount={todayData.header.streakCount}
+              completedToday={todayData.header.completedToday}
+              plannedToday={todayData.header.plannedToday}
+              timeWindow={todayData.timeWindow}
+              reducedMotion={todayData.reducedMotion}
+            />
+
+            {/* Habits Today Section */}
+            <TodaySection
+              title="Habits Today"
+              initiallyExpanded
+              reducedMotion={todayData.reducedMotion}
+            >
+              <Box gap={2} testID="today-section-habits-today">
+                {visibleHabits.length === 0 && (
+                  <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
+                    No habits due — enjoy the space 🌤️
+                  </Text>
+                )}
+                {visibleHabits.map((habit) => (
+                  <TodayHabitCard
+                    key={habit.id}
+                    id={habit.id}
+                    name={habit.name}
+                    dueWindow={habit.dueWindow}
+                    streakCount={habit.streakCount}
+                    tags={habit.tags}
+                    spaceName={habit.spaceName}
+                    onComplete={handleHabitComplete}
+                    onLongPress={handleLongPress}
+                    reducedMotion={todayData.reducedMotion}
+                  />
+                ))}
+              </Box>
+            </TodaySection>
+
+            {/* Due Today Section */}
+            <TodaySection
+              title="Due Today"
+              initiallyExpanded
+              reducedMotion={todayData.reducedMotion}
+            >
+              <Box gap={2} testID="today-section-due-today">
+                {visibleTodos.length === 0 && (
+                  <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
+                    All clear for now ✨
+                  </Text>
+                )}
+                {visibleTodos.map((todo) => (
+                  <TodayTodoCard
+                    key={todo.id}
+                    id={todo.id}
+                    title={todo.title}
+                    dueTime={todo.dueTime}
+                    tags={todo.tags}
+                    spaceName={todo.spaceName}
+                    overdue={todo.overdue}
+                    nearDue={todo.nearDue}
+                    onComplete={handleTodoComplete}
+                    onLongPress={handleLongPress}
+                    reducedMotion={todayData.reducedMotion}
+                  />
+                ))}
+              </Box>
+            </TodaySection>
+
+            {/* Suggested Section */}
+            {suggestionsEnabled && todayData.suggestions.length > 0 && (
+              <TodaySection
+                title="Suggested"
+                initiallyExpanded
+                reducedMotion={todayData.reducedMotion}
+              >
+                <Box gap={2} testID="today-section-suggested">
+                  {todayData.suggestions.map((suggestion) => (
+                    <TodaySuggestionCard
+                      key={suggestion.id}
+                      id={suggestion.id}
+                      title={suggestion.title}
+                      reason={suggestion.reason}
+                      ctaLabel={suggestion.ctaLabel}
+                      onAccept={handleSuggestionAccept}
+                      reducedMotion={todayData.reducedMotion}
+                    />
+                  ))}
+                </Box>
+              </TodaySection>
+            )}
+
+            {/* Quick Add Button */}
+            <Box mt={2}>
               <Button
-                title="Add Item"
+                title="Add More"
+                variant="neutral"
                 onPress={() => overlayController.openCreate()}
-                testID="today-empty-add"
+                testID="today-add-more"
               />
             </Box>
-          </Card>
-        )}
-
-        {/* Due Habits Section */}
-        {habits.length > 0 && (
-          <Box gap={2}>
-            <Text variant="title">Due Habits</Text>
-            {habits.map((habit) => (
-              <ListItem
-                key={habit.id}
-                title={habit.name || 'Untitled'}
-                subtitle={habit.frequency ? `Frequency: ${habit.frequency}` : undefined}
-                onPress={() => handleItemPress(habit)}
-                testID={`today-habit-${habit.id}`}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* To-Dos Section */}
-        {todos.length > 0 && (
-          <Box gap={2}>
-            <Text variant="title">To-Dos</Text>
-            {todos.map((todo) => (
-              <ListItem
-                key={todo.id}
-                title={todo.name || 'Untitled'}
-                subtitle={
-                  todo.due_date
-                    ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
-                    : 'No due date'
-                }
-                onPress={() => handleItemPress(todo)}
-                testID={`today-todo-${todo.id}`}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* Quick Add Button (if items exist) */}
-        {!isEmpty && (
-          <Box mt={3}>
-            <Button
-              title="Add More"
-              variant="neutral"
-              onPress={() => overlayController.openCreate()}
-              testID="today-add-more"
-            />
-          </Box>
+          </>
         )}
       </Box>
 
@@ -210,40 +272,19 @@ export default function TodayScreen() {
         onClose={overlayController.close}
         onSaved={handleOverlaySaved}
       />
-      {/* Due Habits Section */}
-      {habits.length > 0 && (
-        <Box gap={2}>
-          <Text variant="title">Due Habits</Text>
-          {habits.map((habit) => (
-            <ListItem
-              key={habit.id}
-              title={habit.name || 'Untitled'}
-              subtitle={habit.frequency ? `Frequency: ${habit.frequency}` : undefined}
-              onPress={() => handleItemPress(habit)}
-              testID={`today-habit-${habit.id}`}
-            />
-          ))}
-        </Box>
-      )}
 
-      {/* To-Dos Section */}
-      {todos.length > 0 && (
-        <Box gap={2}>
-          <Text variant="title">To-Dos</Text>
-          {todos.map((todo) => (
-            <ListItem
-              key={todo.id}
-              title={todo.name || 'Untitled'}
-              subtitle={
-                todo.due_date
-                  ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
-                  : 'No due date'
-              }
-              onPress={() => handleItemPress(todo)}
-              testID={`today-todo-${todo.id}`}
-            />
-          ))}
-        </Box>
+      {/* Celebration Overlay */}
+      {celebrationEnabled && (
+        <TodayCelebrationOverlay
+          visible={celebrationVisible}
+          onUndo={handleUndo}
+          onRequestClose={() => {
+            setCelebrationVisible(false);
+            setLastCompletedId(null);
+            setLastCompletedType(null);
+          }}
+          reducedMotion={todayData.reducedMotion}
+        />
       )}
     </Screen>
   );

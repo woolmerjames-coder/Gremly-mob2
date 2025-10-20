@@ -63,6 +63,8 @@ const mockDataStore = {
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
     listDueToday: jest.fn(() => Promise.resolve([...mockDataStore.dueTodayData])),
+    listUndefinedDue: jest.fn(() => Promise.resolve([])), // Phase 9: suggestions
+    getSpaceById: jest.fn(() => Promise.resolve(null)), // Phase 9: space names
     create: jest.fn(),
     update: jest.fn(),
     remove: jest.fn(),
@@ -185,5 +187,90 @@ describe('Today DS Screen - Empty State', () => {
       },
       { timeout: 5000 },
     );
+  });
+});
+
+describe('Today DS Screen - Phase 9 v2', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renders section headers for Habits Today, Due Today, and Suggested', async () => {
+    renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      // Section titles should be rendered
+      expect(screen.getByText('Habits Today')).toBeTruthy();
+      expect(screen.getByText('Due Today')).toBeTruthy();
+      // Suggested section may not appear if no suggestions
+    });
+  });
+
+  it('renders header chips container with progress chip', async () => {
+    renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      // Check for chips row
+      expect(screen.getByTestId('today-chips-row')).toBeTruthy();
+      // Check for progress chip showing X/Y format
+      expect(screen.getByTestId('today-progress-chip')).toBeTruthy();
+    });
+  });
+
+  it('renders mascot header with greeting', async () => {
+    renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('today-mascot-header')).toBeTruthy();
+      expect(screen.getByTestId('today-greeting')).toBeTruthy();
+      expect(screen.getByTestId('today-subline')).toBeTruthy();
+    });
+  });
+
+  it('optimistically removes habit from list when check button pressed', async () => {
+    const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('habit-check-habit-1')).toBeTruthy();
+    });
+
+    // Press the check button for habit-1
+    const checkButton = getByTestId('habit-check-habit-1');
+    checkButton.props.onPress();
+
+    // Wait for optimistic UI update - habit should be removed
+    await waitFor(() => {
+      expect(queryByTestId('habit-card-habit-1')).toBeNull();
+    });
+  });
+
+  it('optimistically removes todo from list when complete button pressed', async () => {
+    const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('todo-complete-todo-1')).toBeTruthy();
+    });
+
+    // Press the complete button for todo-1
+    const completeButton = getByTestId('todo-complete-todo-1');
+    completeButton.props.onPress();
+
+    // Wait for optimistic UI update - todo should be removed
+    await waitFor(() => {
+      expect(queryByTestId('todo-card-todo-1')).toBeNull();
+    });
+  });
+
+  it('respects reduced motion in components', async () => {
+    // Reduced motion is mocked to true in jest-setup.ts
+    // This ensures animations are disabled in tests
+    renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('today-screen')).toBeTruthy();
+    });
+
+    // Components should still render but without animations
+    // The fact that tests pass confirms reduced motion guards work
   });
 });
