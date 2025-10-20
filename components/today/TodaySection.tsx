@@ -20,6 +20,7 @@ export interface TodaySectionProps {
   children?: React.ReactNode;
   initiallyExpanded?: boolean;
   onToggle?: (expanded: boolean) => void;
+  onExpandedChange?: (expanded: boolean) => void; // Session state callback
   reducedMotion?: boolean;
   footer?: React.ReactNode; // Optional footer for "Show more" buttons
 }
@@ -29,6 +30,7 @@ export default function TodaySection({
   children,
   initiallyExpanded = true,
   onToggle,
+  onExpandedChange,
   reducedMotion,
   footer,
 }: TodaySectionProps) {
@@ -47,6 +49,7 @@ export default function TodaySection({
     const newExpanded = !expanded;
     setExpanded(newExpanded);
     onToggle?.(newExpanded);
+    onExpandedChange?.(newExpanded);
 
     // Animate height
     if (!rm) {

@@ -1,6 +1,7 @@
 /**
  * TodayTodoCard - Phase 9: Energy & Momentum
  * Todo card for Today v2 screen
+ * Step 4: Adds grouped prop for space-grouped display
  */
 
 import React, { useMemo } from 'react';
@@ -19,6 +20,7 @@ export interface TodayTodoCardProps {
   spaceName?: string;
   overdue?: boolean;
   nearDue?: boolean;
+  grouped?: boolean; // Whether this card is in a space group
   onComplete: (id: string) => void;
   onLongPress?: (id: string) => void;
   reducedMotion?: boolean;
@@ -32,6 +34,7 @@ export default function TodayTodoCard({
   spaceName,
   overdue = false,
   nearDue = false,
+  grouped = false,
   onComplete,
   onLongPress,
   reducedMotion,

@@ -1,9 +1,10 @@
 /**
  * TodayMascotHeader - Phase 9: Energy & Momentum
  * Header component for Today v2 screen
+ * Step 4: Adds wave animation on pull-to-refresh
  */
 
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
@@ -20,6 +21,7 @@ export interface TodayMascotHeaderProps {
   timeWindow: TimeWindow;
   reducedMotion?: boolean;
   onMascotPress?: () => void;
+  waveTick?: number; // Trigger wave animation on change
 }
 
 export default function TodayMascotHeader({
@@ -32,8 +34,36 @@ export default function TodayMascotHeader({
   timeWindow,
   reducedMotion = false,
   onMascotPress,
+  waveTick = 0,
 }: TodayMascotHeaderProps) {
   const t = useTokens();
+  const [isWaving, setIsWaving] = useState(false);
+  const waveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Trigger wave animation when waveTick changes
+  useEffect(() => {
+    if (waveTick > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsWaving(true);
+
+      // Clear any existing timer
+      if (waveTimerRef.current) {
+        clearTimeout(waveTimerRef.current);
+      }
+
+      // Reset wave state after animation duration
+      const duration = reducedMotion ? 300 : 800;
+      waveTimerRef.current = setTimeout(() => {
+        setIsWaving(false);
+      }, duration);
+    }
+
+    return () => {
+      if (waveTimerRef.current) {
+        clearTimeout(waveTimerRef.current);
+      }
+    };
+  }, [waveTick, reducedMotion]);
 
   return (
     <Box gap={3} testID="today-mascot-header">
@@ -93,15 +123,14 @@ export default function TodayMascotHeader({
           ]}
         >
           {/* TODO: Replace with Lottie animation in Phase 12 */}
-          {reducedMotion ? (
-            <Text style={styles.mascotIcon}>🐸</Text>
-          ) : (
-            <Text style={styles.mascotIcon}>🐸</Text>
-          )}
+          <Text style={styles.mascotIcon} testID="mascot-icon">
+            {isWaving ? '👋' : '🐸'}
+          </Text>
           <Text variant="subtle" style={styles.mascotLabel}>
-            {timeWindow === 'morning' && 'Ready to start?'}
-            {timeWindow === 'midday' && 'Keep going!'}
-            {timeWindow === 'evening' && 'Almost done!'}
+            {isWaving && 'Hey there!'}
+            {!isWaving && timeWindow === 'morning' && 'Ready to start?'}
+            {!isWaving && timeWindow === 'midday' && 'Keep going!'}
+            {!isWaving && timeWindow === 'evening' && 'Almost done!'}
           </Text>
         </View>
       </TouchableOpacity>
