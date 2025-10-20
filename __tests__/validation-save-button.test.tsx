@@ -67,7 +67,11 @@ describe('Validation & Save Button State', () => {
   describe('To-Do Validation', () => {
     it('should disable Save when name is missing', () => {
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="todo" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'todo' }}
+        />,
       );
 
       const saveButton = getByTestId('save-to-hub');
@@ -79,7 +83,11 @@ describe('Validation & Save Button State', () => {
 
     it('should disable Save when due date is missing', () => {
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="todo" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'todo' }}
+        />,
       );
 
       // Fill in name
@@ -94,7 +102,11 @@ describe('Validation & Save Button State', () => {
 
     it('should enable Save when both name and due date are provided', () => {
       const { getByTestId, queryByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="todo" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'todo' }}
+        />,
       );
 
       // Fill in name
@@ -117,7 +129,11 @@ describe('Validation & Save Button State', () => {
       Platform.OS = 'android';
 
       const { getByTestId } = render(
-        <UnifiedCreateOverlay visible={true} onClose={mockOnClose} initialType="todo" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={mockOnClose}
+          initialEntity={{ type: 'todo' }}
+        />,
       );
 
       // Fill in required fields
@@ -143,7 +159,11 @@ describe('Validation & Save Button State', () => {
   describe('Journal Validation', () => {
     it('should disable Save when date is missing', () => {
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="journal" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'journal' }}
+        />,
       );
 
       const saveButton = getByTestId('save-to-hub');
@@ -153,7 +173,11 @@ describe('Validation & Save Button State', () => {
 
     it('should disable Save when entry is missing', () => {
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="journal" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'journal' }}
+        />,
       );
 
       // Set date (simplified)
@@ -167,7 +191,11 @@ describe('Validation & Save Button State', () => {
 
     it('should disable Save when mood is missing', () => {
       const { getByTestId, queryByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="journal" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'journal' }}
+        />,
       );
 
       // Set date
@@ -185,7 +213,11 @@ describe('Validation & Save Button State', () => {
 
     it('should enable Save when date, entry, and mood are all provided', () => {
       const { getByTestId } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="journal" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'journal' }}
+        />,
       );
 
       // Set date
@@ -209,7 +241,11 @@ describe('Validation & Save Button State', () => {
   describe('Note Validation', () => {
     it('should disable Save when body is missing', () => {
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="note" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'note' }}
+        />,
       );
 
       const saveButton = getByTestId('save-to-hub');
@@ -219,7 +255,11 @@ describe('Validation & Save Button State', () => {
 
     it('should enable Save when body is provided', () => {
       const { getByTestId, queryByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="note" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'note' }}
+        />,
       );
 
       // Fill body
@@ -240,7 +280,11 @@ describe('Validation & Save Button State', () => {
       Platform.OS = 'android';
 
       const { getByTestId } = render(
-        <UnifiedCreateOverlay visible={true} onClose={mockOnClose} initialType="note" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={mockOnClose}
+          initialEntity={{ type: 'note' }}
+        />,
       );
 
       // Fill body
@@ -267,7 +311,11 @@ describe('Validation & Save Button State', () => {
   describe('Person Validation', () => {
     it('should disable Save when name (display_name) is missing', () => {
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="person" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'person' }}
+        />,
       );
 
       const saveButton = getByTestId('save-to-hub');
@@ -277,7 +325,11 @@ describe('Validation & Save Button State', () => {
 
     it('should enable Save when name is provided (optional fields not required)', () => {
       const { getByTestId, queryByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="person" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'person' }}
+        />,
       );
 
       // Fill name
@@ -298,7 +350,11 @@ describe('Validation & Save Button State', () => {
       Platform.OS = 'android';
 
       const { getByTestId } = render(
-        <UnifiedCreateOverlay visible={true} onClose={mockOnClose} initialType="person" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={mockOnClose}
+          initialEntity={{ type: 'person' }}
+        />,
       );
 
       // Fill name
@@ -328,7 +384,11 @@ describe('Validation & Save Button State', () => {
       );
 
       const { getByTestId, getByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="note" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'note' }}
+        />,
       );
 
       // Fill body
@@ -353,7 +413,11 @@ describe('Validation & Save Button State', () => {
       );
 
       const { getByTestId } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="note" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'note' }}
+        />,
       );
 
       // Fill body
@@ -376,7 +440,11 @@ describe('Validation & Save Button State', () => {
   describe('Inline Hints (No Banners)', () => {
     it('should show inline hint below fields, not as banner', () => {
       const { getByText, queryByTestId } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="todo" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'todo' }}
+        />,
       );
 
       // Should show hint text
@@ -390,7 +458,11 @@ describe('Validation & Save Button State', () => {
 
     it('should clear hint when field becomes valid', () => {
       const { getByTestId, queryByText } = render(
-        <UnifiedCreateOverlay visible={true} onClose={jest.fn()} initialType="note" />,
+        <UnifiedCreateOverlay
+          visible={true}
+          onClose={jest.fn()}
+          initialEntity={{ type: 'note' }}
+        />,
       );
 
       // Initially shows hint

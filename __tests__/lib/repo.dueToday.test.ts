@@ -10,7 +10,7 @@ describe('MemoryRepo - listDueToday', () => {
 
     const todo = await memoryRepo.create({
       type: 'todo',
-      title: 'Todo due today',
+      name: 'Todo due today',
       due_date: todayISO,
     });
 
@@ -20,7 +20,7 @@ describe('MemoryRepo - listDueToday', () => {
     // Expect the new todo to be included
     const foundTodo = dueToday.find((r) => r.id === todo.id);
     expect(foundTodo).toBeDefined();
-    expect(foundTodo?.title).toBe('Todo due today');
+    expect((foundTodo as Todo).name).toBe('Todo due today');
     expect((foundTodo as Todo).due_date).toBe(todayISO);
   });
 
@@ -30,7 +30,7 @@ describe('MemoryRepo - listDueToday', () => {
 
     const todo = await memoryRepo.create({
       type: 'todo',
-      title: 'Todo at start of day',
+      name: 'Todo at start of day',
       due_date: startOfToday,
     });
 
@@ -48,7 +48,7 @@ describe('MemoryRepo - listDueToday', () => {
 
     const todo = await memoryRepo.create({
       type: 'todo',
-      title: 'Todo at end of day',
+      name: 'Todo at end of day',
       due_date: endOfToday,
     });
 
@@ -67,7 +67,7 @@ describe('MemoryRepo - listDueToday', () => {
 
     const todo = await memoryRepo.create({
       type: 'todo',
-      title: 'Todo due tomorrow',
+      name: 'Todo due tomorrow',
       due_date: tomorrowISO,
     });
 
@@ -86,7 +86,7 @@ describe('MemoryRepo - listDueToday', () => {
 
     const todo = await memoryRepo.create({
       type: 'todo',
-      title: 'Todo due yesterday',
+      name: 'Todo due yesterday',
       due_date: yesterdayISO,
     });
 
@@ -101,7 +101,7 @@ describe('MemoryRepo - listDueToday', () => {
   test('excludes todo with null due_date', async () => {
     const todo = await memoryRepo.create({
       type: 'todo',
-      title: 'Todo with no due date',
+      name: 'Todo with no due date',
       due_date: null,
     });
 
@@ -120,8 +120,9 @@ describe('MemoryRepo - listDueToday', () => {
 
     const habit = await memoryRepo.create({
       type: 'habit',
-      title: 'Habit due today',
+      name: 'Habit due today',
       frequency: 'daily',
+      subtype: 'start_habit',
     });
 
     // Query for records due today
@@ -149,7 +150,9 @@ describe('MemoryRepo - listDueToday', () => {
 
     // May have other records from seed/previous tests,
     // but should not include the future todo we just created
-    const futureTodo = dueToday.find((r) => r.title === 'Future todo');
+    const futureTodo = dueToday.find(
+      (r) => r.type === 'todo' && (r as Todo).name === 'Future todo',
+    );
     expect(futureTodo).toBeUndefined();
   });
 

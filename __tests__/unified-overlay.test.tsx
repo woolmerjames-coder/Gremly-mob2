@@ -313,7 +313,7 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       const existingTodo: AppRecord = {
         id: 'todo-edit-456',
         type: 'todo',
-        title: 'Original todo',
+        name: 'Original todo',
         space_id: 'space-home',
         undefined_due: true,
         ai_placed: false,

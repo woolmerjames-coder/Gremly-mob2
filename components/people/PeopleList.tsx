@@ -86,7 +86,9 @@ function PersonRow({ person, onPress, testID }: PersonRowProps) {
           <Text style={styles.avatar}>{person.avatar}</Text>
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarPlaceholderText}>{person.name.charAt(0).toUpperCase()}</Text>
+            <Text style={styles.avatarPlaceholderText}>
+              {person.name ? person.name.charAt(0).toUpperCase() : '?'}
+            </Text>
           </View>
         )}
       </View>

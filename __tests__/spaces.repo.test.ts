@@ -1,5 +1,6 @@
 import { MemoryRepo } from '../lib/repo/memory';
 import { spaceInsertSchema } from '../lib/schemas';
+import type { Habit, Todo, Note } from '../lib/types';
 
 describe('Spaces Repository', () => {
   let repo: MemoryRepo;
@@ -83,14 +84,15 @@ describe('Spaces Repository', () => {
       // Create items in the space
       await repo.create({
         type: 'habit',
-        title: 'Test Habit',
+        name: 'Test Habit',
         frequency: 'daily',
+        subtype: 'start_habit',
         space_id: space.id,
       });
 
       await repo.create({
         type: 'todo',
-        title: 'Test Todo',
+        name: 'Test Todo',
         space_id: space.id,
       });
 
@@ -106,9 +108,9 @@ describe('Spaces Repository', () => {
       expect(grouped.habits).toHaveLength(1);
       expect(grouped.todos).toHaveLength(1);
       expect(grouped.notes).toHaveLength(1);
-      expect(grouped.habits[0].title).toBe('Test Habit');
-      expect(grouped.todos[0].title).toBe('Test Todo');
-      expect(grouped.notes[0].title).toBe('Test Note');
+      expect((grouped.habits[0] as Habit).name).toBe('Test Habit');
+      expect((grouped.todos[0] as Todo).name).toBe('Test Todo');
+      expect((grouped.notes[0] as Note).title).toBe('Test Note');
     });
 
     it('returns empty arrays for space with no items', async () => {

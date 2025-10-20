@@ -144,7 +144,15 @@ function DestinationPickerSheet({
   }, [repo]);
 
   function fallbackTitle(item: Partial<AppRecord>): string {
-    if (item.title && item.title.trim()) return item.title.trim();
+    const titleField =
+      item.type === 'habit' || item.type === 'todo'
+        ? 'name' in item
+          ? item.name
+          : undefined
+        : 'title' in item
+          ? item.title
+          : undefined;
+    if (titleField && titleField.trim()) return titleField.trim();
     if (item.type === 'note' && (item as Note).body) {
       const line =
         ((item as Note).body ?? '')

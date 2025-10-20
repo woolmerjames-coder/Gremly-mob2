@@ -80,7 +80,12 @@ export default function HubScreen() {
       else if (item.type === 'todo') kind = 'todo';
       else kind = 'note';
 
-      let title = item.title || '';
+      let title =
+        item.type === 'habit' || item.type === 'todo'
+          ? 'name' in item
+            ? item.name
+            : ''
+          : item.title || '';
       let note: string | undefined;
 
       // For long text notes, condense title and keep original as note
@@ -275,8 +280,16 @@ export default function HubScreen() {
     if (!search.trim()) return items;
     const needle = search.toLowerCase();
     return items.filter((item) => {
+      const titleText =
+        item.type === 'habit' || item.type === 'todo'
+          ? 'name' in item
+            ? item.name
+            : ''
+          : 'title' in item
+            ? item.title
+            : '';
       const haystack =
-        `${item.title ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
+        `${titleText ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
       return haystack.includes(needle);
     });
   }, [items, search, tab]);
@@ -294,11 +307,18 @@ export default function HubScreen() {
 
   // Convert AppRecord to UnsortedItem (for review sheet)
   const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
-    let title = item.title || '';
+    let title =
+      item.type === 'habit' || item.type === 'todo'
+        ? 'name' in item
+          ? item.name
+          : ''
+        : 'title' in item
+          ? item.title
+          : '';
     if (item.type === 'note' && item.body && !title) {
       title = suggestShortTitle(item.body);
     }
-    if (!title.trim()) {
+    if (!title || !title.trim()) {
       title = 'Untitled';
     }
 

@@ -4,6 +4,7 @@
 
 import { MemoryRepo } from '../../lib/repo/memory';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
+import type { Habit, Todo } from '../../lib/types';
 
 // Mock date-fns
 jest.mock('date-fns', () => ({
@@ -23,15 +24,16 @@ describe('MemoryRepo', () => {
   test('creates and retrieves a habit', async () => {
     const input: CreateRecordInput = {
       type: 'habit',
-      title: 'Morning meditation',
+      name: 'Morning meditation',
       frequency: 'daily',
+      subtype: 'start_habit',
       owner_id: mockUserId,
     };
 
     const habit = await repo.create(input);
     expect(habit.id).toBeDefined();
     expect(habit.type).toBe('habit');
-    expect(habit.title).toBe('Morning meditation');
+    expect((habit as Habit).name).toBe('Morning meditation');
 
     const retrieved = await repo.getById(habit.id);
     expect(retrieved).toBeDefined();
@@ -41,27 +43,28 @@ describe('MemoryRepo', () => {
   test('creates and retrieves a todo', async () => {
     const input: CreateRecordInput = {
       type: 'todo',
-      title: 'Buy groceries',
+      name: 'Buy groceries',
       body: 'Milk, eggs, bread',
       owner_id: mockUserId,
     };
 
     const todo = await repo.create(input);
     expect(todo.type).toBe('todo');
-    expect(todo.title).toBe('Buy groceries');
+    expect((todo as Todo).name).toBe('Buy groceries');
   });
 
   test('lists records by type', async () => {
     await repo.create({
       type: 'habit',
-      title: 'Exercise',
+      name: 'Morning routine',
       frequency: 'daily',
+      subtype: 'start_habit',
       owner_id: mockUserId,
     });
 
     await repo.create({
       type: 'todo',
-      title: 'Call dentist',
+      name: 'Test Habit',
       owner_id: mockUserId,
     });
 
@@ -77,34 +80,34 @@ describe('MemoryRepo', () => {
   test('searches across records', async () => {
     await repo.create({
       type: 'todo',
-      title: 'Buy coffee',
+      name: 'Buy coffee',
       owner_id: mockUserId,
     });
 
     const results = await repo.search('coffee');
     expect(results.length).toBeGreaterThan(0);
-    expect(results[0].title).toContain('coffee');
+    expect((results[0] as Todo).name).toContain('coffee');
   });
 
   test('updates a record', async () => {
     const todo = await repo.create({
       type: 'todo',
-      title: 'Original title',
+      name: 'Original title',
       owner_id: mockUserId,
     });
 
     const updated = await repo.update({
       id: todo.id,
-      patch: { title: 'Updated title' },
+      patch: { name: 'Updated title' } as Partial<Todo>,
     });
 
-    expect(updated.title).toBe('Updated title');
+    expect((updated as Todo).name).toBe('Updated title');
   });
 
   test('removes a record', async () => {
     const todo = await repo.create({
       type: 'todo',
-      title: 'To be deleted',
+      name: 'To be deleted',
       owner_id: mockUserId,
     });
 
@@ -117,7 +120,7 @@ describe('MemoryRepo', () => {
   test('lists undefined due todos', async () => {
     await repo.create({
       type: 'todo',
-      title: 'Maybe today',
+      name: 'Test Habit',
       undefined_due: true,
       owner_id: mockUserId,
     });

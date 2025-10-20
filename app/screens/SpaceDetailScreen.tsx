@@ -142,7 +142,13 @@ function Section({ title, items }: SectionProps) {
           <ListItem
             key={item.id}
             testID={`space-detail-${item.type}-${item.id}`}
-            title={item.type === 'habit' || item.type === 'todo' ? item.title : '(untitled)'}
+            title={
+              item.type === 'habit' || item.type === 'todo'
+                ? 'name' in item
+                  ? item.name
+                  : '(untitled)'
+                : '(untitled)'
+            }
             subtitle={item.type === 'todo' && item.body ? item.body : undefined}
             style={{ marginBottom: 8 }}
           />

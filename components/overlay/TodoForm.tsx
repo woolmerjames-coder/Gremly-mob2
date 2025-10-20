@@ -21,7 +21,7 @@ interface TodoFormProps {
 export function TodoForm({ reminders, onSubmit, mode = 'create', initialValues }: TodoFormProps) {
   // Initialize state from props (no effects needed)
   const [name, setName] = useState(() =>
-    mode === 'edit' && initialValues ? initialValues.title || '' : '',
+    mode === 'edit' && initialValues && 'name' in initialValues ? initialValues.name || '' : '',
   );
   const [showOptional, setShowOptional] = useState(mode === 'edit');
   const [deadline, setDeadline] = useState(() =>

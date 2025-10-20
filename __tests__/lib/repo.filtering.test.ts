@@ -15,6 +15,7 @@ describe('Repo filtering features', () => {
         type: 'habit',
         title: 'Habit in Space A',
         frequency: 'daily',
+        subtype: 'start_habit',
         space_id: 'space-a',
         ai_placed: false,
       });
@@ -23,6 +24,7 @@ describe('Repo filtering features', () => {
         type: 'habit',
         title: 'Habit Unassigned',
         frequency: 'daily',
+        subtype: 'start_habit',
         space_id: null,
         ai_placed: false,
       });
@@ -111,6 +113,7 @@ describe('Repo filtering features', () => {
         type: 'habit',
         title: 'AI Habit',
         frequency: 'daily',
+        subtype: 'start_habit',
         ai_placed: true,
       });
 

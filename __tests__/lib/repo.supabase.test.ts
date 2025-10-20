@@ -5,6 +5,7 @@
 
 import { SupabaseRepo } from '../../lib/repo/supabase';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
+import type { Habit, Todo } from '../../lib/types';
 
 // Mock the Supabase client
 jest.mock('../../lib/supabase/client', () => ({
@@ -72,7 +73,7 @@ describe('SupabaseRepo (mocked)', () => {
     expect(mockFrom).toHaveBeenCalledWith('habits');
     expect(mockInsert).toHaveBeenCalled();
     expect(result.type).toBe('habit');
-    expect(result.title).toBe('Exercise');
+    expect((result as Habit).name).toBe('Exercise');
   });
 
   test('create todo calls insert with correct data', async () => {
@@ -107,7 +108,7 @@ describe('SupabaseRepo (mocked)', () => {
 
     expect(mockFrom).toHaveBeenCalledWith('todos');
     expect(result.type).toBe('todo');
-    expect(result.title).toBe('Buy milk');
+    expect((result as Todo).name).toBe('Buy milk');
   });
 
   test('listByType queries correct table', async () => {

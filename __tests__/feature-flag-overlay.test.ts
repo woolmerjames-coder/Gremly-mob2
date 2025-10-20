@@ -55,8 +55,9 @@ describe('Feature Flag: EXPO_PUBLIC_UNIFIED_OVERLAY', () => {
       const mockRecord = {
         id: 'habit-1',
         type: 'habit' as const,
-        title: 'Test Habit',
+        name: 'Test Habit',
         frequency: 'daily' as const,
+        subtype: 'start_habit' as const,
         space_id: null,
         ai_placed: false,
         created_at: '2024-01-01T00:00:00Z',

@@ -159,7 +159,7 @@ export default function TodayScreen() {
             {habits.map((habit) => (
               <ListItem
                 key={habit.id}
-                title={habit.title}
+                title={habit.name || 'Untitled'}
                 subtitle={habit.frequency ? `Frequency: ${habit.frequency}` : undefined}
                 onPress={() => handleItemPress(habit)}
                 testID={`today-habit-${habit.id}`}
@@ -175,7 +175,7 @@ export default function TodayScreen() {
             {todos.map((todo) => (
               <ListItem
                 key={todo.id}
-                title={todo.title}
+                title={todo.name || 'Untitled'}
                 subtitle={
                   todo.due_date
                     ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
@@ -217,7 +217,7 @@ export default function TodayScreen() {
           {habits.map((habit) => (
             <ListItem
               key={habit.id}
-              title={habit.title}
+              title={habit.name || 'Untitled'}
               subtitle={habit.frequency ? `Frequency: ${habit.frequency}` : undefined}
               onPress={() => handleItemPress(habit)}
               testID={`today-habit-${habit.id}`}
@@ -233,7 +233,7 @@ export default function TodayScreen() {
           {todos.map((todo) => (
             <ListItem
               key={todo.id}
-              title={todo.title}
+              title={todo.name || 'Untitled'}
               subtitle={
                 todo.due_date
                   ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
