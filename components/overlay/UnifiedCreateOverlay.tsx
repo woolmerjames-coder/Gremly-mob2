@@ -34,8 +34,16 @@ import type { AppRecord, Frequency, NoteSubtype, HabitSubtype } from '../../lib/
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
+import {
+  mapHabitToForm,
+  mapTodoToForm,
+  mapJournalToForm,
+  mapNoteToForm,
+  mapPersonToForm,
+} from './mappers';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
+type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
 
 export type UnifiedCreateOverlayProps = {
   visible: boolean;
@@ -81,10 +89,11 @@ export function UnifiedCreateOverlay({
   }
 
   // State - with robust defaults
-  const [selectedType, setSelectedType] = useState<EntityType | null>('todo'); // Default to todo instead of null
+  const [selectedType, setSelectedType] = useState<EntityType | null>(null);
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
   const [isLoading, setIsLoading] = useState(false);
+  const [hydration, setHydration] = useState<HydrationState>('idle');
 
   // Animation for subtype chips and fields
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -215,53 +224,71 @@ export function UnifiedCreateOverlay({
   };
 
   const loadEntity = React.useCallback(
-    async (id: string) => {
+    async (id: string, type: EntityType) => {
       try {
-        const entity = await repo.getById(id);
-        if (!entity) return;
+        setHydration('loading');
 
-        // Populate fields based on type
-        switch (entity.type) {
-          case 'habit':
-            setHabitName(entity.name || '');
-            setHabitFrequency(entity.frequency || 'daily');
-            setHabitSubtype(entity.subtype || null);
-            break;
-          case 'todo':
-            setTodoName(entity.title || '');
-            setTodoDueDate(entity.due_date || '');
-            break;
-          case 'note':
-            if (entity.subtype === 'journal') {
-              setSelectedType('journal');
-              setJournalEntry(entity.body || '');
-              setJournalDate(
-                entity.date ||
-                  entity.created_at?.split('T')[0] ||
-                  new Date().toISOString().split('T')[0],
-              );
-              setJournalMood(entity.mood || null);
-              // Load journal details
-              setJournalDetails({
-                formatting: entity.fmt || null,
-                reminders: entity.reminders || [],
-                tags: entity.tags || [],
-                spaceId: entity.space_id || null,
-              });
-            } else {
-              // Regular note
-              setNoteTitle(entity.title || '');
-              setNoteBody(entity.body || '');
-              setNoteDetails({
-                formatting: entity.fmt || null,
-                spaceId: entity.space_id || null,
-                tags: entity.tags || [],
-              });
+        // Fetch based on type
+        if (type === 'person') {
+          const people = await repo.listPeople();
+          const person = people.find((p) => p.id === id);
+          if (!person) {
+            setHydration('error');
+            return;
+          }
+          const formData = mapPersonToForm(person);
+          setPersonName(formData.name);
+          setPersonDetails(formData.details);
+        } else {
+          const entity = await repo.getById(id);
+          if (!entity) {
+            setHydration('error');
+            return;
+          }
+
+          // Map based on entity type
+          switch (entity.type) {
+            case 'habit': {
+              const formData = mapHabitToForm(entity);
+              setHabitName(formData.name);
+              setHabitFrequency(formData.frequency as Frequency);
+              setHabitFrequencyValue(formData.frequencyValue);
+              setHabitSubtype(formData.subtype);
+              setHabitReminders(formData.reminders);
+              setHabitDetails(formData.details);
+              setHabitBreakState(formData.breakState);
+              break;
             }
-            break;
+            case 'todo': {
+              const formData = mapTodoToForm(entity);
+              setTodoName(formData.name);
+              setTodoDueDate(formData.dueDate);
+              setTodoDueTime(formData.dueTime);
+              setTodoDetails(formData.details);
+              break;
+            }
+            case 'note': {
+              if (entity.subtype === 'journal') {
+                const formData = mapJournalToForm(entity);
+                setJournalDate(formData.date);
+                setJournalEntry(formData.entry);
+                setJournalMood(formData.mood);
+                setJournalDetails(formData.details);
+              } else {
+                const formData = mapNoteToForm(entity);
+                setNoteTitle(formData.title);
+                setNoteBody(formData.body);
+                setNoteDetails(formData.details);
+              }
+              break;
+            }
+          }
         }
+
+        setHydration('ready');
       } catch (error) {
         console.error('[UnifiedCreateOverlay] Failed to load entity:', error);
+        setHydration('error');
       }
     },
     [repo],
@@ -269,22 +296,34 @@ export function UnifiedCreateOverlay({
 
   // Initialize from initialEntity in edit mode
   useEffect(() => {
+    if (!visible) {
+      // Reset hydration when overlay closes
+      setHydration('idle');
+      return;
+    }
+
     if (mode === 'edit' && initialEntity && initialEntity.type) {
+      // Set type immediately so skeleton can render
       setSelectedType(initialEntity.type);
       setAiMode(false); // No AI mode in edit
 
       // Load entity data
       if (initialEntity.id) {
-        loadEntity(initialEntity.id);
+        loadEntity(initialEntity.id, initialEntity.type);
       }
-    } else if (mode === 'create' && initialEntity?.type) {
-      setSelectedType(initialEntity.type);
+    } else if (mode === 'create') {
+      // Create mode - immediately ready
+      setHydration('ready');
+      if (initialEntity?.type) {
+        setSelectedType(initialEntity.type);
+      }
     }
-  }, [mode, initialEntity, loadEntity]);
+  }, [visible, mode, initialEntity, loadEntity]);
 
   const resetForm = () => {
-    setSelectedType('todo'); // Reset to default type instead of null
+    setSelectedType(null); // Reset to no type selected
     setAiMode(false);
+    setHydration('idle');
     setFreeformText('');
     setHabitName('');
     setHabitFrequency('daily');
@@ -416,7 +455,7 @@ export function UnifiedCreateOverlay({
           };
           const result = await repo.updatePerson(initialEntity.id, personPatch);
           onSaved?.({ type: 'person', id: result.id });
-          showToast('Saved to the Hub.');
+          showToast('Updated in the Hub.');
           handleClose();
           return;
         }
@@ -430,7 +469,7 @@ export function UnifiedCreateOverlay({
 
         const result = await repo.update(input);
         onSaved?.({ type: selectedType, id: result.id });
-        showToast('Saved to the Hub.');
+        showToast('Updated in the Hub.');
         handleClose();
         return;
       }
@@ -650,7 +689,7 @@ export function UnifiedCreateOverlay({
       animationType="slide"
       onRequestClose={handleClose}
       statusBarTranslucent
-      testID="unified-overlay"
+      testID={mode === 'edit' ? 'overlay-mode-edit' : 'unified-overlay'}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -805,91 +844,147 @@ export function UnifiedCreateOverlay({
               </Animated.View>
             )}
 
-            {/* Structured fields - Robust guard: show when NOT in AI mode AND type selected */}
-            {!aiMode && selectedType && (
-              <Animated.View
-                style={[
-                  styles.fieldsContainer,
-                  {
-                    opacity: fadeAnim,
-                    transform: [
+            {/* Structured fields - Guard logic: show skeleton while loading, then fields when ready */}
+            {!aiMode &&
+              selectedType &&
+              (() => {
+                // Guard: If in edit mode and still loading, show skeleton
+                if (mode === 'edit' && hydration === 'loading') {
+                  return (
+                    <View style={styles.fieldsContainer} testID="loading-skeleton">
+                      <View style={[styles.skeletonInput, { backgroundColor: '#F3F4F6' }]} />
+                      <View
+                        style={[
+                          styles.skeletonInput,
+                          { backgroundColor: '#F3F4F6', marginTop: 12 },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.skeletonInput,
+                          { backgroundColor: '#F3F4F6', marginTop: 12, height: 100 },
+                        ]}
+                      />
+                      <Text
+                        style={{
+                          textAlign: 'center',
+                          color: theme.colors.text.tertiary,
+                          marginTop: 20,
+                        }}
+                      >
+                        Loading...
+                      </Text>
+                    </View>
+                  );
+                }
+
+                // Guard: If in edit mode and errored, show error
+                if (mode === 'edit' && hydration === 'error') {
+                  return (
+                    <View style={styles.fieldsContainer} testID="error-state">
+                      <Text
+                        style={{ textAlign: 'center', color: theme.colors.error, marginTop: 20 }}
+                      >
+                        Failed to load entity. Please try again.
+                      </Text>
+                    </View>
+                  );
+                }
+
+                // Render fields only when ready (or in create mode which is always ready)
+                const canRenderFields =
+                  mode === 'create' || (mode === 'edit' && hydration === 'ready');
+
+                if (!canRenderFields) {
+                  return null;
+                }
+
+                return (
+                  <Animated.View
+                    style={[
+                      styles.fieldsContainer,
                       {
-                        translateY: fadeAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [20, 0],
-                        }),
+                        opacity: fadeAnim,
+                        transform: [
+                          {
+                            translateY: fadeAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [20, 0],
+                            }),
+                          },
+                        ],
                       },
-                    ],
-                  },
-                ]}
-              >
-                {selectedType === 'habit' && (
-                  <HabitFields
-                    name={habitName}
-                    onNameChange={setHabitName}
-                    frequency={habitFrequency}
-                    onFrequencyChange={setHabitFrequency}
-                    subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
-                    onSubtypeChange={setHabitSubtype}
-                    disabled={false}
-                    frequencyValue={habitFrequencyValue}
-                    onFrequencyValueChange={setHabitFrequencyValue}
-                    reminders={habitReminders}
-                    onRemindersChange={setHabitReminders}
-                    details={habitDetails}
-                    onDetailsChange={setHabitDetails}
-                    breakHabitState={habitBreakState}
-                    onBreakHabitStateChange={setHabitBreakState}
-                  />
-                )}
-                {selectedType === 'todo' && (
-                  <TodoFields
-                    name={todoName}
-                    onNameChange={setTodoName}
-                    dueDate={todoDueDate}
-                    onDueDateChange={setTodoDueDate}
-                    dueTime={todoDueTime}
-                    onDueTimeChange={setTodoDueTime}
-                    details={todoDetails}
-                    onDetailsChange={setTodoDetails}
-                    disabled={false}
-                  />
-                )}
-                {selectedType === 'journal' && (
-                  <JournalFields
-                    date={journalDate}
-                    onDateChange={setJournalDate}
-                    entry={journalEntry}
-                    onEntryChange={setJournalEntry}
-                    mood={journalMood}
-                    onMoodChange={setJournalMood}
-                    details={journalDetails}
-                    onDetailsChange={setJournalDetails}
-                    disabled={false}
-                  />
-                )}
-                {selectedType === 'note' && (
-                  <NoteFields
-                    title={noteTitle}
-                    onTitleChange={setNoteTitle}
-                    body={noteBody}
-                    onBodyChange={setNoteBody}
-                    details={noteDetails}
-                    onDetailsChange={setNoteDetails}
-                    disabled={false}
-                  />
-                )}
-                {selectedType === 'person' && (
-                  <PersonFields
-                    name={personName}
-                    onNameChange={setPersonName}
-                    details={personDetails}
-                    onDetailsChange={setPersonDetails}
-                    disabled={false}
-                  />
-                )}
-              </Animated.View>
-            )}
+                    ]}
+                    testID={`fields-${selectedType}`}
+                  >
+                    {selectedType === 'habit' && (
+                      <HabitFields
+                        name={habitName}
+                        onNameChange={setHabitName}
+                        frequency={habitFrequency}
+                        onFrequencyChange={setHabitFrequency}
+                        subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
+                        onSubtypeChange={setHabitSubtype}
+                        disabled={false}
+                        frequencyValue={habitFrequencyValue}
+                        onFrequencyValueChange={setHabitFrequencyValue}
+                        reminders={habitReminders}
+                        onRemindersChange={setHabitReminders}
+                        details={habitDetails}
+                        onDetailsChange={setHabitDetails}
+                        breakHabitState={habitBreakState}
+                        onBreakHabitStateChange={setHabitBreakState}
+                      />
+                    )}
+                    {selectedType === 'todo' && (
+                      <TodoFields
+                        name={todoName}
+                        onNameChange={setTodoName}
+                        dueDate={todoDueDate}
+                        onDueDateChange={setTodoDueDate}
+                        dueTime={todoDueTime}
+                        onDueTimeChange={setTodoDueTime}
+                        details={todoDetails}
+                        onDetailsChange={setTodoDetails}
+                        disabled={false}
+                      />
+                    )}
+                    {selectedType === 'journal' && (
+                      <JournalFields
+                        date={journalDate}
+                        onDateChange={setJournalDate}
+                        entry={journalEntry}
+                        onEntryChange={setJournalEntry}
+                        mood={journalMood}
+                        onMoodChange={setJournalMood}
+                        details={journalDetails}
+                        onDetailsChange={setJournalDetails}
+                        disabled={false}
+                      />
+                    )}
+                    {selectedType === 'note' && (
+                      <NoteFields
+                        title={noteTitle}
+                        onTitleChange={setNoteTitle}
+                        body={noteBody}
+                        onBodyChange={setNoteBody}
+                        details={noteDetails}
+                        onDetailsChange={setNoteDetails}
+                        disabled={false}
+                      />
+                    )}
+                    {selectedType === 'person' && (
+                      <PersonFields
+                        name={personName}
+                        onNameChange={setPersonName}
+                        details={personDetails}
+                        onDetailsChange={setPersonDetails}
+                        disabled={false}
+                      />
+                    )}
+                  </Animated.View>
+                );
+              })()}
 
             {/* Space selector placeholder */}
             {/* TODO: Add ScopeSelector integration */}
@@ -1001,6 +1096,11 @@ const styles = StyleSheet.create({
   },
   fieldsContainer: {
     marginTop: 12,
+  },
+  skeletonInput: {
+    height: 48,
+    borderRadius: 12,
+    opacity: 0.3,
   },
   footer: {
     paddingHorizontal: 24,
