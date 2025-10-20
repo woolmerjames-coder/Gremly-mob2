@@ -60,11 +60,17 @@ export interface Habit {
 export interface Todo {
   id: ID;
   type: 'todo';
-  title: string;
+  name: string; // Changed from 'title' for consistency with habits
+  title?: string; // Keep for backwards compatibility
   body?: string | null;
   space_id?: ID | null;
-  due_date?: string | null; // ISO 8601 or null
-  undefined_due: boolean; // true if user wants "Might be today?" treatment
+  due_date?: string | null; // ISO 8601 date or null
+  due_time?: string | null; // HH:mm format or null
+  reminders?: any[] | null; // ReminderRow[] JSON
+  undefined_due?: boolean; // true if user wants "Might be today?" treatment (legacy)
+  notes?: string | null; // Additional notes
+  tags?: string[] | null; // Categories/tags
+  subtype?: 'reminder' | 'microproject' | null; // AI-only, never set by front-end
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
@@ -81,12 +87,14 @@ export interface Todo {
 
 /**
  * Note - journal entry, list, or catch-all note
+ * When subtype='journal', additional fields (mood, date, reminders, journal_subtype) are used
+ * fmt and tags are used for all note types
  */
 export interface Note {
   id: ID;
   type: 'note';
   title?: string | null;
-  body?: string | null;
+  body?: string | null; // Required for creation, but nullable in DB
   subtype: NoteSubtype;
   space_id?: ID | null;
   ai_placed: boolean;
@@ -101,6 +109,16 @@ export interface Note {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
+
+  // Note formatting and organization (Phase 7+) - used for all note types
+  fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style
+  tags?: string[] | null; // Categories/tags
+
+  // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+  date?: string | null; // ISO date for journal entry (may differ from created_at)
+  mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
+  reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
+  journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
 }
 
 /**
@@ -148,12 +166,34 @@ export interface TagMap {
 /**
  * Person - contact for collaboration
  */
+/**
+ * PersonDate - Important date entry for a person (birthday, anniversary, etc.)
+ */
+export interface PersonDate {
+  date: string; // ISO date (YYYY-MM-DD)
+  label: 'birthday' | 'anniversary' | 'moving' | 'custom' | string;
+}
+
+/**
+ * Person - Lightweight CRM contact
+ * Phase 7+: Enhanced with dates, notes, reminders, and organization
+ */
 export interface Person {
   id: ID;
   owner_id: ID;
-  name: string;
+  display_name: string; // Primary name field
+  name?: string; // Deprecated, kept for backwards compatibility
   email?: string | null;
   avatar?: string | null;
+
+  // Phase 7+ enhancements
+  dates?: PersonDate[] | null; // Important dates (birthdays, anniversaries, etc.)
+  notes?: string | null; // Gift ideas, last connect notes, etc.
+  notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style for notes
+  reminders?: any[] | null; // ReminderRow[] for check-ins
+  space_id?: ID | null; // Organize people by space/context
+  tags?: string[] | null; // Categories/labels
+
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 }

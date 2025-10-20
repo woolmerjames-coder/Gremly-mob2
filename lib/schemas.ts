@@ -100,10 +100,17 @@ export const habitZ = baseRecordZ.extend({
 
 export const todoZ = baseRecordZ.extend({
   type: z.literal('todo'),
-  title: z.string().min(1),
-  body: z.string().optional().nullable(),
-  due_date: z.string().optional().nullable(), // Accept any string format from DB
-  undefined_due: z.boolean(),
+  // Phase 7+: name is the primary field
+  name: z.string(), // Required field
+  title: z.string().optional(), // Backwards compatibility (NOT nullable per type definition)
+  body: z.string().nullable().optional(),
+  due_date: z.string().nullable().optional(), // Accept any string format from DB
+  due_time: z.string().nullable().optional(), // HH:mm format
+  undefined_due: z.boolean().optional(), // Now optional (legacy field)
+  subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only
+  reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
+  notes: z.string().nullable().optional(), // Additional notes
+  tags: z.array(z.string()).nullable().optional(), // Categories
 }) satisfies z.ZodType<Todo>;
 
 export const noteZ = baseRecordZ.extend({
@@ -111,6 +118,13 @@ export const noteZ = baseRecordZ.extend({
   title: z.string().optional().nullable(),
   body: z.string().optional().nullable(),
   subtype: noteSubtypeZ,
+  // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+  date: z.string().nullable().optional(), // ISO date for journal entry
+  mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
+  fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
+  reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
+  tags: z.array(z.string()).nullable().optional(),
+  journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
 }) satisfies z.ZodType<Note>;
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
@@ -155,10 +169,21 @@ export const habitInsertSchema = z.object({
 
 export const todoInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
-  title: z.string().min(1),
+  // Phase 7+: name is the primary field (title kept for backwards compatibility)
+  name: z.string().min(1), // Required
+  title: z.string().optional().nullable(), // Legacy/backwards compatibility
   body: z.string().optional().nullable(),
   due_date: z.string().datetime().nullable().optional(),
-  undefined_due: z.boolean().default(true),
+  due_time: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .nullable()
+    .optional(), // HH:mm format
+  undefined_due: z.boolean().optional(), // Now optional (legacy)
+  subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only, never set by front-end
+  reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[] stored as jsonb
+  notes: z.string().nullable().optional(), // Additional notes field
+  tags: z.array(z.string()).nullable().optional(), // Categories
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
@@ -186,6 +211,13 @@ export const noteInsertSchema = z.object({
       alsoShowIn: z.array(z.string()).optional(),
     })
     .optional(),
+  // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+  date: z.string().nullable().optional(), // ISO date for journal entry
+  mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
+  fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
+  reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[] stored as jsonb
+  tags: z.array(z.string()).nullable().optional(),
+  journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
 });
 
 // ==========================
@@ -223,10 +255,41 @@ export const tagMapInsertSchema = z.object({
 // PERSON SCHEMAS
 // ==========================
 
-export const personInsertSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
+const personDateZ = z.object({
+  date: z.string(), // ISO date (YYYY-MM-DD)
+  label: z.string(), // birthday, anniversary, moving, custom, or freeform
+});
+
+export const personZ = z.object({
+  id: z.string().min(1),
+  owner_id: z.string().min(1),
+  display_name: z.string(),
+  name: z.string().optional(), // Deprecated, kept for backwards compatibility
   email: z.string().email().optional().nullable(),
   avatar: z.string().optional().nullable(),
+  // Phase 7+ enhancements
+  dates: z.array(personDateZ).nullable().optional(),
+  notes: z.string().nullable().optional(),
+  notes_fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
+  reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
+  space_id: z.string().uuid().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}) satisfies z.ZodType<import('./types').Person>;
+
+export const personInsertSchema = z.object({
+  display_name: z.string().min(1, 'Name is required'),
+  name: z.string().optional().nullable(), // Deprecated
+  email: z.string().email().optional().nullable(),
+  avatar: z.string().optional().nullable(),
+  // Phase 7+ enhancements
+  dates_json: z.array(personDateZ).nullable().optional(), // Stored as jsonb in DB
+  notes: z.string().nullable().optional(),
+  notes_fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
+  reminders_json: z.array(z.any()).nullable().optional(), // Stored as jsonb in DB
+  space_id: z.string().uuid().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
 });
 
 export const entityPersonInsertSchema = z.object({

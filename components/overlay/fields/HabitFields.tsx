@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Pressable, TextInput } from 'react-native';
 import { Input } from '../../../design-system/Input';
 import { Textarea } from '../../../design-system/Textarea';
+import { Icon } from '../../../design-system/Icon';
 import Chip from '../../ui/Chip';
 import { Text } from '../../../ui/Text';
 import type { Frequency } from '../../../lib/types';
@@ -884,7 +885,10 @@ export function HabitFields({
                     testID="ask-gremly-plan"
                     style={styles.gremlyButton}
                   >
-                    <Text style={styles.gremlyButtonText}>🧠 Ask Gremly to plan</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Icon name="Sparkles" size="xs" color="#4B5563" />
+                      <Text style={styles.gremlyButtonText}>Ask Gremly to plan</Text>
+                    </View>
                   </Pressable>
                 </View>
               </View>

@@ -18,10 +18,10 @@ import type { SpaceInsert } from '../schemas';
  */
 export interface CreateRecordInput {
   type: AppRecord['type'];
-  name?: string; // For habits (Phase 7+)
+  name?: string; // For habits (Phase 7+) and todos (Phase 7+)
   title?: string; // For todos and notes
   body?: string;
-  subtype?: NoteSubtype | HabitSubtype; // required when type === 'note', optional for habits
+  subtype?: NoteSubtype | HabitSubtype | 'reminder' | 'microproject' | null; // required for notes, optional for habits, AI-only for todos
   frequency?: Frequency; // required when type === 'habit'
   space_id?: ID | null;
   due_date?: string | null;
@@ -53,6 +53,15 @@ export interface CreateRecordInput {
   triggers?: string[] | null;
   replacement_habit_id?: ID | null;
   replacement_text?: string | null;
+
+  // Extended todo fields (Phase 7+)
+  due_time?: string | null; // HH:mm format for time due
+
+  // Extended journal/note fields (Phase 7+) - only used when subtype='journal'
+  date?: string | null; // ISO date for journal entry
+  mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
+  fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style
+  journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only
 }
 
 /**
@@ -112,9 +121,33 @@ export interface IRepo {
   deleteSpace(spaceId: string): Promise<void>;
   listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
 
-  // Tag and People methods (Phase 7+ stubs)
+  // Tag and People methods (Phase 7+)
   listTags(): Promise<Tag[]>;
   listPeople(): Promise<Person[]>;
+  createPerson(input: {
+    display_name: string;
+    email?: string | null;
+    dates?: Array<{ date: string; label: string }> | null;
+    notes?: string | null;
+    notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null;
+    reminders?: any[] | null;
+    space_id?: string | null;
+    tags?: string[] | null;
+  }): Promise<Person>;
+  updatePerson(
+    personId: string,
+    patch: Partial<{
+      display_name: string;
+      email: string | null;
+      dates: Array<{ date: string; label: string }> | null;
+      notes: string | null;
+      notes_fmt: 'bullets' | 'numbers' | 'checkboxes' | null;
+      reminders: any[] | null;
+      space_id: string | null;
+      tags: string[] | null;
+    }>,
+  ): Promise<Person>;
+  deletePerson(personId: string): Promise<void>;
   listLinkedTags(entity: { type: EntityType; id: ID }): Promise<Tag[]>;
   listLinkedPeople(entity: { type: EntityType; id: ID }): Promise<Person[]>;
 

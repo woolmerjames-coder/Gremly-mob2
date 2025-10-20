@@ -23,10 +23,10 @@ import { Button } from '../../design-system/Button';
 import Chip from '../ui/Chip';
 import { Icon } from '../ui/Icon';
 import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fields/HabitFields';
-import { TodoFields } from './fields/TodoFields';
-import { JournalFields } from './fields/JournalFields';
-import { NoteFields } from './fields/NoteFields';
-import { PersonFields } from './fields/PersonFields';
+import { TodoFields, type TodoDetailsState } from './fields/TodoFields';
+import { JournalFields, type JournalDetailsState, type MoodType } from './fields/JournalFields';
+import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
+import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
@@ -103,22 +103,42 @@ export function UnifiedCreateOverlay({
 
   // Todo fields
   const [todoName, setTodoName] = useState('');
-  const [todoDueDate, setTodoDueDate] = useState('');
-  const [todoSubtype, setTodoSubtype] = useState<string | null>(null);
+  const [todoDueDate, setTodoDueDate] = useState<string | null>(null);
+  const [todoDueTime, setTodoDueTime] = useState<string | null>(null);
+  const [todoDetails, setTodoDetails] = useState<import('./fields/TodoFields').TodoDetailsState>(
+    {},
+  );
 
   // Journal fields
   const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
   const [journalEntry, setJournalEntry] = useState('');
-  const [journalSubtype, setJournalSubtype] = useState<string | null>(null);
+  const [journalMood, setJournalMood] = useState<import('./fields/JournalFields').MoodType | null>(
+    null,
+  );
+  const [journalDetails, setJournalDetails] = useState<
+    import('./fields/JournalFields').JournalDetailsState
+  >({});
 
   // Note fields
   const [noteTitle, setNoteTitle] = useState('');
   const [noteBody, setNoteBody] = useState('');
-  const [noteSubtype, setNoteSubtype] = useState<string | null>(null);
+  const [noteDetails, setNoteDetails] = useState<NoteDetailsState>({
+    formatting: null,
+    spaceId: null,
+    tags: [],
+  });
 
   // Person fields
   const [personName, setPersonName] = useState('');
-  const [personEmail, setPersonEmail] = useState('');
+  const [personDetails, setPersonDetails] = useState<PersonDetailsState>({
+    email: '',
+    dates: [],
+    notes: '',
+    notesFormatting: null,
+    reminders: [],
+    spaceId: null,
+    tags: [],
+  });
 
   // Validation logic
   const getValidationState = (): { isValid: boolean; hint: string | null } => {
@@ -153,15 +173,24 @@ export function UnifiedCreateOverlay({
         if (!todoName.trim()) {
           return { isValid: false, hint: 'Name required' };
         }
+        if (!todoDueDate) {
+          return { isValid: false, hint: 'Due date required' };
+        }
         return { isValid: true, hint: null };
       case 'journal':
+        if (!journalDate.trim()) {
+          return { isValid: false, hint: 'Date required' };
+        }
         if (!journalEntry.trim()) {
           return { isValid: false, hint: 'Entry required' };
         }
+        if (!journalMood) {
+          return { isValid: false, hint: 'Mood required' };
+        }
         return { isValid: true, hint: null };
       case 'note':
-        if (!noteTitle.trim() && !noteBody.trim()) {
-          return { isValid: false, hint: 'Title or body required' };
+        if (!noteBody.trim()) {
+          return { isValid: false, hint: 'Body required' };
         }
         return { isValid: true, hint: null };
       case 'person':
@@ -207,13 +236,27 @@ export function UnifiedCreateOverlay({
               setSelectedType('journal');
               setJournalEntry(entity.body || '');
               setJournalDate(
-                entity.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+                entity.date ||
+                  entity.created_at?.split('T')[0] ||
+                  new Date().toISOString().split('T')[0],
               );
-              setJournalSubtype(entity.subtype);
+              setJournalMood(entity.mood || null);
+              // Load journal details
+              setJournalDetails({
+                formatting: entity.fmt || null,
+                reminders: entity.reminders || [],
+                tags: entity.tags || [],
+                spaceId: entity.space_id || null,
+              });
             } else {
+              // Regular note
               setNoteTitle(entity.title || '');
               setNoteBody(entity.body || '');
-              setNoteSubtype(entity.subtype || null);
+              setNoteDetails({
+                formatting: entity.fmt || null,
+                spaceId: entity.space_id || null,
+                tags: entity.tags || [],
+              });
             }
             break;
         }
@@ -251,16 +294,30 @@ export function UnifiedCreateOverlay({
     setHabitDetails({});
     setHabitBreakState({});
     setTodoName('');
-    setTodoDueDate('');
-    setTodoSubtype(null);
+    setTodoDueDate(null);
+    setTodoDueTime(null);
+    setTodoDetails({});
     setJournalDate(new Date().toISOString().split('T')[0]);
     setJournalEntry('');
-    setJournalSubtype(null);
+    setJournalMood(null);
+    setJournalDetails({});
     setNoteTitle('');
     setNoteBody('');
-    setNoteSubtype(null);
+    setNoteDetails({
+      formatting: null,
+      spaceId: null,
+      tags: [],
+    });
     setPersonName('');
-    setPersonEmail('');
+    setPersonDetails({
+      email: '',
+      dates: [],
+      notes: '',
+      notesFormatting: null,
+      reminders: [],
+      spaceId: null,
+      tags: [],
+    });
   };
 
   const handleClose = () => {
@@ -339,6 +396,32 @@ export function UnifiedCreateOverlay({
 
       // Edit mode
       if (mode === 'edit' && initialEntity?.id && selectedType) {
+        // Person uses dedicated updatePerson method
+        if (selectedType === 'person') {
+          const personPatch = {
+            display_name: personName,
+            email: personDetails.email || null,
+            dates:
+              personDetails.dates.length > 0
+                ? personDetails.dates.map((d) => ({
+                    date: d.date,
+                    label: d.label,
+                  }))
+                : null,
+            notes: personDetails.notes || null,
+            notes_fmt: personDetails.notesFormatting || null,
+            reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
+            space_id: personDetails.spaceId || null,
+            tags: personDetails.tags.length > 0 ? personDetails.tags : null,
+          };
+          const result = await repo.updatePerson(initialEntity.id, personPatch);
+          onSaved?.({ type: 'person', id: result.id });
+          showToast('Saved to the Hub.');
+          handleClose();
+          return;
+        }
+
+        // Other types use standard update
         const patch = buildUpdatePatch(selectedType);
         const input: UpdateRecordInput = {
           id: initialEntity.id,
@@ -354,6 +437,32 @@ export function UnifiedCreateOverlay({
 
       // Create mode - structured
       if (selectedType) {
+        // Person uses dedicated createPerson method
+        if (selectedType === 'person') {
+          const personInput = {
+            display_name: personName,
+            email: personDetails.email || null,
+            dates:
+              personDetails.dates.length > 0
+                ? personDetails.dates.map((d) => ({
+                    date: d.date,
+                    label: d.label,
+                  }))
+                : null,
+            notes: personDetails.notes || null,
+            notes_fmt: personDetails.notesFormatting || null,
+            reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
+            space_id: personDetails.spaceId || null,
+            tags: personDetails.tags.length > 0 ? personDetails.tags : null,
+          };
+          const result = await repo.createPerson(personInput);
+          onSaved?.({ type: 'person', id: result.id });
+          showToast('Saved to the Hub.');
+          handleClose();
+          return;
+        }
+
+        // Other types use standard create
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
         onSaved?.({ type: selectedType, id: result.id });
@@ -424,33 +533,42 @@ export function UnifiedCreateOverlay({
         return {
           ...baseInput,
           type: 'todo',
-          title: todoName,
+          name: todoName, // Phase 7+: name is required field
+          title: todoName, // Backwards compatibility
           due_date: todoDueDate || null,
+          due_time: todoDueTime || null,
+          reminders: todoDetails.reminders || undefined,
+          notes: todoDetails.notes || null,
+          tags: todoDetails.tags || null,
+          space_id: todoDetails.spaceId || null, // Apply space from details if set
         };
       case 'journal':
         return {
           ...baseInput,
           type: 'note',
           subtype: 'journal',
-          title: '',
+          title: '', // No title for journal entries
           body: journalEntry,
+          // Journal-specific fields (Phase 7+)
+          date: journalDate || null,
+          mood: journalMood || null,
+          fmt: journalDetails.formatting || null,
+          reminders: journalDetails.reminders || undefined,
+          tags: journalDetails.tags || null,
+          space_id: journalDetails.spaceId || null, // Apply space from details if set
+          journal_subtype: null, // AI-only, never set by front-end
         };
       case 'note':
         return {
           ...baseInput,
           type: 'note',
-          subtype: (noteSubtype as NoteSubtype) || 'idea',
-          title: noteTitle,
+          subtype: null, // AI decides subtype (idea/list/reference), never set by front-end
+          title: noteTitle || undefined,
           body: noteBody,
-        };
-      case 'person':
-        // For now, store as a note until we have proper Person table
-        return {
-          ...baseInput,
-          type: 'note',
-          subtype: 'reference',
-          title: personName,
-          body: `Email: ${personEmail}`,
+          fmt: noteDetails.formatting || null,
+          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          space_id: noteDetails.spaceId || null,
+          ai_placed: false,
         };
       default:
         throw new Error('Unknown type');
@@ -509,14 +627,11 @@ export function UnifiedCreateOverlay({
         };
       case 'note':
         return {
-          title: noteTitle,
+          title: noteTitle || undefined,
           body: noteBody,
-          subtype: (noteSubtype as NoteSubtype) || 'idea',
-        };
-      case 'person':
-        return {
-          title: personName,
-          body: `Email: ${personEmail}`,
+          fmt: noteDetails.formatting || null,
+          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          space_id: noteDetails.spaceId || null,
         };
       default:
         return {};
@@ -655,16 +770,20 @@ export function UnifiedCreateOverlay({
                   },
                 ]}
               >
-                <Text
-                  style={{
-                    fontSize: 14,
-                    color: theme.colors.text.secondary,
-                    marginBottom: 12,
-                    lineHeight: 20,
-                  }}
-                >
-                  🧠 Tell me what's on your mind… Gremly will sort it to the right place.
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                  <View style={{ marginRight: 6 }}>
+                    <Icon name="Sparkles" size="xs" color={theme.colors.text.secondary} />
+                  </View>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: theme.colors.text.secondary,
+                      lineHeight: 20,
+                    }}
+                  >
+                    Not sure? Let Gremly decide
+                  </Text>
+                </View>
                 <TextInput
                   value={freeformText}
                   onChangeText={setFreeformText}
@@ -729,8 +848,10 @@ export function UnifiedCreateOverlay({
                     onNameChange={setTodoName}
                     dueDate={todoDueDate}
                     onDueDateChange={setTodoDueDate}
-                    subtype={todoSubtype as 'reminder' | 'microproject' | null}
-                    onSubtypeChange={setTodoSubtype}
+                    dueTime={todoDueTime}
+                    onDueTimeChange={setTodoDueTime}
+                    details={todoDetails}
+                    onDetailsChange={setTodoDetails}
                     disabled={false}
                   />
                 )}
@@ -740,10 +861,10 @@ export function UnifiedCreateOverlay({
                     onDateChange={setJournalDate}
                     entry={journalEntry}
                     onEntryChange={setJournalEntry}
-                    subtype={
-                      journalSubtype as 'reflection' | 'gratitude' | 'dream' | 'review' | null
-                    }
-                    onSubtypeChange={setJournalSubtype}
+                    mood={journalMood}
+                    onMoodChange={setJournalMood}
+                    details={journalDetails}
+                    onDetailsChange={setJournalDetails}
                     disabled={false}
                   />
                 )}
@@ -753,8 +874,8 @@ export function UnifiedCreateOverlay({
                     onTitleChange={setNoteTitle}
                     body={noteBody}
                     onBodyChange={setNoteBody}
-                    subtype={noteSubtype as 'idea' | 'list' | 'reference' | null}
-                    onSubtypeChange={setNoteSubtype}
+                    details={noteDetails}
+                    onDetailsChange={setNoteDetails}
                     disabled={false}
                   />
                 )}
@@ -762,8 +883,8 @@ export function UnifiedCreateOverlay({
                   <PersonFields
                     name={personName}
                     onNameChange={setPersonName}
-                    email={personEmail}
-                    onEmailChange={setPersonEmail}
+                    details={personDetails}
+                    onDetailsChange={setPersonDetails}
                     disabled={false}
                   />
                 )}

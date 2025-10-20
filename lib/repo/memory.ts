@@ -36,7 +36,8 @@ const seed = (ownerId: string): AppRecord[] => {
   const t1: Todo = {
     id: genId('todo'),
     type: 'todo',
-    title: 'Call the dentist',
+    name: 'Call the dentist', // Phase 7+: name is required
+    title: 'Call the dentist', // Backwards compatibility
     due_date: null,
     undefined_due: true,
     ai_placed: false,
@@ -125,15 +126,22 @@ export class MemoryRepo implements IRepo {
         replacement_text: input.replacement_text ?? null,
       };
     } else if (input.type === 'todo') {
-      if (!input.title) throw new Error('Todo requires title');
+      // Phase 7+: name is the primary required field
+      if (!input.name) throw new Error('Todo requires name');
       rec = {
         id: genId('todo'),
         type: 'todo',
-        title: input.title,
+        name: input.name,
+        title: input.title, // Optional backwards compatibility
         body: input.body,
         space_id: input.space_id ?? null,
         due_date: input.due_date ?? null,
-        undefined_due: input.undefined_due ?? true,
+        due_time: input.due_time ?? null, // Phase 7+: HH:mm format
+        undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
+        subtype: (input.subtype as 'reminder' | 'microproject' | null) ?? null, // AI-only
+        reminders: input.reminders ?? null, // ReminderRow[] JSON
+        notes: input.notes ?? null, // Additional notes
+        tags: input.tags ?? null, // Categories
         ai_placed: !!input.ai_placed,
         why_string: input.why_string ?? null,
         created_at: now,
@@ -163,6 +171,13 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+        date: input.date ?? null,
+        mood: input.mood ?? null,
+        fmt: input.fmt ?? null,
+        reminders: input.reminders ?? null,
+        tags: input.tags ?? null,
+        journal_subtype: input.journal_subtype ?? null,
       };
     }
 
@@ -330,6 +345,72 @@ export class MemoryRepo implements IRepo {
 
   async listPeople(): Promise<Person[]> {
     return this.people.filter((p) => p.owner_id === this.currentUserId);
+  }
+
+  async createPerson(input: {
+    display_name: string;
+    email?: string | null;
+    dates?: Array<{ date: string; label: string }> | null;
+    notes?: string | null;
+    notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null;
+    reminders?: any[] | null;
+    space_id?: string | null;
+    tags?: string[] | null;
+  }): Promise<Person> {
+    const now = new Date().toISOString();
+    const person: Person = {
+      id: `person-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      owner_id: this.currentUserId,
+      display_name: input.display_name,
+      name: input.display_name, // Deprecated field, mirror display_name
+      email: input.email ?? null,
+      avatar: null,
+      dates: input.dates ?? null,
+      notes: input.notes ?? null,
+      notes_fmt: input.notes_fmt ?? null,
+      reminders: input.reminders ?? null,
+      space_id: input.space_id ?? null,
+      tags: input.tags ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.people.push(person);
+    return person;
+  }
+
+  async updatePerson(
+    personId: string,
+    patch: Partial<{
+      display_name: string;
+      email: string | null;
+      dates: Array<{ date: string; label: string }> | null;
+      notes: string | null;
+      notes_fmt: 'bullets' | 'numbers' | 'checkboxes' | null;
+      reminders: any[] | null;
+      space_id: string | null;
+      tags: string[] | null;
+    }>,
+  ): Promise<Person> {
+    const person = this.people.find((p) => p.id === personId);
+    if (!person) throw new Error('Person not found');
+
+    Object.assign(person, {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Update deprecated name field if display_name changed
+    if (patch.display_name) {
+      person.name = patch.display_name;
+    }
+
+    return person;
+  }
+
+  async deletePerson(personId: string): Promise<void> {
+    const index = this.people.findIndex((p) => p.id === personId);
+    if (index === -1) throw new Error('Person not found');
+    this.people.splice(index, 1);
   }
 
   async listLinkedTags(_entity: { type: EntityType; id: ID }): Promise<Tag[]> {
