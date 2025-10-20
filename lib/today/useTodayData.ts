@@ -170,8 +170,15 @@ function buildSuggestions(ctx: {
 
 /**
  * Determines time window based on current hour (24h format)
+ * Supports DEV override via EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW
  */
 function getTimeWindow(): TimeWindow {
+  // DEV override for manual QA
+  const override = process.env.EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW as TimeWindow | undefined;
+  if (override && ['morning', 'midday', 'evening'].includes(override)) {
+    return override;
+  }
+
   const hour = new Date().getHours();
 
   if (hour >= 6 && hour < 11) {

@@ -74,6 +74,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.4.0] — 2025-01-15
+
+### Added
+
+- **Phase 9 Step 5: Today v2 — Suggestions, Copy Variants & Analytics**
+  - **Smart Suggestions Engine** (`lib/today/useTodayData.ts`)
+    - `buildSuggestions()` with 3 heuristics: journal nudge, prep nudge, easy habit
+    - Feature flag: `EXPO_PUBLIC_TODAY_SUGGESTIONS` (default: on)
+    - Caps at 3 suggestions total per view
+  - **Copy Variants** (`lib/today/copy.ts`)
+    - `getDayIndex()` for deterministic day-based rotation
+    - 3 greeting variants per time window (morning/midday/evening)
+    - 3 subline variants per time window
+    - 3 toast variants per entity type (habit/todo/journal)
+  - **Analytics Events** (`lib/events/EventBus.ts`)
+    - 5 new event types: `TodayViewOpened`, `TodayCompleteHabit`, `TodayCompleteTodo`, `TodayUndoCompletion`, `TodaySuggestionAccept`
+    - Emitted at appropriate lifecycle points in `TodayScreen.tsx`
+  - **Suggestion Accept Flow** (`app/tabs/TodayScreen.tsx`)
+    - `handleSuggestionAccept()` opens overlay with prefilled data
+    - Suggestion payload structure supports journal/todo/habit types
+  - **Dev Tooling**
+    - `EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW` env var to force time window (morning/midday/evening) for manual QA
+    - DEV-gated console.log in handleLongPress
+
+### Changed
+
+- **TodaySuggestionCard** (`components/today/TodaySuggestionCard.tsx`)
+  - Props updated to accept full `Suggestion` object instead of individual props
+  - Simplified interface, now type-safe with payload
+
+### Testing
+
+- **10 new tests passing (39/39 total)**
+  - `__tests__/useTodayData.test.ts`: 4 tests (suggestion heuristics, feature flag, cap limit)
+  - `__tests__/TodayCards.test.tsx`: 6 tests (TodaySuggestionCard rendering, interaction, analytics)
+
+### Documentation
+
+- **PHASE9_STEP5_COMPLETE.md**: Implementation summary and QA checklist
+- **.env.example**: Added Phase 9 feature flags and dev overrides
+
+### Maintenance
+
+- **Polish Pass**: Reduced-motion audit across all Today components (all passing)
+- **Feature Flags**: Validated in `useTodayData.ts` and `TodayScreen.tsx`
+- **Test Gates**: Confirmed `JEST_WORKAROUND` gates in mascot-wave-tick and debug-refresh button
+
+---
+
 ## Links
 
 [v0.3.0]: https://github.com/woolmerjames-coder/Gremly-mob2/releases/tag/v0.3.0

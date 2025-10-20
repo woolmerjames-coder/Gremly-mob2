@@ -265,10 +265,12 @@ export default function TodayScreen() {
     setLastCompletedType(null);
   };
 
-  // Handle long press (placeholder)
+  // Handle long press
   const handleLongPress = (id: string) => {
-    console.log('Long press:', id);
-    // TODO: Show context menu or navigate to detail
+    // TODO Phase 12: Show context menu or navigate to detail
+    if (__DEV__) {
+      console.log('[TodayScreen] Long press:', id);
+    }
   };
 
   const handleOverlaySaved = useCallback(async () => {
