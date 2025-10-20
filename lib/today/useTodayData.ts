@@ -11,7 +11,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useReducedMotion } from '../../design/animations';
 import { eventBus } from '../events';
 import type { Habit, Todo } from '../types';
-import { getGreeting, getSubline } from './copy';
+import { getGreeting, getMascotSubline } from './copy';
 import { env, type TimeWindow } from '../env';
 
 export interface EnrichedHabit {
@@ -241,7 +241,7 @@ export function useTodayData() {
     timeWindow: getTimeWindow(),
     header: {
       greeting: getGreeting(getTimeWindow()),
-      subline: getSubline(getTimeWindow()),
+      subline: getMascotSubline(getTimeWindow(), 0),
       streakCount: 0, // TODO: Calculate from habit completion history
       completedToday: 0,
       plannedToday: 0,
@@ -380,7 +380,7 @@ export function useTodayData() {
         timeWindow,
         header: {
           greeting: getGreeting(timeWindow, user.email?.split('@')[0] || 'there'),
-          subline: getSubline(timeWindow),
+          subline: getMascotSubline(timeWindow, completedCount),
           streakCount: 0, // TODO: Phase 10 - Calculate from habit completion history
           completedToday: completedCount,
           plannedToday: plannedCount,

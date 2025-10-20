@@ -69,3 +69,33 @@ export function getCompletionToast(entityType: 'habit' | 'todo' | 'journal'): st
   const index = getDayIndex() % options.length;
   return options[index];
 }
+
+/**
+ * Returns a dynamic mascot subline based on time window and progress
+ * Rotates through variants deterministically by day
+ */
+export function getMascotSubline(timeWindow: TimeWindow, completedToday: number): string {
+  const dayHash = getDayIndex();
+
+  if (completedToday > 0) {
+    const progressLines = ['Momentum unlocked.', 'Nice start!', 'Keep rolling.'];
+    return progressLines[dayHash % progressLines.length];
+  }
+
+  if (timeWindow === 'morning') {
+    const morningLines = [
+      'Start strong, finish stronger.',
+      'Small wins add up fast.',
+      "Let's build momentum.",
+    ];
+    return morningLines[dayHash % morningLines.length];
+  }
+
+  if (timeWindow === 'midday') {
+    const middayLines = ['Stack a few quick wins.', "You've got this.", 'Keep the energy up.'];
+    return middayLines[dayHash % middayLines.length];
+  }
+
+  const eveningLines = ['Wind down with a light win?', 'Reflect and reset.', 'Easy does it.'];
+  return eveningLines[dayHash % eveningLines.length];
+}

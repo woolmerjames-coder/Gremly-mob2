@@ -4,19 +4,13 @@
  * Step 4: Adds wave animation on pull-to-refresh
  */
 
-import React, { useEffect, useState, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  ToastAndroid,
-  Platform,
-  Pressable,
-} from 'react-native';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { View, StyleSheet, Alert, ToastAndroid, Platform, Pressable, Animated } from 'react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { runCortexProxyDiag } from '../../lib/cortex/diag';
+import { isReducedMotion } from '../../lib/a11y/reducedMotion';
+import Mascot from '../../assets/mascot/mascot.ai.svg';
 
 type TimeWindow = 'morning' | 'midday' | 'evening';
 
@@ -48,6 +42,7 @@ export default function TodayMascotHeader({
   const t = useTokens();
   const [isWaving, setIsWaving] = useState(false);
   const waveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const scaleAnim = useMemo(() => new Animated.Value(1), []);
 
   // Dev-only: Cortex ping via long-press
   const devPing = async () => {
@@ -66,13 +61,31 @@ export default function TodayMascotHeader({
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsWaving(true);
 
+      const rm = typeof reducedMotion === 'boolean' ? reducedMotion : isReducedMotion();
+      const duration = rm ? 300 : 800;
+
+      // Animate scale if not reduced motion
+      if (!rm) {
+        Animated.sequence([
+          Animated.timing(scaleAnim, {
+            toValue: 1.06,
+            duration: duration / 2,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1,
+            duration: duration / 2,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+
       // Clear any existing timer
       if (waveTimerRef.current) {
         clearTimeout(waveTimerRef.current);
       }
 
       // Reset wave state after animation duration
-      const duration = reducedMotion ? 300 : 800;
       waveTimerRef.current = setTimeout(() => {
         setIsWaving(false);
       }, duration);
@@ -83,7 +96,7 @@ export default function TodayMascotHeader({
         clearTimeout(waveTimerRef.current);
       }
     };
-  }, [waveTick, reducedMotion]);
+  }, [waveTick, reducedMotion, scaleAnim]);
 
   return (
     <Box gap={3} testID="today-mascot-header">
@@ -126,34 +139,26 @@ export default function TodayMascotHeader({
         )}
       </View>
 
-      {/* Mascot placeholder */}
+      {/* Mascot with SVG */}
       <Pressable
         onPress={onMascotPress}
         onLongPress={__DEV__ ? devPing : undefined}
         delayLongPress={250}
         disabled={!onMascotPress && !__DEV__}
         testID="today-mascot"
+        accessibilityLabel="Gremly mascot"
+        accessibilityRole="button"
       >
-        <View
+        <Animated.View
           style={[
-            styles.mascotPlaceholder,
+            styles.mascotWrap,
             {
-              backgroundColor: t.colors.surface,
-              borderColor: t.colors.border,
+              transform: [{ scale: scaleAnim }],
             },
           ]}
         >
-          {/* TODO: Replace with Lottie animation in Phase 12 */}
-          <Text style={styles.mascotIcon} testID="mascot-icon">
-            {isWaving ? '👋' : '🐸'}
-          </Text>
-          <Text variant="subtle" style={styles.mascotLabel}>
-            {isWaving && 'Hey there!'}
-            {!isWaving && timeWindow === 'morning' && 'Ready to start?'}
-            {!isWaving && timeWindow === 'midday' && 'Keep going!'}
-            {!isWaving && timeWindow === 'evening' && 'Almost done!'}
-          </Text>
-        </View>
+          <Mascot width={72} height={72} />
+        </Animated.View>
       </Pressable>
 
       {/* Test-only: Wave tick indicator */}
@@ -179,19 +184,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  mascotPlaceholder: {
+  mascotWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-  },
-  mascotIcon: {
-    fontSize: 48,
-  },
-  mascotLabel: {
-    fontSize: 14,
-    textAlign: 'center',
+    padding: 16,
   },
 });

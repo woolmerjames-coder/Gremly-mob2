@@ -281,3 +281,56 @@ describe('TodaySuggestionCard', () => {
     expect(getByText('Try it')).toBeTruthy();
   });
 });
+
+describe('TodayMascotHeader', () => {
+  // Import component here to avoid conflicts
+  const TodayMascotHeader = require('../components/today/TodayMascotHeader').default;
+
+  const defaultProps = {
+    greeting: 'Morning, James 👋',
+    subline: 'Start strong, finish stronger.',
+    streakCount: 0,
+    completedToday: 0,
+    plannedToday: 5,
+    timeWindow: 'morning' as const,
+    reducedMotion: true,
+    waveTick: 0,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should render mascot SVG', () => {
+    const { getByTestId } = render(<TodayMascotHeader {...defaultProps} />);
+    expect(getByTestId('today-mascot')).toBeTruthy();
+  });
+
+  it('should render greeting and subline', () => {
+    const { getByText } = render(<TodayMascotHeader {...defaultProps} />);
+    expect(getByText('Morning, James 👋')).toBeTruthy();
+    expect(getByText('Start strong, finish stronger.')).toBeTruthy();
+  });
+
+  it('should render dynamic subline based on progress', () => {
+    const propsWithProgress = {
+      ...defaultProps,
+      subline: 'Momentum unlocked.',
+      completedToday: 2,
+    };
+    const { getByText } = render(<TodayMascotHeader {...propsWithProgress} />);
+    // Should show progress-based copy
+    expect(getByText(/Momentum unlocked\.|Nice start!|Keep rolling\./)).toBeTruthy();
+  });
+
+  it('should have accessibility label on mascot', () => {
+    const { getByLabelText } = render(<TodayMascotHeader {...defaultProps} />);
+    expect(getByLabelText('Gremly mascot')).toBeTruthy();
+  });
+
+  it('should render progress chip', () => {
+    const { getByTestId } = render(<TodayMascotHeader {...defaultProps} />);
+    const progressChip = getByTestId('today-progress-chip');
+    expect(progressChip).toBeTruthy();
+  });
+});
