@@ -52,7 +52,7 @@ const mockDataStore = {
     {
       id: 'todo-1',
       type: 'todo',
-      title: 'Submit report',
+      name: 'Submit report',
       due_date: '2025-01-20',
       undefined_due: false,
       space_id: 'space-work',
@@ -65,7 +65,7 @@ const mockDataStore = {
     {
       id: 'todo-2',
       type: 'todo',
-      title: 'Plan vacation',
+      name: 'Plan vacation',
       due_date: null,
       undefined_due: true,
       space_id: null,

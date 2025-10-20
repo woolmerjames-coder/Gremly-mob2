@@ -141,7 +141,7 @@ describe('MemoryRepo - listDueToday', () => {
     // Create todos only for tomorrow
     await memoryRepo.create({
       type: 'todo',
-      title: 'Future todo',
+      name: 'Future todo',
       due_date: tomorrow,
     });
 
@@ -163,7 +163,7 @@ describe('MemoryRepo - listDueToday', () => {
     // Create a valid todo first
     const validTodo = await memoryRepo.create({
       type: 'todo',
-      title: 'Valid todo',
+      name: 'Valid todo',
       due_date: new Date().toISOString(),
     });
 

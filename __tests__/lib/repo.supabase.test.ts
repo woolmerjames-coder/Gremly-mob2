@@ -47,7 +47,8 @@ describe('SupabaseRepo (mocked)', () => {
         single: jest.fn().mockResolvedValue({
           data: {
             id: 'habit-1',
-            title: 'Exercise',
+            name: 'Exercise',
+            subtype: 'start_habit',
             frequency: 'daily',
             ai_placed: false,
             created_at: '2025-10-15T00:00:00Z',
@@ -63,7 +64,8 @@ describe('SupabaseRepo (mocked)', () => {
 
     const input: CreateRecordInput = {
       type: 'habit',
-      title: 'Exercise',
+      name: 'Exercise',
+      subtype: 'start_habit',
       frequency: 'daily',
       owner_id: mockUserId,
     };
@@ -82,7 +84,7 @@ describe('SupabaseRepo (mocked)', () => {
         single: jest.fn().mockResolvedValue({
           data: {
             id: 'todo-1',
-            title: 'Buy milk',
+            name: 'Buy milk',
             body: null,
             due_date: null,
             undefined_due: true,
@@ -100,7 +102,7 @@ describe('SupabaseRepo (mocked)', () => {
 
     const input: CreateRecordInput = {
       type: 'todo',
-      title: 'Buy milk',
+      name: 'Buy milk',
       owner_id: mockUserId,
     };
 
@@ -118,7 +120,8 @@ describe('SupabaseRepo (mocked)', () => {
           data: [
             {
               id: 'habit-1',
-              title: 'Exercise',
+              name: 'Exercise',
+              subtype: 'start_habit',
               frequency: 'daily',
               ai_placed: false,
               created_at: '2025-10-15T00:00:00Z',

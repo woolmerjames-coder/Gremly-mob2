@@ -99,7 +99,7 @@ describe('SupabaseRepo.create - Todo', () => {
     const dbResult = {
       id: '123e4567-e89b-12d3-a456-426614174000',
       owner_id: 'test-user-id',
-      title: 'Todo with body',
+      name: 'Todo with body',
       body: 'Test body',
       space_id: null,
       due_date: '2025-10-20T10:00:00Z',
@@ -113,7 +113,7 @@ describe('SupabaseRepo.create - Todo', () => {
 
     await repo.create({
       type: 'todo',
-      title: 'Todo with body',
+      name: 'Todo with body',
       body: 'Test body',
       due_date: '2025-10-20T10:00:00Z',
       undefined_due: false,
@@ -124,7 +124,7 @@ describe('SupabaseRepo.create - Todo', () => {
 
     expect(insertPayload).toEqual(
       expect.objectContaining({
-        title: 'Todo with body',
+        name: 'Todo with body',
         body: 'Test body',
         due_date: '2025-10-20T10:00:00Z',
         undefined_due: false,
