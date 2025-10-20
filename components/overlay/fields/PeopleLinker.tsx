@@ -33,6 +33,21 @@ export function PeopleLinker({
   const handleAddPerson = async () => {
     if (!nameInput.trim() || isLoading) return;
 
+    // Phase 8 polish: Prevent duplicates
+    const duplicate = linkedPeople.find(
+      (p) =>
+        p.person_name &&
+        p.person_name.toLowerCase() === nameInput.trim().toLowerCase() &&
+        (!emailInput.trim() || p.person_email === emailInput.trim()),
+    );
+    if (duplicate) {
+      console.warn('Person already linked:', nameInput);
+      setNameInput('');
+      setEmailInput('');
+      setShowForm(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
       const person = await onLinkPerson(nameInput.trim(), emailInput.trim() || undefined);
@@ -41,8 +56,8 @@ export function PeopleLinker({
       setEmailInput('');
       setShowForm(false);
     } catch (error) {
-      console.error('Failed to link person:', error);
-      // Could show toast here
+      console.warn('Failed to link person:', error);
+      // Phase 8 polish: Graceful error handling - don't crash, just log
     } finally {
       setIsLoading(false);
     }
@@ -53,8 +68,15 @@ export function PeopleLinker({
       await onUnlinkPerson(person.id);
       onPeopleChange(linkedPeople.filter((p) => p.id !== person.id));
     } catch (error) {
-      console.error('Failed to unlink person:', error);
+      console.warn('Failed to unlink person:', error);
     }
+  };
+
+  // Phase 8 polish: Clear inputs when canceling
+  const handleCancel = () => {
+    setShowForm(false);
+    setNameInput('');
+    setEmailInput('');
   };
 
   return (
@@ -88,6 +110,8 @@ export function PeopleLinker({
           style={styles.addButton}
           onPress={() => setShowForm(true)}
           testID="people-add-button"
+          accessibilityLabel="Add person"
+          accessibilityRole="button"
         >
           <Text style={styles.addButtonText}>+ Add Person</Text>
         </TouchableOpacity>
@@ -118,20 +142,24 @@ export function PeopleLinker({
           <View style={styles.formActions}>
             <TouchableOpacity
               style={[styles.formButton, styles.cancelButton]}
-              onPress={() => {
-                setShowForm(false);
-                setNameInput('');
-                setEmailInput('');
-              }}
+              onPress={handleCancel}
               testID="person-cancel"
+              accessibilityLabel="Cancel"
+              accessibilityRole="button"
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.formButton, styles.saveButton]}
+              style={[
+                styles.formButton,
+                styles.saveButton,
+                (!nameInput.trim() || isLoading) && styles.disabledButton,
+              ]}
               onPress={handleAddPerson}
               disabled={!nameInput.trim() || isLoading}
               testID="person-save"
+              accessibilityLabel="Add person"
+              accessibilityRole="button"
             >
               <Text style={styles.saveButtonText}>{isLoading ? 'Adding...' : 'Add'}</Text>
             </TouchableOpacity>
@@ -243,5 +271,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });

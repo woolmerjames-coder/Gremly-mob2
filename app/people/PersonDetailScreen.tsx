@@ -59,6 +59,13 @@ export default function PersonDetailScreen() {
   const loadLinkedItems = useCallback(async () => {
     if (!userId) return;
 
+    // Phase 8 polish: Validate inputs
+    if (!personName || !personName.trim()) {
+      setError('Invalid person name');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -116,8 +123,8 @@ export default function PersonDetailScreen() {
 
       setGroupedItems(grouped);
     } catch (err) {
-      console.error('[PersonDetail] Failed to load linked items:', err);
-      setError('Failed to load linked items');
+      console.warn('[PersonDetail] Failed to load linked items:', err);
+      setError('Failed to load linked items. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -205,11 +212,16 @@ export default function PersonDetailScreen() {
   return (
     <Screen testID="person-detail-screen">
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+        >
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text style={styles.personName}>{personName}</Text>
+          <Text style={styles.personName}>{personName || 'Unknown Person'}</Text>
           {personEmail && <Text style={styles.personEmail}>{personEmail}</Text>}
           <Text style={styles.itemCount}>{getTotalCount()} linked items</Text>
         </View>
@@ -218,7 +230,10 @@ export default function PersonDetailScreen() {
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {getTotalCount() === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No items linked to this person yet.</Text>
+            <Text style={styles.emptyTitle}>No linked items</Text>
+            <Text style={styles.emptyText}>
+              This person hasn't been linked to any habits, todos, journal entries, or notes yet.
+            </Text>
           </View>
         ) : (
           <>
@@ -309,10 +324,18 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     alignItems: 'center',
   },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
   emptyText: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.gray600,
     textAlign: 'center',
+    lineHeight: 20,
   },
   group: {
     marginBottom: spacing.lg,

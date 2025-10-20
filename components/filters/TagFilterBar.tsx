@@ -49,6 +49,9 @@ export default function TagFilterBar({
               ]}
               onPress={() => onToggleTag(tag.id)}
               testID={`tag-filter-${tag.id}`}
+              accessibilityLabel={`${tag.name} tag. ${isSelected ? 'Selected' : 'Not selected'}`}
+              accessibilityRole="button"
+              accessibilityHint="Tap to toggle filter"
             >
               <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{tag.name}</Text>
             </TouchableOpacity>
@@ -59,6 +62,8 @@ export default function TagFilterBar({
             style={styles.clearButton}
             onPress={onClearAll}
             testID="tag-filter-clear"
+            accessibilityLabel="Clear all filters"
+            accessibilityRole="button"
           >
             <Text style={styles.clearButtonText}>Clear</Text>
           </TouchableOpacity>

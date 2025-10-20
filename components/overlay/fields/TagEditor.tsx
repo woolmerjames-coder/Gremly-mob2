@@ -51,6 +51,17 @@ export function TagEditor({
   const handleAddTag = async (tagName: string) => {
     if (!tagName.trim() || isLoading) return;
 
+    // Phase 8 polish: Prevent duplicates
+    const duplicate = currentTags.find(
+      (t) => t.name.toLowerCase() === tagName.trim().toLowerCase(),
+    );
+    if (duplicate) {
+      console.warn('Tag already added:', tagName);
+      setInputValue('');
+      setSuggestions([]);
+      return;
+    }
+
     setIsLoading(true);
     try {
       const tag = await onAddTag(tagName.trim());
@@ -59,14 +70,22 @@ export function TagEditor({
       setInputValue('');
       setSuggestions([]);
     } catch (error) {
-      console.error('Failed to add tag:', error);
-      // Could show toast here
+      console.warn('Failed to add tag:', error);
+      // Phase 8 polish: Graceful error handling - don't crash, just log
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSelectSuggestion = async (tag: Tag) => {
+    // Phase 8 polish: Guard against duplicate selection
+    if (currentTags.some((t) => t.id === tag.id)) {
+      console.warn('Tag already linked:', tag.name);
+      setInputValue('');
+      setSuggestions([]);
+      return;
+    }
+
     setIsLoading(true);
     try {
       await onLinkTag(tag.id);
@@ -74,7 +93,7 @@ export function TagEditor({
       setInputValue('');
       setSuggestions([]);
     } catch (error) {
-      console.error('Failed to link tag:', error);
+      console.warn('Failed to link tag:', error);
     } finally {
       setIsLoading(false);
     }
@@ -143,11 +162,16 @@ export function TagEditor({
       {/* Create new hint */}
       {inputValue.trim() && suggestions.length === 0 && (
         <TouchableOpacity
-          style={styles.createNew}
+          style={[styles.createNew, isLoading && styles.disabled]}
           onPress={() => handleAddTag(inputValue)}
+          disabled={isLoading}
           testID="tag-create-new"
+          accessibilityLabel={`Create new tag ${inputValue}`}
+          accessibilityRole="button"
         >
-          <Text style={styles.createNewText}>+ Create "{inputValue}"</Text>
+          <Text style={styles.createNewText}>
+            {isLoading ? 'Adding...' : `+ Create "${inputValue}"`}
+          </Text>
         </TouchableOpacity>
       )}
     </View>
@@ -233,5 +257,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.deepTeal,
     fontWeight: '500',
+  },
+  disabled: {
+    opacity: 0.5,
   },
 });

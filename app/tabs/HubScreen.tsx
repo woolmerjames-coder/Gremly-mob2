@@ -442,8 +442,14 @@ export default function HubScreen() {
 
   const handleToggleTag = useCallback((tagId: string) => {
     setSelectedTagIds((prev) => {
+      // Phase 8 polish: Prevent duplicates explicitly
       if (prev.includes(tagId)) {
         return prev.filter((id) => id !== tagId);
+      }
+      // Guard against accidental duplicates
+      if (prev.find((id) => id === tagId)) {
+        console.warn('Tag already selected:', tagId);
+        return prev;
       }
       return [...prev, tagId];
     });

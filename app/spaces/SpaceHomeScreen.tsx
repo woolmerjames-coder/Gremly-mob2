@@ -87,7 +87,19 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       }
 
       setSpace(spaceData);
-      setChats(chatsData);
+
+      // Phase 8 polish: Sort chats - pinned first, then by updated_at desc
+      const sortedChats = [...chatsData].sort((a, b) => {
+        // Pinned chats come first
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        // Then sort by updated_at descending
+        const dateA = new Date(a.updated_at).getTime();
+        const dateB = new Date(b.updated_at).getTime();
+        return dateB - dateA;
+      });
+
+      setChats(sortedChats);
       setItems(itemsData);
 
       // Load layout state
@@ -101,9 +113,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
       // TODO: Fire analytics event
       // analytics.track('space_home_opened', { spaceId });
+      console.log('[Analytics] space_home_opened', { spaceId }); // Phase 8 polish: Placeholder analytics
     } catch (error) {
-      console.error('Failed to load space data:', error);
-      Alert.alert('Error', 'Failed to load space data');
+      console.warn('Failed to load space data:', error);
+      Alert.alert('Error', 'Failed to load space data. Please check your connection.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -128,8 +141,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           layout_state_json: newState,
         });
         setLayoutState(newState);
+        // Phase 8 polish: Track module collapse/expand
+        console.log('[Analytics] space_module_toggled', { spaceId, layoutState: newState });
       } catch (error) {
-        console.error('Failed to persist layout state:', error);
+        console.warn('Failed to persist layout state:', error);
       }
     },
     [space, spaceId, repo],
@@ -144,6 +159,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       setChats((prev) => [newChat, ...prev]);
       // TODO: Fire analytics
       // analytics.track('space_chat_created', { spaceId, chatId: newChat.id });
+      console.log('[Analytics] space_chat_created', { spaceId, chatId: newChat.id }); // Phase 8 polish
       navigation.navigate('ChatThread', { chatId: newChat.id });
     } catch (error) {
       console.error('Failed to create chat:', error);
@@ -155,18 +171,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     (chatId: string) => {
       // TODO: Fire analytics
       // analytics.track('space_chat_opened', { spaceId, chatId });
+      console.log('[Analytics] space_chat_opened', { spaceId, chatId }); // Phase 8 polish
       navigation.navigate('ChatThread', { chatId });
     },
-    [navigation],
+    [navigation, spaceId],
   );
 
   const handlePinChat = useCallback(
     async (chatId: string) => {
       try {
         await spaceChatRepo.update(chatId, { pinned: true });
-        setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, pinned: true } : c)));
+        // Re-sort after pinning
+        setChats((prev) => {
+          const updated = prev.map((c) => (c.id === chatId ? { ...c, pinned: true } : c));
+          return updated.sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            const dateA = new Date(a.updated_at).getTime();
+            const dateB = new Date(b.updated_at).getTime();
+            return dateB - dateA;
+          });
+        });
       } catch (error) {
-        console.error('Failed to pin chat:', error);
+        console.warn('Failed to pin chat:', error);
         Alert.alert('Error', 'Failed to pin chat');
       }
     },
@@ -177,9 +204,19 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     async (chatId: string) => {
       try {
         await spaceChatRepo.update(chatId, { pinned: false });
-        setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, pinned: false } : c)));
+        // Re-sort after unpinning
+        setChats((prev) => {
+          const updated = prev.map((c) => (c.id === chatId ? { ...c, pinned: false } : c));
+          return updated.sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            const dateA = new Date(a.updated_at).getTime();
+            const dateB = new Date(b.updated_at).getTime();
+            return dateB - dateA;
+          });
+        });
       } catch (error) {
-        console.error('Failed to unpin chat:', error);
+        console.warn('Failed to unpin chat:', error);
         Alert.alert('Error', 'Failed to unpin chat');
       }
     },
@@ -241,20 +278,30 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* Banner */}
         <SpaceBanner space={space} />
 
         <View style={styles.content}>
+          {/* Phase 8 polish: Show archived banner if space is archived */}
+          {space.archived_at && (
+            <View style={styles.archivedBanner}>
+              <Text style={styles.archivedBannerText}>⚠️ This space is archived</Text>
+            </View>
+          )}
+
           {/* Chats Section */}
           <View style={styles.section}>
-            <NewChatButton onPress={handleNewChat} />
+            <NewChatButton onPress={handleNewChat} disabled={!!space.archived_at} />
 
             {chats.length === 0 ? (
               <View style={styles.emptyChats}>
+                <Text style={styles.emptyChatsTitle}>No chats yet</Text>
                 <Text style={styles.emptyChatsText}>
-                  No chats yet. Start a conversation with Gremly!
+                  Start a conversation with Gremly to get insights, ask questions, or explore this
+                  space together!
                 </Text>
               </View>
             ) : (
@@ -336,11 +383,26 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: lightTokens.spacing[6], // Phase 8 polish: Extra bottom padding for safe area
+  },
   content: {
     padding: lightTokens.spacing[4],
   },
   section: {
     marginBottom: lightTokens.spacing[4],
+  },
+  archivedBanner: {
+    backgroundColor: '#FF9500', // Orange warning color
+    padding: lightTokens.spacing[3],
+    borderRadius: lightTokens.radius[2],
+    marginBottom: lightTokens.spacing[4],
+    alignItems: 'center',
+  },
+  archivedBannerText: {
+    color: '#FFFFFF',
+    fontSize: lightTokens.typography.size.sm,
+    fontWeight: '600',
   },
   loading: {
     flex: 1,
@@ -361,10 +423,23 @@ const styles = StyleSheet.create({
   emptyChats: {
     padding: lightTokens.spacing[5],
     alignItems: 'center',
+    backgroundColor: lightTokens.colors.surface,
+    borderRadius: lightTokens.radius[3],
+    marginTop: lightTokens.spacing[3],
+    borderWidth: 1,
+    borderColor: lightTokens.colors.border,
+  },
+  emptyChatsTitle: {
+    fontSize: lightTokens.typography.size.md,
+    fontWeight: '600',
+    color: lightTokens.colors.text,
+    marginBottom: lightTokens.spacing[2],
+    textAlign: 'center',
   },
   emptyChatsText: {
     fontSize: lightTokens.typography.size.sm,
     color: lightTokens.colors.subtle,
     textAlign: 'center',
+    lineHeight: 20,
   },
 });

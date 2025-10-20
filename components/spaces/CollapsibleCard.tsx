@@ -16,6 +16,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { lightTokens } from '../../design/tokens';
+import { useReducedMotion } from '../../design/animations';
 
 if (Platform.OS === 'android') {
   if (UIManager.setLayoutAnimationEnabledExperimental) {
@@ -39,9 +40,13 @@ export function CollapsibleCard({
   onToggle,
 }: CollapsibleCardProps) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const isReducedMotion = useReducedMotion(); // Phase 8 polish: Respect accessibility preferences
 
   // Create Animated.Value directly - useMemo ensures it's only created once
-  const rotateAnim = useMemo(() => new Animated.Value(initialCollapsed ? 0 : 1), []);
+  const rotateAnim = useMemo(
+    () => new Animated.Value(initialCollapsed ? 0 : 1),
+    [initialCollapsed],
+  );
 
   // Create interpolated value - useMemo ensures it's only created once
   const chevronRotation = useMemo(
@@ -54,19 +59,26 @@ export function CollapsibleCard({
   );
 
   const toggleCollapse = () => {
-    // Use native layout animation for smooth transitions
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // Phase 8 polish: Use native layout animation for smooth transitions (unless reduced motion)
+    if (!isReducedMotion) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
 
     const newCollapsed = !collapsed;
     setCollapsed(newCollapsed);
     onToggle?.(newCollapsed);
 
-    // Animate chevron rotation
-    Animated.timing(rotateAnim, {
-      toValue: newCollapsed ? 0 : 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
+    // Phase 8 polish: Animate chevron rotation (unless reduced motion)
+    if (!isReducedMotion) {
+      Animated.timing(rotateAnim, {
+        toValue: newCollapsed ? 0 : 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      // Skip animation, set immediately
+      rotateAnim.setValue(newCollapsed ? 0 : 1);
+    }
   };
 
   return (

@@ -145,6 +145,7 @@ const styles = StyleSheet.create({
     borderRadius: lightTokens.radius[3],
     padding: lightTokens.spacing[4],
     marginBottom: lightTokens.spacing[4],
+    minHeight: 44, // Phase 8 polish: Ensure minimum tap target
     ...lightTokens.elevation.md,
   } as ViewStyle,
   pinnedCard: {

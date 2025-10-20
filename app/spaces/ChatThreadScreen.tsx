@@ -91,6 +91,7 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
 
       // TODO: Fire analytics
       // analytics.track('space_chat_message_sent', { chatId });
+      console.log('[Analytics] space_chat_message_sent', { chatId }); // Phase 8 polish
     } catch (error) {
       console.error('Failed to send message:', error);
       Alert.alert('Error', 'Failed to send message');
