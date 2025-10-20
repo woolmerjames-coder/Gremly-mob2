@@ -39,7 +39,8 @@ const mockDataStore = {
     {
       id: 'habit-1',
       type: 'habit',
-      title: 'Morning Workout',
+      name: 'Morning Workout',
+      subtype: 'start_habit',
       frequency: 'daily',
       space_id: 'space-work',
       ai_placed: false,
@@ -103,6 +104,52 @@ jest.mock('../providers/RepoProvider', () => ({
 describe('Hub Search and Item Display (Phase 7)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Reset mockDataStore to initial state
+    mockDataStore.habits = [
+      {
+        id: 'habit-1',
+        type: 'habit',
+        name: 'Morning Workout',
+        subtype: 'start_habit',
+        frequency: 'daily',
+        space_id: 'space-work',
+        ai_placed: false,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-15T10:00:00Z',
+        owner_id: 'test-user-id',
+      },
+    ];
+    mockDataStore.todos = [
+      {
+        id: 'todo-1',
+        type: 'todo',
+        name: 'Submit report',
+        due_date: '2025-01-20',
+        undefined_due: false,
+        space_id: 'space-work',
+        ai_placed: false,
+        body: 'Submit the quarterly report',
+        created_at: '2025-01-03T00:00:00Z',
+        updated_at: '2025-01-17T10:00:00Z',
+        owner_id: 'test-user-id',
+      },
+      {
+        id: 'todo-2',
+        type: 'todo',
+        name: 'Plan vacation',
+        due_date: null,
+        undefined_due: true,
+        space_id: null,
+        ai_placed: false,
+        body: 'Plan the family trip itinerary',
+        created_at: '2025-01-14T00:00:00Z',
+        updated_at: '2025-01-16T10:00:00Z',
+        owner_id: 'test-user-id',
+      },
+    ];
+    mockDataStore.notes = [];
+    mockDataStore.people = [];
+    mockDataStore.tags = [];
   });
 
   it('renders Hub screen with search input', async () => {
