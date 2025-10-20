@@ -39,6 +39,10 @@ const mockTheme = {
       background: '#FFF9F0',
       white: '#FFFFFF',
       cream: '#FFF9F0',
+      mint: '#E8F5E9',
+      deepTeal: {
+        DEFAULT: '#006064',
+      },
       text: {
         primary: '#1A1A1A',
         secondary: '#666666',

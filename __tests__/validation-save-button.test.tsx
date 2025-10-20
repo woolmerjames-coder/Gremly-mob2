@@ -15,6 +15,7 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { UnifiedCreateOverlay } from '../components/overlay/UnifiedCreateOverlay';
 import { useRepo } from '../providers/RepoProvider';
 import { useCortex } from '../providers/CortexProvider';
@@ -53,6 +54,11 @@ const mockTheme = {
   },
 };
 
+// Helper to wrap components with SafeAreaProvider
+const renderWithSafeArea = (component: React.ReactElement) => {
+  return render(<SafeAreaProvider>{component}</SafeAreaProvider>);
+};
+
 describe('Validation & Save Button State', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -66,7 +72,7 @@ describe('Validation & Save Button State', () => {
 
   describe('To-Do Validation', () => {
     it('should disable Save when name is missing', () => {
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -83,7 +89,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should disable Save when due date is missing', () => {
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -103,7 +109,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should enable Save when both name and due date are provided', () => {
-      const { getByTestId } = render(
+      const { getByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -131,7 +137,7 @@ describe('Validation & Save Button State', () => {
       const toastSpy = jest.spyOn(ToastAndroid, 'show');
       Platform.OS = 'android';
 
-      const { getByTestId } = render(
+      const { getByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -162,7 +168,7 @@ describe('Validation & Save Button State', () => {
 
   describe('Journal Validation', () => {
     it('should disable Save when date is missing', () => {
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -177,7 +183,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should disable Save when entry is missing', () => {
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -196,7 +202,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should disable Save when mood is missing', () => {
-      const { getByTestId, queryByText } = render(
+      const { getByTestId, queryByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -219,7 +225,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should enable Save when date, entry, and mood are all provided', () => {
-      const { getByTestId } = render(
+      const { getByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -248,7 +254,7 @@ describe('Validation & Save Button State', () => {
 
   describe('Note Validation', () => {
     it('should disable Save when body is missing', () => {
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -263,7 +269,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should enable Save when body is provided', () => {
-      const { getByTestId, queryByText } = render(
+      const { getByTestId, queryByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -289,7 +295,7 @@ describe('Validation & Save Button State', () => {
       const toastSpy = jest.spyOn(ToastAndroid, 'show');
       Platform.OS = 'android';
 
-      const { getByTestId } = render(
+      const { getByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -321,7 +327,7 @@ describe('Validation & Save Button State', () => {
 
   describe('Person Validation', () => {
     it('should disable Save when name (display_name) is missing', () => {
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -336,7 +342,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should enable Save when name is provided (optional fields not required)', () => {
-      const { getByTestId, queryByText } = render(
+      const { getByTestId, queryByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -362,7 +368,7 @@ describe('Validation & Save Button State', () => {
       const toastSpy = jest.spyOn(ToastAndroid, 'show');
       Platform.OS = 'android';
 
-      const { getByTestId } = render(
+      const { getByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -397,7 +403,7 @@ describe('Validation & Save Button State', () => {
         () => new Promise((resolve) => setTimeout(() => resolve({ id: 'test' }), 100)),
       );
 
-      const { getByTestId, getByText } = render(
+      const { getByTestId, getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -427,7 +433,7 @@ describe('Validation & Save Button State', () => {
         () => new Promise((resolve) => setTimeout(() => resolve({ id: 'test' }), 100)),
       );
 
-      const { getByTestId } = render(
+      const { getByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -455,7 +461,7 @@ describe('Validation & Save Button State', () => {
 
   describe('Inline Hints (No Banners)', () => {
     it('should show inline hint below fields, not as banner', () => {
-      const { getByText, queryByTestId } = render(
+      const { getByText, queryByTestId } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -474,7 +480,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should clear hint when field becomes valid', () => {
-      const { getByTestId, queryByText } = render(
+      const { getByTestId, queryByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}

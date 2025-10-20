@@ -29,7 +29,8 @@ const mockDataStore = {
     {
       id: 'habit-edit-1',
       type: 'habit',
-      title: 'Morning Meditation',
+      name: 'Morning Meditation',
+      subtype: 'start_habit',
       frequency: 'daily',
       space_id: null,
       ai_placed: false, // Sorted item (not in unsorted section)
@@ -42,7 +43,7 @@ const mockDataStore = {
     {
       id: 'todo-edit-1',
       type: 'todo',
-      title: 'Review PR',
+      name: 'Review PR',
       due_date: '2025-01-25',
       undefined_due: false,
       space_id: null,

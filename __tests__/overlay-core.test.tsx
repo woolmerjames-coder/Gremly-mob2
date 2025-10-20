@@ -167,11 +167,12 @@ describe('UnifiedCreateOverlay - Core Tests', () => {
       );
 
       // Should have mood buttons
+      expect(getByTestId('mood-ecstatic')).toBeTruthy();
       expect(getByTestId('mood-happy')).toBeTruthy();
+      expect(getByTestId('mood-neutral')).toBeTruthy();
+      expect(getByTestId('mood-low')).toBeTruthy();
       expect(getByTestId('mood-sad')).toBeTruthy();
-      expect(getByTestId('mood-angry')).toBeTruthy();
-      expect(getByTestId('mood-anxious')).toBeTruthy();
-      expect(getByTestId('mood-calm')).toBeTruthy();
+      expect(getByTestId('mood-tired')).toBeTruthy();
     });
 
     it('should show validation hint when date is missing', () => {

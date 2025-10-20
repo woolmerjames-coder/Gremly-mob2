@@ -47,7 +47,8 @@ const mockDataStore = {
     {
       id: 'habit-1',
       type: 'habit',
-      title: 'Morning Workout',
+      name: 'Morning Workout',
+      subtype: 'start_habit',
       frequency: 'daily',
       space_id: 'space-work',
       ai_placed: false, // User confirmed
@@ -58,7 +59,8 @@ const mockDataStore = {
     {
       id: 'habit-2',
       type: 'habit',
-      title: 'Evening Reading',
+      name: 'Evening Reading',
+      subtype: 'start_habit',
       frequency: 'daily',
       space_id: null, // Unassigned
       ai_placed: true, // AI-placed (unsorted)
@@ -71,7 +73,7 @@ const mockDataStore = {
     {
       id: 'todo-1',
       type: 'todo',
-      title: 'Submit report',
+      name: 'Submit report',
       due_date: '2025-01-20',
       undefined_due: false,
       space_id: 'space-work',
@@ -84,7 +86,7 @@ const mockDataStore = {
     {
       id: 'todo-2',
       type: 'todo',
-      title: 'Buy groceries',
+      name: 'Buy groceries',
       due_date: null,
       undefined_due: true,
       space_id: null, // Unassigned
