@@ -426,6 +426,79 @@ export class MemoryRepo implements IRepo {
   }
 
   // ==========================
+  // PHASE 8 - TAGS AND PEOPLE LINKING (stubs for MemoryRepo)
+  // ==========================
+
+  async upsertTag(name: string): Promise<import('./types').Tag> {
+    const existing = this.tags.find((t: any) => t.name === name);
+    if (existing) return existing as any;
+
+    const tag: any = {
+      id: genId('tag'),
+      user_id: this.currentUserId,
+      name,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+    this.tags.push(tag);
+    return tag;
+  }
+
+  async listItemTags(_itemId: string): Promise<import('./types').Tag[]> {
+    // Stub: return empty array
+    return [];
+  }
+
+  async linkTag(_params: {
+    itemId: string;
+    tagId: string;
+    itemType: import('./types').ItemType;
+  }): Promise<import('./types').TagMap> {
+    // Stub: return mock TagMap
+    return {
+      id: genId('tagmap'),
+      user_id: this.currentUserId,
+      item_id: _params.itemId,
+      tag_id: _params.tagId,
+      item_type: _params.itemType,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+  }
+
+  async unlinkTag(_params: { itemId: string; tagId: string }): Promise<void> {
+    // Stub: no-op
+  }
+
+  async listLinkedPeopleByItem(_itemId: string): Promise<import('./types').EntityPerson[]> {
+    // Stub: return empty array
+    return [];
+  }
+
+  async linkPerson(params: {
+    itemId: string;
+    itemType: import('./types').ItemType;
+    personName: string;
+    personEmail?: string;
+  }): Promise<import('./types').EntityPerson> {
+    // Stub: return mock EntityPerson
+    return {
+      id: genId('entityperson'),
+      user_id: this.currentUserId,
+      item_id: params.itemId,
+      item_type: params.itemType,
+      person_name: params.personName,
+      person_email: params.personEmail || null,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+  }
+
+  async unlinkPerson(_entityPersonId: string): Promise<void> {
+    // Stub: no-op
+  }
+
+  // ==========================
   // BUDDY METHODS (Phase 5+ stubs)
   // ==========================
 

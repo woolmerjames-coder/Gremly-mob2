@@ -151,6 +151,24 @@ export interface IRepo {
   listLinkedTags(entity: { type: EntityType; id: ID }): Promise<Tag[]>;
   listLinkedPeople(entity: { type: EntityType; id: ID }): Promise<Person[]>;
 
+  // Phase 8 - Tags and People linking
+  upsertTag(name: string): Promise<import('./types').Tag>;
+  listItemTags(itemId: string): Promise<import('./types').Tag[]>;
+  linkTag(params: {
+    itemId: string;
+    tagId: string;
+    itemType: import('./types').ItemType;
+  }): Promise<import('./types').TagMap>;
+  unlinkTag(params: { itemId: string; tagId: string }): Promise<void>;
+  listLinkedPeopleByItem(itemId: string): Promise<import('./types').EntityPerson[]>;
+  linkPerson(params: {
+    itemId: string;
+    itemType: import('./types').ItemType;
+    personName: string;
+    personEmail?: string;
+  }): Promise<import('./types').EntityPerson>;
+  unlinkPerson(entityPersonId: string): Promise<void>;
+
   // Buddy methods (Phase 5+ stubs)
   inviteBuddy(_habitId: ID, _email: string): Promise<void>;
   acceptBuddy(_inviteToken: string): Promise<void>;
