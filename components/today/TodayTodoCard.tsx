@@ -61,15 +61,36 @@ export default function TodayTodoCard({
     return {};
   };
 
+  // Near-due glow styling (subtle shadow)
+  const getNearDueGlow = () => {
+    if (!nearDue) return {};
+    return {
+      borderWidth: 1,
+      borderColor: t.colors.accentMint,
+      shadowColor: t.colors.accentMint,
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    };
+  };
+
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
-      <Card variant="outlined" padding="md" style={getBorderStyle()} testID={`todo-card-${id}`}>
+      <Card
+        variant="outlined"
+        padding="md"
+        style={{ ...getBorderStyle(), ...getNearDueGlow() }}
+        testID={`todo-card-${id}`}
+      >
         <View style={styles.container}>
           {/* Left: Todo info */}
           <TouchableOpacity
             style={styles.info}
             onLongPress={() => onLongPress?.(id)}
             activeOpacity={0.7}
+            testID={`todo-longpress-${id}`}
+            accessibilityLabel={`Options for to-do '${title}'`}
           >
             {/* Title with overdue indicator */}
             <View style={styles.titleRow}>
@@ -108,7 +129,7 @@ export default function TodayTodoCard({
             style={[styles.completeButton, { backgroundColor: t.colors.success }]}
             testID={`todo-complete-${id}`}
             accessibilityRole="button"
-            accessibilityLabel={`Mark ${title} as complete`}
+            accessibilityLabel={`Complete to-do '${title}'`}
           >
             <Text style={styles.completeText}>Done</Text>
           </TouchableOpacity>

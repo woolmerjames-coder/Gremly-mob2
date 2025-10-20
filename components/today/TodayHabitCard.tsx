@@ -62,6 +62,8 @@ export default function TodayHabitCard({
             style={styles.info}
             onLongPress={() => onLongPress?.(id)}
             activeOpacity={0.7}
+            testID={`habit-longpress-${id}`}
+            accessibilityLabel={`Options for habit '${name}'`}
           >
             <Text variant="body" style={styles.name}>
               {name}
@@ -102,7 +104,7 @@ export default function TodayHabitCard({
             style={[styles.checkButton, { backgroundColor: t.colors.success }]}
             testID={`habit-check-${id}`}
             accessibilityRole="button"
-            accessibilityLabel={`Mark ${name} as complete`}
+            accessibilityLabel={`Complete habit '${name}'`}
           >
             <Text style={styles.checkIcon}>✓</Text>
           </TouchableOpacity>
