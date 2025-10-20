@@ -58,4 +58,12 @@ afterEach(() => {
   // Clear all timers to prevent hanging
   jest.clearAllTimers();
   jest.useRealTimers();
+
+  // Memory management: clear all module caches
+  jest.clearAllMocks();
+
+  // Force garbage collection if available (CI environments)
+  if (global.gc) {
+    global.gc();
+  }
 });

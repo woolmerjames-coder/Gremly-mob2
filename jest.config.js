@@ -33,4 +33,7 @@ module.exports = {
   clearMocks: true,
   // CI-specific: reduce memory footprint
   maxConcurrency: 1,
+  // Memory management
+  workerIdleMemoryLimit: '512MB',
+  cache: false, // Disable caching to reduce memory
 };

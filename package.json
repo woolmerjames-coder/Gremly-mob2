@@ -15,7 +15,7 @@
     "lint": "eslint \"**/*.{js,jsx,ts,tsx}\"",
     "lint:fix": "eslint \"**/*.{js,jsx,ts,tsx}\" --fix",
     "typecheck": "tsc --noEmit",
-    "test": "NODE_OPTIONS=--max-old-space-size=6144 jest --no-watchman --runInBand --detectOpenHandles --silent",
+    "test": "NODE_OPTIONS='--max-old-space-size=6144 --expose-gc' jest --no-watchman --runInBand --detectOpenHandles --silent",
     "test:watch": "jest --watch",
     "ci": "npm run lint && npm run typecheck && npm run test",
     "prepare": "husky"
