@@ -674,13 +674,20 @@ export class SupabaseRepo implements IRepo {
   }
 
   // ==========================
-  // TAG AND PEOPLE METHODS (Phase 7+ stubs)
+  // TAG AND PEOPLE METHODS (Phase 7+)
   // ==========================
 
   async listTags(): Promise<Tag[]> {
-    // Stub: Return empty array until tags table is implemented
-    // In future: query 'tags' table with owner_id filter
-    return [];
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('user_id', this.currentUserId)
+      .order('name', { ascending: true });
+
+    if (error) throw new Error(`Failed to list tags: ${error.message}`);
+    return (data || []) as Tag[];
   }
 
   async listPeople(): Promise<Person[]> {
@@ -808,6 +815,166 @@ export class SupabaseRepo implements IRepo {
     // Stub: Return empty array until entity_people table is implemented
     // In future: JOIN people with entity_people where entity_type and entity_id match
     return [];
+  }
+
+  // ==========================
+  // PHASE 8: TAGS & PEOPLE LINKING
+  // ==========================
+
+  /**
+   * Upsert a tag (create if doesn't exist, return existing if it does)
+   */
+  async upsertTag(name: string): Promise<import('./types').Tag> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    // Try to insert
+    const { data: insertData, error: insertError } = await supabase
+      .from('tags')
+      .insert({ user_id: this.currentUserId, name })
+      .select()
+      .single();
+
+    // If no error, return the new tag
+    if (!insertError && insertData) {
+      return insertData;
+    }
+
+    // If unique constraint violation (code 23505), fetch existing tag
+    if (insertError && insertError.code === '23505') {
+      const { data: existingData, error: selectError } = await supabase
+        .from('tags')
+        .select('*')
+        .eq('user_id', this.currentUserId)
+        .eq('name', name)
+        .single();
+
+      if (selectError) throw new Error(`Failed to fetch existing tag: ${selectError.message}`);
+      if (!existingData) throw new Error('Tag not found after unique constraint violation');
+      return existingData;
+    }
+
+    // Other error
+    throw new Error(`Failed to upsert tag: ${insertError?.message || 'Unknown error'}`);
+  }
+
+  /**
+   * List all tags linked to a specific item
+   */
+  async listItemTags(itemId: string): Promise<import('./types').Tag[]> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('tag_map')
+      .select('tag_id, tags(*)')
+      .eq('user_id', this.currentUserId)
+      .eq('item_id', itemId);
+
+    if (error) throw new Error(`Failed to list item tags: ${error.message}`);
+
+    // Extract tags from joined data
+    return (data || []).map((row: any) => row.tags).filter(Boolean);
+  }
+
+  /**
+   * Link a tag to an item
+   */
+  async linkTag(params: {
+    itemId: string;
+    tagId: string;
+    itemType: import('./types').ItemType;
+  }): Promise<import('./types').TagMap> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('tag_map')
+      .insert({
+        user_id: this.currentUserId,
+        item_id: params.itemId,
+        tag_id: params.tagId,
+        item_type: params.itemType,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to link tag: ${error.message}`);
+    if (!data) throw new Error('Failed to link tag: no data returned');
+    return data;
+  }
+
+  /**
+   * Unlink a tag from an item
+   */
+  async unlinkTag(params: { itemId: string; tagId: string }): Promise<void> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { error } = await supabase
+      .from('tag_map')
+      .delete()
+      .eq('user_id', this.currentUserId)
+      .eq('item_id', params.itemId)
+      .eq('tag_id', params.tagId);
+
+    if (error) throw new Error(`Failed to unlink tag: ${error.message}`);
+  }
+
+  /**
+   * List all people linked to a specific item
+   */
+  async listLinkedPeopleByItem(itemId: string): Promise<import('./types').EntityPerson[]> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('entity_people')
+      .select('*')
+      .eq('user_id', this.currentUserId)
+      .eq('item_id', itemId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to list linked people: ${error.message}`);
+    return data || [];
+  }
+
+  /**
+   * Link a person to an item
+   */
+  async linkPerson(params: {
+    itemId: string;
+    itemType: import('./types').ItemType;
+    person_name?: string;
+    person_email?: string;
+  }): Promise<import('./types').EntityPerson> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { data, error } = await supabase
+      .from('entity_people')
+      .insert({
+        user_id: this.currentUserId,
+        item_id: params.itemId,
+        item_type: params.itemType,
+        person_name: params.person_name || null,
+        person_email: params.person_email || null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to link person: ${error.message}`);
+    if (!data) throw new Error('Failed to link person: no data returned');
+    return data;
+  }
+
+  /**
+   * Unlink a person from an item
+   */
+  async unlinkPerson(entityPersonId: string): Promise<void> {
+    if (!this.currentUserId) throw new Error('User ID required');
+
+    const { error } = await supabase
+      .from('entity_people')
+      .delete()
+      .eq('user_id', this.currentUserId)
+      .eq('id', entityPersonId);
+
+    if (error) throw new Error(`Failed to unlink person: ${error.message}`);
   }
 
   // ==========================
