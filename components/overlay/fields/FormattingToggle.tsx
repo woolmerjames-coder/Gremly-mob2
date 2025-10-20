@@ -36,7 +36,7 @@ interface FormattingOptionProps {
 function FormattingOption({
   icon,
   label,
-  value,
+  value: _value,
   selected,
   onPress,
   testID,

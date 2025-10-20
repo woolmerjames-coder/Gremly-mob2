@@ -5,7 +5,6 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react-native';
 import { TodoFields, type TodoDetailsState } from '../components/overlay/fields/TodoFields';
-import type { ReminderRow } from '../components/overlay/fields/RemindersList';
 
 describe('TodoFields', () => {
   const mockOnNameChange = jest.fn();

@@ -101,7 +101,7 @@ export function HabitFields({
   spaceId,
   onSpaceIdChange,
   availableTags = [],
-  availableHabits = [],
+  availableHabits: _availableHabits = [],
   breakHabitState,
   onBreakHabitStateChange,
 }: HabitFieldsProps) {

@@ -1,5 +1,5 @@
 import { MemoryRepo } from '../../lib/repo/memory';
-import type { Note } from '../../lib/types';
+import type { Habit, Note } from '../../lib/types';
 
 describe('Repo filtering features', () => {
   let repo: MemoryRepo;
@@ -79,7 +79,7 @@ describe('Repo filtering features', () => {
     it('filters by specific spaceId', async () => {
       const habitsInSpaceA = await repo.listByType('habit', { spaceId: 'space-a' });
       expect(habitsInSpaceA.length).toBe(1);
-      expect(habitsInSpaceA[0].title).toBe('Habit in Space A');
+      expect((habitsInSpaceA[0] as Habit).name).toBe('Habit in Space A');
     });
 
     it('filters by unassignedOnly', async () => {

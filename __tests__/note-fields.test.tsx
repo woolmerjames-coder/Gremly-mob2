@@ -279,7 +279,7 @@ describe('NoteFields Component', () => {
       tags: ['work', 'urgent'],
     };
 
-    const { getByText, getByTestId, UNSAFE_getByType } = render(
+    const { getByText, getByTestId } = render(
       <NoteFields
         title=""
         onTitleChange={mockOnTitleChange}

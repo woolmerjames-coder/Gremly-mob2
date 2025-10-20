@@ -23,14 +23,14 @@ import { Button } from '../../design-system/Button';
 import Chip from '../ui/Chip';
 import { Icon } from '../ui/Icon';
 import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fields/HabitFields';
-import { TodoFields, type TodoDetailsState } from './fields/TodoFields';
-import { JournalFields, type JournalDetailsState, type MoodType } from './fields/JournalFields';
+import { TodoFields } from './fields/TodoFields';
+import { JournalFields } from './fields/JournalFields';
 import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
 import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
-import type { AppRecord, Frequency, NoteSubtype, HabitSubtype } from '../../lib/types';
+import type { AppRecord, Frequency, HabitSubtype } from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
@@ -163,7 +163,7 @@ export function UnifiedCreateOverlay({
     switch (selectedType) {
       case 'habit': {
         const isStartHabit = habitSubtype === 'start_habit';
-        const isBreakHabit = habitSubtype === 'break_habit';
+        const _isBreakHabit = habitSubtype === 'break_habit';
 
         // Both Start and Break require Name
         if (!habitName.trim()) {

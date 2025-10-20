@@ -6,7 +6,6 @@ import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react-native';
 import {
   JournalFields,
-  type MoodType,
   type JournalDetailsState,
 } from '../components/overlay/fields/JournalFields';
 
