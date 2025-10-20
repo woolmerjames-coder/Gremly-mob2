@@ -4,6 +4,7 @@ import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
+import PersonDetailScreen from '../app/people/PersonDetailScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -11,6 +12,7 @@ export type RootStackParamList = {
   DevLogin: undefined;
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
+  PersonDetail: { personName: string; personEmail?: string }; // Phase 8
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
@@ -34,6 +36,15 @@ export default function RootNavigator() {
         options={{
           title: 'Catch-All',
           headerShown: true,
+        }}
+      />
+      {/* Phase 8: Person Detail Screen */}
+      <Stack.Screen
+        name="PersonDetail"
+        component={PersonDetailScreen}
+        options={{
+          title: 'Person',
+          headerShown: false, // Using custom header in component
         }}
       />
       <Stack.Screen
