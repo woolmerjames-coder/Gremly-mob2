@@ -8,6 +8,7 @@ import { View, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { collapseConfig, expandConfig } from '../../lib/today/motion';
+import { isReducedMotion } from '../../lib/a11y/reducedMotion';
 
 // Helper to convert title to kebab-case for testID
 function toKebabCase(str: string): string {
@@ -27,7 +28,7 @@ export default function TodaySection({
   children,
   initiallyExpanded = true,
   onToggle,
-  reducedMotion = false,
+  reducedMotion,
 }: TodaySectionProps) {
   const t = useTokens();
   const [expanded, setExpanded] = useState(initiallyExpanded);
@@ -36,6 +37,9 @@ export default function TodaySection({
     [initiallyExpanded],
   );
 
+  // Determine if reduced motion should be active
+  const rm = typeof reducedMotion === 'boolean' ? reducedMotion : isReducedMotion();
+
   // Handle toggle
   const handleToggle = () => {
     const newExpanded = !expanded;
@@ -43,10 +47,10 @@ export default function TodaySection({
     onToggle?.(newExpanded);
 
     // Animate height
-    if (!reducedMotion) {
+    if (!rm) {
       Animated.timing(animatedHeight, {
         toValue: newExpanded ? 1 : 0,
-        ...(newExpanded ? expandConfig(reducedMotion) : collapseConfig(reducedMotion)),
+        ...(newExpanded ? expandConfig(rm) : collapseConfig(rm)),
       }).start();
     } else {
       animatedHeight.setValue(newExpanded ? 1 : 0);
@@ -55,15 +59,15 @@ export default function TodaySection({
 
   // Sync animation on expanded prop change
   useEffect(() => {
-    if (!reducedMotion) {
+    if (!rm) {
       Animated.timing(animatedHeight, {
         toValue: expanded ? 1 : 0,
-        ...(expanded ? expandConfig(reducedMotion) : collapseConfig(reducedMotion)),
+        ...(expanded ? expandConfig(rm) : collapseConfig(rm)),
       }).start();
     } else {
       animatedHeight.setValue(expanded ? 1 : 0);
     }
-  }, [expanded, reducedMotion, animatedHeight]);
+  }, [expanded, rm, animatedHeight]);
 
   const kebabTitle = toKebabCase(title);
 

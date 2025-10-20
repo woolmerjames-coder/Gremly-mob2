@@ -1,6 +1,29 @@
 // Set up environment variables for tests
 process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key-1234567890';
+process.env.JEST_REDUCED_MOTION = '1'; // Force reduced motion in all tests to avoid animation timers
+
+// JSDOM lacks ResizeObserver in some RN libs; provide a stub if accessed
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(global as any).ResizeObserver =
+  (global as any).ResizeObserver ||
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+
+// Ensure requestAnimationFrame exists and is synchronous in tests
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(global as any).requestAnimationFrame = (cb: FrameRequestCallback) => {
+  const id = setTimeout(cb, 0);
+  return id as unknown as number;
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(global as any).cancelAnimationFrame = (id: number) => clearTimeout(id);
+
+// Use real timers by default (tests can override with jest.useFakeTimers() if needed)
+jest.useRealTimers();
 
 // Mock Reanimated with minimal implementation
 jest.mock('react-native-reanimated', () => {

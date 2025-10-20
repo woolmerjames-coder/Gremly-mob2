@@ -78,15 +78,19 @@ export function expandConfig(reducedMotion: boolean = false) {
 
 /**
  * Subtle pulse animation for suggestions
+ * Returns the animation object so it can be stopped on cleanup
  */
-export function pulse(animatedValue: Animated.Value, reducedMotion: boolean = false): void {
+export function pulse(
+  animatedValue: Animated.Value,
+  reducedMotion: boolean = false,
+): Animated.CompositeAnimation | null {
   if (reducedMotion) {
     // No animation for reduced motion
     animatedValue.setValue(1);
-    return;
+    return null;
   }
 
-  Animated.loop(
+  const animation = Animated.loop(
     Animated.sequence([
       Animated.timing(animatedValue, {
         toValue: 1.05,
@@ -101,5 +105,8 @@ export function pulse(animatedValue: Animated.Value, reducedMotion: boolean = fa
         useNativeDriver: true,
       }),
     ]),
-  ).start();
+  );
+
+  animation.start();
+  return animation;
 }

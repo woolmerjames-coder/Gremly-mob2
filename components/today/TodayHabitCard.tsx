@@ -3,12 +3,13 @@
  * Habit card for Today v2 screen
  */
 
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { View, Text as RNText, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Card } from '../../design-system/Card';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { pop } from '../../lib/today/motion';
+import { isReducedMotion } from '../../lib/a11y/reducedMotion';
 
 export interface TodayHabitCardProps {
   id: string;
@@ -31,15 +32,18 @@ export default function TodayHabitCard({
   spaceName,
   onComplete,
   onLongPress,
-  reducedMotion = false,
+  reducedMotion,
 }: TodayHabitCardProps) {
   const t = useTokens();
-  const scale = useRef(new Animated.Value(1));
+  const scale = useMemo(() => new Animated.Value(1), []);
+
+  // Determine if reduced motion should be active
+  const rm = typeof reducedMotion === 'boolean' ? reducedMotion : isReducedMotion();
 
   // Handle completion with animation
   const handleComplete = () => {
-    if (!reducedMotion) {
-      pop(scale, reducedMotion);
+    if (!rm) {
+      pop(scale, rm);
     }
     onComplete(id);
   };

@@ -3,13 +3,14 @@
  * Suggestion card for Today v2 screen
  */
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { Card } from '../../design-system/Card';
 import { Button } from '../../design-system/Button';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { pulse } from '../../lib/today/motion';
+import { isReducedMotion } from '../../lib/a11y/reducedMotion';
 
 export interface TodaySuggestionCardProps {
   id: string;
@@ -26,24 +27,31 @@ export default function TodaySuggestionCard({
   reason = 'Might be today?',
   ctaLabel = 'Try it',
   onAccept,
-  reducedMotion = false,
+  reducedMotion,
 }: TodaySuggestionCardProps) {
   const t = useTokens();
   const scale = useMemo(() => new Animated.Value(1), []);
+  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  // Determine if reduced motion should be active
+  const rm = typeof reducedMotion === 'boolean' ? reducedMotion : isReducedMotion();
 
   // Pulse animation on mount (unless reduced motion)
   useEffect(() => {
-    if (!reducedMotion) {
-      pulse(scale, reducedMotion);
+    if (!rm) {
+      animationRef.current = pulse(scale, rm);
     }
     // Cleanup: stop animation
     return () => {
+      if (animationRef.current) {
+        animationRef.current.stop();
+      }
       scale.stopAnimation();
     };
-  }, [reducedMotion, scale]);
+  }, [rm, scale]);
 
   return (
-    <Animated.View style={!reducedMotion ? { transform: [{ scale }] } : undefined}>
+    <Animated.View style={!rm ? { transform: [{ scale }] } : undefined}>
       <Card
         variant="outlined"
         padding="md"

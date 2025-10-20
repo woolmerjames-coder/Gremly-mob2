@@ -9,6 +9,20 @@ import React from 'react';
 import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
 
+// Ensure reduced motion is active in tests to prevent animation timers
+process.env.JEST_REDUCED_MOTION = '1';
+
+// Mock CortexProvider to avoid heuristic engine complexity
+jest.mock('../providers/CortexProvider', () => ({
+  useCortex: () => ({
+    suggestCategoryAndPriority: jest.fn(() =>
+      Promise.resolve({ category: 'general', priority: 2 }),
+    ),
+    detectContextTags: jest.fn(() => []),
+  }),
+  CortexProvider: ({ children }: any) => children,
+}));
+
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({
@@ -22,49 +36,17 @@ jest.mock('../providers/AuthProvider', () => ({
 
 // Mock data store that can be mutated in tests
 const mockDataStore = {
-  dueTodayData: [
-    {
-      id: 'habit-1',
-      type: 'habit',
-      title: 'Morning Workout',
-      frequency: 'daily',
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-01T00:00:00Z',
-    },
-    {
-      id: 'habit-2',
-      type: 'habit',
-      title: 'Read 30 minutes',
-      frequency: 'daily',
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-01T00:00:00Z',
-    },
-    {
-      id: 'todo-1',
-      type: 'todo',
-      title: 'Submit report',
-      body: 'Q4 financial report',
-      due_date: '2025-01-15',
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-01T00:00:00Z',
-    },
-    {
-      id: 'todo-2',
-      type: 'todo',
-      title: 'Buy groceries',
-      due_date: '2025-01-15',
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-01T00:00:00Z',
-    },
-  ] as any[],
+  dueTodayData: [] as any[],
+  undefinedDueData: [] as any[],
+  spacesData: {} as Record<string, any>,
 };
 
 // Mock the repo to return controlled test data
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
     listDueToday: jest.fn(() => Promise.resolve([...mockDataStore.dueTodayData])),
-    listUndefinedDue: jest.fn(() => Promise.resolve([])), // Phase 9: suggestions
-    getSpaceById: jest.fn(() => Promise.resolve(null)), // Phase 9: space names
+    listUndefinedDue: jest.fn(() => Promise.resolve([...mockDataStore.undefinedDueData])),
+    getSpaceById: jest.fn((id: string) => Promise.resolve(mockDataStore.spacesData[id] || null)),
     create: jest.fn(),
     update: jest.fn(),
     remove: jest.fn(),
@@ -74,7 +56,7 @@ jest.mock('../providers/RepoProvider', () => ({
 describe('Today DS Screen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Reset mock data to default
+    // Reset mock data to default - Phase 9 structure
     mockDataStore.dueTodayData = [
       {
         id: 'habit-1',
@@ -82,6 +64,7 @@ describe('Today DS Screen', () => {
         name: 'Morning Workout',
         subtype: 'start_habit',
         frequency: 'daily',
+        due_window: 'before 10:00',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       },
@@ -99,7 +82,8 @@ describe('Today DS Screen', () => {
         type: 'todo',
         name: 'Submit report',
         body: 'Q4 financial report',
-        due_date: '2025-01-15',
+        due_date: '2025-01-15T14:00:00Z',
+        overdue: true,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       },
@@ -107,11 +91,32 @@ describe('Today DS Screen', () => {
         id: 'todo-2',
         type: 'todo',
         name: 'Buy groceries',
-        due_date: '2025-01-15',
+        due_date: '2025-01-15T18:00:00Z',
+        near_due: true,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       },
     ];
+
+    mockDataStore.undefinedDueData = [
+      {
+        id: 'suggestion-1',
+        type: 'todo',
+        name: 'Review presentation slides',
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 'suggestion-2',
+        type: 'habit',
+        name: 'Evening meditation',
+        created_at: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    mockDataStore.spacesData = {
+      'space-1': { id: 'space-1', name: 'Work', emoji: '💼' },
+      'space-2': { id: 'space-2', name: 'Personal', emoji: '🏠' },
+    };
   });
 
   it('renders today screen with correct testID', async () => {

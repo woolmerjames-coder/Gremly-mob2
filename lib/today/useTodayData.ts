@@ -95,7 +95,7 @@ export function useTodayData() {
     habits: [],
     todos: [],
     suggestions: [],
-    reducedMotion,
+    reducedMotion: false,
     loading: true,
     error: null,
   });
@@ -209,7 +209,7 @@ export function useTodayData() {
         habits: enrichedHabits,
         todos: enrichedTodos,
         suggestions,
-        reducedMotion,
+        reducedMotion: false, // Will be set from props in components
         loading: false,
         error: null,
       });
@@ -222,7 +222,7 @@ export function useTodayData() {
         error: message,
       }));
     }
-  }, [repo, user, reducedMotion]);
+  }, [repo, user]); // Removed reducedMotion from dependencies
 
   // Load on mount and when user changes
   useEffect(() => {
@@ -232,6 +232,7 @@ export function useTodayData() {
 
   return {
     ...data,
+    reducedMotion, // Return current reducedMotion from hook, not from state
     reload: load,
   };
 }

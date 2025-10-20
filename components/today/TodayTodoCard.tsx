@@ -9,6 +9,7 @@ import { Card } from '../../design-system/Card';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { pop } from '../../lib/today/motion';
+import { isReducedMotion } from '../../lib/a11y/reducedMotion';
 
 export interface TodayTodoCardProps {
   id: string;
@@ -33,15 +34,18 @@ export default function TodayTodoCard({
   nearDue = false,
   onComplete,
   onLongPress,
-  reducedMotion = false,
+  reducedMotion,
 }: TodayTodoCardProps) {
   const t = useTokens();
   const scale = useMemo(() => new Animated.Value(1), []);
 
+  // Determine if reduced motion should be active
+  const rm = typeof reducedMotion === 'boolean' ? reducedMotion : isReducedMotion();
+
   // Handle completion with animation
   const handleComplete = () => {
-    if (!reducedMotion) {
-      pop(scale, reducedMotion);
+    if (!rm) {
+      pop(scale, rm);
     }
     onComplete(id);
   };
