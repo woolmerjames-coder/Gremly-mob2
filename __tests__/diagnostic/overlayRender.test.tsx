@@ -6,7 +6,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
-import { ManualAddOverlay } from '../../components/ManualAddOverlay';
+import { ManualAddOverlay } from '../../legacy/overlays/ManualAddOverlay';
 
 // Mock Cortex engine
 const mockClassify = jest.fn();

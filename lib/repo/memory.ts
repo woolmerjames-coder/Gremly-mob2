@@ -1,8 +1,14 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Habit, Todo, Note, ID, Space } from '../types';
+import type { AppRecord, Habit, Todo, Note, ID, Space, Tag, Person, EntityType } from '../types';
 import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
-import type { IRepo, CreateRecordInput, UpdateRecordInput, GroupedByType } from './IRepo';
+import type {
+  IRepo,
+  CreateRecordInput,
+  UpdateRecordInput,
+  GroupedByType,
+  ListByTypeOptions,
+} from './IRepo';
 
 /**
  * In-memory repository implementation for development and testing.
@@ -16,8 +22,9 @@ const seed = (ownerId: string): AppRecord[] => {
   const h1: Habit = {
     id: genId('habit'),
     type: 'habit',
-    title: 'Drink water',
+    name: 'Drink water',
     frequency: 'daily',
+    subtype: 'start_habit',
     ai_placed: false,
     why_string: null,
     origin: null,
@@ -29,7 +36,8 @@ const seed = (ownerId: string): AppRecord[] => {
   const t1: Todo = {
     id: genId('todo'),
     type: 'todo',
-    title: 'Call the dentist',
+    name: 'Call the dentist', // Phase 7+: name is required
+    title: 'Call the dentist', // Backwards compatibility
     due_date: null,
     undefined_due: true,
     ai_placed: false,
@@ -60,6 +68,8 @@ const seed = (ownerId: string): AppRecord[] => {
 export class MemoryRepo implements IRepo {
   private data: AppRecord[] = [];
   private spaces: Space[] = [];
+  private tags: Tag[] = [];
+  private people: Person[] = [];
   private currentUserId: string = 'memory-user';
 
   constructor(userId?: string) {
@@ -80,11 +90,13 @@ export class MemoryRepo implements IRepo {
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
+      if (!input.subtype) throw new Error('Habit requires subtype');
       rec = {
         id: genId('habit'),
         type: 'habit',
-        title: input.title,
+        name: (input.name ?? input.title) || 'Untitled Habit', // Support both name and title for transition
         frequency: input.frequency,
+        subtype: input.subtype as import('../types').HabitSubtype,
         space_id: input.space_id ?? null,
         ai_placed: !!input.ai_placed,
         created_at: now,
@@ -92,22 +104,53 @@ export class MemoryRepo implements IRepo {
         owner_id: ownerId,
         why_string: input.why_string ?? null,
         origin: input.origin ?? null,
+        canonicalType: input.canonicalType,
+        labels: input.labels,
+        views: input.views,
+        // Extended habit fields (Phase 7+)
+        frequency_value: input.frequency_value,
+        reminders: input.reminders,
+        notes: input.notes ?? null,
+        tags: input.tags ?? null,
+        buddy_id: input.buddy_id ?? null,
+        buddy_email: input.buddy_email ?? null,
+        stack_with_id: input.stack_with_id ?? null,
+        stack_position: input.stack_position ?? null,
+        stack_offset_minutes: input.stack_offset_minutes ?? null,
+        start_date: input.start_date ?? null,
+        end_date: input.end_date ?? null,
+        // Break habit specific fields
+        taper_plan: input.taper_plan ?? null,
+        triggers: input.triggers ?? null,
+        replacement_habit_id: input.replacement_habit_id ?? null,
+        replacement_text: input.replacement_text ?? null,
       };
     } else if (input.type === 'todo') {
+      // Phase 7+: name is the primary required field
+      if (!input.name) throw new Error('Todo requires name');
       rec = {
         id: genId('todo'),
         type: 'todo',
-        title: input.title,
+        name: input.name,
+        title: input.title, // Optional backwards compatibility
         body: input.body,
         space_id: input.space_id ?? null,
         due_date: input.due_date ?? null,
-        undefined_due: input.undefined_due ?? true,
+        due_time: input.due_time ?? null, // Phase 7+: HH:mm format
+        undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
+        subtype: (input.subtype as 'reminder' | 'microproject' | null) ?? null, // AI-only
+        reminders: input.reminders ?? null, // ReminderRow[] JSON
+        notes: input.notes ?? null, // Additional notes
+        tags: input.tags ?? null, // Categories
         ai_placed: !!input.ai_placed,
         why_string: input.why_string ?? null,
         created_at: now,
         updated_at: now,
         owner_id: ownerId,
         origin: input.origin ?? null,
+        canonicalType: input.canonicalType,
+        labels: input.labels,
+        views: input.views,
       };
     } else {
       // note
@@ -117,7 +160,7 @@ export class MemoryRepo implements IRepo {
         type: 'note',
         title: input.title,
         body: input.body,
-        subtype: input.subtype,
+        subtype: input.subtype as import('../types').NoteSubtype,
         space_id: input.space_id ?? null,
         ai_placed: !!input.ai_placed,
         why_string: input.why_string ?? null,
@@ -125,6 +168,16 @@ export class MemoryRepo implements IRepo {
         updated_at: now,
         owner_id: ownerId,
         origin: input.origin ?? null,
+        canonicalType: input.canonicalType,
+        labels: input.labels,
+        views: input.views,
+        // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+        date: input.date ?? null,
+        mood: input.mood ?? null,
+        fmt: input.fmt ?? null,
+        reminders: input.reminders ?? null,
+        tags: input.tags ?? null,
+        journal_subtype: input.journal_subtype ?? null,
       };
     }
 
@@ -150,8 +203,36 @@ export class MemoryRepo implements IRepo {
     return this.data.find((r) => r.id === id) ?? null;
   }
 
-  async listByType(type: AppRecord['type']): Promise<AppRecord[]> {
-    return this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
+  async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
+    let results = this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
+
+    // Apply space filter
+    if (opts?.unassignedOnly) {
+      results = results.filter((r) => r.space_id === null);
+    } else if (opts?.spaceId !== undefined) {
+      results = results.filter((r) => r.space_id === opts.spaceId);
+    }
+    // If spaceId is omitted, return all (Everywhere)
+
+    // Apply subtype filter (only for notes)
+    if (opts?.subtypes && opts.subtypes.length > 0) {
+      results = results.filter((r) => {
+        if (r.type === 'note') {
+          return opts.subtypes!.includes(r.subtype);
+        }
+        return true; // Don't filter non-notes
+      });
+    }
+
+    // TODO: Apply tag filter when tagIds is provided
+    // For now, tagIds is ignored (stub for future implementation)
+
+    return results;
+  }
+
+  async countUnsorted(): Promise<number> {
+    return this.data.filter((r) => r.owner_id === this.currentUserId && r.ai_placed === true)
+      .length;
   }
 
   async listBySpace(spaceId: ID): Promise<AppRecord[]> {
@@ -162,7 +243,13 @@ export class MemoryRepo implements IRepo {
     const q = text.toLowerCase();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
-      const titleMatch = r.title?.toLowerCase().includes(q);
+      // For habits/todos, search in 'name'; for notes, search in 'title'
+      const titleMatch =
+        r.type === 'habit'
+          ? r.name?.toLowerCase().includes(q)
+          : r.type === 'todo'
+            ? r.name?.toLowerCase().includes(q)
+            : r.type === 'note' && r.title?.toLowerCase().includes(q);
       const bodyMatch =
         (r.type === 'todo' || r.type === 'note') && r.body?.toLowerCase().includes(q);
       return titleMatch || bodyMatch;
@@ -249,6 +336,98 @@ export class MemoryRepo implements IRepo {
       notes: items.filter((r) => r.type === 'note'),
     };
   }
+
+  // ==========================
+  // TAG AND PEOPLE METHODS (Phase 7+ stubs)
+  // ==========================
+
+  async listTags(): Promise<Tag[]> {
+    return this.tags.filter((t) => t.owner_id === this.currentUserId);
+  }
+
+  async listPeople(): Promise<Person[]> {
+    return this.people.filter((p) => p.owner_id === this.currentUserId);
+  }
+
+  async createPerson(input: {
+    display_name: string;
+    email?: string | null;
+    dates?: Array<{ date: string; label: string }> | null;
+    notes?: string | null;
+    notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null;
+    reminders?: any[] | null;
+    space_id?: string | null;
+    tags?: string[] | null;
+  }): Promise<Person> {
+    const now = new Date().toISOString();
+    const person: Person = {
+      id: `person-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      owner_id: this.currentUserId,
+      display_name: input.display_name,
+      name: input.display_name, // Deprecated field, mirror display_name
+      email: input.email ?? null,
+      avatar: null,
+      dates: input.dates ?? null,
+      notes: input.notes ?? null,
+      notes_fmt: input.notes_fmt ?? null,
+      reminders: input.reminders ?? null,
+      space_id: input.space_id ?? null,
+      tags: input.tags ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.people.push(person);
+    return person;
+  }
+
+  async updatePerson(
+    personId: string,
+    patch: Partial<{
+      display_name: string;
+      email: string | null;
+      dates: Array<{ date: string; label: string }> | null;
+      notes: string | null;
+      notes_fmt: 'bullets' | 'numbers' | 'checkboxes' | null;
+      reminders: any[] | null;
+      space_id: string | null;
+      tags: string[] | null;
+    }>,
+  ): Promise<Person> {
+    const person = this.people.find((p) => p.id === personId);
+    if (!person) throw new Error('Person not found');
+
+    Object.assign(person, {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Update deprecated name field if display_name changed
+    if (patch.display_name) {
+      person.name = patch.display_name;
+    }
+
+    return person;
+  }
+
+  async deletePerson(personId: string): Promise<void> {
+    const index = this.people.findIndex((p) => p.id === personId);
+    if (index === -1) throw new Error('Person not found');
+    this.people.splice(index, 1);
+  }
+
+  async listLinkedTags(_entity: { type: EntityType; id: ID }): Promise<Tag[]> {
+    // Stub: return empty array until TagMap linking is implemented
+    return [];
+  }
+
+  async listLinkedPeople(_entity: { type: EntityType; id: ID }): Promise<Person[]> {
+    // Stub: return empty array until EntityPerson linking is implemented
+    return [];
+  }
+
+  // ==========================
+  // BUDDY METHODS (Phase 5+ stubs)
+  // ==========================
 
   // Buddy no-ops for Phase 4
   async inviteBuddy(): Promise<void> {

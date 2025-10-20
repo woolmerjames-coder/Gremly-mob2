@@ -5,6 +5,7 @@
 
 import { SupabaseRepo } from '../../lib/repo/supabase';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
+import type { Habit, Todo } from '../../lib/types';
 
 // Mock the Supabase client
 jest.mock('../../lib/supabase/client', () => ({
@@ -46,7 +47,8 @@ describe('SupabaseRepo (mocked)', () => {
         single: jest.fn().mockResolvedValue({
           data: {
             id: 'habit-1',
-            title: 'Exercise',
+            name: 'Exercise',
+            subtype: 'start_habit',
             frequency: 'daily',
             ai_placed: false,
             created_at: '2025-10-15T00:00:00Z',
@@ -62,7 +64,8 @@ describe('SupabaseRepo (mocked)', () => {
 
     const input: CreateRecordInput = {
       type: 'habit',
-      title: 'Exercise',
+      name: 'Exercise',
+      subtype: 'start_habit',
       frequency: 'daily',
       owner_id: mockUserId,
     };
@@ -72,7 +75,7 @@ describe('SupabaseRepo (mocked)', () => {
     expect(mockFrom).toHaveBeenCalledWith('habits');
     expect(mockInsert).toHaveBeenCalled();
     expect(result.type).toBe('habit');
-    expect(result.title).toBe('Exercise');
+    expect((result as Habit).name).toBe('Exercise');
   });
 
   test('create todo calls insert with correct data', async () => {
@@ -81,7 +84,7 @@ describe('SupabaseRepo (mocked)', () => {
         single: jest.fn().mockResolvedValue({
           data: {
             id: 'todo-1',
-            title: 'Buy milk',
+            name: 'Buy milk',
             body: null,
             due_date: null,
             undefined_due: true,
@@ -99,7 +102,7 @@ describe('SupabaseRepo (mocked)', () => {
 
     const input: CreateRecordInput = {
       type: 'todo',
-      title: 'Buy milk',
+      name: 'Buy milk',
       owner_id: mockUserId,
     };
 
@@ -107,7 +110,7 @@ describe('SupabaseRepo (mocked)', () => {
 
     expect(mockFrom).toHaveBeenCalledWith('todos');
     expect(result.type).toBe('todo');
-    expect(result.title).toBe('Buy milk');
+    expect((result as Todo).name).toBe('Buy milk');
   });
 
   test('listByType queries correct table', async () => {
@@ -117,7 +120,8 @@ describe('SupabaseRepo (mocked)', () => {
           data: [
             {
               id: 'habit-1',
-              title: 'Exercise',
+              name: 'Exercise',
+              subtype: 'start_habit',
               frequency: 'daily',
               ai_placed: false,
               created_at: '2025-10-15T00:00:00Z',

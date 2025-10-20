@@ -1,5 +1,5 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Todo, ID, Space } from '../types';
+import type { AppRecord, Todo, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
   todoZ,
@@ -7,10 +7,17 @@ import {
   habitInsertSchema,
   todoInsertSchema,
   noteInsertSchema,
+  personInsertSchema,
   spaceInsertSchema,
   type SpaceInsert,
 } from '../schemas';
-import type { IRepo, CreateRecordInput, UpdateRecordInput, GroupedByType } from './IRepo';
+import type {
+  IRepo,
+  CreateRecordInput,
+  UpdateRecordInput,
+  GroupedByType,
+  ListByTypeOptions,
+} from './IRepo';
 import { supabase } from '../supabase/client';
 
 /**
@@ -43,6 +50,43 @@ const tableFor = (type: AppRecord['type']): string => {
       return 'notes';
   }
 };
+
+// Helper to map database habit columns to TypeScript fields
+// Database has: frequency_json, reminders_json, triggers_json (jsonb columns)
+// TypeScript has: frequency_value, reminders, triggers (fields)
+function mapHabitFromDb(dbRecord: any): any {
+  return {
+    ...dbRecord,
+    // Map jsonb columns to TS fields
+    frequency_value: dbRecord.frequency_json,
+    reminders: dbRecord.reminders_json,
+    triggers: dbRecord.triggers_json,
+  };
+}
+
+/**
+ * Map database todo columns to TypeScript Todo type
+ * - reminders_json (jsonb) -> reminders (ReminderRow[])
+ */
+function mapTodoFromDb(dbRecord: any): any {
+  return {
+    ...dbRecord,
+    // Map jsonb column to TS field
+    reminders: dbRecord.reminders_json,
+  };
+}
+
+/**
+ * Map database note columns to TypeScript Note type
+ * - reminders_json (jsonb) -> reminders (ReminderRow[]) for journal entries
+ */
+function mapNoteFromDb(dbRecord: any): any {
+  return {
+    ...dbRecord,
+    // Map jsonb column to TS field (used for journal entries)
+    reminders: dbRecord.reminders_json,
+  };
+}
 
 export class SupabaseRepo implements IRepo {
   private currentUserId: string | null = null;
@@ -78,15 +122,37 @@ export class SupabaseRepo implements IRepo {
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
+      if (!input.subtype) throw new Error('Habit requires subtype');
       // Build minimal payload with Insert schema validation
+      // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          title: input.title,
+          name: input.name ?? input.title, // Support both name and title for transition
           frequency: input.frequency,
+          subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
+          canonicalType: input.canonicalType ?? undefined,
+          labels: input.labels ?? undefined,
+          views: input.views ?? undefined,
+          // Extended habit fields - map to jsonb columns
+          frequency_json: input.frequency_value ?? undefined,
+          reminders_json: input.reminders ?? undefined,
+          notes: input.notes ?? null,
+          tags: input.tags ?? null,
+          buddy_id: input.buddy_id ?? null,
+          buddy_email: input.buddy_email ?? null,
+          stack_with_id: input.stack_with_id ?? null,
+          stack_position: input.stack_position ?? null,
+          stack_offset_minutes: input.stack_offset_minutes ?? null,
+          start_date: input.start_date ?? null,
+          end_date: input.end_date ?? null,
+          taper_plan: input.taper_plan ?? null,
+          triggers_json: input.triggers ?? undefined,
+          replacement_habit_id: input.replacement_habit_id ?? null,
+          replacement_text: input.replacement_text ?? null,
         }),
       );
 
@@ -95,17 +161,29 @@ export class SupabaseRepo implements IRepo {
         console.log('[SupabaseRepo.create] habit payload:', JSON.stringify(payload, null, 2));
       }
     } else if (input.type === 'todo') {
+      // Phase 7+: name is the primary required field
+      if (!input.name) throw new Error('Todo requires name');
+
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          title: input.title,
+          name: input.name, // Primary field
+          title: input.title ?? null, // Backwards compatibility
           body: input.body ?? null,
           due_date: input.due_date ?? null,
-          undefined_due: input.undefined_due ?? true,
+          due_time: input.due_time ?? null, // Phase 7+: HH:mm format
+          undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
+          subtype: input.subtype ?? null, // AI-only: 'reminder' | 'microproject'
+          reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
+          notes: input.notes ?? null, // Additional notes
+          tags: input.tags ?? null, // Categories array
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
+          canonicalType: input.canonicalType ?? undefined,
+          labels: input.labels ?? undefined,
+          views: input.views ?? undefined,
         }),
       );
 
@@ -126,6 +204,16 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
+          canonicalType: input.canonicalType ?? undefined,
+          labels: input.labels ?? undefined,
+          views: input.views ?? undefined,
+          // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+          date: input.date ?? null,
+          mood: input.mood ?? null,
+          fmt: input.fmt ?? null,
+          reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
+          tags: input.tags ?? null,
+          journal_subtype: input.journal_subtype ?? null, // AI-only
         }),
       );
 
@@ -163,9 +251,9 @@ export class SupabaseRepo implements IRepo {
 
     // Parse with Row schema to validate returned data (includes all fields)
     const record = { ...result, type: input.type };
-    if (input.type === 'habit') return habitZ.parse(record);
-    if (input.type === 'todo') return todoZ.parse(record);
-    return noteZ.parse(record);
+    if (input.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+    if (input.type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+    return noteZ.parse(mapNoteFromDb(record));
   }
 
   async update({ id, patch }: UpdateRecordInput): Promise<AppRecord> {
@@ -193,6 +281,7 @@ export class SupabaseRepo implements IRepo {
       if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
       if ('frequency' in patch && patch.frequency !== undefined)
         updatePayload.frequency = patch.frequency;
+      if ('subtype' in patch) updatePayload.subtype = patch.subtype ?? null;
       if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
       if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
@@ -204,6 +293,11 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
       if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
     }
+
+    if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
+    if ('canonicalType' in patch) updatePayload.canonicalType = patch.canonicalType ?? null;
+    if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
+    if ('views' in patch) updatePayload.views = patch.views ?? null;
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
@@ -217,9 +311,9 @@ export class SupabaseRepo implements IRepo {
     if (!result) throw new Error('No data returned from update');
 
     const record = { ...result, type: existing.type };
-    if (existing.type === 'habit') return habitZ.parse(record);
-    if (existing.type === 'todo') return todoZ.parse(record);
-    return noteZ.parse(record);
+    if (existing.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+    if (existing.type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+    return noteZ.parse(mapNoteFromDb(record));
   }
 
   async remove(id: ID): Promise<void> {
@@ -250,9 +344,9 @@ export class SupabaseRepo implements IRepo {
 
       if (data) {
         const record = { ...data, type };
-        if (type === 'habit') return habitZ.parse(record);
-        if (type === 'todo') return todoZ.parse(record);
-        return noteZ.parse(record);
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+        return noteZ.parse(mapNoteFromDb(record));
       }
 
       if (error && error.code !== 'PGRST116') {
@@ -264,25 +358,72 @@ export class SupabaseRepo implements IRepo {
     return null;
   }
 
-  async listByType(type: AppRecord['type']): Promise<AppRecord[]> {
+  async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const table = tableFor(type);
 
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .eq('owner_id', userId)
-      .order('created_at', { ascending: false });
+    let query = supabase.from(table).select('*').eq('owner_id', userId);
+
+    // Apply space filter
+    if (opts?.unassignedOnly) {
+      query = query.is('space_id', null);
+    } else if (opts?.spaceId !== undefined) {
+      query = query.eq('space_id', opts.spaceId);
+    }
+    // If spaceId is omitted, no filter (Everywhere)
+
+    // Apply subtype filter (only for notes)
+    if (opts?.subtypes && opts.subtypes.length > 0 && type === 'note') {
+      query = query.in('subtype', opts.subtypes);
+    }
+
+    // TODO: Apply tag filter when tagIds is provided
+    // For now, tagIds is ignored (stub for future implementation)
+
+    query = query.order('created_at', { ascending: false });
+
+    const { data, error } = await query;
 
     if (error) throw new Error(`Failed to list ${type}s: ${error.message}`);
     if (!data) return [];
 
     return data.map((item) => {
       const record = { ...item, type };
-      if (type === 'habit') return habitZ.parse(record);
-      if (type === 'todo') return todoZ.parse(record);
-      return noteZ.parse(record);
+      if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+      if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+      return noteZ.parse(mapNoteFromDb(record));
     });
+  }
+
+  async countUnsorted(): Promise<number> {
+    const userId = this.ensureUserId();
+
+    // Count across all three tables
+    const [habitsResult, todosResult, notesResult] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('ai_placed', true),
+      supabase
+        .from('todos')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('ai_placed', true),
+      supabase
+        .from('notes')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('ai_placed', true),
+    ]);
+
+    if (habitsResult.error)
+      throw new Error(`Failed to count habits: ${habitsResult.error.message}`);
+    if (todosResult.error) throw new Error(`Failed to count todos: ${todosResult.error.message}`);
+    if (notesResult.error) throw new Error(`Failed to count notes: ${notesResult.error.message}`);
+
+    const total = (habitsResult.count ?? 0) + (todosResult.count ?? 0) + (notesResult.count ?? 0);
+    return total;
   }
 
   async listBySpace(spaceId: ID): Promise<AppRecord[]> {
@@ -304,9 +445,9 @@ export class SupabaseRepo implements IRepo {
       if (data) {
         const parsed = data.map((item) => {
           const record = { ...item, type };
-          if (type === 'habit') return habitZ.parse(record);
-          if (type === 'todo') return todoZ.parse(record);
-          return noteZ.parse(record);
+          if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+          if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+          return noteZ.parse(mapNoteFromDb(record));
         });
         results.push(...parsed);
       }
@@ -325,19 +466,19 @@ export class SupabaseRepo implements IRepo {
       .from('habits')
       .select('*')
       .eq('owner_id', userId)
-      .ilike('title', `%${q}%`);
+      .ilike('name', `%${q}%`); // Changed from 'title' to 'name' per Phase 7 spec
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
     if (habits) {
-      results.push(...habits.map((h) => habitZ.parse({ ...h, type: 'habit' })));
+      results.push(...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))));
     }
 
-    // Search todos (title and body)
+    // Search todos (name and body)
     const { data: todos, error: todosError } = await supabase
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
-      .or(`title.ilike.%${q}%,body.ilike.%${q}%`);
+      .or(`name.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
     if (todos) {
@@ -524,11 +665,154 @@ export class SupabaseRepo implements IRepo {
     if (notesResult.error) throw new Error(`Failed to list notes: ${notesResult.error.message}`);
 
     return {
-      habits: (habitsResult.data ?? []).map((h) => habitZ.parse({ ...h, type: 'habit' })),
+      habits: (habitsResult.data ?? []).map((h) =>
+        habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })),
+      ),
       todos: (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
       notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
     };
   }
+
+  // ==========================
+  // TAG AND PEOPLE METHODS (Phase 7+ stubs)
+  // ==========================
+
+  async listTags(): Promise<Tag[]> {
+    // Stub: Return empty array until tags table is implemented
+    // In future: query 'tags' table with owner_id filter
+    return [];
+  }
+
+  async listPeople(): Promise<Person[]> {
+    const { data, error } = await supabase
+      .from('people')
+      .select('*')
+      .eq('owner_id', this.currentUserId);
+
+    if (error) throw error;
+
+    return (data || []).map(this.mapPersonFromDb);
+  }
+
+  async createPerson(input: {
+    display_name: string;
+    email?: string | null;
+    dates?: Array<{ date: string; label: string }> | null;
+    notes?: string | null;
+    notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null;
+    reminders?: any[] | null;
+    space_id?: string | null;
+    tags?: string[] | null;
+  }): Promise<Person> {
+    const payload = personInsertSchema.parse({
+      display_name: input.display_name,
+      name: input.display_name, // Deprecated field
+      email: input.email,
+      dates_json: input.dates,
+      notes: input.notes,
+      notes_fmt: input.notes_fmt,
+      reminders_json: input.reminders,
+      space_id: input.space_id,
+      tags: input.tags,
+    });
+
+    const { data, error } = await supabase.from('people').insert(payload).select().single();
+
+    if (error) throw error;
+    if (!data) throw new Error('Failed to create person');
+
+    return this.mapPersonFromDb(data);
+  }
+
+  async updatePerson(
+    personId: string,
+    patch: Partial<{
+      display_name: string;
+      email: string | null;
+      dates: Array<{ date: string; label: string }> | null;
+      notes: string | null;
+      notes_fmt: 'bullets' | 'numbers' | 'checkboxes' | null;
+      reminders: any[] | null;
+      space_id: string | null;
+      tags: string[] | null;
+    }>,
+  ): Promise<Person> {
+    const payload: any = {};
+
+    if (patch.display_name !== undefined) {
+      payload.display_name = patch.display_name;
+      payload.name = patch.display_name; // Keep deprecated field in sync
+    }
+    if (patch.email !== undefined) payload.email = patch.email;
+    if (patch.dates !== undefined) payload.dates_json = patch.dates;
+    if (patch.notes !== undefined) payload.notes = patch.notes;
+    if (patch.notes_fmt !== undefined) payload.notes_fmt = patch.notes_fmt;
+    if (patch.reminders !== undefined) payload.reminders_json = patch.reminders;
+    if (patch.space_id !== undefined) payload.space_id = patch.space_id;
+    if (patch.tags !== undefined) payload.tags = patch.tags;
+
+    const { data, error } = await supabase
+      .from('people')
+      .update(payload)
+      .eq('id', personId)
+      .eq('owner_id', this.currentUserId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error('Person not found or update failed');
+
+    return this.mapPersonFromDb(data);
+  }
+
+  async deletePerson(personId: string): Promise<void> {
+    const { error } = await supabase
+      .from('people')
+      .delete()
+      .eq('id', personId)
+      .eq('owner_id', this.currentUserId);
+
+    if (error) throw error;
+  }
+
+  /**
+   * Helper to map Person from database format to app format
+   * Maps dates_json → dates, reminders_json → reminders
+   */
+  private mapPersonFromDb(dbPerson: any): Person {
+    return {
+      id: dbPerson.id,
+      owner_id: dbPerson.owner_id,
+      display_name: dbPerson.display_name || dbPerson.name, // Fallback to deprecated name
+      name: dbPerson.name,
+      email: dbPerson.email,
+      avatar: dbPerson.avatar,
+      dates: dbPerson.dates_json || null,
+      notes: dbPerson.notes,
+      notes_fmt: dbPerson.notes_fmt,
+      reminders: dbPerson.reminders_json || null,
+      space_id: dbPerson.space_id,
+      tags: dbPerson.tags,
+      created_at: dbPerson.created_at,
+      updated_at: dbPerson.updated_at,
+    };
+  }
+
+  async listLinkedTags(_entity: { type: EntityType; id: ID }): Promise<Tag[]> {
+    // Stub: Return empty array until tag_maps table is implemented
+    // In future: JOIN tags with tag_maps where entity_type and entity_id match
+    return [];
+  }
+
+  async listLinkedPeople(_entity: { type: EntityType; id: ID }): Promise<Person[]> {
+    // Stub: Return empty array until entity_people table is implemented
+    // In future: JOIN people with entity_people where entity_type and entity_id match
+    return [];
+  }
+
+  // ==========================
+  // BUDDY METHODS (Phase 5+ stubs)
+  // ==========================
 
   // Buddy no-ops for Phase 4
   async inviteBuddy(): Promise<void> {

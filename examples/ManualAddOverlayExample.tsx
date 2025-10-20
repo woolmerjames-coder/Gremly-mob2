@@ -8,7 +8,7 @@ import { Screen } from '../ui/Screen';
 import { Box } from '../ui/Box';
 import { Text } from '../ui/Text';
 import { Button } from '../design-system/Button';
-import { ManualAddOverlay } from '../components/ManualAddOverlay';
+import { ManualAddOverlay } from '../legacy/overlays/ManualAddOverlay';
 import type { ManualAddPayload } from '../app/schemas/manualAdd';
 
 export function ExampleScreen() {

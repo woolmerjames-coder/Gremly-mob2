@@ -16,6 +16,7 @@ module.exports = [
       '_archive/**',
       'app/(dev)/**',
       '**/*.legacy.tsx',
+      'legacy/**', // Exclude legacy from linting unless explicitly configured
     ],
   },
   js.configs.recommended,
@@ -53,6 +54,19 @@ module.exports = [
           message: 'Use StyleSheet or DS primitives instead of className in React Native files.',
         },
       ],
+      // Phase 7: Prevent imports from legacy/** except in tests
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/legacy/**', '../legacy/**', '../../legacy/**'],
+              message:
+                'Importing from legacy/ is deprecated. Use UnifiedCreateOverlay instead. (Allowed in tests only)',
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -64,6 +78,20 @@ module.exports = [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // Allow legacy imports in tests
+      'no-restricted-imports': 'off',
+    },
+  },
+  {
+    // Phase 7: Exemption for feature flag layer and examples using legacy overlays
+    files: [
+      'examples/ManualAddOverlayExample.tsx',
+      'components/FeatureFlaggedOverlay.tsx',
+      'hooks/useOverlayController.ts',
+    ],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-explicit-any': 'off', // Type adapters need any for flexibility
     },
   },
   {

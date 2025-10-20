@@ -1,4 +1,6 @@
 /**
+ * @deprecated Archived in favor of UnifiedCreateOverlay (Phase 7). Do not import in new code.
+ *
  * ManualAddOverlay - Phase 6 (Brand Refresh + Cortex Integration)
  * Full-screen modal for manual data entry with Gremly brand styling
  * Handles Cortex classification and repo persistence internally for catch-all
@@ -16,20 +18,20 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { overlayStyles } from '../app/styles/manualAdd.styles';
-import { ManualAddHeader } from './overlay/ManualAddHeader';
-import { ManualAddFooter } from './overlay/ManualAddFooter';
-import { ReminderSelector } from './overlay/ReminderSelector';
-import { HabitsTab } from './overlay/HabitsTab';
-import { TodoForm } from './overlay/TodoForm';
-import { JournalForm } from './overlay/JournalForm';
-import { CatchAllForm } from './overlay/CatchAllForm';
-import type { ManualAddPayload, TReminderRule } from '../app/schemas/manualAdd';
-import { useCortex } from '../providers/CortexProvider';
-import { useRepo } from '../providers/RepoProvider';
-import type { CortexOutput } from '../cortex/ICortexEngine';
-import type { CreateRecordInput, UpdateRecordInput } from '../lib/repo/IRepo';
-import type { AppRecord } from '../lib/types';
+import { overlayStyles } from '../../app/styles/manualAdd.styles';
+import { ManualAddHeader } from '../../components/overlay/ManualAddHeader';
+import { ManualAddFooter } from '../../components/overlay/ManualAddFooter';
+import { ReminderSelector } from '../../components/overlay/ReminderSelector';
+import { HabitsTab } from '../../components/overlay/HabitsTab';
+import { TodoForm } from '../../components/overlay/TodoForm';
+import { JournalForm } from '../../components/overlay/JournalForm';
+import { CatchAllForm } from '../../components/overlay/CatchAllForm';
+import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
+import { useCortex } from '../../providers/CortexProvider';
+import { useRepo } from '../../providers/RepoProvider';
+import type { CortexOutput } from '../../cortex/ICortexEngine';
+import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
+import type { AppRecord, NoteSubtype } from '../../lib/types';
 
 type TabType = 'habits' | 'todos' | 'journal' | 'catchall';
 
@@ -42,12 +44,14 @@ interface ManualAddOverlayProps {
   // Edit mode props
   mode?: 'create' | 'edit';
   initialType?: 'habit' | 'todo' | 'note';
-  initialSubtype?: 'journal' | 'list' | 'catchall';
+  initialSubtype?: NoteSubtype;
   initialValues?: Partial<AppRecord>;
   itemId?: string;
   onSaved?: () => void;
   // Sheet mode - when true, don't wrap in Modal (already in a Sheet)
   isSheet?: boolean;
+  // Space context - inherit from Hub scope or Space screen
+  currentSpaceId?: string | null; // null = unassigned, undefined = everywhere
 }
 
 export function ManualAddOverlay({
@@ -63,6 +67,7 @@ export function ManualAddOverlay({
   itemId,
   onSaved,
   isSheet = false,
+  currentSpaceId,
 }: ManualAddOverlayProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [reminders, setReminders] = useState<TReminderRule[]>([]);
@@ -206,13 +211,16 @@ export function ManualAddOverlay({
         // Map classification to repo payload
         let finalPayload: CreateRecordInput;
 
+        // Determine space_id: use currentSpaceId if provided, otherwise null
+        const spaceId = currentSpaceId !== undefined ? currentSpaceId : null;
+
         if (!res) {
           finalPayload = {
             type: 'note',
             title: '',
             body: inputText,
             subtype: 'catchall',
-            space_id: null,
+            space_id: spaceId,
             ai_placed: false,
             why_string: 'Heuristic default.',
           };
@@ -224,7 +232,7 @@ export function ManualAddOverlay({
                 title: '',
                 body: inputText,
                 subtype: res.subtype || 'catchall',
-                space_id: null,
+                space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Heuristic default.',
               };
@@ -236,7 +244,7 @@ export function ManualAddOverlay({
                 body: inputText,
                 due_date: null,
                 undefined_due: res.undefinedDue,
-                space_id: null,
+                space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as todo.',
               };
@@ -247,7 +255,7 @@ export function ManualAddOverlay({
                 type: 'habit',
                 title: inputText,
                 frequency: res.type === 'habit' ? res.frequency : 'daily',
-                space_id: null,
+                space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as habit.',
               };

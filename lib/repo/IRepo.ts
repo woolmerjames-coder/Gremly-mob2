@@ -1,4 +1,15 @@
-import type { AppRecord, Todo, ID, Frequency, NoteSubtype, Space } from '../types';
+import type {
+  AppRecord,
+  Todo,
+  ID,
+  Frequency,
+  NoteSubtype,
+  HabitSubtype,
+  Space,
+  Tag,
+  Person,
+  EntityType,
+} from '../types';
 import type { SpaceInsert } from '../schemas';
 
 /**
@@ -7,9 +18,10 @@ import type { SpaceInsert } from '../schemas';
  */
 export interface CreateRecordInput {
   type: AppRecord['type'];
-  title: string;
+  name?: string; // For habits (Phase 7+) and todos (Phase 7+)
+  title?: string; // For todos and notes
   body?: string;
-  subtype?: NoteSubtype; // required when type === 'note'
+  subtype?: NoteSubtype | HabitSubtype | 'reminder' | 'microproject' | null; // required for notes, optional for habits, AI-only for todos
   frequency?: Frequency; // required when type === 'habit'
   space_id?: ID | null;
   due_date?: string | null;
@@ -17,8 +29,39 @@ export interface CreateRecordInput {
   ai_placed?: boolean;
   why_string?: string | null;
   origin?: 'catchall';
+  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  labels?: string[];
+  views?: {
+    alsoShowIn?: string[];
+  };
   // owner_id is optional - Supabase will set from auth context, Memory repo will use constructor userId
   owner_id?: ID;
+
+  // Extended habit fields (Phase 7+)
+  frequency_value?: any; // FrequencyValue JSON
+  reminders?: any[]; // ReminderRow[] JSON
+  notes?: string | null;
+  tags?: string[] | null;
+  buddy_id?: ID | null;
+  buddy_email?: string | null;
+  stack_with_id?: ID | null;
+  stack_position?: 'before' | 'after' | null;
+  stack_offset_minutes?: number | null;
+  start_date?: string | null; // ISO date
+  end_date?: string | null; // ISO date
+  taper_plan?: any | null; // TaperPlanState JSON
+  triggers?: string[] | null;
+  replacement_habit_id?: ID | null;
+  replacement_text?: string | null;
+
+  // Extended todo fields (Phase 7+)
+  due_time?: string | null; // HH:mm format for time due
+
+  // Extended journal/note fields (Phase 7+) - only used when subtype='journal'
+  date?: string | null; // ISO date for journal entry
+  mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
+  fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style
+  journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only
 }
 
 /**
@@ -27,6 +70,16 @@ export interface CreateRecordInput {
 export interface UpdateRecordInput {
   id: ID;
   patch: Partial<Omit<AppRecord, 'id' | 'type' | 'created_at' | 'owner_id'>>;
+}
+
+/**
+ * Options for filtering records by type
+ */
+export interface ListByTypeOptions {
+  spaceId?: ID | null; // undefined = Everywhere, null = Unassigned, ID = specific space
+  unassignedOnly?: boolean; // true = only return items with space_id IS NULL
+  subtypes?: string[]; // filter when querying notes (e.g., ['idea','list'] or ['journal'])
+  tagIds?: ID[]; // filter by tags (optional - for future filtering)
 }
 
 /**
@@ -49,9 +102,12 @@ export interface IRepo {
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;
-  listByType(type: AppRecord['type']): Promise<AppRecord[]>;
+  listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
   listBySpace(spaceId: ID): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;
+
+  // Hub helpers
+  countUnsorted(): Promise<number>; // counts ai_placed = true across all types
 
   // Today screen helpers
   listDueToday(nowIso: string): Promise<AppRecord[]>;
@@ -64,6 +120,36 @@ export interface IRepo {
   updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
   deleteSpace(spaceId: string): Promise<void>;
   listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
+
+  // Tag and People methods (Phase 7+)
+  listTags(): Promise<Tag[]>;
+  listPeople(): Promise<Person[]>;
+  createPerson(input: {
+    display_name: string;
+    email?: string | null;
+    dates?: Array<{ date: string; label: string }> | null;
+    notes?: string | null;
+    notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null;
+    reminders?: any[] | null;
+    space_id?: string | null;
+    tags?: string[] | null;
+  }): Promise<Person>;
+  updatePerson(
+    personId: string,
+    patch: Partial<{
+      display_name: string;
+      email: string | null;
+      dates: Array<{ date: string; label: string }> | null;
+      notes: string | null;
+      notes_fmt: 'bullets' | 'numbers' | 'checkboxes' | null;
+      reminders: any[] | null;
+      space_id: string | null;
+      tags: string[] | null;
+    }>,
+  ): Promise<Person>;
+  deletePerson(personId: string): Promise<void>;
+  listLinkedTags(entity: { type: EntityType; id: ID }): Promise<Tag[]>;
+  listLinkedPeople(entity: { type: EntityType; id: ID }): Promise<Person[]>;
 
   // Buddy methods (Phase 5+ stubs)
   inviteBuddy(_habitId: ID, _email: string): Promise<void>;

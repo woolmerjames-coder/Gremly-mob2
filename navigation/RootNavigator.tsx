@@ -3,12 +3,14 @@ import TabNavigator from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
+import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 export type RootStackParamList = {
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
   SpaceDetail: { id: string };
+  CatchAllNotepad: undefined;
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
@@ -23,6 +25,14 @@ export default function RootNavigator() {
         component={SpaceDetailScreen}
         options={{
           title: 'Space',
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="CatchAllNotepad"
+        component={CatchAllNotepad}
+        options={{
+          title: 'Catch-All',
           headerShown: true,
         }}
       />

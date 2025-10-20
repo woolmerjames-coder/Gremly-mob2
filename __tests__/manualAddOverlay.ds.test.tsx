@@ -6,7 +6,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ManualAddOverlay } from '../components/ManualAddOverlay';
+import { ManualAddOverlay } from '../legacy/overlays/ManualAddOverlay';
 import { CortexProvider } from '../providers/CortexProvider';
 import { RepoProvider } from '../providers/RepoProvider';
 import { AuthProvider } from '../providers/AuthProvider';

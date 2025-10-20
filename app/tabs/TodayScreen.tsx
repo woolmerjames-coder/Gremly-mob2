@@ -13,9 +13,8 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
-import { ManualAddOverlay } from '../../components/ManualAddOverlay';
-import { toRepoFrequency } from '../../app/schemas/manualAdd';
-import type { ManualAddPayload } from '../../app/schemas/manualAdd';
+import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { AppRecord } from '../../lib/types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -27,11 +26,13 @@ export default function TodayScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
 
+  // Unified overlay controller
+  const overlayController = useUnifiedOverlayController();
+
   // State
   const [items, setItems] = useState<AppRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [overlayVisible, setOverlayVisible] = useState(false);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -93,62 +94,10 @@ export default function TodayScreen() {
     // await load();
   };
 
-  // Handle manual add submission
-  const handleManualAddSubmit = async (payload: ManualAddPayload) => {
-    try {
-      switch (payload.type) {
-        case 'habits':
-          if (payload.subType === 'start') {
-            await repo.create({
-              type: 'habit',
-              title: payload.data.name,
-              frequency: toRepoFrequency(payload.data.frequency),
-              space_id: payload.data.spaceId || null,
-              ai_placed: false,
-            });
-          } else {
-            // Break habit - create as habit with notes about breaking
-            await repo.create({
-              type: 'habit',
-              title: `Break: ${payload.data.name}`,
-              frequency: 'daily',
-              space_id: payload.data.spaceId || null,
-              ai_placed: false,
-            });
-          }
-          break;
-        case 'todos':
-          await repo.create({
-            type: 'todo',
-            title: payload.data.name,
-            due_date: payload.data.deadline || null,
-            undefined_due: !payload.data.deadline,
-            space_id: null,
-            ai_placed: false,
-          });
-          break;
-        case 'journal':
-          await repo.create({
-            type: 'note',
-            title: '',
-            body: payload.data.entry,
-            subtype: 'journal',
-            space_id: payload.data.spaceId || null,
-            ai_placed: false,
-          });
-          break;
-        case 'catchall':
-          // Catch-all is now handled internally by ManualAddOverlay
-          // Just reload to show the new item
-          console.log('[TodayScreen] Catch-all saved by overlay, reloading...');
-          break;
-      }
-      // Reload data after successful submission
-      await load();
-    } catch (err) {
-      console.error('Failed to create item:', err);
-    }
-  };
+  const handleOverlaySaved = useCallback(async () => {
+    // Reload data after overlay save
+    await load();
+  }, [load]);
 
   return (
     <Screen title="Today" scroll padded testID="today-screen">
@@ -189,14 +138,14 @@ export default function TodayScreen() {
           <Card>
             <Box p={4} gap={3} style={{ alignItems: 'center' }}>
               <Text variant="title" style={{ textAlign: 'center' }}>
-                You're all set! �
+                You're all set! ✨
               </Text>
               <Text variant="body" style={{ textAlign: 'center' }}>
                 No items due today. Add something to get started.
               </Text>
               <Button
                 title="Add Item"
-                onPress={() => setOverlayVisible(true)}
+                onPress={() => overlayController.openCreate()}
                 testID="today-empty-add"
               />
             </Box>
@@ -210,7 +159,7 @@ export default function TodayScreen() {
             {habits.map((habit) => (
               <ListItem
                 key={habit.id}
-                title={habit.title}
+                title={habit.name || 'Untitled'}
                 subtitle={habit.frequency ? `Frequency: ${habit.frequency}` : undefined}
                 onPress={() => handleItemPress(habit)}
                 testID={`today-habit-${habit.id}`}
@@ -226,7 +175,7 @@ export default function TodayScreen() {
             {todos.map((todo) => (
               <ListItem
                 key={todo.id}
-                title={todo.title}
+                title={todo.name || 'Untitled'}
                 subtitle={
                   todo.due_date
                     ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
@@ -245,20 +194,57 @@ export default function TodayScreen() {
             <Button
               title="Add More"
               variant="neutral"
-              onPress={() => setOverlayVisible(true)}
+              onPress={() => overlayController.openCreate()}
               testID="today-add-more"
             />
           </Box>
         )}
       </Box>
 
-      {/* Manual Add Overlay */}
-      <ManualAddOverlay
-        visible={overlayVisible}
-        defaultTab="habits"
-        onClose={() => setOverlayVisible(false)}
-        onSubmit={handleManualAddSubmit}
+      {/* Unified Create/Edit Overlay */}
+      <UnifiedCreateOverlay
+        visible={overlayController.state.visible}
+        mode={overlayController.state.mode}
+        initialEntity={overlayController.state.initialEntity}
+        initialSpaceId={overlayController.state.initialSpaceId}
+        onClose={overlayController.close}
+        onSaved={handleOverlaySaved}
       />
+      {/* Due Habits Section */}
+      {habits.length > 0 && (
+        <Box gap={2}>
+          <Text variant="title">Due Habits</Text>
+          {habits.map((habit) => (
+            <ListItem
+              key={habit.id}
+              title={habit.name || 'Untitled'}
+              subtitle={habit.frequency ? `Frequency: ${habit.frequency}` : undefined}
+              onPress={() => handleItemPress(habit)}
+              testID={`today-habit-${habit.id}`}
+            />
+          ))}
+        </Box>
+      )}
+
+      {/* To-Dos Section */}
+      {todos.length > 0 && (
+        <Box gap={2}>
+          <Text variant="title">To-Dos</Text>
+          {todos.map((todo) => (
+            <ListItem
+              key={todo.id}
+              title={todo.name || 'Untitled'}
+              subtitle={
+                todo.due_date
+                  ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
+                  : 'No due date'
+              }
+              onPress={() => handleItemPress(todo)}
+              testID={`today-todo-${todo.id}`}
+            />
+          ))}
+        </Box>
+      )}
     </Screen>
   );
 }

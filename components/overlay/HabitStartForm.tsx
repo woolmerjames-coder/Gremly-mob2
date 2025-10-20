@@ -28,7 +28,7 @@ export function HabitStartForm({
 }: HabitStartFormProps) {
   // Initialize state from props (no effects needed)
   const [name, setName] = useState(() =>
-    mode === 'edit' && initialValues?.type === 'habit' ? initialValues.title || '' : '',
+    mode === 'edit' && initialValues?.type === 'habit' ? initialValues.name || '' : '',
   );
   const [frequency, setFrequency] = useState<string>(() =>
     mode === 'edit' && initialValues?.type === 'habit'
