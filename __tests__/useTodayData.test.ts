@@ -199,14 +199,11 @@ describe('useTodayData', () => {
   });
 
   it('should cap suggestions to 3 items', async () => {
-    const suggestions: Todo[] = Array.from({ length: 5 }, (_, i) =>
-      createTodo({
-        id: `s${i}`,
-        name: `Suggestion ${i}`,
-      }),
-    );
+    // Provide enough context to generate multiple suggestions
+    const habits: Habit[] = [createHabit({ id: 'h1', name: 'Easy Habit' })];
 
-    mockRepo.listUndefinedDue.mockResolvedValue(suggestions);
+    mockRepo.listDueToday.mockResolvedValue(habits);
+    mockRepo.countPlannedToday.mockResolvedValue(1);
 
     const { result } = renderHook(() => useTodayData());
 
@@ -214,10 +211,9 @@ describe('useTodayData', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    // Suggestions should be capped at 3
-    expect(result.current.suggestions).toHaveLength(3);
-    expect(result.current.visible.suggestions).toHaveLength(3);
-    expect(result.current.hidden.suggestions).toBe(0);
+    // Should generate up to 3 suggestions (journal + habit in this case)
+    expect(result.current.suggestions.length).toBeLessThanOrEqual(3);
+    expect(result.current.suggestions.length).toBeGreaterThan(0);
   });
 
   it('should use real header stats from repo', async () => {
@@ -341,5 +337,92 @@ describe('useTodayData', () => {
 
     expect(result.current.error).toBe('Please sign in to view your items');
     expect(mockRepo.listDueToday).not.toHaveBeenCalled();
+  });
+
+  describe('suggestion heuristics', () => {
+    it('should suggest journal entry if none today and not evening', async () => {
+      // Set morning time
+      const mockDate = new Date('2025-01-01T09:00:00Z');
+      jest.spyOn(global, 'Date').mockImplementation((() => mockDate) as any);
+
+      mockRepo.listDueToday.mockResolvedValue([]);
+      mockRepo.countPlannedToday.mockResolvedValue(0);
+
+      const { result } = renderHook(() => useTodayData());
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      // Should have journal suggestion
+      const journalSugg = result.current.suggestions.find((s) => s.type === 'journal');
+      expect(journalSugg).toBeDefined();
+      expect(journalSugg?.title).toContain('Journal');
+      expect(journalSugg?.cta).toBe('Write');
+      expect(journalSugg?.payload?.type).toBe('journal');
+
+      jest.restoreAllMocks();
+    });
+
+    it('should suggest easy habit if streak < 3', async () => {
+      const habits: Habit[] = [
+        createHabit({
+          id: 'h1',
+          name: 'Morning Stretch',
+        }),
+      ];
+
+      mockRepo.listDueToday.mockResolvedValue(habits);
+      mockRepo.countPlannedToday.mockResolvedValue(1);
+
+      const { result } = renderHook(() => useTodayData());
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      // Should have habit suggestion (streak is 0 by default)
+      const habitSugg = result.current.suggestions.find((s) => s.type === 'habit');
+      expect(habitSugg).toBeDefined();
+      expect(habitSugg?.title).toContain('Easy win');
+      expect(habitSugg?.cta).toBe('Start');
+      expect(habitSugg?.payload?.type).toBe('habit');
+    });
+
+    it('should cap suggestions to 3', async () => {
+      const habits: Habit[] = [
+        createHabit({ id: 'h1', name: 'Habit 1' }),
+        createHabit({ id: 'h2', name: 'Habit 2' }),
+      ];
+
+      mockRepo.listDueToday.mockResolvedValue(habits);
+
+      const { result } = renderHook(() => useTodayData());
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      expect(result.current.suggestions.length).toBeLessThanOrEqual(3);
+    });
+
+    it('should respect feature flag for suggestions', async () => {
+      // Set feature flag to off
+      const originalEnv = process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS;
+      process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS = 'off';
+
+      mockRepo.listDueToday.mockResolvedValue([]);
+
+      const { result } = renderHook(() => useTodayData());
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      expect(result.current.suggestions.length).toBe(0);
+
+      // Restore
+      process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS = originalEnv;
+    });
   });
 });

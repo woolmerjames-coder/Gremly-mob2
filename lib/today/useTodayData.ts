@@ -2,6 +2,7 @@
  * useTodayData hook - Phase 9: Energy & Momentum
  * Fetches and enriches data for Today v2 screen
  * Step 2: Adds ordering, capping, event bus sync, and real stats
+ * Step 5: Adds suggestion heuristics with prefill payloads
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -36,6 +37,15 @@ export interface EnrichedTodo {
   dueDate?: Date; // For sorting
 }
 
+export interface Suggestion {
+  id: string;
+  type: 'journal' | 'todo' | 'habit';
+  title: string;
+  reason?: string;
+  cta?: string; // e.g., "Write", "Prep", "Start"
+  payload?: Record<string, any>; // used to prefill overlay
+}
+
 export interface EnrichedSuggestion {
   id: string;
   title: string;
@@ -54,11 +64,11 @@ export interface TodayData {
   };
   habits: EnrichedHabit[];
   todos: EnrichedTodo[];
-  suggestions: EnrichedSuggestion[];
+  suggestions: Suggestion[]; // Changed from EnrichedSuggestion to Suggestion
   visible: {
     habits: EnrichedHabit[];
     todos: EnrichedTodo[];
-    suggestions: EnrichedSuggestion[];
+    suggestions: Suggestion[]; // Changed from EnrichedSuggestion to Suggestion
   };
   hidden: {
     habits: number;
@@ -71,6 +81,92 @@ export interface TodayData {
 }
 
 const MAX_VISIBLE = 5;
+const MAX_SUGGESTIONS = 3;
+
+/**
+ * Build lightweight suggestions based on current context
+ * Pre-Cortex heuristics for quick wins
+ */
+function buildSuggestions(ctx: {
+  habitsDueToday: EnrichedHabit[];
+  todosDueToday: EnrichedTodo[];
+  weekTodos?: EnrichedTodo[];
+  streakCount: number;
+  hasJournalToday: boolean;
+  timeWindow: TimeWindow;
+}): Suggestion[] {
+  const out: Suggestion[] = [];
+
+  // Feature flag check
+  const suggestionsEnabled = process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS !== 'off';
+  if (!suggestionsEnabled) {
+    return [];
+  }
+
+  // 1) Journal nudge if no journal entry today
+  if (!ctx.hasJournalToday && ctx.timeWindow !== 'evening') {
+    out.push({
+      id: 'sugg-journal-1',
+      type: 'journal',
+      title: 'Journal: 1-line gratitude',
+      reason: 'No entry yet today',
+      cta: 'Write',
+      payload: {
+        type: 'journal',
+        initialText: "Today, I'm grateful for… ",
+      },
+    });
+  }
+
+  // 2) Prep nudge: if a Space has >3 items due this week and none today
+  if (ctx.weekTodos && ctx.weekTodos.length > 0) {
+    const bySpaceWeekload = new Map<string, number>();
+    ctx.weekTodos.forEach((t) => {
+      if (!t.spaceName) return;
+      bySpaceWeekload.set(t.spaceName, (bySpaceWeekload.get(t.spaceName) ?? 0) + 1);
+    });
+
+    for (const [spaceName, count] of bySpaceWeekload.entries()) {
+      const hasTodayInSpace = ctx.todosDueToday.some((t) => t.spaceName === spaceName);
+      if (count > 3 && !hasTodayInSpace) {
+        out.push({
+          id: `sugg-prep-${spaceName.toLowerCase().replace(/\s+/g, '-')}`,
+          type: 'todo',
+          title: `Prep: review ${spaceName}`,
+          reason: `${count} items due this week`,
+          cta: 'Prep',
+          payload: {
+            type: 'todo',
+            name: `Review ${spaceName}`,
+            notes: "Skim what's coming up this week.",
+            spaceName,
+          },
+        });
+        break; // Only suggest one prep item
+      }
+    }
+  }
+
+  // 3) Easy habit surfacing: if streak < 3 days, suggest the shortest/easiest habit first
+  if (ctx.streakCount < 3 && ctx.habitsDueToday.length > 0) {
+    const easy = ctx.habitsDueToday[0]; // already ordered by dueWindow then name
+    out.push({
+      id: `sugg-habit-${easy.id}`,
+      type: 'habit',
+      title: `Easy win: ${easy.name}`,
+      reason: 'Build momentum',
+      cta: 'Start',
+      payload: {
+        type: 'habit',
+        presetId: easy.id,
+        name: easy.name,
+      },
+    });
+  }
+
+  // Cap to MAX_SUGGESTIONS
+  return out.slice(0, MAX_SUGGESTIONS);
+}
 
 /**
  * Determines time window based on current hour (24h format)
@@ -183,9 +279,6 @@ export function useTodayData() {
       // Fetch due today items
       const dueItems = await repo.listDueToday(nowIso);
 
-      // Fetch undefined due items for suggestions
-      const undefinedDue = await repo.listUndefinedDue();
-
       // Fetch stats in parallel
       const [plannedCount, completedCount] = await Promise.all([
         repo.countPlannedToday(),
@@ -257,23 +350,27 @@ export function useTodayData() {
         }),
       );
 
-      // Create suggestions from undefined due items (limit to 3)
-      const suggestions: EnrichedSuggestion[] = undefinedDue.slice(0, 3).map((todo) => ({
-        id: todo.id,
-        title: todo.name,
-        reason: 'Might be today?',
-        ctaLabel: 'Try it',
-      }));
+      // Build smart suggestions using heuristics
+      const streakCount = 0; // TODO: Calculate from habit completion history
+      const hasJournalToday = false; // TODO: Check if journal entry exists today
+
+      const suggestions = buildSuggestions({
+        habitsDueToday: enrichedHabits,
+        todosDueToday: enrichedTodos,
+        weekTodos: [], // TODO: Fetch week todos if needed
+        streakCount,
+        hasJournalToday,
+        timeWindow,
+      });
 
       // Order lists
       const orderedHabits = orderHabits(enrichedHabits);
       const orderedTodos = orderTodos(enrichedTodos);
-      const orderedSuggestions = suggestions; // Already limited to 3
 
       // Cap visible items
       const visibleHabits = orderedHabits.slice(0, MAX_VISIBLE);
       const visibleTodos = orderedTodos.slice(0, MAX_VISIBLE);
-      const visibleSuggestions = orderedSuggestions.slice(0, MAX_VISIBLE);
+      const visibleSuggestions = suggestions.slice(0, MAX_SUGGESTIONS);
 
       setData({
         timeWindow,
@@ -286,7 +383,7 @@ export function useTodayData() {
         },
         habits: orderedHabits,
         todos: orderedTodos,
-        suggestions: orderedSuggestions,
+        suggestions,
         visible: {
           habits: visibleHabits,
           todos: visibleTodos,
@@ -295,7 +392,7 @@ export function useTodayData() {
         hidden: {
           habits: Math.max(0, orderedHabits.length - MAX_VISIBLE),
           todos: Math.max(0, orderedTodos.length - MAX_VISIBLE),
-          suggestions: Math.max(0, orderedSuggestions.length - MAX_VISIBLE),
+          suggestions: Math.max(0, suggestions.length - MAX_SUGGESTIONS),
         },
         reducedMotion: false, // Will be set from props in components
         loading: false,

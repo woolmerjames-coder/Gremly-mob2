@@ -1,6 +1,7 @@
 /**
  * TodaySuggestionCard - Phase 9: Energy & Momentum
  * Suggestion card for Today v2 screen
+ * Step 5: Updated to work with new Suggestion type with payloads
  */
 
 import React, { useEffect, useMemo, useRef } from 'react';
@@ -11,21 +12,16 @@ import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { pulse } from '../../lib/today/motion';
 import { isReducedMotion } from '../../lib/a11y/reducedMotion';
+import type { Suggestion } from '../../lib/today/useTodayData';
 
 export interface TodaySuggestionCardProps {
-  id: string;
-  title: string;
-  reason?: string;
-  ctaLabel?: string;
-  onAccept: (id: string) => void;
+  suggestion: Suggestion;
+  onAccept: (suggestion: Suggestion) => void;
   reducedMotion?: boolean;
 }
 
 export default function TodaySuggestionCard({
-  id,
-  title,
-  reason = 'Might be today?',
-  ctaLabel = 'Try it',
+  suggestion,
   onAccept,
   reducedMotion,
 }: TodaySuggestionCardProps) {
@@ -56,7 +52,7 @@ export default function TodaySuggestionCard({
         variant="outlined"
         padding="md"
         style={{ borderColor: t.colors.accentPeri }}
-        testID={`suggestion-card-${id}`}
+        testID={`suggestion-card-${suggestion.id}`}
       >
         <View style={styles.container}>
           {/* Left: Sparkle icon and text */}
@@ -64,22 +60,22 @@ export default function TodaySuggestionCard({
             <View style={styles.titleRow}>
               <Text style={styles.sparkle}>✨</Text>
               <Text variant="body" style={styles.title}>
-                {title}
+                {suggestion.title}
               </Text>
             </View>
-            {reason && (
+            {suggestion.reason && (
               <Text variant="subtle" style={styles.reason}>
-                {reason}
+                {suggestion.reason}
               </Text>
             )}
           </View>
 
           {/* Right: CTA button */}
           <Button
-            label={ctaLabel}
+            label={suggestion.cta || 'Try it'}
             variant="outline"
-            onPress={() => onAccept(id)}
-            testID={`suggestion-accept-${id}`}
+            onPress={() => onAccept(suggestion)}
+            testID={`suggestion-accept-${suggestion.id}`}
           />
         </View>
       </Card>

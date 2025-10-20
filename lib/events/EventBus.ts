@@ -1,12 +1,19 @@
 /**
  * EventBus - Phase 9: Today v2
  * Lightweight pub/sub for syncing UI state across components
+ * Step 5: Added analytics events
  */
 
 export type EventMap = {
   ItemSaved: { id: string };
   ItemCompleted: { id: string; type: 'habit' | 'todo' };
   ItemUpdated: { id: string };
+  // Analytics events
+  TodayViewOpened: { hourBlock: string };
+  TodayCompleteHabit: { habitId: string; streakAfter: number };
+  TodayCompleteTodo: { todoId: string; overdue: boolean };
+  TodayUndoCompletion: { entityType: 'habit' | 'todo' };
+  TodaySuggestionAccept: { suggestionId: string; type: string };
 };
 
 type Handler<T> = (payload: T) => void;

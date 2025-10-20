@@ -212,3 +212,72 @@ describe('TodayTodoCard', () => {
     expect(getByText('review')).toBeTruthy();
   });
 });
+
+describe('TodaySuggestionCard', () => {
+  // Import at test time to avoid top-level module issues
+  const TodaySuggestionCard = require('../components/today/TodaySuggestionCard').default;
+  const { Suggestion } = require('../lib/today/useTodayData');
+
+  const defaultSuggestion = {
+    id: 'sugg-123',
+    type: 'journal' as const,
+    title: 'Journal: 1-line gratitude',
+    reason: 'No entry yet today',
+    cta: 'Write',
+    payload: {
+      type: 'journal',
+      initialText: "Today, I'm grateful for… ",
+    },
+  };
+
+  const defaultProps = {
+    suggestion: defaultSuggestion,
+    onAccept: jest.fn(),
+    reducedMotion: true,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should render suggestion title', () => {
+    const { getByText } = render(<TodaySuggestionCard {...defaultProps} />);
+    expect(getByText('Journal: 1-line gratitude')).toBeTruthy();
+  });
+
+  it('should render reason when provided', () => {
+    const { getByText } = render(<TodaySuggestionCard {...defaultProps} />);
+    expect(getByText('No entry yet today')).toBeTruthy();
+  });
+
+  it('should render CTA button with custom label', () => {
+    const { getByText } = render(<TodaySuggestionCard {...defaultProps} />);
+    expect(getByText('Write')).toBeTruthy();
+  });
+
+  it('should call onAccept with suggestion when CTA is pressed', () => {
+    const { getByTestId } = render(<TodaySuggestionCard {...defaultProps} />);
+
+    const acceptButton = getByTestId('suggestion-accept-sugg-123');
+    fireEvent.press(acceptButton);
+
+    expect(defaultProps.onAccept).toHaveBeenCalledWith(defaultSuggestion);
+  });
+
+  it('should render sparkle icon', () => {
+    const { getByText } = render(<TodaySuggestionCard {...defaultProps} />);
+    expect(getByText('✨')).toBeTruthy();
+  });
+
+  it('should use default CTA "Try it" if not provided', () => {
+    const suggestionWithoutCta = {
+      ...defaultSuggestion,
+      cta: undefined,
+    };
+
+    const { getByText } = render(
+      <TodaySuggestionCard {...defaultProps} suggestion={suggestionWithoutCta} />,
+    );
+    expect(getByText('Try it')).toBeTruthy();
+  });
+});

@@ -1,24 +1,42 @@
 /**
  * Copy bank for Today v2 screen
  * Phase 9: Energy & Momentum
+ * Step 5: Copy variants with deterministic rotation
  */
 
 type TimeWindow = 'morning' | 'midday' | 'evening';
 
 /**
+ * Get day-based index for deterministic variant selection
+ * Returns 0-based index that changes daily
+ */
+function getDayIndex(): number {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 0);
+  const diff = now.getTime() - startOfYear.getTime();
+  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+  return dayOfYear;
+}
+
+/**
  * Returns a greeting based on time of day and user name
+ * Rotates through variants deterministically by day
  */
 export function getGreeting(timeWindow: TimeWindow, name: string = 'James'): string {
-  const greetings: Record<TimeWindow, string> = {
-    morning: `Morning, ${name} 👋`,
-    midday: `Hey, ${name} 👋`,
-    evening: `Evening, ${name} 👋`,
+  const greetings: Record<TimeWindow, string[]> = {
+    morning: [`Morning, ${name} 👋`, `Good morning, ${name} ☀️`, `Hey ${name}, rise & shine! 🌅`],
+    midday: [`Hey, ${name} 👋`, `Afternoon, ${name} 🌤️`, `Hi ${name}, keeping it rolling! ⚡`],
+    evening: [`Evening, ${name} 👋`, `Hey ${name}, almost there! 🌙`, `Good evening, ${name} ✨`],
   };
-  return greetings[timeWindow];
+
+  const options = greetings[timeWindow];
+  const index = getDayIndex() % options.length;
+  return options[index];
 }
 
 /**
  * Returns a contextual subline based on time of day
+ * Rotates through variants deterministically by day
  */
 export function getSubline(timeWindow: TimeWindow): string {
   const sublines: Record<TimeWindow, string[]> = {
@@ -27,11 +45,27 @@ export function getSubline(timeWindow: TimeWindow): string {
       "Let's make it a great day.",
       'Start strong, finish stronger.',
     ],
-    midday: ['Keep the momentum going.', "You're doing great.", 'Progress over perfection.'],
-    evening: ['Finish strong.', 'Almost there - keep going.', 'Great progress today.'],
+    midday: ['Keep the momentum going.', "You're doing great.", 'Stack a few quick wins.'],
+    evening: ['Finish strong.', 'Almost there - keep going.', "You've got this."],
   };
 
-  // Deterministic selection (first in array for now)
-  // TODO: Add variation logic in Phase 9 step 2
-  return sublines[timeWindow][0];
+  const options = sublines[timeWindow];
+  const index = getDayIndex() % options.length;
+  return options[index];
+}
+
+/**
+ * Returns a friendly completion toast message
+ * Rotates through variants deterministically by day
+ */
+export function getCompletionToast(entityType: 'habit' | 'todo' | 'journal'): string {
+  const toasts: Record<string, string[]> = {
+    habit: ['Nice! Momentum unlocked. 🎯', 'Keep it rolling! 🔥', 'Streak building! ⚡'],
+    todo: ['One more down. ✅', 'Progress! 🎉', 'Crushed it. 💪'],
+    journal: ['Captured. 📝', 'Logged! ✨', 'Noted. 💭'],
+  };
+
+  const options = toasts[entityType] || toasts.todo;
+  const index = getDayIndex() % options.length;
+  return options[index];
 }

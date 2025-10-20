@@ -3,6 +3,7 @@
  * Enhanced with mascot header, sections, and smart cards
  * Step 2: Adds repo persistence, undo with timer, show more buttons, evening teaser
  * Step 4: Adds space grouping, pull-to-refresh, session collapse state
+ * Step 5: Adds suggestion heuristics with prefilled overlay and analytics
  */
 
 import { useCallback, useState, useEffect, useRef } from 'react';
@@ -18,7 +19,8 @@ import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useTodayData, type EnrichedTodo } from '../../lib/today/useTodayData';
+import { useTodayData, type EnrichedTodo, type Suggestion } from '../../lib/today/useTodayData';
+import { eventBus } from '../../lib/events';
 import TodayMascotHeader from '../../components/today/TodayMascotHeader';
 import TodaySection from '../../components/today/TodaySection';
 import TodayHabitCard from '../../components/today/TodayHabitCard';
@@ -110,6 +112,11 @@ export default function TodayScreen() {
 
   // Clear undo timer on unmount
   useEffect(() => {
+    // Emit analytics event on mount
+    const hour = new Date().getHours();
+    const hourBlock = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    eventBus.emit('TodayViewOpened', { hourBlock });
+
     return () => {
       if (undoTimerRef.current) {
         clearTimeout(undoTimerRef.current);
@@ -145,6 +152,11 @@ export default function TodayScreen() {
     undoTimerRef.current = setTimeout(async () => {
       try {
         await repo.completeHabit(id, new Date().toISOString());
+        // Emit analytics
+        eventBus.emit('TodayCompleteHabit', {
+          habitId: id,
+          streakAfter: todayData.header.streakCount + 1,
+        });
         // Event bus will trigger reload automatically
       } catch (err) {
         console.error('Failed to complete habit:', err);
@@ -160,6 +172,10 @@ export default function TodayScreen() {
 
   // Handle todo completion with repo persistence
   const handleTodoComplete = async (id: string) => {
+    // Find if todo is overdue
+    const todo = todayData.todos.find((t) => t.id === id);
+    const isOverdue = todo?.overdue || false;
+
     // Optimistic UI
     setCompletedTodoIds((prev) => new Set(prev).add(id));
     setLastCompletedId(id);
@@ -178,6 +194,11 @@ export default function TodayScreen() {
     undoTimerRef.current = setTimeout(async () => {
       try {
         await repo.completeTodo(id, new Date().toISOString());
+        // Emit analytics
+        eventBus.emit('TodayCompleteTodo', {
+          todoId: id,
+          overdue: isOverdue,
+        });
         // Event bus will trigger reload automatically
       } catch (err) {
         console.error('Failed to complete todo:', err);
@@ -191,10 +212,22 @@ export default function TodayScreen() {
     }, UNDO_TIMEOUT_MS);
   };
 
-  // Handle suggestion acceptance (placeholder)
-  const handleSuggestionAccept = (id: string) => {
-    console.log('Suggestion accepted:', id);
-    // TODO Phase 9 step 3: Add to today list
+  // Handle suggestion acceptance with prefilled overlay
+  const handleSuggestionAccept = (suggestion: Suggestion) => {
+    // Emit analytics
+    eventBus.emit('TodaySuggestionAccept', {
+      suggestionId: suggestion.id,
+      type: suggestion.type,
+    });
+
+    // Open overlay with prefilled data based on suggestion type
+    if (suggestion.type === 'journal') {
+      overlayController.openCreate({ type: 'journal' });
+    } else if (suggestion.type === 'todo') {
+      overlayController.openCreate({ type: 'todo' });
+    } else if (suggestion.type === 'habit') {
+      overlayController.openCreate({ type: 'habit' });
+    }
   };
 
   // Handle undo from celebration overlay
@@ -203,6 +236,11 @@ export default function TodayScreen() {
     if (undoTimerRef.current) {
       clearTimeout(undoTimerRef.current);
       undoTimerRef.current = null;
+    }
+
+    // Emit analytics
+    if (lastCompletedType) {
+      eventBus.emit('TodayUndoCompletion', { entityType: lastCompletedType });
     }
 
     // Revert optimistic UI
@@ -478,10 +516,7 @@ export default function TodayScreen() {
                   {suggestionsToShow.map((suggestion) => (
                     <TodaySuggestionCard
                       key={suggestion.id}
-                      id={suggestion.id}
-                      title={suggestion.title}
-                      reason={suggestion.reason}
-                      ctaLabel={suggestion.ctaLabel}
+                      suggestion={suggestion}
                       onAccept={handleSuggestionAccept}
                       reducedMotion={todayData.reducedMotion}
                     />
