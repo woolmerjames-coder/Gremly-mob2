@@ -121,6 +121,9 @@ export interface IRepo {
   deleteSpace(spaceId: string): Promise<void>;
   listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
 
+  // Spaces v2 methods (Phase 8+)
+  getSpaceSummary(spaceId: string): Promise<string | null>;
+
   // Tag and People methods (Phase 7+)
   listTags(): Promise<Tag[]>;
   listPeople(): Promise<Person[]>;

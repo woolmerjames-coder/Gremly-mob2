@@ -230,6 +230,11 @@ export const spaceInsertSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   icon: z.string().optional(),
   theme: spaceThemeEnum.optional(),
+  // Phase 8+ Spaces v2 fields
+  summary_cached: z.string().optional(),
+  summary_updated_at: z.string().optional(),
+  layout_state_json: z.any().optional(),
+  archived_at: z.string().optional(),
 });
 
 export type SpaceInsert = z.infer<typeof spaceInsertSchema>;

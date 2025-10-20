@@ -635,6 +635,24 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to delete space: ${error.message}`);
   }
 
+  async getSpaceSummary(spaceId: string): Promise<string | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('summary_cached')
+      .eq('id', spaceId)
+      .eq('owner_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw new Error(`Failed to get space summary: ${error.message}`);
+    }
+
+    return data?.summary_cached ?? null;
+  }
+
   async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
     const userId = this.ensureUserId();
 
@@ -993,5 +1011,105 @@ export class SupabaseRepo implements IRepo {
   }
   async unlinkBuddy(): Promise<void> {
     /* no-op */
+  }
+}
+
+/**
+ * SupabaseSpaceChatRepo - Space chat management (Phase 8+ Spaces v2)
+ */
+export class SupabaseSpaceChatRepo {
+  constructor(private currentUserId?: string) {}
+
+  private ensureUserId(): string {
+    if (!this.currentUserId) throw new Error('User ID not available');
+    return this.currentUserId;
+  }
+
+  async list(
+    spaceId: string,
+    opts?: { includeArchived?: boolean },
+  ): Promise<import('../types').SpaceChat[]> {
+    const userId = this.ensureUserId();
+
+    let query = supabase
+      .from('space_chats')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('space_id', spaceId);
+
+    if (!opts?.includeArchived) {
+      query = query.is('archived_at', null);
+    }
+
+    query = query.order('pinned', { ascending: false }).order('updated_at', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) throw new Error(`Failed to list space chats: ${error.message}`);
+
+    return (data || []) as import('../types').SpaceChat[];
+  }
+
+  async create(
+    spaceId: string,
+    input: import('../types').SpaceChatCreateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .insert({
+        user_id: userId,
+        space_id: spaceId,
+        title: input.title,
+        pinned: false,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create space chat: ${error.message}`);
+    if (!data) throw new Error('No data returned from create space chat');
+
+    return data as import('../types').SpaceChat;
+  }
+
+  async update(
+    chatId: string,
+    patch: import('../types').SpaceChatUpdateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const userId = this.ensureUserId();
+
+    const updatePayload: Record<string, unknown> = {};
+
+    if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
+    if ('pinned' in patch) updatePayload.pinned = patch.pinned;
+    if ('last_message_snippet' in patch)
+      updatePayload.last_message_snippet = patch.last_message_snippet ?? null;
+    if ('metadata_json' in patch) updatePayload.metadata_json = patch.metadata_json ?? null;
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .update(updatePayload)
+      .eq('id', chatId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update space chat: ${error.message}`);
+    if (!data) throw new Error('No data returned from update space chat');
+
+    return data as import('../types').SpaceChat;
+  }
+
+  async delete(chatId: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    const { error } = await supabase
+      .from('space_chats')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', chatId)
+      .eq('user_id', userId);
+
+    if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
   }
 }
