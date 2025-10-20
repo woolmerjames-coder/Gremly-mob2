@@ -31,14 +31,14 @@ describe('Repo filtering features', () => {
 
       await repo.create({
         type: 'todo',
-        title: 'Todo in Space A',
+        name: 'Todo in Space A',
         space_id: 'space-a',
         ai_placed: false,
       });
 
       await repo.create({
         type: 'todo',
-        title: 'Todo AI Placed',
+        name: 'Todo AI Placed',
         space_id: null,
         ai_placed: true,
       });

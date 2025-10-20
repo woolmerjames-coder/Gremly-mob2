@@ -50,7 +50,7 @@ describe('SupabaseRepo.create - Todo', () => {
     const dbResult = {
       id: '123e4567-e89b-12d3-a456-426614174000',
       owner_id: 'test-user-id',
-      title: 'Test Todo',
+      name: 'Test Todo',
       body: null,
       space_id: null,
       due_date: null,
@@ -65,7 +65,7 @@ describe('SupabaseRepo.create - Todo', () => {
     // Act: Create a todo
     await repo.create({
       type: 'todo',
-      title: 'Test Todo',
+      name: 'Test Todo',
       undefined_due: true,
       ai_placed: false,
     });
@@ -82,7 +82,7 @@ describe('SupabaseRepo.create - Todo', () => {
     // Assert: Payload has expected fields
     expect(insertPayload).toEqual(
       expect.objectContaining({
-        title: 'Test Todo',
+        name: 'Test Todo',
         undefined_due: true,
         ai_placed: false,
       }),
@@ -178,7 +178,7 @@ describe('SupabaseRepo.create - Todo', () => {
     await expect(
       repo.create({
         type: 'todo',
-        title: 'Test Todo',
+        name: 'Test Todo',
         undefined_due: true,
       }),
     ).rejects.toThrow('Failed to create todo: Database connection failed');

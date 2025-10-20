@@ -5,7 +5,8 @@ describe('schemas', () => {
     const h = habitZ.parse({
       id: 'h1',
       type: 'habit',
-      title: 'Run',
+      name: 'Run',
+      subtype: 'start_habit',
       frequency: 'daily',
       space_id: null,
       ai_placed: false,
@@ -21,7 +22,7 @@ describe('schemas', () => {
     const t = todoZ.parse({
       id: 't1',
       type: 'todo',
-      title: 'Call dentist',
+      name: 'Call dentist',
       body: null,
       due_date: null,
       undefined_due: true,

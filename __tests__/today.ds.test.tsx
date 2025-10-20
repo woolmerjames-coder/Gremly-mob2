@@ -77,7 +77,8 @@ describe('Today DS Screen', () => {
       {
         id: 'habit-1',
         type: 'habit',
-        title: 'Morning Workout',
+        name: 'Morning Workout',
+        subtype: 'start_habit',
         frequency: 'daily',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
@@ -85,7 +86,8 @@ describe('Today DS Screen', () => {
       {
         id: 'habit-2',
         type: 'habit',
-        title: 'Read 30 minutes',
+        name: 'Read 30 minutes',
+        subtype: 'start_habit',
         frequency: 'daily',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
@@ -93,7 +95,7 @@ describe('Today DS Screen', () => {
       {
         id: 'todo-1',
         type: 'todo',
-        title: 'Submit report',
+        name: 'Submit report',
         body: 'Q4 financial report',
         due_date: '2025-01-15',
         created_at: '2025-01-01T00:00:00Z',
@@ -102,7 +104,7 @@ describe('Today DS Screen', () => {
       {
         id: 'todo-2',
         type: 'todo',
-        title: 'Buy groceries',
+        name: 'Buy groceries',
         due_date: '2025-01-15',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',

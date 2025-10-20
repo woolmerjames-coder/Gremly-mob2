@@ -473,12 +473,12 @@ export class SupabaseRepo implements IRepo {
       results.push(...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))));
     }
 
-    // Search todos (title and body)
+    // Search todos (name and body)
     const { data: todos, error: todosError } = await supabase
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
-      .or(`title.ilike.%${q}%,body.ilike.%${q}%`);
+      .or(`name.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
     if (todos) {

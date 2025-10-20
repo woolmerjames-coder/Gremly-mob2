@@ -243,11 +243,13 @@ export class MemoryRepo implements IRepo {
     const q = text.toLowerCase();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
-      // For habits, search in 'name'; for todos/notes, search in 'title'
+      // For habits/todos, search in 'name'; for notes, search in 'title'
       const titleMatch =
         r.type === 'habit'
           ? r.name?.toLowerCase().includes(q)
-          : (r.type === 'todo' || r.type === 'note') && r.title?.toLowerCase().includes(q);
+          : r.type === 'todo'
+            ? r.name?.toLowerCase().includes(q)
+            : r.type === 'note' && r.title?.toLowerCase().includes(q);
       const bodyMatch =
         (r.type === 'todo' || r.type === 'note') && r.body?.toLowerCase().includes(q);
       return titleMatch || bodyMatch;
