@@ -425,6 +425,7 @@ export default function TodayScreen() {
                           minWidth: 24,
                           alignItems: 'center',
                         }}
+                        testID={`due-group-count-${toKebabCase(group.key)}`}
                       >
                         <Text
                           style={{ fontSize: 11, color: theme.colors.cream, fontWeight: '600' }}
@@ -498,6 +499,18 @@ export default function TodayScreen() {
                 testID="today-add-more"
               />
             </Box>
+
+            {/* Test-only: Debug refresh button */}
+            {process.env.JEST_WORKAROUND === '1' && (
+              <Box style={{ opacity: 0, height: 0 }}>
+                <Button
+                  title="Debug Refresh"
+                  variant="neutral"
+                  onPress={onRefresh}
+                  testID="debug-refresh"
+                />
+              </Box>
+            )}
           </>
         )}
       </Box>

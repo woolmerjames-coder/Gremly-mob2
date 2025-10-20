@@ -134,6 +134,11 @@ export default function TodayMascotHeader({
           </Text>
         </View>
       </TouchableOpacity>
+
+      {/* Test-only: Wave tick indicator */}
+      {process.env.JEST_WORKAROUND === '1' && (
+        <View testID="mascot-wave-tick" accessibilityLabel={String(waveTick ?? 0)} />
+      )}
     </Box>
   );
 }

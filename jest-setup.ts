@@ -2,6 +2,7 @@
 process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key-1234567890';
 process.env.JEST_REDUCED_MOTION = '1'; // Force reduced motion in all tests to avoid animation timers
+process.env.JEST_WORKAROUND = '1'; // Enable test-only elements in production code
 
 // JSDOM lacks ResizeObserver in some RN libs; provide a stub if accessed
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

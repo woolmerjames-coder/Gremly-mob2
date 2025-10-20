@@ -90,6 +90,7 @@ export const Screen = React.forwardRef<typeof SafeAreaView, ScreenProps>(
     return (
       <SafeAreaView testID={testID} style={[containerStyle, style]} edges={edges}>
         <Container
+          testID={scroll ? 'today-scroll' : undefined}
           {...(scroll ? { contentContainerStyle: scrollContentStyle } : { style: boxStyle })}
           {...(scroll && refreshControl ? { refreshControl } : {})}
           {...(cleanProps as Record<string, unknown>)}
