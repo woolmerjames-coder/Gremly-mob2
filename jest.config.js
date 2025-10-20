@@ -27,7 +27,10 @@ module.exports = {
   maxWorkers: 1,
   detectOpenHandles: true,
   forceExit: true,
+  bail: 1, // Exit immediately on first test failure
   resetMocks: true,
   restoreMocks: true,
   clearMocks: true,
+  // CI-specific: reduce memory footprint
+  maxConcurrency: 1,
 };

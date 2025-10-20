@@ -52,3 +52,10 @@ export function silenceConsole() {
     debug: jest.fn(),
   };
 }
+
+// Global cleanup after each test
+afterEach(() => {
+  // Clear all timers to prevent hanging
+  jest.clearAllTimers();
+  jest.useRealTimers();
+});
