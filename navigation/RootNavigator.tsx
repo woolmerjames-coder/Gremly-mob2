@@ -5,6 +5,8 @@ import DevLogin from '../app/(dev)/DevLogin';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
+import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
+import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -13,6 +15,8 @@ export type RootStackParamList = {
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string }; // Phase 8
+  SpaceHome: { spaceId: string }; // Phase 8 Spaces v2
+  ChatThread: { chatId: string }; // Phase 8 Spaces v2
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
@@ -45,6 +49,24 @@ export default function RootNavigator() {
         options={{
           title: 'Person',
           headerShown: false, // Using custom header in component
+        }}
+      />
+      {/* Phase 8 Spaces v2: Space Home Screen */}
+      <Stack.Screen
+        name="SpaceHome"
+        component={SpaceHomeScreen}
+        options={{
+          title: 'Space',
+          headerShown: true,
+        }}
+      />
+      {/* Phase 8 Spaces v2: Chat Thread Screen */}
+      <Stack.Screen
+        name="ChatThread"
+        component={ChatThreadScreen}
+        options={{
+          title: 'Chat',
+          headerShown: true,
         }}
       />
       <Stack.Screen

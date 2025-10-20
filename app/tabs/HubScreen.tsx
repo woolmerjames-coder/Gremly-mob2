@@ -13,6 +13,9 @@ import {
   TouchableOpacity,
   FlatList,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -42,7 +45,7 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
 }
 
 export default function HubScreen() {
-  // const navigation = useNavigation<NavigationProp>(); // Unused for now
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { user } = useAuth();
 
@@ -125,6 +128,7 @@ export default function HubScreen() {
         tags,
         spaceName,
         showSpaceChip,
+        spaceId: item.space_id, // Add space_id for navigation
       };
     },
     [itemTags, scope.type, spaces],
@@ -677,6 +681,7 @@ export default function HubScreen() {
           <HubItemCard
             item={item}
             onPress={() => handleItemPress(item)}
+            onSpacePress={(spaceId) => navigation.navigate('SpaceHome', { spaceId })}
             testID={`item-${item.id}`}
           />
         )}
