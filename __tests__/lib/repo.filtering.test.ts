@@ -111,7 +111,7 @@ describe('Repo filtering features', () => {
     it('counts all ai_placed items across types', async () => {
       await repo.create({
         type: 'habit',
-        title: 'AI Habit',
+        name: 'AI Habit',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: true,
@@ -119,7 +119,7 @@ describe('Repo filtering features', () => {
 
       await repo.create({
         type: 'todo',
-        title: 'AI Todo',
+        name: 'AI Todo',
         ai_placed: true,
       });
 
@@ -132,7 +132,7 @@ describe('Repo filtering features', () => {
 
       await repo.create({
         type: 'todo',
-        title: 'Manual Todo',
+        name: 'Manual Todo',
         ai_placed: false,
       });
 
