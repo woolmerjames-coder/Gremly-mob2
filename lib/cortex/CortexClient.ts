@@ -17,8 +17,19 @@ export type CortexClientResult<T = any> =
 const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');
 
 let warnedMissingAnon = false;
+let warnedAiDisabled = false;
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const isAiDisabled = (): boolean => {
+  const raw =
+    safeGetEnv?.('EXPO_PUBLIC_DISABLE_AI') ??
+    process.env.EXPO_PUBLIC_DISABLE_AI ??
+    process.env.REACT_NATIVE_DISABLE_AI ??
+    '';
+  const normalized = raw.toString().toLowerCase();
+  return normalized === 'on' || normalized === 'true';
+};
 
 const readSupabaseAnonKey = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
@@ -34,6 +45,14 @@ const readCortexUrl = (): string => {
 };
 
 async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
+  if (isAiDisabled()) {
+    if (!warnedAiDisabled) {
+      console.warn('[CORTEX] Disabled via EXPO_PUBLIC_DISABLE_AI; skipping request.');
+      warnedAiDisabled = true;
+    }
+    return { ok: false, error: '[cortex] disabled via EXPO_PUBLIC_DISABLE_AI' };
+  }
+
   const baseUrl = readCortexUrl();
 
   if (!baseUrl) {
