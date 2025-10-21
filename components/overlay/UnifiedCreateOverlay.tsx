@@ -2,7 +2,7 @@
  * UnifiedCreateOverlay - Phase 7 unified create/edit overlay
  * Single overlay for all entity types with type pills, subtypes, and AI freeform mode
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Modal,
   View,
@@ -47,6 +47,7 @@ import {
   mapNoteToForm,
   mapPersonToForm,
 } from './mappers';
+import { getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -91,9 +92,28 @@ export function UnifiedCreateOverlay({
     process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' || process.env.NODE_ENV === 'test';
   const usePhase8Features = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
 
-  // Safety log in dev
-  if (__DEV__ && visible) {
-    console.log('[UnifiedOverlay] Enabled:', useUnifiedOverlay);
+  const aiDisabled = useMemo(() => {
+    const raw = (process.env.EXPO_PUBLIC_DISABLE_AI ?? '').toLowerCase();
+    return raw === 'on' || raw === 'true';
+  }, []);
+
+  // Open-once guard: log only on first mount when visible
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (!visible) {
+      openedRef.current = false;
+      return;
+    }
+    if (openedRef.current) return;
+    openedRef.current = true;
+    if (__DEV__ || process.env.NODE_ENV === 'test') {
+      console.log('[Overlay] open', { useUnifiedOverlay, aiDisabled, mode });
+    }
+  }, [visible, useUnifiedOverlay, aiDisabled, mode]);
+
+  // Render log for debugging (only in dev, less noisy)
+  if ((__DEV__ || process.env.NODE_ENV === 'test') && visible && !openedRef.current) {
+    console.log('[Overlay] render', { mode });
   }
 
   // State - with robust defaults
@@ -101,10 +121,17 @@ export function UnifiedCreateOverlay({
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
   const [isLoading, setIsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false); // Single-flight submit guard
+  const [thinking, setThinking] = useState(false); // Thinking state for 1s deliberate UX
+  const [cortexInFlight, setCortexInFlight] = useState(false); // Track AI request in-flight
+  const [cortexStatus, setCortexStatus] = useState<string | null>(null); // "thinking" | "timeout" | "busy" | null
   const [hydration, setHydration] = useState<HydrationState>('idle');
   const [aiReady, setAiReady] = useState<boolean>(false);
   const aiInitWarnedRef = useRef(false);
-  const aiBannerMessage = 'AI temporarily unavailable. You can still save your note.';
+  const aiBannerMessage = aiDisabled
+    ? 'AI disabled — you can still save.'
+    : 'AI temporarily unavailable — you can still save.';
+  const showAiBanner = !aiReady || aiDisabled;
 
   // Animation for subtype chips and fields
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -367,6 +394,19 @@ export function UnifiedCreateOverlay({
           return;
         }
 
+        if (aiDisabled) {
+          if (!cancelled) {
+            setAiReady(false);
+            if (!aiInitWarnedRef.current) {
+              console.warn(
+                '[Overlay] AI disabled via EXPO_PUBLIC_DISABLE_AI; running in manual mode.',
+              );
+              aiInitWarnedRef.current = true;
+            }
+          }
+          return;
+        }
+
         if (!cortex || typeof cortex.classify !== 'function') {
           throw new Error('Cortex engine unavailable');
         }
@@ -377,11 +417,8 @@ export function UnifiedCreateOverlay({
       } catch (error) {
         if (!cancelled) {
           setAiReady(false);
-          if (__DEV__ && !aiInitWarnedRef.current) {
-            console.warn(
-              '[UnifiedCreateOverlay] AI init failed; overlay will operate offline.',
-              error,
-            );
+          if (!aiInitWarnedRef.current) {
+            console.warn('[Overlay] AI init failed; overlay operating offline.', error);
             aiInitWarnedRef.current = true;
           }
         }
@@ -393,7 +430,7 @@ export function UnifiedCreateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [cortex, visible]);
+  }, [cortex, visible, aiDisabled]);
 
   const resetForm = () => {
     setSelectedType(null); // Reset to no type selected
@@ -435,6 +472,7 @@ export function UnifiedCreateOverlay({
   };
 
   const handleClose = () => {
+    console.log('[UX] capture_closed');
     resetForm();
     onClose();
   };
@@ -474,42 +512,132 @@ export function UnifiedCreateOverlay({
   };
 
   const handleSave = async () => {
+    // Single-flight guard
+    if (submitting) {
+      console.log('[Overlay] submit already in progress, ignoring');
+      return;
+    }
+
+    setSubmitting(true);
     setIsLoading(true);
+    setThinking(false);
+    setCortexStatus(null); // Clear any previous status
+
     try {
-      // AI mode - freeform catchall
+      // AI mode - freeform catchall with optimistic UX
       if (aiMode && freeformText.trim()) {
-        const classifyFlag =
-          (process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL ?? 'false') === 'true';
-        let cortexResult = null;
-        let canUseAi = aiReady;
+        console.log('[UX] capture_submitted', { mode: 'ai' });
+        const t0 = Date.now();
 
-        if (canUseAi) {
-          const completionResult = await callComplete(freeformText.trim(), { maxTokens: 400 });
-          if (!completionResult.ok) {
-            canUseAi = false;
-            setAiReady(false);
-            notifyAiUnavailable();
-          } else if (__DEV__) {
-            const completionData: any = completionResult.data;
-            console.log(
-              '[UnifiedCreateOverlay] AI completion success',
-              completionData?.id ?? 'no-id',
-            );
-          }
-        } else {
-          notifyAiUnavailable();
+        // Check AI disable flag
+        const aiDisabledFlag = (getEnv('EXPO_PUBLIC_DISABLE_AI') ?? '').toLowerCase() === 'on';
+        if (aiDisabledFlag) {
+          // AI disabled - save immediately without classification
+          const input: CreateRecordInput = {
+            type: 'note',
+            title: '',
+            body: freeformText.trim(),
+            subtype: 'catchall',
+            space_id: spaceId !== undefined ? spaceId : null,
+            ai_placed: false,
+            why_string: 'Manual - AI disabled',
+            origin: 'catchall',
+          };
+          const result = await repo.create(input);
+          console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'disabled' });
+          onSaved?.({ type: 'note', id: result.id });
+          showToast('Added to Hub');
+          handleClose();
+          return;
         }
 
-        if (classifyFlag && canUseAi) {
-          try {
-            cortexResult = await cortex.classify({ text: freeformText.trim(), spaceId: null });
-          } catch (error) {
-            console.error('[UnifiedCreateOverlay] Cortex classification failed:', error);
-            canUseAi = false;
-            setAiReady(false);
-            notifyAiUnavailable();
-          }
+        // Optimistic UX flow
+        const optimisticEnabled = getOptimisticFlag();
+        const minThink = getMinThinkMs();
+        const bgTimeout = getBgTimeoutMs();
+
+        setThinking(true);
+        setCortexStatus('thinking');
+
+        // Kick AI call (don't await yet)
+        const aiPromise = callComplete(freeformText.trim(), { maxTokens: 400 });
+
+        // Race AI vs min-think timer
+        const thinkTimer = new Promise((resolve) => setTimeout(resolve, minThink));
+        let finishedEarly = false;
+        let aiResult: any = null;
+
+        try {
+          aiResult = await Promise.race([
+            aiPromise.then((r) => {
+              finishedEarly = true;
+              return r;
+            }),
+            thinkTimer.then(() => null),
+          ]);
+        } catch (e) {
+          aiResult = { ok: false, error: (e as Error)?.message || 'unknown' };
         }
+
+        const elapsed = Date.now() - t0;
+
+        // Case A: AI finished within ~1s and succeeded
+        if (optimisticEnabled && finishedEarly && aiResult?.ok) {
+          console.log('[Overlay] ai ms', elapsed);
+
+          // Save with classification immediately
+          const input: CreateRecordInput = {
+            type: 'note',
+            title: '',
+            body: freeformText.trim(),
+            subtype: 'catchall',
+            space_id: spaceId !== undefined ? spaceId : null,
+            ai_placed: true,
+            why_string: 'AI classified',
+            origin: 'catchall',
+          };
+
+          const result = await repo.create(input);
+          console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+
+          // Link phase8 tags/people if any
+          if (
+            usePhase8Features &&
+            result.id &&
+            phase8Links.pendingTagIds.length + phase8Links.pendingPeople.length > 0
+          ) {
+            const itemType: ItemType = 'note';
+            for (const tagId of phase8Links.pendingTagIds) {
+              try {
+                await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
+              } catch (error) {
+                console.error('[Phase8] Failed to link pending tag to catchall:', error);
+              }
+            }
+            for (const person of phase8Links.pendingPeople) {
+              try {
+                await (repo as any).linkPerson({
+                  itemId: result.id,
+                  itemType,
+                  personName: person.personName,
+                  personEmail: person.personEmail,
+                });
+              } catch (error) {
+                console.error('[Phase8] Failed to link pending person to catchall:', error);
+              }
+            }
+          }
+
+          onSaved?.({ type: 'note', id: result.id });
+          showToast('Added to Hub');
+          setThinking(false);
+          setCortexStatus(null);
+          handleClose();
+          return;
+        }
+
+        // Case B: AI not done in ~1s or failed - save optimistically to Catch-All
+        console.log('[Overlay] ai ms (optimistic)', elapsed);
 
         const input: CreateRecordInput = {
           type: 'note',
@@ -517,35 +645,32 @@ export function UnifiedCreateOverlay({
           body: freeformText.trim(),
           subtype: 'catchall',
           space_id: spaceId !== undefined ? spaceId : null,
-          ai_placed: canUseAi,
-          why_string: canUseAi
-            ? cortexResult?.whyString || 'AI freeform mode'
-            : 'Manual freeform mode',
+          ai_placed: false,
+          why_string: 'Pending classification',
           origin: 'catchall',
         };
 
-        const result = await repo.create(input);
+        const newItem = await repo.create(input);
+        console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'pending' });
 
-        // Phase 8: Flush pending tags and people for catchall too
+        // Link phase8 tags/people if any
         if (
           usePhase8Features &&
-          result.id &&
+          newItem.id &&
           phase8Links.pendingTagIds.length + phase8Links.pendingPeople.length > 0
         ) {
-          const itemType: ItemType = 'note'; // catchall is a note subtype
-
+          const itemType: ItemType = 'note';
           for (const tagId of phase8Links.pendingTagIds) {
             try {
-              await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
+              await (repo as any).linkTag({ itemId: newItem.id, tagId, itemType });
             } catch (error) {
               console.error('[Phase8] Failed to link pending tag to catchall:', error);
             }
           }
-
           for (const person of phase8Links.pendingPeople) {
             try {
               await (repo as any).linkPerson({
-                itemId: result.id,
+                itemId: newItem.id,
                 itemType,
                 personName: person.personName,
                 personEmail: person.personEmail,
@@ -556,9 +681,67 @@ export function UnifiedCreateOverlay({
           }
         }
 
-        onSaved?.({ type: 'note', id: result.id });
-        showToast('Saved to the Hub.');
+        onSaved?.({ type: 'note', id: newItem.id });
+        showToast('Delivered to Hub — sorting in background');
+        setThinking(false);
+        setCortexStatus(null);
         handleClose();
+
+        // Background finalize (non-blocking)
+        if (optimisticEnabled) {
+          setTimeout(async () => {
+            try {
+              const finalResult = await Promise.race([
+                aiPromise,
+                new Promise<any>((_, rej) =>
+                  setTimeout(() => rej(new Error('bg-timeout')), bgTimeout),
+                ),
+              ]);
+
+              if (finalResult && finalResult.ok) {
+                console.log('[Overlay] bg classification success', newItem.id);
+                console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+                // Update item with classification result
+                await repo.update({
+                  id: newItem.id,
+                  patch: {
+                    ai_placed: true,
+                    why_string: 'AI classified (background)',
+                  },
+                });
+              } else {
+                console.warn('[Overlay] bg classification failed', newItem.id);
+                console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
+                await repo.update({
+                  id: newItem.id,
+                  patch: {
+                    ai_placed: false,
+                    why_string: 'Classification failed',
+                  },
+                });
+                // Note: We could emit EventBus event here for UI toast
+                // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'classification failed' });
+              }
+            } catch (error) {
+              console.warn('[Overlay] bg classification timeout', newItem.id, error);
+              console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
+              await repo
+                .update({
+                  id: newItem.id,
+                  patch: {
+                    ai_placed: false,
+                    why_string: 'Classification timeout',
+                  },
+                })
+                .catch(() => {
+                  // Silently fail - item is already saved
+                });
+              // Note: We could emit EventBus event here for UI toast
+              // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'timeout' });
+            }
+          }, 0);
+        }
+
         return;
       }
 
@@ -672,6 +855,7 @@ export function UnifiedCreateOverlay({
       console.error('[UnifiedCreateOverlay] Save failed:', error);
     } finally {
       setIsLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -844,7 +1028,7 @@ export function UnifiedCreateOverlay({
 
   return (
     <Modal
-      visible={visible && useUnifiedOverlay}
+      visible={visible}
       transparent
       animationType="slide"
       onRequestClose={handleClose}
@@ -880,7 +1064,7 @@ export function UnifiedCreateOverlay({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {!aiReady && (
+            {showAiBanner && (
               <View style={[styles.section, styles.aiBanner]} testID="ai-unavailable-banner">
                 <Text style={[styles.aiBannerText, { color: theme.colors.text.secondary }]}>
                   {aiBannerMessage}
@@ -1204,12 +1388,23 @@ export function UnifiedCreateOverlay({
             </View>
           )}
 
+          {/* Cortex status */}
+          {cortexStatus && (
+            <View style={styles.cortexStatusHint}>
+              <Text style={[styles.cortexStatusText, { color: theme.colors.text.secondary }]}>
+                {cortexStatus === 'thinking' && '✨ Thinking…'}
+                {cortexStatus === 'timeout' && '⏱️ AI temporarily unavailable'}
+                {cortexStatus === 'busy' && '⏳ AI temporarily unavailable'}
+              </Text>
+            </View>
+          )}
+
           {/* CTA bar */}
           <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
             <Button
-              label={isLoading ? 'Saving...' : 'Save to Hub'}
+              label={thinking ? 'Thinking…' : isLoading ? 'Saving...' : 'Save to Hub'}
               onPress={handleSave}
-              disabled={isSaveDisabled()}
+              disabled={isSaveDisabled() || cortexInFlight || submitting || thinking}
               fullWidth
               testID="save-to-hub"
             />
@@ -1343,6 +1538,14 @@ const styles = StyleSheet.create({
   },
   validationHintText: {
     fontSize: 13,
+    fontStyle: 'italic',
+  },
+  cortexStatusHint: {
+    paddingHorizontal: 24,
+    paddingVertical: 6,
+  },
+  cortexStatusText: {
+    fontSize: 12,
     fontStyle: 'italic',
   },
 });

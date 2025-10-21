@@ -2,7 +2,7 @@
  * useUnifiedOverlayController - Phase 7 unified overlay state management
  * Centralized controller for opening create/edit overlays across the app
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { AppRecord } from '../lib/types';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
@@ -34,16 +34,39 @@ export function useUnifiedOverlayController() {
     mode: 'create',
   });
 
+  // Debounce guard to prevent rapid re-opens
+  const isOpeningRef = useRef(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const openCreate = useCallback(({ type, spaceId }: CreateOptions = {}) => {
+    if (isOpeningRef.current) {
+      console.log('[OverlayController] open already in progress, ignoring');
+      return;
+    }
+
+    isOpeningRef.current = true;
     setState({
       visible: true,
       mode: 'create',
       initialEntity: type ? { type, id: undefined, subtype: null } : undefined,
       initialSpaceId: spaceId,
     });
+
+    // Reset debounce flag after 600ms
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      isOpeningRef.current = false;
+    }, 600);
   }, []);
 
   const openEdit = useCallback(({ record, spaceId }: EditOptions) => {
+    if (isOpeningRef.current) {
+      console.log('[OverlayController] open already in progress, ignoring');
+      return;
+    }
+
     // Map AppRecord to entity type
     let entityType: EntityType;
     let subtype: string | null = null;
@@ -65,6 +88,7 @@ export function useUnifiedOverlayController() {
       entityType = 'note';
     }
 
+    isOpeningRef.current = true;
     setState({
       visible: true,
       mode: 'edit',
@@ -75,6 +99,14 @@ export function useUnifiedOverlayController() {
       },
       initialSpaceId: spaceId,
     });
+
+    // Reset debounce flag after 600ms
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      isOpeningRef.current = false;
+    }, 600);
   }, []);
 
   const close = useCallback(() => {
@@ -84,6 +116,11 @@ export function useUnifiedOverlayController() {
       initialEntity: undefined,
       initialSpaceId: undefined,
     });
+    // Allow immediate re-open on close
+    isOpeningRef.current = false;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
   }, []);
 
   return {

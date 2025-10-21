@@ -18,6 +18,7 @@ const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-
 
 let warnedMissingAnon = false;
 let warnedAiDisabled = false;
+let inFlight = false; // Single-flight dedupe
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 
@@ -45,6 +46,12 @@ const readCortexUrl = (): string => {
 };
 
 async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
+  // Single-flight dedupe: reject if already in-flight
+  if (inFlight) {
+    log('BUSY', 'Request already in-flight');
+    return { ok: false, error: 'busy' };
+  }
+
   if (isAiDisabled()) {
     if (!warnedAiDisabled) {
       console.warn('[CORTEX] Disabled via EXPO_PUBLIC_DISABLE_AI; skipping request.');
@@ -61,8 +68,17 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
     return { ok: false, error: message };
   }
 
+  // Mark as in-flight
+  inFlight = true;
+
+  // AbortController with hard timeout
+  const timeoutMs = toMs(env.cortex.timeoutMs);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), toMs(env.cortex.timeoutMs));
+  const timeout = setTimeout(() => {
+    log('TIMEOUT', `Aborting after ${timeoutMs}ms`);
+    controller.abort();
+  }, timeoutMs);
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const supabaseAnonKey = readSupabaseAnonKey();
 
@@ -82,7 +98,7 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
     log('POST', baseUrl, {
       type: body?.type,
       model: body?.model,
-      timeoutMs: env.cortex.timeoutMs,
+      timeoutMs,
     });
 
     const res = await fetch(baseUrl, {
@@ -110,11 +126,17 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
     log('OK', json?.data?.id ?? 'no-id');
     return { ok: true, data: json.data };
   } catch (e: any) {
-    const message = e?.name === 'AbortError' ? '[cortex] request aborted' : e?.message || String(e);
+    // Handle timeout specifically
+    if (e?.name === 'AbortError') {
+      log('ABORTED', 'Request timed out');
+      return { ok: false, error: 'timeout' };
+    }
+    const message = e?.message || String(e);
     log('EXCEPTION', message);
     return { ok: false, error: message };
   } finally {
     clearTimeout(timeout);
+    inFlight = false; // Release lock
   }
 }
 
