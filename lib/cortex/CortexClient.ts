@@ -116,15 +116,70 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
       return { ok: false, error: message, status: res.status };
     }
 
-    const json = await res.json();
-
-    if (!json?.ok) {
-      log('PROXY_ERROR', json?.error);
-      return { ok: false, error: `[cortex] proxy_error ${json?.error || 'unknown'}` };
+    // Parse response text with fallback to passthrough
+    const text = await res.text();
+    let data: any;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { passthrough: text };
     }
 
-    log('OK', json?.data?.id ?? 'no-id');
-    return { ok: true, data: json.data };
+    // Normalize multiple response shapes
+    function normalize(d: any) {
+      if (!d || typeof d !== 'object') return { ok: false, error: 'empty_response' };
+
+      // Shape D: wrapped error
+      if (d.error) {
+        return { ok: false, error: String(d.error || d.detail || 'proxy_error') };
+      }
+
+      // Shape A: Supabase-style { id, content, model?, usage? }
+      if (d.content && d.id) {
+        return {
+          ok: true,
+          id: String(d.id),
+          content: String(d.content),
+          model: d.model,
+          usage: d.usage,
+        };
+      }
+
+      // Shape B/C: OpenAI chat or legacy completion
+      const msg = d?.choices?.[0]?.message?.content ?? d?.choices?.[0]?.text;
+      if (msg) {
+        return {
+          ok: true,
+          id: String(d.id || 'cmpl-' + Math.random().toString(36).slice(2)),
+          content: String(msg),
+          model: d.model,
+          usage: d.usage,
+        };
+      }
+
+      // Shape E: passthrough text
+      if (d.passthrough) {
+        return {
+          ok: true,
+          id: 'cmpl-' + Math.random().toString(36).slice(2),
+          content: String(d.passthrough),
+        };
+      }
+
+      return { ok: false, error: 'unrecognized_response' };
+    }
+
+    const norm = normalize(data);
+    if (!norm.ok) {
+      console.warn('[CORTEX] proxy normalize fail', { status: res.status, data });
+      return { ok: false, error: norm.error };
+    }
+
+    log('OK', norm.id);
+    return {
+      ok: true,
+      data: { id: norm.id, content: norm.content, model: norm.model, usage: norm.usage },
+    };
   } catch (e: any) {
     // Handle timeout specifically
     if (e?.name === 'AbortError') {
