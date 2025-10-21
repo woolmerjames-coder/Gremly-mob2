@@ -1,7 +1,7 @@
 // lib/cortex/CortexClient.ts
 // Typed client for Supabase Edge Function cortex-proxy
 // NO OpenAI keys in client code
-import { env } from '../env';
+import * as envModule from '../env';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -9,6 +9,24 @@ const toMs = (n?: number) => (typeof n === 'number' && !Number.isNaN(n) ? n : 12
 
 const log = (...a: any[]) => {
   if (__DEV__) console.log('[CORTEX]', ...a);
+};
+
+type GetEnvFn = (key: string) => string | undefined;
+
+const { env } = envModule;
+
+const readSupabaseAnonKey = (): string => {
+  const maybeGetEnv = (envModule as { getEnv?: GetEnvFn }).getEnv;
+  const fromGetEnv =
+    typeof maybeGetEnv === 'function' ? maybeGetEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY') : undefined;
+
+  const resolved =
+    fromGetEnv ??
+    (typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined) ??
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
+    '';
+
+  return resolved;
 };
 
 async function postJSON(body: any) {
@@ -24,9 +42,16 @@ async function postJSON(body: any) {
       timeoutMs: env.cortex.timeoutMs,
     });
 
+    const supabaseAnonKey = readSupabaseAnonKey();
+    log('AUTH_HEADER_PRESENT', supabaseAnonKey ? '****' : 'missing');
+
     const res = await fetch(env.cortexUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        apikey: supabaseAnonKey,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
