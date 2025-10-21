@@ -119,3 +119,8 @@ export const env = {
 // Type exports for convenience
 export type RepoBackend = typeof env.repoBackend;
 export type TimeWindow = 'morning' | 'midday' | 'evening';
+
+export const getEnv = (key: string): string | undefined => {
+  const value = process.env[key as keyof NodeJS.ProcessEnv];
+  return typeof value === 'string' ? value : undefined;
+};

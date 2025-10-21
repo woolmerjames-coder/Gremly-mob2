@@ -12,17 +12,28 @@ export async function runCortexProxyDiag() {
   });
 
   try {
-    const data = await callComplete('Say hi', { maxTokens: 8 });
-    console.log('[CORTEX] DIAG ok', {
-      ms: Date.now() - started,
-      id: data?.id ?? 'no-id',
-    });
-    return { ok: true, data };
-  } catch (e: any) {
+    const result = await callComplete('Say hi', { maxTokens: 8 });
+
+    if (result.ok) {
+      const data: any = result.data;
+      console.log('[CORTEX] DIAG ok', {
+        ms: Date.now() - started,
+        id: data?.id ?? 'no-id',
+      });
+      return { ok: true, data };
+    }
+
     console.log('[CORTEX] DIAG fail', {
       ms: Date.now() - started,
-      error: e?.message || String(e),
+      error: result.error,
     });
-    return { ok: false, error: e?.message || String(e) };
+    return { ok: false, error: result.error };
+  } catch (e: any) {
+    const error = e?.message || String(e);
+    console.log('[CORTEX] DIAG fail', {
+      ms: Date.now() - started,
+      error,
+    });
+    return { ok: false, error };
   }
 }

@@ -1,7 +1,7 @@
 // lib/cortex/CortexClient.ts
 // Typed client for Supabase Edge Function cortex-proxy
 // NO OpenAI keys in client code
-import * as envModule from '../env';
+import { env, getEnv } from '../env';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -10,48 +10,65 @@ const toMs = (n?: number) => (typeof n === 'number' && !Number.isNaN(n) ? n : 12
 const log = (...a: any[]) => {
   if (__DEV__) console.log('[CORTEX]', ...a);
 };
+export type CortexClientResult<T = any> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; status?: number };
 
-type GetEnvFn = (key: string) => string | undefined;
+const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');
 
-const { env } = envModule;
+let warnedMissingAnon = false;
+
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 
 const readSupabaseAnonKey = (): string => {
-  const maybeGetEnv = (envModule as { getEnv?: GetEnvFn }).getEnv;
-  const fromGetEnv =
-    typeof maybeGetEnv === 'function' ? maybeGetEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY') : undefined;
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
 
-  const resolved =
-    fromGetEnv ??
-    (typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined) ??
-    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
-    '';
-
-  return resolved;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
-async function postJSON(body: any) {
-  if (!env.cortexUrl) throw new Error('[cortex] Missing EXPO_PUBLIC_CORTEX_URL');
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    const message = '[cortex] Missing EXPO_PUBLIC_CORTEX_URL';
+    log('CONFIG_MISSING', message);
+    return { ok: false, error: message };
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), toMs(env.cortex.timeoutMs));
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  } else if (!warnedMissingAnon) {
+    console.warn(
+      '[CORTEX] Warning: EXPO_PUBLIC_SUPABASE_ANON_KEY is missing; proceeding without Authorization header.',
+    );
+    warnedMissingAnon = true;
+  }
+
+  log('AUTH_HEADER', mask(supabaseAnonKey));
 
   try {
-    log('POST', env.cortexUrl, {
+    log('POST', baseUrl, {
       type: body?.type,
       model: body?.model,
       timeoutMs: env.cortex.timeoutMs,
     });
 
-    const supabaseAnonKey = readSupabaseAnonKey();
-    log('AUTH_HEADER_PRESENT', supabaseAnonKey ? '****' : 'missing');
-
-    const res = await fetch(env.cortexUrl, {
+    const res = await fetch(baseUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${supabaseAnonKey}`,
-        apikey: supabaseAnonKey,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -59,22 +76,24 @@ async function postJSON(body: any) {
     log('STATUS', res.status);
 
     if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`[cortex] ${res.status} ${txt}`);
+      const txt = await res.text().catch(() => '');
+      const message = `[cortex] ${res.status} ${txt || 'Unknown error'}`;
+      return { ok: false, error: message, status: res.status };
     }
 
     const json = await res.json();
 
     if (!json?.ok) {
       log('PROXY_ERROR', json?.error);
-      throw new Error(`[cortex] proxy_error ${json?.error || 'unknown'}`);
+      return { ok: false, error: `[cortex] proxy_error ${json?.error || 'unknown'}` };
     }
 
     log('OK', json?.data?.id ?? 'no-id');
-    return json.data;
+    return { ok: true, data: json.data };
   } catch (e: any) {
-    log('EXCEPTION', e?.message || e);
-    throw e;
+    const message = e?.name === 'AbortError' ? '[cortex] request aborted' : e?.message || String(e);
+    log('EXCEPTION', message);
+    return { ok: false, error: message };
   } finally {
     clearTimeout(timeout);
   }

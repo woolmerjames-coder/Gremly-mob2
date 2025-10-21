@@ -2,7 +2,7 @@
  * UnifiedCreateOverlay - Phase 7 unified create/edit overlay
  * Single overlay for all entity types with type pills, subtypes, and AI freeform mode
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -38,6 +38,7 @@ import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo'
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
 import type { ItemType } from '../../lib/repo/types';
+import { callComplete } from '../../lib/cortex/CortexClient';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import {
   mapHabitToForm,
@@ -101,6 +102,9 @@ export function UnifiedCreateOverlay({
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
   const [isLoading, setIsLoading] = useState(false);
   const [hydration, setHydration] = useState<HydrationState>('idle');
+  const [aiReady, setAiReady] = useState<boolean>(false);
+  const aiInitWarnedRef = useRef(false);
+  const aiBannerMessage = 'AI temporarily unavailable. You can still save your note.';
 
   // Animation for subtype chips and fields
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -245,6 +249,15 @@ export function UnifiedCreateOverlay({
     }
   };
 
+  const notifyAiUnavailable = useCallback(() => {
+    const message = 'AI temporarily unavailable — saved locally.';
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      console.warn('[UnifiedOverlay]', message);
+    }
+  }, []);
+
   const loadEntity = React.useCallback(
     async (id: string, type: EntityType) => {
       try {
@@ -342,6 +355,46 @@ export function UnifiedCreateOverlay({
     }
   }, [visible, mode, initialEntity, loadEntity]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const initAi = async () => {
+      try {
+        if (!visible) {
+          if (!cancelled) {
+            setAiReady(false);
+          }
+          return;
+        }
+
+        if (!cortex || typeof cortex.classify !== 'function') {
+          throw new Error('Cortex engine unavailable');
+        }
+
+        if (!cancelled) {
+          setAiReady(true);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAiReady(false);
+          if (__DEV__ && !aiInitWarnedRef.current) {
+            console.warn(
+              '[UnifiedCreateOverlay] AI init failed; overlay will operate offline.',
+              error,
+            );
+            aiInitWarnedRef.current = true;
+          }
+        }
+      }
+    };
+
+    initAi();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cortex, visible]);
+
   const resetForm = () => {
     setSelectedType(null); // Reset to no type selected
     setAiMode(false);
@@ -428,12 +481,33 @@ export function UnifiedCreateOverlay({
         const classifyFlag =
           (process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL ?? 'false') === 'true';
         let cortexResult = null;
+        let canUseAi = aiReady;
 
-        if (classifyFlag) {
+        if (canUseAi) {
+          const completionResult = await callComplete(freeformText.trim(), { maxTokens: 400 });
+          if (!completionResult.ok) {
+            canUseAi = false;
+            setAiReady(false);
+            notifyAiUnavailable();
+          } else if (__DEV__) {
+            const completionData: any = completionResult.data;
+            console.log(
+              '[UnifiedCreateOverlay] AI completion success',
+              completionData?.id ?? 'no-id',
+            );
+          }
+        } else {
+          notifyAiUnavailable();
+        }
+
+        if (classifyFlag && canUseAi) {
           try {
             cortexResult = await cortex.classify({ text: freeformText.trim(), spaceId: null });
           } catch (error) {
             console.error('[UnifiedCreateOverlay] Cortex classification failed:', error);
+            canUseAi = false;
+            setAiReady(false);
+            notifyAiUnavailable();
           }
         }
 
@@ -443,8 +517,10 @@ export function UnifiedCreateOverlay({
           body: freeformText.trim(),
           subtype: 'catchall',
           space_id: spaceId !== undefined ? spaceId : null,
-          ai_placed: true,
-          why_string: cortexResult?.whyString || 'AI freeform mode',
+          ai_placed: canUseAi,
+          why_string: canUseAi
+            ? cortexResult?.whyString || 'AI freeform mode'
+            : 'Manual freeform mode',
           origin: 'catchall',
         };
 
@@ -804,6 +880,14 @@ export function UnifiedCreateOverlay({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
+            {!aiReady && (
+              <View style={[styles.section, styles.aiBanner]} testID="ai-unavailable-banner">
+                <Text style={[styles.aiBannerText, { color: theme.colors.text.secondary }]}>
+                  {aiBannerMessage}
+                </Text>
+              </View>
+            )}
+
             {/* Type row */}
             <View style={styles.section}>
               <View style={styles.chipRow}>
@@ -1182,6 +1266,18 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 20,
+  },
+  aiBanner: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  aiBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   chipRow: {
     flexDirection: 'row',
