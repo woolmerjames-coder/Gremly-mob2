@@ -1,11 +1,18 @@
-// Mock for image/SVG files in tests
-// SVG components need to be React components
+// Mock for image/SVG files in tests that play nicely with React Native
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const React = require('react');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { View } = require('react-native');
 
-module.exports = function MockSvgComponent(props) {
-  return React.createElement('svg', props);
-};
+function MockSvgComponent(props) {
+  // Render a simple View so React Native Testing Library can handle it
+  return React.createElement(View, {
+    accessibilityLabel: props?.accessibilityLabel ?? 'mock-svg',
+    style: props?.style,
+    testID: props?.testID,
+  });
+}
 
-// Also export as default for ES6 imports
-module.exports.default = module.exports;
+module.exports = MockSvgComponent;
+module.exports.default = MockSvgComponent;
+module.exports.ReactComponent = MockSvgComponent;

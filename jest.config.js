@@ -24,16 +24,11 @@ module.exports = {
   },
   reporters: ['default'],
   testTimeout: 10000,
-  maxWorkers: 1,
   detectOpenHandles: true,
   forceExit: true,
-  bail: 1, // Exit immediately on first test failure
+  bail: 1, // Exit immediately on first failure
   resetMocks: true,
   restoreMocks: true,
   clearMocks: true,
-  // CI-specific: reduce memory footprint
-  maxConcurrency: 1,
-  // Memory management
-  workerIdleMemoryLimit: '512MB',
-  cache: false, // Disable caching to reduce memory
+  // CI passes --maxWorkers=50% via workflow to manage memory
 };

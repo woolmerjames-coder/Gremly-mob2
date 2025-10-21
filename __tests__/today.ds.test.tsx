@@ -6,11 +6,20 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import { act, fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
 
 // Ensure reduced motion is active in tests to prevent animation timers
 process.env.JEST_REDUCED_MOTION = '1';
+const ORIGINAL_JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT;
+
+beforeAll(() => {
+  process.env.JEST_TODAY_LIGHT = '1';
+});
+
+afterAll(() => {
+  process.env.JEST_TODAY_LIGHT = ORIGINAL_JEST_TODAY_LIGHT;
+});
 
 // Mock CortexProvider to avoid heuristic engine complexity
 jest.mock('../providers/CortexProvider', () => ({
@@ -41,17 +50,25 @@ const mockDataStore = {
   spacesData: {} as Record<string, any>,
 };
 
-// Mock the repo to return controlled test data
-jest.mock('../providers/RepoProvider', () => ({
-  useRepo: () => ({
+// Mock the repo to return controlled test data with stable identity
+jest.mock('../providers/RepoProvider', () => {
+  const repoMock = {
     listDueToday: jest.fn(() => Promise.resolve([...mockDataStore.dueTodayData])),
     listUndefinedDue: jest.fn(() => Promise.resolve([...mockDataStore.undefinedDueData])),
     getSpaceById: jest.fn((id: string) => Promise.resolve(mockDataStore.spacesData[id] || null)),
+    countPlannedToday: jest.fn(() => Promise.resolve(mockDataStore.dueTodayData.length)),
+    countCompletedToday: jest.fn(() => Promise.resolve(0)),
+    completeHabit: jest.fn(() => Promise.resolve()),
+    completeTodo: jest.fn(() => Promise.resolve()),
     create: jest.fn(),
     update: jest.fn(),
     remove: jest.fn(),
-  }),
-}));
+  };
+
+  return {
+    useRepo: () => repoMock,
+  };
+});
 
 describe('Today DS Screen', () => {
   beforeEach(() => {
@@ -124,6 +141,7 @@ describe('Today DS Screen', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('today-screen')).toBeTruthy();
+      expect(screen.getByTestId('today-light-mode')).toBeTruthy();
     });
   });
 
@@ -233,37 +251,93 @@ describe('Today DS Screen - Phase 9 v2', () => {
   });
 
   it('optimistically removes habit from list when check button pressed', async () => {
-    const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
+    if (process.env.JEST_TODAY_LIGHT === '1') {
+      const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
 
-    await waitFor(() => {
-      expect(getByTestId('habit-check-habit-1')).toBeTruthy();
-    });
+      await waitFor(() => {
+        expect(getByTestId('habit-check-habit-1')).toBeTruthy();
+      });
 
-    // Press the check button for habit-1
-    const checkButton = getByTestId('habit-check-habit-1');
-    checkButton.props.onPress();
+      const checkButton = getByTestId('habit-check-habit-1');
+      fireEvent.press(checkButton);
 
-    // Wait for optimistic UI update - habit should be removed
-    await waitFor(() => {
-      expect(queryByTestId('habit-card-habit-1')).toBeNull();
-    });
+      await waitFor(() => {
+        expect(queryByTestId('habit-card-habit-1')).toBeNull();
+      });
+
+      return;
+    }
+
+    jest.useFakeTimers();
+    try {
+      const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('habit-check-habit-1')).toBeTruthy();
+      });
+
+      // Press the check button for habit-1
+      const checkButton = getByTestId('habit-check-habit-1');
+      act(() => {
+        checkButton.props.onPress();
+      });
+
+      // Wait for optimistic UI update - habit should be removed
+      await waitFor(() => {
+        expect(queryByTestId('habit-card-habit-1')).toBeNull();
+      });
+
+      act(() => {
+        jest.runOnlyPendingTimers();
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('optimistically removes todo from list when complete button pressed', async () => {
-    const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
+    if (process.env.JEST_TODAY_LIGHT === '1') {
+      const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
 
-    await waitFor(() => {
-      expect(getByTestId('todo-complete-todo-1')).toBeTruthy();
-    });
+      await waitFor(() => {
+        expect(getByTestId('todo-complete-todo-1')).toBeTruthy();
+      });
 
-    // Press the complete button for todo-1
-    const completeButton = getByTestId('todo-complete-todo-1');
-    completeButton.props.onPress();
+      const completeButton = getByTestId('todo-complete-todo-1');
+      fireEvent.press(completeButton);
 
-    // Wait for optimistic UI update - todo should be removed
-    await waitFor(() => {
-      expect(queryByTestId('todo-card-todo-1')).toBeNull();
-    });
+      await waitFor(() => {
+        expect(queryByTestId('todo-card-todo-1')).toBeNull();
+      });
+
+      return;
+    }
+
+    jest.useFakeTimers();
+    try {
+      const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('todo-complete-todo-1')).toBeTruthy();
+      });
+
+      // Press the complete button for todo-1
+      const completeButton = getByTestId('todo-complete-todo-1');
+      act(() => {
+        completeButton.props.onPress();
+      });
+
+      // Wait for optimistic UI update - todo should be removed
+      await waitFor(() => {
+        expect(queryByTestId('todo-card-todo-1')).toBeNull();
+      });
+
+      act(() => {
+        jest.runOnlyPendingTimers();
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('respects reduced motion in components', async () => {

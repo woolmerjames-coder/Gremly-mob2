@@ -42,7 +42,7 @@ jobs:
         run: npm run typecheck
       
       - name: Test
-        run: npm test -- --ci --runInBand --forceExit --logHeapUsage
+        run: npm run test:ci -- --maxWorkers=50%
         timeout-minutes: 15
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
+          NODE_OPTIONS: "--max-old-space-size=6144"

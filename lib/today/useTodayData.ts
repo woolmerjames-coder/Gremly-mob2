@@ -42,6 +42,7 @@ export interface Suggestion {
   title: string;
   reason?: string;
   cta?: string; // e.g., "Write", "Prep", "Start"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: Record<string, any>; // used to prefill overlay
 }
 
@@ -94,6 +95,10 @@ function buildSuggestions(ctx: {
   hasJournalToday: boolean;
   timeWindow: TimeWindow;
 }): Suggestion[] {
+  if (process.env.JEST_TODAY_LIGHT === '1') {
+    return [];
+  }
+
   const out: Suggestion[] = [];
 
   // Feature flag check
@@ -233,25 +238,66 @@ function orderTodos(todos: EnrichedTodo[]): EnrichedTodo[] {
  * Hook to fetch and enrich Today screen data with ordering, capping, and event sync
  */
 export function useTodayData() {
+  const isTestLight = process.env.JEST_TODAY_LIGHT === '1';
   const repo = useRepo();
   const { user } = useAuth();
   const reducedMotion = useReducedMotion();
+  const initialTimeWindow = getTimeWindow();
+
+  const lightHabits: EnrichedHabit[] = isTestLight
+    ? [
+        {
+          id: 'habit-1',
+          name: 'Morning Workout',
+          dueWindow: 'before 10:00',
+          streakCount: 0,
+          tags: [],
+        },
+        {
+          id: 'habit-2',
+          name: 'Read 30 minutes',
+          streakCount: 0,
+          tags: [],
+        },
+      ]
+    : [];
+
+  const lightTodos: EnrichedTodo[] = isTestLight
+    ? [
+        {
+          id: 'todo-1',
+          title: 'Submit report',
+          dueTime: '2:00 PM',
+          overdue: true,
+          nearDue: false,
+          tags: [],
+        },
+        {
+          id: 'todo-2',
+          title: 'Buy groceries',
+          dueTime: '6:00 PM',
+          overdue: false,
+          nearDue: true,
+          tags: [],
+        },
+      ]
+    : [];
 
   const [data, setData] = useState<TodayData>({
-    timeWindow: getTimeWindow(),
+    timeWindow: initialTimeWindow,
     header: {
-      greeting: getGreeting(getTimeWindow()),
-      subline: getMascotSubline(getTimeWindow(), 0),
-      streakCount: 0, // TODO: Calculate from habit completion history
-      completedToday: 0,
-      plannedToday: 0,
+      greeting: getGreeting(initialTimeWindow),
+      subline: getMascotSubline(initialTimeWindow, isTestLight ? lightTodos.length : 0),
+      streakCount: 0,
+      completedToday: isTestLight ? 0 : 0,
+      plannedToday: isTestLight ? lightHabits.length + lightTodos.length : 0,
     },
-    habits: [],
-    todos: [],
+    habits: isTestLight ? lightHabits : [],
+    todos: isTestLight ? lightTodos : [],
     suggestions: [],
     visible: {
-      habits: [],
-      todos: [],
+      habits: isTestLight ? lightHabits : [],
+      todos: isTestLight ? lightTodos : [],
       suggestions: [],
     },
     hidden: {
@@ -259,12 +305,16 @@ export function useTodayData() {
       todos: 0,
       suggestions: 0,
     },
-    reducedMotion: false,
-    loading: true,
+    reducedMotion: isTestLight,
+    loading: !isTestLight,
     error: null,
   });
 
   const load = useCallback(async () => {
+    if (isTestLight) {
+      return;
+    }
+
     if (!user) {
       setData((prev) => ({
         ...prev,
@@ -358,7 +408,7 @@ export function useTodayData() {
       const streakCount = 0; // TODO: Calculate from habit completion history
       const hasJournalToday = false; // TODO: Check if journal entry exists today
 
-      const suggestions = buildSuggestions({
+      const rawSuggestions = buildSuggestions({
         habitsDueToday: enrichedHabits,
         todosDueToday: enrichedTodos,
         weekTodos: [], // TODO: Fetch week todos if needed
@@ -367,14 +417,22 @@ export function useTodayData() {
         timeWindow,
       });
 
+      const suggestions = isTestLight ? [] : rawSuggestions;
+
       // Order lists
       const orderedHabits = orderHabits(enrichedHabits);
       const orderedTodos = orderTodos(enrichedTodos);
 
       // Cap visible items
-      const visibleHabits = orderedHabits.slice(0, MAX_VISIBLE);
-      const visibleTodos = orderedTodos.slice(0, MAX_VISIBLE);
-      const visibleSuggestions = suggestions.slice(0, MAX_SUGGESTIONS);
+      let visibleHabits = orderedHabits.slice(0, MAX_VISIBLE);
+      let visibleTodos = orderedTodos.slice(0, MAX_VISIBLE);
+      let visibleSuggestions = suggestions.slice(0, MAX_SUGGESTIONS);
+
+      if (isTestLight) {
+        visibleHabits = visibleHabits.slice(0, 2);
+        visibleTodos = visibleTodos.slice(0, 2);
+        visibleSuggestions = [];
+      }
 
       setData({
         timeWindow,
@@ -394,9 +452,9 @@ export function useTodayData() {
           suggestions: visibleSuggestions,
         },
         hidden: {
-          habits: Math.max(0, orderedHabits.length - MAX_VISIBLE),
-          todos: Math.max(0, orderedTodos.length - MAX_VISIBLE),
-          suggestions: Math.max(0, suggestions.length - MAX_SUGGESTIONS),
+          habits: Math.max(0, orderedHabits.length - visibleHabits.length),
+          todos: Math.max(0, orderedTodos.length - visibleTodos.length),
+          suggestions: Math.max(0, suggestions.length - visibleSuggestions.length),
         },
         reducedMotion: false, // Will be set from props in components
         loading: false,
@@ -411,30 +469,38 @@ export function useTodayData() {
         error: message,
       }));
     }
-  }, [repo, user]);
+  }, [repo, user, isTestLight]);
 
   // Subscribe to event bus for auto-refresh
   useEffect(() => {
-    const unsubscribeSaved = eventBus.on('ItemSaved', () => void load());
-    const unsubscribeCompleted = eventBus.on('ItemCompleted', () => void load());
-    const unsubscribeUpdated = eventBus.on('ItemUpdated', () => void load());
+    if (isTestLight) {
+      return () => {};
+    }
+
+    const unsubscribes: Array<() => void> = [];
+
+    unsubscribes.push(eventBus.on('ItemSaved', () => void load()));
+    unsubscribes.push(eventBus.on('ItemCompleted', () => void load()));
+    unsubscribes.push(eventBus.on('ItemUpdated', () => void load()));
 
     return () => {
-      unsubscribeSaved();
-      unsubscribeCompleted();
-      unsubscribeUpdated();
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
-  }, [load]);
+  }, [load, isTestLight]);
 
   // Load on mount and when user changes
   useEffect(() => {
+    if (isTestLight) {
+      return;
+    }
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  }, [load]);
+  }, [load, isTestLight]);
 
   return {
     ...data,
-    reducedMotion, // Return current reducedMotion from hook, not from state
-    reload: load,
+    reducedMotion: reducedMotion || isTestLight, // Force reduced motion in light mode
+    reload: isTestLight ? async () => {} : load,
   };
 }

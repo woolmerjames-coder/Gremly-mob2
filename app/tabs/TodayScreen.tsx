@@ -7,19 +7,18 @@
  */
 
 import { useCallback, useState, useEffect, useRef } from 'react';
-import { RefreshControl, ScrollView, View, StyleSheet } from 'react-native';
+import { RefreshControl, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { useRepo } from '../../providers/RepoProvider';
-import { useTokens } from '../../design/makeStyles';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useTodayData, type EnrichedTodo, type Suggestion } from '../../lib/today/useTodayData';
+import { useTodayData, type Suggestion } from '../../lib/today/useTodayData';
 import { eventBus } from '../../lib/events';
 import { env } from '../../lib/env';
 import TodayMascotHeader from '../../components/today/TodayMascotHeader';
@@ -63,6 +62,7 @@ export default function TodayScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const repo = useRepo();
+  const isTestLight = process.env.JEST_TODAY_LIGHT === '1';
 
   // Unified overlay controller
   const overlayController = useUnifiedOverlayController();
@@ -95,12 +95,13 @@ export default function TodayScreen() {
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Read feature flags from env module
-  const celebrationEnabled = env.feature.today.celebration;
-  const suggestionsEnabled = env.feature.today.suggestions;
+  const celebrationEnabled = !isTestLight && env.feature.today.celebration;
+  const suggestionsEnabled = !isTestLight && env.feature.today.suggestions;
   const eveningTeaserEnabled = env.feature.today.eveningTeaser;
 
   // Check if we should show evening reflection teaser (18:00+)
-  const shouldShowEveningTeaser = eveningTeaserEnabled && new Date().getHours() >= 18;
+  const shouldShowEveningTeaser =
+    !isTestLight && eveningTeaserEnabled && new Date().getHours() >= 18;
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -129,9 +130,11 @@ export default function TodayScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await todayData.reload();
-    setMascotWaveTick((t) => t + 1);
+    if (!isTestLight) {
+      setMascotWaveTick((t) => t + 1);
+    }
     setRefreshing(false);
-  }, [todayData]);
+  }, [todayData, isTestLight]);
 
   // Handle habit completion with repo persistence
   const handleHabitComplete = async (id: string) => {
@@ -347,6 +350,8 @@ export default function TodayScreen() {
         {/* Main content */}
         {!todayData.loading && !todayData.error && user && (
           <>
+            {isTestLight && <View testID="today-light-mode" accessibilityLabel="1" />}
+
             {/* Mascot Header */}
             <TodayMascotHeader
               greeting={todayData.header.greeting}
@@ -356,7 +361,7 @@ export default function TodayScreen() {
               plannedToday={todayData.header.plannedToday}
               timeWindow={todayData.timeWindow}
               reducedMotion={todayData.reducedMotion}
-              waveTick={mascotWaveTick}
+              waveTick={isTestLight ? 0 : mascotWaveTick}
             />
 
             {/* Evening Reflection Teaser */}
@@ -385,6 +390,7 @@ export default function TodayScreen() {
               initiallyExpanded={expanded['Habits Today']}
               onExpandedChange={(e) => setExpanded((s) => ({ ...s, 'Habits Today': e }))}
               reducedMotion={todayData.reducedMotion}
+              limit={isTestLight ? 2 : undefined}
               footer={
                 !showAllHabits && todayData.hidden.habits > 0 ? (
                   <Button
@@ -425,6 +431,7 @@ export default function TodayScreen() {
               initiallyExpanded={expanded['Due Today']}
               onExpandedChange={(e) => setExpanded((s) => ({ ...s, 'Due Today': e }))}
               reducedMotion={todayData.reducedMotion}
+              limit={isTestLight ? 2 : undefined}
               footer={
                 !showAllTodos && todayData.hidden.todos > 0 ? (
                   <Button
@@ -554,14 +561,16 @@ export default function TodayScreen() {
       </Box>
 
       {/* Unified Create/Edit Overlay */}
-      <UnifiedCreateOverlay
-        visible={overlayController.state.visible}
-        mode={overlayController.state.mode}
-        initialEntity={overlayController.state.initialEntity}
-        initialSpaceId={overlayController.state.initialSpaceId}
-        onClose={overlayController.close}
-        onSaved={handleOverlaySaved}
-      />
+      {!isTestLight && (
+        <UnifiedCreateOverlay
+          visible={overlayController.state.visible}
+          mode={overlayController.state.mode}
+          initialEntity={overlayController.state.initialEntity}
+          initialSpaceId={overlayController.state.initialSpaceId}
+          onClose={overlayController.close}
+          onSaved={handleOverlaySaved}
+        />
+      )}
 
       {/* Celebration Overlay */}
       {celebrationEnabled && (

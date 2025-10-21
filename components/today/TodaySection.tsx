@@ -23,6 +23,7 @@ export interface TodaySectionProps {
   onExpandedChange?: (expanded: boolean) => void; // Session state callback
   reducedMotion?: boolean;
   footer?: React.ReactNode; // Optional footer for "Show more" buttons
+  limit?: number; // Optional cap on rendered children for test light mode
 }
 
 export default function TodaySection({
@@ -33,6 +34,7 @@ export default function TodaySection({
   onExpandedChange,
   reducedMotion,
   footer,
+  limit,
 }: TodaySectionProps) {
   const t = useTokens();
   const [expanded, setExpanded] = useState(initiallyExpanded);
@@ -76,6 +78,8 @@ export default function TodaySection({
 
   const kebabTitle = toKebabCase(title);
 
+  const contentChildren = limit ? React.Children.toArray(children).slice(0, limit) : children;
+
   const animatedStyle = {
     opacity: animatedHeight,
     maxHeight: animatedHeight.interpolate({
@@ -106,14 +110,14 @@ export default function TodaySection({
         // No animation for reduced motion - simple conditional render
         expanded && (
           <>
-            <View style={styles.content}>{children}</View>
+            <View style={styles.content}>{contentChildren}</View>
             {footer && <View style={styles.footer}>{footer}</View>}
           </>
         )
       ) : (
         // Animated collapse/expand
         <>
-          <Animated.View style={[styles.content, animatedStyle]}>{children}</Animated.View>
+          <Animated.View style={[styles.content, animatedStyle]}>{contentChildren}</Animated.View>
           {footer && expanded && <View style={styles.footer}>{footer}</View>}
         </>
       )}

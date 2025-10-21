@@ -7,6 +7,7 @@
  * To see console output during development, comment out the global
  * assignments or run tests with --verbose flag.
  */
+import { cleanup } from '@testing-library/react-native';
 
 const originalConsole = {
   log: console.log,
@@ -55,6 +56,7 @@ export function silenceConsole() {
 
 // Global cleanup after each test
 afterEach(() => {
+  cleanup();
   // Clear all timers to prevent hanging
   jest.clearAllTimers();
   jest.useRealTimers();

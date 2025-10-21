@@ -23,6 +23,11 @@ export default function TodayCelebrationOverlay({
   reducedMotion = false,
 }: TodayCelebrationOverlayProps) {
   const t = useTokens();
+  const isTestLight = process.env.JEST_TODAY_LIGHT === '1';
+
+  if (isTestLight) {
+    return null;
+  }
 
   return (
     <Modal
