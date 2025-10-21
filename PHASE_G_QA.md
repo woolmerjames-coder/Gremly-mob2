@@ -283,3 +283,8 @@
 - [x] DS primitives only (Box, Text, Card, Button, Input, ListItem)
 
 **Status:** ✅ Phase G Complete - QA & Parity Pass Achieved
+
+## Today Test Split (Phase 10)
+- We isolated `__tests__/today.ds.test.tsx` and `__tests__/today.grouping.test.tsx` into a separate CI job to avoid OOMs.
+- Main job excludes these paths; heavy job runs them in-band with 8GB heap.
+- This is temporary; revisit after optimizing Today data assembly and test setup mem-usage.
