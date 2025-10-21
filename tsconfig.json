@@ -5,5 +5,11 @@
     "types": ["jest", "react"]
   },
   "include": ["**/*.ts", "**/*.tsx", "types", "__tests__/**/*"],
-  "exclude": ["node_modules", "_archive/**/*", "app/(dev)/**/*", "__tests__/pending/**/*"]
+  "exclude": [
+    "node_modules",
+    "_archive/**/*",
+    "app/(dev)/**/*",
+    "__tests__/pending/**/*",
+    "supabase/functions/**/*"
+  ]
 }

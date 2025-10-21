@@ -1,10 +1,11 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
+import { callChat, type ChatMessage } from '../lib/cortex/CortexClient';
 
 interface OpenAiEngineConfig {
-  apiKey: string;
+  apiKey: string; // Kept for backward compatibility but no longer used
   model: string;
   timeoutMs: number;
-  baseUrl?: string;
+  baseUrl?: string; // Kept for backward compatibility but no longer used
 }
 
 interface RawClassification {
@@ -79,20 +80,13 @@ function readMessageContent(content: unknown): string | null {
 }
 
 export class OpenAiEngine implements ICortexEngine {
-  private readonly apiKey: string;
   private readonly model: string;
   private readonly timeoutMs: number;
-  private readonly baseUrl: string;
 
-  constructor({ apiKey: _apiKey, model, timeoutMs, baseUrl }: OpenAiEngineConfig) {
-    const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-    if (!key) {
-      throw new Error('Missing EXPO_PUBLIC_OPENAI_API_KEY');
-    }
-    this.apiKey = key;
+  constructor({ model, timeoutMs }: OpenAiEngineConfig) {
+    // NOTE: No longer stores API key - uses secure proxy via CortexClient
     this.model = model;
     this.timeoutMs = timeoutMs;
-    this.baseUrl = baseUrl?.replace(/\/$/, '') || 'https://api.openai.com';
   }
 
   async classify({ text }: CortexInput): Promise<CortexOutput> {
@@ -100,35 +94,21 @@ export class OpenAiEngine implements ICortexEngine {
     const logPayload: CortexInput = { text };
     if (DEBUG) console.log('[CORTEX][LLM] classify input:', logPayload);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
-
     try {
-      if (DEBUG) console.log('[CORTEX][LLM] model:', this.model, 'hasKey:', !!this.apiKey);
-      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          temperature: 0,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: `Classify this note: ${text}` },
-          ],
-        }),
+      if (DEBUG) console.log('[CORTEX][LLM] model:', this.model);
+
+      // Use secure proxy via CortexClient
+      const messages: ChatMessage[] = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: `Classify this note: ${text}` },
+      ];
+
+      const data = await callChat(messages, {
+        model: this.model,
+        temperature: 0,
+        maxTokens: 400,
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        throw new Error(`OpenAI request failed (${response.status}): ${errorBody}`);
-      }
-
-      const data = await response.json();
       if (DEBUG) console.log('[CORTEX][LLM] raw:', JSON.stringify(data).slice(0, 300));
       const choice = data?.choices?.[0];
       const message = choice?.message;
@@ -153,8 +133,6 @@ export class OpenAiEngine implements ICortexEngine {
     } catch (error) {
       if (DEBUG) console.error('[CORTEX][LLM] error:', error);
       throw error;
-    } finally {
-      clearTimeout(timeoutId);
     }
   }
 }

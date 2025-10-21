@@ -277,6 +277,66 @@ export class MemoryRepo implements IRepo {
     );
   }
 
+  async countPlannedToday(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
+    return this.data.filter((r) => {
+      if (r.owner_id !== this.currentUserId) return false;
+      if (r.type !== 'todo') return false;
+      const dueDate = r.due_date;
+      if (!dueDate) return false;
+      try {
+        return dueDate.startsWith(today);
+      } catch {
+        return false;
+      }
+    }).length;
+  }
+
+  async countCompletedToday(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
+    return this.data.filter((r) => {
+      if (r.owner_id !== this.currentUserId) return false;
+      if (r.type !== 'todo' && r.type !== 'habit') return false;
+      const completedAt = (r as any).completed_at;
+      if (!completedAt) return false;
+      try {
+        return completedAt.startsWith(today);
+      } catch {
+        return false;
+      }
+    }).length;
+  }
+
+  async completeHabit(id: ID, atIso: string): Promise<void> {
+    const item = this.data.find((r) => r.id === id && r.owner_id === this.currentUserId);
+    if (!item || item.type !== 'habit') throw new Error('Habit not found');
+    (item as any).completed_at = atIso;
+
+    // Emit event for UI sync
+    const { eventBus } = await import('../events');
+    eventBus.emit('ItemCompleted', { id, type: 'habit' });
+  }
+
+  async completeTodo(id: ID, atIso: string): Promise<void> {
+    const item = this.data.find((r) => r.id === id && r.owner_id === this.currentUserId);
+    if (!item || item.type !== 'todo') throw new Error('Todo not found');
+    (item as any).completed_at = atIso;
+
+    // Emit event for UI sync
+    const { eventBus } = await import('../events');
+    eventBus.emit('ItemCompleted', { id, type: 'todo' });
+  }
+
+  async undoCompletion(id: ID): Promise<void> {
+    const item = this.data.find((r) => r.id === id && r.owner_id === this.currentUserId);
+    if (!item) throw new Error('Item not found');
+    (item as any).completed_at = null;
+
+    // Emit event for UI sync
+    const { eventBus } = await import('../events');
+    eventBus.emit('ItemUpdated', { id });
+  }
+
   // ==========================
   // SPACE METHODS (Phase 5)
   // ==========================

@@ -112,6 +112,13 @@ export interface IRepo {
   // Today screen helpers
   listDueToday(nowIso: string): Promise<AppRecord[]>;
   listUndefinedDue(): Promise<Todo[]>;
+  countPlannedToday(): Promise<number>;
+  countCompletedToday(): Promise<number>;
+
+  // Completion methods (Phase 9)
+  completeHabit(id: ID, atIso: string): Promise<void>;
+  completeTodo(id: ID, atIso: string): Promise<void>;
+  undoCompletion(id: ID): Promise<void>;
 
   // Space methods (Phase 5)
   listSpaces(): Promise<Space[]>;

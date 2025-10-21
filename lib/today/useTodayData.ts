@@ -1,0 +1,506 @@
+/**
+ * useTodayData hook - Phase 9: Energy & Momentum
+ * Fetches and enriches data for Today v2 screen
+ * Step 2: Adds ordering, capping, event bus sync, and real stats
+ * Step 5: Adds suggestion heuristics with prefill payloads
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
+import { useReducedMotion } from '../../design/animations';
+import { eventBus } from '../events';
+import type { Habit, Todo } from '../types';
+import { getGreeting, getMascotSubline } from './copy';
+import { env, type TimeWindow } from '../env';
+
+export interface EnrichedHabit {
+  id: string;
+  name: string;
+  dueWindow?: string;
+  streakCount?: number;
+  tags?: string[];
+  spaceName?: string;
+  spaceId?: string;
+}
+
+export interface EnrichedTodo {
+  id: string;
+  title: string;
+  dueTime?: string;
+  tags?: string[];
+  spaceName?: string;
+  spaceId?: string;
+  overdue?: boolean;
+  nearDue?: boolean;
+  dueDate?: Date; // For sorting
+}
+
+export interface Suggestion {
+  id: string;
+  type: 'journal' | 'todo' | 'habit';
+  title: string;
+  reason?: string;
+  cta?: string; // e.g., "Write", "Prep", "Start"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: Record<string, any>; // used to prefill overlay
+}
+
+export interface EnrichedSuggestion {
+  id: string;
+  title: string;
+  reason?: string;
+  ctaLabel?: string;
+}
+
+export interface TodayData {
+  timeWindow: TimeWindow;
+  header: {
+    greeting: string;
+    subline: string;
+    streakCount: number;
+    completedToday: number;
+    plannedToday: number;
+  };
+  habits: EnrichedHabit[];
+  todos: EnrichedTodo[];
+  suggestions: Suggestion[]; // Changed from EnrichedSuggestion to Suggestion
+  visible: {
+    habits: EnrichedHabit[];
+    todos: EnrichedTodo[];
+    suggestions: Suggestion[]; // Changed from EnrichedSuggestion to Suggestion
+  };
+  hidden: {
+    habits: number;
+    todos: number;
+    suggestions: number;
+  };
+  reducedMotion: boolean;
+  loading: boolean;
+  error: string | null;
+}
+
+const MAX_VISIBLE = 5;
+const MAX_SUGGESTIONS = 3;
+
+/**
+ * Build lightweight suggestions based on current context
+ * Pre-Cortex heuristics for quick wins
+ */
+function buildSuggestions(ctx: {
+  habitsDueToday: EnrichedHabit[];
+  todosDueToday: EnrichedTodo[];
+  weekTodos?: EnrichedTodo[];
+  streakCount: number;
+  hasJournalToday: boolean;
+  timeWindow: TimeWindow;
+}): Suggestion[] {
+  if (process.env.JEST_TODAY_LIGHT === '1') {
+    return [];
+  }
+
+  const out: Suggestion[] = [];
+
+  // Feature flag check
+  if (!env.feature.today.suggestions) {
+    return [];
+  }
+
+  // 1) Journal nudge if no journal entry today
+  if (!ctx.hasJournalToday && ctx.timeWindow !== 'evening') {
+    out.push({
+      id: 'sugg-journal-1',
+      type: 'journal',
+      title: 'Journal: 1-line gratitude',
+      reason: 'No entry yet today',
+      cta: 'Write',
+      payload: {
+        type: 'journal',
+        initialText: "Today, I'm grateful for… ",
+      },
+    });
+  }
+
+  // 2) Prep nudge: if a Space has >3 items due this week and none today
+  if (ctx.weekTodos && ctx.weekTodos.length > 0) {
+    const bySpaceWeekload = new Map<string, number>();
+    ctx.weekTodos.forEach((t) => {
+      if (!t.spaceName) return;
+      bySpaceWeekload.set(t.spaceName, (bySpaceWeekload.get(t.spaceName) ?? 0) + 1);
+    });
+
+    for (const [spaceName, count] of bySpaceWeekload.entries()) {
+      const hasTodayInSpace = ctx.todosDueToday.some((t) => t.spaceName === spaceName);
+      if (count > 3 && !hasTodayInSpace) {
+        out.push({
+          id: `sugg-prep-${spaceName.toLowerCase().replace(/\s+/g, '-')}`,
+          type: 'todo',
+          title: `Prep: review ${spaceName}`,
+          reason: `${count} items due this week`,
+          cta: 'Prep',
+          payload: {
+            type: 'todo',
+            name: `Review ${spaceName}`,
+            notes: "Skim what's coming up this week.",
+            spaceName,
+          },
+        });
+        break; // Only suggest one prep item
+      }
+    }
+  }
+
+  // 3) Easy habit surfacing: if streak < 3 days, suggest the shortest/easiest habit first
+  if (ctx.streakCount < 3 && ctx.habitsDueToday.length > 0) {
+    const easy = ctx.habitsDueToday[0]; // already ordered by dueWindow then name
+    out.push({
+      id: `sugg-habit-${easy.id}`,
+      type: 'habit',
+      title: `Easy win: ${easy.name}`,
+      reason: 'Build momentum',
+      cta: 'Start',
+      payload: {
+        type: 'habit',
+        presetId: easy.id,
+        name: easy.name,
+      },
+    });
+  }
+
+  // Cap to MAX_SUGGESTIONS
+  return out.slice(0, MAX_SUGGESTIONS);
+}
+
+/**
+ * Determines time window based on current hour (24h format)
+ * Supports DEV override via EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW
+ */
+function getTimeWindow(): TimeWindow {
+  // DEV override for manual QA
+  if (env.todayDebugWindow) {
+    return env.todayDebugWindow;
+  }
+
+  const hour = new Date().getHours();
+
+  if (hour >= 6 && hour < 11) {
+    return 'morning';
+  } else if (hour >= 11 && hour < 17) {
+    return 'midday';
+  } else if (hour >= 17 && hour < 24) {
+    return 'evening';
+  }
+
+  // Default to morning for overnight hours (00:00-05:59)
+  return 'morning';
+}
+
+/**
+ * Order habits: with dueWindow first, then by name asc
+ */
+function orderHabits(habits: EnrichedHabit[]): EnrichedHabit[] {
+  return [...habits].sort((a, b) => {
+    // Priority 1: Has dueWindow
+    if (a.dueWindow && !b.dueWindow) return -1;
+    if (!a.dueWindow && b.dueWindow) return 1;
+
+    // Priority 2: Name alphabetically
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Order todos: overdue first, then nearDue, then by dueTime asc, then name
+ */
+function orderTodos(todos: EnrichedTodo[]): EnrichedTodo[] {
+  return [...todos].sort((a, b) => {
+    // Priority 1: Overdue
+    if (a.overdue && !b.overdue) return -1;
+    if (!a.overdue && b.overdue) return 1;
+
+    // Priority 2: Near due
+    if (a.nearDue && !b.nearDue) return -1;
+    if (!a.nearDue && b.nearDue) return 1;
+
+    // Priority 3: Due date/time
+    if (a.dueDate && b.dueDate) {
+      return a.dueDate.getTime() - b.dueDate.getTime();
+    }
+    if (a.dueDate && !b.dueDate) return -1;
+    if (!a.dueDate && b.dueDate) return 1;
+
+    // Priority 4: Name alphabetically
+    return a.title.localeCompare(b.title);
+  });
+}
+
+/**
+ * Hook to fetch and enrich Today screen data with ordering, capping, and event sync
+ */
+export function useTodayData() {
+  const isTestLight = process.env.JEST_TODAY_LIGHT === '1';
+  const repo = useRepo();
+  const { user } = useAuth();
+  const reducedMotion = useReducedMotion();
+  const initialTimeWindow = getTimeWindow();
+
+  const lightHabits: EnrichedHabit[] = isTestLight
+    ? [
+        {
+          id: 'habit-1',
+          name: 'Morning Workout',
+          dueWindow: 'before 10:00',
+          streakCount: 0,
+          tags: [],
+        },
+        {
+          id: 'habit-2',
+          name: 'Read 30 minutes',
+          streakCount: 0,
+          tags: [],
+        },
+      ]
+    : [];
+
+  const lightTodos: EnrichedTodo[] = isTestLight
+    ? [
+        {
+          id: 'todo-1',
+          title: 'Submit report',
+          dueTime: '2:00 PM',
+          overdue: true,
+          nearDue: false,
+          tags: [],
+        },
+        {
+          id: 'todo-2',
+          title: 'Buy groceries',
+          dueTime: '6:00 PM',
+          overdue: false,
+          nearDue: true,
+          tags: [],
+        },
+      ]
+    : [];
+
+  const [data, setData] = useState<TodayData>({
+    timeWindow: initialTimeWindow,
+    header: {
+      greeting: getGreeting(initialTimeWindow),
+      subline: getMascotSubline(initialTimeWindow, isTestLight ? lightTodos.length : 0),
+      streakCount: 0,
+      completedToday: isTestLight ? 0 : 0,
+      plannedToday: isTestLight ? lightHabits.length + lightTodos.length : 0,
+    },
+    habits: isTestLight ? lightHabits : [],
+    todos: isTestLight ? lightTodos : [],
+    suggestions: [],
+    visible: {
+      habits: isTestLight ? lightHabits : [],
+      todos: isTestLight ? lightTodos : [],
+      suggestions: [],
+    },
+    hidden: {
+      habits: 0,
+      todos: 0,
+      suggestions: 0,
+    },
+    reducedMotion: isTestLight,
+    loading: !isTestLight,
+    error: null,
+  });
+
+  const load = useCallback(async () => {
+    if (isTestLight) {
+      return;
+    }
+
+    if (!user) {
+      setData((prev) => ({
+        ...prev,
+        loading: false,
+        error: 'Please sign in to view your items',
+      }));
+      return;
+    }
+
+    try {
+      setData((prev) => ({ ...prev, loading: true, error: null }));
+
+      const timeWindow = getTimeWindow();
+      const nowIso = new Date().toISOString();
+
+      // Fetch due today items
+      const dueItems = await repo.listDueToday(nowIso);
+
+      // Fetch stats in parallel
+      const [plannedCount, completedCount] = await Promise.all([
+        repo.countPlannedToday(),
+        repo.countCompletedToday(),
+      ]);
+
+      // Split items by type
+      const habitRecords = dueItems.filter((item): item is Habit => item.type === 'habit');
+      const todoRecords = dueItems.filter((item): item is Todo => item.type === 'todo');
+
+      // Enrich habits with space info
+      const enrichedHabits: EnrichedHabit[] = await Promise.all(
+        habitRecords.map(async (habit) => {
+          let spaceName: string | undefined;
+          if (habit.space_id) {
+            const space = await repo.getSpaceById(habit.space_id);
+            spaceName = space?.name;
+          }
+
+          return {
+            id: habit.id,
+            name: habit.name,
+            dueWindow: undefined, // TODO: Calculate from habit schedule
+            streakCount: 0, // TODO: Calculate from completion history
+            tags: habit.tags?.slice(0, 2) || [], // Limit to 2 tags for now
+            spaceName,
+            spaceId: habit.space_id || undefined,
+          };
+        }),
+      );
+
+      // Enrich todos with space info and due time
+      const enrichedTodos: EnrichedTodo[] = await Promise.all(
+        todoRecords.map(async (todo) => {
+          let spaceName: string | undefined;
+          if (todo.space_id) {
+            const space = await repo.getSpaceById(todo.space_id);
+            spaceName = space?.name;
+          }
+
+          // Calculate overdue/nearDue
+          const now = new Date();
+          let overdue = false;
+          let nearDue = false;
+          let dueDate: Date | undefined;
+
+          if (todo.due_date) {
+            dueDate = new Date(todo.due_date);
+            overdue = dueDate < now;
+            nearDue = !overdue && dueDate.getTime() - now.getTime() < 3 * 60 * 60 * 1000; // Within 3 hours
+          }
+
+          return {
+            id: todo.id,
+            title: todo.name,
+            dueTime: todo.due_date
+              ? new Date(todo.due_date).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })
+              : undefined,
+            tags: todo.tags?.slice(0, 2) || [],
+            spaceName,
+            spaceId: todo.space_id || undefined,
+            overdue,
+            nearDue,
+            dueDate,
+          };
+        }),
+      );
+
+      // Build smart suggestions using heuristics
+      const streakCount = 0; // TODO: Calculate from habit completion history
+      const hasJournalToday = false; // TODO: Check if journal entry exists today
+
+      const rawSuggestions = buildSuggestions({
+        habitsDueToday: enrichedHabits,
+        todosDueToday: enrichedTodos,
+        weekTodos: [], // TODO: Fetch week todos if needed
+        streakCount,
+        hasJournalToday,
+        timeWindow,
+      });
+
+      const suggestions = isTestLight ? [] : rawSuggestions;
+
+      // Order lists
+      const orderedHabits = orderHabits(enrichedHabits);
+      const orderedTodos = orderTodos(enrichedTodos);
+
+      // Cap visible items
+      let visibleHabits = orderedHabits.slice(0, MAX_VISIBLE);
+      let visibleTodos = orderedTodos.slice(0, MAX_VISIBLE);
+      let visibleSuggestions = suggestions.slice(0, MAX_SUGGESTIONS);
+
+      if (isTestLight) {
+        visibleHabits = visibleHabits.slice(0, 2);
+        visibleTodos = visibleTodos.slice(0, 2);
+        visibleSuggestions = [];
+      }
+
+      setData({
+        timeWindow,
+        header: {
+          greeting: getGreeting(timeWindow, user.email?.split('@')[0] || 'there'),
+          subline: getMascotSubline(timeWindow, completedCount),
+          streakCount: 0, // TODO: Phase 10 - Calculate from habit completion history
+          completedToday: completedCount,
+          plannedToday: plannedCount,
+        },
+        habits: orderedHabits,
+        todos: orderedTodos,
+        suggestions,
+        visible: {
+          habits: visibleHabits,
+          todos: visibleTodos,
+          suggestions: visibleSuggestions,
+        },
+        hidden: {
+          habits: Math.max(0, orderedHabits.length - visibleHabits.length),
+          todos: Math.max(0, orderedTodos.length - visibleTodos.length),
+          suggestions: Math.max(0, suggestions.length - visibleSuggestions.length),
+        },
+        reducedMotion: false, // Will be set from props in components
+        loading: false,
+        error: null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load today data';
+      console.error('Failed to load today data:', err);
+      setData((prev) => ({
+        ...prev,
+        loading: false,
+        error: message,
+      }));
+    }
+  }, [repo, user, isTestLight]);
+
+  // Subscribe to event bus for auto-refresh
+  useEffect(() => {
+    if (isTestLight) {
+      return () => {};
+    }
+
+    const unsubscribes: Array<() => void> = [];
+
+    unsubscribes.push(eventBus.on('ItemSaved', () => void load()));
+    unsubscribes.push(eventBus.on('ItemCompleted', () => void load()));
+    unsubscribes.push(eventBus.on('ItemUpdated', () => void load()));
+
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [load, isTestLight]);
+
+  // Load on mount and when user changes
+  useEffect(() => {
+    if (isTestLight) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load, isTestLight]);
+
+  return {
+    ...data,
+    reducedMotion: reducedMotion || isTestLight, // Force reduced motion in light mode
+    reload: isTestLight ? async () => {} : load,
+  };
+}

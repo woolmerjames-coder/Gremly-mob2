@@ -9,6 +9,8 @@ import React from 'react';
 import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 
+jest.mock('../components/MascotIcon', () => () => null);
+
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({

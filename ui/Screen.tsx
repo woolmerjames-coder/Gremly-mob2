@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { ScrollView, ViewProps, ViewStyle } from 'react-native';
+import { ScrollView, ViewProps, ViewStyle, RefreshControlProps } from 'react-native';
 import { SafeAreaView, Edge, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTokens } from '../design/makeStyles';
 import { Box } from './Box';
@@ -29,6 +29,9 @@ export interface ScreenProps extends Omit<ViewProps, 'className'> {
   /** Optional footer content */
   footer?: React.ReactNode;
 
+  /** Optional refresh control (only works with scroll=true) */
+  refreshControl?: React.ReactElement<RefreshControlProps>;
+
   /** Children */
   children: React.ReactNode;
 
@@ -44,6 +47,7 @@ export const Screen = React.forwardRef<typeof SafeAreaView, ScreenProps>(
       padded = true,
       edges = ['top', 'bottom'],
       footer,
+      refreshControl,
       children,
       testID,
       style,
@@ -86,7 +90,9 @@ export const Screen = React.forwardRef<typeof SafeAreaView, ScreenProps>(
     return (
       <SafeAreaView testID={testID} style={[containerStyle, style]} edges={edges}>
         <Container
+          testID={scroll ? 'today-scroll' : undefined}
           {...(scroll ? { contentContainerStyle: scrollContentStyle } : { style: boxStyle })}
+          {...(scroll && refreshControl ? { refreshControl } : {})}
           {...(cleanProps as Record<string, unknown>)}
         >
           {title && (

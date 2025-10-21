@@ -15,46 +15,26 @@ import { DsToggleProvider } from './providers/DsToggleProvider';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
-
-const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
-
-function runOpenAIKeyAndNetworkDiag() {
-  if (!DEBUG) return;
-
-  // 1) Show whether the key is injected at runtime:
-  console.log('[CORTEX][KEYCHECK]', {
-    keyPrefix: process.env.EXPO_PUBLIC_OPENAI_API_KEY?.slice(0, 7),
-    hasKey: !!process.env.EXPO_PUBLIC_OPENAI_API_KEY,
-  });
-
-  // 2) Try a lightweight OpenAI endpoint to prove network + auth:
-  (async () => {
-    try {
-      const res = await fetch('https://api.openai.com/v1/models', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
-        },
-      });
-      const data = await res.json();
-      console.log('[CORTEX][KEYTEST]', {
-        ok: res.ok,
-        status: res.status,
-        sample: Array.isArray(data?.data) ? data.data[0]?.id : undefined,
-        platform: Platform.OS,
-      });
-    } catch (err) {
-      console.error('[CORTEX][KEYTEST] network error', String(err));
-    }
-  })();
-}
+import { runCortexProxyDiag } from './lib/cortex/diag';
+import { env } from './lib/env';
 
 export default function App() {
   const scheme = useColorScheme();
 
   useEffect(() => {
-    // Run OpenAI key and network diagnostics
-    runOpenAIKeyAndNetworkDiag();
+    // Print env config in dev
+    if (__DEV__) {
+      console.log('[CORTEX] env', {
+        url: env.cortexUrl,
+        model: env.cortex.model,
+        timeoutMs: env.cortex.timeoutMs,
+      });
+    }
+
+    // Run Cortex proxy diagnostics (dev only)
+    if (__DEV__) {
+      runCortexProxyDiag();
+    }
 
     // Handle deep linking for magic link authentication
     const subscription = Linking.addEventListener('url', ({ url }) => {
@@ -107,13 +87,20 @@ export default function App() {
 
 /*
  * ============================================================================
- * DIAG RUN CHECKLIST
+ * CORTEX PROXY DIAG CHECKLIST
  * ============================================================================
  *
- * Required flags in .env.local:
+ * Required config in .env.local:
  * -------------------------------
  * EXPO_PUBLIC_DEBUG_CORTEX=true
- * EXPO_PUBLIC_OPENAI_API_KEY=sk-... (real key)
+ * EXPO_PUBLIC_CORTEX_URL=https://<project-ref>.supabase.co/functions/v1/cortex-proxy
+ *
+ * Server secrets (already set in Supabase):
+ * ------------------------------------------
+ * OPENAI_API_KEY=sk-...
+ * CORTEX_TIMEOUT_MS=12000
+ * CORTEX_RATE_WINDOW_MS=60000
+ * CORTEX_RATE_MAX=30
  *
  * Restart command:
  * ----------------
@@ -121,16 +108,19 @@ export default function App() {
  *
  * What you should see in Metro logs:
  * -----------------------------------
- * ✅ If key is injected:
- *    [CORTEX][KEYCHECK] { keyPrefix: 'sk-proj', hasKey: true }
+ * ✅ If proxy is configured:
+ *    [CORTEX][PROXY_CHECK] { hasUrl: true, urlPrefix: 'https://...', model: 'gpt-4o-mini', timeout: 12000 }
  *
- * ✅ If network allowed:
- *    [CORTEX][KEYTEST] { ok: true, status: 200, sample: 'gpt-4o-mini', platform: 'ios' }
+ * ✅ If proxy is working:
+ *    [CORTEX][PROXY_TEST] { ok: true, hasResponse: true, platform: 'ios' }
  *
- * ❌ If blocked by Expo Go:
- *    [CORTEX][KEYTEST] network error ... OR status: 401/403
+ * ❌ If proxy missing:
+ *    [CORTEX][PROXY_CHECK] { hasUrl: false, ... }
+ *
+ * ❌ If proxy fails:
+ *    [CORTEX][PROXY_TEST] error: [cortex] Missing EXPO_PUBLIC_CORTEX_URL
  *
  * Next Steps:
  * -----------
- * See docs/DEV-OPENAI-SETUP.md for troubleshooting guide
+ * See SECURE_AI_PROXY_COMPLETE.md for deployment guide
  */
