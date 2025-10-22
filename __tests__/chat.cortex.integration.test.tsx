@@ -1,13 +1,13 @@
 /**
  * Phase 10.3: Chat + Cortex SDK Integration Test
  * Lightweight test with mocked repo and Cortex - no network/DB
- * 
+ *
  * NOTE: These are shallow integration tests verifying the wiring
  * between ChatThreadScreen and the Cortex SDK. They test that:
  * 1. cortexDecide is called with correct context
  * 2. Repo methods are called based on Cortex actions
  * 3. Events are logged for analytics
- * 
+ *
  * Given the complexity of full component rendering with all providers,
  * these tests focus on verifying that the critical integration points exist.
  */
@@ -25,20 +25,20 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
     // Verify that the integration code exists in the file
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify imports
     expect(chatSource).toContain("import { cortexDecide } from '../../lib/cortex/cortexDecide'");
-    expect(chatSource).toContain("import type { CortexContext, CortexAction }");
+    expect(chatSource).toContain('import type { CortexContext, CortexAction }');
     expect(chatSource).toContain('explainAddedToList');
     expect(chatSource).toContain('explainCreated');
     expect(chatSource).toContain('ConfirmationPill');
-    
+
     // Verify cortexDecide is called
-    expect(chatSource).toContain('cortexDecide({ text:');
-    
+    expect(chatSource).toContain('cortexDecide({ text');
+
     // Verify context construction
     expect(chatSource).toContain('userId:');
     expect(chatSource).toContain('uiSurface:');
@@ -48,10 +48,10 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
   it('should handle all CortexAction types', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify all action types are handled
     expect(chatSource).toContain("'add.to.list'");
     expect(chatSource).toContain("'create.todo'");
@@ -63,10 +63,10 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
   it('should execute actions in auto mode', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify mode checking and action execution
     expect(chatSource).toContain("mode === 'auto'");
     expect(chatSource).toContain('getOrCreateList');
@@ -78,10 +78,10 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
   it('should log events for analytics', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify event logging
     expect(chatSource).toContain('writeEvent');
     expect(chatSource).toContain("'cortex_decision'");
@@ -92,10 +92,10 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
   it('should handle ask mode with suggestions', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify ask mode handling
     expect(chatSource).toContain("mode === 'ask'");
     expect(chatSource).toContain('suggestions');
@@ -104,10 +104,10 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
   it('should fail gracefully on Cortex errors', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify error handling
     expect(chatSource).toContain('catch');
     expect(chatSource).toContain('cortexError');
@@ -116,10 +116,10 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
   it('should attach confirmations to user messages', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
-    
+
     // Verify confirmations are tracked
     expect(chatSource).toContain('confirmations');
     expect(chatSource).toContain('confirmationTexts');
