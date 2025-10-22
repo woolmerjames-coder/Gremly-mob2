@@ -45,9 +45,10 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
       const mockPeople: EntityPerson[] = [
         {
           id: 'ep-1',
-          user_id: mockUserId,
-          item_id: itemId,
-          item_type: 'habit',
+          owner_id: mockUserId, // 10R: was user_id
+          person_id: 'person-1', // 10R: FK to people table
+          entity_id: itemId, // 10R: was item_id
+          entity_type: 'habit', // 10R: was item_type
           person_name: 'John Doe',
           person_email: 'john@example.com',
           created_at: '2025-10-19T00:00:00Z',
@@ -55,9 +56,10 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
         },
         {
           id: 'ep-2',
-          user_id: mockUserId,
-          item_id: itemId,
-          item_type: 'habit',
+          owner_id: mockUserId, // 10R: was user_id
+          person_id: 'person-2', // 10R: FK to people table
+          entity_id: itemId, // 10R: was item_id
+          entity_type: 'habit', // 10R: was item_type
           person_name: 'Jane Smith',
           person_email: null,
           created_at: '2025-10-19T00:00:00Z',
@@ -88,8 +90,8 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
 
       expect(mockFrom).toHaveBeenCalledWith('entity_people');
       expect(mockSelect).toHaveBeenCalledWith('*');
-      expect(mockEq1).toHaveBeenCalledWith('user_id', mockUserId);
-      expect(mockEq2).toHaveBeenCalledWith('item_id', itemId);
+      expect(mockEq1).toHaveBeenCalledWith('owner_id', mockUserId);
+      expect(mockEq2).toHaveBeenCalledWith('entity_id', itemId);
       expect(mockOrder).toHaveBeenCalledWith('created_at', { ascending: true });
       expect(result).toEqual(mockPeople);
     });
@@ -99,9 +101,10 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
     it('should link a person to an item with name and email', async () => {
       const mockEntityPerson: EntityPerson = {
         id: 'ep-1',
-        user_id: mockUserId,
-        item_id: 'habit-1',
-        item_type: 'habit',
+        owner_id: mockUserId, // 10R: was user_id
+        person_id: 'person-1', // 10R: FK to people table
+        entity_id: 'habit-1', // 10R: was item_id
+        entity_type: 'habit', // 10R: was item_type
         person_name: 'John Doe',
         person_email: 'john@example.com',
         created_at: '2025-10-19T00:00:00Z',
@@ -152,9 +155,10 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
     it('should link a person to an item with only name', async () => {
       const mockEntityPerson: EntityPerson = {
         id: 'ep-1',
-        user_id: mockUserId,
-        item_id: 'todo-1',
-        item_type: 'todo',
+        owner_id: mockUserId, // 10R: was user_id
+        person_id: 'person-2', // 10R: FK to people table
+        entity_id: 'todo-1', // 10R: was item_id
+        entity_type: 'todo', // 10R: was item_type
         person_name: 'Jane Smith',
         person_email: null,
         created_at: '2025-10-19T00:00:00Z',
@@ -225,7 +229,7 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
 
       expect(mockFrom).toHaveBeenCalledWith('entity_people');
       expect(mockDelete).toHaveBeenCalled();
-      expect(mockEq1).toHaveBeenCalledWith('user_id', mockUserId);
+      expect(mockEq1).toHaveBeenCalledWith('owner_id', mockUserId);
       expect(mockEq2).toHaveBeenCalledWith('id', 'ep-1');
     });
   });

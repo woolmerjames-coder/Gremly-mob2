@@ -1477,6 +1477,56 @@ export class SupabaseRepo implements IRepo {
 
     if (error) throw new Error(`Failed to write event: ${error.message}`);
   }
+
+  // Phase 10.4 - Space defaults for Cortex biasing
+
+  /**
+   * Get defaults_json for a space.
+   * Returns null if space not found or defaults_json is null.
+   */
+  async getSpaceDefaults(spaceId: string): Promise<any | null> {
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('defaults_json')
+      .eq('id', spaceId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      logSupabaseError('getSpaceDefaults', error);
+      throw new Error(`Failed to get space defaults: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    return data?.defaults_json ?? null;
+  }
+
+  /**
+   * Set/update defaults_json for a space (shallow merge).
+   * Merges patch with existing defaults at one level (no deep merge).
+   * Returns updated defaults_json.
+   */
+  async setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any> {
+    // First fetch existing defaults
+    const existing = await this.getSpaceDefaults(spaceId);
+
+    // Shallow merge
+    const merged = { ...existing, ...patch };
+
+    // Update
+    const { data, error } = await supabase
+      .from('spaces')
+      .update({ defaults_json: merged })
+      .eq('id', spaceId)
+      .select('defaults_json')
+      .single();
+
+    if (error) {
+      logSupabaseError('setSpaceDefaults', error);
+      throw new Error(`Failed to set space defaults: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    return data.defaults_json;
+  }
 }
 
 /**

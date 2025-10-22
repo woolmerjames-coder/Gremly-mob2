@@ -21,6 +21,7 @@ import { supabase } from '../../lib/supabase/client';
 export default function DevLogin() {
   const { user, userId, loading, signInWithEmail, devSignIn, signOut } = useAuth();
   const { useDs, useDsOverride, toggleDsOverride } = useDsToggle();
+  const repo = useRepo(); // 10R: access repo for smoke tests
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -84,19 +85,16 @@ export default function DevLogin() {
   const handleSmokeTest = async () => {
     setTestResult('Running Supabase smoke test...');
     try {
-      const { data, error } = await supabase.from('todos').select('id').limit(1);
-      if (error) {
-        console.error('[DevLogin SmokeTest] error', error);
-        Alert.alert('DB Error', `${error.code || ''} ${error.message}`);
-        setTestResult(`❌ DB Error: ${error.code || ''} ${error.message}`);
-      } else {
-        Alert.alert('DB OK', `rows: ${data?.length ?? 0}`);
-        setTestResult(`✅ DB OK - rows: ${data?.length ?? 0}`);
-      }
+      // 10R: route all DB actions through repo to avoid drift
+      const todos = await repo.listByType('todo');
+      const count = todos.length;
+      Alert.alert('DB OK', `todos count: ${count}`);
+      setTestResult(`✅ DB OK - todos: ${count}`);
     } catch (error: any) {
       const msg = error?.message ?? String(error ?? 'Unknown error');
-      Alert.alert('Test Failed', msg);
-      setTestResult(`❌ Test failed: ${msg}`);
+      console.error('[DevLogin SmokeTest] error', error);
+      Alert.alert('DB Error', msg);
+      setTestResult(`❌ DB Error: ${msg}`);
     }
   };
 
@@ -106,26 +104,20 @@ export default function DevLogin() {
     setTestResult('Creating test todo...');
 
     try {
-      const payload = {
+      // 10R: route all DB actions through repo to avoid drift
+      const newTodo = await repo.create({
+        type: 'todo',
         name: 'Phase 4 smoke',
-        owner_id: userId, // required for RLS
-      };
+        space_id: null,
+      });
 
-      console.log('[DevLogin] Inserting todo payload:', payload);
-
-      const { data, error } = await supabase.from('todos').insert([payload]).select('id').single();
-
-      if (error) {
-        console.error('[DevLogin] Insert error:', error);
-        Alert.alert('Create failed', error.message || 'Unknown DB error');
-        setTestResult(`❌ Create failed: ${error.message || 'Unknown DB error'}`);
-      } else {
-        Alert.alert('Success', `Created todo: ${data.id}`);
-        setTestResult(`✅ Created todo: ${data.id}`);
-      }
+      console.log('[DevLogin] Created todo:', newTodo.id);
+      Alert.alert('Success', `Created todo: ${newTodo.id}`);
+      setTestResult(`✅ Created todo: ${newTodo.id}`);
     } catch (error: any) {
       console.error('[DevLogin] Insert threw:', error);
       const msg = error?.message ?? String(error ?? 'Unknown error');
+      Alert.alert('Create failed', msg);
       setTestResult(`❌ Create failed: ${msg}`);
     } finally {
       setIsCreating(false);

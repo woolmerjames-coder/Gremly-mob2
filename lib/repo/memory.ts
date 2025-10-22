@@ -78,6 +78,9 @@ export class MemoryRepo implements IRepo {
   private listItemsStore: Map<string, import('./types').ListItem> = new Map();
   private events: import('./types').EventLog[] = [];
 
+  // Phase 10.4: Space defaults storage
+  private spaceDefaults: Map<string, any> = new Map();
+
   constructor(userId?: string) {
     this.currentUserId = userId || 'memory-user';
     this.data = seed(this.currentUserId);
@@ -775,6 +778,27 @@ export class MemoryRepo implements IRepo {
     };
 
     this.events.push(event);
+  }
+
+  // Phase 10.4 - Space defaults for Cortex biasing
+
+  /**
+   * Get defaults_json for a space.
+   * Returns null if not found.
+   */
+  async getSpaceDefaults(spaceId: string): Promise<any | null> {
+    return this.spaceDefaults.get(spaceId) ?? null;
+  }
+
+  /**
+   * Set/update defaults_json for a space (shallow merge).
+   * Returns updated defaults_json.
+   */
+  async setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any> {
+    const existing = this.spaceDefaults.get(spaceId) ?? {};
+    const merged = { ...existing, ...patch };
+    this.spaceDefaults.set(spaceId, merged);
+    return merged;
   }
 }
 

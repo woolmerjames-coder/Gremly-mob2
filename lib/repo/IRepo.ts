@@ -184,4 +184,85 @@ export interface IRepo {
   acceptBuddy(_inviteToken: string): Promise<void>;
   nudgeBuddy(_habitId: ID): Promise<void>;
   unlinkBuddy(_habitId: ID): Promise<void>;
+
+  // Phase 10.2 - Cortex Primitives
+
+  /**
+   * Get cortex preferences for a user.
+   * Returns null if no preferences have been set yet.
+   */
+  getCortexPrefs(userId: string): Promise<import('./types').CortexPreferences | null>;
+
+  /**
+   * Set/update cortex preferences for a user (upsert).
+   * Merges partial updates with existing preferences.
+   */
+  setCortexPrefs(
+    userId: string,
+    partial: import('./types').CortexPreferencesUpdate,
+  ): Promise<import('./types').CortexPreferences>;
+
+  /**
+   * Get or create a list by key.
+   * If the list doesn't exist, creates it with the provided or generated name.
+   * Uses indexed lookup on (owner_id, key) for performance.
+   */
+  getOrCreateList(
+    key: string,
+    opts?: { userId?: string; spaceId?: string | null; name?: string },
+  ): Promise<import('./types').List>;
+
+  /**
+   * Find an existing list by key (does not create).
+   * Returns null if not found.
+   * Uses indexed lookup on (owner_id, key).
+   */
+  findListByKey(
+    key: string,
+    opts?: { userId?: string; spaceId?: string | null },
+  ): Promise<import('./types').List | null>;
+
+  /**
+   * Add an item to a list.
+   * Returns the created list item with generated id.
+   */
+  addListItem(
+    listId: string,
+    label: string,
+    meta?: { qty?: number; unit?: string; meta_json?: any },
+  ): Promise<import('./types').ListItem>;
+
+  /**
+   * List all items in a list, ordered by created_at.
+   * Uses indexed lookup on (list_id, created_at).
+   */
+  listItems(listId: string): Promise<import('./types').ListItem[]>;
+
+  /**
+   * Write an event to the log (non-blocking usage expected).
+   * Used for cortex decisions, user overrides, etc.
+   * Uses indexed lookup on (owner_id, kind, created_at desc) for queries.
+   */
+  writeEvent(
+    kind: string,
+    payload: Record<string, any>,
+    opts?: { userId?: string },
+  ): Promise<void>;
+
+  // Phase 10.4 - Space defaults for Cortex biasing
+
+  /**
+   * Get defaults_json for a space.
+   * Lightweight JSON config for Cortex biasing + UX hints. Treat as opaque blob.
+   * Returns null if space not found or defaults_json is null.
+   */
+  getSpaceDefaults(spaceId: string): Promise<any | null>;
+
+  /**
+   * Set/update defaults_json for a space (shallow merge).
+   * Lightweight JSON config for Cortex biasing + UX hints. Treat as opaque blob.
+   * Merges patch with existing defaults at one level (no deep merge).
+   * Returns updated defaults_json.
+   */
+  setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any>;
 }

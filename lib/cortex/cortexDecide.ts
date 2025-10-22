@@ -105,10 +105,18 @@ export type DecideInput =
  * Accepts user input (text or structured), applies AI classification,
  * normalizes to canonical actions, and returns with confidence/explanation.
  *
- * Never throws - returns safe fallback on errors.
+ * **Performance Budget:**
+ * - Enforces timeout from `env.cortex.timeoutMs` (default: 2500ms)
+ * - Returns safe fallback { mode:'keep', actions:[] } on timeout or error
+ * - Never throws - fail-safe design ensures UX degradation, not crashes
+ *
+ * **Failure Modes:**
+ * - Engine timeout → keep mode with "Saving to Catch-All for now."
+ * - Engine error → keep mode with safe explanation
+ * - Malformed output → keep mode with empty actions
  *
  * @param input - User input (text or structured data)
- * @param ctx - Context from UI layer (userId, activeSpaceId, uiSurface)
+ * @param ctx - Context from UI layer (userId, activeSpaceId, uiSurface, spaceDefaults, userPrefsTone)
  * @returns Promise resolving to CortexResponse with actions and metadata
  *
  * @example

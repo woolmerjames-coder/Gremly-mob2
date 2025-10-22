@@ -76,12 +76,12 @@ describe('Cortex Explainability', () => {
 
     it('should add emoji for warm tone', () => {
       const result = explainFiledToSpace('Fitness', 'warm');
-      expect(result).toContain('✨');
+      expect(result).toContain('💫');
     });
 
     it('should be brief for direct tone', () => {
       const result = explainFiledToSpace('Fitness', 'direct');
-      expect(result).toBe('Filed to Fitness');
+      expect(result).toBe('Filed: Fitness');
     });
   });
 
@@ -98,7 +98,7 @@ describe('Cortex Explainability', () => {
 
     it('should be brief for direct tone', () => {
       const result = explainAddedToList('Reading', 'direct');
-      expect(result).toBe('Added to Reading');
+      expect(result).toBe('Reading: added');
     });
   });
 
