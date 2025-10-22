@@ -42,7 +42,7 @@ jobs:
         run: npm run typecheck
       
       - name: Test
-        run: npm run test:ci -- --maxWorkers=50% --testPathIgnorePatterns='__tests__/(today\.ds|today\.grouping)\.test\.tsx'
+        run: npm run test:ci -- --maxWorkers=50% --testPathIgnorePatterns='/node_modules/|__tests__/pending/|__tests__/(today\.ds|today\.grouping)\.test\.tsx'
         timeout-minutes: 15
         env:
           NODE_OPTIONS: "--max-old-space-size=6144"

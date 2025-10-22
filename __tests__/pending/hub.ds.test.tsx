@@ -175,12 +175,28 @@ describe('Hub DS Screen', () => {
   it('renders filter chips and search input', async () => {
     renderWithProviders(<HubScreen />);
 
+    // Current implementation uses: Habits, To-Dos, Journal, Notes, People
     await waitFor(() => {
-      expect(screen.getByTestId('tab-all')).toBeTruthy();
       expect(screen.getByTestId('tab-habits')).toBeTruthy();
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('tab-to-dos')).toBeTruthy();
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('tab-journal')).toBeTruthy();
-      expect(screen.getByTestId('tab-catch-all')).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-notes')).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-people')).toBeTruthy();
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('hub-search')).toBeTruthy();
     });
   });
