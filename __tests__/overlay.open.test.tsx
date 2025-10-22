@@ -38,6 +38,7 @@ const mockAuth = {
   signUp: jest.fn(),
   loading: false,
   error: null,
+  waitForSession: jest.fn().mockResolvedValue(null),
 };
 
 const renderWithProviders = (node: React.ReactElement) => {

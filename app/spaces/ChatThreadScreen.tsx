@@ -34,7 +34,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
 import { Mascot } from '../../components/mascot/Mascot';
-import { TypingDots } from '../../components/chat/TypingDots';
+import TypingDots from '../../components/chat/TypingDots';
 import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 
@@ -132,10 +132,22 @@ export default function ChatThreadScreen({ route }: Props) {
           }
 
           const ctx: CortexContext = {
+            lane: 'space_chat',
             userId: currentUserId,
             activeSpaceId: chat.space_id || null,
             uiSurface: 'chat',
+            spaceId: chat.space_id || null,
           };
+
+          // Dev-only lane logging
+          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log(
+              '[CORTEX] lane=%s space=%s msg=%s',
+              ctx.lane,
+              ctx.spaceId ?? '-',
+              ctx.messageId ?? '-',
+            );
+          }
 
           const response = await cortexDecide({ text }, ctx);
 

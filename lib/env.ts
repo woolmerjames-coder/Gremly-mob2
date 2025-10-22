@@ -13,6 +13,7 @@ const raw = {
   REPO_BACKEND: process.env.EXPO_PUBLIC_REPO_BACKEND ?? 'memory',
 
   FEATURE_SPACES: process.env.EXPO_PUBLIC_FEATURE_SPACES ?? 'on',
+  FEATURE_CHAT: process.env.EXPO_PUBLIC_FEATURE_CHAT ?? 'on',
   UNIFIED_OVERLAY: process.env.EXPO_PUBLIC_UNIFIED_OVERLAY ?? 'on',
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
 
@@ -78,6 +79,15 @@ const debugWindow = raw.DEBUG_TODAY_TIMEWINDOW
   ? oneOf(raw.DEBUG_TODAY_TIMEWINDOW, ['morning', 'midday', 'evening'] as const, undefined)
   : undefined;
 
+// Validate chat feature configuration
+if (flag(raw.FEATURE_CHAT)) {
+  if (!raw.CORTEX_URL) {
+    throw new Error(
+      '[env] EXPO_PUBLIC_CORTEX_URL is required when FEATURE_CHAT=on. Please check your .env file.',
+    );
+  }
+}
+
 /**
  * Typed environment configuration object
  * Use this instead of process.env throughout the app
@@ -91,6 +101,7 @@ export const env = {
   // Feature flags
   feature: {
     spaces: flag(raw.FEATURE_SPACES),
+    chat: flag(raw.FEATURE_CHAT),
     unifiedOverlay: flag(raw.UNIFIED_OVERLAY),
     buddy: flag(raw.FEATURE_BUDDY),
 

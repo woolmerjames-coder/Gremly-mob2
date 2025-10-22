@@ -19,6 +19,7 @@ interface AuthContextValue {
   devSignIn: () => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
+  waitForSession: (timeoutMs?: number) => Promise<Session | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -310,6 +311,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearError = () => setError(null);
 
+  const waitForSession = async (timeoutMs: number = 5000): Promise<Session | null> => {
+    // If already have session, return it
+    if (session) {
+      return session;
+    }
+
+    // If not loading and no session, return null
+    if (!loading) {
+      return null;
+    }
+
+    // Wait for auth to finish loading or timeout
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(null);
+      }, timeoutMs);
+
+      const checkSession = () => {
+        if (!loading) {
+          clearTimeout(timeout);
+          resolve(session);
+        } else {
+          setTimeout(checkSession, 100);
+        }
+      };
+
+      checkSession();
+    });
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -322,6 +353,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         devSignIn,
         signOut,
         clearError,
+        waitForSession,
       }}
     >
       {children}

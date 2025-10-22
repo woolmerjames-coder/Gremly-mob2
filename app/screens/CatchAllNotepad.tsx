@@ -127,10 +127,21 @@ export default function CatchAllNotepad(): React.JSX.Element {
       if (mode === 'guided') {
         try {
           const ctx: CortexContext = {
+            lane: 'catchall',
             userId: currentUserId,
             activeSpaceId: null,
             uiSurface: 'overlay',
           };
+
+          // Dev-only lane logging
+          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log(
+              '[CORTEX] lane=%s space=%s msg=%s',
+              ctx.lane,
+              ctx.spaceId ?? '-',
+              ctx.messageId ?? '-',
+            );
+          }
 
           const response = await cortexDecide({ text: trimmed }, ctx);
 

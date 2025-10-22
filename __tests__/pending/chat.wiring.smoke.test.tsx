@@ -47,6 +47,7 @@ describe('Chat Wiring Smoke Test', () => {
       devSignIn: jest.fn(),
       signOut: jest.fn(),
       clearError: jest.fn(),
+      waitForSession: jest.fn().mockResolvedValue(null),
     });
 
     // Mock repo with all methods used by ChatThreadScreen

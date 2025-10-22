@@ -136,6 +136,7 @@ describe('Cortex Explainability', () => {
 
 describe('cortexDecide Integration', () => {
   const mockContext: CortexContext = {
+    lane: 'system',
     userId: 'user-123',
     activeSpaceId: null,
     uiSurface: 'overlay',
