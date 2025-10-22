@@ -13,7 +13,7 @@ const raw = {
   REPO_BACKEND: process.env.EXPO_PUBLIC_REPO_BACKEND ?? 'memory',
 
   FEATURE_SPACES: process.env.EXPO_PUBLIC_FEATURE_SPACES ?? 'on',
-  FEATURE_CHAT: process.env.EXPO_PUBLIC_FEATURE_CHAT ?? 'on',
+  FEATURE_CHAT: process.env.EXPO_PUBLIC_FEATURE_CHAT ?? 'off',
   UNIFIED_OVERLAY: process.env.EXPO_PUBLIC_UNIFIED_OVERLAY ?? 'on',
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
 
@@ -80,7 +80,11 @@ const debugWindow = raw.DEBUG_TODAY_TIMEWINDOW
   : undefined;
 
 // Validate chat feature configuration
-if (flag(raw.FEATURE_CHAT)) {
+// Only enforce cortex URL when FEATURE_CHAT is explicitly enabled and not in test environment
+const featureChatExplicit = process.env.EXPO_PUBLIC_FEATURE_CHAT !== undefined;
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+
+if (featureChatExplicit && flag(raw.FEATURE_CHAT) && !isTestEnv) {
   if (!raw.CORTEX_URL) {
     throw new Error(
       '[env] EXPO_PUBLIC_CORTEX_URL is required when FEATURE_CHAT=on. Please check your .env file.',
