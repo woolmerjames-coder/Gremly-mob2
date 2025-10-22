@@ -89,12 +89,20 @@ export interface CortexResponse {
   actions: CortexAction[];
   /** Friendly explanation for the user */
   explanation?: string;
+  /** Small-talk reply text (for chat surfaces when no actions/explanations) */
+  replyText?: string;
   /** Alternative suggestions (for ASK/KEEP modes) */
   suggestions?: string[];
   /** Confidence score from engine (0-1) */
   confidence?: number;
   /** Decision mode based on confidence threshold */
-  mode: 'auto' | 'ask' | 'keep';
+  mode: 'auto' | 'ask' | 'keep' | 'reply';
+  /** Additional metadata for telemetry and tracking */
+  meta?: {
+    lane?: Lane;
+    kind?: 'smalltalk' | 'decision' | 'classification';
+    [key: string]: any;
+  };
 }
 
 /**

@@ -80,6 +80,8 @@ describe('Space Chat rules', () => {
 
     expect(result.actions).toEqual([]);
     expect(result.explanation).toBe('');
-    expect(result.mode).toBe('keep'); // Engine error results in keep mode
+    expect(result.mode).toBe('reply'); // Engine error → empty explanation → small-talk reply
+    expect(result.replyText).toBeDefined(); // Small-talk should be triggered
+    expect(result.meta?.kind).toBe('smalltalk');
   });
 });

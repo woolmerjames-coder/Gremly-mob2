@@ -1,6 +1,7 @@
 // lib/cortex/pipelines/conversation.ts
 import { CortexContextBase } from '../lane';
 import { cortexDecide, type DecideInput, type CortexContext } from '../cortexDecide';
+import { pickSmalltalk, isAcknowledgment } from '../../../app/lib/cortex/smalltalk';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 
@@ -11,6 +12,7 @@ const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
  * - No auto actions in chat
  * - Suppress catch-all copy
  * - Keep suggestions for inline chips
+ * Step 5.1: Small-talk fallback when no actionable content
  */
 export async function runConversationPipeline(input: DecideInput, ctx: CortexContext) {
   const raw = await cortexDecide(input, ctx);
@@ -29,6 +31,32 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Suppress catch-all copy in chat
   if (typeof normalized.explanation === 'string' && CATCHALL_COPY_RE.test(normalized.explanation)) {
     normalized.explanation = '';
+  }
+
+  // Step 5.1: Small-talk fallback for empty responses
+  const noSuggestions = !normalized?.suggestions || normalized.suggestions.length === 0;
+  const noExplanation = !normalized?.explanation || !normalized.explanation.trim();
+
+  if (noExplanation && noSuggestions) {
+    // Optional anti-spam: inspect last assistant message from ctx
+    const lastWasSmalltalk = ctx?.recentAssistantKind === 'smalltalk';
+    const userText = (input?.text ?? '').trim().toLowerCase();
+    const isAck = isAcknowledgment(userText);
+
+    if (!lastWasSmalltalk && !isAck) {
+      return {
+        ...normalized,
+        mode: 'reply' as const,
+        replyText: pickSmalltalk(input?.text),
+        actions: [],
+        suggestions: [],
+        meta: {
+          ...normalized?.meta,
+          lane: 'space_chat' as const,
+          kind: 'smalltalk' as const,
+        },
+      };
+    }
   }
 
   // Lightweight telemetry (optional)

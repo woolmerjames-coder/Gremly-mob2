@@ -7,4 +7,6 @@ export interface CortexContextBase {
   spaceId?: string | null;
   messageId?: string | null;
   userId?: string | null;
+  /** Track the kind of the last assistant message for anti-spam logic */
+  recentAssistantKind?: 'smalltalk' | 'decision' | 'classification' | null;
 }

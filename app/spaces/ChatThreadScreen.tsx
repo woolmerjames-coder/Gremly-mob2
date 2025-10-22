@@ -58,8 +58,12 @@ export default function ChatThreadScreen({ route }: Props) {
   const [confirmations, setConfirmations] = useState<{ messageId: string; texts: string[] }[]>([]);
   const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
 
-  // Track last assistant response for conversion metadata
-  const lastAssistantResponseRef = React.useRef<{ explanation?: string | null }>({});
+  // Track last assistant response for conversion metadata and anti-spam logic
+  const lastAssistantResponseRef = React.useRef<{
+    explanation?: string | null;
+    replyText?: string | null;
+    kind?: 'smalltalk' | 'decision' | 'classification' | null;
+  }>({});
 
   // Mascot controller for Phase 10.6
   const mascot = useMascotController();
@@ -153,6 +157,7 @@ export default function ChatThreadScreen({ route }: Props) {
             activeSpaceId: chat.space_id || null,
             uiSurface: 'chat',
             spaceId: chat.space_id || null,
+            recentAssistantKind: lastAssistantResponseRef.current?.kind ?? null,
           };
 
           // Dev-only lane logging
@@ -281,10 +286,9 @@ export default function ChatThreadScreen({ route }: Props) {
             }
           }
 
-          // Add AI response message for all cortex responses
-          if (response.explanation && response.explanation.trim()) {
-            const assistantText = response.explanation;
-
+          // Add AI response message for all cortex responses (explanation or replyText)
+          const assistantText = response.explanation?.trim() || response.replyText?.trim();
+          if (assistantText) {
             // For 'ask' mode, show suggestions as interactive chips instead of text
             if (
               response.mode === 'ask' &&
@@ -299,8 +303,12 @@ export default function ChatThreadScreen({ route }: Props) {
 
             await appendAssistantMessage(assistantText);
 
-            // Track assistant response for conversion metadata
-            lastAssistantResponseRef.current = { explanation: response.explanation };
+            // Track assistant response for conversion metadata and anti-spam logic
+            lastAssistantResponseRef.current = {
+              explanation: response.explanation,
+              replyText: response.replyText,
+              kind: response.meta?.kind,
+            };
 
             // Phase 10.6: Trigger appropriate mascot state after assistant message
             if (shouldTriggerPlayful) {
