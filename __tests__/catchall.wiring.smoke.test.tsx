@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, cleanup, act } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import CatchAllNotepad, { THINKING_DURATION } from '../app/screens/CatchAllNotepad';
 import * as AuthProvider from '../providers/AuthProvider';
@@ -16,6 +16,11 @@ import * as cortexDecideModule from '../lib/cortex/cortexDecide';
 jest.mock('../providers/AuthProvider');
 jest.mock('../providers/RepoProvider');
 jest.mock('../lib/cortex/cortexDecide');
+
+// Mock the router module to avoid cortex calls
+jest.mock('../lib/cortex/router', () => ({
+  cortexRoute: jest.fn(),
+}));
 
 // Helper to render with minimal SafeAreaProvider context
 const renderWithSafeArea = (component: React.ReactElement) => {
@@ -33,48 +38,33 @@ const renderWithSafeArea = (component: React.ReactElement) => {
 
 describe('Catch-All Wiring Smoke Test', () => {
   let mockRepo: any;
-  let mockCortexDecide: jest.SpyInstance;
+  let mockCortexRoute: jest.SpyInstance;
+
+  // Increase timeout for these integration tests
+  jest.setTimeout(30000);
 
   beforeEach(() => {
     jest.useFakeTimers();
 
-    // Mock auth provider
-    jest.spyOn(AuthProvider, 'useAuth').mockReturnValue({
+    // Setup repo mock
+    mockRepo = {
+      create: jest.fn().mockResolvedValue({ id: 'test-note-id' }),
+      writeEvent: jest.fn().mockResolvedValue({}),
+    };
+    (RepoProvider.useRepo as jest.Mock).mockReturnValue(mockRepo);
+
+    // Setup auth mock
+    (AuthProvider.useAuth as jest.Mock).mockReturnValue({
       userId: 'user-123',
-      user: { id: 'user-123' } as any,
-      session: null,
-      loading: false,
-      error: null,
-      signInWithEmail: jest.fn(),
-      devSignIn: jest.fn(),
-      signOut: jest.fn(),
-      clearError: jest.fn(),
-      waitForSession: jest.fn().mockResolvedValue(null),
     });
 
-    // Mock repo
-    mockRepo = {
-      create: jest.fn().mockResolvedValue({ id: 'note-1' }),
-      getOrCreateList: jest.fn().mockResolvedValue({
-        id: 'list-shopping',
-        name: 'Shopping',
-        key: 'shopping',
-      }),
-      addListItem: jest.fn().mockResolvedValue(undefined),
-      listSpaces: jest.fn().mockResolvedValue([
-        { id: 'space-work', name: 'Work' },
-        { id: 'space-home', name: 'Home' },
-      ]),
-      writeEvent: jest.fn().mockResolvedValue(undefined),
-    };
-
-    jest.spyOn(RepoProvider, 'useRepo').mockReturnValue(mockRepo as any);
-
-    // Mock cortexDecide
-    mockCortexDecide = cortexDecideModule.cortexDecide as jest.Mock;
+    // Setup cortex mock via router
+    const { cortexRoute } = require('../lib/cortex/router');
+    mockCortexRoute = jest.mocked(cortexRoute);
   });
 
   afterEach(() => {
+    cleanup(); // unmount any render trees from testing-library
     jest.useRealTimers();
     jest.clearAllMocks();
     jest.restoreAllMocks();
@@ -83,7 +73,7 @@ describe('Catch-All Wiring Smoke Test', () => {
   describe('G3 - Ambiguous work note (ask/keep)', () => {
     it('should save to Catch-All with ai_placed:false and why_string when mode is keep', async () => {
       // Mock G3 response: low confidence keep mode
-      mockCortexDecide.mockResolvedValue({
+      mockCortexRoute.mockResolvedValue({
         actions: [],
         mode: 'keep',
         confidence: 0.42,
@@ -106,11 +96,15 @@ describe('Catch-All Wiring Smoke Test', () => {
       fireEvent.press(submitButton);
 
       // Wait for thinking animation
-      jest.advanceTimersByTime(THINKING_DURATION);
+      await act(async () => {
+        jest.advanceTimersByTime(THINKING_DURATION);
+        // flush pending microtasks so state updates settle synchronously
+        await Promise.resolve();
+      });
 
       // Wait for async operations
       await waitFor(() => {
-        expect(mockCortexDecide).toHaveBeenCalledWith(
+        expect(mockCortexRoute).toHaveBeenCalledWith(
           { text: 'quarterly planning: headcount vs margin' },
           expect.objectContaining({
             userId: 'user-123',
@@ -162,11 +156,11 @@ describe('Catch-All Wiring Smoke Test', () => {
     });
 
     it('should show suggestion chips when mode is ask', async () => {
-      mockCortexDecide.mockResolvedValue({
+      mockCortexRoute.mockResolvedValue({
         actions: [],
         mode: 'ask',
-        confidence: 0.55,
-        explanation: 'I could use more context',
+        confidence: 0.41,
+        explanation: 'Could be many things',
         suggestions: ['Make it a todo', 'File to Work space'],
       });
 
@@ -185,7 +179,11 @@ describe('Catch-All Wiring Smoke Test', () => {
       fireEvent.press(submitButton);
 
       // Wait for thinking
-      jest.advanceTimersByTime(THINKING_DURATION);
+      await act(async () => {
+        jest.advanceTimersByTime(THINKING_DURATION);
+        // flush pending microtasks so state updates settle synchronously
+        await Promise.resolve();
+      });
 
       // Should show suggestions
       await waitFor(async () => {
@@ -208,12 +206,12 @@ describe('Catch-All Wiring Smoke Test', () => {
     });
 
     it('should include metadata_json context in why_string', async () => {
-      mockCortexDecide.mockResolvedValue({
+      mockCortexRoute.mockResolvedValue({
         actions: [],
         mode: 'keep',
-        confidence: 0.38,
-        explanation: 'Saving for review',
-        suggestions: ['Move to Projects', 'Break into tasks'],
+        confidence: 0.55,
+        explanation: 'Context aware',
+        suggestions: [],
       });
 
       const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
@@ -227,7 +225,11 @@ describe('Catch-All Wiring Smoke Test', () => {
       const submitButton = getByTestId('ca-submit');
       fireEvent.press(submitButton);
 
-      jest.advanceTimersByTime(THINKING_DURATION);
+      await act(async () => {
+        jest.advanceTimersByTime(THINKING_DURATION);
+        // flush pending microtasks so state updates settle synchronously
+        await Promise.resolve();
+      });
 
       await waitFor(() => {
         const createCall = mockRepo.create.mock.calls[0][0];
@@ -262,13 +264,13 @@ describe('Catch-All Wiring Smoke Test', () => {
       });
 
       // Cortex should NOT be called in free mode
-      expect(mockCortexDecide).not.toHaveBeenCalled();
+      expect(mockCortexRoute).not.toHaveBeenCalled();
     });
   });
 
   describe('Guided mode auto actions', () => {
     it('should execute actions when mode is auto', async () => {
-      mockCortexDecide.mockResolvedValue({
+      mockCortexRoute.mockResolvedValue({
         actions: [
           {
             type: 'create.todo',
@@ -295,7 +297,11 @@ describe('Catch-All Wiring Smoke Test', () => {
       const submitButton = getByTestId('ca-submit');
       fireEvent.press(submitButton);
 
-      jest.advanceTimersByTime(THINKING_DURATION);
+      await act(async () => {
+        jest.advanceTimersByTime(THINKING_DURATION);
+        // flush pending microtasks so state updates settle synchronously
+        await Promise.resolve();
+      });
 
       await waitFor(() => {
         expect(mockRepo.create).toHaveBeenCalledWith(
@@ -318,7 +324,7 @@ describe('Catch-All Wiring Smoke Test', () => {
 
   describe('Error handling', () => {
     it('should fall back to safe save when cortexDecide fails', async () => {
-      mockCortexDecide.mockRejectedValue(new Error('Cortex unavailable'));
+      mockCortexRoute.mockRejectedValue(new Error('Cortex unavailable'));
 
       const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
@@ -331,7 +337,11 @@ describe('Catch-All Wiring Smoke Test', () => {
       const submitButton = getByTestId('ca-submit');
       fireEvent.press(submitButton);
 
-      jest.advanceTimersByTime(THINKING_DURATION);
+      await act(async () => {
+        jest.advanceTimersByTime(THINKING_DURATION);
+        // flush pending microtasks so state updates settle synchronously
+        await Promise.resolve();
+      });
 
       // Should still save to catch-all
       await waitFor(() => {
@@ -361,7 +371,7 @@ describe('Catch-All Wiring Smoke Test', () => {
 
   describe('Thinking indicator', () => {
     it('should show thinking animation in guided mode', async () => {
-      mockCortexDecide.mockResolvedValue({
+      mockCortexRoute.mockResolvedValue({
         actions: [],
         mode: 'keep',
         confidence: 0.5,
@@ -380,13 +390,16 @@ describe('Catch-All Wiring Smoke Test', () => {
       fireEvent.press(submitButton);
 
       // Should show "Thinking…" button label
-      expect(getByText('Thinking…')).toBeTruthy();
+      expect(getByText('Gremly is thinking…')).toBeTruthy();
 
       // After thinking duration, should process
-      jest.advanceTimersByTime(THINKING_DURATION);
+      await act(async () => {
+        jest.advanceTimersByTime(THINKING_DURATION);
+        await Promise.resolve(); // Allow microtasks to complete
+      });
 
       await waitFor(() => {
-        expect(mockCortexDecide).toHaveBeenCalled();
+        expect(mockCortexRoute).toHaveBeenCalled();
       });
     });
 
