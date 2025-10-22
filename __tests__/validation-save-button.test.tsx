@@ -197,7 +197,7 @@ describe('Validation & Save Button State', () => {
 
   describe('Journal Validation', () => {
     it('should disable Save when date is missing', () => {
-      const { getByTestId, getByText } = renderWithSafeArea(
+      const { getByTestId, getByText: _getByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -213,7 +213,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should disable Save when entry is missing', () => {
-      const { getByTestId, getByText } = renderWithSafeArea(
+      const { getByTestId, getByText: _getByText2 } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}
@@ -232,7 +232,7 @@ describe('Validation & Save Button State', () => {
     });
 
     it('should disable Save when mood is missing', () => {
-      const { getByTestId, queryByText } = renderWithSafeArea(
+      const { getByTestId, queryByText: _queryByText } = renderWithSafeArea(
         <UnifiedCreateOverlay
           mode="create"
           visible={true}

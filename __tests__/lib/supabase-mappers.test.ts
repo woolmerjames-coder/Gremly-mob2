@@ -49,7 +49,7 @@ describe('Supabase Mappers', () => {
       // it gets converted to snake_case for the database
 
       // Mock input with camelCase fields (as they come from the app)
-      const mockInput = {
+      const _mockInput = {
         type: 'note' as const,
         title: 'Test Note',
         canonicalType: 'note' as const,

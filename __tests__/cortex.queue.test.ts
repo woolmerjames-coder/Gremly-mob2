@@ -8,7 +8,7 @@
  */
 
 import { eventBus } from '../lib/events/EventBus';
-import * as CortexClient from '../lib/cortex/CortexClient';
+// import { CortexClient } from '../lib/cortex/CortexClient';
 
 jest.mock('../lib/cortex/CortexClient');
 

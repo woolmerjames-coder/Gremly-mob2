@@ -16,7 +16,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import CatchAllNotepad, { THINKING_DURATION } from '../app/screens/CatchAllNotepad';
 import * as AuthProvider from '../providers/AuthProvider';
 import * as RepoProvider from '../providers/RepoProvider';
-import * as cortexDecideModule from '../lib/cortex/cortexDecide';
+import * as _cortexDecideModule from '../lib/cortex/cortexDecide';
 
 // Mock providers
 jest.mock('../providers/AuthProvider');

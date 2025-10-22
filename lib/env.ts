@@ -38,6 +38,10 @@ const raw = {
   CORTEX_MIN_THINK_MS: process.env.EXPO_PUBLIC_CORTEX_MIN_THINK_MS,
   CORTEX_MAX_THINK_MS: process.env.EXPO_PUBLIC_CORTEX_MAX_THINK_MS,
 
+  // Mascot settings (Phase 10.6)
+  MASCOT: process.env.EXPO_PUBLIC_MASCOT ?? 'on',
+  MASCOT_DEBUG: process.env.EXPO_PUBLIC_MASCOT_DEBUG ?? 'off',
+
   OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
 };
 
@@ -114,6 +118,12 @@ export const env = {
       suggestions: flag(raw.TODAY_SUGGESTIONS),
       celebration: flag(raw.TODAY_CELEBRATION),
       eveningTeaser: flag(raw.TODAY_EVENING_TEASER),
+    },
+
+    // Mascot feature flags (Phase 10.6)
+    mascot: {
+      enabled: flag(raw.MASCOT),
+      debug: flag(raw.MASCOT_DEBUG),
     },
   },
 

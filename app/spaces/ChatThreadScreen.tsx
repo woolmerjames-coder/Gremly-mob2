@@ -34,8 +34,13 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
-import { Mascot } from '../../components/mascot/Mascot';
 
+// Phase 10.6: New mascot system
+import { MascotProvider } from '../features/mascot/useMascot';
+import { Mascot } from '../features/mascot/Mascot';
+import { emitChatEvent } from '../lib/chat/events';
+
+// Legacy mascot imports (to be removed)
 import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
@@ -81,7 +86,7 @@ export default function ChatThreadScreen({ route }: Props) {
   } = useChatMessages(chatId);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
-  const spaceChatRepo = React.useMemo(() => {
+  const _spaceChatRepo = React.useMemo(() => {
     const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
     return backend === 'supabase'
       ? new SupabaseSpaceChatRepo(userId || undefined)
@@ -136,6 +141,12 @@ export default function ChatThreadScreen({ route }: Props) {
         // 1. Send user message via hook
         await sendUserMessage(text);
 
+        // Phase 10.6: Emit user message sent event
+        emitChatEvent({
+          type: 'user_message_sent',
+          payload: { text, spaceId: chat.space_id || undefined },
+        });
+
         // Phase 10.6: Start thinking animation
         mascot.thinking();
 
@@ -169,6 +180,12 @@ export default function ChatThreadScreen({ route }: Props) {
               ctx.messageId ?? '-',
             );
           }
+
+          // Phase 10.6: Emit request started event
+          emitChatEvent({
+            type: 'request_started',
+            payload: { requestId: Date.now().toString(), lane: 'space_chat' },
+          });
 
           const response = await cortexRoute({ text }, ctx);
 
@@ -303,6 +320,17 @@ export default function ChatThreadScreen({ route }: Props) {
 
             await appendAssistantMessage(assistantText);
 
+            // Phase 10.6: Emit response final event
+            emitChatEvent({
+              type: 'response_final',
+              payload: {
+                requestId: Date.now().toString(),
+                assistantKind: response.meta?.kind,
+                hasActions: response.actions && response.actions.length > 0,
+                hasSuggestions: response.suggestions && response.suggestions.length > 0,
+              },
+            });
+
             // Track assistant response for conversion metadata and anti-spam logic
             lastAssistantResponseRef.current = {
               explanation: response.explanation,
@@ -321,12 +349,18 @@ export default function ChatThreadScreen({ route }: Props) {
           // Enhanced cortex error handling with detailed logging
           console.error('[ChatThread] Cortex decision failed:', {
             error: cortexError,
-            message: cortexError?.message,
-            name: cortexError?.name,
-            stack: cortexError?.stack,
-            text,
             userId: currentUserId,
             spaceId: chat.space_id,
+            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+          });
+
+          // Phase 10.6: Emit error event
+          emitChatEvent({
+            type: 'error',
+            payload: {
+              error: cortexError,
+              context: 'cortex_request',
+            },
           });
 
           // Check for specific error types and provide appropriate responses
@@ -479,115 +513,121 @@ export default function ChatThreadScreen({ route }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {/* Header with Mascot - Phase 10.6 */}
-        {shouldShowMascot() && (
-          <View style={styles.header}>
-            <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>Chat with Gremly</Text>
-              <Mascot state={mascot.state} size={48} />
+    <MascotProvider lane="space_chat">
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        >
+          {/* Header with Mascot - Phase 10.6 */}
+          {shouldShowMascot() && (
+            <View style={styles.header}>
+              <View style={styles.headerContent}>
+                <Text style={styles.headerTitle}>Chat with Gremly</Text>
+                <Mascot size="md" />
+              </View>
             </View>
-          </View>
-        )}
-
-        {/* Messages ScrollView */}
-        <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
-          {messages.length === 0 ? (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderIcon}>💬</Text>
-              <Text style={styles.placeholderTitle}>Start a conversation</Text>
-              <Text style={styles.placeholderText}>
-                This is a chat thread with Gremly. Type a message below to get started.
-              </Text>
-            </View>
-          ) : (
-            <>
-              {messages.map((message) => {
-                const messageConfirmations = confirmations.find((c) => c.messageId === message.id);
-                return (
-                  <View key={message.id} style={styles.messageContainer}>
-                    <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
-                    {messageConfirmations && messageConfirmations.texts.length > 0 && (
-                      <View style={styles.confirmationsContainer}>
-                        {messageConfirmations.texts.map((confirmation, idx) => (
-                          <ConfirmationPill
-                            key={idx}
-                            text={confirmation}
-                            testID={`chat-confirmation-${message.id}-${idx}`}
-                          />
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-
-              {/* Suggestion chips for ask mode responses */}
-              {activeSuggestions.length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  <Text style={styles.suggestionsLabel}>You could also:</Text>
-                  <View style={styles.suggestionChips}>
-                    {activeSuggestions.map((suggestion, index) => (
-                      <Chip
-                        key={index}
-                        label={suggestion}
-                        onPress={() => handleSuggestionPress(suggestion)}
-                        testID={`suggestion-chip-${index}`}
-                      />
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Typing indicator - Phase 10.6 */}
-              {mascot.state === 'thinking' && (
-                <View style={styles.typingContainer}>{/* TODO: Add TypingDots when ready */}</View>
-              )}
-            </>
           )}
-        </ScrollView>
 
-        {/* Chat Composer */}
-        <ChatComposer onSend={handleSend} disabled={sending} testID="chat-composer" />
+          {/* Messages ScrollView */}
+          <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
+            {messages.length === 0 ? (
+              <View style={styles.placeholder}>
+                <Text style={styles.placeholderIcon}>💬</Text>
+                <Text style={styles.placeholderTitle}>Start a conversation</Text>
+                <Text style={styles.placeholderText}>
+                  This is a chat thread with Gremly. Type a message below to get started.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {messages.map((message) => {
+                  const messageConfirmations = confirmations.find(
+                    (c) => c.messageId === message.id,
+                  );
+                  return (
+                    <View key={message.id} style={styles.messageContainer}>
+                      <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
+                      {messageConfirmations && messageConfirmations.texts.length > 0 && (
+                        <View style={styles.confirmationsContainer}>
+                          {messageConfirmations.texts.map((confirmation, idx) => (
+                            <ConfirmationPill
+                              key={idx}
+                              text={confirmation}
+                              testID={`chat-confirmation-${message.id}-${idx}`}
+                            />
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
 
-        {/* Mini Action Bar */}
-        <MiniActionBar
-          onBrainPress={() => handleMiniAction('brain')}
-          onCheckPress={() => handleMiniAction('check')}
-          onFilePress={() => handleMiniAction('file')}
-          onFlamePress={() => handleMiniAction('flame')}
-          onPenPress={() => handleMiniAction('pen')}
-          testID="mini-action-bar"
+                {/* Suggestion chips for ask mode responses */}
+                {activeSuggestions.length > 0 && (
+                  <View style={styles.suggestionsContainer}>
+                    <Text style={styles.suggestionsLabel}>You could also:</Text>
+                    <View style={styles.suggestionChips}>
+                      {activeSuggestions.map((suggestion, index) => (
+                        <Chip
+                          key={index}
+                          label={suggestion}
+                          onPress={() => handleSuggestionPress(suggestion)}
+                          testID={`suggestion-chip-${index}`}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Typing indicator - Phase 10.6 */}
+                {mascot.state === 'thinking' && (
+                  <View style={styles.typingContainer}>
+                    {/* TODO: Add TypingDots when ready */}
+                  </View>
+                )}
+              </>
+            )}
+          </ScrollView>
+
+          {/* Chat Composer */}
+          <ChatComposer onSend={handleSend} disabled={sending} testID="chat-composer" />
+
+          {/* Mini Action Bar */}
+          <MiniActionBar
+            onBrainPress={() => handleMiniAction('brain')}
+            onCheckPress={() => handleMiniAction('check')}
+            onFilePress={() => handleMiniAction('file')}
+            onFlamePress={() => handleMiniAction('flame')}
+            onPenPress={() => handleMiniAction('pen')}
+            testID="mini-action-bar"
+          />
+        </KeyboardAvoidingView>
+
+        {/* Unified Create Overlay for Chat Conversions */}
+        <UnifiedCreateOverlay
+          visible={overlayController.state.visible}
+          mode={overlayController.state.mode}
+          initialEntity={overlayController.state.initialEntity}
+          initialSpaceId={overlayController.state.initialSpaceId}
+          conversionMeta={overlayController.state.conversionMeta}
+          onClose={overlayController.close}
+          onSaved={(result) => {
+            // Success toast with chat-specific messaging
+            const itemType =
+              result.type === 'note'
+                ? 'Note'
+                : result.type === 'todo'
+                  ? 'To-Do'
+                  : result.type === 'habit'
+                    ? 'Habit'
+                    : 'Item';
+            showChatConversionToast(`${itemType} created from chat ✨`);
+          }}
         />
-      </KeyboardAvoidingView>
-
-      {/* Unified Create Overlay for Chat Conversions */}
-      <UnifiedCreateOverlay
-        visible={overlayController.state.visible}
-        mode={overlayController.state.mode}
-        initialEntity={overlayController.state.initialEntity}
-        initialSpaceId={overlayController.state.initialSpaceId}
-        conversionMeta={overlayController.state.conversionMeta}
-        onClose={overlayController.close}
-        onSaved={(result) => {
-          // Success toast with chat-specific messaging
-          const itemType =
-            result.type === 'note'
-              ? 'Note'
-              : result.type === 'todo'
-                ? 'To-Do'
-                : result.type === 'habit'
-                  ? 'Habit'
-                  : 'Item';
-          showChatConversionToast(`${itemType} created from chat ✨`);
-        }}
-      />
-    </SafeAreaView>
+      </SafeAreaView>
+    </MascotProvider>
   );
 }
 

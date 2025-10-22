@@ -3,7 +3,7 @@
  */
 
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
-import type { SpaceChat } from '../../lib/types';
+// import { SpaceChat } from '../../lib/repo/types';
 
 describe('Spaces v2 - SpaceChat Repository', () => {
   let repo: MemorySpaceChatRepo;

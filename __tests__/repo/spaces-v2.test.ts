@@ -3,7 +3,7 @@
  */
 
 import { MemoryRepo } from '../../lib/repo/memory';
-import type { Space } from '../../lib/types';
+// import { Space } from '../../lib/repo/types';
 
 describe('Spaces v2 - Space Repository Methods', () => {
   let repo: MemoryRepo;

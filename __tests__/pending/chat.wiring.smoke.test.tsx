@@ -6,10 +6,10 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
-import * as AuthProvider from '../providers/AuthProvider';
-import * as RepoProvider from '../providers/RepoProvider';
-import * as cortexDecideModule from '../lib/cortex/cortexDecide';
+import ChatThreadScreen from '../../app/spaces/ChatThreadScreen';
+import * as AuthProvider from '../../providers/AuthProvider';
+import * as RepoProvider from '../../providers/RepoProvider';
+import * as cortexDecideModule from '../../lib/cortex/cortexDecide';
 
 // Mock navigation
 const mockNavigation = {

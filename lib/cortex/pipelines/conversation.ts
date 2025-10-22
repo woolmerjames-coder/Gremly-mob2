@@ -28,7 +28,7 @@ async function tryDirectWorkerCall(
     const messages: ChatMessage[] = [{ role: 'user', content: input.text }];
 
     let response;
-    let lastError;
+    let _lastError;
 
     // First attempt: Quick response (6s timeout)
     try {
@@ -38,7 +38,7 @@ async function tryDirectWorkerCall(
         maxTokens: 200, // Shorter for quicker response
       });
     } catch (error) {
-      lastError = error;
+      _lastError = error;
       if (__DEV__) {
         console.log('[CORTEX] First attempt failed, retrying with longer timeout', error);
       }

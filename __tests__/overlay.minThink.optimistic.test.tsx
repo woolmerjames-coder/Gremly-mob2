@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Alert, ToastAndroid, Platform } from 'react-native';
 import { UnifiedCreateOverlay } from '../components/overlay/UnifiedCreateOverlay';
