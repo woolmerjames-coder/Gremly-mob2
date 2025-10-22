@@ -130,14 +130,22 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
         personEmail: 'john@example.com',
       });
 
+      // Should call both people and entity_people tables
+      expect(mockFrom).toHaveBeenCalledWith('people');
       expect(mockFrom).toHaveBeenCalledWith('entity_people');
-      expect(mockInsert).toHaveBeenCalledWith({
-        user_id: mockUserId,
-        item_id: 'habit-1',
-        item_type: 'habit',
-        person_name: 'John Doe',
-        person_email: 'john@example.com',
-      });
+
+      // Check the entity_people link was created with correct schema
+      const entityPeopleCall = mockInsert.mock.calls.find(
+        (call: any) => call[0].entity_id && call[0].person_id,
+      );
+      expect(entityPeopleCall[0]).toEqual(
+        expect.objectContaining({
+          owner_id: mockUserId,
+          entity_id: 'habit-1',
+          entity_type: 'habit',
+          person_id: expect.any(String),
+        }),
+      );
       expect(result).toEqual(mockEntityPerson);
     });
 
@@ -174,14 +182,25 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
         personName: 'Jane Smith',
       });
 
+      // Should call entity_people table twice:
+      // 1st call: insert into people table to create/get person
+      // 2nd call: insert into entity_people table to link
+      expect(mockFrom).toHaveBeenCalledWith('people');
       expect(mockFrom).toHaveBeenCalledWith('entity_people');
-      expect(mockInsert).toHaveBeenCalledWith({
-        user_id: mockUserId,
-        item_id: 'todo-1',
-        item_type: 'todo',
-        person_name: 'Jane Smith',
-        person_email: null,
-      });
+
+      // Check the entity_people link was created with correct schema
+      const entityPeopleCall = mockInsert.mock.calls.find(
+        (call: any) => call[0].entity_id && call[0].person_id,
+      );
+      expect(entityPeopleCall[0]).toEqual(
+        expect.objectContaining({
+          owner_id: mockUserId,
+          entity_id: 'todo-1',
+          entity_type: 'todo',
+          person_id: expect.any(String), // person_id from the created person
+        }),
+      );
+
       expect(result).toEqual(mockEntityPerson);
     });
   });

@@ -168,8 +168,16 @@ export default function HubScreen() {
         setTags(allTags);
       }
 
-      // Count unsorted items using selector (removed repo.countUnsorted call)
-      // Count will be calculated from items state after loading
+      // Load ALL items (all types, all scopes) for unsorted count calculation
+      // This ensures the unsorted banner shows the global count across all tabs
+      const [allHabits, allTodos, allNotes] = await Promise.all([
+        repo.listByType('habit', {}),
+        repo.listByType('todo', {}),
+        repo.listByType('note', {}),
+      ]);
+      const allItemsForUnsorted = [...allHabits, ...allTodos, ...allNotes] as AppRecord[];
+      const globalUnsorted = selectUnsortedForReview(allItemsForUnsorted);
+      setUnsortedCount(globalUnsorted.length);
 
       // Build scope options for listByType
       const scopeOpts =
@@ -401,14 +409,8 @@ export default function HubScreen() {
     [unsortedForReview, toUnsortedItem],
   );
 
-  // Update unsorted count from selector results
-  useEffect(() => {
-    const count = unsortedForReview.length;
-    setUnsortedCount(count);
-    if (count === 0) {
-      setBannerDismissed(false); // Reset banner when count is 0
-    }
-  }, [unsortedForReview]);
+  // Note: unsortedCount is now set globally in load() function
+  // This ensures the banner shows the total across all tabs, not just the current tab
 
   // Split into needs sorting and everything else
   const needsSorting = useMemo(

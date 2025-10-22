@@ -85,12 +85,13 @@ describe('SupabaseRepo.create - Todo', () => {
         name: 'Test Todo',
         undefined_due: true,
         ai_placed: false,
+        owner_id: 'test-user-id', // Now included per schema conformance
       }),
     );
 
-    // Assert: Payload does NOT have auto-generated fields
+    // Assert: Payload does NOT have auto-generated fields (except owner_id)
     expect(insertPayload).not.toHaveProperty('id');
-    expect(insertPayload).not.toHaveProperty('owner_id');
+    expect(insertPayload).toHaveProperty('owner_id'); // This IS included now
     expect(insertPayload).not.toHaveProperty('created_at');
     expect(insertPayload).not.toHaveProperty('updated_at');
   });
@@ -129,12 +130,13 @@ describe('SupabaseRepo.create - Todo', () => {
         due_date: '2025-10-20T10:00:00Z',
         undefined_due: false,
         ai_placed: false,
+        owner_id: 'test-user-id', // Now included per schema conformance
       }),
     );
 
-    // Still no auto-generated fields
+    // Still no auto-generated fields (except owner_id)
     expect(insertPayload).not.toHaveProperty('id');
-    expect(insertPayload).not.toHaveProperty('owner_id');
+    expect(insertPayload).toHaveProperty('owner_id'); // This IS included now
     expect(insertPayload).not.toHaveProperty('created_at');
     expect(insertPayload).not.toHaveProperty('updated_at');
   });

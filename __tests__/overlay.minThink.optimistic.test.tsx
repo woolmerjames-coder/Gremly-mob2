@@ -145,11 +145,24 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
   describe('Case A: Fast AI (< 1s)', () => {
     it('should wait >=1000ms, save with classification, toast "Added to Hub", and close', async () => {
       // Mock fast AI response (100ms)
-      const mockCallComplete = jest.spyOn(CortexClient, 'callComplete');
-      mockCallComplete.mockImplementation(
+      const mockCallClassify = jest.spyOn(CortexClient, 'callClassify');
+      mockCallClassify.mockImplementation(
         () =>
           new Promise((resolve) =>
-            setTimeout(() => resolve({ ok: true, data: { id: 'completion-123' } }), 100),
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  id: 'completion-123',
+                  classification: {
+                    category: 'note',
+                    tags: [],
+                    spaceName: null,
+                    confidence: 0.9,
+                  },
+                }),
+              100,
+            ),
           ),
       );
 
@@ -239,7 +252,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         return undefined;
       });
 
-      const mockCallComplete = jest.spyOn(CortexClient, 'callComplete');
+      const mockCallClassify = jest.spyOn(CortexClient, 'callClassify');
 
       const onClose = jest.fn();
       const onSaved = jest.fn();
@@ -265,7 +278,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
       });
 
       // Should NOT call AI
-      expect(mockCallComplete).not.toHaveBeenCalled();
+      expect(mockCallClassify).not.toHaveBeenCalled();
 
       // Should create with ai_placed=false
       expect(mockRepo.create).toHaveBeenCalledWith(

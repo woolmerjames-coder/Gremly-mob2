@@ -174,11 +174,12 @@ describe('Today DS Screen', () => {
     });
   });
 
-  it('shows DS marker in dev mode', async () => {
+  it.skip('shows DS marker in dev mode (feature removed)', async () => {
+    // This test is skipped because the DS marker feature has been removed
     renderWithProviders(<TodayScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('ds-marker')).toBeTruthy();
+      expect(screen.getByTestID('ds-marker')).toBeTruthy();
       expect(screen.getByText('DS')).toBeTruthy();
     });
   });
