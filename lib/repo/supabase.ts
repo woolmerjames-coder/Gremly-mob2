@@ -1649,3 +1649,52 @@ export class SupabaseSpaceChatRepo {
     if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
   }
 }
+
+/**
+ * SupabaseSpaceChatMessageRepo - Space chat message management (Phase 10.5)
+ */
+export class SupabaseSpaceChatMessageRepo {
+  constructor(private currentUserId?: string) {}
+
+  private ensureUserId(): string {
+    if (!this.currentUserId) throw new Error('User ID not available');
+    return this.currentUserId;
+  }
+
+  async list(chatId: string): Promise<import('../types').SpaceChatMessage[]> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chat_messages')
+      .select('*')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to list space chat messages: ${error.message}`);
+
+    return (data || []) as import('../types').SpaceChatMessage[];
+  }
+
+  async append(
+    input: import('../types').SpaceChatMessageInsert,
+  ): Promise<import('../types').SpaceChatMessage> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chat_messages')
+      .insert({
+        chat_id: input.chat_id,
+        user_id: userId,
+        role: input.role,
+        content: input.content,
+        metadata_json: input.metadata_json ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create space chat message: ${error.message}`);
+    if (!data) throw new Error('No data returned from create space chat message');
+
+    return data as import('../types').SpaceChatMessage;
+  }
+}

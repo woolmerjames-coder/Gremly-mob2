@@ -178,6 +178,30 @@ export interface SpaceChatUpdateInput {
 }
 
 /**
+ * SpaceChatMessage - Individual message within a space chat thread
+ * Phase 10.5 feature
+ */
+export interface SpaceChatMessage {
+  id: ID;
+  chat_id: ID;
+  user_id: ID;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  metadata_json?: any | null;
+  created_at: string; // ISO 8601
+}
+
+/**
+ * Input type for SpaceChatMessage creation
+ */
+export interface SpaceChatMessageInsert {
+  chat_id: ID;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  metadata_json?: any | null;
+}
+
+/**
  * Tag - organizing label for records
  */
 export interface Tag {
