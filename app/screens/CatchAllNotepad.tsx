@@ -15,6 +15,16 @@ import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
+import { cortexDecide } from '../../lib/cortex/cortexDecide';
+import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
+import {
+  explainAddedToList,
+  explainCreated,
+  explainFiledToSpace,
+  explainAmbiguous,
+} from '../../lib/cortex/explain';
+import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 
 export const THINKING_DURATION = 1200;
 
@@ -56,11 +66,14 @@ const PLACEHOLDER_COLOR = '#B6A999';
 
 export default function CatchAllNotepad(): React.JSX.Element {
   const repo = useRepo();
+  const { userId } = useAuth();
   const [mode, setMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [confirmations, setConfirmations] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -96,6 +109,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
     setNote('');
     setIsSubmitting(false);
     setIsThinking(false);
+    setConfirmations([]);
+    setSuggestions([]);
   }, []);
 
   const performSave = useCallback(async () => {
@@ -106,35 +121,194 @@ export default function CatchAllNotepad(): React.JSX.Element {
         return;
       }
 
-      await repo.create({
-        type: 'note',
-        title: trimmed || 'Quick note',
-        body: trimmed,
-        subtype: 'catchall',
-        origin: 'catchall',
-        ai_placed: false, // Phase 7: Save to Hub actions set ai_placed=false by default
-        space_id: null, // CatchAllNotepad is not space-scoped (always saves to unassigned)
-        why_string: 'Saved from Catch-All Notepad',
-        canonicalType: 'note',
-        labels: ['catchall'],
-        views: {
-          alsoShowIn: ['Hub:Catch-All'],
-        },
-      });
+      const currentUserId = userId || 'anonymous';
 
-      console.log('Captured to Catch-All.');
-      if (Platform.OS === 'android') {
-        ToastAndroid.show('Captured to Catch-All.', ToastAndroid.SHORT);
+      // Phase 10.3: Call Cortex SDK for guided mode
+      if (mode === 'guided') {
+        try {
+          const ctx: CortexContext = {
+            userId: currentUserId,
+            activeSpaceId: null,
+            uiSurface: 'overlay',
+          };
+
+          const response = await cortexDecide({ text: trimmed }, ctx);
+
+          // Log event (non-blocking)
+          repo
+            .writeEvent(
+              'cortex_decision',
+              {
+                source: 'catchall',
+                text: trimmed,
+                actions: response.actions,
+                confidence: response.confidence,
+                mode: response.mode,
+              },
+              { userId: currentUserId },
+            )
+            .catch((err) => console.error('[CatchAllNotepad] Failed to log event:', err));
+
+          if (response.mode === 'auto' && response.actions.length > 0) {
+            // Execute actions in parallel
+            const confirmationTexts: string[] = [];
+
+            await Promise.all(
+              response.actions.map(async (action: CortexAction) => {
+                try {
+                  if (action.type === 'add.to.list') {
+                    const list = await repo.getOrCreateList(action.payload.listKey, {
+                      userId: currentUserId,
+                      spaceId: action.payload.spaceId ?? null,
+                    });
+                    await repo.addListItem(list.id, action.payload.item);
+                    confirmationTexts.push(explainAddedToList(list.name, 'warm'));
+                  } else if (action.type === 'create.todo') {
+                    await repo.create({
+                      type: 'todo',
+                      name: action.payload.title,
+                      title: action.payload.title,
+                      due_date: action.payload.due ?? null,
+                      undefined_due: !action.payload.due,
+                      space_id: action.payload.spaceId ?? null,
+                      ai_placed: true,
+                      why_string: response.explanation,
+                      origin: 'catchall',
+                    });
+                    confirmationTexts.push(explainCreated('todo', 'warm'));
+                  } else if (action.type === 'create.habit') {
+                    await repo.create({
+                      type: 'habit',
+                      name: action.payload.name,
+                      frequency:
+                        (action.payload.freq === 'custom' ? 'daily' : action.payload.freq) ||
+                        'daily',
+                      subtype: 'start_habit',
+                      space_id: action.payload.spaceId ?? null,
+                      ai_placed: true,
+                      why_string: response.explanation,
+                      origin: 'catchall',
+                    });
+                    confirmationTexts.push(explainCreated('habit', 'warm'));
+                  } else if (action.type === 'create.note') {
+                    await repo.create({
+                      type: 'note',
+                      title: action.payload.text || trimmed,
+                      body: action.payload.text,
+                      subtype: (action.payload.subtype as any) || 'note',
+                      space_id: action.payload.spaceId ?? null,
+                      ai_placed: true,
+                      why_string: response.explanation,
+                      origin: 'catchall',
+                    });
+                    confirmationTexts.push(explainCreated('note', 'warm'));
+                  }
+                  // file.to.space and attach.reminder not yet implemented
+                } catch (err) {
+                  console.error('[CatchAllNotepad] Failed to execute action:', action, err);
+                }
+              }),
+            );
+
+            // Show confirmations
+            setConfirmations(confirmationTexts);
+
+            // Clear form after brief delay to show confirmations
+            setTimeout(() => {
+              resetState();
+            }, 2000);
+          } else {
+            // Mode is 'ask' or 'keep' - save to catch-all with suggestions
+            // Note: Using labels/views for filtering, metadata in why_string
+            const suggestionHints = response.suggestions
+              ? ` Suggestions: ${response.suggestions.join(', ')}`
+              : '';
+            await repo.create({
+              type: 'note',
+              title: trimmed || 'Quick note',
+              body: trimmed,
+              subtype: 'catchall',
+              origin: 'catchall',
+              ai_placed: false,
+              space_id: null,
+              why_string: `${response.explanation}${suggestionHints}`,
+              canonicalType: 'note',
+              labels: ['catchall', ...(response.mode === 'ask' ? ['needs_review'] : [])],
+              views: {
+                alsoShowIn: ['Hub:Catch-All'],
+              },
+            });
+
+            // Show suggestions as chips
+            if (response.suggestions && response.suggestions.length > 0) {
+              setSuggestions(response.suggestions);
+            }
+
+            if (Platform.OS === 'android') {
+              ToastAndroid.show('Saved for later.', ToastAndroid.SHORT);
+            }
+
+            // Clear form after showing suggestions
+            setTimeout(() => {
+              resetState();
+            }, 3000);
+          }
+        } catch (error) {
+          // Cortex failed - fall back to safe save
+          console.error('[CatchAllNotepad] Cortex decision failed:', error);
+          await repo.create({
+            type: 'note',
+            title: trimmed || 'Quick note',
+            body: trimmed,
+            subtype: 'catchall',
+            origin: 'catchall',
+            ai_placed: false,
+            space_id: null,
+            why_string: 'Saved from Catch-All Notepad',
+            canonicalType: 'note',
+            labels: ['catchall'],
+            views: {
+              alsoShowIn: ['Hub:Catch-All'],
+            },
+          });
+
+          if (Platform.OS === 'android') {
+            ToastAndroid.show('Saved for later.', ToastAndroid.SHORT);
+          }
+          resetState();
+        }
       } else {
-        Alert.alert('Captured to Catch-All.');
+        // Free mode - simple save without AI
+        await repo.create({
+          type: 'note',
+          title: trimmed || 'Quick note',
+          body: trimmed,
+          subtype: 'catchall',
+          origin: 'catchall',
+          ai_placed: false,
+          space_id: null,
+          why_string: 'Saved from Catch-All Notepad',
+          canonicalType: 'note',
+          labels: ['catchall'],
+          views: {
+            alsoShowIn: ['Hub:Catch-All'],
+          },
+        });
+
+        console.log('Captured to Catch-All.');
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('Captured to Catch-All.', ToastAndroid.SHORT);
+        } else {
+          Alert.alert('Captured to Catch-All.');
+        }
+        resetState();
       }
-      resetState();
     } catch (error) {
       console.error('[CatchAllNotepad] Failed to capture note', error);
       Alert.alert('Something went wrong', 'Please try again in a moment.');
       resetState();
     }
-  }, [note, repo, resetState]);
+  }, [note, repo, resetState, mode, userId]);
 
   const handleChangeText = useCallback(
     (value: string) => {
@@ -238,6 +412,27 @@ export default function CatchAllNotepad(): React.JSX.Element {
               <View style={styles.thinkingRow}>
                 <ActivityIndicator size="small" color="#0E3B3A" />
                 <Text style={styles.thinkingText}>Gremly is thinking…</Text>
+              </View>
+            )}
+
+            {confirmations.length > 0 && (
+              <View style={styles.confirmationsContainer}>
+                {confirmations.map((text, index) => (
+                  <ConfirmationPill key={index} text={text} testID={`ca-confirmation-${index}`} />
+                ))}
+              </View>
+            )}
+
+            {suggestions.length > 0 && (
+              <View style={styles.suggestionsContainer}>
+                <Text style={styles.suggestionsLabel}>You could also:</Text>
+                <View style={styles.suggestionChips}>
+                  {suggestions.map((suggestion, index) => (
+                    <View key={index} style={styles.suggestionChip}>
+                      <Text style={styles.suggestionText}>{suggestion}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             )}
 
@@ -459,5 +654,38 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
+  },
+  confirmationsContainer: {
+    marginBottom: 16,
+  },
+  suggestionsContainer: {
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: '#EAF6F3',
+  },
+  suggestionsLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#276C69',
+    marginBottom: 8,
+  },
+  suggestionChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  suggestionChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#FFFCF5',
+    borderWidth: 1,
+    borderColor: '#BFE3DD',
+  },
+  suggestionText: {
+    fontSize: 13,
+    color: '#0E3B3A',
+    fontWeight: '500',
   },
 });
