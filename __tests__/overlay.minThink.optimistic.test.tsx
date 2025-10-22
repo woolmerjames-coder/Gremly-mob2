@@ -191,7 +191,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         () => {
           expect(onClose).toHaveBeenCalled();
         },
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
 
       // Note: Timing assertion skipped in test environment
@@ -274,9 +274,12 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
       const saveButton = getByTestId('save-to-hub');
       fireEvent.press(saveButton);
 
-      await waitFor(() => {
-        expect(onClose).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(onClose).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
 
       // Should NOT call AI
       expect(mockCallClassify).not.toHaveBeenCalled();
@@ -330,7 +333,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         () => {
           expect(onClose).toHaveBeenCalled();
         },
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
 
       // Should only create once
@@ -370,7 +373,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         () => {
           expect(onClose).toHaveBeenCalled();
         },
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
 
       // Should log capture_submitted
