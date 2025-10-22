@@ -36,7 +36,7 @@ import { MiniActionBar } from '../../components/chat/MiniActionBar';
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
 export default function ChatThreadScreen({ route }: Props) {
-  const { chatId } = route.params;
+  const { spaceId, chatId } = route.params;
   const { userId } = useAuth();
   const repo = useRepo();
 
