@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, FlatList } from 'react-native';
+import { View, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Text } from '../../../ui/Text';
 import { colors, spacing, radii } from '../../../theme/tokens';
 import type { Tag } from '../../../lib/repo/types';

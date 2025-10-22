@@ -2,12 +2,12 @@ import React from 'react';
 import { Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { colors, radii, spacing } from '../theme/tokens';
 
-type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
+type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
 export default function SegmentedTabs({
   value,
   onChange,
-  tabs = ['Habits', 'To-Dos', 'Journal', 'Notes', 'People'] as Tab[],
+  tabs = ['Habits', 'To-Dos', 'Journal', 'Notes', 'Lists', 'People'] as Tab[],
 }: {
   value: Tab;
   onChange: (t: Tab) => void;

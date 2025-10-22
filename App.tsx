@@ -3,7 +3,7 @@ import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
 import React, { useEffect } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking, Platform } from 'react-native';
+import { useColorScheme, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
 

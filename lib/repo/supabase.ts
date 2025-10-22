@@ -44,6 +44,18 @@ import {
  * - NOTES: Use 'title' field (NOT 'name'), owner_id
  * - HABITS: Use both 'name' AND 'title' fields, owner_id
  *
+ * Phase 10R Schema Alignment (2025-10-21):
+ * - Tags: owner_id (was user_id), includes color field
+ * - TagMap: owner_id, entity_id, entity_type (was user_id, item_id, item_type)
+ * - EntityPeople: has id column (composite PK preserved), uses owner_id, entity_id, entity_type
+ *
+ * Performance indexes (see migration 20251021_10R_hotfix_from_audit.sql):
+ * - idx_todos_space_id, idx_todos_due_date, idx_todos_completed_at
+ * - idx_habits_space_id, idx_habits_completed_at
+ * - idx_notes_space_id, idx_notes_created_at
+ * - idx_tag_map_entity, idx_tag_map_owner_entity
+ * - idx_entity_people_entity, idx_entity_people_person
+ *
  * Uses Insert schemas for create operations (excludes id, owner_id, timestamps)
  * Uses Row schemas for validating data returned from database
  */
@@ -75,6 +87,16 @@ function stripNulls<T extends Record<string, any>>(obj: T) {
   return Object.fromEntries(
     Object.entries(obj).filter(([, v]) => v !== null && v !== undefined),
   ) as T;
+}
+
+/**
+ * Phase 10.2: Simple title case helper for list names
+ */
+function titleCase(str: string): string {
+  return str
+    .split(/[\s_-]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 /**
@@ -468,13 +490,18 @@ export class SupabaseRepo implements IRepo {
     return null;
   }
 
+  /**
+   * List records by type with optional filtering
+   * 10R: Uses idx_todos_space_id, idx_habits_space_id, idx_notes_space_id for space filtering
+   * 10R: Uses idx_notes_created_at, idx_todos_created_at for chronological ordering
+   */
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const table = tableFor(type);
 
     let query = supabase.from(table).select('*').eq('owner_id', userId);
 
-    // Apply space filter
+    // Apply space filter (uses idx_{table}_space_id)
     if (opts?.unassignedOnly) {
       query = query.is('space_id', null);
     } else if (opts?.spaceId !== undefined) {
@@ -490,6 +517,7 @@ export class SupabaseRepo implements IRepo {
     // TODO: Apply tag filter when tagIds is provided
     // For now, tagIds is ignored (stub for future implementation)
 
+    // Uses idx_notes_created_at for chronological ordering
     query = query.order('created_at', { ascending: false });
 
     const { data, error } = await query;
@@ -610,11 +638,15 @@ export class SupabaseRepo implements IRepo {
     return results;
   }
 
+  /**
+   * List todos due today
+   * 10R: Uses idx_todos_due_date for efficient filtering
+   */
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const results: AppRecord[] = [];
 
-    // Get todos with due_date = today
+    // Get todos with due_date = today (uses idx_todos_due_date)
     const { data: todos, error: todosError } = await supabase
       .from('todos')
       .select('*')
@@ -935,10 +967,11 @@ export class SupabaseRepo implements IRepo {
   async listTags(): Promise<Tag[]> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // 10R: Uses owner_id (was user_id) after schema alignment
     const { data, error } = await supabase
       .from('tags')
       .select('*')
-      .eq('user_id', this.currentUserId)
+      .eq('owner_id', this.currentUserId)
       .order('name', { ascending: true });
 
     if (error) throw new Error(`Failed to list tags: ${error.message}`);
@@ -1088,7 +1121,7 @@ export class SupabaseRepo implements IRepo {
   async upsertTag(name: string): Promise<import('./types').Tag> {
     if (!this.currentUserId) throw new Error('User ID required');
 
-    // Build insert payload with owner_id (DB truth from generated types)
+    // 10R: Build insert payload with owner_id (was user_id)
     const insertPayload: DBTagInsert = {
       owner_id: this.currentUserId,
       name,
@@ -1108,10 +1141,11 @@ export class SupabaseRepo implements IRepo {
 
     // If unique constraint violation (code 23505), fetch existing tag
     if (insertError && insertError.code === '23505') {
+      // 10R: Query uses owner_id (was user_id)
       const { data: existingData, error: selectError } = await supabase
         .from('tags')
         .select('*')
-        .eq('user_id', this.currentUserId)
+        .eq('owner_id', this.currentUserId)
         .eq('name', name)
         .single();
 
@@ -1126,15 +1160,17 @@ export class SupabaseRepo implements IRepo {
 
   /**
    * List all tags linked to a specific item
+   * 10R: Uses idx_tag_map_owner_entity index for performance
    */
   async listItemTags(itemId: string): Promise<import('./types').Tag[]> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // 10R: Query uses owner_id and entity_id (was user_id/item_id)
     const { data, error } = await supabase
       .from('tag_map')
       .select('tag_id, tags(*)')
-      .eq('user_id', this.currentUserId)
-      .eq('item_id', itemId);
+      .eq('owner_id', this.currentUserId)
+      .eq('entity_id', itemId);
 
     if (error) throw new Error(`Failed to list item tags: ${error.message}`);
 
@@ -1173,11 +1209,12 @@ export class SupabaseRepo implements IRepo {
   async unlinkTag(params: { itemId: string; tagId: string }): Promise<void> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // 10R: Delete uses owner_id and entity_id (was user_id/item_id)
     const { error } = await supabase
       .from('tag_map')
       .delete()
-      .eq('user_id', this.currentUserId)
-      .eq('item_id', params.itemId)
+      .eq('owner_id', this.currentUserId)
+      .eq('entity_id', params.itemId)
       .eq('tag_id', params.tagId);
 
     if (error) throw new Error(`Failed to unlink tag: ${error.message}`);
@@ -1185,15 +1222,17 @@ export class SupabaseRepo implements IRepo {
 
   /**
    * List all people linked to a specific item
+   * 10R: Uses idx_entity_people_entity index for performance
    */
   async listLinkedPeopleByItem(itemId: string): Promise<import('./types').EntityPerson[]> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // 10R: Query uses owner_id and entity_id (was user_id/item_id)
     const { data, error } = await supabase
       .from('entity_people')
       .select('*')
-      .eq('user_id', this.currentUserId)
-      .eq('item_id', itemId)
+      .eq('owner_id', this.currentUserId)
+      .eq('entity_id', itemId)
       .order('created_at', { ascending: true });
 
     if (error) throw new Error(`Failed to list linked people: ${error.message}`);
@@ -1241,14 +1280,16 @@ export class SupabaseRepo implements IRepo {
 
   /**
    * Unlink a person from an item
+   * 10R: Now uses id column (added in migration) for simpler deletion
    */
   async unlinkPerson(entityPersonId: string): Promise<void> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // 10R: Delete by id (now exists in DB) and owner_id (was user_id)
     const { error } = await supabase
       .from('entity_people')
       .delete()
-      .eq('user_id', this.currentUserId)
+      .eq('owner_id', this.currentUserId)
       .eq('id', entityPersonId);
 
     if (error) throw new Error(`Failed to unlink person: ${error.message}`);
@@ -1270,6 +1311,242 @@ export class SupabaseRepo implements IRepo {
   }
   async unlinkBuddy(): Promise<void> {
     /* no-op */
+  }
+
+  // ==========================
+  // PHASE 10.2: CORTEX PRIMITIVES
+  // ==========================
+
+  /**
+   * Get cortex preferences for a user.
+   * Uses primary key lookup on cortex_preferences(owner_id).
+   */
+  async getCortexPrefs(userId: string): Promise<import('./types').CortexPreferences | null> {
+    const { data, error } = await supabase
+      .from('cortex_preferences')
+      .select('*')
+      .eq('owner_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(`Failed to get cortex preferences: ${error.message}`);
+    return data as import('./types').CortexPreferences | null;
+  }
+
+  /**
+   * Set/update cortex preferences (upsert).
+   * Merges partial with existing row, sets updated_at=now().
+   */
+  async setCortexPrefs(
+    userId: string,
+    partial: import('./types').CortexPreferencesUpdate,
+  ): Promise<import('./types').CortexPreferences> {
+    const { data, error } = await supabase
+      .from('cortex_preferences')
+      .upsert(
+        {
+          owner_id: userId,
+          ...partial,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'owner_id' },
+      )
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to set cortex preferences: ${error.message}`);
+    if (!data) throw new Error('No data returned from set cortex preferences');
+    return data as import('./types').CortexPreferences;
+  }
+
+  /**
+   * Find a list by key (does not create).
+   * Uses indexed lookup on (owner_id, key).
+   */
+  async findListByKey(
+    key: string,
+    opts?: { userId?: string; spaceId?: string | null },
+  ): Promise<import('./types').List | null> {
+    const userId = opts?.userId ?? this.ensureUserId();
+
+    let query = supabase.from('lists').select('*').eq('owner_id', userId).eq('key', key);
+
+    if (opts?.spaceId !== undefined) {
+      if (opts.spaceId === null) {
+        query = query.is('space_id', null);
+      } else {
+        query = query.eq('space_id', opts.spaceId);
+      }
+    }
+
+    const { data, error } = await query.limit(1).maybeSingle();
+
+    if (error) throw new Error(`Failed to find list by key: ${error.message}`);
+    return data as import('./types').List | null;
+  }
+
+  /**
+   * Get or create a list by key.
+   * Uses indexed lookup; creates with generated name if not found.
+   */
+  async getOrCreateList(
+    key: string,
+    opts?: { userId?: string; spaceId?: string | null; name?: string },
+  ): Promise<import('./types').List> {
+    const userId = opts?.userId ?? this.ensureUserId();
+
+    // Try to find existing
+    const existing = await this.findListByKey(key, { userId, spaceId: opts?.spaceId });
+    if (existing) return existing;
+
+    // Create new
+    const name = opts?.name ?? titleCase(key);
+    const { data, error } = await supabase
+      .from('lists')
+      .insert({
+        owner_id: userId,
+        key,
+        name,
+        space_id: opts?.spaceId ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create list: ${error.message}`);
+    if (!data) throw new Error('No data returned from create list');
+    return data as import('./types').List;
+  }
+
+  /**
+   * Add an item to a list.
+   * Uses indexed lookup on (list_id, created_at).
+   */
+  async addListItem(
+    listId: string,
+    label: string,
+    meta?: { qty?: number; unit?: string; meta_json?: any },
+  ): Promise<import('./types').ListItem> {
+    const { data, error } = await supabase
+      .from('list_items')
+      .insert({
+        list_id: listId,
+        label,
+        qty: meta?.qty ?? null,
+        unit: meta?.unit ?? null,
+        meta_json: meta?.meta_json ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to add list item: ${error.message}`);
+    if (!data) throw new Error('No data returned from add list item');
+    return data as import('./types').ListItem;
+  }
+
+  /**
+   * List all items in a list, ordered by created_at.
+   * Uses indexed lookup on (list_id, created_at).
+   */
+  async listItems(listId: string): Promise<import('./types').ListItem[]> {
+    const { data, error } = await supabase
+      .from('list_items')
+      .select('*')
+      .eq('list_id', listId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to list items: ${error.message}`);
+    return (data ?? []) as import('./types').ListItem[];
+  }
+
+  /**
+   * Mark a list item complete/incomplete by setting/unsetting completed_at
+   */
+  async toggleListItemComplete(listItemId: string, done: boolean): Promise<void> {
+    const { error } = await supabase
+      .from('list_items')
+      .update({ completed_at: done ? new Date().toISOString() : null })
+      .eq('id', listItemId);
+
+    if (error) throw new Error(`Failed to toggle list item: ${error.message}`);
+  }
+
+  /**
+   * Rename an item (quick edit in UI)
+   */
+  async renameListItem(listItemId: string, label: string): Promise<void> {
+    const { error } = await supabase.from('list_items').update({ label }).eq('id', listItemId);
+
+    if (error) throw new Error(`Failed to rename list item: ${error.message}`);
+  }
+
+  /**
+   * Write an event to the log (non-blocking usage expected).
+   * Uses indexed lookup on (owner_id, kind, created_at desc).
+   */
+  async writeEvent(
+    kind: string,
+    payload: Record<string, any>,
+    opts?: { userId?: string },
+  ): Promise<void> {
+    const userId = opts?.userId ?? this.ensureUserId();
+
+    const { error } = await supabase.from('events').insert({
+      owner_id: userId,
+      kind,
+      payload_json: payload,
+    });
+
+    if (error) throw new Error(`Failed to write event: ${error.message}`);
+  }
+
+  // Phase 10.4 - Space defaults for Cortex biasing
+
+  /**
+   * Get defaults_json for a space.
+   * Returns null if space not found or defaults_json is null.
+   */
+  async getSpaceDefaults(spaceId: string): Promise<any | null> {
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('defaults_json')
+      .eq('id', spaceId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      logSupabaseError('getSpaceDefaults', error);
+      throw new Error(`Failed to get space defaults: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    return data?.defaults_json ?? null;
+  }
+
+  /**
+   * Set/update defaults_json for a space (shallow merge).
+   * Merges patch with existing defaults at one level (no deep merge).
+   * Returns updated defaults_json.
+   */
+  async setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any> {
+    // First fetch existing defaults
+    const existing = await this.getSpaceDefaults(spaceId);
+
+    // Shallow merge
+    const merged = { ...existing, ...patch };
+
+    // Update
+    const { data, error } = await supabase
+      .from('spaces')
+      .update({ defaults_json: merged })
+      .eq('id', spaceId)
+      .select('defaults_json')
+      .single();
+
+    if (error) {
+      logSupabaseError('setSpaceDefaults', error);
+      throw new Error(`Failed to set space defaults: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    return data.defaults_json;
   }
 }
 

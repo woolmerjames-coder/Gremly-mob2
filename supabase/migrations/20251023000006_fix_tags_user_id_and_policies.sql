@@ -10,16 +10,16 @@ alter table if exists public.tag_map enable row level security;
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tags' and policyname='Users can view their own tags') then
-    execute $$create policy "Users can view their own tags" on public.tags for select using (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can view their own tags" on public.tags for select using (user_id = auth.uid())$INNER$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tags' and policyname='Users can insert their own tags') then
-    execute $$create policy "Users can insert their own tags" on public.tags for insert with check (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can insert their own tags" on public.tags for insert with check (user_id = auth.uid())$INNER$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tags' and policyname='Users can update their own tags') then
-    execute $$create policy "Users can update their own tags" on public.tags for update using (user_id = auth.uid()) with check (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can update their own tags" on public.tags for update using (user_id = auth.uid()) with check (user_id = auth.uid())$INNER$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tags' and policyname='Users can delete their own tags') then
-    execute $$create policy "Users can delete their own tags" on public.tags for delete using (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can delete their own tags" on public.tags for delete using (user_id = auth.uid())$INNER$;
   end if;
 end $$;
 
@@ -27,16 +27,16 @@ end $$;
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tag_map' and policyname='Users can view their own tag mappings') then
-    execute $$create policy "Users can view their own tag mappings" on public.tag_map for select using (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can view their own tag mappings" on public.tag_map for select using (user_id = auth.uid())$INNER$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tag_map' and policyname='Users can insert their own tag mappings') then
-    execute $$create policy "Users can insert their own tag mappings" on public.tag_map for insert with check (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can insert their own tag mappings" on public.tag_map for insert with check (user_id = auth.uid())$INNER$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tag_map' and policyname='Users can update their own tag mappings') then
-    execute $$create policy "Users can update their own tag mappings" on public.tag_map for update using (user_id = auth.uid()) with check (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can update their own tag mappings" on public.tag_map for update using (user_id = auth.uid()) with check (user_id = auth.uid())$INNER$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='tag_map' and policyname='Users can delete their own tag mappings') then
-    execute $$create policy "Users can delete their own tag mappings" on public.tag_map for delete using (user_id = auth.uid())$$;
+    execute $INNER$create policy "Users can delete their own tag mappings" on public.tag_map for delete using (user_id = auth.uid())$INNER$;
   end if;
 end $$;
 

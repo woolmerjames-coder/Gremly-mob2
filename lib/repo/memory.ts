@@ -72,6 +72,15 @@ export class MemoryRepo implements IRepo {
   private people: Person[] = [];
   private currentUserId: string = 'memory-user';
 
+  // Phase 10.2: Cortex primitives storage
+  private cortexPreferences: Map<string, import('./types').CortexPreferences> = new Map();
+  private lists: Map<string, import('./types').List> = new Map();
+  private listItemsStore: Map<string, import('./types').ListItem> = new Map();
+  private events: import('./types').EventLog[] = [];
+
+  // Phase 10.4: Space defaults storage
+  private spaceDefaults: Map<string, any> = new Map();
+
   constructor(userId?: string) {
     this.currentUserId = userId || 'memory-user';
     this.data = seed(this.currentUserId);
@@ -556,13 +565,13 @@ export class MemoryRepo implements IRepo {
     tagId: string;
     itemType: import('./types').ItemType;
   }): Promise<import('./types').TagMap> {
-    // Stub: return mock TagMap
+    // 10R: Stub uses owner_id, entity_id, entity_type (was user_id, item_id, item_type)
     return {
       id: genId('tagmap'),
-      user_id: this.currentUserId,
-      item_id: _params.itemId,
+      owner_id: this.currentUserId,
+      entity_id: _params.itemId,
       tag_id: _params.tagId,
-      item_type: _params.itemType,
+      entity_type: _params.itemType,
       created_at: nowIso(),
       updated_at: nowIso(),
     };
@@ -583,12 +592,13 @@ export class MemoryRepo implements IRepo {
     personName: string;
     personEmail?: string;
   }): Promise<import('./types').EntityPerson> {
-    // Stub: return mock EntityPerson
+    // 10R: Stub uses owner_id, entity_id, entity_type, person_id (was user_id, item_id, item_type)
     return {
       id: genId('entityperson'),
-      user_id: this.currentUserId,
-      item_id: params.itemId,
-      item_type: params.itemType,
+      owner_id: this.currentUserId,
+      person_id: genId('person'), // 10R: FK to people table
+      entity_id: params.itemId,
+      entity_type: params.itemType,
       person_name: params.personName,
       person_email: params.personEmail || null,
       created_at: nowIso(),
@@ -616,6 +626,201 @@ export class MemoryRepo implements IRepo {
   }
   async unlinkBuddy(): Promise<void> {
     /* no-op */
+  }
+
+  // ==========================
+  // PHASE 10.2: CORTEX PRIMITIVES
+  // ==========================
+
+  /**
+   * Get cortex preferences for a user.
+   */
+  async getCortexPrefs(userId: string): Promise<import('./types').CortexPreferences | null> {
+    return this.cortexPreferences.get(userId) ?? null;
+  }
+
+  /**
+   * Set/update cortex preferences (upsert with merge).
+   */
+  async setCortexPrefs(
+    userId: string,
+    partial: import('./types').CortexPreferencesUpdate,
+  ): Promise<import('./types').CortexPreferences> {
+    const existing = this.cortexPreferences.get(userId);
+    const updated: import('./types').CortexPreferences = {
+      owner_id: userId,
+      ...existing,
+      ...partial,
+      updated_at: nowIso(),
+    };
+    this.cortexPreferences.set(userId, updated);
+    return updated;
+  }
+
+  /**
+   * Find a list by key (does not create).
+   */
+  async findListByKey(
+    key: string,
+    opts?: { userId?: string; spaceId?: string | null },
+  ): Promise<import('./types').List | null> {
+    const userId = opts?.userId ?? this.currentUserId;
+    const allLists = Array.from(this.lists.values());
+
+    const found = allLists.find((list) => {
+      if (list.owner_id !== userId) return false;
+      if (list.key !== key) return false;
+
+      // Handle spaceId filter
+      if (opts?.spaceId !== undefined) {
+        if (opts.spaceId === null) {
+          return list.space_id === null || list.space_id === undefined;
+        } else {
+          return list.space_id === opts.spaceId;
+        }
+      }
+
+      return true;
+    });
+
+    return found ?? null;
+  }
+
+  /**
+   * Get or create a list by key.
+   */
+  async getOrCreateList(
+    key: string,
+    opts?: { userId?: string; spaceId?: string | null; name?: string },
+  ): Promise<import('./types').List> {
+    const userId = opts?.userId ?? this.currentUserId;
+
+    // Try to find existing
+    const existing = await this.findListByKey(key, { userId, spaceId: opts?.spaceId });
+    if (existing) return existing;
+
+    // Create new - simple title case
+    const name =
+      opts?.name ??
+      key
+        .split(/[\s_-]+/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+
+    const newList: import('./types').List = {
+      id: genId('list'),
+      owner_id: userId,
+      key,
+      name,
+      space_id: opts?.spaceId ?? null,
+      created_at: nowIso(),
+    };
+
+    this.lists.set(newList.id, newList);
+    return newList;
+  }
+
+  /**
+   * Add an item to a list.
+   */
+  async addListItem(
+    listId: string,
+    label: string,
+    meta?: { qty?: number; unit?: string; meta_json?: any },
+  ): Promise<import('./types').ListItem> {
+    const newItem: import('./types').ListItem = {
+      id: genId('list-item'),
+      list_id: listId,
+      label,
+      qty: meta?.qty ?? null,
+      unit: meta?.unit ?? null,
+      meta_json: meta?.meta_json ?? null,
+      created_at: nowIso(),
+    };
+
+    this.listItemsStore.set(newItem.id, newItem);
+    return newItem;
+  }
+
+  /**
+   * List all items in a list, ordered by created_at.
+   */
+  async listItems(listId: string): Promise<import('./types').ListItem[]> {
+    const allItems = Array.from(this.listItemsStore.values());
+    const filtered = allItems.filter((item) => item.list_id === listId);
+
+    // Sort by created_at ascending
+    filtered.sort((a, b) => {
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return aTime - bTime;
+    });
+
+    return filtered;
+  }
+
+  /**
+   * Mark a list item complete/incomplete by setting/unsetting completed_at
+   */
+  async toggleListItemComplete(listItemId: string, done: boolean): Promise<void> {
+    const item = this.listItemsStore.get(listItemId);
+    if (!item) throw new Error(`List item not found: ${listItemId}`);
+
+    item.completed_at = done ? nowIso() : null;
+    this.listItemsStore.set(listItemId, item);
+  }
+
+  /**
+   * Rename an item (quick edit in UI)
+   */
+  async renameListItem(listItemId: string, label: string): Promise<void> {
+    const item = this.listItemsStore.get(listItemId);
+    if (!item) throw new Error(`List item not found: ${listItemId}`);
+
+    item.label = label;
+    this.listItemsStore.set(listItemId, item);
+  }
+
+  /**
+   * Write an event to the log.
+   */
+  async writeEvent(
+    kind: string,
+    payload: Record<string, any>,
+    opts?: { userId?: string },
+  ): Promise<void> {
+    const userId = opts?.userId ?? this.currentUserId;
+
+    const event: import('./types').EventLog = {
+      id: genId('event'),
+      owner_id: userId,
+      kind,
+      payload_json: payload,
+      created_at: nowIso(),
+    };
+
+    this.events.push(event);
+  }
+
+  // Phase 10.4 - Space defaults for Cortex biasing
+
+  /**
+   * Get defaults_json for a space.
+   * Returns null if not found.
+   */
+  async getSpaceDefaults(spaceId: string): Promise<any | null> {
+    return this.spaceDefaults.get(spaceId) ?? null;
+  }
+
+  /**
+   * Set/update defaults_json for a space (shallow merge).
+   * Returns updated defaults_json.
+   */
+  async setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any> {
+    const existing = this.spaceDefaults.get(spaceId) ?? {};
+    const merged = { ...existing, ...patch };
+    this.spaceDefaults.set(spaceId, merged);
+    return merged;
   }
 }
 

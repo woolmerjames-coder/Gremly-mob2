@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { fireEvent, waitFor } from '@testing-library/react-native';
-import { renderWithProviders, useAuth, useRepo } from './utils/renderWithProviders';
+import { renderWithProviders } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
 import { useTodayData } from '../lib/today/useTodayData';
 import type { EnrichedTodo } from '../lib/today/useTodayData';

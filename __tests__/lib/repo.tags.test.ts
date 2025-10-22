@@ -44,14 +44,14 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
       const mockTags: Tag[] = [
         {
           id: 'tag-1',
-          user_id: mockUserId,
+          owner_id: mockUserId, // 10R: was user_id
           name: 'Work',
           created_at: '2025-10-19T00:00:00Z',
           updated_at: '2025-10-19T00:00:00Z',
         },
         {
           id: 'tag-2',
-          user_id: mockUserId,
+          owner_id: mockUserId, // 10R: was user_id
           name: 'Personal',
           created_at: '2025-10-19T00:00:00Z',
           updated_at: '2025-10-19T00:00:00Z',
@@ -77,7 +77,7 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
 
       expect(mockFrom).toHaveBeenCalledWith('tags');
       expect(mockSelect).toHaveBeenCalledWith('*');
-      expect(mockEq).toHaveBeenCalledWith('user_id', mockUserId);
+      expect(mockEq).toHaveBeenCalledWith('owner_id', mockUserId);
       expect(mockOrder).toHaveBeenCalledWith('name', { ascending: true });
       expect(result).toEqual(mockTags);
     });
@@ -87,7 +87,7 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
     it('should create a new tag', async () => {
       const newTag: Tag = {
         id: 'tag-1',
-        user_id: mockUserId,
+        owner_id: mockUserId, // 10R: was user_id
         name: 'Work',
         created_at: '2025-10-19T00:00:00Z',
         updated_at: '2025-10-19T00:00:00Z',
@@ -118,7 +118,7 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
     it('should return existing tag on unique constraint violation', async () => {
       const existingTag: Tag = {
         id: 'tag-1',
-        user_id: mockUserId,
+        owner_id: mockUserId, // 10R: was user_id
         name: 'Work',
         created_at: '2025-10-19T00:00:00Z',
         updated_at: '2025-10-19T00:00:00Z',
@@ -172,7 +172,7 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
       const itemId = 'habit-1';
       const mockTag: Tag = {
         id: 'tag-1',
-        user_id: mockUserId,
+        owner_id: mockUserId, // 10R: was user_id
         name: 'Work',
         created_at: '2025-10-19T00:00:00Z',
         updated_at: '2025-10-19T00:00:00Z',
@@ -197,8 +197,8 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
 
       expect(mockFrom).toHaveBeenCalledWith('tag_map');
       expect(mockSelect).toHaveBeenCalledWith('tag_id, tags(*)');
-      expect(mockEq1).toHaveBeenCalledWith('user_id', mockUserId);
-      expect(mockEq2).toHaveBeenCalledWith('item_id', itemId);
+      expect(mockEq1).toHaveBeenCalledWith('owner_id', mockUserId);
+      expect(mockEq2).toHaveBeenCalledWith('entity_id', itemId);
       expect(result).toEqual([mockTag]);
     });
   });
@@ -207,10 +207,10 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
     it('should link a tag to an item', async () => {
       const mockTagMap: TagMap = {
         id: 'map-1',
-        user_id: mockUserId,
-        item_id: 'habit-1',
+        owner_id: mockUserId, // 10R: was user_id
+        entity_id: 'habit-1', // 10R: was item_id
         tag_id: 'tag-1',
-        item_type: 'habit',
+        entity_type: 'habit', // 10R: was item_type
         created_at: '2025-10-19T00:00:00Z',
         updated_at: '2025-10-19T00:00:00Z',
       };
@@ -271,8 +271,8 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
 
       expect(mockFrom).toHaveBeenCalledWith('tag_map');
       expect(mockDelete).toHaveBeenCalled();
-      expect(mockEq1).toHaveBeenCalledWith('user_id', mockUserId);
-      expect(mockEq2).toHaveBeenCalledWith('item_id', 'habit-1');
+      expect(mockEq1).toHaveBeenCalledWith('owner_id', mockUserId);
+      expect(mockEq2).toHaveBeenCalledWith('entity_id', 'habit-1');
       expect(mockEq3).toHaveBeenCalledWith('tag_id', 'tag-1');
     });
   });

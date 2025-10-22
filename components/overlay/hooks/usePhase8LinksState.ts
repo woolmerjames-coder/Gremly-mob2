@@ -149,12 +149,13 @@ export function usePhase8LinksState(
         await loadPeople();
         return person as EntityPerson;
       } else {
-        // New item - add to pending
+        // 10R: New item - add to pending (uses owner_id, entity_id, entity_type, person_id)
         const tempPerson: EntityPerson = {
           id: `temp-${Date.now()}`,
-          user_id: userId,
-          item_id: '',
-          item_type: itemType || 'note',
+          owner_id: userId,
+          person_id: `temp-person-${Date.now()}`, // 10R: FK to people table
+          entity_id: '',
+          entity_type: itemType || 'note',
           person_name: personName,
           person_email: personEmail || null,
           created_at: new Date().toISOString(),

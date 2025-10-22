@@ -8,6 +8,7 @@ import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
+import { ListsScreen } from '../app/screens/ListsScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -19,6 +20,7 @@ export type RootStackParamList = {
   PersonDetail: { personName: string; personEmail?: string }; // Phase 8
   SpaceHome: { spaceId: string }; // Phase 8 Spaces v2
   ChatThread: { chatId: string }; // Phase 8 Spaces v2
+  Lists: undefined; // Phase 10.7 Lists UX
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
@@ -68,6 +70,15 @@ export default function RootNavigator() {
         component={ChatThreadScreen}
         options={{
           title: 'Chat',
+          headerShown: true,
+        }}
+      />
+      {/* Phase 10.7: Lists UX */}
+      <Stack.Screen
+        name="Lists"
+        component={ListsScreen}
+        options={{
+          title: 'Lists',
           headerShown: true,
         }}
       />
