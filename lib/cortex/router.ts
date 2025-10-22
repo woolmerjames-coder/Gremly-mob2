@@ -1,6 +1,7 @@
 // lib/cortex/router.ts
 import { Lane, CortexContextBase } from './lane';
 import { cortexDecide, type DecideInput, type CortexContext } from './cortexDecide';
+import { runClassificationPipeline, runConversationPipeline } from './pipelines';
 
 export type Pipeline = 'classification' | 'conversation' | 'system';
 
@@ -18,8 +19,8 @@ export function laneToPipeline(lane: Lane): Pipeline {
 
 /**
  * Stable router entry point.
- * For Step 2: delegate to existing cortexDecide so there is NO behavior change.
- * Later steps will branch logic per pipeline.
+ * Step 3: dispatch to specific pipeline modules.
+ * Behavior remains identical (all pipelines delegate to cortexDecide).
  */
 export async function cortexRoute(input: DecideInput, ctx: CortexContext) {
   const pipeline = laneToPipeline(ctx.lane ?? 'system');
@@ -35,7 +36,14 @@ export async function cortexRoute(input: DecideInput, ctx: CortexContext) {
     );
   }
 
-  // Step 2: No behavior change — still use existing cortexDecide.
-  // Later we will split: classification vs conversation handlers.
-  return cortexDecide(input, ctx);
+  switch (pipeline) {
+    case 'classification':
+      return runClassificationPipeline(input, ctx);
+    case 'conversation':
+      return runConversationPipeline(input, ctx);
+    case 'system':
+    default:
+      // keep parity; use cortexDecide for now
+      return cortexDecide(input, ctx);
+  }
 }
