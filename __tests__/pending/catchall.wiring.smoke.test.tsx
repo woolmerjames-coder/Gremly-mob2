@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import CatchAllNotepad, { THINKING_DURATION } from '../app/screens/CatchAllNotepad';
 import * as AuthProvider from '../providers/AuthProvider';
 import * as RepoProvider from '../providers/RepoProvider';
@@ -15,6 +16,20 @@ import * as cortexDecideModule from '../lib/cortex/cortexDecide';
 jest.mock('../providers/AuthProvider');
 jest.mock('../providers/RepoProvider');
 jest.mock('../lib/cortex/cortexDecide');
+
+// Helper to render with minimal SafeAreaProvider context
+const renderWithSafeArea = (component: React.ReactElement) => {
+  return render(
+    <SafeAreaProvider
+      initialMetrics={{
+        insets: { top: 0, left: 0, right: 0, bottom: 0 },
+        frame: { x: 0, y: 0, width: 0, height: 0 },
+      }}
+    >
+      {component}
+    </SafeAreaProvider>,
+  );
+};
 
 describe('Catch-All Wiring Smoke Test', () => {
   let mockRepo: any;
@@ -75,7 +90,7 @@ describe('Catch-All Wiring Smoke Test', () => {
         suggestions: ['Add to Work space', 'Create a todo'],
       });
 
-      const { getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
       // Switch to guided mode
       const guidedButton = getByTestId('ca-mode-guided');
@@ -154,7 +169,7 @@ describe('Catch-All Wiring Smoke Test', () => {
         suggestions: ['Make it a todo', 'File to Work space'],
       });
 
-      const { getByTestId, findByText } = render(<CatchAllNotepad />);
+      const { getByTestId, findByText } = renderWithSafeArea(<CatchAllNotepad />);
 
       // Switch to guided mode
       const guidedButton = getByTestId('ca-mode-guided');
@@ -200,7 +215,7 @@ describe('Catch-All Wiring Smoke Test', () => {
         suggestions: ['Move to Projects', 'Break into tasks'],
       });
 
-      const { getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
       const guidedButton = getByTestId('ca-mode-guided');
       fireEvent.press(guidedButton);
@@ -224,7 +239,7 @@ describe('Catch-All Wiring Smoke Test', () => {
 
   describe('Free mode (no Cortex)', () => {
     it('should save directly to catch-all without calling cortexDecide', async () => {
-      const { getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
       // Free mode is default
       const input = getByTestId('ca-note-input');
@@ -268,7 +283,7 @@ describe('Catch-All Wiring Smoke Test', () => {
         explanation: 'Created a todo for you',
       });
 
-      const { getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
       const guidedButton = getByTestId('ca-mode-guided');
       fireEvent.press(guidedButton);
@@ -304,7 +319,7 @@ describe('Catch-All Wiring Smoke Test', () => {
     it('should fall back to safe save when cortexDecide fails', async () => {
       mockCortexDecide.mockRejectedValue(new Error('Cortex unavailable'));
 
-      const { getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
       const guidedButton = getByTestId('ca-mode-guided');
       fireEvent.press(guidedButton);
@@ -334,7 +349,7 @@ describe('Catch-All Wiring Smoke Test', () => {
     });
 
     it('should handle empty input gracefully', async () => {
-      const { getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = renderWithSafeArea(<CatchAllNotepad />);
 
       const submitButton = getByTestId('ca-submit');
 
@@ -352,7 +367,7 @@ describe('Catch-All Wiring Smoke Test', () => {
         explanation: 'Saved',
       });
 
-      const { getByTestId, getByText } = render(<CatchAllNotepad />);
+      const { getByTestId, getByText } = renderWithSafeArea(<CatchAllNotepad />);
 
       const guidedButton = getByTestId('ca-mode-guided');
       fireEvent.press(guidedButton);
@@ -375,7 +390,7 @@ describe('Catch-All Wiring Smoke Test', () => {
     });
 
     it('should not show thinking in free mode', async () => {
-      const { getByTestId, queryByText } = render(<CatchAllNotepad />);
+      const { getByTestId, queryByText } = renderWithSafeArea(<CatchAllNotepad />);
 
       const input = getByTestId('ca-note-input');
       fireEvent.changeText(input, 'free mode test');
