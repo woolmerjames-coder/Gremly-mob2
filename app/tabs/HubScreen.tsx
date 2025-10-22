@@ -58,6 +58,7 @@ export default function HubScreen() {
   const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
   const [unsortedCount, setUnsortedCount] = useState(0);
+  const [globalUnsortedItems, setGlobalUnsortedItems] = useState<AppRecord[]>([]); // Store global unsorted for sheet
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [notesSubfilter, setNotesSubfilter] = useState<'all' | 'idea' | 'list' | 'reference'>(
@@ -193,8 +194,7 @@ export default function HubScreen() {
       }
 
       setUnsortedCount(globalUnsorted.length);
-
-      // Build scope options for listByType
+      setGlobalUnsortedItems(globalUnsorted); // Store for sheet      // Build scope options for listByType
       const scopeOpts =
         scope.type === 'unassigned'
           ? { unassignedOnly: true }
@@ -417,11 +417,12 @@ export default function HubScreen() {
   }, []);
 
   // Use unified selector for unsorted items (banner + sheet)
+  // For the in-page "Needs Sorting" section, we use the filtered view
   const unsortedForReview = useMemo(() => {
     const result = selectUnsortedForReview(items);
 
     if (__DEV__) {
-      console.log('[HubUnsorted] Sheet list calculation:', {
+      console.log('[HubUnsorted] In-page needs sorting calculation:', {
         currentTab: tab,
         currentScope: scope.type,
         totalItemsInView: items.length,
@@ -433,12 +434,19 @@ export default function HubScreen() {
     return result;
   }, [items, tab, scope, search, selectedTagIds]);
 
-  const unsortedItems = useMemo(
-    () => unsortedForReview.map(toUnsortedItem),
-    [unsortedForReview, toUnsortedItem],
-  );
+  // For the review sheet, use global unsorted items (all types, all scopes)
+  const unsortedItems = useMemo(() => {
+    const items = globalUnsortedItems.map(toUnsortedItem);
 
-  // Note: unsortedCount is now set globally in load() function
+    if (__DEV__) {
+      console.log('[HubUnsorted] Sheet items prepared:', {
+        totalGlobalUnsorted: globalUnsortedItems.length,
+        sheetItemsReady: items.length,
+      });
+    }
+
+    return items;
+  }, [globalUnsortedItems, toUnsortedItem]); // Note: unsortedCount is now set globally in load() function
   // This ensures the banner shows the total across all tabs, not just the current tab
 
   // Split into needs sorting and everything else
@@ -619,6 +627,8 @@ export default function HubScreen() {
                       currentScope: scope.type,
                     });
                   }
+                  // Refetch to ensure we have the latest unsorted items
+                  load();
                   setReviewSheetVisible(true);
                 }}
                 testID="unsorted-banner"
