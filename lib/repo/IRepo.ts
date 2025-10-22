@@ -239,15 +239,21 @@ export interface IRepo {
   listItems(listId: string): Promise<import('./types').ListItem[]>;
 
   /**
+   * Mark a list item complete/incomplete by setting/unsetting completed_at
+   */
+  toggleListItemComplete(listItemId: string, done: boolean): Promise<void>;
+
+  /**
+   * Rename an item (quick edit in UI)
+   */
+  renameListItem(listItemId: string, label: string): Promise<void>;
+
+  /**
    * Write an event to the log (non-blocking usage expected).
    * Used for cortex decisions, user overrides, etc.
    * Uses indexed lookup on (owner_id, kind, created_at desc) for queries.
    */
-  writeEvent(
-    kind: string,
-    payload: Record<string, any>,
-    opts?: { userId?: string },
-  ): Promise<void>;
+  writeEvent(kind: string, payload: Record<string, any>, opts?: { userId?: string }): Promise<void>;
 
   // Phase 10.4 - Space defaults for Cortex biasing
 

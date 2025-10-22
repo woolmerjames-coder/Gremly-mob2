@@ -29,7 +29,7 @@ import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
 import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 
-type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
+type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
 // Helper to condense long text into short titles
 export function suggestShortTitle(text: string, maxWords = 5): string {
@@ -66,6 +66,13 @@ export default function HubScreen() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [itemTags, setItemTags] = useState<Map<string, Tag[]>>(new Map());
+  const [listsData, setListsData] = useState<{
+    shopping: { incomplete: number; total: number };
+    packing: { incomplete: number; total: number };
+  }>({
+    shopping: { incomplete: 0, total: 0 },
+    packing: { incomplete: 0, total: 0 },
+  });
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
@@ -247,6 +254,40 @@ export default function HubScreen() {
         );
 
         setPeopleWithCounts(peopleWithCountsData);
+        setItems([]);
+        setLoading(false);
+        return;
+      } else if (tab === 'Lists') {
+        // Load lists data for shopping and packing
+        try {
+          const [shoppingList, packingList] = await Promise.all([
+            repo.getOrCreateList('shopping', { userId: undefined, spaceId: null }),
+            repo.getOrCreateList('packing', { userId: undefined, spaceId: null }),
+          ]);
+
+          const [shoppingItems, packingItems] = await Promise.all([
+            repo.listItems(shoppingList.id),
+            repo.listItems(packingList.id),
+          ]);
+
+          setListsData({
+            shopping: {
+              incomplete: shoppingItems.filter((item) => !item.completed_at).length,
+              total: shoppingItems.length,
+            },
+            packing: {
+              incomplete: packingItems.filter((item) => !item.completed_at).length,
+              total: packingItems.length,
+            },
+          });
+        } catch (error) {
+          console.error('[Hub] Failed to load lists data:', error);
+          setListsData({
+            shopping: { incomplete: 0, total: 0 },
+            packing: { incomplete: 0, total: 0 },
+          });
+        }
+
         setItems([]);
         setLoading(false);
         return;
@@ -566,8 +607,8 @@ export default function HubScreen() {
               />
             </View>
 
-            {/* Tag Filter Bar (only for non-People tabs) */}
-            {tab !== 'People' && (
+            {/* Tag Filter Bar (only for non-People/non-Lists tabs) */}
+            {tab !== 'People' && tab !== 'Lists' && (
               <TagFilterBar
                 tags={tags}
                 selectedTagIds={selectedTagIds}
@@ -655,6 +696,17 @@ export default function HubScreen() {
                 subtitle="Capture ideas, lists, and references."
               />
             )}
+            {tab === 'Lists' &&
+              !loading &&
+              !error &&
+              listsData.shopping.total === 0 &&
+              listsData.packing.total === 0 && (
+                <EmptyState
+                  testID="empty-lists"
+                  title="No Lists yet"
+                  subtitle="Create shopping and packing lists."
+                />
+              )}
             {tab === 'People' && people.length === 0 && !loading && !error && (
               <EmptyState
                 testID="empty-people"
@@ -683,7 +735,7 @@ export default function HubScreen() {
             )}
 
             {/* Section header for main list */}
-            {!isEmpty && !error && tab !== 'People' && (
+            {!isEmpty && !error && tab !== 'People' && tab !== 'Lists' && (
               <View style={styles.section}>
                 <Text style={typeStyles.h2}>{tab}</Text>
                 <Text style={[typeStyles.subtitle, { marginTop: 2 }]}>
@@ -706,9 +758,42 @@ export default function HubScreen() {
                 />
               </View>
             )}
+
+            {/* Lists tab content */}
+            {tab === 'Lists' && !loading && (
+              <View style={styles.section}>
+                <Text style={[typeStyles.h2, { marginBottom: spacing.md }]}>Lists</Text>
+
+                {/* Shopping List Card */}
+                <TouchableOpacity
+                  style={styles.listCard}
+                  onPress={() => navigation.navigate('Lists')}
+                  testID="shopping-list-card"
+                >
+                  <Text style={styles.listCardTitle}>🛒 Shopping</Text>
+                  <Text style={styles.listCardSubtitle}>
+                    {listsData.shopping.incomplete} items
+                    {listsData.shopping.total > 0 && ` • ${listsData.shopping.total} total`}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Packing List Card */}
+                <TouchableOpacity
+                  style={styles.listCard}
+                  onPress={() => navigation.navigate('Lists')}
+                  testID="packing-list-card"
+                >
+                  <Text style={styles.listCardTitle}>🎒 Packing</Text>
+                  <Text style={styles.listCardSubtitle}>
+                    {listsData.packing.incomplete} items
+                    {listsData.packing.total > 0 && ` • ${listsData.packing.total} total`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         }
-        data={tab === 'People' ? [] : allItems}
+        data={tab === 'People' || tab === 'Lists' ? [] : allItems}
         keyExtractor={(x) => x.id}
         renderItem={({ item }) => (
           <HubItemCard
@@ -719,7 +804,7 @@ export default function HubScreen() {
           />
         )}
         ListFooterComponent={
-          !isEmpty && !error && tab !== 'People' ? (
+          !isEmpty && !error && tab !== 'People' && tab !== 'Lists' ? (
             <TouchableOpacity
               style={styles.addBtn}
               onPress={() => {
@@ -886,5 +971,23 @@ const styles = StyleSheet.create({
   },
   pillTextActive: {
     color: colors.white,
+  },
+  listCard: {
+    marginTop: spacing.md,
+    padding: spacing.lg,
+    backgroundColor: colors.white,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    borderColor: colors.gray100,
+  },
+  listCardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.ink,
+    marginBottom: spacing.xs,
+  },
+  listCardSubtitle: {
+    fontSize: 14,
+    color: colors.gray600,
   },
 });

@@ -47,16 +47,8 @@ CREATE INDEX IF NOT EXISTS idx_tag_map_tag_id ON tag_map(tag_id);
 -- STEP 2: Create People Tables
 -- ============================================================================
 
--- People: user's personal contact list
-CREATE TABLE IF NOT EXISTS people (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  display_name text NOT NULL,
-  email text,
-  notes text,
-  created_at timestamp with time zone DEFAULT NOW(),
-  updated_at timestamp with time zone DEFAULT NOW()
-);
+-- People: user's personal contact list (table already exists, skip creation)
+-- CREATE TABLE IF NOT EXISTS people (already exists with different schema)
 
 -- Person-to-entity mapping: many-to-many relationship
 CREATE TABLE IF NOT EXISTS entity_people (
@@ -68,9 +60,9 @@ CREATE TABLE IF NOT EXISTS entity_people (
   PRIMARY KEY (person_id, entity_type, entity_id)
 );
 
--- Create indexes for people lookups
+-- Create indexes for people lookups (using 'name' column instead of 'display_name')
 CREATE INDEX IF NOT EXISTS idx_people_owner_id ON people(owner_id);
-CREATE INDEX IF NOT EXISTS idx_people_display_name ON people(owner_id, display_name);
+CREATE INDEX IF NOT EXISTS idx_people_name ON people(owner_id, name);
 CREATE INDEX IF NOT EXISTS idx_entity_people_entity ON entity_people(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_entity_people_owner ON entity_people(owner_id);
 CREATE INDEX IF NOT EXISTS idx_entity_people_person_id ON entity_people(person_id);

@@ -129,4 +129,40 @@ describe('MemoryRepo', () => {
     expect(undefinedTodos.length).toBeGreaterThan(0);
     expect(undefinedTodos.every((t) => t.undefined_due === true)).toBe(true);
   });
+
+  test('toggles list item completion status', async () => {
+    // Create a list first
+    const list = await repo.getOrCreateList('shopping', { userId: mockUserId, spaceId: null });
+
+    // Add an item to the list
+    const item = await repo.addListItem(list.id, 'Test item');
+    expect(item.completed_at).toBeFalsy(); // null or undefined
+
+    // Mark as complete
+    await repo.toggleListItemComplete(item.id, true);
+    const items = await repo.listItems(list.id);
+    const updatedItem = items.find((i) => i.id === item.id);
+    expect(updatedItem?.completed_at).toBeTruthy();
+
+    // Mark as incomplete
+    await repo.toggleListItemComplete(item.id, false);
+    const itemsAfterUncheck = await repo.listItems(list.id);
+    const uncheckedItem = itemsAfterUncheck.find((i) => i.id === item.id);
+    expect(uncheckedItem?.completed_at).toBeFalsy(); // null or undefined
+  });
+
+  test('renames list item', async () => {
+    // Create a list first
+    const list = await repo.getOrCreateList('packing', { userId: mockUserId, spaceId: null });
+
+    // Add an item to the list
+    const item = await repo.addListItem(list.id, 'Original name');
+    expect(item.label).toBe('Original name');
+
+    // Rename the item
+    await repo.renameListItem(item.id, 'New name');
+    const items = await repo.listItems(list.id);
+    const renamedItem = items.find((i) => i.id === item.id);
+    expect(renamedItem?.label).toBe('New name');
+  });
 });

@@ -760,6 +760,28 @@ export class MemoryRepo implements IRepo {
   }
 
   /**
+   * Mark a list item complete/incomplete by setting/unsetting completed_at
+   */
+  async toggleListItemComplete(listItemId: string, done: boolean): Promise<void> {
+    const item = this.listItemsStore.get(listItemId);
+    if (!item) throw new Error(`List item not found: ${listItemId}`);
+
+    item.completed_at = done ? nowIso() : null;
+    this.listItemsStore.set(listItemId, item);
+  }
+
+  /**
+   * Rename an item (quick edit in UI)
+   */
+  async renameListItem(listItemId: string, label: string): Promise<void> {
+    const item = this.listItemsStore.get(listItemId);
+    if (!item) throw new Error(`List item not found: ${listItemId}`);
+
+    item.label = label;
+    this.listItemsStore.set(listItemId, item);
+  }
+
+  /**
    * Write an event to the log.
    */
   async writeEvent(

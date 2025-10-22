@@ -81,6 +81,7 @@ export interface ListItem {
   qty?: number | null;
   unit?: string | null;
   meta_json?: Record<string, any> | null;
+  completed_at?: string | null;
   created_at?: string;
 }
 

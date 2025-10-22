@@ -1459,6 +1459,27 @@ export class SupabaseRepo implements IRepo {
   }
 
   /**
+   * Mark a list item complete/incomplete by setting/unsetting completed_at
+   */
+  async toggleListItemComplete(listItemId: string, done: boolean): Promise<void> {
+    const { error } = await supabase
+      .from('list_items')
+      .update({ completed_at: done ? new Date().toISOString() : null })
+      .eq('id', listItemId);
+
+    if (error) throw new Error(`Failed to toggle list item: ${error.message}`);
+  }
+
+  /**
+   * Rename an item (quick edit in UI)
+   */
+  async renameListItem(listItemId: string, label: string): Promise<void> {
+    const { error } = await supabase.from('list_items').update({ label }).eq('id', listItemId);
+
+    if (error) throw new Error(`Failed to rename list item: ${error.message}`);
+  }
+
+  /**
    * Write an event to the log (non-blocking usage expected).
    * Uses indexed lookup on (owner_id, kind, created_at desc).
    */
