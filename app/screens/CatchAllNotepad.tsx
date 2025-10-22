@@ -16,7 +16,7 @@ import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
-import { cortexDecide } from '../../lib/cortex/cortexDecide';
+import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import {
   explainAddedToList,
@@ -143,7 +143,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
             );
           }
 
-          const response = await cortexDecide({ text: trimmed }, ctx);
+          const response = await cortexRoute({ text: trimmed }, ctx);
 
           // Log event (non-blocking)
           repo

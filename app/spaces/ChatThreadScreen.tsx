@@ -24,7 +24,7 @@ import type { SpaceChat } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
-import { cortexDecide } from '../../lib/cortex/cortexDecide';
+import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
@@ -34,7 +34,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
 import { Mascot } from '../../components/mascot/Mascot';
-import TypingDots from '../../components/chat/TypingDots';
+
 import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 
@@ -149,7 +149,7 @@ export default function ChatThreadScreen({ route }: Props) {
             );
           }
 
-          const response = await cortexDecide({ text }, ctx);
+          const response = await cortexRoute({ text }, ctx);
 
           // Log event (non-blocking)
           repo
@@ -417,9 +417,7 @@ export default function ChatThreadScreen({ route }: Props) {
 
               {/* Typing indicator - Phase 10.6 */}
               {mascot.state === 'thinking' && (
-                <View style={styles.typingContainer}>
-                  <TypingDots visible={true} />
-                </View>
+                <View style={styles.typingContainer}>{/* TODO: Add TypingDots when ready */}</View>
               )}
             </>
           )}
