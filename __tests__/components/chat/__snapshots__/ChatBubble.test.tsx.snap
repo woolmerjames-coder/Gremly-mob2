@@ -1,0 +1,175 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`ChatBubble renders assistant message correctly 1`] = `
+<View
+  style={
+    [
+      {
+        "marginVertical": 4,
+        "paddingHorizontal": 16,
+      },
+      false,
+      {
+        "alignItems": "flex-start",
+      },
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 24,
+          "maxWidth": "85%",
+          "minWidth": 40,
+          "paddingHorizontal": 16,
+          "paddingVertical": 12,
+        },
+        false,
+        {
+          "backgroundColor": "#BFD8C0",
+        },
+      ]
+    }
+  >
+    <Text
+      style={
+        [
+          {
+            "color": "#0E1116",
+            "fontSize": 16,
+            "fontWeight": "400",
+            "lineHeight": 22.4,
+          },
+          [
+            {
+              "fontSize": 16,
+              "lineHeight": 22,
+            },
+            false,
+            {
+              "color": "#222222",
+            },
+          ],
+        ]
+      }
+    >
+      Hi there! This is an assistant response with some longer text to test the bubble styling.
+    </Text>
+  </View>
+</View>
+`;
+
+exports[`ChatBubble renders system message correctly 1`] = `
+<View
+  style={
+    [
+      {
+        "marginVertical": 4,
+        "paddingHorizontal": 16,
+      },
+      false,
+      false,
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 24,
+          "maxWidth": "85%",
+          "minWidth": 40,
+          "paddingHorizontal": 16,
+          "paddingVertical": 12,
+        },
+        false,
+        false,
+      ]
+    }
+  >
+    <Text
+      style={
+        [
+          {
+            "color": "#0E1116",
+            "fontSize": 16,
+            "fontWeight": "400",
+            "lineHeight": 22.4,
+          },
+          [
+            {
+              "fontSize": 16,
+              "lineHeight": 22,
+            },
+            false,
+            false,
+          ],
+        ]
+      }
+    >
+      System notification message
+    </Text>
+  </View>
+</View>
+`;
+
+exports[`ChatBubble renders user message correctly 1`] = `
+<View
+  style={
+    [
+      {
+        "marginVertical": 4,
+        "paddingHorizontal": 16,
+      },
+      {
+        "alignItems": "flex-end",
+      },
+      false,
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 24,
+          "maxWidth": "85%",
+          "minWidth": 40,
+          "paddingHorizontal": 16,
+          "paddingVertical": 12,
+        },
+        {
+          "backgroundColor": "#2E5540",
+        },
+        false,
+      ]
+    }
+  >
+    <Text
+      style={
+        [
+          {
+            "color": "#0E1116",
+            "fontSize": 16,
+            "fontWeight": "400",
+            "lineHeight": 22.4,
+          },
+          [
+            {
+              "fontSize": 16,
+              "lineHeight": 22,
+            },
+            {
+              "color": "#F9F6F1",
+            },
+            false,
+          ],
+        ]
+      }
+    >
+      Hello, this is a user message!
+    </Text>
+  </View>
+</View>
+`;
