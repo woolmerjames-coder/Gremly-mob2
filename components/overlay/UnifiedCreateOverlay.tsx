@@ -111,11 +111,6 @@ export function UnifiedCreateOverlay({
     }
   }, [visible, useUnifiedOverlay, aiDisabled, mode]);
 
-  // Render log for debugging (only in dev, less noisy)
-  if ((__DEV__ || process.env.NODE_ENV === 'test') && visible && !openedRef.current) {
-    console.log('[Overlay] render', { mode });
-  }
-
   // State - with robust defaults
   const [selectedType, setSelectedType] = useState<EntityType | null>(null);
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
@@ -201,6 +196,19 @@ export function UnifiedCreateOverlay({
     mode === 'edit' ? initialEntity?.id || null : null,
     getItemType(),
   );
+
+  // Debug logging for state
+  if (__DEV__ && visible) {
+    console.log('[UnifiedOverlay] Render state:', {
+      mode,
+      selectedType,
+      hydration,
+      aiMode,
+      hasInitialEntity: !!initialEntity,
+      initialEntityType: initialEntity?.type,
+      initialEntityId: initialEntity?.id,
+    });
+  }
 
   // Validation logic
   const getValidationState = (): { isValid: boolean; hint: string | null } => {
@@ -364,20 +372,38 @@ export function UnifiedCreateOverlay({
       return;
     }
 
+    if (__DEV__) {
+      console.log('[UnifiedOverlay] Init effect:', {
+        mode,
+        initialEntityType: initialEntity?.type,
+        initialEntityId: initialEntity?.id,
+        visible,
+      });
+    }
+
     if (mode === 'edit' && initialEntity && initialEntity.type) {
       // Set type immediately so skeleton can render
       setSelectedType(initialEntity.type);
       setAiMode(false); // No AI mode in edit
 
+      if (__DEV__) {
+        console.log('[UnifiedOverlay] Setting type for edit:', initialEntity.type);
+      }
+
       // Load entity data
       if (initialEntity.id) {
         loadEntity(initialEntity.id, initialEntity.type);
+      } else {
+        setHydration('ready'); // No ID means ready immediately
       }
     } else if (mode === 'create') {
       // Create mode - immediately ready
       setHydration('ready');
       if (initialEntity?.type) {
         setSelectedType(initialEntity.type);
+        if (__DEV__) {
+          console.log('[UnifiedOverlay] Setting type for create:', initialEntity.type);
+        }
       }
     }
   }, [visible, mode, initialEntity, loadEntity]);
@@ -1258,7 +1284,7 @@ export function UnifiedCreateOverlay({
                       selected={isSelected}
                       onPress={() => handleTypeSelect(opt.value as any)}
                       testID={`type-pill-${opt.value}`}
-                      disabled={mode === 'edit'}
+                      disabled={false} // Allow type switching in both create and edit modes
                       style={{ ...styles.typeChip, ...chipStyle }}
                       textStyle={chipTextStyle}
                       leadingIcon={<Icon name={opt.iconName as any} size="xs" color={iconColor} />}

@@ -58,6 +58,7 @@ export default function HubScreen() {
   const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
   const [unsortedCount, setUnsortedCount] = useState(0);
+  const [globalUnsortedItems, setGlobalUnsortedItems] = useState<AppRecord[]>([]); // Store global unsorted for sheet
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [notesSubfilter, setNotesSubfilter] = useState<'all' | 'idea' | 'list' | 'reference'>(
@@ -177,9 +178,23 @@ export default function HubScreen() {
       ]);
       const allItemsForUnsorted = [...allHabits, ...allTodos, ...allNotes] as AppRecord[];
       const globalUnsorted = selectUnsortedForReview(allItemsForUnsorted);
-      setUnsortedCount(globalUnsorted.length);
 
-      // Build scope options for listByType
+      if (__DEV__) {
+        console.log('[HubUnsorted] Global count calculation:', {
+          totalItems: allItemsForUnsorted.length,
+          unsortedCount: globalUnsorted.length,
+          byType: {
+            habits: allHabits.length,
+            todos: allTodos.length,
+            notes: allNotes.length,
+          },
+          scope: 'all',
+          filters: 'none (global count)',
+        });
+      }
+
+      setUnsortedCount(globalUnsorted.length);
+      setGlobalUnsortedItems(globalUnsorted); // Store for sheet      // Build scope options for listByType
       const scopeOpts =
         scope.type === 'unassigned'
           ? { unassignedOnly: true }
@@ -402,14 +417,36 @@ export default function HubScreen() {
   }, []);
 
   // Use unified selector for unsorted items (banner + sheet)
-  const unsortedForReview = useMemo(() => selectUnsortedForReview(items), [items]);
+  // For the in-page "Needs Sorting" section, we use the filtered view
+  const unsortedForReview = useMemo(() => {
+    const result = selectUnsortedForReview(items);
 
-  const unsortedItems = useMemo(
-    () => unsortedForReview.map(toUnsortedItem),
-    [unsortedForReview, toUnsortedItem],
-  );
+    if (__DEV__) {
+      console.log('[HubUnsorted] In-page needs sorting calculation:', {
+        currentTab: tab,
+        currentScope: scope.type,
+        totalItemsInView: items.length,
+        unsortedInView: result.length,
+        filters: { tab, scope: scope.type, search, selectedTagIds },
+      });
+    }
 
-  // Note: unsortedCount is now set globally in load() function
+    return result;
+  }, [items, tab, scope, search, selectedTagIds]);
+
+  // For the review sheet, use global unsorted items (all types, all scopes)
+  const unsortedItems = useMemo(() => {
+    const items = globalUnsortedItems.map(toUnsortedItem);
+
+    if (__DEV__) {
+      console.log('[HubUnsorted] Sheet items prepared:', {
+        totalGlobalUnsorted: globalUnsortedItems.length,
+        sheetItemsReady: items.length,
+      });
+    }
+
+    return items;
+  }, [globalUnsortedItems, toUnsortedItem]); // Note: unsortedCount is now set globally in load() function
   // This ensures the banner shows the total across all tabs, not just the current tab
 
   // Split into needs sorting and everything else
@@ -581,7 +618,19 @@ export default function HubScreen() {
             {unsortedCount > 0 && !bannerDismissed && (
               <TouchableOpacity
                 style={styles.unsortedBanner}
-                onPress={() => setReviewSheetVisible(true)}
+                onPress={() => {
+                  if (__DEV__) {
+                    console.log('[HubUnsorted] Opening sheet:', {
+                      bannerCount: unsortedCount,
+                      sheetItemsAvailable: unsortedItems.length,
+                      currentTab: tab,
+                      currentScope: scope.type,
+                    });
+                  }
+                  // Refetch to ensure we have the latest unsorted items
+                  load();
+                  setReviewSheetVisible(true);
+                }}
                 testID="unsorted-banner"
               >
                 <View style={styles.bannerContent}>
