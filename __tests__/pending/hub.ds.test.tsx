@@ -85,7 +85,7 @@ const mockRepo = {
 };
 
 // Mock the repo to return controlled test data
-jest.mock('../providers/RepoProvider', () => ({
+jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 

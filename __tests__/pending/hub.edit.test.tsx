@@ -7,10 +7,10 @@
 
 import React from 'react';
 import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
-import HubScreen from '../app/tabs/HubScreen';
+import HubScreen from '../../app/tabs/HubScreen';
 
 // Mock the auth provider to return an authenticated user
-jest.mock('../providers/AuthProvider', () => ({
+jest.mock('../../providers/AuthProvider', () => ({
   useAuth: () => ({
     user: { id: 'test-user-id', email: 'test@example.com' },
     userId: 'test-user-id',
@@ -80,7 +80,7 @@ const mockRepo = {
 };
 
 // Mock the repo to return controlled test data
-jest.mock('../providers/RepoProvider', () => ({
+jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
