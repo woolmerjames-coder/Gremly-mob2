@@ -323,7 +323,12 @@ describe('useTodayData', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.error).toBe('Network error');
+    // Soft fallback - no error shown to user, just logs warning
+    // UI remains usable with safe defaults
+    expect(result.current.error).toBeNull();
+    expect(result.current.header.subline).toBe('Unable to load data');
+    expect(result.current.habits).toEqual([]);
+    expect(result.current.todos).toEqual([]);
   });
 
   it('should handle unauthenticated user', async () => {
@@ -335,7 +340,10 @@ describe('useTodayData', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.error).toBe('Please sign in to view your items');
+    // No error - just returns empty data gracefully
+    expect(result.current.error).toBeNull();
+    expect(result.current.habits).toEqual([]);
+    expect(result.current.todos).toEqual([]);
     expect(mockRepo.listDueToday).not.toHaveBeenCalled();
   });
 

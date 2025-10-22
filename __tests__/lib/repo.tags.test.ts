@@ -111,7 +111,7 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
       const result = await repo.upsertTag('Work');
 
       expect(mockFrom).toHaveBeenCalledWith('tags');
-      expect(mockInsert).toHaveBeenCalledWith({ user_id: mockUserId, name: 'Work' });
+      expect(mockInsert).toHaveBeenCalledWith({ owner_id: mockUserId, name: 'Work' });
       expect(result).toEqual(newTag);
     });
 
@@ -238,10 +238,10 @@ describe('SupabaseRepo - Tags (Phase 8)', () => {
 
       expect(mockFrom).toHaveBeenCalledWith('tag_map');
       expect(mockInsert).toHaveBeenCalledWith({
-        user_id: mockUserId,
-        item_id: 'habit-1',
+        owner_id: mockUserId,
+        entity_id: 'habit-1',
         tag_id: 'tag-1',
-        item_type: 'habit',
+        entity_type: 'habit',
       });
       expect(result).toEqual(mockTagMap);
     });

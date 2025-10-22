@@ -53,3 +53,7 @@ _archive/
 supabase/.temp/
 supabase/.branches/
 supabase/seed.sql
+
+# Diagnostics
+supa_diag/
+supa_diag_bundle.zip

@@ -30,6 +30,13 @@ const raw = {
   CORTEX_RATE_MAX: process.env.EXPO_PUBLIC_CORTEX_RATE_MAX,
   DEBUG_CORTEX: process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'off',
 
+  // Optimistic UX settings (Phase 10)
+  CORTEX_OPTIMISTIC: process.env.EXPO_PUBLIC_CORTEX_OPTIMISTIC ?? 'on',
+  CORTEX_BG_TIMEOUT_MS: process.env.EXPO_PUBLIC_CORTEX_BG_TIMEOUT_MS,
+  CORTEX_BG_RETRIES: process.env.EXPO_PUBLIC_CORTEX_BG_RETRIES,
+  CORTEX_MIN_THINK_MS: process.env.EXPO_PUBLIC_CORTEX_MIN_THINK_MS,
+  CORTEX_MAX_THINK_MS: process.env.EXPO_PUBLIC_CORTEX_MAX_THINK_MS,
+
   OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
 };
 
@@ -110,6 +117,12 @@ export const env = {
       max: raw.CORTEX_RATE_MAX ? Number(raw.CORTEX_RATE_MAX) : 5,
     },
     debug: flag(raw.DEBUG_CORTEX),
+    // Optimistic UX settings
+    optimistic: flag(raw.CORTEX_OPTIMISTIC),
+    bgTimeoutMs: raw.CORTEX_BG_TIMEOUT_MS ? Number(raw.CORTEX_BG_TIMEOUT_MS) : 5000,
+    bgRetries: raw.CORTEX_BG_RETRIES ? Number(raw.CORTEX_BG_RETRIES) : 2,
+    minThinkMs: raw.CORTEX_MIN_THINK_MS ? Number(raw.CORTEX_MIN_THINK_MS) : 1000,
+    maxThinkMs: raw.CORTEX_MAX_THINK_MS ? Number(raw.CORTEX_MAX_THINK_MS) : 1500,
   },
 
   // API keys
@@ -119,3 +132,15 @@ export const env = {
 // Type exports for convenience
 export type RepoBackend = typeof env.repoBackend;
 export type TimeWindow = 'morning' | 'midday' | 'evening';
+
+export const getEnv = (key: string): string | undefined => {
+  const value = process.env[key as keyof NodeJS.ProcessEnv];
+  return typeof value === 'string' ? value : undefined;
+};
+
+// Helper functions for optimistic UX settings
+export const getOptimisticFlag = (): boolean => env.cortex.optimistic;
+export const getBgTimeoutMs = (): number => env.cortex.bgTimeoutMs;
+export const getBgRetries = (): number => env.cortex.bgRetries;
+export const getMinThinkMs = (): number => env.cortex.minThinkMs;
+export const getMaxThinkMs = (): number => env.cortex.maxThinkMs;

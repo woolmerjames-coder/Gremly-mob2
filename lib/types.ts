@@ -35,7 +35,7 @@ export interface Habit {
 
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)
-  reminders?: any[]; // ReminderRow[] JSON
+  reminders?: any[] | null; // ReminderRow[] JSON (nullable in DB)
   notes?: string | null;
   tags?: string[] | null;
   buddy_id?: ID | null;

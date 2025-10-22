@@ -90,7 +90,7 @@ describe.skip('Catch-All Notepad (Phase 7)', () => {
           type: 'note',
           subtype: 'catchall',
           body: 'Free form entry',
-          title: '',
+          title: 'Free form entry',
           origin: 'catchall',
           ai_placed: false, // Phase 7: Direct save, not AI-placed
           why_string: 'Saved from Catch-All Notepad',
@@ -127,7 +127,7 @@ describe.skip('Catch-All Notepad (Phase 7)', () => {
           type: 'note',
           subtype: 'catchall',
           body: 'Testing catch-all note',
-          title: '',
+          title: 'Testing catch-all note',
           ai_placed: false, // Phase 7: saved directly, not AI-classified
           origin: 'catchall',
           why_string: 'Saved from Catch-All Notepad',

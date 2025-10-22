@@ -10,7 +10,9 @@ describe('CortexClient', () => {
     env.cortexUrl = 'https://example.com/proxy';
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ ok: true, data: { id: 'x' } }),
+      status: 200,
+      text: async () => JSON.stringify({ id: 'test-id', content: 'test response' }),
+      json: async () => ({ id: 'test-id', content: 'test response' }),
     }) as any;
   });
 
@@ -23,11 +25,17 @@ describe('CortexClient', () => {
 
   it('posts chat payload and returns data', async () => {
     const res = await callChat([{ role: 'user', content: 'hi' }]);
-    expect(res).toEqual({ id: 'x' });
+    expect(res).toEqual({
+      ok: true,
+      data: { id: 'test-id', content: 'test response', model: undefined, usage: undefined },
+    });
   });
 
   it('posts complete payload and returns data', async () => {
     const res = await callComplete('say hi');
-    expect(res).toEqual({ id: 'x' });
+    expect(res).toEqual({
+      ok: true,
+      data: { id: 'test-id', content: 'test response', model: undefined, usage: undefined },
+    });
   });
 });

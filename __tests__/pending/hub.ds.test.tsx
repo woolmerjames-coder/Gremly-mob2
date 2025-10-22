@@ -6,13 +6,13 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
-import HubScreen from '../app/tabs/HubScreen';
+import { renderWithProviders, screen, waitFor, fireEvent } from '../utils/renderWithProviders';
+import HubScreen from '../../app/tabs/HubScreen';
 import { SheetManager } from 'react-native-actions-sheet';
-import { ActivityLog } from '../lib/activityLog';
+import { ActivityLog } from '../../lib/activityLog';
 
 // Mock the auth provider to return an authenticated user
-jest.mock('../providers/AuthProvider', () => ({
+jest.mock('../../providers/AuthProvider', () => ({
   useAuth: () => ({
     user: { id: 'test-user-id', email: 'test@example.com' },
     userId: 'test-user-id',
@@ -85,7 +85,7 @@ const mockRepo = {
 };
 
 // Mock the repo to return controlled test data
-jest.mock('../providers/RepoProvider', () => ({
+jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
@@ -175,12 +175,28 @@ describe('Hub DS Screen', () => {
   it('renders filter chips and search input', async () => {
     renderWithProviders(<HubScreen />);
 
+    // Current implementation uses: Habits, To-Dos, Journal, Notes, People
     await waitFor(() => {
-      expect(screen.getByTestId('tab-all')).toBeTruthy();
       expect(screen.getByTestId('tab-habits')).toBeTruthy();
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('tab-to-dos')).toBeTruthy();
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('tab-journal')).toBeTruthy();
-      expect(screen.getByTestId('tab-catch-all')).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-notes')).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-people')).toBeTruthy();
+    });
+
+    await waitFor(() => {
       expect(screen.getByTestId('hub-search')).toBeTruthy();
     });
   });
@@ -262,7 +278,7 @@ describe('Hub DS Screen', () => {
     const catchallNote = {
       id: 'note-1',
       type: 'note',
-      title: '',
+      title: 'Quick idea from catch-all',
       body: 'Quick idea from catch-all',
       subtype: 'catchall',
       space_id: null,

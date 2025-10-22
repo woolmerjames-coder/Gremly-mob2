@@ -19,14 +19,45 @@ import type {
   ListByTypeOptions,
 } from './IRepo';
 import { supabase } from '../supabase/client';
+import {
+  logSupabaseError,
+  getUserFriendlyErrorMessage,
+  type TodoInsert,
+  type NoteInsert,
+  type HabitInsert,
+  type TodoRow,
+  type NoteRow,
+  type HabitRow,
+  type SpaceInsert as DBSpaceInsert,
+  type PersonInsert as DBPersonInsert,
+  type TagInsert as DBTagInsert,
+  type TagMapInsert as DBTagMapInsert,
+  type EntityPeopleInsert as DBEntityPeopleInsert,
+} from '../supabase/mappers';
 
 /**
  * Supabase repository implementation.
  * Maps AppRecord types to Supabase tables and handles CRUD operations.
  *
+ * SOURCE OF TRUTH: Live Supabase database schema
+ * - TODOS: Use 'name' field (NOT 'title'), owner_id (NOT user_id)
+ * - NOTES: Use 'title' field (NOT 'name'), owner_id
+ * - HABITS: Use both 'name' AND 'title' fields, owner_id
+ *
  * Uses Insert schemas for create operations (excludes id, owner_id, timestamps)
  * Uses Row schemas for validating data returned from database
  */
+
+// DEPRECATED: Use logSupabaseError from mappers instead
+function logSbError(ctx: string, error: any) {
+  if (!error) return;
+  console.error(`[SupabaseRepo] ${ctx} error`, {
+    message: error.message ?? String(error),
+    code: error.code,
+    details: error.details,
+    hint: error.hint,
+  });
+}
 
 // Helper to remove undefined values from objects
 function compact<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
@@ -37,6 +68,30 @@ function compact<T extends Record<string, unknown>>(obj: T): Record<string, unkn
     }
   }
   return copy as T;
+}
+
+// Helper to remove null and undefined values (prevents schema cache errors)
+function stripNulls<T extends Record<string, any>>(obj: T) {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== null && v !== undefined),
+  ) as T;
+}
+
+/**
+ * DEPRECATED: This helper is NO LONGER USED.
+ *
+ * Database schema truth (from generated types):
+ * - TODOS: Use 'name' only (no 'title' field in DB)
+ * - NOTES: Use 'title' only (no 'name' field in DB)
+ * - HABITS: Use both 'name' AND 'title' (both fields in DB)
+ *
+ * DO NOT apply withNameTitle to todos or notes - causes PGRST204 errors!
+ */
+function withNameTitle<T extends Record<string, any>>(obj: T): T {
+  // Ensure DBs that expect `name` or `title` don't get null; prefer provided fields in this order.
+  const name = (obj as any).name ?? (obj as any).title ?? (obj as any).body ?? '';
+  const title = (obj as any).title ?? (obj as any).name ?? '';
+  return { ...obj, name, title } as T;
 }
 
 // Map record type to Supabase table name
@@ -52,11 +107,14 @@ const tableFor = (type: AppRecord['type']): string => {
 };
 
 // Helper to map database habit columns to TypeScript fields
-// Database has: frequency_json, reminders_json, triggers_json (jsonb columns)
-// TypeScript has: frequency_value, reminders, triggers (fields)
+// Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
+// TypeScript has: name, frequency_value, reminders, triggers (fields)
+// Schema truth: habits table has BOTH name AND title columns
 function mapHabitFromDb(dbRecord: any): any {
   return {
     ...dbRecord,
+    // Database has both 'name' and 'title' - keep name as primary
+    name: dbRecord.name || dbRecord.title,
     // Map jsonb columns to TS fields
     frequency_value: dbRecord.frequency_json,
     reminders: dbRecord.reminders_json,
@@ -66,11 +124,18 @@ function mapHabitFromDb(dbRecord: any): any {
 
 /**
  * Map database todo columns to TypeScript Todo type
+ * Database schema truth (from generated types):
+ * - name (string, required) - PRIMARY field for todos
+ * - NO 'title' column in todos table
  * - reminders_json (jsonb) -> reminders (ReminderRow[])
+ * - owner_id (string) - RLS key
  */
 function mapTodoFromDb(dbRecord: any): any {
   return {
     ...dbRecord,
+    // Map database 'name' to both name and title for backwards compatibility
+    name: dbRecord.name,
+    title: dbRecord.name, // Backwards compatibility in app code
     // Map jsonb column to TS field
     reminders: dbRecord.reminders_json,
   };
@@ -123,12 +188,17 @@ export class SupabaseRepo implements IRepo {
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
       if (!input.subtype) throw new Error('Habit requires subtype');
+
+      // Database schema truth: habits table has BOTH 'name' AND 'title' columns (both required)
+      const habitName = input.name ?? input.title ?? 'Untitled';
+
       // Build minimal payload with Insert schema validation
       // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: input.name ?? input.title, // Support both name and title for transition
+          name: habitName, // Required - database column
+          title: habitName, // Required - database column (habits have both)
           frequency: input.frequency,
           subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
@@ -161,15 +231,14 @@ export class SupabaseRepo implements IRepo {
         console.log('[SupabaseRepo.create] habit payload:', JSON.stringify(payload, null, 2));
       }
     } else if (input.type === 'todo') {
-      // Phase 7+: name is the primary required field
+      // Database schema truth: todos table has 'name' column (NO 'title' column)
       if (!input.name) throw new Error('Todo requires name');
 
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: input.name, // Primary field
-          title: input.title ?? null, // Backwards compatibility
+          name: input.name, // Required - PRIMARY field for todos (NO 'title' in DB)
           body: input.body ?? null,
           due_date: input.due_date ?? null,
           due_time: input.due_time ?? null, // Phase 7+: HH:mm format
@@ -193,12 +262,15 @@ export class SupabaseRepo implements IRepo {
       }
     } else {
       // note
+      // Database schema truth: notes table has 'title' column (NO 'name' column)
       if (!input.subtype) throw new Error('Note requires subtype');
+      if (!input.title) throw new Error('Note requires title');
+
       // Build minimal payload with Insert schema validation
       payload = noteInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          title: input.title ?? null,
+          title: input.title, // Required - PRIMARY field for notes (NO 'name' in DB)
           body: input.body ?? null,
           subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
@@ -207,8 +279,8 @@ export class SupabaseRepo implements IRepo {
           canonicalType: input.canonicalType ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? undefined,
-          // Journal-specific fields (Phase 7+) - only used when subtype='journal'
-          date: input.date ?? null,
+          // Journal-specific fields (from generated schema - notes table has these)
+          date: input.date ?? null, // ISO date
           mood: input.mood ?? null,
           fmt: input.fmt ?? null,
           reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
@@ -230,18 +302,50 @@ export class SupabaseRepo implements IRepo {
       );
     }
 
-    // Database will auto-generate: id (uuid), owner_id (from RLS), created_at, updated_at
-    const { data: result, error } = await supabase.from(table).insert(payload).select().single();
+    // Strip null values from payload
+    // DO NOT use withNameTitle() - causes PGRST204 errors for todos/notes
+    // Database schema (from generated types):
+    //   - TODOS: Use 'name' only
+    //   - NOTES: Use 'title' only
+    //   - HABITS: Use both 'name' AND 'title'
+    const cleanPayload = stripNulls(payload);
+
+    // Attach owner_id to ensure RLS policies work
+    // Note: owner_id is the PRIMARY key for RLS, user_id is legacy/deprecated
+    const payloadWithOwnerId = {
+      ...cleanPayload,
+      owner_id: this.ensureUserId(),
+    };
+
+    if (__DEV__) {
+      console.log(
+        `[SupabaseRepo.create] Final ${input.type} payload:`,
+        JSON.stringify(payloadWithOwnerId, null, 2),
+      );
+    }
+
+    // Database will auto-generate: id (uuid), created_at, updated_at
+    const { data: result, error } = await supabase
+      .from(table)
+      .insert(payloadWithOwnerId)
+      .select()
+      .single();
 
     if (error) {
+      logSupabaseError(
+        `${input.type}.insert`,
+        error,
+        payloadWithOwnerId,
+        this.currentUserId ?? undefined,
+      );
       if (__DEV__) {
-        console.error(`[SupabaseRepo.create] Error creating ${input.type}:`, error);
         console.error(
           `[SupabaseRepo.create] Payload that failed:`,
-          JSON.stringify(payload, null, 2),
+          JSON.stringify(payloadWithOwnerId, null, 2),
         );
       }
-      throw new Error(`Failed to create ${input.type}: ${error.message}`);
+      const friendlyMsg = getUserFriendlyErrorMessage(error);
+      throw new Error(`Failed to create ${input.type}: ${friendlyMsg}`);
     }
     if (!result) throw new Error(`No data returned from create ${input.type}`);
 
@@ -307,7 +411,10 @@ export class SupabaseRepo implements IRepo {
       .select()
       .single();
 
-    if (error) throw new Error(`Failed to update record: ${error.message}`);
+    if (error) {
+      logSbError(`${existing.type}.update`, error);
+      throw new Error(`Failed to update record: ${error.message}`);
+    }
     if (!result) throw new Error('No data returned from update');
 
     const record = { ...result, type: existing.type };
@@ -326,7 +433,10 @@ export class SupabaseRepo implements IRepo {
     const table = tableFor(existing.type);
     const { error } = await supabase.from(table).delete().eq('id', id);
 
-    if (error) throw new Error(`Failed to delete record: ${error.message}`);
+    if (error) {
+      logSbError(`${existing.type}.delete`, error);
+      throw new Error(`Failed to delete record: ${error.message}`);
+    }
   }
 
   async getById(id: ID): Promise<AppRecord | null> {
@@ -580,7 +690,17 @@ export class SupabaseRepo implements IRepo {
       .gte('completed_at', `${today}T00:00:00`)
       .lt('completed_at', `${today}T23:59:59`);
 
-    if (todoError) throw new Error(`Failed to count completed todos: ${todoError.message}`);
+    if (todoError) {
+      if (__DEV__) {
+        console.warn('[SupabaseRepo.countCompletedToday] todos count error', {
+          code: (todoError as any)?.code,
+          details: (todoError as any)?.details,
+          hint: (todoError as any)?.hint,
+          message: todoError.message,
+        });
+      }
+      throw new Error(`Failed to count completed todos: ${todoError.message}`);
+    }
 
     // TODO: Add habit completions when we have a completion tracking table
     return todoCount || 0;
@@ -675,21 +795,25 @@ export class SupabaseRepo implements IRepo {
   }
 
   async createSpace(input: SpaceInsert): Promise<Space> {
-    this.ensureUserId();
+    const userId = this.ensureUserId();
 
     // Validate input
     const payload = spaceInsertSchema.parse(input);
 
-    // Build insert payload
-    const insertData = compact({
+    // Build insert payload with owner_id (DB truth from generated types)
+    const insertData: DBSpaceInsert = {
       name: payload.name,
-      icon: payload.icon ?? null,
+      icon: payload.icon ?? undefined,
       theme: payload.theme ?? 'deepTeal',
-    });
+      owner_id: userId,
+    };
 
     const { data, error } = await supabase.from('spaces').insert(insertData).select().single();
 
-    if (error) throw new Error(`Failed to create space: ${error.message}`);
+    if (error) {
+      logSupabaseError('spaces.insert', error, insertData, userId);
+      throw new Error(`Failed to create space: ${error.message} (code: ${error.code})`);
+    }
     if (!data) throw new Error('No data returned from create space');
 
     return data as Space;
@@ -842,21 +966,27 @@ export class SupabaseRepo implements IRepo {
     space_id?: string | null;
     tags?: string[] | null;
   }): Promise<Person> {
-    const payload = personInsertSchema.parse({
+    const userId = this.ensureUserId();
+
+    // Build insert payload with owner_id (DB truth from generated types)
+    const insertPayload: DBPersonInsert = {
+      owner_id: userId,
       display_name: input.display_name,
-      name: input.display_name, // Deprecated field
-      email: input.email,
-      dates_json: input.dates,
-      notes: input.notes,
-      notes_fmt: input.notes_fmt,
-      reminders_json: input.reminders,
-      space_id: input.space_id,
-      tags: input.tags,
-    });
+      email: input.email ?? undefined,
+      dates_json: input.dates ?? undefined,
+      notes: input.notes ?? undefined,
+      notes_fmt: input.notes_fmt ?? undefined,
+      reminders_json: input.reminders ?? undefined,
+      space_id: input.space_id ?? undefined,
+      tags: input.tags ?? undefined,
+    };
 
-    const { data, error } = await supabase.from('people').insert(payload).select().single();
+    const { data, error } = await supabase.from('people').insert(insertPayload).select().single();
 
-    if (error) throw error;
+    if (error) {
+      logSupabaseError('people.insert', error, insertPayload, userId);
+      throw new Error(`Failed to create person: ${error.message} (code: ${error.code})`);
+    }
     if (!data) throw new Error('Failed to create person');
 
     return this.mapPersonFromDb(data);
@@ -958,10 +1088,16 @@ export class SupabaseRepo implements IRepo {
   async upsertTag(name: string): Promise<import('./types').Tag> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // Build insert payload with owner_id (DB truth from generated types)
+    const insertPayload: DBTagInsert = {
+      owner_id: this.currentUserId,
+      name,
+    };
+
     // Try to insert
     const { data: insertData, error: insertError } = await supabase
       .from('tags')
-      .insert({ user_id: this.currentUserId, name })
+      .insert(insertPayload)
       .select()
       .single();
 
@@ -1016,16 +1152,15 @@ export class SupabaseRepo implements IRepo {
   }): Promise<import('./types').TagMap> {
     if (!this.currentUserId) throw new Error('User ID required');
 
-    const { data, error } = await supabase
-      .from('tag_map')
-      .insert({
-        user_id: this.currentUserId,
-        item_id: params.itemId,
-        tag_id: params.tagId,
-        item_type: params.itemType,
-      })
-      .select()
-      .single();
+    // Build insert payload with owner_id (DB truth from generated types)
+    const insertPayload: DBTagMapInsert = {
+      owner_id: this.currentUserId,
+      entity_id: params.itemId,
+      entity_type: params.itemType,
+      tag_id: params.tagId,
+    };
+
+    const { data, error } = await supabase.from('tag_map').insert(insertPayload).select().single();
 
     if (error) throw new Error(`Failed to link tag: ${error.message}`);
     if (!data) throw new Error('Failed to link tag: no data returned');
@@ -1067,24 +1202,35 @@ export class SupabaseRepo implements IRepo {
 
   /**
    * Link a person to an item
+   * TODO: Schema has been normalized to use person_id FK.
+   * This method needs refactoring to match DB schema.
    */
   async linkPerson(params: {
     itemId: string;
     itemType: import('./types').ItemType;
-    person_name?: string;
-    person_email?: string;
+    personName?: string;
+    personEmail?: string;
   }): Promise<import('./types').EntityPerson> {
     if (!this.currentUserId) throw new Error('User ID required');
 
+    // TEMPORARY: Create a person record first, then link
+    // In the future, this should be refactored to separate person creation from linking
+    const person = await this.createPerson({
+      display_name: params.personName || 'Unnamed',
+      email: params.personEmail || null,
+    });
+
+    // Build insert payload with owner_id and person_id (DB truth from generated types)
+    const insertPayload: DBEntityPeopleInsert = {
+      owner_id: this.currentUserId,
+      entity_id: params.itemId,
+      entity_type: params.itemType,
+      person_id: person.id, // Required FK to people table
+    };
+
     const { data, error } = await supabase
       .from('entity_people')
-      .insert({
-        user_id: this.currentUserId,
-        item_id: params.itemId,
-        item_type: params.itemType,
-        person_name: params.person_name || null,
-        person_email: params.person_email || null,
-      })
+      .insert(insertPayload)
       .select()
       .single();
 

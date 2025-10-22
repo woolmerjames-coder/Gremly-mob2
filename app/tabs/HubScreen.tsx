@@ -4,18 +4,12 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-} from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { z } from 'zod';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -33,6 +27,7 @@ import { SheetManager } from 'react-native-actions-sheet';
 import TagFilterBar from '../../components/filters/TagFilterBar';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
+import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
 
@@ -173,11 +168,16 @@ export default function HubScreen() {
         setTags(allTags);
       }
 
-      const count = await repo.countUnsorted();
-      setUnsortedCount(count);
-      if (count === 0) {
-        setBannerDismissed(false); // Reset banner when count is 0
-      }
+      // Load ALL items (all types, all scopes) for unsorted count calculation
+      // This ensures the unsorted banner shows the global count across all tabs
+      const [allHabits, allTodos, allNotes] = await Promise.all([
+        repo.listByType('habit', {}),
+        repo.listByType('todo', {}),
+        repo.listByType('note', {}),
+      ]);
+      const allItemsForUnsorted = [...allHabits, ...allTodos, ...allNotes] as AppRecord[];
+      const globalUnsorted = selectUnsortedForReview(allItemsForUnsorted);
+      setUnsortedCount(globalUnsorted.length);
 
       // Build scope options for listByType
       const scopeOpts =
@@ -308,8 +308,21 @@ export default function HubScreen() {
 
       setItemTags(tagsMap);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load hub data';
-      console.error('Failed to load hub data:', err);
+      // Check if it's a ZodError for better dev experience
+      const isZodError = err instanceof z.ZodError;
+      const message = isZodError
+        ? '[Hub] Schema mismatch: see console for details'
+        : err instanceof Error
+          ? err.message
+          : 'Failed to load hub data';
+
+      if (__DEV__) {
+        console.error('Failed to load hub data:', err);
+        if (isZodError) {
+          console.error('[Hub] ZodError details:', err.errors);
+        }
+      }
+
       setError(message);
     } finally {
       setLoading(false);
@@ -363,17 +376,6 @@ export default function HubScreen() {
     });
   }, [items, search, tab, selectedTagIds, itemTags]);
 
-  // Split into needs sorting (AI) and everything else
-  const needsSorting = useMemo(
-    () => filteredAll.filter((item) => item.ai_placed === true).map(toHubItem),
-    [filteredAll, toHubItem],
-  );
-
-  const allItems = useMemo(
-    () => filteredAll.filter((item) => item.ai_placed !== true).map(toHubItem),
-    [filteredAll, toHubItem],
-  );
-
   // Convert AppRecord to UnsortedItem (for review sheet)
   const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
     let title =
@@ -399,9 +401,28 @@ export default function HubScreen() {
     };
   }, []);
 
+  // Use unified selector for unsorted items (banner + sheet)
+  const unsortedForReview = useMemo(() => selectUnsortedForReview(items), [items]);
+
   const unsortedItems = useMemo(
-    () => items.filter((item) => item.ai_placed === true).map(toUnsortedItem),
-    [items, toUnsortedItem],
+    () => unsortedForReview.map(toUnsortedItem),
+    [unsortedForReview, toUnsortedItem],
+  );
+
+  // Note: unsortedCount is now set globally in load() function
+  // This ensures the banner shows the total across all tabs, not just the current tab
+
+  // Split into needs sorting and everything else
+  const needsSorting = useMemo(
+    () =>
+      filteredAll.filter((item) => unsortedForReview.some((u) => u.id === item.id)).map(toHubItem),
+    [filteredAll, unsortedForReview, toHubItem],
+  );
+
+  const allItems = useMemo(
+    () =>
+      filteredAll.filter((item) => !unsortedForReview.some((u) => u.id === item.id)).map(toHubItem),
+    [filteredAll, unsortedForReview, toHubItem],
   );
 
   // Handlers
@@ -465,11 +486,17 @@ export default function HubScreen() {
         });
         // Reload to refresh the count and lists
         await load();
+
+        // Close sheet if no more items to review
+        if (unsortedForReview.length <= 1) {
+          setReviewSheetVisible(false);
+          setBannerDismissed(false); // Ensure banner shows again if new items appear
+        }
       } catch (err) {
         console.error('[HubScreen] Failed to confirm unsorted item:', err);
       }
     },
-    [repo, load],
+    [repo, load, unsortedForReview],
   );
 
   const handleOverlaySaved = useCallback(async () => {

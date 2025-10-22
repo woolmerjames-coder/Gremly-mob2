@@ -1,21 +1,21 @@
 import React from 'react';
-import { fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import { fireEvent, renderWithProviders, screen, waitFor } from '../utils/renderWithProviders';
 import { Alert, ToastAndroid } from 'react-native';
-import SpacesScreen from '../app/tabs/SpacesScreen';
-import CatchAllNotepad, { THINKING_DURATION } from '../app/screens/CatchAllNotepad';
-import { matchesSurface } from '../lib/surfaces';
+import SpacesScreen from '../../app/tabs/SpacesScreen';
+import CatchAllNotepad, { THINKING_DURATION } from '../../app/screens/CatchAllNotepad';
+import { matchesSurface } from '../../lib/surfaces';
 
 const mockRepo = {
   listSpaces: jest.fn().mockResolvedValue([]),
   create: jest.fn(),
 };
 
-jest.mock('../providers/RepoProvider', () => ({
+jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
-jest.mock('../providers/AuthProvider', () => {
-  const actual = jest.requireActual('../providers/AuthProvider');
+jest.mock('../../providers/AuthProvider', () => {
+  const actual = jest.requireActual('../../providers/AuthProvider');
   return {
     ...actual,
     useAuth: () => ({
@@ -111,7 +111,7 @@ describe('Catch-All entry points', () => {
         expect(mockRepo.create).toHaveBeenCalledWith(
           expect.objectContaining({
             type: 'note',
-            title: '',
+            title: 'Testing catch-all note',
             body: 'Testing catch-all note',
             subtype: 'catchall',
             origin: 'catchall',

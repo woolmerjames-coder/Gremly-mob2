@@ -99,7 +99,7 @@ describe.skip('Feature Flag: EXPO_PUBLIC_UNIFIED_OVERLAY', () => {
       const mockJournalNote = {
         id: 'note-1',
         type: 'note' as const,
-        title: '',
+        title: 'My journal entry',
         body: 'My journal entry',
         subtype: 'journal' as const,
         space_id: null,

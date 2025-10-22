@@ -13,6 +13,9 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 if (__DEV__) {
   console.log('[Supabase Client] Initializing...');
   console.log('[Supabase Client] URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
+  if (supabaseUrl) {
+    console.log('[Supabase Client] URL (last 10 chars):', supabaseUrl.slice(-10));
+  }
   console.log('[Supabase Client] Anon Key:', supabaseAnonKey ? '✅ Set' : '❌ Missing');
   console.log(
     '[Supabase Client] Repo Backend:',
@@ -34,3 +37,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false, // Disable for React Native
   },
 });
+
+// DEV-ONLY: Health check on init
+if (__DEV__) {
+  supabase.auth.getSession().then(({ data }) => {
+    console.log('[Supabase Client] session?', !!data.session, 'user?', data.session?.user?.id);
+  });
+}

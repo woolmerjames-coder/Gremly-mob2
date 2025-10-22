@@ -108,7 +108,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
 
       await repo.create({
         type: 'note',
-        title: '',
+        title: trimmed || 'Quick note',
         body: trimmed,
         subtype: 'catchall',
         origin: 'catchall',

@@ -9,6 +9,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts minimal payload with only required fields (Name + Frequency) - acceptance criteria', () => {
       const payload = {
         name: 'Morning meditation',
+        title: 'Morning meditation',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -21,6 +22,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts Start Habit with frequency_value', () => {
       const payload = {
         name: 'Exercise',
+        title: 'Exercise',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -35,7 +37,8 @@ describe('Habit Save Logic - Schema Validation', () => {
   describe('Start Habit - With Optional Fields', () => {
     it('accepts reminders array', () => {
       const payload = {
-        name: 'Meditate', // Changed from 'title' per Phase 7 spec
+        name: 'Meditate',
+        title: 'Meditate',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -49,6 +52,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts details fields (notes, tags, dates)', () => {
       const payload = {
         name: 'Read',
+        title: 'Read',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -67,6 +71,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts buddy fields', () => {
       const payload = {
         name: 'Workout',
+        title: 'Workout',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -82,6 +87,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts habit stack fields', () => {
       const payload = {
         name: 'Journal',
+        title: 'Journal',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -99,6 +105,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts all Start Habit fields together', () => {
       const payload = {
         name: 'Complete habit',
+        title: 'Complete habit',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -124,6 +131,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts minimal payload with only Name - acceptance criteria', () => {
       const payload = {
         name: 'Stop smoking',
+        title: 'Stop smoking',
         frequency: 'daily',
         subtype: 'break_habit',
         ai_placed: false,
@@ -142,6 +150,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts taper plan object', () => {
       const payload = {
         name: 'Quit caffeine',
+        title: 'Quit caffeine',
         frequency: 'daily',
         subtype: 'break_habit',
         ai_placed: false,
@@ -166,6 +175,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts triggers array', () => {
       const payload = {
         name: 'Stop snacking',
+        title: 'Stop snacking',
         frequency: 'daily',
         subtype: 'break_habit',
         ai_placed: false,
@@ -179,6 +189,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts replacement routine fields', () => {
       const payload = {
         name: 'Stop scrolling',
+        title: 'Stop scrolling',
         frequency: 'daily',
         subtype: 'break_habit',
         ai_placed: false,
@@ -193,6 +204,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts all Break Habit fields together', () => {
       const payload = {
         name: 'Complete break habit',
+        title: 'Complete break habit',
         frequency: 'daily',
         subtype: 'break_habit',
         ai_placed: false,
@@ -221,6 +233,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts undefined optional fields', () => {
       const payload = {
         name: 'Simple habit',
+        title: 'Simple habit',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -236,6 +249,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('accepts null for nullable fields', () => {
       const payload = {
         name: 'Habit with nulls',
+        title: 'Habit with nulls',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -255,6 +269,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('rejects invalid email in buddy_email', () => {
       const payload = {
         name: 'Test',
+        title: 'Test',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,
@@ -267,6 +282,7 @@ describe('Habit Save Logic - Schema Validation', () => {
     it('rejects invalid stack_position', () => {
       const payload = {
         name: 'Test',
+        title: 'Test',
         frequency: 'daily',
         subtype: 'start_habit',
         ai_placed: false,

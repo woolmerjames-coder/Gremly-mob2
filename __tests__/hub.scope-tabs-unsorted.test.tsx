@@ -101,7 +101,7 @@ const mockDataStore = {
     {
       id: 'note-journal-1',
       type: 'note',
-      title: '',
+      title: 'Today was a great day',
       body: 'Today was a great day',
       subtype: 'journal',
       space_id: 'space-personal',
@@ -554,6 +554,11 @@ describe('Hub - Scope/Tabs/Unsorted', () => {
         expect(screen.getByTestId('scope-option-space-space-work')).toBeTruthy();
       });
       fireEvent.press(screen.getByTestId('scope-option-space-space-work'));
+
+      // Wait for scope selector to close and filtering to apply
+      await waitFor(() => {
+        expect(screen.queryByTestId('scope-option-space-space-work')).toBeNull();
+      });
 
       // Should only show Work habit
       await waitFor(() => {

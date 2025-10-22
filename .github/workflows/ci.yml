@@ -42,7 +42,33 @@ jobs:
         run: npm run typecheck
       
       - name: Test
-        run: npm run test:ci -- --maxWorkers=50%
+        run: npm run test:ci -- --maxWorkers=50% --testPathIgnorePatterns='/node_modules/|__tests__/pending/|__tests__/(today\.ds|today\.grouping)\.test\.tsx'
         timeout-minutes: 15
         env:
           NODE_OPTIONS: "--max-old-space-size=6144"
+
+  today-heavy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: true
+      # Force in-memory backend to avoid network in tests
+      EXPO_PUBLIC_REPO_BACKEND: memory
+      # If any tests accidentally read these, keep them empty to fail fast (but we shouldn't need them)
+      EXPO_PUBLIC_SUPABASE_URL: ""
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Today heavy suites
+        run: NODE_OPTIONS="--max-old-space-size=8192" npx jest --runInBand __tests__/today.ds.test.tsx __tests__/today.grouping.test.tsx

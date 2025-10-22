@@ -16,6 +16,7 @@ interface AuthContextValue {
   loading: boolean;
   error: string | null;
   signInWithEmail: (email: string, password?: string) => Promise<void>;
+  devSignIn: () => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
 }
@@ -72,6 +73,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(currentSession);
           setUser(currentSession.user);
           await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentSession));
+          if (__DEV__) {
+            console.log('[AuthProvider] session user.id:', currentSession.user.id);
+          }
+        } else if (!currentSession && mounted) {
+          // No existing session - auto sign in anonymously
+          console.log('[Auth] No session found, signing in anonymously...');
+
+          const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+
+          if (anonError) {
+            console.error('[Auth] Anonymous sign-in failed:', anonError.message);
+            if (mounted) {
+              setError(anonError.message);
+              // Show fallback error
+              if (__DEV__) {
+                console.error(
+                  '[Auth] CRITICAL: Anonymous sign-in failed. App may not function correctly.',
+                );
+              }
+            }
+          } else if (anonData?.session && anonData?.user && mounted) {
+            console.log('[Auth] anonymous signed in', { userId: anonData.user.id });
+            setSession(anonData.session);
+            setUser(anonData.user);
+            await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(anonData.session));
+            if (__DEV__) {
+              console.log('[AuthProvider] session user.id:', anonData.user.id);
+            }
+          }
         }
       } catch (err) {
         console.error('Auth initialization error:', err);
@@ -93,6 +123,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (__DEV__) {
         console.log('[AuthProvider] Auth state change:', event);
+        if (newSession) {
+          console.log('[AuthProvider] session user.id:', newSession.user.id);
+        }
       }
 
       setSession(newSession);
@@ -179,6 +212,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const devSignIn = async () => {
+    if (!__DEV__) {
+      throw new Error('devSignIn is only available in development mode');
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (FLAGS.REPO_BACKEND === 'memory') {
+        // Mock auth for memory mode
+        const mockUser = {
+          id: 'dev-user',
+          email: 'dev@gremly.test',
+          created_at: new Date().toISOString(),
+        } as User;
+
+        setUser(mockUser);
+        setSession({ user: mockUser } as Session);
+        console.log('[DevLogin] signed in (memory mode)', { userId: mockUser.id });
+        return;
+      }
+
+      // Try anonymous sign-in first
+      let result = await supabase.auth.signInAnonymously();
+
+      if (result.error) {
+        // Anonymous auth not enabled, fall back to hardcoded dev user
+        console.log('[DevLogin] Anonymous auth not available, trying dev user...');
+
+        const devEmail = 'dev@gremly.test';
+        const devPassword = 'devdevdev';
+
+        result = await supabase.auth.signInWithPassword({
+          email: devEmail,
+          password: devPassword,
+        });
+
+        if (result.error) {
+          // User doesn't exist or wrong password
+          throw new Error(
+            `Dev user (${devEmail}) doesn't exist or password is incorrect. ` +
+              `Please create this user in Supabase Dashboard → Authentication → Users ` +
+              `with password: ${devPassword}`,
+          );
+        }
+      }
+
+      if (result.data?.session) {
+        console.log('[DevLogin] signed in', { userId: result.data.session.user.id });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Dev sign in failed';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signOut = async () => {
     setLoading(true);
     setError(null);
@@ -214,6 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         error,
         signInWithEmail,
+        devSignIn,
         signOut,
         clearError,
       }}

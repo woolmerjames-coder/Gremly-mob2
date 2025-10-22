@@ -103,11 +103,16 @@ export class OpenAiEngine implements ICortexEngine {
         { role: 'user', content: `Classify this note: ${text}` },
       ];
 
-      const data = await callChat(messages, {
+      const response = await callChat(messages, {
         model: this.model,
         temperature: 0,
         maxTokens: 400,
       });
+      if (!response.ok) {
+        throw new Error(response.error || 'Cortex proxy request failed');
+      }
+
+      const data: any = response.data;
 
       if (DEBUG) console.log('[CORTEX][LLM] raw:', JSON.stringify(data).slice(0, 300));
       const choice = data?.choices?.[0];

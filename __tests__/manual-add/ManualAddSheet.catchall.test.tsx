@@ -85,7 +85,7 @@ describe.skip('ManualAddSheet - Catch All', () => {
       expect(mockClassify).toHaveBeenCalled();
       expect(mockCreate).toHaveBeenCalledWith({
         type: 'note',
-        title: '',
+        title: 'Random idea for later',
         body: 'Random idea for later',
         subtype: 'catchall',
         space_id: null,

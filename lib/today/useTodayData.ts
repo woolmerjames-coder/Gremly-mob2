@@ -316,10 +316,34 @@ export function useTodayData() {
     }
 
     if (!user) {
+      // Gracefully handle missing auth - return empty data instead of error
+      console.warn('[useTodayData] No user session, returning empty data');
+      const currentTimeWindow = getTimeWindow();
       setData((prev) => ({
         ...prev,
+        timeWindow: currentTimeWindow,
+        header: {
+          greeting: getGreeting(currentTimeWindow, 'there'),
+          subline: getMascotSubline(currentTimeWindow, 0),
+          streakCount: 0,
+          completedToday: 0,
+          plannedToday: 0,
+        },
+        habits: [],
+        todos: [],
+        suggestions: [],
+        visible: {
+          habits: [],
+          todos: [],
+          suggestions: [],
+        },
+        hidden: {
+          habits: 0,
+          todos: 0,
+          suggestions: 0,
+        },
         loading: false,
-        error: 'Please sign in to view your items',
+        error: null,
       }));
       return;
     }
@@ -461,12 +485,36 @@ export function useTodayData() {
         error: null,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load today data';
-      console.error('Failed to load today data:', err);
+      // Soft fallback - warn instead of throwing, keep UI usable
+      console.warn('[useTodayData] Failed to load data:', err);
+
+      // Keep UI usable by setting safe defaults instead of throwing
+      const currentTimeWindow = getTimeWindow();
       setData((prev) => ({
         ...prev,
+        timeWindow: currentTimeWindow,
+        header: {
+          greeting: getGreeting(currentTimeWindow, user.email?.split('@')[0] || 'there'),
+          subline: 'Unable to load data',
+          streakCount: 0,
+          completedToday: 0,
+          plannedToday: 0,
+        },
+        habits: [],
+        todos: [],
+        suggestions: [],
+        visible: {
+          habits: [],
+          todos: [],
+          suggestions: [],
+        },
+        hidden: {
+          habits: 0,
+          todos: 0,
+          suggestions: 0,
+        },
         loading: false,
-        error: message,
+        error: null, // Don't show error to user, just log it
       }));
     }
   }, [repo, user, isTestLight]);
