@@ -1,9 +1,82 @@
 // lib/cortex/pipelines/conversation.ts
 import { CortexContextBase } from '../lane';
-import { cortexDecide, type DecideInput, type CortexContext } from '../cortexDecide';
+import {
+  cortexDecide,
+  type DecideInput,
+  type CortexContext,
+  type CortexResponse,
+} from '../cortexDecide';
 import { pickSmalltalk, isAcknowledgment } from '../../../app/lib/cortex/smalltalk';
+import { callChat, type ChatMessage } from '../CortexClient';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
+
+/**
+ * Defensive mapper for when worker returns { content: "text", hasChoices: false }
+ * Maps to { mode: 'reply', replyText: content, actions: [], suggestions: [] }
+ */
+async function tryDirectWorkerCall(
+  input: DecideInput,
+  ctx: CortexContext,
+): Promise<CortexResponse> {
+  try {
+    if (!input.text) {
+      throw new Error('No text input for direct worker call');
+    }
+
+    // Make direct chat call to worker
+    const messages: ChatMessage[] = [{ role: 'user', content: input.text }];
+
+    const response = await callChat(messages, {
+      model: 'gpt-4o-mini',
+      temperature: 0.7,
+      maxTokens: 400,
+    });
+
+    if (!response.ok) {
+      throw new Error(response.error || 'Worker call failed');
+    }
+
+    const data = response.data as any; // Worker response can have various shapes
+
+    // Check if worker returned content but no choices (compact format)
+    if (data?.content && typeof data.content === 'string' && !data.choices) {
+      if (__DEV__) {
+        console.log('[CORTEX] Direct worker call success - compact format', {
+          contentLength: data.content.length,
+          hasModel: !!data.model,
+          hasUsage: !!data.usage,
+        });
+      }
+
+      return {
+        actions: [],
+        explanation: '', // Keep empty so we don't show legacy text
+        replyText: data.content, // Model's text becomes reply
+        suggestions: [], // None
+        mode: 'reply',
+        confidence: 0.8, // Assume good confidence for direct responses
+        meta: {
+          kind: 'smalltalk', // Mark as reply-type response
+        },
+      };
+    }
+
+    throw new Error('Worker response missing content or has unexpected format');
+  } catch (error) {
+    if (__DEV__) {
+      console.log('[CORTEX] Direct worker call failed', error);
+    }
+
+    // Return safe fallback
+    return {
+      actions: [],
+      mode: 'keep',
+      explanation: 'Saving to Catch-All for now.',
+      confidence: 0,
+    };
+  }
+}
 
 /**
  * Space Chat conversation pipeline.
@@ -13,9 +86,41 @@ const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
  * - Suppress catch-all copy
  * - Keep suggestions for inline chips
  * Step 5.1: Small-talk fallback when no actionable content
+ * Step 5.1b: Defensive mapper for worker content without choices
  */
 export async function runConversationPipeline(input: DecideInput, ctx: CortexContext) {
-  const raw = await cortexDecide(input, ctx);
+  if (__DEV__) {
+    console.log('[CORTEX] Space Chat pipeline started', {
+      inputText: input.text?.substring(0, 50) + (input.text && input.text.length > 50 ? '...' : ''),
+      userId: ctx.userId,
+      spaceId: ctx.spaceId,
+      recentAssistantKind: ctx.recentAssistantKind,
+    });
+  }
+
+  // Try cortexDecide first, but fall back to direct worker call for Space Chat
+  let raw: CortexResponse;
+
+  try {
+    raw = await cortexDecide(input, ctx);
+
+    if (__DEV__) {
+      console.log('[CORTEX] Raw cortexDecide response', {
+        mode: raw.mode,
+        actionsCount: raw.actions?.length || 0,
+        hasExplanation: !!raw.explanation?.trim(),
+        hasSuggestions: Array.isArray(raw.suggestions) && raw.suggestions.length > 0,
+        confidence: raw.confidence,
+      });
+    }
+  } catch (error) {
+    if (__DEV__) {
+      console.log('[CORTEX] cortexDecide failed, trying direct worker call', error);
+    }
+
+    // Defensive mapper: try direct worker call for Space Chat
+    raw = await tryDirectWorkerCall(input, ctx);
+  }
 
   // Normalize for Space Chat UX
   const normalized = { ...raw };
@@ -33,11 +138,12 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.explanation = '';
   }
 
-  // Step 5.1: Small-talk fallback for empty responses
+  // Step 5.1b: Small-talk fallback - only when no actionable content
   const noSuggestions = !normalized?.suggestions || normalized.suggestions.length === 0;
   const noExplanation = !normalized?.explanation || !normalized.explanation.trim();
+  const noReplyText = !normalized?.replyText || !normalized.replyText.trim();
 
-  if (noExplanation && noSuggestions) {
+  if (noExplanation && noSuggestions && noReplyText) {
     // Optional anti-spam: inspect last assistant message from ctx
     const lastWasSmalltalk = ctx?.recentAssistantKind === 'smalltalk';
     const userText = (input?.text ?? '').trim().toLowerCase();

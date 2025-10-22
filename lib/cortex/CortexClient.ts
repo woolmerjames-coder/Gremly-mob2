@@ -112,16 +112,27 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
 
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
+      log('ERROR_RESPONSE', res.status, txt);
       const message = `[cortex] ${res.status} ${txt || 'Unknown error'}`;
       return { ok: false, error: message, status: res.status };
     }
 
     // Parse response text with fallback to passthrough
     const text = await res.text();
+    log('RAW_RESPONSE_LENGTH', text.length);
+
     let data: any;
     try {
       data = text ? JSON.parse(text) : {};
+      log('PARSED_RESPONSE', {
+        hasChoices: Array.isArray(data?.choices),
+        choicesCount: data?.choices?.length || 0,
+        hasId: !!data?.id,
+        hasContent: !!data?.content,
+        dataKeys: Object.keys(data || {}),
+      });
     } catch {
+      log('JSON_PARSE_FAILED', 'Using passthrough');
       data = { passthrough: text };
     }
 
@@ -181,7 +192,11 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
       return { ok: false, error: norm.error };
     }
 
-    log('OK', norm.id);
+    log('OK', norm.id, {
+      contentLength: norm.content?.length || 0,
+      hasModel: !!norm.model,
+      hasUsage: !!norm.usage,
+    });
     return {
       ok: true,
       data: {

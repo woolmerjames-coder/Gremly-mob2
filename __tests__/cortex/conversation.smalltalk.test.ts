@@ -1,6 +1,20 @@
 /**
  * Tests for conversation pipeline small-talk fallback
  */
+
+// Mock env before importing modules
+jest.mock('../../lib/env', () => ({
+  env: {
+    cortex: {
+      timeoutMs: 2500,
+      classifyCatchAll: true,
+      optimistic: true,
+      model: 'gpt-4o-mini',
+      url: 'https://test.example.com', // Required for FEATURE_CHAT
+    },
+  },
+}));
+
 import { runConversationPipeline } from '../../lib/cortex/pipelines/conversation';
 import type { DecideInput, CortexContext } from '../../lib/cortex/cortexDecide';
 
