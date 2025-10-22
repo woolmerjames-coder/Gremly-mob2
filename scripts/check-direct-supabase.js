@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-var-requires */
 /**
  * Check for direct Supabase calls outside lib/repo/**
  * This enforces the repository pattern by preventing direct database access
@@ -12,21 +13,12 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const ALLOWED_PATTERNS = [
-  'lib/repo/**',
-  '**/*.test.ts',
-  '**/*.test.tsx',
-  '__tests__/**',
-];
+const _ALLOWED_PATTERNS = ['lib/repo/**', '**/*.test.ts', '**/*.test.tsx', '__tests__/**'];
 
 const RESTRICTED_DIRS = ['app/**', 'providers/**', 'components/**', 'screens/**'];
 
 // Files that are exempt (e.g., setup files, configs)
-const EXEMPTED_FILES = [
-  'lib/supabase/client.ts',
-  'lib/supabase/auth.ts',
-  'jest-setup.ts',
-];
+const EXEMPTED_FILES = ['lib/supabase/client.ts', 'lib/supabase/auth.ts', 'jest-setup.ts'];
 
 console.log('🔍 Checking for direct Supabase calls outside lib/repo/**\n');
 
