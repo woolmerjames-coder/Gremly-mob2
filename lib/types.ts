@@ -289,6 +289,12 @@ export interface HabitBuddy {
 }
 
 /**
+ * Mascot emotion states for Phase 10.6
+ * Controls visual feedback and animations during chat interactions
+ */
+export type MascotState = 'idle' | 'thinking' | 'replying' | 'playful' | 'celebration' | 'rest';
+
+/**
  * Helper functions
  */
 export const nowIso = (): string => new Date().toISOString();
