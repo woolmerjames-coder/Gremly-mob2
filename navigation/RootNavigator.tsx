@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import TabNavigator from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
+import RecentItems from '../app/(dev)/RecentItems';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
@@ -12,6 +13,7 @@ export type RootStackParamList = {
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
+  RecentItems: undefined;
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string }; // Phase 8
@@ -85,6 +87,18 @@ export default function RootNavigator() {
           component={DevLogin}
           options={{
             title: 'Dev Login & Smoke Test',
+            presentation: 'modal',
+            headerShown: true,
+          }}
+        />
+      )}
+      {/* DEV-ONLY: Recent Items */}
+      {__DEV__ && (
+        <Stack.Screen
+          name="RecentItems"
+          component={RecentItems}
+          options={{
+            title: 'Recent Items',
             presentation: 'modal',
             headerShown: true,
           }}

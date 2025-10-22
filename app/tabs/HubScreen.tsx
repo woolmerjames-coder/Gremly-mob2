@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { z } from 'zod';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -26,6 +27,7 @@ import { SheetManager } from 'react-native-actions-sheet';
 import TagFilterBar from '../../components/filters/TagFilterBar';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
+import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'People';
 
@@ -166,11 +168,8 @@ export default function HubScreen() {
         setTags(allTags);
       }
 
-      const count = await repo.countUnsorted();
-      setUnsortedCount(count);
-      if (count === 0) {
-        setBannerDismissed(false); // Reset banner when count is 0
-      }
+      // Count unsorted items using selector (removed repo.countUnsorted call)
+      // Count will be calculated from items state after loading
 
       // Build scope options for listByType
       const scopeOpts =
@@ -301,8 +300,21 @@ export default function HubScreen() {
 
       setItemTags(tagsMap);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load hub data';
-      console.error('Failed to load hub data:', err);
+      // Check if it's a ZodError for better dev experience
+      const isZodError = err instanceof z.ZodError;
+      const message = isZodError
+        ? '[Hub] Schema mismatch: see console for details'
+        : err instanceof Error
+          ? err.message
+          : 'Failed to load hub data';
+
+      if (__DEV__) {
+        console.error('Failed to load hub data:', err);
+        if (isZodError) {
+          console.error('[Hub] ZodError details:', err.errors);
+        }
+      }
+
       setError(message);
     } finally {
       setLoading(false);
@@ -356,17 +368,6 @@ export default function HubScreen() {
     });
   }, [items, search, tab, selectedTagIds, itemTags]);
 
-  // Split into needs sorting (AI) and everything else
-  const needsSorting = useMemo(
-    () => filteredAll.filter((item) => item.ai_placed === true).map(toHubItem),
-    [filteredAll, toHubItem],
-  );
-
-  const allItems = useMemo(
-    () => filteredAll.filter((item) => item.ai_placed !== true).map(toHubItem),
-    [filteredAll, toHubItem],
-  );
-
   // Convert AppRecord to UnsortedItem (for review sheet)
   const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
     let title =
@@ -392,9 +393,34 @@ export default function HubScreen() {
     };
   }, []);
 
+  // Use unified selector for unsorted items (banner + sheet)
+  const unsortedForReview = useMemo(() => selectUnsortedForReview(items), [items]);
+
   const unsortedItems = useMemo(
-    () => items.filter((item) => item.ai_placed === true).map(toUnsortedItem),
-    [items, toUnsortedItem],
+    () => unsortedForReview.map(toUnsortedItem),
+    [unsortedForReview, toUnsortedItem],
+  );
+
+  // Update unsorted count from selector results
+  useEffect(() => {
+    const count = unsortedForReview.length;
+    setUnsortedCount(count);
+    if (count === 0) {
+      setBannerDismissed(false); // Reset banner when count is 0
+    }
+  }, [unsortedForReview]);
+
+  // Split into needs sorting and everything else
+  const needsSorting = useMemo(
+    () =>
+      filteredAll.filter((item) => unsortedForReview.some((u) => u.id === item.id)).map(toHubItem),
+    [filteredAll, unsortedForReview, toHubItem],
+  );
+
+  const allItems = useMemo(
+    () =>
+      filteredAll.filter((item) => !unsortedForReview.some((u) => u.id === item.id)).map(toHubItem),
+    [filteredAll, unsortedForReview, toHubItem],
   );
 
   // Handlers
@@ -458,11 +484,17 @@ export default function HubScreen() {
         });
         // Reload to refresh the count and lists
         await load();
+
+        // Close sheet if no more items to review
+        if (unsortedForReview.length <= 1) {
+          setReviewSheetVisible(false);
+          setBannerDismissed(false); // Ensure banner shows again if new items appear
+        }
       } catch (err) {
         console.error('[HubScreen] Failed to confirm unsorted item:', err);
       }
     },
-    [repo, load],
+    [repo, load, unsortedForReview],
   );
 
   const handleOverlaySaved = useCallback(async () => {

@@ -7,6 +7,27 @@ import type { AppRecord, Habit, Todo, Note, ID } from '../types';
 import { isToday, parseISO, startOfWeek, endOfWeek } from 'date-fns';
 
 /**
+ * Select items that need user review/confirmation
+ * Includes:
+ * - Items with ai_placed = true (AI-placed items awaiting confirmation)
+ * - Items with origin = 'catchall' that haven't been properly classified/moved
+ * @param items - All items to consider
+ * @returns Array of items needing review
+ */
+export function selectUnsortedForReview(items: AppRecord[]): AppRecord[] {
+  return items.filter((item) => {
+    // AI-placed items awaiting confirmation
+    if (item.ai_placed === true) return true;
+
+    // Items from catchall that haven't been moved (still in catch-all limbo)
+    // These are items that came from catchall but weren't properly classified
+    if (item.origin === 'catchall' && item.ai_placed === false && !item.space_id) return true;
+
+    return false;
+  });
+}
+
+/**
  * Get a preview of scheduled items for a space within a given week
  * @param items - All items to consider
  * @param spaceId - The space to filter by

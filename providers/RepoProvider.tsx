@@ -19,16 +19,27 @@ export const RepoProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
 
   const repo = useMemo(() => {
+    if (__DEV__) {
+      console.log('[RepoProvider] Backend:', backend);
+      console.log('[RepoProvider] User ID:', userId || '(none)');
+    }
+
     if (backend === 'supabase') {
       const supabaseRepo = new SupabaseRepo(userId || undefined);
       // Update userId when auth changes
       if (userId) {
         supabaseRepo.setUserId(userId);
       }
+      if (__DEV__) {
+        console.log('[RepoProvider] ✅ Using SupabaseRepo');
+      }
       return supabaseRepo;
     }
 
     // Default to memory repo
+    if (__DEV__) {
+      console.log('[RepoProvider] ✅ Using MemoryRepo');
+    }
     return new MemoryRepo(userId || 'anonymous');
   }, [backend, userId]);
 

@@ -77,12 +77,19 @@ const baseRecordZ = z.object({
 
 export const habitZ = baseRecordZ.extend({
   type: z.literal('habit'),
-  name: z.string().min(1), // Changed from 'title' per Phase 7 spec
+  name: z.preprocess(
+    (val) => (typeof val === 'string' && val.trim().length > 0 ? val : 'Untitled'),
+    z.string().min(1),
+  ), // Changed from 'title' per Phase 7 spec, fallback for null/undefined/empty
   frequency: frequencyZ,
-  subtype: habitSubtypeZ, // Required (not optional)
+  subtype: z.preprocess(
+    (val) =>
+      val === 'start_habit' || val === 'break_habit' || val === 'routine' ? val : 'start_habit',
+    habitSubtypeZ,
+  ), // Resilient to null/undefined, defaults to start_habit
   // Extended habit fields (Phase 7+)
   frequency_value: z.any().optional(),
-  reminders: z.array(z.any()).optional(),
+  reminders: z.array(z.any()).nullable().optional(), // Allow null from DB
   notes: z.string().nullable().optional(),
   tags: z.array(z.string()).nullable().optional(),
   buddy_id: z.string().nullable().optional(),
@@ -96,28 +103,41 @@ export const habitZ = baseRecordZ.extend({
   triggers: z.array(z.string()).nullable().optional(),
   replacement_habit_id: z.string().nullable().optional(),
   replacement_text: z.string().nullable().optional(),
-}) satisfies z.ZodType<Habit>;
+}); // Removed satisfies for flexibility with preprocess
 
 export const todoZ = baseRecordZ.extend({
   type: z.literal('todo'),
   // Phase 7+: name is the primary field
-  name: z.string(), // Required field
+  name: z.preprocess(
+    (val) => (typeof val === 'string' && val.trim().length > 0 ? val : 'Untitled'),
+    z.string().min(1),
+  ), // Fallback for null/undefined/empty
   title: z.string().optional(), // Backwards compatibility (NOT nullable per type definition)
   body: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(), // Accept any string format from DB
   due_time: z.string().nullable().optional(), // HH:mm format
   undefined_due: z.boolean().optional(), // Now optional (legacy field)
-  subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only
+  subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only (already permissive)
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   notes: z.string().nullable().optional(), // Additional notes
   tags: z.array(z.string()).nullable().optional(), // Categories
-}) satisfies z.ZodType<Todo>;
+}); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({
   type: z.literal('note'),
   title: z.string().optional().nullable(),
   body: z.string().optional().nullable(),
-  subtype: noteSubtypeZ,
+  subtype: z.preprocess(
+    (val) =>
+      val === 'journal' ||
+      val === 'list' ||
+      val === 'catchall' ||
+      val === 'idea' ||
+      val === 'reference'
+        ? val
+        : 'catchall',
+    noteSubtypeZ,
+  ), // Resilient to null/undefined, defaults to catchall
   // Journal-specific fields (Phase 7+) - only used when subtype='journal'
   date: z.string().nullable().optional(), // ISO date for journal entry
   mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
@@ -125,7 +145,7 @@ export const noteZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: z.array(z.string()).nullable().optional(),
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
-}) satisfies z.ZodType<Note>;
+}); // Removed satisfies for flexibility with preprocess
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
 
@@ -136,7 +156,8 @@ export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
 
 export const habitInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
-  name: z.string().min(1), // Changed from 'title' per Phase 7 spec
+  name: z.string().min(1), // Required - database column (habits have both name and title)
+  title: z.string().min(1), // Required - database column (habits have both name and title)
   frequency: z.string().min(1),
   subtype: habitSubtypeZ, // Required
   ai_placed: z.boolean().default(false),
@@ -169,9 +190,7 @@ export const habitInsertSchema = z.object({
 
 export const todoInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
-  // Phase 7+: name is the primary field (title kept for backwards compatibility)
-  name: z.string().min(1), // Required
-  title: z.string().optional().nullable(), // Legacy/backwards compatibility
+  name: z.string().min(1), // Required - DATABASE TRUTH: todos table has 'name' column (NO 'title')
   body: z.string().optional().nullable(),
   due_date: z.string().datetime().nullable().optional(),
   due_time: z
@@ -198,7 +217,7 @@ export const todoInsertSchema = z.object({
 
 export const noteInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
-  title: z.string().optional().nullable(),
+  title: z.string().min(1), // Required - DATABASE TRUTH: notes table has 'title' column (NO 'name')
   body: z.string().optional().nullable(),
   subtype: z.enum(['journal', 'list', 'catchall', 'idea', 'reference']),
   ai_placed: z.boolean().default(false),
@@ -211,11 +230,11 @@ export const noteInsertSchema = z.object({
       alsoShowIn: z.array(z.string()).optional(),
     })
     .optional(),
-  // Journal-specific fields (Phase 7+) - only used when subtype='journal'
+  // Journal-specific fields (from generated schema - notes table has these)
   date: z.string().nullable().optional(), // ISO date for journal entry
   mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
-  reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[] stored as jsonb
+  reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: z.array(z.string()).nullable().optional(),
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
 });

@@ -126,8 +126,8 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
       const result = await repo.linkPerson({
         itemId: 'habit-1',
         itemType: 'habit',
-        person_name: 'John Doe',
-        person_email: 'john@example.com',
+        personName: 'John Doe',
+        personEmail: 'john@example.com',
       });
 
       expect(mockFrom).toHaveBeenCalledWith('entity_people');
@@ -171,7 +171,7 @@ describe('SupabaseRepo - Entity People (Phase 8)', () => {
       const result = await repo.linkPerson({
         itemId: 'todo-1',
         itemType: 'todo',
-        person_name: 'Jane Smith',
+        personName: 'Jane Smith',
       });
 
       expect(mockFrom).toHaveBeenCalledWith('entity_people');

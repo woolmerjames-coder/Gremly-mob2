@@ -111,7 +111,7 @@ describe('Catch-All entry points', () => {
         expect(mockRepo.create).toHaveBeenCalledWith(
           expect.objectContaining({
             type: 'note',
-            title: '',
+            title: 'Testing catch-all note',
             body: 'Testing catch-all note',
             subtype: 'catchall',
             origin: 'catchall',

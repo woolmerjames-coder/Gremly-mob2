@@ -19,6 +19,9 @@
     "test:ci": "jest --ci",
     "test:watch": "jest --watch",
     "ci": "npm run lint && npm run typecheck && npm run test:ci",
+    "db:types": "bash scripts/gen_db_types.sh",
+    "db:drift": "bash scripts/drift_check.sh",
+    "diag:supa": "bash scripts/generate_supabase_diagnostics.sh",
     "prepare": "husky"
   },
   "dependencies": {
@@ -78,6 +81,7 @@
     "react-native-svg-transformer": "1.5.1",
     "react-native-worklets": "0.5.1",
     "react-test-renderer": "19.1.0",
+    "supabase": "2.53.6",
     "typescript": "~5.9.2",
     "typescript-eslint": "^7.18.0"
   },

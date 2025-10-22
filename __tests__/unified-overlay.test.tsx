@@ -224,7 +224,7 @@ describe('UnifiedCreateOverlay - Critical Flows', () => {
       await waitFor(() => {
         expect(mockRepo.create).toHaveBeenCalledWith({
           type: 'note',
-          title: '',
+          title: 'Buy groceries tomorrow',
           body: 'Buy groceries tomorrow',
           subtype: 'catchall',
           space_id: null,

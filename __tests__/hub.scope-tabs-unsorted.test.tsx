@@ -101,7 +101,7 @@ const mockDataStore = {
     {
       id: 'note-journal-1',
       type: 'note',
-      title: '',
+      title: 'Today was a great day',
       body: 'Today was a great day',
       subtype: 'journal',
       space_id: 'space-personal',

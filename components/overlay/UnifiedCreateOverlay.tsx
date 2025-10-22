@@ -38,7 +38,7 @@ import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo'
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
 import type { ItemType } from '../../lib/repo/types';
-import { callComplete } from '../../lib/cortex/CortexClient';
+import { callComplete, callClassify } from '../../lib/cortex/CortexClient';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import {
   mapHabitToForm,
@@ -533,10 +533,11 @@ export function UnifiedCreateOverlay({
         const aiDisabledFlag = (getEnv('EXPO_PUBLIC_DISABLE_AI') ?? '').toLowerCase() === 'on';
         if (aiDisabledFlag) {
           // AI disabled - save immediately without classification
+          const trimmedText = freeformText.trim();
           const input: CreateRecordInput = {
             type: 'note',
-            title: '',
-            body: freeformText.trim(),
+            title: trimmedText || 'Quick note', // Database requires non-empty title
+            body: trimmedText,
             subtype: 'catchall',
             space_id: spaceId !== undefined ? spaceId : null,
             ai_placed: false,
@@ -559,8 +560,9 @@ export function UnifiedCreateOverlay({
         setThinking(true);
         setCortexStatus('thinking');
 
-        // Kick AI call (don't await yet)
-        const aiPromise = callComplete(freeformText.trim(), { maxTokens: 400 });
+        // Kick AI classification call (don't await yet)
+        const noteText = freeformText.trim();
+        const aiPromise = callClassify({ text: noteText });
 
         // Race AI vs min-think timer
         const thinkTimer = new Promise((resolve) => setTimeout(resolve, minThink));
@@ -586,10 +588,11 @@ export function UnifiedCreateOverlay({
           console.log('[Overlay] ai ms', elapsed);
 
           // Save with classification immediately
+          const trimmedText = freeformText.trim();
           const input: CreateRecordInput = {
             type: 'note',
-            title: '',
-            body: freeformText.trim(),
+            title: trimmedText || 'Quick note',
+            body: trimmedText,
             subtype: 'catchall',
             space_id: spaceId !== undefined ? spaceId : null,
             ai_placed: true,
@@ -639,10 +642,11 @@ export function UnifiedCreateOverlay({
         // Case B: AI not done in ~1s or failed - save optimistically to Catch-All
         console.log('[Overlay] ai ms (optimistic)', elapsed);
 
+        const trimmedText = freeformText.trim();
         const input: CreateRecordInput = {
           type: 'note',
-          title: '',
-          body: freeformText.trim(),
+          title: trimmedText || 'Quick note', // Database requires non-empty title
+          body: trimmedText,
           subtype: 'catchall',
           space_id: spaceId !== undefined ? spaceId : null,
           ai_placed: false,
@@ -701,14 +705,167 @@ export function UnifiedCreateOverlay({
               if (finalResult && finalResult.ok) {
                 console.log('[Overlay] bg classification success', newItem.id);
                 console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
-                // Update item with classification result
-                await repo.update({
-                  id: newItem.id,
-                  patch: {
-                    ai_placed: true,
-                    why_string: 'AI classified (background)',
-                  },
-                });
+
+                // Extract classification info from AI response
+                const classification = finalResult.classification;
+                const originalNoteId = newItem.id;
+                const originalText = noteText;
+
+                // Normalize category to lowercase for matching
+                const category = classification.category.toLowerCase();
+
+                try {
+                  // Find or create space if spaceName is provided
+                  let targetSpaceId: string | null = null;
+                  if (classification.spaceName) {
+                    const spaces = await repo.listSpaces();
+                    let space = spaces.find(
+                      (s) => s.name.toLowerCase() === classification.spaceName.toLowerCase(),
+                    );
+
+                    if (!space) {
+                      // Create the space if it doesn't exist
+                      space = await repo.createSpace({
+                        name: classification.spaceName,
+                      });
+                      console.log('[Overlay] Created new space:', space.name, space.id);
+                    }
+
+                    targetSpaceId = space.id;
+                  }
+
+                  let newItemId: string | null = null;
+
+                  // Create appropriate item type based on classification
+                  switch (category) {
+                    case 'habit': {
+                      const habitInput: CreateRecordInput = {
+                        type: 'habit',
+                        name: originalText,
+                        frequency: 'daily',
+                        subtype: 'start_habit',
+                        space_id: targetSpaceId,
+                        ai_placed: true,
+                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                      };
+                      const habit = await repo.create(habitInput);
+                      newItemId = habit.id;
+                      console.log('[CLASSIFIED_DEST]', {
+                        from: originalNoteId,
+                        to: newItemId,
+                        category: 'habit',
+                        spaceName: classification.spaceName,
+                      });
+                      break;
+                    }
+
+                    case 'to-do':
+                    case 'todo': {
+                      const todoInput: CreateRecordInput = {
+                        type: 'todo',
+                        name: originalText,
+                        title: originalText,
+                        due_date: null,
+                        space_id: targetSpaceId,
+                        ai_placed: true,
+                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                      };
+                      const todo = await repo.create(todoInput);
+                      newItemId = todo.id;
+                      console.log('[CLASSIFIED_DEST]', {
+                        from: originalNoteId,
+                        to: newItemId,
+                        category: 'todo',
+                        spaceName: classification.spaceName,
+                      });
+                      break;
+                    }
+
+                    case 'note': {
+                      const noteInput: CreateRecordInput = {
+                        type: 'note',
+                        title: originalText.slice(0, 100),
+                        body: originalText,
+                        subtype: 'idea',
+                        space_id: targetSpaceId,
+                        ai_placed: true,
+                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                      };
+                      const note = await repo.create(noteInput);
+                      newItemId = note.id;
+                      console.log('[CLASSIFIED_DEST]', {
+                        from: originalNoteId,
+                        to: newItemId,
+                        category: 'note',
+                        spaceName: classification.spaceName,
+                      });
+                      break;
+                    }
+
+                    case 'journal': {
+                      const journalInput: CreateRecordInput = {
+                        type: 'note',
+                        title: originalText.slice(0, 100),
+                        body: originalText,
+                        subtype: 'journal',
+                        space_id: targetSpaceId,
+                        ai_placed: true,
+                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                      };
+                      const journal = await repo.create(journalInput);
+                      newItemId = journal.id;
+                      console.log('[CLASSIFIED_DEST]', {
+                        from: originalNoteId,
+                        to: newItemId,
+                        category: 'journal',
+                        spaceName: classification.spaceName,
+                      });
+                      break;
+                    }
+
+                    default: {
+                      // Unknown category - just mark as classified but keep as catchall
+                      console.warn('[Overlay] Unknown category:', category);
+                      await repo.update({
+                        id: originalNoteId,
+                        patch: {
+                          ai_placed: true,
+                          why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence)`,
+                        },
+                      });
+                      break;
+                    }
+                  }
+
+                  // Archive the original catchall note if we created a new item
+                  if (newItemId) {
+                    await repo.update({
+                      id: originalNoteId,
+                      patch: {
+                        archived: true,
+                        why_string: `Processed → ${category}`,
+                      },
+                    });
+                    console.log('[Overlay] Archived original catchall note:', originalNoteId);
+                  }
+
+                  // Show success toast
+                  if (Platform.OS === 'android') {
+                    ToastAndroid.show('Sorted — ready for review', ToastAndroid.SHORT);
+                  } else {
+                    console.log('[Toast] Sorted — ready for review');
+                  }
+                } catch (createError) {
+                  console.error('[Overlay] Failed to create classified item:', createError);
+                  // Fall back to just marking the catchall as classified
+                  await repo.update({
+                    id: originalNoteId,
+                    patch: {
+                      ai_placed: true,
+                      why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence) - creation failed`,
+                    },
+                  });
+                }
               } else {
                 console.warn('[Overlay] bg classification failed', newItem.id);
                 console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
@@ -930,7 +1087,7 @@ export function UnifiedCreateOverlay({
           ...baseInput,
           type: 'note',
           subtype: 'journal',
-          title: '', // No title for journal entries
+          title: journalEntry.trim() || 'Journal entry', // DB requires non-empty title
           body: journalEntry,
           // Journal-specific fields (Phase 7+)
           date: journalDate || null,

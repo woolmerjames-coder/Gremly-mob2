@@ -221,4 +221,196 @@ export async function callComplete(
   });
 }
 
-export const CortexClient = { callChat, callComplete };
+export type ClassificationResult = {
+  category: string;
+  tags: string[];
+  spaceName: string | null;
+  confidence: number;
+};
+
+export type CallClassifyResult =
+  | {
+      ok: true;
+      id: string;
+      classification: ClassificationResult;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+export async function callClassify(opts: {
+  text?: string;
+  messages?: { role: 'system' | 'user' | 'assistant'; content: string }[];
+  model?: string;
+  timeoutMs?: number;
+}): Promise<CallClassifyResult> {
+  // Single-flight dedupe: reject if already in-flight
+  if (inFlight) {
+    log('BUSY', 'Request already in-flight');
+    return { ok: false, error: 'busy' };
+  }
+
+  if (isAiDisabled()) {
+    if (!warnedAiDisabled) {
+      console.warn('[CORTEX] Disabled via EXPO_PUBLIC_DISABLE_AI; skipping request.');
+      warnedAiDisabled = true;
+    }
+    return { ok: false, error: '[cortex] disabled via EXPO_PUBLIC_DISABLE_AI' };
+  }
+
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    const message = '[cortex] Missing EXPO_PUBLIC_CORTEX_URL';
+    log('CONFIG_MISSING', message);
+    return { ok: false, error: message };
+  }
+
+  // Mark as in-flight
+  inFlight = true;
+
+  // AbortController with hard timeout
+  const timeoutMs = toMs(opts.timeoutMs ?? env.cortex.timeoutMs);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    log('TIMEOUT', `Aborting after ${timeoutMs}ms`);
+    controller.abort();
+  }, timeoutMs);
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  } else if (!warnedMissingAnon) {
+    console.warn(
+      '[CORTEX] Warning: EXPO_PUBLIC_SUPABASE_ANON_KEY is missing; proceeding without Authorization header.',
+    );
+    warnedMissingAnon = true;
+  }
+
+  log('AUTH_HEADER', mask(supabaseAnonKey));
+
+  const requestBody = {
+    type: 'classify',
+    model: opts.model ?? env.cortex.model,
+    timeoutMs,
+    text: opts.text,
+    messages: opts.messages,
+  };
+
+  try {
+    log('POST', baseUrl, {
+      type: requestBody.type,
+      model: requestBody.model,
+      timeoutMs,
+    });
+
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    log('STATUS', res.status);
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      const message = `[cortex] ${res.status} ${txt || 'Unknown error'}`;
+      return { ok: false, error: message };
+    }
+
+    // Parse response text
+    const text = await res.text();
+    let data: any;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      return { ok: false, error: 'invalid_json_response' };
+    }
+
+    // Handle error response
+    if (data.error) {
+      return { ok: false, error: String(data.error || data.detail || 'proxy_error') };
+    }
+
+    // Primary format: Cloudflare Worker response
+    // { id: "cmpl-...", classification: { category, tags, spaceName, confidence } }
+    if (data.id && data.classification) {
+      const classification = data.classification;
+
+      // Validate classification structure
+      if (
+        typeof classification === 'object' &&
+        typeof classification.category === 'string' &&
+        Array.isArray(classification.tags) &&
+        (classification.spaceName === null || typeof classification.spaceName === 'string') &&
+        typeof classification.confidence === 'number'
+      ) {
+        log('OK', data.id);
+        return {
+          ok: true,
+          id: String(data.id),
+          classification: {
+            category: classification.category,
+            tags: classification.tags,
+            spaceName: classification.spaceName,
+            confidence: classification.confidence,
+          },
+        };
+      }
+    }
+
+    // Fallback format: OpenAI-shaped response with JSON in message.content
+    // { choices: [{ message: { content: "{\"category\":...}" } }] }
+    const messageContent = data?.choices?.[0]?.message?.content;
+    if (messageContent) {
+      try {
+        const parsed = JSON.parse(messageContent);
+        if (
+          typeof parsed === 'object' &&
+          typeof parsed.category === 'string' &&
+          Array.isArray(parsed.tags) &&
+          (parsed.spaceName === null || typeof parsed.spaceName === 'string') &&
+          typeof parsed.confidence === 'number'
+        ) {
+          const id = String(data.id || 'classify-' + Math.random().toString(36).slice(2));
+          log('OK', id, '(fallback format)');
+          return {
+            ok: true,
+            id,
+            classification: {
+              category: parsed.category,
+              tags: parsed.tags,
+              spaceName: parsed.spaceName,
+              confidence: parsed.confidence,
+            },
+          };
+        }
+      } catch {
+        // Failed to parse message.content as JSON, fall through to error
+      }
+    }
+
+    // Unrecognized response format
+    console.warn('[CORTEX] classify unrecognized response format', { status: res.status, data });
+    return { ok: false, error: 'unrecognized_response' };
+  } catch (e: any) {
+    // Handle timeout specifically
+    if (e?.name === 'AbortError') {
+      log('ABORTED', 'Request timed out');
+      return { ok: false, error: 'timeout' };
+    }
+    const message = e?.message || String(e);
+    log('EXCEPTION', message);
+    return { ok: false, error: message };
+  } finally {
+    clearTimeout(timeout);
+    inFlight = false; // Release lock
+  }
+}
+
+export const CortexClient = { callChat, callComplete, callClassify };

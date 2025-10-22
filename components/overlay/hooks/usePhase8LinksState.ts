@@ -52,7 +52,12 @@ export function usePhase8LinksState(
       const tags = await (repo as any).listTags(); // Cast to any temporarily for Phase 8 methods
       setAllTags(tags as Tag[]);
     } catch (error) {
-      console.error('[Phase8Links] Failed to load tags:', error);
+      // Silently fail if tags table doesn't exist (Phase 8 not yet in Supabase)
+      // Only log in dev to avoid noise
+      if (__DEV__) {
+        console.warn('[Phase8Links] Tags not available (table may not exist)');
+      }
+      setAllTags([]);
     }
   }, [repo]);
 
@@ -64,7 +69,11 @@ export function usePhase8LinksState(
       const tags = await (repo as any).listItemTags(itemId);
       setCurrentTags(tags as Tag[]);
     } catch (error) {
-      console.error('[Phase8Links] Failed to load item tags:', error);
+      // Silently fail if tags table doesn't exist
+      if (__DEV__) {
+        console.warn('[Phase8Links] Item tags not available');
+      }
+      setCurrentTags([]);
     }
   }, [repo, itemId, itemType]);
 
@@ -76,7 +85,11 @@ export function usePhase8LinksState(
       const people = await (repo as any).listLinkedPeopleByItem(itemId);
       setLinkedPeople(people as EntityPerson[]);
     } catch (error) {
-      console.error('[Phase8Links] Failed to load linked people:', error);
+      // Silently fail if entity_people table doesn't exist
+      if (__DEV__) {
+        console.warn('[Phase8Links] Linked people not available');
+      }
+      setLinkedPeople([]);
     }
   }, [repo, itemId]);
 

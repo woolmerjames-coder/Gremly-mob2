@@ -183,19 +183,56 @@ export class MemoryRepo implements IRepo {
 
     this.commit(rec);
     this.data.unshift(rec);
+
+    // Log create operation
+    console.log('[REPO_CREATE]', {
+      id: rec.id,
+      type: rec.type,
+      spaceId: rec.space_id,
+      title: rec.type === 'habit' || rec.type === 'todo' ? rec.name : rec.title,
+    });
+
     return rec;
   }
 
   async update({ id, patch }: UpdateRecordInput): Promise<AppRecord> {
     const idx = this.data.findIndex((r) => r.id === id);
     if (idx < 0) throw new Error('Record not found');
-    const merged = { ...this.data[idx], ...patch, updated_at: nowIso() } as AppRecord;
+
+    const original = this.data[idx];
+    const merged = { ...original, ...patch, updated_at: nowIso() } as AppRecord;
     this.commit(merged);
     this.data[idx] = merged;
+
+    // Log update operation with changes
+    const changes: any = {};
+    if (patch.space_id !== undefined && patch.space_id !== original.space_id) {
+      changes.spaceId = { from: original.space_id, to: patch.space_id };
+    }
+    if (patch.ai_placed !== undefined && patch.ai_placed !== original.ai_placed) {
+      changes.ai_placed = { from: original.ai_placed, to: patch.ai_placed };
+    }
+    if (patch.why_string !== undefined && patch.why_string !== original.why_string) {
+      changes.why_string = { from: original.why_string, to: patch.why_string };
+    }
+    if (patch.archived !== undefined && patch.archived !== original.archived) {
+      changes.archived = { from: original.archived, to: patch.archived };
+    }
+
+    console.log('[REPO_UPDATE]', { id, changes });
+
     return merged;
   }
 
   async remove(id: ID): Promise<void> {
+    const item = this.data.find((r) => r.id === id);
+    if (item) {
+      console.log('[REPO_DELETE]', {
+        id,
+        reason: 'remove_called',
+        type: item.type,
+      });
+    }
     this.data = this.data.filter((r) => r.id !== id);
   }
 

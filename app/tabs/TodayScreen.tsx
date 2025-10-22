@@ -103,15 +103,6 @@ export default function TodayScreen() {
   const shouldShowEveningTeaser =
     !isTestLight && eveningTeaserEnabled && new Date().getHours() >= 18;
 
-  // DEV: DS marker for QA
-  const dsMarker = __DEV__ ? (
-    <Box style={{ position: 'absolute', top: 8, right: 8, opacity: 0.5 }}>
-      <Text testID="ds-marker" variant="subtle" style={{ fontSize: 10 }}>
-        DS
-      </Text>
-    </Box>
-  ) : null;
-
   // Clear undo timer on unmount
   useEffect(() => {
     // Emit analytics event on mount
@@ -315,31 +306,9 @@ export default function TodayScreen() {
         />
       }
     >
-      {dsMarker}
       <Box gap={4}>
-        {/* Error state */}
-        {todayData.error && (
-          <Card>
-            <Box p={4} gap={3} style={{ alignItems: 'center' }}>
-              <Text variant="title" style={{ textAlign: 'center' }}>
-                Authentication Required
-              </Text>
-              <Text variant="body" style={{ textAlign: 'center', color: theme.colors.error }}>
-                {todayData.error}
-              </Text>
-              {__DEV__ && (
-                <Button
-                  title="Open Dev Login"
-                  onPress={() => navigation.navigate('DevLogin')}
-                  testID="dev-login-cta"
-                />
-              )}
-            </Box>
-          </Card>
-        )}
-
         {/* Loading state */}
-        {todayData.loading && !todayData.error && (
+        {todayData.loading && (
           <Box p={4}>
             <Text variant="body" style={{ textAlign: 'center' }}>
               Loading...

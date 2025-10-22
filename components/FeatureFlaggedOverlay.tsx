@@ -143,10 +143,11 @@ function LegacyOverlayAdapter({
               onSaved?.({ type: 'todo', id: result.id });
               break;
 
-            case 'journal':
+            case 'journal': {
+              const journalEntry = payload.data.entry.trim();
               result = await repo.create({
                 type: 'note',
-                title: '',
+                title: journalEntry || 'Journal entry',
                 body: payload.data.entry,
                 subtype: 'journal',
                 space_id: initialSpaceId,
@@ -154,6 +155,7 @@ function LegacyOverlayAdapter({
               });
               onSaved?.({ type: 'journal', id: result.id });
               break;
+            }
 
             case 'catchall':
               console.log('[LegacyOverlayAdapter] Catchall handled by ManualAddOverlay');

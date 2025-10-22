@@ -1,0 +1,48 @@
+name: Database Drift Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  check-db-drift:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript type check
+        run: npm run typecheck
+
+      # Optional: Uncomment to enable drift detection in CI
+      # Requires SUPABASE_PROJECT_REF secret to be set in GitHub
+      # - name: Check for schema drift
+      #   env:
+      #     SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      #   run: |
+      #     if [ -n "$SUPABASE_PROJECT_REF" ]; then
+      #       npm run db:drift
+      #     else
+      #       echo "⚠️  Skipping drift check - SUPABASE_PROJECT_REF not set"
+      #     fi
+
+      - name: Verify types file exists
+        run: |
+          if [ ! -f "lib/supabase/types.ts" ]; then
+            echo "❌ ERROR: lib/supabase/types.ts not found"
+            echo "Run 'npm run db:types' locally and commit the file"
+            exit 1
+          fi
+          echo "✅ Types file exists"

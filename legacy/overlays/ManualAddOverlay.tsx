@@ -213,12 +213,13 @@ export function ManualAddOverlay({
 
         // Determine space_id: use currentSpaceId if provided, otherwise null
         const spaceId = currentSpaceId !== undefined ? currentSpaceId : null;
+        const trimmedText = inputText.trim();
 
         if (!res) {
           finalPayload = {
             type: 'note',
-            title: '',
-            body: inputText,
+            title: trimmedText || 'Quick note',
+            body: trimmedText,
             subtype: 'catchall',
             space_id: spaceId,
             ai_placed: false,
@@ -229,8 +230,8 @@ export function ManualAddOverlay({
             case 'note':
               finalPayload = {
                 type: 'note',
-                title: '',
-                body: inputText,
+                title: trimmedText || 'Quick note',
+                body: trimmedText,
                 subtype: res.subtype || 'catchall',
                 space_id: spaceId,
                 ai_placed: res.aiPlaced || false,

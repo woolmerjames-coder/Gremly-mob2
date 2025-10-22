@@ -262,7 +262,7 @@ describe('Hub DS Screen', () => {
     const catchallNote = {
       id: 'note-1',
       type: 'note',
-      title: '',
+      title: 'Quick idea from catch-all',
       body: 'Quick idea from catch-all',
       subtype: 'catchall',
       space_id: null,
