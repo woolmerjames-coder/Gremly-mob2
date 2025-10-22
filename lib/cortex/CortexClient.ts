@@ -126,7 +126,11 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
     }
 
     // Normalize multiple response shapes
-    function normalize(d: any) {
+    function normalize(
+      d: any,
+    ):
+      | { ok: true; id: string; content: string; model?: any; usage?: any }
+      | { ok: false; error: string } {
       if (!d || typeof d !== 'object') return { ok: false, error: 'empty_response' };
 
       // Shape D: wrapped error
@@ -163,6 +167,8 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
           ok: true,
           id: 'cmpl-' + Math.random().toString(36).slice(2),
           content: String(d.passthrough),
+          model: undefined,
+          usage: undefined,
         };
       }
 
@@ -178,7 +184,12 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
     log('OK', norm.id);
     return {
       ok: true,
-      data: { id: norm.id, content: norm.content, model: norm.model, usage: norm.usage },
+      data: {
+        id: norm.id,
+        content: norm.content,
+        model: norm.model,
+        usage: norm.usage,
+      } as T,
     };
   } catch (e: any) {
     // Handle timeout specifically

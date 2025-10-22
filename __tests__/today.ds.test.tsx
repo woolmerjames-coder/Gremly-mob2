@@ -179,7 +179,7 @@ describe('Today DS Screen', () => {
     renderWithProviders(<TodayScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestID('ds-marker')).toBeTruthy();
+      expect(screen.getByTestId('ds-marker')).toBeTruthy();
       expect(screen.getByText('DS')).toBeTruthy();
     });
   });
