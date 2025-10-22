@@ -7,12 +7,12 @@
 
 import React from 'react';
 import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
-import HubScreen from '../app/tabs/HubScreen';
+import HubScreen from '../../app/tabs/HubScreen';
 import { SheetManager } from 'react-native-actions-sheet';
-import { ActivityLog } from '../lib/activityLog';
+import { ActivityLog } from '../../lib/activityLog';
 
 // Mock the auth provider to return an authenticated user
-jest.mock('../providers/AuthProvider', () => ({
+jest.mock('../../providers/AuthProvider', () => ({
   useAuth: () => ({
     user: { id: 'test-user-id', email: 'test@example.com' },
     userId: 'test-user-id',
