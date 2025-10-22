@@ -7,6 +7,13 @@ import type { AppRecord } from '../lib/types';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
 
+interface ConversionMeta {
+  origin?: string;
+  ai_placed?: boolean;
+  why_string?: string | null;
+  source_message_id?: string | null;
+}
+
 interface OverlayState {
   visible: boolean;
   mode: 'create' | 'edit';
@@ -16,11 +23,13 @@ interface OverlayState {
     subtype?: string | null;
   };
   initialSpaceId?: string | null;
+  conversionMeta?: ConversionMeta;
 }
 
 interface CreateOptions {
   type?: EntityType;
   spaceId?: string | null;
+  conversionMeta?: ConversionMeta;
 }
 
 interface EditOptions {
@@ -38,7 +47,7 @@ export function useUnifiedOverlayController() {
   const isOpeningRef = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const openCreate = useCallback(({ type, spaceId }: CreateOptions = {}) => {
+  const openCreate = useCallback(({ type, spaceId, conversionMeta }: CreateOptions = {}) => {
     if (isOpeningRef.current) {
       console.log('[OverlayController] open already in progress, ignoring');
       return;
@@ -50,6 +59,7 @@ export function useUnifiedOverlayController() {
       mode: 'create',
       initialEntity: type ? { type, id: undefined, subtype: null } : undefined,
       initialSpaceId: spaceId,
+      conversionMeta,
     });
 
     // Reset debounce flag after 600ms
@@ -115,6 +125,7 @@ export function useUnifiedOverlayController() {
       mode: 'create',
       initialEntity: undefined,
       initialSpaceId: undefined,
+      conversionMeta: undefined,
     });
     // Allow immediate re-open on close
     isOpeningRef.current = false;

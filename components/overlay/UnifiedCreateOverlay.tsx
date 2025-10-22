@@ -61,6 +61,12 @@ export type UnifiedCreateOverlayProps = {
     subtype?: string | null;
   };
   initialSpaceId?: string | null; // from scope
+  conversionMeta?: {
+    origin?: string;
+    ai_placed?: boolean;
+    why_string?: string | null;
+    source_message_id?: string | null;
+  };
   onClose: () => void;
   onSaved?: (result: { type: string; id: string }) => void;
 };
@@ -78,6 +84,7 @@ export function UnifiedCreateOverlay({
   mode,
   initialEntity,
   initialSpaceId,
+  conversionMeta,
   onClose,
   onSaved,
 }: UnifiedCreateOverlayProps) {
@@ -1045,7 +1052,10 @@ export function UnifiedCreateOverlay({
   const buildCreateInput = (type: EntityType): CreateRecordInput => {
     const baseInput = {
       space_id: spaceId !== undefined ? spaceId : null,
-      ai_placed: false,
+      ai_placed: conversionMeta?.ai_placed ?? false,
+      origin: (conversionMeta?.origin ?? 'manual') as 'catchall' | 'space_chat' | 'manual',
+      why_string: conversionMeta?.why_string ?? null,
+      source_message_id: conversionMeta?.source_message_id ?? null,
     };
 
     switch (type) {

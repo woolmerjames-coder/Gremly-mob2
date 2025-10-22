@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Alert,
   SafeAreaView,
+  ToastAndroid,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -37,6 +38,11 @@ import { Mascot } from '../../components/mascot/Mascot';
 
 import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
+import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
+import type { OverlayKind } from './chat/openUnifiedFromChat';
+import { Chip } from '../../ui/Chip';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -50,9 +56,16 @@ export default function ChatThreadScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [confirmations, setConfirmations] = useState<{ messageId: string; texts: string[] }[]>([]);
+  const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
+
+  // Track last assistant response for conversion metadata
+  const lastAssistantResponseRef = React.useRef<{ explanation?: string | null }>({});
 
   // Mascot controller for Phase 10.6
   const mascot = useMascotController();
+
+  // Overlay controller for conversion
+  const overlayController = useUnifiedOverlayController();
 
   // Use new chat messages hook
   const {
@@ -107,6 +120,9 @@ export default function ChatThreadScreen({ route }: Props) {
 
       try {
         setSending(true);
+
+        // Clear active suggestions when user sends a new message
+        setActiveSuggestions([]);
 
         // Phase 10.6: Trigger haptic feedback for send action
         if (shouldUseHaptics()) {
@@ -267,18 +283,24 @@ export default function ChatThreadScreen({ route }: Props) {
 
           // Add AI response message for all cortex responses
           if (response.explanation && response.explanation.trim()) {
-            let assistantText = response.explanation;
+            const assistantText = response.explanation;
 
-            // For 'ask' mode, append suggestions if available
+            // For 'ask' mode, show suggestions as interactive chips instead of text
             if (
               response.mode === 'ask' &&
               response.suggestions &&
               response.suggestions.length > 0
             ) {
-              assistantText += ` Here are some ideas: ${response.suggestions.join(', ')}`;
+              setActiveSuggestions(response.suggestions);
+              // Don't append suggestions to text - they'll be rendered as chips
+            } else {
+              setActiveSuggestions([]);
             }
 
             await appendAssistantMessage(assistantText);
+
+            // Track assistant response for conversion metadata
+            lastAssistantResponseRef.current = { explanation: response.explanation };
 
             // Phase 10.6: Trigger appropriate mascot state after assistant message
             if (shouldTriggerPlayful) {
@@ -340,9 +362,91 @@ export default function ChatThreadScreen({ route }: Props) {
     [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages, mascot],
   );
 
-  const handleMiniAction = useCallback((action: string) => {
-    // Placeholder for mini action bar buttons - no logic yet as per brief
-    console.log('[ChatThread] Mini action:', action);
+  // Convert from chip handler
+  const convertFromChip = useCallback(
+    (kind: OverlayKind) => {
+      const lastUser = messages.find((m, index) => {
+        // Find the last user message
+        return (
+          (m.role === 'user' && index === messages.length - 1) ||
+          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
+        );
+      });
+
+      if (!lastUser) return;
+
+      const initial = { title: (lastUser.content ?? '').trim() };
+      openUnifiedFromChat(
+        kind,
+        initial,
+        {
+          lane: 'space_chat',
+          spaceId: spaceId ?? null,
+          messageId: lastUser.id ?? null,
+          whyString: lastAssistantResponseRef.current?.explanation ?? null,
+        },
+        overlayController,
+      );
+    },
+    [messages, spaceId, overlayController],
+  );
+
+  // Map suggestion text to overlay kind
+  const getSuggestionKind = useCallback((suggestion: string): OverlayKind | null => {
+    const lower = suggestion.toLowerCase();
+    if (lower.includes('todo') || lower.includes('task') || lower.includes('do')) return 'todo';
+    if (lower.includes('note') || lower.includes('remember') || lower.includes('write'))
+      return 'note';
+    if (lower.includes('habit') || lower.includes('routine') || lower.includes('daily'))
+      return 'habit';
+    if (lower.includes('reflect') || lower.includes('think') || lower.includes('journal'))
+      return 'reflection';
+
+    // Default fallback for generic suggestions
+    return 'todo';
+  }, []);
+
+  const handleSuggestionPress = useCallback(
+    (suggestion: string) => {
+      const kind = getSuggestionKind(suggestion);
+      if (kind) {
+        convertFromChip(kind);
+        // Clear suggestions after conversion
+        setActiveSuggestions([]);
+      }
+    },
+    [getSuggestionKind, convertFromChip],
+  );
+
+  const handleMiniAction = useCallback(
+    (action: string) => {
+      // Map mini action icons to overlay kinds
+      const actionMap: Record<string, OverlayKind> = {
+        brain: 'reflection',
+        check: 'todo',
+        file: 'note',
+        flame: 'habit',
+        pen: 'note', // alternate mapping for pen
+      };
+
+      const kind = actionMap[action];
+      if (kind) {
+        convertFromChip(kind);
+      } else {
+        console.log('[ChatThread] Unknown mini action:', action);
+      }
+    },
+    [convertFromChip],
+  );
+
+  // Helper to show success toast cross-platform with chat-specific messaging
+  const showChatConversionToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      // TODO: Implement custom toast with Golden Pear color (#E0C47A)
+      Alert.alert('✅ Success', message);
+    }
   }, []);
 
   // Environment gate - wrap entire chat UI
@@ -415,6 +519,23 @@ export default function ChatThreadScreen({ route }: Props) {
                 );
               })}
 
+              {/* Suggestion chips for ask mode responses */}
+              {activeSuggestions.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  <Text style={styles.suggestionsLabel}>You could also:</Text>
+                  <View style={styles.suggestionChips}>
+                    {activeSuggestions.map((suggestion, index) => (
+                      <Chip
+                        key={index}
+                        label={suggestion}
+                        onPress={() => handleSuggestionPress(suggestion)}
+                        testID={`suggestion-chip-${index}`}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
+
               {/* Typing indicator - Phase 10.6 */}
               {mascot.state === 'thinking' && (
                 <View style={styles.typingContainer}>{/* TODO: Add TypingDots when ready */}</View>
@@ -436,6 +557,28 @@ export default function ChatThreadScreen({ route }: Props) {
           testID="mini-action-bar"
         />
       </KeyboardAvoidingView>
+
+      {/* Unified Create Overlay for Chat Conversions */}
+      <UnifiedCreateOverlay
+        visible={overlayController.state.visible}
+        mode={overlayController.state.mode}
+        initialEntity={overlayController.state.initialEntity}
+        initialSpaceId={overlayController.state.initialSpaceId}
+        conversionMeta={overlayController.state.conversionMeta}
+        onClose={overlayController.close}
+        onSaved={(result) => {
+          // Success toast with chat-specific messaging
+          const itemType =
+            result.type === 'note'
+              ? 'Note'
+              : result.type === 'todo'
+                ? 'To-Do'
+                : result.type === 'habit'
+                  ? 'Habit'
+                  : 'Item';
+          showChatConversionToast(`${itemType} created from chat ✨`);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -503,6 +646,21 @@ const styles = StyleSheet.create({
     marginTop: lightTokens.spacing[2],
     alignSelf: 'flex-end',
     maxWidth: '80%',
+  },
+  suggestionsContainer: {
+    marginTop: lightTokens.spacing[3],
+    alignSelf: 'flex-start',
+    maxWidth: '90%',
+  },
+  suggestionsLabel: {
+    fontSize: lightTokens.typography.size.sm,
+    color: lightTokens.colors.subtle,
+    marginBottom: lightTokens.spacing[2],
+  },
+  suggestionChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: lightTokens.spacing[2],
   },
   loading: {
     flex: 1,

@@ -23,7 +23,7 @@ export interface Habit {
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
-  origin?: 'catchall' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
   labels?: string[];
   views?: {
@@ -74,7 +74,7 @@ export interface Todo {
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
-  origin?: 'catchall' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
   labels?: string[];
   views?: {
@@ -100,7 +100,7 @@ export interface Note {
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
-  origin?: 'catchall' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
   labels?: string[];
   views?: {
