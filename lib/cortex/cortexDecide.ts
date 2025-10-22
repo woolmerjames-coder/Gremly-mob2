@@ -22,6 +22,7 @@ import { env } from '../env';
 
 /**
  * Context provided by UI layers when calling Cortex
+ * Phase 10.4: Extended with space defaults and user tone preferences
  */
 export interface CortexContext {
   /** Current authenticated user ID */
@@ -29,7 +30,16 @@ export interface CortexContext {
   /** Active space ID (if any) */
   activeSpaceId?: string | null;
   /** UI surface making the request */
-  uiSurface: 'chat' | 'overlay' | 'spaces' | 'today' | 'hub';
+  uiSurface: 'chat' | 'overlay' | 'spaces' | 'today' | 'hub' | 'catchall';
+  /** Per-space defaults for biasing (Phase 10.4) */
+  spaceDefaults?: {
+    tone?: 'calm' | 'warm' | 'direct';
+    allowedTypes?: Array<'todo' | 'habit' | 'journal' | 'note'>;
+    preferredListKeys?: string[];
+    reminderWindows?: Record<string, any>;
+  } | null;
+  /** User-level tone preference from cortex_preferences (Phase 10.4) */
+  userPrefsTone?: 'calm' | 'warm' | 'direct';
 }
 
 /**
@@ -159,8 +169,11 @@ export async function cortexDecide(
     const confidence = normalized.confidence;
     const mode = decideMode(confidence);
 
+    // Phase 10.4: Choose tone based on priority: userPrefsTone > spaceDefaults.tone > env.optimistic > 'calm'
+    const tone: Tone =
+      ctx.userPrefsTone ?? ctx.spaceDefaults?.tone ?? (optimistic ? 'warm' : 'calm');
+
     // Generate explanation based on mode and actions
-    const tone: Tone = optimistic ? 'warm' : 'calm';
     const explanation = generateExplanation(normalized.actions, mode, tone, ctx);
 
     // Generate suggestions for ASK/KEEP modes
@@ -190,6 +203,7 @@ export async function cortexDecide(
 
 /**
  * Normalize engine output to canonical CortexAction[]
+ * Phase 10.4: Apply space-level biasing for ambiguous intents
  * @internal
  */
 function normalizeEngineOutput(
@@ -205,8 +219,22 @@ function normalizeEngineOutput(
   // Use original text as fallback for title/name/text
   const fallbackText = originalText || 'Untitled';
 
+  // Phase 10.4: Apply type biasing based on spaceDefaults.allowedTypes
+  let engineType = engineOutput.type;
+  if (ctx.spaceDefaults?.allowedTypes && ctx.spaceDefaults.allowedTypes.length > 0) {
+    // If engine type is ambiguous (note/catchall) and space has preferred types, bias toward first preferred type
+    if ((engineType === 'note' || !engineType) && confidence < 0.7) {
+      const preferredType = ctx.spaceDefaults.allowedTypes[0];
+      if (preferredType === 'todo') {
+        engineType = 'todo';
+      } else if (preferredType === 'habit') {
+        engineType = 'habit';
+      }
+    }
+  }
+
   // Map engine output type to canonical action
-  if (engineOutput.type === 'todo') {
+  if (engineType === 'todo') {
     actions.push({
       type: 'create.todo',
       payload: {
@@ -215,7 +243,7 @@ function normalizeEngineOutput(
         spaceId: ctx.activeSpaceId,
       },
     });
-  } else if (engineOutput.type === 'habit') {
+  } else if (engineType === 'habit') {
     actions.push({
       type: 'create.habit',
       payload: {
@@ -224,13 +252,13 @@ function normalizeEngineOutput(
         spaceId: ctx.activeSpaceId,
       },
     });
-  } else if (engineOutput.type === 'note') {
+  } else if (engineType === 'note') {
     // Check if it's a list-type note
     const subtype = engineOutput.subtype || 'catchall';
 
     if (subtype === 'list') {
-      // Detect list type from content
-      const listKey = detectListType(fallbackText);
+      // Phase 10.4: Detect list type with space biasing
+      const listKey = detectListType(fallbackText, ctx);
       actions.push({
         type: 'add.to.list',
         payload: {
@@ -256,11 +284,33 @@ function normalizeEngineOutput(
 
 /**
  * Detect list type from text content
+ * Phase 10.4: Bias toward preferredListKeys when available
  * @internal
  */
-function detectListType(text: string): 'shopping' | 'reading' | 'packing' | 'custom' {
+function detectListType(
+  text: string,
+  ctx?: CortexContext,
+): 'shopping' | 'reading' | 'packing' | 'custom' {
   const lower = text.toLowerCase();
 
+  // Phase 10.4: Check if text mentions any preferred list keys by name
+  if (ctx?.spaceDefaults?.preferredListKeys && ctx.spaceDefaults.preferredListKeys.length > 0) {
+    for (const key of ctx.spaceDefaults.preferredListKeys) {
+      if (lower.includes(key.toLowerCase())) {
+        return key as any;
+      }
+    }
+
+    // If user said "add" or "list" but no specific list keyword, use first preferred key
+    if (lower.includes('add') || lower.includes('list')) {
+      const firstKey = ctx.spaceDefaults.preferredListKeys[0];
+      if (['shopping', 'reading', 'packing'].includes(firstKey)) {
+        return firstKey as any;
+      }
+    }
+  }
+
+  // Fall back to default heuristics
   if (lower.includes('buy') || lower.includes('shop') || lower.includes('store')) {
     return 'shopping';
   }

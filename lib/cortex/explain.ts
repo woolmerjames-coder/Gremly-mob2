@@ -23,30 +23,25 @@ export type Tone = 'calm' | 'warm' | 'direct';
  *
  * @example
  * explainFiledToSpace('Fitness', 'warm', ['you mentioned running'])
- * // "Filed to Fitness (you mentioned running) ✨"
+ * // "Popped this into Fitness for you 💫 (you mentioned running)"
  */
 export function explainFiledToSpace(
   spaceName: string,
   tone: Tone = 'calm',
   hints?: string[],
 ): string {
-  const base = `Filed to ${spaceName}`;
-
-  if (hints && hints.length > 0) {
-    const hintText = hints[0]; // Use first hint for brevity
-    if (tone === 'warm') {
-      return `${base} (${hintText}) ✨`;
-    }
-    return `${base} (${hintText}).`;
-  }
+  const hintText = hints && hints.length > 0 ? ` (${hints[0]})` : '';
 
   if (tone === 'warm') {
-    return `${base} ✨`;
+    return `Popped this into ${spaceName} for you 💫${hintText}`;
   }
+
   if (tone === 'direct') {
-    return base;
+    return `Filed: ${spaceName}${hintText}`;
   }
-  return `${base}.`;
+
+  // calm
+  return `Filed to ${spaceName}${hintText ? hintText + '.' : '.'}`;
 }
 
 /**
@@ -58,16 +53,22 @@ export function explainFiledToSpace(
  *
  * @example
  * explainAddedToList('Shopping', 'warm')
- * // "Added to Shopping list 🛒"
+ * // "Added to Shopping 🛒"
+ * explainAddedToList('Shopping', 'direct')
+ * // "Shopping: added"
  */
 export function explainAddedToList(listName: string, tone: Tone = 'calm'): string {
-  const emoji = tone === 'warm' ? getListEmoji(listName) : '';
-
-  if (tone === 'direct') {
-    return `Added to ${listName}`;
+  if (tone === 'warm') {
+    const emoji = getListEmoji(listName);
+    return `Added to ${listName}${emoji ? ' ' + emoji : ' 💫'}`;
   }
 
-  return `Added to ${listName} list${emoji ? ' ' + emoji : ''}`;
+  if (tone === 'direct') {
+    return `${listName}: added`;
+  }
+
+  // calm
+  return `Added to ${listName}.`;
 }
 
 /**
