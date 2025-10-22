@@ -266,7 +266,7 @@ export default function ChatThreadScreen({ route }: Props) {
           }
 
           // Add AI response message for all cortex responses
-          if (response.explanation) {
+          if (response.explanation && response.explanation.trim()) {
             let assistantText = response.explanation;
 
             // For 'ask' mode, append suggestions if available
