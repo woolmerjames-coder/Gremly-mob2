@@ -177,6 +177,21 @@ export default function HubScreen() {
       ]);
       const allItemsForUnsorted = [...allHabits, ...allTodos, ...allNotes] as AppRecord[];
       const globalUnsorted = selectUnsortedForReview(allItemsForUnsorted);
+
+      if (__DEV__) {
+        console.log('[HubUnsorted] Global count calculation:', {
+          totalItems: allItemsForUnsorted.length,
+          unsortedCount: globalUnsorted.length,
+          byType: {
+            habits: allHabits.length,
+            todos: allTodos.length,
+            notes: allNotes.length,
+          },
+          scope: 'all',
+          filters: 'none (global count)',
+        });
+      }
+
       setUnsortedCount(globalUnsorted.length);
 
       // Build scope options for listByType
@@ -402,7 +417,21 @@ export default function HubScreen() {
   }, []);
 
   // Use unified selector for unsorted items (banner + sheet)
-  const unsortedForReview = useMemo(() => selectUnsortedForReview(items), [items]);
+  const unsortedForReview = useMemo(() => {
+    const result = selectUnsortedForReview(items);
+
+    if (__DEV__) {
+      console.log('[HubUnsorted] Sheet list calculation:', {
+        currentTab: tab,
+        currentScope: scope.type,
+        totalItemsInView: items.length,
+        unsortedInView: result.length,
+        filters: { tab, scope: scope.type, search, selectedTagIds },
+      });
+    }
+
+    return result;
+  }, [items, tab, scope, search, selectedTagIds]);
 
   const unsortedItems = useMemo(
     () => unsortedForReview.map(toUnsortedItem),
@@ -581,7 +610,17 @@ export default function HubScreen() {
             {unsortedCount > 0 && !bannerDismissed && (
               <TouchableOpacity
                 style={styles.unsortedBanner}
-                onPress={() => setReviewSheetVisible(true)}
+                onPress={() => {
+                  if (__DEV__) {
+                    console.log('[HubUnsorted] Opening sheet:', {
+                      bannerCount: unsortedCount,
+                      sheetItemsAvailable: unsortedItems.length,
+                      currentTab: tab,
+                      currentScope: scope.type,
+                    });
+                  }
+                  setReviewSheetVisible(true);
+                }}
                 testID="unsorted-banner"
               >
                 <View style={styles.bannerContent}>
