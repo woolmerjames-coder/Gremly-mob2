@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
+import { renderWithProviders, screen, waitFor, fireEvent } from '../utils/renderWithProviders';
 import HubScreen from '../../app/tabs/HubScreen';
 
 // Mock the auth provider to return an authenticated user

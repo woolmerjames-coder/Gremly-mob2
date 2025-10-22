@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
+import { renderWithProviders, screen, waitFor, fireEvent } from '../utils/renderWithProviders';
 import HubScreen from '../../app/tabs/HubScreen';
 import { SheetManager } from 'react-native-actions-sheet';
 import { ActivityLog } from '../../lib/activityLog';
