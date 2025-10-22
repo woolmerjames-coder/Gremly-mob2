@@ -44,7 +44,7 @@ jest.mock('../mascotMachine', () => {
 });
 
 // Mock environment flags
-jest.mock('../../../lib/env', () => ({
+jest.mock('../../../../lib/env', () => ({
   env: {
     feature: {
       mascot: {
@@ -245,7 +245,7 @@ describe('MascotProvider', () => {
   describe('Environment Flag Integration', () => {
     it('should respect feature flag for mascot visibility', () => {
       // Mock disabled feature flag
-      const env = require('../../../lib/env').env;
+      const env = require('../../../../lib/env').env;
       env.feature.mascot.enabled = false;
 
       const wrapper = ({ children }: { children: React.ReactNode }) => (
