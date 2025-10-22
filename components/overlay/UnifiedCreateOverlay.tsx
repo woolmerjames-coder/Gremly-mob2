@@ -1196,377 +1196,396 @@ export function UnifiedCreateOverlay({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
       >
-        <Pressable style={styles.backdrop} onPress={handleClose} testID="overlay-backdrop" />
-        <View
-          style={[
-            styles.card,
-            {
-              paddingBottom: insets.bottom + 20,
-              backgroundColor: theme.colors.cream,
-            },
-          ]}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <Text variant="title" style={{ color: theme.colors.text.primary }}>
-              Add or Edit Item
-            </Text>
-            <TouchableOpacity onPress={handleClose} testID="close-button">
-              <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {showAiBanner && (
-              <View style={[styles.section, styles.aiBanner]} testID="ai-unavailable-banner">
-                <Text style={[styles.aiBannerText, { color: theme.colors.text.secondary }]}>
-                  {aiBannerMessage}
-                </Text>
-              </View>
-            )}
-
-            {/* Type row */}
-            <View style={styles.section}>
-              <View style={styles.chipRow}>
-                {TYPE_OPTIONS.map((opt) => {
-                  const isSelected = selectedType === opt.value && !aiMode;
-                  const chipStyle = isSelected
-                    ? {
-                        backgroundColor: theme.colors.mint,
-                        borderColor: theme.colors.deepTeal.DEFAULT,
-                      }
-                    : {
-                        backgroundColor: 'transparent',
-                        borderColor: theme.colors.border.DEFAULT,
-                      };
-                  const chipTextStyle = isSelected
-                    ? { color: theme.colors.deepTeal.DEFAULT }
-                    : { color: theme.colors.text.secondary };
-                  const iconColor = isSelected
-                    ? theme.colors.deepTeal.DEFAULT
-                    : theme.colors.text.secondary;
-
-                  return (
-                    <Chip
-                      key={opt.value}
-                      label={opt.label}
-                      selected={isSelected}
-                      onPress={() => handleTypeSelect(opt.value as any)}
-                      testID={`type-pill-${opt.value}`}
-                      disabled={mode === 'edit'}
-                      style={{ ...styles.typeChip, ...chipStyle }}
-                      textStyle={chipTextStyle}
-                      leadingIcon={<Icon name={opt.iconName as any} size="xs" color={iconColor} />}
-                    />
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* AI mode button */}
-            {mode === 'create' && (
-              <View style={styles.section}>
-                <Pressable
-                  onPress={handleAiModeToggle}
-                  style={[
-                    styles.aiButton,
-                    aiMode && {
-                      backgroundColor: theme.colors.mint,
-                      borderColor: theme.colors.deepTeal.DEFAULT,
-                    },
-                  ]}
-                  testID="ai-mode-button"
-                >
-                  <Icon
-                    name="Sparkles"
-                    size="xs"
-                    color={aiMode ? theme.colors.deepTeal.DEFAULT : theme.colors.text.primary}
-                    strokeWidth={2}
-                  />
-                  <Text
-                    style={[
-                      styles.aiButtonText,
-                      { color: theme.colors.text.primary },
-                      aiMode && { color: theme.colors.deepTeal.DEFAULT },
-                    ]}
-                  >
-                    Not sure? Let Gremly decide
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {/* AI freeform input - Robust guard: only show in AI mode */}
-            {aiMode && (
-              <Animated.View
+        <Pressable style={styles.backdrop} onPress={handleClose} testID="overlay-backdrop">
+          <View pointerEvents="box-none" style={{ flex: 1, justifyContent: 'flex-end' }}>
+            <Pressable onPress={(e) => e?.stopPropagation?.()}>
+              <View
                 style={[
-                  styles.section,
+                  styles.card,
                   {
-                    opacity: fadeAnim,
-                    transform: [
-                      {
-                        translateY: fadeAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [20, 0],
-                        }),
-                      },
-                    ],
+                    paddingBottom: insets.bottom + 20,
+                    backgroundColor: theme.colors.cream,
                   },
                 ]}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                  <View style={{ marginRight: 6 }}>
-                    <Icon name="Sparkles" size="xs" color={theme.colors.text.secondary} />
+                {/* Header */}
+                <View style={styles.header}>
+                  <Text variant="title" style={{ color: theme.colors.text.primary }}>
+                    Add or Edit Item
+                  </Text>
+                  <TouchableOpacity onPress={handleClose} testID="close-button">
+                    <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>
+                      ✕
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={styles.scrollView}
+                  contentContainerStyle={styles.scrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {showAiBanner && (
+                    <View style={[styles.section, styles.aiBanner]} testID="ai-unavailable-banner">
+                      <Text style={[styles.aiBannerText, { color: theme.colors.text.secondary }]}>
+                        {aiBannerMessage}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Type row */}
+                  <View style={styles.section}>
+                    <View style={styles.chipRow}>
+                      {TYPE_OPTIONS.map((opt) => {
+                        const isSelected = selectedType === opt.value && !aiMode;
+                        const chipStyle = isSelected
+                          ? {
+                              backgroundColor: theme.colors.mint,
+                              borderColor: theme.colors.deepTeal.DEFAULT,
+                            }
+                          : {
+                              backgroundColor: 'transparent',
+                              borderColor: theme.colors.border.DEFAULT,
+                            };
+                        const chipTextStyle = isSelected
+                          ? { color: theme.colors.deepTeal.DEFAULT }
+                          : { color: theme.colors.text.secondary };
+                        const iconColor = isSelected
+                          ? theme.colors.deepTeal.DEFAULT
+                          : theme.colors.text.secondary;
+
+                        return (
+                          <Chip
+                            key={opt.value}
+                            label={opt.label}
+                            selected={isSelected}
+                            onPress={() => handleTypeSelect(opt.value as any)}
+                            testID={`type-pill-${opt.value}`}
+                            disabled={mode === 'edit'}
+                            style={{ ...styles.typeChip, ...chipStyle }}
+                            textStyle={chipTextStyle}
+                            leadingIcon={
+                              <Icon name={opt.iconName as any} size="xs" color={iconColor} />
+                            }
+                          />
+                        );
+                      })}
+                    </View>
                   </View>
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      color: theme.colors.text.secondary,
-                      lineHeight: 20,
-                    }}
-                  >
-                    Not sure? Let Gremly decide
-                  </Text>
-                </View>
-                <TextInput
-                  value={freeformText}
-                  onChangeText={setFreeformText}
-                  placeholder="Tell me what's on your mind…"
-                  placeholderTextColor={theme.colors.text.tertiary}
-                  multiline
-                  numberOfLines={8}
-                  testID="freeform-input"
-                  autoFocus
-                  style={[
-                    styles.freeformInput,
-                    {
-                      backgroundColor: theme.colors.white,
-                      borderColor: theme.colors.border.DEFAULT,
-                      color: theme.colors.text.primary,
-                    },
-                  ]}
-                />
-              </Animated.View>
-            )}
 
-            {/* Structured fields - Guard logic: show skeleton while loading, then fields when ready */}
-            {!aiMode &&
-              selectedType &&
-              (() => {
-                // Guard: If in edit mode and still loading, show skeleton
-                if (mode === 'edit' && hydration === 'loading') {
-                  return (
-                    <View style={styles.fieldsContainer} testID="loading-skeleton">
-                      <View style={[styles.skeletonInput, { backgroundColor: '#F3F4F6' }]} />
-                      <View
+                  {/* AI mode button */}
+                  {mode === 'create' && (
+                    <View style={styles.section}>
+                      <Pressable
+                        onPress={handleAiModeToggle}
                         style={[
-                          styles.skeletonInput,
-                          { backgroundColor: '#F3F4F6', marginTop: 12 },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.skeletonInput,
-                          { backgroundColor: '#F3F4F6', marginTop: 12, height: 100 },
-                        ]}
-                      />
-                      <Text
-                        style={{
-                          textAlign: 'center',
-                          color: theme.colors.text.tertiary,
-                          marginTop: 20,
-                        }}
-                      >
-                        Loading...
-                      </Text>
-                    </View>
-                  );
-                }
-
-                // Guard: If in edit mode and errored, show error
-                if (mode === 'edit' && hydration === 'error') {
-                  return (
-                    <View style={styles.fieldsContainer} testID="error-state">
-                      <Text
-                        style={{ textAlign: 'center', color: theme.colors.error, marginTop: 20 }}
-                      >
-                        Failed to load entity. Please try again.
-                      </Text>
-                    </View>
-                  );
-                }
-
-                // Render fields only when ready (or in create mode which is always ready)
-                const canRenderFields =
-                  mode === 'create' || (mode === 'edit' && hydration === 'ready');
-
-                if (!canRenderFields) {
-                  return null;
-                }
-
-                return (
-                  <Animated.View
-                    style={[
-                      styles.fieldsContainer,
-                      {
-                        opacity: fadeAnim,
-                        transform: [
-                          {
-                            translateY: fadeAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [20, 0],
-                            }),
+                          styles.aiButton,
+                          aiMode && {
+                            backgroundColor: theme.colors.mint,
+                            borderColor: theme.colors.deepTeal.DEFAULT,
                           },
-                        ],
-                      },
-                    ]}
-                    testID={`fields-${selectedType}`}
-                  >
-                    {selectedType === 'habit' && (
-                      <HabitFields
-                        name={habitName}
-                        onNameChange={setHabitName}
-                        frequency={habitFrequency}
-                        onFrequencyChange={setHabitFrequency}
-                        subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
-                        onSubtypeChange={setHabitSubtype}
-                        disabled={false}
-                        frequencyValue={habitFrequencyValue}
-                        onFrequencyValueChange={setHabitFrequencyValue}
-                        reminders={habitReminders}
-                        onRemindersChange={setHabitReminders}
-                        details={habitDetails}
-                        onDetailsChange={setHabitDetails}
-                        breakHabitState={habitBreakState}
-                        onBreakHabitStateChange={setHabitBreakState}
-                      />
-                    )}
-                    {selectedType === 'todo' && (
-                      <TodoFields
-                        name={todoName}
-                        onNameChange={setTodoName}
-                        dueDate={todoDueDate}
-                        onDueDateChange={setTodoDueDate}
-                        dueTime={todoDueTime}
-                        onDueTimeChange={setTodoDueTime}
-                        details={todoDetails}
-                        onDetailsChange={setTodoDetails}
-                        disabled={false}
-                      />
-                    )}
-                    {selectedType === 'journal' && (
-                      <JournalFields
-                        date={journalDate}
-                        onDateChange={setJournalDate}
-                        entry={journalEntry}
-                        onEntryChange={setJournalEntry}
-                        mood={journalMood}
-                        onMoodChange={setJournalMood}
-                        details={journalDetails}
-                        onDetailsChange={setJournalDetails}
-                        disabled={false}
-                      />
-                    )}
-                    {selectedType === 'note' && (
-                      <NoteFields
-                        title={noteTitle}
-                        onTitleChange={setNoteTitle}
-                        body={noteBody}
-                        onBodyChange={setNoteBody}
-                        details={noteDetails}
-                        onDetailsChange={setNoteDetails}
-                        disabled={false}
-                      />
-                    )}
-                    {selectedType === 'person' && (
-                      <PersonFields
-                        name={personName}
-                        onNameChange={setPersonName}
-                        details={personDetails}
-                        onDetailsChange={setPersonDetails}
-                        disabled={false}
-                      />
-                    )}
-                  </Animated.View>
-                );
-              })()}
+                        ]}
+                        testID="ai-mode-button"
+                      >
+                        <Icon
+                          name="Sparkles"
+                          size="xs"
+                          color={aiMode ? theme.colors.deepTeal.DEFAULT : theme.colors.text.primary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.aiButtonText,
+                            { color: theme.colors.text.primary },
+                            aiMode && { color: theme.colors.deepTeal.DEFAULT },
+                          ]}
+                        >
+                          Not sure? Let Gremly decide
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
 
-            {/* Phase 8: Tags & People linking - behind feature flag */}
-            {usePhase8Features &&
-              !aiMode &&
-              selectedType &&
-              selectedType !== 'person' &&
-              getItemType() && (
-                <View style={styles.relationshipsSection}>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
-                    Tags & People
-                  </Text>
-                  <TagEditor
-                    userId={userId || ''}
-                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                    itemType={getItemType()!}
-                    currentTags={phase8Links.currentTags}
-                    allTags={phase8Links.allTags}
-                    onTagsChange={(tags) => {
-                      // Tags are managed by the hook; this is just for UI sync if needed
-                    }}
-                    onAddTag={phase8Links.addTag}
-                    onLinkTag={phase8Links.linkTag}
-                    onUnlinkTag={phase8Links.unlinkTag}
-                  />
-                  <PeopleLinker
-                    userId={userId || ''}
-                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                    itemType={getItemType()!}
-                    linkedPeople={phase8Links.linkedPeople}
-                    onPeopleChange={(people) => {
-                      // People are managed by the hook; this is just for UI sync if needed
-                    }}
-                    onLinkPerson={phase8Links.linkPerson}
-                    onUnlinkPerson={phase8Links.unlinkPerson}
+                  {/* AI freeform input - Robust guard: only show in AI mode */}
+                  {aiMode && (
+                    <Animated.View
+                      style={[
+                        styles.section,
+                        {
+                          opacity: fadeAnim,
+                          transform: [
+                            {
+                              translateY: fadeAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [20, 0],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    >
+                      <View
+                        style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}
+                      >
+                        <View style={{ marginRight: 6 }}>
+                          <Icon name="Sparkles" size="xs" color={theme.colors.text.secondary} />
+                        </View>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            color: theme.colors.text.secondary,
+                            lineHeight: 20,
+                          }}
+                        >
+                          Not sure? Let Gremly decide
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={freeformText}
+                        onChangeText={setFreeformText}
+                        placeholder="Tell me what's on your mind…"
+                        placeholderTextColor={theme.colors.text.tertiary}
+                        multiline
+                        numberOfLines={8}
+                        testID="freeform-input"
+                        autoFocus
+                        style={[
+                          styles.freeformInput,
+                          {
+                            backgroundColor: theme.colors.white,
+                            borderColor: theme.colors.border.DEFAULT,
+                            color: theme.colors.text.primary,
+                          },
+                        ]}
+                      />
+                    </Animated.View>
+                  )}
+
+                  {/* Structured fields - Guard logic: show skeleton while loading, then fields when ready */}
+                  {!aiMode &&
+                    selectedType &&
+                    (() => {
+                      // Guard: If in edit mode and still loading, show skeleton
+                      if (mode === 'edit' && hydration === 'loading') {
+                        return (
+                          <View style={styles.fieldsContainer} testID="loading-skeleton">
+                            <View style={[styles.skeletonInput, { backgroundColor: '#F3F4F6' }]} />
+                            <View
+                              style={[
+                                styles.skeletonInput,
+                                { backgroundColor: '#F3F4F6', marginTop: 12 },
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.skeletonInput,
+                                { backgroundColor: '#F3F4F6', marginTop: 12, height: 100 },
+                              ]}
+                            />
+                            <Text
+                              style={{
+                                textAlign: 'center',
+                                color: theme.colors.text.tertiary,
+                                marginTop: 20,
+                              }}
+                            >
+                              Loading...
+                            </Text>
+                          </View>
+                        );
+                      }
+
+                      // Guard: If in edit mode and errored, show error
+                      if (mode === 'edit' && hydration === 'error') {
+                        return (
+                          <View style={styles.fieldsContainer} testID="error-state">
+                            <Text
+                              style={{
+                                textAlign: 'center',
+                                color: theme.colors.error,
+                                marginTop: 20,
+                              }}
+                            >
+                              Failed to load entity. Please try again.
+                            </Text>
+                          </View>
+                        );
+                      }
+
+                      // Render fields only when ready (or in create mode which is always ready)
+                      const canRenderFields =
+                        mode === 'create' || (mode === 'edit' && hydration === 'ready');
+
+                      if (!canRenderFields) {
+                        return null;
+                      }
+
+                      return (
+                        <Animated.View
+                          style={[
+                            styles.fieldsContainer,
+                            {
+                              opacity: fadeAnim,
+                              transform: [
+                                {
+                                  translateY: fadeAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [20, 0],
+                                  }),
+                                },
+                              ],
+                            },
+                          ]}
+                          testID={`fields-${selectedType}`}
+                        >
+                          {selectedType === 'habit' && (
+                            <HabitFields
+                              name={habitName}
+                              onNameChange={setHabitName}
+                              frequency={habitFrequency}
+                              onFrequencyChange={setHabitFrequency}
+                              subtype={
+                                habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null
+                              }
+                              onSubtypeChange={setHabitSubtype}
+                              disabled={false}
+                              frequencyValue={habitFrequencyValue}
+                              onFrequencyValueChange={setHabitFrequencyValue}
+                              reminders={habitReminders}
+                              onRemindersChange={setHabitReminders}
+                              details={habitDetails}
+                              onDetailsChange={setHabitDetails}
+                              breakHabitState={habitBreakState}
+                              onBreakHabitStateChange={setHabitBreakState}
+                            />
+                          )}
+                          {selectedType === 'todo' && (
+                            <TodoFields
+                              name={todoName}
+                              onNameChange={setTodoName}
+                              dueDate={todoDueDate}
+                              onDueDateChange={setTodoDueDate}
+                              dueTime={todoDueTime}
+                              onDueTimeChange={setTodoDueTime}
+                              details={todoDetails}
+                              onDetailsChange={setTodoDetails}
+                              disabled={false}
+                            />
+                          )}
+                          {selectedType === 'journal' && (
+                            <JournalFields
+                              date={journalDate}
+                              onDateChange={setJournalDate}
+                              entry={journalEntry}
+                              onEntryChange={setJournalEntry}
+                              mood={journalMood}
+                              onMoodChange={setJournalMood}
+                              details={journalDetails}
+                              onDetailsChange={setJournalDetails}
+                              disabled={false}
+                            />
+                          )}
+                          {selectedType === 'note' && (
+                            <NoteFields
+                              title={noteTitle}
+                              onTitleChange={setNoteTitle}
+                              body={noteBody}
+                              onBodyChange={setNoteBody}
+                              details={noteDetails}
+                              onDetailsChange={setNoteDetails}
+                              disabled={false}
+                            />
+                          )}
+                          {selectedType === 'person' && (
+                            <PersonFields
+                              name={personName}
+                              onNameChange={setPersonName}
+                              details={personDetails}
+                              onDetailsChange={setPersonDetails}
+                              disabled={false}
+                            />
+                          )}
+                        </Animated.View>
+                      );
+                    })()}
+
+                  {/* Phase 8: Tags & People linking - behind feature flag */}
+                  {usePhase8Features &&
+                    !aiMode &&
+                    selectedType &&
+                    selectedType !== 'person' &&
+                    getItemType() && (
+                      <View style={styles.relationshipsSection}>
+                        <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
+                          Tags & People
+                        </Text>
+                        <TagEditor
+                          userId={userId || ''}
+                          itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                          itemType={getItemType()!}
+                          currentTags={phase8Links.currentTags}
+                          allTags={phase8Links.allTags}
+                          onTagsChange={(tags) => {
+                            // Tags are managed by the hook; this is just for UI sync if needed
+                          }}
+                          onAddTag={phase8Links.addTag}
+                          onLinkTag={phase8Links.linkTag}
+                          onUnlinkTag={phase8Links.unlinkTag}
+                        />
+                        <PeopleLinker
+                          userId={userId || ''}
+                          itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                          itemType={getItemType()!}
+                          linkedPeople={phase8Links.linkedPeople}
+                          onPeopleChange={(people) => {
+                            // People are managed by the hook; this is just for UI sync if needed
+                          }}
+                          onLinkPerson={phase8Links.linkPerson}
+                          onUnlinkPerson={phase8Links.unlinkPerson}
+                        />
+                      </View>
+                    )}
+
+                  {/* Space selector placeholder */}
+                  {/* TODO: Add ScopeSelector integration */}
+                </ScrollView>
+
+                {/* Validation hint */}
+                {validation.hint && (
+                  <View style={styles.validationHint}>
+                    <Text
+                      style={[styles.validationHintText, { color: theme.colors.text.secondary }]}
+                    >
+                      {validation.hint}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Cortex status */}
+                {cortexStatus && (
+                  <View style={styles.cortexStatusHint}>
+                    <Text style={[styles.cortexStatusText, { color: theme.colors.text.secondary }]}>
+                      {cortexStatus === 'thinking' && '✨ Thinking…'}
+                      {cortexStatus === 'timeout' && '⏱️ AI temporarily unavailable'}
+                      {cortexStatus === 'busy' && '⏳ AI temporarily unavailable'}
+                    </Text>
+                  </View>
+                )}
+
+                {/* CTA bar */}
+                <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
+                  <Button
+                    label={thinking ? 'Thinking…' : isLoading ? 'Saving...' : 'Save to Hub'}
+                    onPress={handleSave}
+                    disabled={isSaveDisabled() || cortexInFlight || submitting || thinking}
+                    fullWidth
+                    testID="save-to-hub"
                   />
                 </View>
-              )}
-
-            {/* Space selector placeholder */}
-            {/* TODO: Add ScopeSelector integration */}
-          </ScrollView>
-
-          {/* Validation hint */}
-          {validation.hint && (
-            <View style={styles.validationHint}>
-              <Text style={[styles.validationHintText, { color: theme.colors.text.secondary }]}>
-                {validation.hint}
-              </Text>
-            </View>
-          )}
-
-          {/* Cortex status */}
-          {cortexStatus && (
-            <View style={styles.cortexStatusHint}>
-              <Text style={[styles.cortexStatusText, { color: theme.colors.text.secondary }]}>
-                {cortexStatus === 'thinking' && '✨ Thinking…'}
-                {cortexStatus === 'timeout' && '⏱️ AI temporarily unavailable'}
-                {cortexStatus === 'busy' && '⏳ AI temporarily unavailable'}
-              </Text>
-            </View>
-          )}
-
-          {/* CTA bar */}
-          <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
-            <Button
-              label={thinking ? 'Thinking…' : isLoading ? 'Saving...' : 'Save to Hub'}
-              onPress={handleSave}
-              disabled={isSaveDisabled() || cortexInFlight || submitting || thinking}
-              fullWidth
-              testID="save-to-hub"
-            />
+              </View>
+            </Pressable>
           </View>
-        </View>
+        </Pressable>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -1578,11 +1597,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
+    justifyContent: 'flex-end',
     backgroundColor: 'rgba(0, 0, 0, 0.4)', // Darker backdrop for better contrast
   },
   card: {
