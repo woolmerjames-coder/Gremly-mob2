@@ -54,23 +54,29 @@ END $$;
 -- Matches lib/types.ts EntityType convention
 -- =============================================================================
 
--- item_id → entity_id
+-- item_id → entity_id (only if entity_id doesn't already exist)
 DO $$ 
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns 
     WHERE table_name = 'tag_map' AND column_name = 'item_id'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'tag_map' AND column_name = 'entity_id'
   ) THEN
     ALTER TABLE tag_map RENAME COLUMN item_id TO entity_id;
   END IF;
 END $$;
 
--- item_type → entity_type
+-- item_type → entity_type (only if entity_type doesn't already exist)
 DO $$ 
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns 
     WHERE table_name = 'tag_map' AND column_name = 'item_type'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'tag_map' AND column_name = 'entity_type'
   ) THEN
     ALTER TABLE tag_map RENAME COLUMN item_type TO entity_type;
   END IF;
@@ -110,11 +116,31 @@ ALTER TABLE tags ADD COLUMN IF NOT EXISTS color text NULL;
 -- Todos: space filtering and due date queries
 CREATE INDEX IF NOT EXISTS idx_todos_space_id ON todos(space_id);
 CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date) WHERE due_date IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_todos_completed_at ON todos(completed_at) WHERE completed_at IS NOT NULL;
+
+-- Only create completed_at index if column exists
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'todos' AND column_name = 'completed_at'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_todos_completed_at ON todos(completed_at) WHERE completed_at IS NOT NULL;
+  END IF;
+END $$;
 
 -- Habits: space filtering and completions
 CREATE INDEX IF NOT EXISTS idx_habits_space_id ON habits(space_id);
-CREATE INDEX IF NOT EXISTS idx_habits_completed_at ON habits(completed_at) WHERE completed_at IS NOT NULL;
+
+-- Only create completed_at index if column exists
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'habits' AND column_name = 'completed_at'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_habits_completed_at ON habits(completed_at) WHERE completed_at IS NOT NULL;
+  END IF;
+END $$;
 
 -- Notes: space filtering and chronological queries
 CREATE INDEX IF NOT EXISTS idx_notes_space_id ON notes(space_id);

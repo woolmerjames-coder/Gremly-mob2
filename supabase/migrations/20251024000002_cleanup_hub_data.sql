@@ -5,8 +5,8 @@
 
 -- Backfill missing names with 'Untitled'
 UPDATE public.habits 
-SET title = COALESCE(NULLIF(TRIM(title), ''), 'Untitled') 
-WHERE title IS NULL OR TRIM(title) = '';
+SET name = COALESCE(NULLIF(TRIM(name), ''), 'Untitled') 
+WHERE name IS NULL OR TRIM(name) = '';
 
 UPDATE public.todos 
 SET title = COALESCE(NULLIF(TRIM(title), ''), 'Untitled') 
@@ -47,7 +47,7 @@ NOTIFY pgrst, 'reload schema';
 SELECT 
   'habits' AS table_name,
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE title IS NULL OR TRIM(title) = '') AS null_or_empty_names,
+  COUNT(*) FILTER (WHERE name IS NULL OR TRIM(name) = '') AS null_or_empty_names,
   COUNT(*) FILTER (WHERE subtype IS NULL) AS null_subtypes
 FROM public.habits
 
