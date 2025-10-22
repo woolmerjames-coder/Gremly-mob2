@@ -555,6 +555,11 @@ describe('Hub - Scope/Tabs/Unsorted', () => {
       });
       fireEvent.press(screen.getByTestId('scope-option-space-space-work'));
 
+      // Wait for scope selector to close and filtering to apply
+      await waitFor(() => {
+        expect(screen.queryByTestId('scope-option-space-space-work')).toBeNull();
+      });
+
       // Should only show Work habit
       await waitFor(() => {
         expect(screen.getByText('Morning Workout')).toBeTruthy();
