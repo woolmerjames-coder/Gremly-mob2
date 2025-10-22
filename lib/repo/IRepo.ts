@@ -30,6 +30,7 @@ export interface CreateRecordInput {
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual';
   canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
   views?: {
     alsoShowIn?: string[];
