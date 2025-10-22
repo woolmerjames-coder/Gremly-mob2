@@ -112,7 +112,7 @@ describe('MemoryRepo - Lists (Phase 10.2)', () => {
     it('should filter by space_id when provided', async () => {
       // Arrange: Create two lists with same key but different spaces
       const list1 = await repo.getOrCreateList('tasks', { spaceId: 'space-1' });
-      const list2 = await repo.getOrCreateList('tasks', { spaceId: 'space-2' });
+      const _list2 = await repo.getOrCreateList('tasks', { spaceId: 'space-2' });
 
       // Act: Find by key and space
       const found = await repo.findListByKey('tasks', { spaceId: 'space-1' });

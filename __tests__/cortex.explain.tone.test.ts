@@ -23,7 +23,7 @@ describe('Tone-aware explanations (Phase 10.4)', () => {
     it('should use warm tone (friendly with emoji)', () => {
       const result = explainAddedToList('Shopping', 'warm');
       expect(result).toContain('Added to Shopping');
-      expect(result).toMatch(/🛒|💫/); // Should have some emoji
+      expect(result).toMatch(/[🛒💫]/u); // Should have some emoji
     });
 
     it('should use direct tone (brief, no fluff)', () => {
@@ -139,7 +139,7 @@ describe('Tone-aware explanations (Phase 10.4)', () => {
 
         if (tone === 'warm') {
           // Warm tone should have emojis
-          expect(listExplain.match(/[🛒💫]/)).toBeTruthy();
+          expect(listExplain.match(/[🛒💫]/u)).toBeTruthy();
         } else if (tone === 'direct') {
           // Direct tone should be brief and no trailing period
           expect(listExplain).not.toMatch(/\.$/);

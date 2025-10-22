@@ -10,7 +10,6 @@ import CatchAllNotepad, { THINKING_DURATION } from '../app/screens/CatchAllNotep
 import * as AuthProvider from '../providers/AuthProvider';
 import * as RepoProvider from '../providers/RepoProvider';
 import * as cortexDecideModule from '../lib/cortex/cortexDecide';
-import { Platform } from 'react-native';
 
 // Mock providers
 jest.mock('../providers/AuthProvider');
@@ -76,7 +75,7 @@ describe('Catch-All Wiring Smoke Test', () => {
         suggestions: ['Add to Work space', 'Create a todo'],
       });
 
-      const { getByTestId, getByText } = render(<CatchAllNotepad />);
+      const { getByTestId } = render(<CatchAllNotepad />);
 
       // Switch to guided mode
       const guidedButton = getByTestId('ca-mode-guided');
