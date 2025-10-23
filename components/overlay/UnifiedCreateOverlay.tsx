@@ -426,6 +426,30 @@ export function UnifiedCreateOverlay({
     }
   }, [visible, mode, initialEntity, loadEntity]);
 
+  // Phase 10.7C: Prefill from conversionMeta
+  useEffect(() => {
+    if (!visible || !conversionMeta) return;
+
+    const { initialTitle, initialNote } = conversionMeta;
+
+    if (initialTitle || initialNote) {
+      // Prefill note fields if we have data
+      if (initialTitle) {
+        setNoteTitle(initialTitle);
+      }
+      if (initialNote) {
+        setNoteBody(initialNote);
+      }
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][10.7C] overlay_prefill_applied:', {
+          hasTitle: !!initialTitle,
+          hasNote: !!initialNote,
+        });
+      }
+    }
+  }, [visible, conversionMeta]);
+
   useEffect(() => {
     let cancelled = false;
 

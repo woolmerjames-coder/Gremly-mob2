@@ -10,4 +10,5 @@ export interface DetectedIntent {
   confidence: number; // 0–1
   title?: string; // e.g., "Start running daily"
   why?: string; // explanation or rationale
+  curiositySuggestion?: string; // Phase 10.7C: clarifying question before action
 }

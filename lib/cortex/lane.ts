@@ -15,4 +15,6 @@ export interface CortexContextBase {
   currentTurn?: number;
   /** Phase 10.7B: Last turn that showed a chip */
   lastChipTurn?: number;
+  /** Phase 10.7C: Track which topics have been clarified (curiosity phase) */
+  clarifiedTopics?: Set<string>;
 }

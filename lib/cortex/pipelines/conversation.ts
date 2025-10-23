@@ -7,6 +7,7 @@ import {
   type CortexResponse,
 } from '../cortexDecide';
 import { pickSmalltalk, isAcknowledgment } from '../../../app/lib/cortex/smalltalk';
+import { isGreeting, isSmalltalk, respond as respondSmalltalk } from '../smalltalk';
 import { callChat, type ChatMessage } from '../CortexClient';
 import { detectIntent } from '../intents/detectIntent';
 import type { DetectedIntent } from '../intents/types';
@@ -107,6 +108,7 @@ async function tryDirectWorkerCall(
  * - Keep suggestions for inline chips
  * Step 5.1: Small-talk fallback when no actionable content
  * Step 5.1b: Defensive mapper for worker content without choices
+ * Phase 10.7C: Smalltalk routing before cortexDecide
  */
 export async function runConversationPipeline(input: DecideInput, ctx: CortexContext) {
   if (__DEV__) {
@@ -116,6 +118,30 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       spaceId: ctx.spaceId,
       recentAssistantKind: ctx.recentAssistantKind,
     });
+  }
+
+  // Phase 10.7C: Check for greeting or smalltalk first
+  const userText = input.text?.trim() || '';
+  if (isGreeting(userText) || isSmalltalk(userText)) {
+    const spaceName = ctx.spaceId ? undefined : undefined; // TODO: Get space name from context
+    const smalltalkReply = respondSmalltalk(userText, { spaceName });
+
+    if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log('[CORTEX][10.7C] smalltalk_hit:', userText.substring(0, 30));
+    }
+
+    return {
+      mode: 'ask' as const,
+      actions: [],
+      suggestions: [],
+      replyText: smalltalkReply,
+      explanation: undefined,
+      confidence: 0,
+      meta: {
+        kind: 'smalltalk',
+        smalltalk_hit: true,
+      },
+    };
   }
 
   // Try cortexDecide first, but fall back to direct worker call for Space Chat
@@ -156,10 +182,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   // Phase 10.7B: Answer-first policy with intent detection
+  // Phase 10.7C: Curiosity gating for high-confidence intents
   const intent: DetectedIntent = detectIntent(input.text || '');
   const currentTurn = ctx.currentTurn || 0;
   const lastChipTurn = ctx.lastChipTurn || -2; // Default to allow chips
   const recentIntentBuffer = ctx.recentIntentBuffer || [];
+  const clarifiedTopics = ctx.clarifiedTopics || new Set<string>();
+
+  // Check if curiosity phase is enabled
+  const curiosityEnabled = process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE === 'true';
 
   // Priority: question > reflection > note > todo > habit > idea
   const shouldShowChip =
@@ -176,59 +207,104 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
     // Questions: reply only, no chips
     if (intent.kind === 'question') {
+      // Phase 10.7C: Remove filler text, let mascot thinking animation handle UX
       if (!normalized.replyText || !normalized.replyText.trim()) {
-        normalized.replyText = 'Let me think about that...';
+        // Return empty reply to trigger only mascot thinking state
+        normalized.replyText = '';
       }
       normalized.mode = 'ask';
       normalized.suggestions = []; // Clear any suggestions
     } else {
-      // Non-questions: check if we should show chip
-      const intentReiterated =
-        recentIntentBuffer.filter((i) => i.kind === intent.kind && currentTurn - i.turn <= 2)
-          .length >= 1;
+      // Phase 10.7C: Curiosity phase - ask before acting
+      const topicKey = intent.kind;
+      const needsClarification = curiosityEnabled && !clarifiedTopics.has(topicKey);
 
-      if (shouldShowChip && intentReiterated) {
-        // Show chip for reiterated intent
-        const suggestionText = `Add as ${intent.kind}`;
-        normalized.suggestions = [suggestionText]; // Max 1 chip
+      if (needsClarification && intent.curiositySuggestion) {
+        // First time seeing this intent type - ask clarifying question
+        normalized.replyText = intent.curiositySuggestion;
+        normalized.suggestions = []; // No chips yet
         normalized.mode = 'ask';
-
-        // Add subtle line to reply
-        if (normalized.replyText && normalized.replyText.trim()) {
-          normalized.replyText += ' I can save this if you like.';
-        } else {
-          normalized.replyText = 'I can save this if you like.';
-        }
-
-        // Mark that we showed a chip this turn
         normalized.meta = {
           ...normalized.meta,
-          showedChip: true,
+          isAwaitingClarification: true,
+          curiosityPrompted: topicKey,
         };
-      } else {
-        // Reply only, no chip
-        if (!normalized.replyText || !normalized.replyText.trim()) {
-          normalized.replyText =
-            intent.kind === 'habit'
-              ? 'That sounds like a good habit to build.'
-              : intent.kind === 'todo'
-                ? 'Got it, noted.'
-                : intent.kind === 'note'
-                  ? "I'll remember that."
-                  : intent.kind === 'reflection'
-                    ? 'Thanks for sharing that.'
-                    : intent.kind === 'idea'
-                      ? 'Interesting idea!'
-                      : 'Understood.';
+
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[CORTEX][10.7C] curiosity_prompted:', topicKey);
         }
-        normalized.suggestions = []; // No chips
-        normalized.mode = 'ask';
+      } else {
+        // Either curiosity disabled, already clarified, or no curiosity suggestion
+        // Check if we should show chip
+        const intentReiterated =
+          recentIntentBuffer.filter((i) => i.kind === intent.kind && currentTurn - i.turn <= 2)
+            .length >= 1;
+
+        if (shouldShowChip && intentReiterated) {
+          // Show chip for reiterated intent
+          const suggestionText = `Add as ${intent.kind}`;
+          normalized.suggestions = [suggestionText]; // Max 1 chip
+          normalized.mode = 'ask';
+
+          // Add subtle line to reply
+          if (normalized.replyText && normalized.replyText.trim()) {
+            normalized.replyText += ' I can save this if you like.';
+          } else {
+            normalized.replyText = 'I can save this if you like.';
+          }
+
+          // Mark that we showed a chip this turn
+          normalized.meta = {
+            ...normalized.meta,
+            showedChip: true,
+          };
+        } else {
+          // Reply only, no chip
+          if (!normalized.replyText || !normalized.replyText.trim()) {
+            normalized.replyText =
+              intent.kind === 'habit'
+                ? 'That sounds like a good habit to build.'
+                : intent.kind === 'todo'
+                  ? 'Got it, noted.'
+                  : intent.kind === 'note'
+                    ? "I'll remember that."
+                    : intent.kind === 'reflection'
+                      ? 'Thanks for sharing that.'
+                      : intent.kind === 'idea'
+                        ? 'Interesting idea!'
+                        : 'Understood.';
+          }
+          normalized.suggestions = []; // No chips
+          normalized.mode = 'ask';
+        }
       }
     }
 
     if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
       console.log(`[CORTEX][intent] Detected ${intent.kind} (${intent.confidence.toFixed(2)})`);
       console.log(`[CORTEX][policy] Chip shown: ${!!normalized.meta?.showedChip}`);
+
+      // Phase 10.7C: Log chip suppression reasons
+      if (intent.confidence >= 0.75 && !normalized.meta?.showedChip) {
+        const isAwaitingClarification = normalized.meta?.isAwaitingClarification;
+        const hasReplyText = !!normalized.replyText?.trim();
+        const hasSuggestions = (normalized.suggestions?.length || 0) > 0;
+
+        let suppressionReason = 'unknown';
+        if (isAwaitingClarification) {
+          suppressionReason = 'awaiting_clarification';
+        } else if (intent.kind === 'question') {
+          suppressionReason = 'is_question';
+        } else if (!hasReplyText) {
+          suppressionReason = 'no_reply_text';
+        } else if (!hasSuggestions) {
+          suppressionReason = 'not_reiterated';
+        } else {
+          suppressionReason = 'cooldown_active';
+        }
+
+        console.log('[CORTEX][10.7C] chips_suppressed_reason:', suppressionReason);
+      }
     }
   }
 
