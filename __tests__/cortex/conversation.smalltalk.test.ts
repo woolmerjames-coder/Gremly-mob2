@@ -55,7 +55,7 @@ describe('Conversation Pipeline - Small-talk', () => {
     expect(result.replyText).not.toBe('');
     expect(result.actions).toEqual([]);
     expect(result.suggestions).toEqual([]);
-    expect(result.meta?.lane).toBe('space_chat');
+    expect((result.meta as any)?.lane).toBe('space_chat');
     expect(result.meta?.kind).toBe('smalltalk');
   });
 
@@ -142,7 +142,7 @@ describe('Conversation Pipeline - Small-talk', () => {
     const input: DecideInput = { text: 'hello there' };
     const result = await runConversationPipeline(input, mockCtx);
 
-    expect(result.meta?.lane).toBe('space_chat');
+    expect((result.meta as any)?.lane).toBe('space_chat');
     expect(result.meta?.kind).toBe('smalltalk');
   });
 

@@ -64,9 +64,9 @@ describe('Conversation Pipeline - Intent Integration', () => {
 
       expect(result.mode).toBe('ask');
       expect(result.suggestions).toContain('Add as habit');
-      expect(result.meta?.detectedIntent).toBeDefined();
-      expect(result.meta?.detectedIntent?.kind).toBe('habit');
-      expect(result.meta?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.75);
+      expect((result.meta as any)?.detectedIntent).toBeDefined();
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('habit');
+      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.75);
     });
 
     it('detects todo intent', async () => {
@@ -84,7 +84,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.meta?.detectedIntent?.kind).toBe('todo');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('todo');
       // Phase 10.7B: First time mention → no chip
       expect(result.suggestions).toEqual([]);
     });
@@ -104,7 +104,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.meta?.detectedIntent?.kind).toBe('reflection');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('reflection');
       // Phase 10.7B: First time mention → no chip
       expect(result.suggestions).toEqual([]);
     });
@@ -124,7 +124,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.meta?.detectedIntent?.kind).toBe('idea');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('idea');
       // Phase 10.7B: First time mention → no chip
       expect(result.suggestions).toEqual([]);
     });
@@ -146,7 +146,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
       expect(result.mode).toBe('ask');
       // Phase 10.7B: Questions never get chips
       expect(result.suggestions).toEqual([]);
-      expect(result.meta?.detectedIntent?.kind).toBe('question');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('question');
     });
   });
 
@@ -167,7 +167,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       // Should not have intent-based suggestions
-      expect(result.meta?.detectedIntent?.confidence || 0).toBeLessThan(0.75);
+      expect((result.meta as any)?.detectedIntent?.confidence || 0).toBeLessThan(0.75);
       expect(result.suggestions || []).not.toContain('Add as habit');
       expect(result.suggestions || []).not.toContain('Add as todo');
     });
@@ -226,7 +226,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
 
       const result = await runConversationPipeline(input, mockContext);
 
-      expect(result.meta?.detectedIntent).toBeDefined();
+      expect((result.meta as any)?.detectedIntent).toBeDefined();
     });
   });
 
@@ -245,7 +245,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
 
       const result = await runConversationPipeline(input, mockContext);
 
-      expect(result.meta?.detectedIntent?.title).toBe(originalText);
+      expect((result.meta as any)?.detectedIntent?.title).toBe(originalText);
     });
   });
 

@@ -101,6 +101,9 @@ export interface CortexResponse {
   meta?: {
     lane?: Lane;
     kind?: 'smalltalk' | 'decision' | 'classification';
+    detectedIntent?: any; // Phase 10.7: Intent detection from conversation pipeline
+    showedChip?: boolean; // UI tracking
+    empathy_triggered?: boolean; // Empathy mode flag
     [key: string]: any;
   };
 }
