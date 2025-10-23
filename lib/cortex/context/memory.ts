@@ -4,6 +4,18 @@
  * Build context windows and maintain running summaries
  */
 
+/**
+ * Safely unwrap repo results that might be undefined, null, array, or {list: []}
+ * Phase 10.7E: Defensive helper to prevent "Cannot read property 'list' of undefined"
+ */
+function asList<T>(input: any): T[] {
+  if (!input) return [];
+  if (Array.isArray(input)) return input;
+  if (Array.isArray(input.list)) return input.list as T[];
+  if (Array.isArray(input.items)) return input.items as T[];
+  return [];
+}
+
 export interface ChatTurn {
   role: 'user' | 'assistant';
   text: string;
@@ -22,64 +34,73 @@ export interface ChatContext {
  */
 export async function buildChatContext(options: {
   spaceId: string;
-  chatId?: string;
-  repo?: any; // IRepo interface
-  max?: number;
+  repo: any; // IRepo interface with spaceChatMessages
+  maxContext?: number;
   runningSummary?: string | null;
 }): Promise<ChatContext> {
-  const max = options.max ?? parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
-
-  // If no repo provided, return empty context
-  if (!options.repo || !options.chatId) {
-    return {
-      messages: [],
-      summary: options.runningSummary || undefined,
-      windowSize: 0,
-      summaryLength: options.runningSummary?.length || 0,
-    };
-  }
+  const maxContext =
+    options.maxContext ?? parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
 
   try {
-    // Fetch messages from database
-    const dbMessages = await options.repo.spaceChatMessages.list(options.chatId);
-
-    // Convert to ChatTurn format, newest first
-    const turns: ChatTurn[] = dbMessages
-      .sort((a: any, b: any) => {
-        const aTime = new Date(a.created_at).getTime();
-        const bTime = new Date(b.created_at).getTime();
-        return bTime - aTime; // Newest first
-      })
-      .map((msg: any) => ({
-        role: msg.role as 'user' | 'assistant',
-        text: msg.content || '',
-      }));
-
-    // Slice to last N turns (reverse since we sorted newest first)
-    const contextWindow = turns.slice(0, max).reverse();
-
-    // Initialize or use existing summary
-    let summary = options.runningSummary || undefined;
-    if (!summary && turns.length > 2) {
-      summary = await summarize(contextWindow);
+    // Defensive check: Ensure repo has the required method
+    const listFn = options.repo?.spaceChatMessages?.list;
+    if (!listFn) {
+      if (__DEV__) {
+        console.warn('[CORTEX][10.7E] repo.spaceChatMessages.list not available');
+      }
+      return {
+        messages: [],
+        summary: undefined,
+        windowSize: 0,
+        summaryLength: 0,
+      };
     }
 
-    return {
-      messages: contextWindow,
-      summary,
-      windowSize: contextWindow.length,
-      summaryLength: summary?.length || 0,
+    // Fetch messages from database - fetch more than needed, we'll trim
+    const raw = await listFn(options.spaceId, { limit: Math.max(maxContext * 2, 12) });
+    const rows = asList<any>(raw);
+
+    // Convert to ChatTurn format, filtering empty content
+    const messages: ChatTurn[] = rows
+      .map((r: any) => ({
+        role: (r.role === 'system' ? 'user' : r.role) as 'user' | 'assistant', // Treat system as user
+        text: typeof r.content === 'string' ? r.content : JSON.stringify(r.content ?? ''),
+      }))
+      .filter((m: ChatTurn) => m.text && m.text.trim().length > 0);
+
+    // Keep only the last N turns (messages already in chronological order from repo)
+    const trimmed = messages.slice(-maxContext);
+
+    // Build result with optional running summary
+    const result: ChatContext = {
+      messages: trimmed,
+      summary:
+        options.runningSummary && options.runningSummary.trim()
+          ? options.runningSummary.trim()
+          : undefined,
+      windowSize: trimmed.length,
+      summaryLength: options.runningSummary?.length || 0,
     };
+
+    if (__DEV__) {
+      console.log('[CORTEX][10.7E] context_built', {
+        windowSize: result.windowSize,
+        summaryLength: result.summaryLength,
+      });
+    }
+
+    return result;
   } catch (error) {
+    // Log only in dev mode to prevent noisy production logs
     if (__DEV__) {
       console.error('[CORTEX][10.7E] Failed to build chat context:', error);
     }
-    // Return empty context on error
+    // Return safe fallback context
     return {
       messages: [],
-      summary: options.runningSummary || undefined,
+      summary: undefined,
       windowSize: 0,
-      summaryLength: options.runningSummary?.length || 0,
+      summaryLength: 0,
     };
   }
 }

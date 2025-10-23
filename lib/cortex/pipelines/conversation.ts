@@ -140,16 +140,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 10.7E: Build context with database integration
   const maxContext = parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
 
-  // Try to build context from database if chatId and repo are available
+  // Try to build context from database if repo and spaceId are available
   let contextWindow: ChatTurn[] = [];
   let runningSummary: string | undefined;
 
-  if (ctx.chatId && ctx.repo && ctx.spaceId) {
+  if (ctx.repo && ctx.spaceId) {
     const chatContext = await buildChatContext({
       spaceId: ctx.spaceId,
-      chatId: ctx.chatId,
       repo: ctx.repo,
-      max: maxContext,
+      maxContext: maxContext,
       runningSummary: ctx.runningSummary || null,
     });
 
@@ -157,10 +156,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     runningSummary = chatContext.summary || undefined;
     ctx.runningSummary = runningSummary || null;
 
-    console.log('[CORTEX][10.7E] context_built', {
-      windowSize: chatContext.windowSize,
-      summaryLength: chatContext.summaryLength,
-    });
+    // Logging already done in buildChatContext
   } else {
     // Fallback: Use messages from input if provided (legacy path)
     const allMessages: ChatTurn[] = (input as any).messages || [];

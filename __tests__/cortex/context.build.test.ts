@@ -55,9 +55,8 @@ describe('buildChatContext', () => {
 
     const result = await buildChatContext({
       spaceId: 'test-space',
-      chatId: 'test-chat',
       repo: mockRepo,
-      max: 8,
+      maxContext: 8,
       runningSummary: 'Previous summary about habits',
     });
 
@@ -103,14 +102,12 @@ describe('buildChatContext', () => {
 
     const result = await buildChatContext({
       spaceId: 'test-space',
-      chatId: 'test-chat',
       repo: mockRepo,
-      max: 8,
+      maxContext: 8,
     });
 
-    // Should generate a summary
-    expect(result.summary).toBeDefined();
-    expect(result.summaryLength).toBeGreaterThan(0);
+    // Should not generate a summary (we removed auto-summarization)
+    expect(result.summary).toBeUndefined();
     expect(result.windowSize).toBe(3);
   });
 
@@ -127,24 +124,24 @@ describe('buildChatContext', () => {
 
     const result = await buildChatContext({
       spaceId: 'test-space',
-      chatId: 'test-chat',
       repo: mockRepo,
-      max: 5, // Only take last 5
+      maxContext: 5, // Only take last 5
     });
 
     // Should only have 5 messages
     expect(result.windowSize).toBe(5);
     expect(result.messages).toHaveLength(5);
 
-    // Should be the newest 5 messages (6-10)
+    // Should be the last 5 messages (messages already in order from repo)
     expect(result.messages[0].text).toBe('Message 6');
     expect(result.messages[4].text).toBe('Message 10');
   });
 
-  it('returns empty context when no repo or chatId provided', async () => {
+  it('returns empty context when no repo provided', async () => {
     const result = await buildChatContext({
       spaceId: 'test-space',
-      max: 8,
+      repo: null as any,
+      maxContext: 8,
     });
 
     expect(result.windowSize).toBe(0);
@@ -157,9 +154,8 @@ describe('buildChatContext', () => {
 
     const result = await buildChatContext({
       spaceId: 'test-space',
-      chatId: 'test-chat',
       repo: mockRepo,
-      max: 8,
+      maxContext: 8,
     });
 
     expect(result.windowSize).toBe(0);
@@ -181,7 +177,6 @@ describe('buildChatContext', () => {
 
     const result = await buildChatContext({
       spaceId: 'test-space',
-      chatId: 'test-chat',
       repo: mockRepo,
     });
 
