@@ -21,41 +21,20 @@ export function updateRunningSummary(
   turns: ConversationTurn[],
   prevSummary: string,
 ): string {
-  if (turns.length === 0) {
-    return prevSummary;
+  if (!turns || turns.length === 0) {
+    return prevSummary || '';
   }
 
-  // Extract key information from new turns
-  const userMessages = turns.filter((t) => t.role === 'user').map((t) => t.text);
-  const assistantMessages = turns.filter((t) => t.role === 'assistant').map((t) => t.text);
+  // Build a compact additive summary from the new turns
+  const additions = turns.map((t) => `${t.role}: ${t.text}`).join(' ');
+  let combined = [prevSummary, additions].filter(Boolean).join(' ').trim();
 
-  // Build summary components
-  const summaryParts: string[] = [];
-
-  // Include previous summary if exists (trim to first 200 chars)
-  if (prevSummary && prevSummary.trim()) {
-    summaryParts.push(prevSummary.trim().substring(0, 200));
+  // Enforce the 1400 char limit (~350 tokens), keeping the most recent content
+  if (combined.length > 1400) {
+    combined = combined.slice(combined.length - 1400).trim();
   }
 
-  // Compress user intents (extract key topics)
-  if (userMessages.length > 0) {
-    const topics = extractTopics(userMessages);
-    if (topics.length > 0) {
-      summaryParts.push(`User discussed: ${topics.join(', ')}.`);
-    }
-  }
-
-  // Include assistant responses (keep last 1-2)
-  if (assistantMessages.length > 0) {
-    const recentAssistant = assistantMessages.slice(-2).join(' ');
-    if (recentAssistant.length > 0) {
-      summaryParts.push(`Assistant: ${recentAssistant.substring(0, 150)}.`);
-    }
-  }
-
-  // Join and limit total length (~350 tokens ≈ 1400 chars)
-  const summary = summaryParts.join(' ').trim();
-  return summary.substring(0, 1400);
+  return combined || '';
 }
 
 /**

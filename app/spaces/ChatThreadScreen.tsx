@@ -54,6 +54,16 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
+// Phase 10.7B: Type guards for safe meta access
+function metaHasDetectedIntent(meta: any): meta is { detectedIntent: unknown } {
+  return !!meta && typeof meta === 'object' && 'detectedIntent' in meta;
+}
+
+function metaKindAsAssistantKind(kind: any): 'classification' | 'smalltalk' | 'decision' | null {
+  if (kind === 'classification' || kind === 'smalltalk' || kind === 'decision') return kind;
+  return null;
+}
+
 export default function ChatThreadScreen({ route }: Props) {
   const { spaceId, chatId } = route.params;
   const auth = useAuth();

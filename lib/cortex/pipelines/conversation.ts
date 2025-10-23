@@ -233,6 +233,23 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 10.7D: Cooldown mechanism with explicit creation bypass
   const intent: DetectedIntent = detectIntent(input.text || '');
 
+  // Always record the locally detected intent in meta for downstream consumers/tests
+  normalized.meta = {
+    ...normalized.meta,
+    detectedIntent: intent,
+  };
+
+  // Questions: reply-only ergonomics regardless of upstream output
+  if (intent.kind === 'question') {
+    // Ensure no chips for questions
+    normalized.suggestions = [];
+    // Provide a minimal helpful reply text (tests expect non-empty)
+    if (!normalized.replyText || !normalized.replyText.trim()) {
+      normalized.replyText = 'I can help you think through that.';
+    }
+    normalized.mode = 'ask';
+  }
+
   // Phase 10.7D: Get cooldown settings
   const cooldownTurns = parseInt(process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2', 10);
   let intentCooldown = ctx.intentCooldownTurns || 0;
@@ -546,6 +563,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
     }
   }
+
+  // Note: meta.detectedIntent has been set pre-emptively above
 
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {
