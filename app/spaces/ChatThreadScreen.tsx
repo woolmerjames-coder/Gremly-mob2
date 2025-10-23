@@ -1,9 +1,10 @@
 /**
  * ChatThreadScreen - Phase 10.5 Space Chats v1
+ * Phase 10.7D: Added debounce, spaceId validation, note prefill fixes
  * Now integrated with message persistence + new UI components
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -68,6 +69,9 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Auto-fade suggestions after 3 seconds
   const suggestionFadeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Phase 10.7D: Debounce timer ref
+  const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Track last assistant response for conversion metadata and anti-spam logic
   const lastAssistantResponseRef = React.useRef<{
@@ -149,6 +153,13 @@ export default function ChatThreadScreen({ route }: Props) {
   const handleSend = useCallback(
     async (text: string) => {
       if (!text.trim() || !chat) return;
+
+      // Phase 10.7D: Validate spaceId
+      if (!spaceId) {
+        console.error('[ChatThread][10.7D] Missing spaceId');
+        Alert.alert('Error', 'Invalid space context');
+        return;
+      }
 
       const currentUserId = userId || 'anonymous';
 
@@ -469,6 +480,22 @@ export default function ChatThreadScreen({ route }: Props) {
     [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages, mascot],
   );
 
+  // Phase 10.7D: Debounced send wrapper (200ms)
+  const handleSendDebounced = useCallback(
+    (text: string) => {
+      // Clear any existing debounce timer
+      if (sendDebounceTimerRef.current) {
+        clearTimeout(sendDebounceTimerRef.current);
+      }
+
+      // Set new debounce timer
+      sendDebounceTimerRef.current = setTimeout(() => {
+        handleSend(text);
+      }, 200);
+    },
+    [handleSend],
+  );
+
   // Convert from chip handler
   const convertFromChip = useCallback(
     (kind: OverlayKind) => {
@@ -493,15 +520,26 @@ export default function ChatThreadScreen({ route }: Props) {
       if (!lastUser) return;
 
       const lastUserText = lastUser.content || '';
+
+      // Phase 10.7D: For notes, put text in body, not title
       const initial =
         kind === 'note'
           ? {
-              title: (titleFromIntent || lastUserText).trim(),
+              title: '',
               note: lastUserText.trim(),
             }
           : { title: (titleFromIntent || lastUserText).trim() };
 
       const whyFromIntent = detectedIntent?.why;
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatThread][10.7D] Opening overlay:', {
+          kind,
+          hasTitle: !!(initial as any).title,
+          hasBody: !!(initial as any).note,
+          prefill: initial,
+        });
+      }
 
       openUnifiedFromChat(
         kind,
@@ -696,7 +734,7 @@ export default function ChatThreadScreen({ route }: Props) {
           </ScrollView>
 
           {/* Chat Composer */}
-          <ChatComposer onSend={handleSend} disabled={sending} testID="chat-composer" />
+          <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
 
           {/* Mini Action Bar */}
           <MiniActionBar
