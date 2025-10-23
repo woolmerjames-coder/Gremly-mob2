@@ -7,34 +7,44 @@ import { render } from '@testing-library/react-native';
 import React from 'react';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 
+// Lightweight stub for the heavy overlay to avoid SafeArea dependency in this isolated test
+jest.mock('../../components/overlay/UnifiedCreateOverlay', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    UnifiedCreateOverlay: (props: any) =>
+      React.createElement(View, { testID: 'unified-create-overlay' }),
+  };
+});
+
 // Mock dependencies
-jest.mock('../../../hooks/useRepo', () => ({
+jest.mock('../../providers/RepoProvider', () => ({
   useRepo: jest.fn(() => ({
     create: jest.fn(),
     getSpaces: jest.fn(() => Promise.resolve([])),
   })),
 }));
 
-jest.mock('../../../hooks/useCortex', () => ({
+jest.mock('../../providers/CortexProvider', () => ({
   useCortex: jest.fn(() => ({
     classify: jest.fn(),
   })),
 }));
 
-jest.mock('../../../providers/AuthProvider', () => ({
+jest.mock('../../providers/AuthProvider', () => ({
   useAuth: jest.fn(() => ({
     userId: 'test-user',
     user: { id: 'test-user' },
   })),
 }));
 
-jest.mock('../../../providers/ThemeProvider', () => ({
+jest.mock('../../providers/ThemeProvider', () => ({
   useTheme: jest.fn(() => ({
     theme: 'light',
   })),
 }));
 
-jest.mock('../../../app/lib/chat/events', () => ({
+jest.mock('../../app/lib/chat/events', () => ({
   emitChatEvent: jest.fn(),
 }));
 
