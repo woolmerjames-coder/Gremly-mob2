@@ -20,6 +20,20 @@ jest.mock('../../app/lib/cortex/smalltalk', () => ({
   isAcknowledgment: jest.fn(() => false),
 }));
 
+jest.mock('../../lib/cortex/context/memory', () => ({
+  buildContextWindow: jest.fn((messages) => messages.slice(-8)),
+  summarize: jest.fn(async () => 'Test summary'),
+  updateRunningSummary: jest.fn(async (existing, _messages) => existing || 'Updated summary'),
+  hasExplicitCreationIntent: jest.fn(() => false),
+  isAffirmation: jest.fn(() => false),
+}));
+
+jest.mock('../../lib/cortex/smalltalk', () => ({
+  isGreeting: jest.fn(() => false),
+  isSmalltalk: jest.fn(() => false),
+  respond: jest.fn(() => 'Smalltalk response'),
+}));
+
 import { cortexDecide } from '../../lib/cortex/cortexDecide';
 
 const mockedCortexDecide = cortexDecide as jest.MockedFunction<typeof cortexDecide>;

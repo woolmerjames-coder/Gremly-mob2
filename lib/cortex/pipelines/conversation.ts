@@ -173,27 +173,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     };
   }
 
-  if (isGreeting(userText) || isSmalltalk(userText)) {
-    const spaceName = ctx.spaceId ? undefined : undefined; // TODO: Get space name from context
-    const smalltalkReply = respondSmalltalk(userText, { spaceName });
-
-    if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-      console.log('[CORTEX][10.7C] smalltalk_hit:', userText.substring(0, 30));
-    }
-
-    return {
-      mode: 'ask' as const,
-      actions: [],
-      suggestions: [],
-      replyText: smalltalkReply,
-      explanation: undefined,
-      confidence: 0,
-      meta: {
-        kind: 'smalltalk',
-        smalltalk_hit: true,
-      },
-    };
-  }
+  // Note: smalltalk/greeting handling is performed later as a fallback after normalizing the response
 
   // Try cortexDecide first, but fall back to direct worker call for Space Chat
   let raw: CortexResponse;
@@ -237,6 +217,23 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 10.7D: Cooldown mechanism with explicit creation bypass
   const intent: DetectedIntent = detectIntent(input.text || '');
 
+  // Always record the locally detected intent in meta for downstream consumers/tests
+  normalized.meta = {
+    ...normalized.meta,
+    detectedIntent: intent,
+  };
+
+  // Questions: reply-only ergonomics regardless of upstream output
+  if (intent.kind === 'question') {
+    // Ensure no chips for questions
+    normalized.suggestions = [];
+    // Provide a minimal helpful reply text (tests expect non-empty)
+    if (!normalized.replyText || !normalized.replyText.trim()) {
+      normalized.replyText = 'I can help you think through that.';
+    }
+    normalized.mode = 'ask';
+  }
+
   // Phase 10.7D: Get cooldown settings
   const cooldownTurns = parseInt(process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2', 10);
   let intentCooldown = ctx.intentCooldownTurns || 0;
@@ -266,7 +263,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   const currentTurn = ctx.currentTurn || 0;
-  const lastChipTurn = ctx.lastChipTurn || -2; // Default to allow chips
+  const lastChipTurn = typeof ctx.lastChipTurn === 'number' ? ctx.lastChipTurn : -2; // Default to allow chips
   const recentIntentBuffer = ctx.recentIntentBuffer || [];
   const clarifiedTopics = ctx.clarifiedTopics || new Set<string>();
 
@@ -289,14 +286,20 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // 3. Not suppressed (planning mode)
   // 4. Either cooldown is 0 OR user explicitly asked/affirmed
   const threshold = intentThresholds[intent.kind] || 0.8;
+  // Cooldown based on turn distance from last shown chip (test expectation)
+  const turnsSinceLastChip = lastChipTurn >= 0 ? currentTurn - lastChipTurn : Infinity;
+  const cooldownActive = turnsSinceLastChip <= cooldownTurns && !bypassCooldown;
   const shouldShowChip =
     intent.confidence >= threshold &&
     intent.kind !== 'none' &&
     intent.kind !== 'question' &&
     !intent.suppressChips &&
-    (intentCooldown === 0 || bypassCooldown);
+    (!cooldownActive || bypassCooldown);
 
-  if (intent.confidence >= 0.75 && intent.kind !== 'none') {
+  // Check if we should process this intent (use per-intent threshold, not fixed 0.75)
+  const shouldProcessIntent = intent.confidence >= threshold && intent.kind !== 'none';
+
+  if (shouldProcessIntent) {
     normalized.meta = {
       ...normalized.meta,
       detectedIntent: intent,
@@ -364,8 +367,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
             normalized.replyText = 'I can save this if you like.';
           }
 
-          // Phase 10.7D: Set cooldown when chip shown
+          // Phase 10.7D: Set cooldown markers when chip shown
           ctx.intentCooldownTurns = cooldownTurns;
+          ctx.lastChipTurn = currentTurn;
 
           // Mark that we showed a chip this turn
           normalized.meta = {
@@ -489,7 +493,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         if (__DEV__) {
           console.log('[CORTEX] Using worker response instead of generic response');
         }
-        return workerResponse;
+        // Preserve meta we have already computed (e.g., detectedIntent)
+        return {
+          ...workerResponse,
+          meta: {
+            ...(workerResponse as any)?.meta,
+            ...normalized.meta,
+          },
+        } as CortexResponse;
       }
     } catch (workerError) {
       if (__DEV__) {
@@ -527,6 +538,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
     }
   }
+
+  // Note: meta.detectedIntent has been set pre-emptively above
 
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {

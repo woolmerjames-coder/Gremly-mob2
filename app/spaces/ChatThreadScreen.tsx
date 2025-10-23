@@ -54,7 +54,7 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
-// Phase 10.9: Type guards for safe meta access
+// Phase 10.7B: Type guards for safe meta access
 function metaHasDetectedIntent(meta: any): meta is { detectedIntent: unknown } {
   return !!meta && typeof meta === 'object' && 'detectedIntent' in meta;
 }

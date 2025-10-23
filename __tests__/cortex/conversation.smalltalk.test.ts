@@ -15,16 +15,15 @@ jest.mock('../../lib/env', () => ({
   },
 }));
 
-import { runConversationPipeline } from '../../lib/cortex/pipelines/conversation';
-import type { DecideInput, CortexContext } from '../../lib/cortex/cortexDecide';
-
-// Mock cortexDecide to return controlled responses
+// Mock cortexDecide to return controlled responses (must be before importing the pipeline)
 jest.mock('../../lib/cortex/cortexDecide', () => ({
   cortexDecide: jest.fn(),
 }));
-
 import { cortexDecide } from '../../lib/cortex/cortexDecide';
 const mockCortexDecide = cortexDecide as jest.MockedFunction<typeof cortexDecide>;
+
+import { runConversationPipeline } from '../../lib/cortex/pipelines/conversation';
+import type { DecideInput, CortexContext } from '../../lib/cortex/cortexDecide';
 
 describe('Conversation Pipeline - Small-talk', () => {
   const mockCtx: CortexContext = {

@@ -23,6 +23,21 @@ export function detectIntent(text: string): DetectedIntent {
   const t = text.toLowerCase();
   const trimmed = text.trim();
 
+  // Special-case: creative exploration phrases should be classified as ideas
+  // Ensure these do not get downgraded to questions by planning/exploring detector
+  if (
+    /^\s*what if\b/i.test(text) ||
+    /^\s*maybe we could\b/i.test(text) ||
+    /^\s*imagine\b/i.test(text)
+  ) {
+    return {
+      kind: 'idea',
+      confidence: 0.8,
+      title: trimmed,
+      curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
+    };
+  }
+
   // 0. Planning/exploring detector (HIGHEST PRIORITY)
   // Forces question mode to provide advice instead of chips
   if (
@@ -44,7 +59,7 @@ export function detectIntent(text: string): DetectedIntent {
     /\?/.test(t) ||
     /^(who|what|where|when|why|how|can|could|would|should|is|are|do|does)\b/i.test(t)
   ) {
-    return { kind: 'question', confidence: 0.7 };
+    return { kind: 'question', confidence: 0.75 };
   }
 
   // 2. Note patterns: memory/reminder words
