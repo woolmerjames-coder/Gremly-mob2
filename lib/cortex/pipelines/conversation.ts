@@ -200,8 +200,24 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     raw = await tryDirectWorkerCall(input, ctx);
   }
 
-  // Normalize for Space Chat UX
-  const normalized = { ...raw };
+  // Normalize for Space Chat UX with safe defaults
+  const normalized: CortexResponse & { meta?: Record<string, any> } = {
+    mode: (raw?.mode as any) ?? 'keep',
+    actions: Array.isArray((raw as any)?.actions) ? (raw as any).actions : [],
+    suggestions: Array.isArray((raw as any)?.suggestions) ? (raw as any).suggestions : [],
+    // Preserve undefined when absent; avoid defaulting to empty string so tests can assert undefined
+    replyText:
+      typeof (raw as any)?.replyText === 'string' ? ((raw as any).replyText as string) : undefined,
+    explanation:
+      typeof (raw as any)?.explanation === 'string'
+        ? ((raw as any).explanation as string)
+        : undefined,
+    confidence: typeof (raw as any)?.confidence === 'number' ? (raw as any).confidence : 0,
+    meta:
+      raw && typeof (raw as any).meta === 'object' && (raw as any).meta !== null
+        ? { ...(raw as any).meta }
+        : {},
+  } as CortexResponse & { meta?: Record<string, any> };
 
   // Never auto-sort in chat
   if (normalized.mode === 'auto') {
@@ -227,7 +243,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   if (intent.kind === 'question') {
     // Ensure no chips for questions
     normalized.suggestions = [];
-    // Provide a minimal helpful reply text (tests expect non-empty)
+    // Provide a minimal helpful reply text (tests expect non-empty) but preserve any existing reply
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
     }
@@ -319,16 +335,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
       // Don't update cooldown for planning responses
       // Continue to rest of function
-    } else if (intent.kind === 'question') {
-      // Questions: reply only, no chips
-      // Phase 10.7C: Remove filler text, let mascot thinking animation handle UX
-      if (!normalized.replyText || !normalized.replyText.trim()) {
-        // Return empty reply to trigger only mascot thinking state
-        normalized.replyText = '';
-      }
-      normalized.mode = 'ask';
-      normalized.suggestions = []; // Clear any suggestions
-    } else {
+    } else if (intent.kind !== 'question') {
+      // Non-question intents follow curiosity/chip logic
       // Phase 10.7C: Curiosity phase - ask before acting
       const topicKey = intent.kind;
       const needsClarification = curiosityEnabled && !clarifiedTopics.has(topicKey);
@@ -544,6 +552,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {
     (normalized as any).debug.lane = 'space_chat';
+  }
+
+  // Ensure arrays are present; do not force mode for space_chat unless explicitly required upstream
+  if (!Array.isArray((normalized as any).suggestions)) normalized.suggestions = [];
+  if (!Array.isArray((normalized as any).actions)) normalized.actions = [];
+  if (ctx?.lane === 'space_chat') {
+    // Defensive: never perform actions in chat
+    normalized.actions = [];
   }
 
   return normalized;
