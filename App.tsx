@@ -12,6 +12,7 @@ import { AuthProvider } from './providers/AuthProvider';
 import { RepoProvider } from './providers/RepoProvider';
 import { CortexProvider } from './providers/CortexProvider';
 import { DsToggleProvider } from './providers/DsToggleProvider';
+import { CelebrationProvider } from './app/features/celebration/CelebrationProvider';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
@@ -70,10 +71,12 @@ export default function App() {
               <RepoProvider>
                 <SheetProvider>
                   <CortexProvider>
-                    <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-                      <RootNavigator />
-                      <OverlayHost />
-                    </NavigationContainer>
+                    <CelebrationProvider>
+                      <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+                        <RootNavigator />
+                        <OverlayHost />
+                      </NavigationContainer>
+                    </CelebrationProvider>
                   </CortexProvider>
                 </SheetProvider>
               </RepoProvider>
