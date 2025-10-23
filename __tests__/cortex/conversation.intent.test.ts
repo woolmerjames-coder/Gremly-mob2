@@ -21,7 +21,13 @@ jest.mock('../../app/lib/cortex/smalltalk', () => ({
 }));
 
 jest.mock('../../lib/cortex/context/memory', () => ({
-  buildContextWindow: jest.fn((messages) => messages.slice(-8)),
+  buildContextWindow: jest.fn((messages) => (messages || []).slice(-8)),
+  buildChatContext: jest.fn(async () => ({
+    messages: [],
+    summary: '',
+    windowSize: 0,
+    summaryLength: 0,
+  })),
   summarize: jest.fn(async () => 'Test summary'),
   updateRunningSummary: jest.fn(async (existing, _messages) => existing || 'Updated summary'),
   hasExplicitCreationIntent: jest.fn(() => false),

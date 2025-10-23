@@ -231,6 +231,8 @@ export default function ChatThreadScreen({ route }: Props) {
             activeSpaceId: chat.space_id || null,
             uiSurface: 'chat',
             spaceId: chat.space_id || null,
+            chatId: chat.id || null, // Phase 10.7E: For context building
+            repo, // Phase 10.7E: For fetching messages
             recentAssistantKind: lastAssistantResponseRef.current?.kind ?? null,
           };
 

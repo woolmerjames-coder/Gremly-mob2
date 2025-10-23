@@ -28,6 +28,7 @@ export type { Lane, CortexContextBase } from './lane';
  * Context provided by UI layers when calling Cortex
  * Phase 10.4: Extended with space defaults and user tone preferences
  * Phase 10.6B: Extended with lane for routing context
+ * Phase 10.7E: Extended with chatId and repo for context building
  */
 export interface CortexContext extends CortexContextBase {
   /** Current authenticated user ID */
@@ -36,6 +37,10 @@ export interface CortexContext extends CortexContextBase {
   activeSpaceId?: string | null;
   /** UI surface making the request */
   uiSurface: 'chat' | 'overlay' | 'spaces' | 'today' | 'hub' | 'catchall';
+  /** Chat ID for context building (Phase 10.7E) */
+  chatId?: string | null;
+  /** Repository instance for fetching messages (Phase 10.7E) */
+  repo?: any; // IRepo type
   /** Per-space defaults for biasing (Phase 10.4) */
   spaceDefaults?: {
     tone?: 'calm' | 'warm' | 'direct';

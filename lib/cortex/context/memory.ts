@@ -1,11 +1,87 @@
 /**
  * Phase 10.7D: Context & Memory Helpers
+ * Phase 10.7E: Enhanced context building with database integration
  * Build context windows and maintain running summaries
  */
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
   text: string;
+}
+
+export interface ChatContext {
+  messages: ChatTurn[];
+  summary?: string;
+  windowSize: number;
+  summaryLength: number;
+}
+
+/**
+ * Build chat context for a space by fetching messages from database
+ * Phase 10.7E: Pulls messages for the space, slices to maxContext, includes running summary
+ */
+export async function buildChatContext(options: {
+  spaceId: string;
+  chatId?: string;
+  repo?: any; // IRepo interface
+  max?: number;
+  runningSummary?: string | null;
+}): Promise<ChatContext> {
+  const max = options.max ?? parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
+
+  // If no repo provided, return empty context
+  if (!options.repo || !options.chatId) {
+    return {
+      messages: [],
+      summary: options.runningSummary || undefined,
+      windowSize: 0,
+      summaryLength: options.runningSummary?.length || 0,
+    };
+  }
+
+  try {
+    // Fetch messages from database
+    const dbMessages = await options.repo.spaceChatMessages.list(options.chatId);
+
+    // Convert to ChatTurn format, newest first
+    const turns: ChatTurn[] = dbMessages
+      .sort((a: any, b: any) => {
+        const aTime = new Date(a.created_at).getTime();
+        const bTime = new Date(b.created_at).getTime();
+        return bTime - aTime; // Newest first
+      })
+      .map((msg: any) => ({
+        role: msg.role as 'user' | 'assistant',
+        text: msg.content || '',
+      }));
+
+    // Slice to last N turns (reverse since we sorted newest first)
+    const contextWindow = turns.slice(0, max).reverse();
+
+    // Initialize or use existing summary
+    let summary = options.runningSummary || undefined;
+    if (!summary && turns.length > 2) {
+      summary = await summarize(contextWindow);
+    }
+
+    return {
+      messages: contextWindow,
+      summary,
+      windowSize: contextWindow.length,
+      summaryLength: summary?.length || 0,
+    };
+  } catch (error) {
+    if (__DEV__) {
+      console.error('[CORTEX][10.7E] Failed to build chat context:', error);
+    }
+    // Return empty context on error
+    return {
+      messages: [],
+      summary: options.runningSummary || undefined,
+      windowSize: 0,
+      summaryLength: options.runningSummary?.length || 0,
+    };
+  }
 }
 
 /**

@@ -13,6 +13,7 @@ import { detectIntent } from '../intents/detectIntent';
 import type { DetectedIntent } from '../intents/types';
 import {
   buildContextWindow,
+  buildChatContext,
   summarize,
   updateRunningSummary,
   hasExplicitCreationIntent,
@@ -131,25 +132,52 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       inputText: input.text?.substring(0, 50) + (input.text && input.text.length > 50 ? '...' : ''),
       userId: ctx.userId,
       spaceId: ctx.spaceId,
+      chatId: ctx.chatId,
       recentAssistantKind: ctx.recentAssistantKind,
     });
   }
 
-  // Phase 10.7D: Build context window and running summary
+  // Phase 10.7E: Build context with database integration
   const maxContext = parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
-  const allMessages: ChatTurn[] = (input as any).messages || [];
-  const contextWindow = buildContextWindow(allMessages, maxContext);
 
-  // Initialize or update running summary
-  if (!ctx.runningSummary && allMessages.length > 2) {
-    ctx.runningSummary = await summarize(allMessages);
-  }
+  // Try to build context from database if chatId and repo are available
+  let contextWindow: ChatTurn[] = [];
+  let runningSummary: string | undefined;
 
-  if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-    console.log('[CORTEX][10.7D] context_built', {
-      windowSize: contextWindow.length,
-      summaryLength: ctx.runningSummary?.length || 0,
+  if (ctx.chatId && ctx.repo && ctx.spaceId) {
+    const chatContext = await buildChatContext({
+      spaceId: ctx.spaceId,
+      chatId: ctx.chatId,
+      repo: ctx.repo,
+      max: maxContext,
+      runningSummary: ctx.runningSummary || null,
     });
+
+    contextWindow = chatContext.messages;
+    runningSummary = chatContext.summary || undefined;
+    ctx.runningSummary = runningSummary || null;
+
+    console.log('[CORTEX][10.7E] context_built', {
+      windowSize: chatContext.windowSize,
+      summaryLength: chatContext.summaryLength,
+    });
+  } else {
+    // Fallback: Use messages from input if provided (legacy path)
+    const allMessages: ChatTurn[] = (input as any).messages || [];
+    contextWindow = buildContextWindow(allMessages, maxContext);
+
+    // Initialize or update running summary
+    if (!ctx.runningSummary && allMessages.length > 2) {
+      ctx.runningSummary = await summarize(allMessages);
+    }
+    runningSummary = ctx.runningSummary || undefined;
+
+    if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log('[CORTEX][10.7E] context_built_legacy', {
+        windowSize: contextWindow.length,
+        summaryLength: ctx.runningSummary?.length || 0,
+      });
+    }
   }
 
   // Phase 10.7C: Check for greeting or smalltalk first
@@ -469,17 +497,17 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
   }
 
-  // Phase 10.7D: Update running summary after response
-  if (normalized.replyText && allMessages.length > 0) {
+  // Phase 10.7E: Update running summary after response
+  if (normalized.replyText && contextWindow && contextWindow.length > 0) {
     const newMessages: ChatTurn[] = [
-      ...allMessages.slice(-2), // Last 2 messages
+      ...contextWindow.slice(-2), // Last 2 messages from context
       { role: 'user', text: userText },
       { role: 'assistant', text: normalized.replyText },
     ];
     ctx.runningSummary = await updateRunningSummary(ctx.runningSummary || '', newMessages);
 
     if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-      console.log('[CORTEX][10.7D] summary_updated:', ctx.runningSummary?.substring(0, 100));
+      console.log('[CORTEX][10.7E] summary_updated:', ctx.runningSummary?.substring(0, 100));
     }
   }
 
