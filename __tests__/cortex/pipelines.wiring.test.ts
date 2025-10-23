@@ -35,7 +35,7 @@ describe('pipeline wiring (no behavior change)', () => {
   it('conversation lane routes correctly', async () => {
     const res = await cortexRoute(
       { text: 'y' },
-      { lane: 'space_chat', userId: 'test', uiSurface: 'chat' },
+      { lane: 'space_chat', userId: 'test', spaceId: 'test-space', uiSurface: 'chat' },
     );
     expect(res).toBeDefined();
     expect(laneToPipeline('space_chat')).toBe('conversation');

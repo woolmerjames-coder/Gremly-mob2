@@ -45,6 +45,7 @@ describe('Space Chat defensive mapping', () => {
     const mockContext = {
       lane: 'space_chat' as const,
       userId: 'test-user',
+      spaceId: 'test-space',
       uiSurface: 'chat' as const,
       recentAssistantKind: null, // No recent assistant message
     };
@@ -66,6 +67,7 @@ describe('Space Chat defensive mapping', () => {
     const mockContext = {
       lane: 'space_chat' as const,
       userId: 'test-user',
+      spaceId: 'test-space',
       uiSurface: 'chat' as const,
     };
 
@@ -86,6 +88,7 @@ describe('Space Chat defensive mapping', () => {
     const mockContext = {
       lane: 'space_chat' as const,
       userId: 'test-user',
+      spaceId: 'test-space',
       uiSurface: 'chat' as const,
     };
 

@@ -170,6 +170,24 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     };
     normalized.mode = 'ask'; // Always ask, never auto-create
 
+    // If we don't have a replyText yet, provide a minimal nudge
+    if (!normalized.replyText || !normalized.replyText.trim()) {
+      normalized.replyText =
+        intent.kind === 'habit'
+          ? 'Want me to add this as a habit?'
+          : intent.kind === 'todo'
+            ? 'Should I create this to-do?'
+            : intent.kind === 'note'
+              ? 'Want me to save this note?'
+              : intent.kind === 'reflection'
+                ? 'Should I save this reflection?'
+                : intent.kind === 'idea'
+                  ? 'Want me to capture this idea?'
+                  : intent.kind === 'question'
+                    ? 'Should I save this question?'
+                    : 'I can turn that into something actionable—want to do that?';
+    }
+
     if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
       console.log(`[CORTEX][intent] Detected ${intent.kind} (${intent.confidence.toFixed(2)})`);
     }

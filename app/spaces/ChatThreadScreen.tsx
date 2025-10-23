@@ -106,7 +106,7 @@ export default function ChatThreadScreen({ route }: Props) {
       setChat({
         id: chatId,
         user_id: userId || 'anonymous',
-        space_id: 'unknown',
+        space_id: spaceId,
         title: 'Chat',
         pinned: false,
         archived_at: null,
@@ -121,7 +121,7 @@ export default function ChatThreadScreen({ route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [chatId, userId]);
+  }, [chatId, userId, spaceId]);
 
   useEffect(() => {
     loadChat();
@@ -135,6 +135,16 @@ export default function ChatThreadScreen({ route }: Props) {
       }
     };
   }, []);
+
+  // Debug: Log when activeSuggestions changes
+  useEffect(() => {
+    if (activeSuggestions.length > 0) {
+      console.log('[Chips] activeSuggestions updated:', activeSuggestions);
+      console.log('[Chips] detectedIntent:', detectedIntent);
+    } else {
+      console.log('[Chips] activeSuggestions cleared');
+    }
+  }, [activeSuggestions, detectedIntent]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -209,6 +219,9 @@ export default function ChatThreadScreen({ route }: Props) {
             type: 'request_started',
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
+
+          // Log spaceId before cortex call
+          console.log('[Chat] spaceId:', ctx.spaceId);
 
           const response = await cortexRoute({ text }, ctx);
 
@@ -340,16 +353,25 @@ export default function ChatThreadScreen({ route }: Props) {
               // Store detected intent from meta if available
               if (response.meta?.detectedIntent) {
                 setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
+                console.log(
+                  '[Chips] render for messageId=',
+                  messages[messages.length - 1]?.id || 'unknown',
+                  'kind=',
+                  response.meta.detectedIntent.kind,
+                  'confidence=',
+                  response.meta.detectedIntent.confidence.toFixed(2),
+                );
               }
 
-              // Phase 10.7: Auto-fade suggestions after 3 seconds
+              // Phase 10.7: Auto-fade suggestions after 8 seconds (temporary for testing)
               if (suggestionFadeTimerRef.current) {
                 clearTimeout(suggestionFadeTimerRef.current);
               }
               suggestionFadeTimerRef.current = setTimeout(() => {
+                console.log('[Chips] auto-fade triggered');
                 setActiveSuggestions([]);
                 setDetectedIntent(null);
-              }, 3000);
+              }, 8000);
             } else {
               setActiveSuggestions([]);
               setDetectedIntent(null);
@@ -639,14 +661,17 @@ export default function ChatThreadScreen({ route }: Props) {
                   <View style={styles.suggestionsContainer}>
                     <Text style={styles.suggestionsLabel}>You could also:</Text>
                     <View style={styles.suggestionChips}>
-                      {activeSuggestions.map((suggestion, index) => (
-                        <Chip
-                          key={index}
-                          label={suggestion}
-                          onPress={() => handleSuggestionPress(suggestion)}
-                          testID={`suggestion-chip-${index}`}
-                        />
-                      ))}
+                      {activeSuggestions.map((suggestion, index) => {
+                        console.log('[Chips] Rendering chip:', suggestion, 'index:', index);
+                        return (
+                          <Chip
+                            key={index}
+                            label={suggestion}
+                            onPress={() => handleSuggestionPress(suggestion)}
+                            testID={`suggestion-chip-${index}`}
+                          />
+                        );
+                      })}
                     </View>
                   </View>
                 )}

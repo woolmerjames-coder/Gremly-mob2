@@ -234,4 +234,71 @@ describe('Conversation Pipeline - Intent Integration', () => {
       expect(result.meta?.detectedIntent?.title).toBe(originalText);
     });
   });
+
+  describe('Minimal Reply with Chips', () => {
+    it('provides non-empty replyText when suggestions are added', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        confidence: 0.5,
+        explanation: '', // No explanation from cortexDecide
+      });
+
+      const input: DecideInput = {
+        text: 'Start running every morning',
+      };
+
+      const result = await runConversationPipeline(input, mockContext);
+
+      // Should have suggestion chips
+      expect(result.suggestions).toBeDefined();
+      expect(result.suggestions!.length).toBeGreaterThan(0);
+
+      // Should have a minimal reply nudge
+      expect(result.replyText).toBeDefined();
+      expect(result.replyText).not.toBe('');
+      expect(result.replyText?.toLowerCase()).toContain('habit');
+    });
+
+    it('provides different nudges for different intent kinds', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        confidence: 0.5,
+      });
+
+      // Test todo intent
+      const todoInput: DecideInput = { text: 'Buy flowers tomorrow' };
+      const todoResult = await runConversationPipeline(todoInput, mockContext);
+      expect(todoResult.replyText).toBeDefined();
+      expect(todoResult.replyText).not.toBe('');
+      expect(todoResult.replyText?.toLowerCase()).toContain('to-do');
+
+      // Test note intent
+      const noteInput: DecideInput = { text: 'Remember to check the mail' };
+      const noteResult = await runConversationPipeline(noteInput, mockContext);
+      expect(noteResult.replyText).toBeDefined();
+      expect(noteResult.replyText).not.toBe('');
+      expect(noteResult.replyText?.toLowerCase()).toContain('note');
+    });
+
+    it('does not override existing replyText from cortexDecide', async () => {
+      const existingReply = 'I already have a response for you!';
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        confidence: 0.5,
+        replyText: existingReply,
+      });
+
+      const input: DecideInput = {
+        text: 'Start meditation daily',
+      };
+
+      const result = await runConversationPipeline(input, mockContext);
+
+      // Should keep the existing replyText
+      expect(result.replyText).toBe(existingReply);
+    });
+  });
 });
