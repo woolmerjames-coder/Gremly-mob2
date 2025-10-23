@@ -184,6 +184,7 @@ export interface SpaceChatUpdateInput {
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
+  space_id: ID;
   user_id: ID;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -196,6 +197,7 @@ export interface SpaceChatMessage {
  */
 export interface SpaceChatMessageInsert {
   chat_id: ID;
+  space_id: ID;
   role: 'user' | 'assistant' | 'system';
   content: string;
   metadata_json?: any | null;

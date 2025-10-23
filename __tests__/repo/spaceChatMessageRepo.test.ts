@@ -34,6 +34,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
               {
                 id: '1',
                 chat_id: 'chat-1',
+                space_id: 'space-1',
                 user_id: 'user-1',
                 role: 'user',
                 content: 'Hello',
@@ -43,6 +44,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
               {
                 id: '2',
                 chat_id: 'chat-1',
+                space_id: 'space-1',
                 user_id: 'user-1',
                 role: 'assistant',
                 content: 'Hi there!',
@@ -66,6 +68,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
       expect(messages[0]).toMatchObject({
         id: '1',
         chat_id: 'chat-1',
+        space_id: 'space-1',
         role: 'user',
         content: 'Hello',
       });
@@ -86,6 +89,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
             data: {
               id: '3',
               chat_id: 'chat-1',
+              space_id: 'space-1',
               user_id: 'user-1',
               role: 'user',
               content: 'Test message',
@@ -103,6 +107,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
 
       const input: SpaceChatMessageInsert = {
         chat_id: 'chat-1',
+        space_id: 'space-1',
         role: 'user',
         content: 'Test message',
       };
@@ -113,6 +118,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
       expect(result).toMatchObject({
         id: '3',
         chat_id: 'chat-1',
+        space_id: 'space-1',
         role: 'user',
         content: 'Test message',
         user_id: 'user-1',
@@ -126,6 +132,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
             data: {
               id: '4',
               chat_id: 'chat-1',
+              space_id: 'space-1',
               user_id: 'user-1',
               role: 'assistant',
               content: 'AI response',
@@ -143,6 +150,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
 
       const input: SpaceChatMessageInsert = {
         chat_id: 'chat-1',
+        space_id: 'space-1',
         role: 'assistant',
         content: 'AI response',
         metadata_json: { confidence: 0.95 },
@@ -157,6 +165,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
       const repoWithoutUser = new SupabaseSpaceChatMessageRepo();
       const input: SpaceChatMessageInsert = {
         chat_id: 'chat-1',
+        space_id: 'space-1',
         role: 'user',
         content: 'Test',
       };

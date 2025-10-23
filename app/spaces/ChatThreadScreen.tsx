@@ -105,7 +105,7 @@ export default function ChatThreadScreen({ route }: Props) {
     error: messagesError,
     sendUserMessage,
     appendAssistantMessage,
-  } = useChatMessages(chatId);
+  } = useChatMessages(chatId, spaceId);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
   const _spaceChatRepo = React.useMemo(() => {

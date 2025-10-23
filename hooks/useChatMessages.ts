@@ -8,7 +8,7 @@ import { SpaceChatMessage, SpaceChatMessageInsert } from '../lib/types';
 import { SupabaseSpaceChatMessageRepo, SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { useAuth } from '../providers/AuthProvider';
 
-export function useChatMessages(chatId: string) {
+export function useChatMessages(chatId: string, spaceId: string) {
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function useChatMessages(chatId: string) {
   const chatRepo = useMemo(() => new SupabaseSpaceChatRepo(user?.id), [user?.id]);
 
   const refresh = useCallback(async () => {
-    if (!chatId || !user?.id) return;
+    if (!chatId || !spaceId || !user?.id) return;
 
     try {
       setLoading(true);
@@ -33,17 +33,18 @@ export function useChatMessages(chatId: string) {
     } finally {
       setLoading(false);
     }
-  }, [chatId, user?.id, messageRepo]);
+  }, [chatId, spaceId, user?.id, messageRepo]);
 
   const sendUserMessage = useCallback(
     async (text: string) => {
-      if (!text.trim() || !chatId || !user?.id) return;
+      if (!text.trim() || !chatId || !spaceId || !user?.id) return;
 
       try {
         setError(null);
 
         const input: SpaceChatMessageInsert = {
           chat_id: chatId,
+          space_id: spaceId,
           role: 'user',
           content: text.trim(),
         };
@@ -61,18 +62,19 @@ export function useChatMessages(chatId: string) {
         throw err; // Re-throw so caller can handle
       }
     },
-    [chatId, user?.id, messageRepo, chatRepo],
+    [chatId, spaceId, user?.id, messageRepo, chatRepo],
   );
 
   const appendAssistantMessage = useCallback(
     async (text: string, metadata?: Record<string, unknown>) => {
-      if (!text.trim() || !chatId || !user?.id) return;
+      if (!text.trim() || !chatId || !spaceId || !user?.id) return;
 
       try {
         setError(null);
 
         const input: SpaceChatMessageInsert = {
           chat_id: chatId,
+          space_id: spaceId,
           role: 'assistant',
           content: text.trim(),
           metadata_json: metadata || null,
@@ -91,7 +93,7 @@ export function useChatMessages(chatId: string) {
         throw err;
       }
     },
-    [chatId, user?.id, messageRepo, chatRepo],
+    [chatId, spaceId, user?.id, messageRepo, chatRepo],
   );
 
   // Load messages on mount and when chatId changes

@@ -112,6 +112,7 @@ Format your response as JSON:
 export async function generateSpaceSummary(
   messages: ChatTurn[],
   lastMessageId?: string,
+  spaceId?: string,
 ): Promise<SpaceSummaryData | null> {
   const config = getConfig();
 
@@ -132,6 +133,8 @@ export async function generateSpaceSummary(
       model: config.model,
       maxTokens: config.tokens,
       temperature: 0.3, // Lower temperature for consistent summaries
+      spaceId: spaceId ?? undefined,
+      lane: 'space_chat',
     });
 
     if (!result.ok) {
@@ -224,7 +227,7 @@ export async function maybeRefreshSummary(
     }
 
     // Phase 10.10 B3: Generate new summary with retry logic for resilience
-    let summaryData = await generateSpaceSummary(messages, lastMessageId);
+    let summaryData = await generateSpaceSummary(messages, lastMessageId, spaceId);
 
     // Retry once on failure with backoff
     if (!summaryData) {
@@ -232,7 +235,7 @@ export async function maybeRefreshSummary(
         console.warn('[SUMMARIZE] First attempt failed, retrying with backoff...');
       }
       await new Promise((resolve) => setTimeout(resolve, 500)); // 500ms backoff
-      summaryData = await generateSpaceSummary(messages, lastMessageId);
+      summaryData = await generateSpaceSummary(messages, lastMessageId, spaceId);
     }
 
     if (!summaryData) {

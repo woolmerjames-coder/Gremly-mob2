@@ -72,6 +72,9 @@ async function tryDirectWorkerCall(
         model: 'gpt-4o-mini',
         temperature: 0.7,
         maxTokens: 200, // Shorter for quicker response
+        spaceId: ctx.spaceId ?? ctx.activeSpaceId ?? null,
+        chatId: ctx.chatId ?? null,
+        lane: ctx.lane ?? 'space_chat',
       });
     } catch (error) {
       _lastError = error;
@@ -84,6 +87,9 @@ async function tryDirectWorkerCall(
         model: 'gpt-4o-mini',
         temperature: 0.7,
         maxTokens: 400,
+        spaceId: ctx.spaceId ?? ctx.activeSpaceId ?? null,
+        chatId: ctx.chatId ?? null,
+        lane: ctx.lane ?? 'space_chat',
       });
     }
 
