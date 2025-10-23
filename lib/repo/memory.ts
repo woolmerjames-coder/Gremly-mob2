@@ -448,6 +448,21 @@ export class MemoryRepo implements IRepo {
     return space?.summary_cached ?? null;
   }
 
+  // Phase 10.8: Space Insight stubs
+  async getLatestSpaceInsight(spaceId: string): Promise<{
+    summary: string;
+    summary_at: string;
+    tokens: number;
+  } | null> {
+    // Memory backend doesn't support insights yet
+    return null;
+  }
+
+  async getSpaceInsightHistory(spaceId: string, limit?: number): Promise<any[]> {
+    // Memory backend doesn't support insights yet
+    return [];
+  }
+
   // ==========================
   // TAG AND PEOPLE METHODS (Phase 7+ stubs)
   // ==========================

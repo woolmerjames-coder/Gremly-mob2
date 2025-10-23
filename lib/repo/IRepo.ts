@@ -132,6 +132,14 @@ export interface IRepo {
   // Spaces v2 methods (Phase 8+)
   getSpaceSummary(spaceId: string): Promise<string | null>;
 
+  // Phase 10.8: Space Insight methods
+  getLatestSpaceInsight(spaceId: string): Promise<{
+    summary: string;
+    summary_at: string;
+    tokens: number;
+  } | null>;
+  getSpaceInsightHistory(spaceId: string, limit?: number): Promise<any[]>;
+
   // Tag and People methods (Phase 7+)
   listTags(): Promise<Tag[]>;
   listPeople(): Promise<Person[]>;
