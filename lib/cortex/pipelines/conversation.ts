@@ -174,7 +174,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
     if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
       console.log('[CORTEX][10.7E] context_built_legacy', {
-        windowSize: contextWindow.length,
+        windowSize: contextWindow?.length || 0,
         summaryLength: ctx.runningSummary?.length || 0,
       });
     }
@@ -299,7 +299,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Check for explicit creation intent or affirmation
   const hasExplicitIntent = hasExplicitCreationIntent(userText);
   const isUserAffirming = isAffirmation(userText);
-  const bypassCooldown = hasExplicitIntent || isUserAffirming;
+  // Phase 10.10: Also bypass cooldown for explicit command verbs
+  const bypassCooldown = hasExplicitIntent || isUserAffirming || intent.isCommand;
 
   if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
     console.log('[CORTEX][10.7D] intent_check', {
@@ -307,6 +308,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       confidence: intent.confidence,
       suppressChips: intent.suppressChips,
       isPlanning: intent.isPlanning,
+      isCommand: intent.isCommand,
       cooldown: intentCooldown,
       bypassCooldown,
     });
@@ -365,6 +367,37 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   if (intent.confidence >= 0.75 && intent.kind !== 'none') {
+    // Phase 10.10: Explicit command handling - immediate action
+    // When isCommand=true, bypass all gating and open overlay directly
+    if (intent.isCommand && intent.kind !== 'question') {
+      // Direct action path - bypass cooldown, reiteration checks, and curiosity
+      const suggestionText = `Add as ${intent.kind}`;
+      normalized.suggestions = [suggestionText];
+      normalized.mode = 'ask';
+
+      // Provide acknowledgment
+      normalized.replyText = 'Opening...';
+
+      // Mark for immediate overlay opening
+      normalized.meta = {
+        ...normalized.meta,
+        shouldOpenOverlay: true,
+        overlayKind: intent.kind,
+      };
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][policy] explicit_intent', {
+          isCommand: intent.isCommand,
+          kind: intent.kind,
+          confidence: intent.confidence,
+          action: 'open_overlay',
+        });
+      }
+
+      // Skip the rest of intent handling
+      return normalized;
+    }
+
     // Phase 10.7D: Planning mode - provide advice without chips
     if (intent.isPlanning || intent.suppressChips) {
       normalized.replyText =
@@ -414,7 +447,11 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
           recentIntentBuffer.filter((i) => i.kind === intent.kind && currentTurn - i.turn <= 2)
             .length >= 1;
 
-        if (shouldShowChip && (intentReiterated || bypassCooldown)) {
+        // Phase 10.10: Also bypass reiteration check for high confidence (≥0.85)
+        const highConfidence = intent.confidence >= 0.85;
+        const shouldBypassReiteration = intentReiterated || bypassCooldown || highConfidence;
+
+        if (shouldShowChip && shouldBypassReiteration) {
           // Show chip for reiterated intent or explicit request
           const suggestionText = `Add as ${intent.kind}`;
           normalized.suggestions = [suggestionText]; // Max 1 chip
