@@ -19,7 +19,9 @@ import {
   hasExplicitCreationIntent,
   isAffirmation,
   type ChatTurn,
+  type ChatContext,
 } from '../context/memory';
+import { getPersonaPrompt } from '../persona/prompt';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 
@@ -31,28 +33,30 @@ const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 async function tryDirectWorkerCall(
   input: DecideInput,
   ctx: CortexContext,
-  contextWindow?: ChatTurn[],
-  runningSummary?: string,
+  context?: ChatContext,
 ): Promise<CortexResponse> {
   try {
     if (!input.text) {
       throw new Error('No text input for direct worker call');
     }
 
-    // B1: Assemble full context: summary + last N turns + current message
+    // B1: Assemble full context: system prompt + summary + last N turns + current message
     const messages: ChatMessage[] = [];
 
-    // Add running summary as system message if available
-    if (runningSummary && runningSummary.trim()) {
+    const systemPrompt = context?.systemPrompt?.trim() || getPersonaPrompt();
+    messages.push({ role: 'system', content: systemPrompt });
+
+    const summaryText = context?.summary?.trim();
+    if (summaryText) {
       messages.push({
         role: 'system',
-        content: `Conversation summary so far:\n${runningSummary}`,
+        content: `Conversation summary so far:\n${summaryText}`,
       });
     }
 
-    // Add context window (last N user/assistant turns)
-    if (contextWindow && contextWindow.length > 0) {
-      for (const turn of contextWindow) {
+    if (Array.isArray(context?.messages) && context.messages.length > 0) {
+      for (const turn of context.messages) {
+        if (!turn?.text || !turn.text.trim()) continue;
         messages.push({
           role: turn.role,
           content: turn.text,
@@ -60,7 +64,6 @@ async function tryDirectWorkerCall(
       }
     }
 
-    // Add current user message
     messages.push({ role: 'user', content: input.text });
 
     let response;
@@ -173,9 +176,10 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Try to build context from database if repo and spaceId are available
   let contextWindow: ChatTurn[] = [];
   let runningSummary: string | undefined;
+  let chatContext: ChatContext | undefined;
 
   if (ctx.repo && ctx.spaceId) {
-    const chatContext = await buildChatContext({
+    chatContext = await buildChatContext({
       spaceId: ctx.spaceId,
       repo: ctx.repo,
       maxContext: maxContext,
@@ -197,6 +201,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       ctx.runningSummary = await summarize(allMessages);
     }
     runningSummary = ctx.runningSummary || undefined;
+
+    chatContext = {
+      messages: contextWindow,
+      summary: runningSummary,
+      windowSize: contextWindow.length,
+      summaryLength: runningSummary?.length ?? 0,
+      systemPrompt: getPersonaPrompt(),
+    };
 
     if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
       console.log('[CORTEX][10.7E] context_built_legacy', {
@@ -257,7 +269,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
 
     // Defensive mapper: try direct worker call for Space Chat with full context
-    raw = await tryDirectWorkerCall(input, ctx, contextWindow, runningSummary);
+    const fallbackContext: ChatContext = chatContext ?? {
+      messages: contextWindow,
+      summary: runningSummary,
+      windowSize: contextWindow.length,
+      summaryLength: runningSummary?.length ?? 0,
+      systemPrompt: getPersonaPrompt(),
+    };
+
+    raw = await tryDirectWorkerCall(input, ctx, fallbackContext);
   }
 
   // Normalize for Space Chat UX with safe defaults
@@ -617,7 +637,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
 
     try {
-      const workerResponse = await tryDirectWorkerCall(input, ctx, contextWindow, runningSummary);
+      const fallbackContext: ChatContext = chatContext ?? {
+        messages: contextWindow,
+        summary: runningSummary,
+        windowSize: contextWindow.length,
+        summaryLength: runningSummary?.length ?? 0,
+        systemPrompt: getPersonaPrompt(),
+      };
+
+      const workerResponse = await tryDirectWorkerCall(input, ctx, fallbackContext);
       if (workerResponse.replyText && workerResponse.replyText.trim()) {
         if (__DEV__) {
           console.log('[CORTEX] Using worker response instead of generic response');

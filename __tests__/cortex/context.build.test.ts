@@ -10,14 +10,21 @@ describe('buildChatContext', () => {
     spaceChatMessages: {
       list: jest.fn(),
     },
+    getSpaceById: jest.fn(),
+    getLatestSpaceInsight: jest.fn(),
+    listItemTags: jest.fn(),
+    listLinkedPeopleByItem: jest.fn(),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRepo.getSpaceById.mockResolvedValue(null);
+    mockRepo.getLatestSpaceInsight.mockResolvedValue(null);
+    mockRepo.listItemTags.mockResolvedValue([]);
+    mockRepo.listLinkedPeopleByItem.mockResolvedValue([]);
   });
 
   it('builds context with messages and summary when messages exist', async () => {
-    // Mock 5 messages from database
     const mockMessages = [
       {
         id: '1',
@@ -52,6 +59,22 @@ describe('buildChatContext', () => {
     ];
 
     mockRepo.spaceChatMessages.list.mockResolvedValue(mockMessages);
+    mockRepo.getSpaceById.mockResolvedValue({
+      id: 'test-space',
+      name: 'Deep Work Space',
+      icon: 'lightbulb',
+      theme: 'deepTeal',
+    });
+    mockRepo.getLatestSpaceInsight.mockResolvedValue({
+      summary: 'We focused on planning deep work sessions and blocking distractions.',
+      summary_at: '2025-10-23T10:05:00Z',
+      tokens: 128,
+    });
+    mockRepo.listItemTags.mockResolvedValue([{ id: 'tag-1', name: 'Deep Work' }]);
+    mockRepo.listLinkedPeopleByItem.mockResolvedValue([
+      { person_name: 'Avery' },
+      { person_email: 'alex@example.com' },
+    ]);
 
     const result = await buildChatContext({
       spaceId: 'test-space',
@@ -60,20 +83,20 @@ describe('buildChatContext', () => {
       runningSummary: 'Previous summary about habits',
     });
 
-    // Should have windowSize > 0
-    expect(result.windowSize).toBeGreaterThan(0);
     expect(result.windowSize).toBe(5);
-
-    // Should have summaryLength > 0
-    expect(result.summaryLength).toBeGreaterThan(0);
-    expect(result.summary).toBe('Previous summary about habits');
-
-    // Should have messages in correct order (oldest first in context)
-    expect(result.messages).toHaveLength(5);
-    expect(result.messages[0].role).toBe('user');
+    expect(result.summary).toBe(
+      'We focused on planning deep work sessions and blocking distractions.',
+    );
+    expect(result.summaryLength).toBe(
+      'We focused on planning deep work sessions and blocking distractions.'.length,
+    );
     expect(result.messages[0].text).toBe('Hello, how are you?');
-    expect(result.messages[4].role).toBe('user');
     expect(result.messages[4].text).toBe('Great, I need to remember something.');
+    expect(result.systemPrompt).toContain('Deep Work Space');
+    expect(result.systemPrompt).toContain('Linked tags: Deep Work');
+    expect(result.systemPrompt).toContain('People mentioned: Avery, alex@example.com');
+    expect(result.space?.tags).toEqual(['Deep Work']);
+    expect(result.space?.people).toEqual(['Avery', 'alex@example.com']);
   });
 
   it('generates summary when none exists and messages > 2', async () => {
@@ -121,6 +144,7 @@ describe('buildChatContext', () => {
     }));
 
     mockRepo.spaceChatMessages.list.mockResolvedValue(mockMessages);
+    mockRepo.getLatestSpaceInsight.mockResolvedValue(null);
 
     const result = await buildChatContext({
       spaceId: 'test-space',
@@ -174,6 +198,7 @@ describe('buildChatContext', () => {
     }));
 
     mockRepo.spaceChatMessages.list.mockResolvedValue(mockMessages);
+    mockRepo.getLatestSpaceInsight.mockResolvedValue(null);
 
     const result = await buildChatContext({
       spaceId: 'test-space',

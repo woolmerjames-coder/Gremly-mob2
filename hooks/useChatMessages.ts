@@ -66,8 +66,11 @@ export function useChatMessages(chatId: string, spaceId: string) {
   );
 
   const appendAssistantMessage = useCallback(
-    async (text: string, metadata?: Record<string, unknown>) => {
-      if (!text.trim() || !chatId || !spaceId || !user?.id) return;
+    async (
+      text: string,
+      metadata?: Record<string, unknown>,
+    ): Promise<SpaceChatMessage | undefined> => {
+      if (!text.trim() || !chatId || !spaceId || !user?.id) return undefined;
 
       try {
         setError(null);
@@ -87,6 +90,8 @@ export function useChatMessages(chatId: string, spaceId: string) {
         await chatRepo.update(chatId, {
           last_message_snippet: text.trim(),
         });
+
+        return newMessage;
       } catch (err) {
         console.error('Failed to append assistant message:', err);
         setError(err instanceof Error ? err.message : 'Failed to append assistant message');

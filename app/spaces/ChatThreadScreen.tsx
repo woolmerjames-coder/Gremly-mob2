@@ -164,7 +164,8 @@ export default function ChatThreadScreen({ route }: Props) {
 
   const handleSend = useCallback(
     async (text: string) => {
-      if (!text.trim() || !chat) return;
+      const trimmedText = text.trim();
+      if (!trimmedText || !chat) return;
 
       // P0 Fix: Strict spaceId validation with dev error
       if (!spaceId) {
@@ -189,7 +190,7 @@ export default function ChatThreadScreen({ route }: Props) {
         // Clear active suggestions when user sends a new message
         setActiveSuggestions([]);
         setDetectedIntent(null);
-        setLastUserMessage(text);
+        setLastUserMessage(trimmedText);
 
         // Clear any existing fade timer
         if (suggestionFadeTimerRef.current) {
@@ -203,12 +204,12 @@ export default function ChatThreadScreen({ route }: Props) {
         }
 
         // 1. Send user message via hook
-        await sendUserMessage(text);
+        await sendUserMessage(trimmedText);
 
         // Phase 10.6: Emit user message sent event
         emitChatEvent({
           type: 'user_message_sent',
-          payload: { text, spaceId: chat.space_id || undefined },
+          payload: { text: trimmedText, spaceId: chat.space_id || undefined },
         });
 
         // Phase 10.6: Start thinking animation
@@ -253,7 +254,7 @@ export default function ChatThreadScreen({ route }: Props) {
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
 
-          const response = await cortexRoute({ text }, ctx);
+          const response = await cortexRoute({ text: trimmedText }, ctx);
 
           // Log event (non-blocking)
           repo
@@ -261,7 +262,7 @@ export default function ChatThreadScreen({ route }: Props) {
               'cortex_decision',
               {
                 source: 'chat',
-                text,
+                text: trimmedText,
                 actions: response.actions,
                 confidence: response.confidence,
                 mode: response.mode,
@@ -315,7 +316,7 @@ export default function ChatThreadScreen({ route }: Props) {
                   } else if (action.type === 'create.note') {
                     await repo.create({
                       type: 'note',
-                      title: action.payload.text || text,
+                      title: action.payload.text || trimmedText,
                       body: action.payload.text,
                       subtype:
                         (action.payload.subtype as
@@ -364,7 +365,7 @@ export default function ChatThreadScreen({ route }: Props) {
             // Simple heuristic for chit-chat detection
             const chitChatPatterns =
               /\b(hello|hi|hey|thanks|thank you|how are you|what's up|good morning|good afternoon|good evening)\b/i;
-            if (chitChatPatterns.test(text.toLowerCase())) {
+            if (chitChatPatterns.test(trimmedText.toLowerCase())) {
               shouldTriggerPlayful = true;
             }
           }
@@ -412,22 +413,33 @@ export default function ChatThreadScreen({ route }: Props) {
               setDetectedIntent(null);
             }
 
-            await appendAssistantMessage(assistantText);
+            const appendedMessage = await appendAssistantMessage(assistantText);
 
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
               import('../../lib/cortex/summarize')
                 .then(({ maybeRefreshSummary }) => {
                   // Convert messages to ChatTurn format
-                  const turns = messages.map((m) => ({
+                  const historyTurns = messages.map((m) => ({
                     role: m.role as 'user' | 'assistant',
                     text: m.content,
                   }));
 
-                  // Get the last message ID (the assistant message we just sent)
-                  const lastMsg = messages[messages.length - 1];
+                  const hasLatestUser = historyTurns.some(
+                    (turn) => turn.role === 'user' && turn.text === trimmedText,
+                  );
 
-                  maybeRefreshSummary(spaceId, turns, lastMsg?.id).catch((err) => {
+                  if (!hasLatestUser) {
+                    historyTurns.push({ role: 'user', text: trimmedText });
+                  }
+
+                  historyTurns.push({ role: 'assistant', text: assistantText });
+
+                  const turns = historyTurns;
+
+                  const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
+
+                  maybeRefreshSummary(spaceId, turns, lastMsgId).catch((err) => {
                     if (__DEV__) {
                       console.error('[ChatThread][10.8] Summary refresh failed:', err);
                     }
@@ -479,7 +491,7 @@ export default function ChatThreadScreen({ route }: Props) {
             error: cortexError,
             userId: currentUserId,
             spaceId: chat.space_id,
-            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+            text: trimmedText.substring(0, 100) + (trimmedText.length > 100 ? '...' : ''),
           });
 
           // Phase 10.6: Emit error event
