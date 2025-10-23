@@ -609,6 +609,27 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
   }
 
+  // Step 5.1a: Greeting detection - handle friendly greetings before generic smalltalk
+  const hasGreeting = isGreeting(userText);
+
+  if (hasGreeting) {
+    // Use specialized greeting response
+    const greetingResponse = respondSmalltalk(userText, {});
+
+    return {
+      ...normalized,
+      mode: 'ask' as const,
+      replyText: greetingResponse,
+      actions: [],
+      suggestions: [],
+      meta: {
+        ...normalized?.meta,
+        lane: 'space_chat' as const,
+        kind: 'greeting' as const,
+      },
+    };
+  }
+
   // Step 5.1b: Small-talk fallback - only when no actionable content
   const noSuggestions = !normalized?.suggestions || normalized.suggestions.length === 0;
   const noExplanation = !normalized?.explanation || !normalized.explanation.trim();
@@ -617,8 +638,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   if (noExplanation && noSuggestions && noReplyText) {
     // Optional anti-spam: inspect last assistant message from ctx
     const lastWasSmalltalk = ctx?.recentAssistantKind === 'smalltalk';
-    const userText = (input?.text ?? '').trim().toLowerCase();
-    const isAck = isAcknowledgment(userText);
+    const isAck = isAcknowledgment(userText.toLowerCase());
 
     if (!lastWasSmalltalk && !isAck) {
       return {

@@ -41,7 +41,7 @@ describe('Space Chat defensive mapping', () => {
     jest.clearAllMocks();
   });
 
-  it('triggers small-talk when cortexDecide returns empty response', async () => {
+  it('triggers greeting response when user says hello', async () => {
     const mockContext = {
       lane: 'space_chat' as const,
       userId: 'test-user',
@@ -56,11 +56,11 @@ describe('Space Chat defensive mapping', () => {
 
     const result = await runConversationPipeline(input, mockContext);
 
-    // Should trigger small-talk since cortexDecide returns empty response
-    expect(result.mode).toBe('reply');
+    // Phase 10.10: Greetings now trigger greeting response (not generic smalltalk)
+    expect(result.mode).toBe('ask');
     expect(result.replyText).toBeDefined();
     expect(result.replyText).not.toBe('');
-    expect(result.meta?.kind).toBe('smalltalk');
+    expect(result.meta?.kind).toBe('greeting');
   });
 
   it('suppresses catch-all copy in chat mode', async () => {

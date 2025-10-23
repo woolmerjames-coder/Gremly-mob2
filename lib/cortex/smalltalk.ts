@@ -64,23 +64,44 @@ export function isSmalltalk(text: string): boolean {
 /**
  * Respond to smalltalk with calm, witty, context-aware reply
  * Returns response text (≤2 sentences)
+ * Phase 10.10: Enhanced with friendly greeting variants and "how are you" responses
  */
 export function respond(text: string, context?: { userName?: string; spaceName?: string }): string {
   const normalized = text.trim().toLowerCase();
 
-  // Greetings
+  // Detect "how are you" specifically for warmer personal responses
+  const isHowAreYou =
+    /\bhow are you\b/i.test(normalized) ||
+    /\bhow's it going\b/i.test(normalized) ||
+    /\bhow are things\b/i.test(normalized) ||
+    /\bhow've you been\b/i.test(normalized);
+
+  if (isHowAreYou) {
+    const howAreYouResponses = [
+      "I'm doing great! What's on your mind?",
+      "I'm here and ready to help! What can I do for you?",
+      'Doing well! How can I help you today?',
+      "I'm good! What brings you here?",
+      'All good here! What would you like to explore?',
+      "I'm here for you! What's happening?",
+    ];
+    return pickRandom(howAreYouResponses, text);
+  }
+
+  // Simple greetings with friendly clarifying questions
   if (isGreeting(text)) {
     const greetingResponses = [
-      "Hey! What's on your mind?",
-      'Hi there! How can I help?',
-      "Hello! What's happening today?",
-      'Hey! Ready when you are.',
-      'Hi! What would you like to explore?',
+      "Hey there! What's on your mind today?",
+      'Hi! How can I help you?',
+      'Hello! What brings you here?',
+      'Hey! What would you like to explore?',
+      'Hi there! What can I do for you today?',
+      "Hello! Ready when you are — what's up?",
     ];
 
     // Add context-aware greeting if space name available
     if (context?.spaceName) {
-      greetingResponses.push(`Hi! Welcome back to ${context.spaceName}.`);
+      greetingResponses.push(`Hi! Welcome back to ${context.spaceName}. What's on your mind?`);
     }
 
     return pickRandom(greetingResponses, text);

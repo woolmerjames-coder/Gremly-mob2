@@ -129,7 +129,7 @@ describe('Conversation Pipeline - Small-talk', () => {
     expect(result.suggestions).toHaveLength(2);
   });
 
-  it('should ensure lane remains space_chat in small-talk response', async () => {
+  it('should ensure lane remains space_chat in greeting response', async () => {
     // Mock cortexDecide to return empty response
     mockCortexDecide.mockResolvedValue({
       actions: [],
@@ -142,7 +142,7 @@ describe('Conversation Pipeline - Small-talk', () => {
     const result = await runConversationPipeline(input, mockCtx);
 
     expect((result.meta as any)?.lane).toBe('space_chat');
-    expect(result.meta?.kind).toBe('smalltalk');
+    expect(result.meta?.kind).toBe('greeting'); // Phase 10.10: Greetings now have their own kind
   });
 
   it('should suppress catch-all copy in explanations and trigger small-talk', async () => {
