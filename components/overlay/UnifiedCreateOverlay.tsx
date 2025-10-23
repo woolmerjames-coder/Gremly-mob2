@@ -558,6 +558,16 @@ export function UnifiedCreateOverlay({
       type: 'overlay_success',
       payload: { type: result.type, created: result },
     });
+
+    // Phase 10.9: Emit celebration event for item creation
+    emitChatEvent({
+      type: 'item_created',
+      payload: {
+        type: result.type as 'todo' | 'note' | 'habit',
+        origin: mode === 'create' ? 'overlay' : 'edit',
+      },
+    });
+
     onSaved?.(result);
   };
 

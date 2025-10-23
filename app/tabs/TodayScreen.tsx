@@ -20,6 +20,7 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useTodayData, type Suggestion } from '../../lib/today/useTodayData';
 import { eventBus } from '../../lib/events';
+import { emitChatEvent } from '../../app/lib/chat/events';
 import { env } from '../../lib/env';
 import TodayMascotHeader from '../../components/today/TodayMascotHeader';
 import TodaySection from '../../components/today/TodaySection';
@@ -147,6 +148,13 @@ export default function TodayScreen() {
     undoTimerRef.current = setTimeout(async () => {
       try {
         await repo.completeHabit(id, new Date().toISOString());
+
+        // Phase 10.9: Emit celebration event for habit check-in
+        emitChatEvent({
+          type: 'habit_checkin',
+          payload: { habitId: id },
+        });
+
         // Emit analytics
         eventBus.emit('TodayCompleteHabit', {
           habitId: id,
@@ -189,6 +197,13 @@ export default function TodayScreen() {
     undoTimerRef.current = setTimeout(async () => {
       try {
         await repo.completeTodo(id, new Date().toISOString());
+
+        // Phase 10.9: Emit celebration event for todo completion
+        emitChatEvent({
+          type: 'todo_completed',
+          payload: { todoId: id },
+        });
+
         // Emit analytics
         eventBus.emit('TodayCompleteTodo', {
           todoId: id,
