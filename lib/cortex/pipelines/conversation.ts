@@ -26,18 +26,42 @@ const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 /**
  * Defensive mapper for when worker returns { content: "text", hasChoices: false }
  * Maps to { mode: 'reply', replyText: content, actions: [], suggestions: [] }
+ * Phase 10.10 B1: Includes context window + running summary for better continuity
  */
 async function tryDirectWorkerCall(
   input: DecideInput,
   ctx: CortexContext,
+  contextWindow?: ChatTurn[],
+  runningSummary?: string,
 ): Promise<CortexResponse> {
   try {
     if (!input.text) {
       throw new Error('No text input for direct worker call');
     }
 
-    // Make direct chat call to worker with retry strategy
-    const messages: ChatMessage[] = [{ role: 'user', content: input.text }];
+    // B1: Assemble full context: summary + last N turns + current message
+    const messages: ChatMessage[] = [];
+
+    // Add running summary as system message if available
+    if (runningSummary && runningSummary.trim()) {
+      messages.push({
+        role: 'system',
+        content: `Conversation summary so far:\n${runningSummary}`,
+      });
+    }
+
+    // Add context window (last N user/assistant turns)
+    if (contextWindow && contextWindow.length > 0) {
+      for (const turn of contextWindow) {
+        messages.push({
+          role: turn.role,
+          content: turn.text,
+        });
+      }
+    }
+
+    // Add current user message
+    messages.push({ role: 'user', content: input.text });
 
     let response;
     let _lastError;
@@ -226,8 +250,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       console.log('[CORTEX] cortexDecide failed, trying direct worker call', error);
     }
 
-    // Defensive mapper: try direct worker call for Space Chat
-    raw = await tryDirectWorkerCall(input, ctx);
+    // Defensive mapper: try direct worker call for Space Chat with full context
+    raw = await tryDirectWorkerCall(input, ctx, contextWindow, runningSummary);
   }
 
   // Normalize for Space Chat UX with safe defaults
@@ -581,7 +605,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
 
     try {
-      const workerResponse = await tryDirectWorkerCall(input, ctx);
+      const workerResponse = await tryDirectWorkerCall(input, ctx, contextWindow, runningSummary);
       if (workerResponse.replyText && workerResponse.replyText.trim()) {
         if (__DEV__) {
           console.log('[CORTEX] Using worker response instead of generic response');

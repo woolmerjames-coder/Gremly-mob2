@@ -223,10 +223,22 @@ export async function maybeRefreshSummary(
       return false;
     }
 
-    // Generate new summary
-    const summaryData = await generateSpaceSummary(messages, lastMessageId);
+    // Phase 10.10 B3: Generate new summary with retry logic for resilience
+    let summaryData = await generateSpaceSummary(messages, lastMessageId);
+
+    // Retry once on failure with backoff
+    if (!summaryData) {
+      if (__DEV__) {
+        console.warn('[SUMMARIZE] First attempt failed, retrying with backoff...');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500)); // 500ms backoff
+      summaryData = await generateSpaceSummary(messages, lastMessageId);
+    }
 
     if (!summaryData) {
+      if (__DEV__) {
+        console.warn('[SUMMARIZE] ⚠️ Summary generation failed after retry for space:', spaceId);
+      }
       return false;
     }
 
@@ -266,12 +278,14 @@ export async function maybeRefreshSummary(
     }
 
     if (__DEV__ || getEnv('EXPO_PUBLIC_DEBUG_CORTEX') === 'on') {
-      console.log('[SUMMARIZE] ✅ Summary refreshed', {
-        spaceId,
-        chars: summaryData.summary.length,
-        bullets: summaryData.extracted_bullets.length,
-        tokens: summaryData.token_usage,
-      });
+      console.log(
+        `[Summary] refreshed for space ${spaceId} with window ${summaryData.source_window}`,
+        {
+          chars: summaryData.summary.length,
+          bullets: summaryData.extracted_bullets.length,
+          tokens: summaryData.token_usage,
+        },
+      );
     }
 
     return true;

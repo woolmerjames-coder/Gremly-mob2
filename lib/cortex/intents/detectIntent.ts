@@ -48,17 +48,18 @@ export function detectIntent(text: string): DetectedIntent {
   }
 
   // 0. Planning/exploring detector (HIGHEST PRIORITY)
-  // Forces question mode to provide advice instead of chips
+  // Phase 10.10 B2: Enhanced planning/exploring detection
+  // Forces advice-first mode instead of chips
   if (
-    /\b(planning|thinking about|explore|exploring|not ready|just planning ahead|considering|might)\b/i.test(
+    /\b(planning ahead|planning|thinking about|explore|exploring|not ready|just planning|considering|might|where to start|where do i start|how do i start)\b/i.test(
       t,
     )
   ) {
     return {
       kind: 'question',
       confidence: 0.75,
-      suppressChips: true, // Flag to prevent chip display
-      isPlanning: true,
+      suppressChips: true, // B2: Suppress chips for this turn
+      isPlanning: true, // B2: Flag for advice-first mode
       isCommand,
     };
   }
