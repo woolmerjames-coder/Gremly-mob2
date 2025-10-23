@@ -125,3 +125,12 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   removeItem: jest.fn(() => Promise.resolve()),
   clear: jest.fn(() => Promise.resolve()),
 }));
+
+// Mock react-native-safe-area-context to avoid requiring SafeAreaProvider in every test
+jest.mock('react-native-safe-area-context', () => {
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    SafeAreaProvider: ({ children }: any) => children,
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  };
+});
