@@ -24,7 +24,12 @@ export type ChatEvent =
   | { type: 'overlay_opened'; payload: { type: string } }
   | { type: 'overlay_success'; payload: { type: string; created?: any } }
   | { type: 'overlay_cancel'; payload: { type: string } }
-  | { type: 'error'; payload: { error: Error; context?: string } };
+  | { type: 'error'; payload: { error: Error; context?: string } }
+  // Phase 10.9: Celebration events
+  | { type: 'item_created'; payload: { type: 'todo' | 'note' | 'habit'; origin: string } }
+  | { type: 'habit_checkin'; payload: { habitId: string } }
+  | { type: 'todo_completed'; payload: { todoId: string } }
+  | { type: 'summary_refreshed'; payload: { spaceId: string } };
 
 // Event listener type
 export type ChatEventListener = (event: ChatEvent) => void;
