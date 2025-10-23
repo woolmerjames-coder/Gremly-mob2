@@ -48,6 +48,7 @@ import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
 import type { OverlayKind } from './chat/openUnifiedFromChat';
+import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
@@ -550,68 +551,51 @@ export default function ChatThreadScreen({ route }: Props) {
   // Convert from chip handler
   const convertFromChip = useCallback(
     (kind: OverlayKind) => {
-      const lastUser = messages.find((m, index) => {
-        // Find the last user message
-        return (
-          (m.role === 'user' && index === messages.length - 1) ||
-          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
-        );
-      });
+      // Phase 10.10: Use lastUserMessage (current user message that triggered action)
+      // NOT first message or last assistant
+      const userText = lastUserMessage.trim();
 
-      if (!lastUser) return;
+      if (!userText) {
+        console.warn('[ChatThread][10.10] No user message to convert');
+        return;
+      }
 
-      const lastUserText = lastUser.content || '';
-      const trimmedText = lastUserText.trim();
-
-      // P0 Fix: Improved prefill mapping
+      // Phase 10.10: Use utility functions for proper prefill mapping
       let initial: { title?: string; note?: string };
 
       if (kind === 'note') {
-        // For notes: strip prefixes from title, keep original in body
-        const strippedTitle = trimmedText
-          .replace(
-            /^(remember|note|don't forget|remind me|keep in mind|write down|jot down)[:;\s]*/i,
-            '',
-          )
-          .trim();
+        // For notes: smart title + full text in note field
         initial = {
-          title: strippedTitle || trimmedText,
-          note: lastUserText, // Original text in body
+          title: smartTitle(userText),
+          note: userText,
         };
       } else if (kind === 'todo') {
-        // For todos: imperative form in title, empty body
-        let todoTitle = trimmedText;
-        // Convert to imperative if it's "I need to X" format
-        todoTitle = todoTitle.replace(/^(i need to|i have to|i should|i must)\s+/i, '');
+        // For todos: extract imperative title
         initial = {
-          title: todoTitle,
-          note: '', // Empty body for todos
+          title: extractTodoTitle(userText),
         };
       } else if (kind === 'habit') {
-        // For habits: concise habit phrase in title, empty body
-        const habitTitle = trimmedText
-          .replace(/^(start|begin|want to|would like to)\s+/i, '')
-          .trim();
+        // For habits: parse habit with cadence
+        const habitData = parseHabit(userText);
         initial = {
-          title: habitTitle || trimmedText,
-          note: '', // Empty body for habits
+          title: habitData.name,
+          // TODO: Pass cadence through once overlay supports it
+          // cadence: habitData.cadence
         };
       } else {
         // Default: use detected intent title or message text
         const titleFromIntent = detectedIntent?.title;
-        initial = { title: (titleFromIntent || trimmedText).trim() };
+        initial = { title: (titleFromIntent || userText).trim() };
       }
 
       const whyFromIntent = detectedIntent?.why;
 
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[ChatThread][10.7D] Opening overlay:', {
-          kind,
-          hasTitle: !!(initial as any).title,
-          hasBody: !!(initial as any).note,
-          prefill: initial,
-        });
-      }
+      // Phase 10.10: Log before opening overlay
+      console.log('[ChatThread][10.10] Opening overlay', {
+        kind,
+        prefill: initial,
+        userText,
+      });
 
       openUnifiedFromChat(
         kind,
@@ -619,13 +603,13 @@ export default function ChatThreadScreen({ route }: Props) {
         {
           lane: 'space_chat',
           spaceId: spaceId ?? null,
-          messageId: lastUser.id ?? null,
+          messageId: null, // Not converting from specific message ID
           whyString: whyFromIntent || (lastAssistantResponseRef.current?.explanation ?? null),
         },
         overlayController,
       );
     },
-    [messages, spaceId, overlayController, detectedIntent],
+    [lastUserMessage, spaceId, overlayController, detectedIntent],
   );
 
   // Map suggestion text to overlay kind
