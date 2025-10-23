@@ -97,12 +97,18 @@ async function tryDirectWorkerCall(
       console.log('[CORTEX] Direct worker call failed', error);
     }
 
-    // Return safe fallback
+    // P0 Fix: Never return catch-all message in space_chat lane
+    // Return minimal smalltalk reply instead
     return {
       actions: [],
-      mode: 'keep',
-      explanation: 'Saving to Catch-All for now.',
+      mode: 'reply',
+      replyText: "I'm here to help. What would you like to talk about?",
+      suggestions: [],
+      explanation: '', // Empty explanation to avoid catch-all text
       confidence: 0,
+      meta: {
+        kind: 'smalltalk',
+      },
     };
   }
 }
@@ -286,11 +292,12 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Check if curiosity phase is enabled
   const curiosityEnabled = process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE === 'true';
 
-  // Phase 10.7D: Updated thresholds
+  // P0 Fix: Raised thresholds to reduce pushy chips
+  // Phase 10.10: habit≥0.90, todo≥0.92, note≥0.85, question≥0.70
   const intentThresholds: Record<string, number> = {
-    habit: 0.85,
-    todo: 0.88,
-    note: 0.8,
+    habit: 0.9,
+    todo: 0.92,
+    note: 0.85,
     question: 0.7,
     reflection: 0.75,
     idea: 0.75,

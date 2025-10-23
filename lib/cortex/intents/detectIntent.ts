@@ -78,14 +78,14 @@ export function detectIntent(text: string): DetectedIntent {
   if (/\b(note|remember|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)) {
     return {
       kind: 'note',
-      confidence: 0.8, // Threshold set to 0.80
+      confidence: 0.85, // P0 Fix: Raised to match pipeline threshold
       title: trimmed,
       curiositySuggestion: 'Should I capture this as a note, or just keeping it in mind?',
     };
   }
 
   // 3. Habit patterns: routine, frequency words
-  // Raised threshold to 0.85 for more confidence
+  // Raised threshold to 0.90 for more confidence
   if (
     /every\s+(day|morning|night|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(
       t,
@@ -94,14 +94,14 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'habit',
-      confidence: 0.85, // Threshold set to 0.85
+      confidence: 0.9, // P0 Fix: Raised to match pipeline threshold
       title: trimmed,
       curiositySuggestion: 'Want structured help building this habit, or just exploring?',
     };
   }
 
   // 4. To-do patterns: action verbs, deadlines
-  // Raised threshold to 0.88 for highest confidence
+  // Raised threshold to 0.92 for highest confidence
   if (
     /\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b/i.test(
       t,
@@ -110,7 +110,7 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'todo',
-      confidence: 0.88, // Threshold set to 0.88
+      confidence: 0.92, // P0 Fix: Raised to match pipeline threshold
       title: trimmed,
       curiositySuggestion: 'Want me to add this as a to-do, or just planning ahead?',
     };

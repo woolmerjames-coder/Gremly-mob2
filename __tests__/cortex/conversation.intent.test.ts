@@ -80,7 +80,8 @@ describe('Conversation Pipeline - Intent Integration', () => {
       expect(result.suggestions).toContain('Add as habit');
       expect((result.meta as any)?.detectedIntent).toBeDefined();
       expect((result.meta as any)?.detectedIntent?.kind).toBe('habit');
-      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.75);
+      // P0 Fix: Updated threshold expectation to 0.90
+      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects todo intent', async () => {

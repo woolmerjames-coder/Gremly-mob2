@@ -165,11 +165,19 @@ export default function ChatThreadScreen({ route }: Props) {
     async (text: string) => {
       if (!text.trim() || !chat) return;
 
-      // Phase 10.7D: Validate spaceId
+      // P0 Fix: Strict spaceId validation with dev error
       if (!spaceId) {
-        console.error('[ChatThread][10.7D] Missing spaceId');
+        console.error('[ChatThread][10.10] Missing spaceId - this should never happen');
+        if (__DEV__) {
+          throw new Error('[P0] spaceId is required for space_chat lane but was undefined/null');
+        }
         Alert.alert('Error', 'Invalid space context');
         return;
+      }
+
+      // Log spaceId once for debugging
+      if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[Chat] spaceId=', spaceId);
       }
 
       const currentUserId = userId || 'anonymous';
@@ -241,9 +249,6 @@ export default function ChatThreadScreen({ route }: Props) {
             type: 'request_started',
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
-
-          // Log spaceId before cortex call
-          console.log('[Chat] spaceId:', ctx.spaceId);
 
           const response = await cortexRoute({ text }, ctx);
 
@@ -543,16 +548,6 @@ export default function ChatThreadScreen({ route }: Props) {
   // Convert from chip handler
   const convertFromChip = useCallback(
     (kind: OverlayKind) => {
-      // Phase 10.7: Use detected intent title if available, otherwise use last user message
-      const titleFromIntent = detectedIntent?.title;
-      const titleFromMessage = messages.find((m, index) => {
-        // Find the last user message
-        return (
-          (m.role === 'user' && index === messages.length - 1) ||
-          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
-        );
-      })?.content;
-
       const lastUser = messages.find((m, index) => {
         // Find the last user message
         return (
@@ -564,15 +559,46 @@ export default function ChatThreadScreen({ route }: Props) {
       if (!lastUser) return;
 
       const lastUserText = lastUser.content || '';
+      const trimmedText = lastUserText.trim();
 
-      // Phase 10.7D: For notes, put text in body, not title
-      const initial =
-        kind === 'note'
-          ? {
-              title: '',
-              note: lastUserText.trim(),
-            }
-          : { title: (titleFromIntent || lastUserText).trim() };
+      // P0 Fix: Improved prefill mapping
+      let initial: { title?: string; note?: string };
+
+      if (kind === 'note') {
+        // For notes: strip prefixes from title, keep original in body
+        const strippedTitle = trimmedText
+          .replace(
+            /^(remember|note|don't forget|remind me|keep in mind|write down|jot down)[:;\s]*/i,
+            '',
+          )
+          .trim();
+        initial = {
+          title: strippedTitle || trimmedText,
+          note: lastUserText, // Original text in body
+        };
+      } else if (kind === 'todo') {
+        // For todos: imperative form in title, empty body
+        let todoTitle = trimmedText;
+        // Convert to imperative if it's "I need to X" format
+        todoTitle = todoTitle.replace(/^(i need to|i have to|i should|i must)\s+/i, '');
+        initial = {
+          title: todoTitle,
+          note: '', // Empty body for todos
+        };
+      } else if (kind === 'habit') {
+        // For habits: concise habit phrase in title, empty body
+        const habitTitle = trimmedText
+          .replace(/^(start|begin|want to|would like to)\s+/i, '')
+          .trim();
+        initial = {
+          title: habitTitle || trimmedText,
+          note: '', // Empty body for habits
+        };
+      } else {
+        // Default: use detected intent title or message text
+        const titleFromIntent = detectedIntent?.title;
+        initial = { title: (titleFromIntent || trimmedText).trim() };
+      }
 
       const whyFromIntent = detectedIntent?.why;
 
