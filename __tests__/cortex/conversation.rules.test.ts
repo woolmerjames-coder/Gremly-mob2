@@ -35,6 +35,7 @@ describe('Space Chat rules', () => {
     const mockContext = {
       lane: 'space_chat' as const,
       userId: 'test',
+      spaceId: 'test-space',
       uiSurface: 'chat' as const,
     };
 
@@ -66,6 +67,7 @@ describe('Space Chat rules', () => {
     const mockContext = {
       lane: 'space_chat' as const,
       userId: 'test',
+      spaceId: 'test-space',
       uiSurface: 'chat' as const,
     };
 

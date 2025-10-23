@@ -27,6 +27,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
+import type { DetectedIntent } from '../../lib/cortex/intents/types';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
@@ -62,6 +63,11 @@ export default function ChatThreadScreen({ route }: Props) {
   const [sending, setSending] = useState(false);
   const [confirmations, setConfirmations] = useState<{ messageId: string; texts: string[] }[]>([]);
   const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
+  const [detectedIntent, setDetectedIntent] = useState<DetectedIntent | null>(null);
+  const [lastUserMessage, setLastUserMessage] = useState<string>('');
+
+  // Auto-fade suggestions after 3 seconds
+  const suggestionFadeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Track last assistant response for conversion metadata and anti-spam logic
   const lastAssistantResponseRef = React.useRef<{
@@ -100,7 +106,7 @@ export default function ChatThreadScreen({ route }: Props) {
       setChat({
         id: chatId,
         user_id: userId || 'anonymous',
-        space_id: 'unknown',
+        space_id: spaceId,
         title: 'Chat',
         pinned: false,
         archived_at: null,
@@ -115,11 +121,30 @@ export default function ChatThreadScreen({ route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [chatId, userId]);
+  }, [chatId, userId, spaceId]);
 
   useEffect(() => {
     loadChat();
   }, [loadChat]);
+
+  // Cleanup suggestion fade timer on unmount
+  useEffect(() => {
+    return () => {
+      if (suggestionFadeTimerRef.current) {
+        clearTimeout(suggestionFadeTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Debug: Log when activeSuggestions changes
+  useEffect(() => {
+    if (activeSuggestions.length > 0) {
+      console.log('[Chips] activeSuggestions updated:', activeSuggestions);
+      console.log('[Chips] detectedIntent:', detectedIntent);
+    } else {
+      console.log('[Chips] activeSuggestions cleared');
+    }
+  }, [activeSuggestions, detectedIntent]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -132,6 +157,14 @@ export default function ChatThreadScreen({ route }: Props) {
 
         // Clear active suggestions when user sends a new message
         setActiveSuggestions([]);
+        setDetectedIntent(null);
+        setLastUserMessage(text);
+
+        // Clear any existing fade timer
+        if (suggestionFadeTimerRef.current) {
+          clearTimeout(suggestionFadeTimerRef.current);
+          suggestionFadeTimerRef.current = null;
+        }
 
         // Phase 10.6: Trigger haptic feedback for send action
         if (shouldUseHaptics()) {
@@ -186,6 +219,9 @@ export default function ChatThreadScreen({ route }: Props) {
             type: 'request_started',
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
+
+          // Log spaceId before cortex call
+          console.log('[Chat] spaceId:', ctx.spaceId);
 
           const response = await cortexRoute({ text }, ctx);
 
@@ -306,21 +342,49 @@ export default function ChatThreadScreen({ route }: Props) {
           // Add AI response message for all cortex responses (explanation or replyText)
           const assistantText = response.explanation?.trim() || response.replyText?.trim();
           if (assistantText) {
-            // For 'ask' mode, show suggestions as interactive chips instead of text
+            // Phase 10.7: Handle intent-based suggestions
             if (
               response.mode === 'ask' &&
               response.suggestions &&
               response.suggestions.length > 0
             ) {
               setActiveSuggestions(response.suggestions);
-              // Don't append suggestions to text - they'll be rendered as chips
+
+              // Store detected intent from meta if available
+              if (response.meta?.detectedIntent) {
+                setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
+                console.log(
+                  '[Chips] render for messageId=',
+                  messages[messages.length - 1]?.id || 'unknown',
+                  'kind=',
+                  response.meta.detectedIntent.kind,
+                  'confidence=',
+                  response.meta.detectedIntent.confidence.toFixed(2),
+                );
+              }
+
+              // Phase 10.7: Auto-fade suggestions after 8 seconds (temporary for testing)
+              if (suggestionFadeTimerRef.current) {
+                clearTimeout(suggestionFadeTimerRef.current);
+              }
+              suggestionFadeTimerRef.current = setTimeout(() => {
+                console.log('[Chips] auto-fade triggered');
+                setActiveSuggestions([]);
+                setDetectedIntent(null);
+              }, 8000);
             } else {
               setActiveSuggestions([]);
+              setDetectedIntent(null);
             }
 
             await appendAssistantMessage(assistantText);
 
-            // Phase 10.6: Emit response final event
+            // Phase 10.6: Emit response final event with intent detection flag
+            const hasIntent =
+              response.meta?.detectedIntent &&
+              response.meta.detectedIntent.kind !== 'none' &&
+              response.meta.detectedIntent.confidence >= 0.75;
+
             emitChatEvent({
               type: 'response_final',
               payload: {
@@ -328,6 +392,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 assistantKind: response.meta?.kind,
                 hasActions: response.actions && response.actions.length > 0,
                 hasSuggestions: response.suggestions && response.suggestions.length > 0,
+                intentDetected: hasIntent,
               },
             });
 
@@ -407,6 +472,16 @@ export default function ChatThreadScreen({ route }: Props) {
   // Convert from chip handler
   const convertFromChip = useCallback(
     (kind: OverlayKind) => {
+      // Phase 10.7: Use detected intent title if available, otherwise use last user message
+      const titleFromIntent = detectedIntent?.title;
+      const titleFromMessage = messages.find((m, index) => {
+        // Find the last user message
+        return (
+          (m.role === 'user' && index === messages.length - 1) ||
+          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
+        );
+      })?.content;
+
       const lastUser = messages.find((m, index) => {
         // Find the last user message
         return (
@@ -417,7 +492,9 @@ export default function ChatThreadScreen({ route }: Props) {
 
       if (!lastUser) return;
 
-      const initial = { title: (lastUser.content ?? '').trim() };
+      const initial = { title: (titleFromIntent || lastUser.content || '').trim() };
+      const whyFromIntent = detectedIntent?.why;
+
       openUnifiedFromChat(
         kind,
         initial,
@@ -425,12 +502,12 @@ export default function ChatThreadScreen({ route }: Props) {
           lane: 'space_chat',
           spaceId: spaceId ?? null,
           messageId: lastUser.id ?? null,
-          whyString: lastAssistantResponseRef.current?.explanation ?? null,
+          whyString: whyFromIntent || (lastAssistantResponseRef.current?.explanation ?? null),
         },
         overlayController,
       );
     },
-    [messages, spaceId, overlayController],
+    [messages, spaceId, overlayController, detectedIntent],
   );
 
   // Map suggestion text to overlay kind
@@ -450,14 +527,29 @@ export default function ChatThreadScreen({ route }: Props) {
 
   const handleSuggestionPress = useCallback(
     (suggestion: string) => {
-      const kind = getSuggestionKind(suggestion);
+      // Phase 10.7: Use detected intent if available, otherwise parse suggestion text
+      let kind: OverlayKind | null = null;
+
+      if (detectedIntent && detectedIntent.kind !== 'none' && detectedIntent.kind !== 'question') {
+        // Use intent kind directly
+        kind = detectedIntent.kind as OverlayKind;
+      } else {
+        // Fall back to parsing suggestion text
+        kind = getSuggestionKind(suggestion);
+      }
+
       if (kind) {
         convertFromChip(kind);
         // Clear suggestions after conversion
         setActiveSuggestions([]);
+        setDetectedIntent(null);
+        if (suggestionFadeTimerRef.current) {
+          clearTimeout(suggestionFadeTimerRef.current);
+          suggestionFadeTimerRef.current = null;
+        }
       }
     },
-    [getSuggestionKind, convertFromChip],
+    [detectedIntent, getSuggestionKind, convertFromChip],
   );
 
   const handleMiniAction = useCallback(
@@ -569,14 +661,17 @@ export default function ChatThreadScreen({ route }: Props) {
                   <View style={styles.suggestionsContainer}>
                     <Text style={styles.suggestionsLabel}>You could also:</Text>
                     <View style={styles.suggestionChips}>
-                      {activeSuggestions.map((suggestion, index) => (
-                        <Chip
-                          key={index}
-                          label={suggestion}
-                          onPress={() => handleSuggestionPress(suggestion)}
-                          testID={`suggestion-chip-${index}`}
-                        />
-                      ))}
+                      {activeSuggestions.map((suggestion, index) => {
+                        console.log('[Chips] Rendering chip:', suggestion, 'index:', index);
+                        return (
+                          <Chip
+                            key={index}
+                            label={suggestion}
+                            onPress={() => handleSuggestionPress(suggestion)}
+                            testID={`suggestion-chip-${index}`}
+                          />
+                        );
+                      })}
                     </View>
                   </View>
                 )}
