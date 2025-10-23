@@ -36,14 +36,15 @@ const mockCortex = {
 };
 
 const mockAuth = {
-  user: { id: 'test-user-123', email: 'test@example.com' },
-  userId: 'test-user-123',
+  user: { id: 'test-user', email: 'test@example.com' },
+  userId: 'test-user',
   session: null,
   signIn: jest.fn(),
   signOut: jest.fn(),
   signUp: jest.fn(),
   loading: false,
   error: null,
+  waitForSession: jest.fn().mockResolvedValue(null),
 };
 
 // Helper to wrap with providers

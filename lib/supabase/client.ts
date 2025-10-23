@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { verifySchemaContractSoft } from '../schema/contract';
 
 /**
  * Supabase client singleton with AsyncStorage persistence.
@@ -12,6 +13,10 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 // DEV-ONLY: Log environment variable status for debugging
 if (__DEV__) {
   console.log('[Supabase Client] Initializing...');
+  console.log('[SupabaseEnv]', {
+    url: process.env.EXPO_PUBLIC_SUPABASE_URL,
+    anonKeyPrefix: (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').slice(0, 12),
+  });
   console.log('[Supabase Client] URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
   if (supabaseUrl) {
     console.log('[Supabase Client] URL (last 10 chars):', supabaseUrl.slice(-10));
@@ -43,4 +48,15 @@ if (__DEV__) {
   supabase.auth.getSession().then(({ data }) => {
     console.log('[Supabase Client] session?', !!data.session, 'user?', data.session?.user?.id);
   });
+
+  // Schema contract verification - ensures required columns/constraints exist
+  setTimeout(async () => {
+    console.log('[SchemaContract] Verifying database schema...');
+    const isValid = await verifySchemaContractSoft(supabase);
+    if (isValid) {
+      console.log('[SchemaContract] ✅ Schema verification passed');
+    } else {
+      console.warn('[SchemaContract] ⚠️  Schema verification failed - see details above');
+    }
+  }, 2000);
 }

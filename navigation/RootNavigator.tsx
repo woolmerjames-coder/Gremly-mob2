@@ -19,7 +19,7 @@ export type RootStackParamList = {
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string }; // Phase 8
   SpaceHome: { spaceId: string }; // Phase 8 Spaces v2
-  ChatThread: { chatId: string }; // Phase 8 Spaces v2
+  ChatThread: { spaceId: string; chatId: string }; // Phase 10.5 - Updated to include spaceId
   Lists: undefined; // Phase 10.7 Lists UX
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };

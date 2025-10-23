@@ -24,7 +24,7 @@ interface ItemWithMeta {
   space_id?: string | null;
   ai_placed: boolean;
   archived?: boolean;
-  origin?: 'catchall' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | null;
   spaceName?: string;
   displayTitle: string;
 }

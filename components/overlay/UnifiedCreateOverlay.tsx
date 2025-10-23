@@ -48,6 +48,7 @@ import {
   mapPersonToForm,
 } from './mappers';
 import { getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
+import { emitChatEvent } from '../../app/lib/chat/events';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -61,6 +62,12 @@ export type UnifiedCreateOverlayProps = {
     subtype?: string | null;
   };
   initialSpaceId?: string | null; // from scope
+  conversionMeta?: {
+    origin?: string;
+    ai_placed?: boolean;
+    why_string?: string | null;
+    source_message_id?: string | null;
+  };
   onClose: () => void;
   onSaved?: (result: { type: string; id: string }) => void;
 };
@@ -78,6 +85,7 @@ export function UnifiedCreateOverlay({
   mode,
   initialEntity,
   initialSpaceId,
+  conversionMeta,
   onClose,
   onSaved,
 }: UnifiedCreateOverlayProps) {
@@ -106,6 +114,13 @@ export function UnifiedCreateOverlay({
     }
     if (openedRef.current) return;
     openedRef.current = true;
+
+    // Phase 10.6: Emit overlay opened event
+    emitChatEvent({
+      type: 'overlay_opened',
+      payload: { type: mode || 'unknown' },
+    });
+
     if (__DEV__ || process.env.NODE_ENV === 'test') {
       console.log('[Overlay] open', { useUnifiedOverlay, aiDisabled, mode });
     }
@@ -499,8 +514,24 @@ export function UnifiedCreateOverlay({
 
   const handleClose = () => {
     console.log('[UX] capture_closed');
+
+    // Phase 10.6: Emit overlay cancel event
+    emitChatEvent({
+      type: 'overlay_cancel',
+      payload: { type: selectedType || mode || 'unknown' },
+    });
+
     resetForm();
     onClose();
+  };
+
+  // Phase 10.6: Helper to emit success event and call onSaved
+  const handleSaved = (result: { type: string; id: string }) => {
+    emitChatEvent({
+      type: 'overlay_success',
+      payload: { type: result.type, created: result },
+    });
+    onSaved?.(result);
   };
 
   const handleTypeSelect = (type: EntityType) => {
@@ -572,7 +603,7 @@ export function UnifiedCreateOverlay({
           };
           const result = await repo.create(input);
           console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'disabled' });
-          onSaved?.({ type: 'note', id: result.id });
+          handleSaved({ type: 'note', id: result.id });
           showToast('Added to Hub');
           handleClose();
           return;
@@ -657,7 +688,7 @@ export function UnifiedCreateOverlay({
             }
           }
 
-          onSaved?.({ type: 'note', id: result.id });
+          handleSaved({ type: 'note', id: result.id });
           showToast('Added to Hub');
           setThinking(false);
           setCortexStatus(null);
@@ -711,7 +742,7 @@ export function UnifiedCreateOverlay({
           }
         }
 
-        onSaved?.({ type: 'note', id: newItem.id });
+        handleSaved({ type: 'note', id: newItem.id });
         showToast('Delivered to Hub — sorting in background');
         setThinking(false);
         setCortexStatus(null);
@@ -949,7 +980,7 @@ export function UnifiedCreateOverlay({
             tags: personDetails.tags.length > 0 ? personDetails.tags : null,
           };
           const result = await repo.updatePerson(initialEntity.id, personPatch);
-          onSaved?.({ type: 'person', id: result.id });
+          handleSaved({ type: 'person', id: result.id });
           showToast('Updated in the Hub.');
           handleClose();
           return;
@@ -963,7 +994,7 @@ export function UnifiedCreateOverlay({
         };
 
         const result = await repo.update(input);
-        onSaved?.({ type: selectedType, id: result.id });
+        handleSaved({ type: selectedType, id: result.id });
         showToast('Updated in the Hub.');
         handleClose();
         return;
@@ -990,7 +1021,7 @@ export function UnifiedCreateOverlay({
             tags: personDetails.tags.length > 0 ? personDetails.tags : null,
           };
           const result = await repo.createPerson(personInput);
-          onSaved?.({ type: 'person', id: result.id });
+          handleSaved({ type: 'person', id: result.id });
           showToast('Saved to the Hub.');
           handleClose();
           return;
@@ -1030,7 +1061,7 @@ export function UnifiedCreateOverlay({
           }
         }
 
-        onSaved?.({ type: selectedType, id: result.id });
+        handleSaved({ type: selectedType, id: result.id });
         showToast('Saved to the Hub.');
         handleClose();
       }
@@ -1045,7 +1076,10 @@ export function UnifiedCreateOverlay({
   const buildCreateInput = (type: EntityType): CreateRecordInput => {
     const baseInput = {
       space_id: spaceId !== undefined ? spaceId : null,
-      ai_placed: false,
+      ai_placed: conversionMeta?.ai_placed ?? false,
+      origin: (conversionMeta?.origin ?? 'manual') as 'catchall' | 'space_chat' | 'manual',
+      why_string: conversionMeta?.why_string ?? null,
+      source_message_id: conversionMeta?.source_message_id ?? null,
     };
 
     switch (type) {

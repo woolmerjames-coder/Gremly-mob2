@@ -50,6 +50,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-work',
         uiSurface: 'chat',
@@ -76,6 +77,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-fitness',
         uiSurface: 'chat',
@@ -100,6 +102,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-work',
         uiSurface: 'chat',
@@ -126,6 +129,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-travel',
         uiSurface: 'chat',
@@ -152,6 +156,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-home',
         uiSurface: 'chat',
@@ -180,6 +185,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: null,
         uiSurface: 'overlay',
@@ -200,6 +206,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-1',
         uiSurface: 'chat',
@@ -222,6 +229,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: null,
         uiSurface: 'chat',
@@ -243,6 +251,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: 'space-1',
         uiSurface: 'chat',
@@ -269,6 +278,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       });
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: null,
         uiSurface: 'chat',

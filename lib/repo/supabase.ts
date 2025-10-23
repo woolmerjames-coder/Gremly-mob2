@@ -226,9 +226,10 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
-          canonicalType: input.canonicalType ?? undefined,
+          canonical_type: input.canonicalType ?? undefined,
+          source_message_id: input.sourceMessageId ?? undefined,
           labels: input.labels ?? undefined,
-          views: input.views ?? undefined,
+          views: input.views ?? {},
           // Extended habit fields - map to jsonb columns
           frequency_json: input.frequency_value ?? undefined,
           reminders_json: input.reminders ?? undefined,
@@ -272,9 +273,10 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
-          canonicalType: input.canonicalType ?? undefined,
+          canonical_type: input.canonicalType ?? undefined,
+          source_message_id: input.sourceMessageId ?? undefined,
           labels: input.labels ?? undefined,
-          views: input.views ?? undefined,
+          views: input.views ?? {},
         }),
       );
 
@@ -298,9 +300,10 @@ export class SupabaseRepo implements IRepo {
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
-          canonicalType: input.canonicalType ?? undefined,
+          canonical_type: input.canonicalType ?? undefined,
+          source_message_id: input.sourceMessageId ?? undefined,
           labels: input.labels ?? undefined,
-          views: input.views ?? undefined,
+          views: input.views ?? {},
           // Journal-specific fields (from generated schema - notes table has these)
           date: input.date ?? null, // ISO date
           mood: input.mood ?? null,
@@ -423,7 +426,7 @@ export class SupabaseRepo implements IRepo {
     if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
     if ('canonicalType' in patch) updatePayload.canonicalType = patch.canonicalType ?? null;
     if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
-    if ('views' in patch) updatePayload.views = patch.views ?? null;
+    if ('views' in patch) updatePayload.views = patch.views ?? {};
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase

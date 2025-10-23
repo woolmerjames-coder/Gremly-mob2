@@ -216,7 +216,7 @@ describe('TodayTodoCard', () => {
 describe('TodaySuggestionCard', () => {
   // Import at test time to avoid top-level module issues
   const TodaySuggestionCard = require('../components/today/TodaySuggestionCard').default;
-  const { Suggestion } = require('../lib/today/useTodayData');
+  const { Suggestion: _Suggestion } = require('../lib/today/useTodayData');
 
   const defaultSuggestion = {
     id: 'sugg-123',

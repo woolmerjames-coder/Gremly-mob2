@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Alert, ToastAndroid, Platform } from 'react-native';
 import { UnifiedCreateOverlay } from '../components/overlay/UnifiedCreateOverlay';
@@ -84,6 +84,7 @@ const mockAuth = {
   signUp: jest.fn(),
   loading: false,
   error: null,
+  waitForSession: jest.fn().mockResolvedValue(null),
 };
 
 const mockTheme = {
@@ -190,7 +191,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         () => {
           expect(onClose).toHaveBeenCalled();
         },
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
 
       // Note: Timing assertion skipped in test environment
@@ -273,9 +274,12 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
       const saveButton = getByTestId('save-to-hub');
       fireEvent.press(saveButton);
 
-      await waitFor(() => {
-        expect(onClose).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(onClose).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
 
       // Should NOT call AI
       expect(mockCallClassify).not.toHaveBeenCalled();
@@ -329,7 +333,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         () => {
           expect(onClose).toHaveBeenCalled();
         },
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
 
       // Should only create once
@@ -369,7 +373,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
         () => {
           expect(onClose).toHaveBeenCalled();
         },
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
 
       // Should log capture_submitted

@@ -108,7 +108,7 @@ describe('CollapsibleCard', () => {
   });
 
   it('updates accessibility label when state changes', () => {
-    const { getByLabelText, rerender } = render(
+    const { getByLabelText, rerender: _rerender } = render(
       <CollapsibleCard title="Test Module" initialCollapsed={false}>
         <></>
       </CollapsibleCard>,

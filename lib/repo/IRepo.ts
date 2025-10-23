@@ -28,8 +28,9 @@ export interface CreateRecordInput {
   undefined_due?: boolean; // for todos
   ai_placed?: boolean;
   why_string?: string | null;
-  origin?: 'catchall';
+  origin?: 'catchall' | 'space_chat' | 'manual';
   canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
   views?: {
     alsoShowIn?: string[];

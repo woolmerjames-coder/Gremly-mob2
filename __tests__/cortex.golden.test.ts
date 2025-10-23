@@ -54,6 +54,7 @@ describe('Cortex Golden Phrase Tests', () => {
       } as any);
 
       const ctx: CortexContext = {
+        lane: 'system',
         userId: 'user-1',
         activeSpaceId: null,
         uiSurface: 'chat',
@@ -96,10 +97,7 @@ describe('Cortex Golden Phrase Tests', () => {
         uiSurface: 'chat',
       };
 
-      const result = await cortexDecide(
-        { text: 'remind me to stretch after my next run' },
-        ctx,
-      );
+      const result = await cortexDecide({ text: 'remind me to stretch after my next run' }, ctx);
 
       // Should normalize to todo (future: attach.reminder when implemented)
       expect(result.mode).toBe('auto');
@@ -128,16 +126,13 @@ describe('Cortex Golden Phrase Tests', () => {
         uiSurface: 'overlay',
       };
 
-      const result = await cortexDecide(
-        { text: 'quarterly planning: headcount vs margin' },
-        ctx,
-      );
+      const result = await cortexDecide({ text: 'quarterly planning: headcount vs margin' }, ctx);
 
       // Low confidence note → creates note action but should be keep mode due to confidence
       // Actually, confidence defaults to 0.85 so it will be auto mode
       // Let's adjust: note with catchall subtype still creates action but with lower implied confidence
       expect(['keep', 'ask', 'auto']).toContain(result.mode);
-      
+
       // Will create a note action even for catchall
       expect(result.actions.length).toBeGreaterThanOrEqual(0);
 

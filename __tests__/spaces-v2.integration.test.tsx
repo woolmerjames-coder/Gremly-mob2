@@ -10,7 +10,7 @@ jest.mock('../app/spaces/ChatThreadScreen', () => {
   const React = require('react');
   const { View, Text, TextInput, TouchableOpacity } = require('react-native');
 
-  return function MockChatThreadScreen({ route, navigation }: any) {
+  return function MockChatThreadScreen({ route: _route, navigation: _navigation }: any) {
     return (
       <View>
         <Text>Chat</Text>

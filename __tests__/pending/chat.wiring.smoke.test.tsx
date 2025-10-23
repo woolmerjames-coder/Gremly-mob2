@@ -6,10 +6,10 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
-import * as AuthProvider from '../providers/AuthProvider';
-import * as RepoProvider from '../providers/RepoProvider';
-import * as cortexDecideModule from '../lib/cortex/cortexDecide';
+import ChatThreadScreen from '../../app/spaces/ChatThreadScreen';
+import * as AuthProvider from '../../providers/AuthProvider';
+import * as RepoProvider from '../../providers/RepoProvider';
+import * as cortexDecideModule from '../../lib/cortex/cortexDecide';
 
 // Mock navigation
 const mockNavigation = {
@@ -47,6 +47,7 @@ describe('Chat Wiring Smoke Test', () => {
       devSignIn: jest.fn(),
       signOut: jest.fn(),
       clearError: jest.fn(),
+      waitForSession: jest.fn().mockResolvedValue(null),
     });
 
     // Mock repo with all methods used by ChatThreadScreen

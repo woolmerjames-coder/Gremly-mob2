@@ -16,7 +16,7 @@ import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
-import { cortexDecide } from '../../lib/cortex/cortexDecide';
+import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import {
   explainAddedToList,
@@ -127,12 +127,23 @@ export default function CatchAllNotepad(): React.JSX.Element {
       if (mode === 'guided') {
         try {
           const ctx: CortexContext = {
+            lane: 'catchall',
             userId: currentUserId,
             activeSpaceId: null,
             uiSurface: 'overlay',
           };
 
-          const response = await cortexDecide({ text: trimmed }, ctx);
+          // Dev-only lane logging
+          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log(
+              '[CORTEX] lane=%s space=%s msg=%s',
+              ctx.lane,
+              ctx.spaceId ?? '-',
+              ctx.messageId ?? '-',
+            );
+          }
+
+          const response = await cortexRoute({ text: trimmed }, ctx);
 
           // Log event (non-blocking)
           repo

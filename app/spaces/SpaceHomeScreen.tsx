@@ -12,6 +12,7 @@ import {
   Text,
   Alert,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -160,7 +161,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       // TODO: Fire analytics
       // analytics.track('space_chat_created', { spaceId, chatId: newChat.id });
       console.log('[Analytics] space_chat_created', { spaceId, chatId: newChat.id }); // Phase 8 polish
-      navigation.navigate('ChatThread', { chatId: newChat.id });
+      navigation.navigate('ChatThread', { spaceId, chatId: newChat.id });
     } catch (error) {
       console.error('Failed to create chat:', error);
       Alert.alert('Error', 'Failed to create chat');
@@ -172,7 +173,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       // TODO: Fire analytics
       // analytics.track('space_chat_opened', { spaceId, chatId });
       console.log('[Analytics] space_chat_opened', { spaceId, chatId }); // Phase 8 polish
-      navigation.navigate('ChatThread', { chatId });
+      navigation.navigate('ChatThread', { spaceId, chatId });
     },
     [navigation, spaceId],
   );
@@ -292,32 +293,49 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             </View>
           )}
 
-          {/* Chats Section */}
-          <View style={styles.section}>
-            <NewChatButton onPress={handleNewChat} disabled={!!space.archived_at} />
+          {/* Chats Section - Feature flag gated */}
+          {process.env.EXPO_PUBLIC_FEATURE_CHAT === 'on' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Chats</Text>
 
-            {chats.length === 0 ? (
-              <View style={styles.emptyChats}>
-                <Text style={styles.emptyChatsTitle}>No chats yet</Text>
-                <Text style={styles.emptyChatsText}>
-                  Start a conversation with Gremly to get insights, ask questions, or explore this
-                  space together!
-                </Text>
-              </View>
-            ) : (
-              chats.map((chat) => (
-                <ChatCard
-                  key={chat.id}
-                  chat={chat}
-                  onPress={() => handleChatPress(chat.id)}
-                  onPin={handlePinChat}
-                  onUnpin={handleUnpinChat}
-                  onRename={handleRenameChat}
-                  onArchive={handleArchiveChat}
-                />
-              ))
-            )}
-          </View>
+              {chats.length === 0 ? (
+                <View style={styles.emptyChats}>
+                  <Text style={styles.emptyChatsTitle}>No chats yet</Text>
+                  <Text style={styles.emptyChatsText}>
+                    Start a conversation with Gremly to get insights, ask questions, or explore this
+                    space together!
+                  </Text>
+                  <NewChatButton onPress={handleNewChat} disabled={!!space.archived_at} />
+                </View>
+              ) : (
+                <>
+                  {chats.map((chat) => (
+                    <ChatCard
+                      key={chat.id}
+                      chat={chat}
+                      onPress={() => handleChatPress(chat.id)}
+                      onPin={handlePinChat}
+                      onUnpin={handleUnpinChat}
+                      onRename={handleRenameChat}
+                      onArchive={handleArchiveChat}
+                    />
+                  ))}
+                  {/* Plus FAB for new chat */}
+                  <View style={styles.fabContainer}>
+                    <TouchableOpacity
+                      style={styles.fab}
+                      onPress={handleNewChat}
+                      disabled={!!space.archived_at}
+                      accessibilityLabel="Start new chat"
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.fabIcon}>➕</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          )}
 
           {/* Schedule Preview */}
           <CollapsibleCard
@@ -441,5 +459,29 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.subtle,
     textAlign: 'center',
     lineHeight: 20,
+    marginBottom: lightTokens.spacing[4],
+  },
+  sectionTitle: {
+    fontSize: lightTokens.typography.size.lg,
+    fontWeight: '600',
+    color: lightTokens.colors.text,
+    marginBottom: lightTokens.spacing[3],
+  },
+  fabContainer: {
+    alignItems: 'flex-end',
+    marginTop: lightTokens.spacing[3],
+  },
+  fab: {
+    backgroundColor: lightTokens.colors.primary,
+    borderRadius: 24, // 24pt radius as requested
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...lightTokens.elevation.md,
+  },
+  fabIcon: {
+    fontSize: 24,
+    color: lightTokens.colors.onPrimary,
   },
 });

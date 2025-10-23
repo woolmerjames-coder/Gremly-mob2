@@ -14,7 +14,9 @@ import {
   ActivityIndicator,
   Alert,
   SafeAreaView,
+  ToastAndroid,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
@@ -23,7 +25,7 @@ import type { SpaceChat } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
-import { cortexDecide } from '../../lib/cortex/cortexDecide';
+import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
@@ -33,17 +35,46 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
 
+// Phase 10.6: New mascot system
+import { MascotProvider } from '../features/mascot/useMascot';
+import { Mascot } from '../features/mascot/Mascot';
+import { emitChatEvent } from '../lib/chat/events';
+
+// Legacy mascot imports (to be removed)
+import { useMascotController } from '../../hooks/useMascotController';
+import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
+import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
+import type { OverlayKind } from './chat/openUnifiedFromChat';
+import { Chip } from '../../ui/Chip';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
 export default function ChatThreadScreen({ route }: Props) {
-  const { chatId } = route.params;
-  const { userId } = useAuth();
+  const { spaceId, chatId } = route.params;
+  const auth = useAuth();
+  const { userId } = auth;
   const repo = useRepo();
 
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [confirmations, setConfirmations] = useState<{ messageId: string; texts: string[] }[]>([]);
+  const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
+
+  // Track last assistant response for conversion metadata and anti-spam logic
+  const lastAssistantResponseRef = React.useRef<{
+    explanation?: string | null;
+    replyText?: string | null;
+    kind?: 'smalltalk' | 'decision' | 'classification' | null;
+  }>({});
+
+  // Mascot controller for Phase 10.6
+  const mascot = useMascotController();
+
+  // Overlay controller for conversion
+  const overlayController = useUnifiedOverlayController();
 
   // Use new chat messages hook
   const {
@@ -55,7 +86,7 @@ export default function ChatThreadScreen({ route }: Props) {
   } = useChatMessages(chatId);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
-  const spaceChatRepo = React.useMemo(() => {
+  const _spaceChatRepo = React.useMemo(() => {
     const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
     return backend === 'supabase'
       ? new SupabaseSpaceChatRepo(userId || undefined)
@@ -99,18 +130,64 @@ export default function ChatThreadScreen({ route }: Props) {
       try {
         setSending(true);
 
+        // Clear active suggestions when user sends a new message
+        setActiveSuggestions([]);
+
+        // Phase 10.6: Trigger haptic feedback for send action
+        if (shouldUseHaptics()) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+
         // 1. Send user message via hook
         await sendUserMessage(text);
 
+        // Phase 10.6: Emit user message sent event
+        emitChatEvent({
+          type: 'user_message_sent',
+          payload: { text, spaceId: chat.space_id || undefined },
+        });
+
+        // Phase 10.6: Start thinking animation
+        mascot.thinking();
+
         // 2. Process with Cortex in parallel (Phase 10.3)
         try {
+          // Ensure we have a valid session before making cortex calls
+          const validSession = await auth.waitForSession(3000);
+          if (!validSession && auth.user) {
+            console.warn('[ChatThread] Session timeout, cortex call skipped');
+            await appendAssistantMessage(
+              'I had trouble processing your message. Please try again.',
+            );
+            return;
+          }
+
           const ctx: CortexContext = {
+            lane: 'space_chat',
             userId: currentUserId,
             activeSpaceId: chat.space_id || null,
             uiSurface: 'chat',
+            spaceId: chat.space_id || null,
+            recentAssistantKind: lastAssistantResponseRef.current?.kind ?? null,
           };
 
-          const response = await cortexDecide({ text }, ctx);
+          // Dev-only lane logging
+          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log(
+              '[CORTEX] lane=%s space=%s msg=%s',
+              ctx.lane,
+              ctx.spaceId ?? '-',
+              ctx.messageId ?? '-',
+            );
+          }
+
+          // Phase 10.6: Emit request started event
+          emitChatEvent({
+            type: 'request_started',
+            payload: { requestId: Date.now().toString(), lane: 'space_chat' },
+          });
+
+          const response = await cortexRoute({ text }, ctx);
 
           // Log event (non-blocking)
           repo
@@ -207,17 +284,113 @@ export default function ChatThreadScreen({ route }: Props) {
                 ...prev.filter((c) => c.messageId !== latestMessage.id),
                 { messageId: latestMessage.id, texts: confirmationTexts },
               ]);
+
+              // Phase 10.6: Celebration state when actions are successfully executed
+              mascot.celebrate();
             }
           }
 
-          // Add AI response message when appropriate
-          if (response.mode === 'ask' && response.suggestions && response.suggestions.length > 0) {
-            const assistantText = `I'm not quite sure. Here are some ideas: ${response.suggestions.join(', ')}`;
-            await appendAssistantMessage(assistantText);
+          // Phase 10.6: Determine mascot state based on cortex response
+          let shouldTriggerPlayful = false;
+
+          // Check if this is chit-chat/conversational content
+          if (response.mode === 'keep' && response.actions.length === 0) {
+            // Simple heuristic for chit-chat detection
+            const chitChatPatterns =
+              /\b(hello|hi|hey|thanks|thank you|how are you|what's up|good morning|good afternoon|good evening)\b/i;
+            if (chitChatPatterns.test(text.toLowerCase())) {
+              shouldTriggerPlayful = true;
+            }
           }
-        } catch (cortexError) {
-          // Cortex failed - fail safe, don't show error to user
-          console.error('[ChatThread] Cortex decision failed:', cortexError);
+
+          // Add AI response message for all cortex responses (explanation or replyText)
+          const assistantText = response.explanation?.trim() || response.replyText?.trim();
+          if (assistantText) {
+            // For 'ask' mode, show suggestions as interactive chips instead of text
+            if (
+              response.mode === 'ask' &&
+              response.suggestions &&
+              response.suggestions.length > 0
+            ) {
+              setActiveSuggestions(response.suggestions);
+              // Don't append suggestions to text - they'll be rendered as chips
+            } else {
+              setActiveSuggestions([]);
+            }
+
+            await appendAssistantMessage(assistantText);
+
+            // Phase 10.6: Emit response final event
+            emitChatEvent({
+              type: 'response_final',
+              payload: {
+                requestId: Date.now().toString(),
+                assistantKind: response.meta?.kind,
+                hasActions: response.actions && response.actions.length > 0,
+                hasSuggestions: response.suggestions && response.suggestions.length > 0,
+              },
+            });
+
+            // Track assistant response for conversion metadata and anti-spam logic
+            lastAssistantResponseRef.current = {
+              explanation: response.explanation,
+              replyText: response.replyText,
+              kind: response.meta?.kind,
+            };
+
+            // Phase 10.6: Trigger appropriate mascot state after assistant message
+            if (shouldTriggerPlayful) {
+              mascot.playful();
+            } else {
+              mascot.replying();
+            }
+          }
+        } catch (cortexError: any) {
+          // Enhanced cortex error handling with detailed logging
+          console.error('[ChatThread] Cortex decision failed:', {
+            error: cortexError,
+            userId: currentUserId,
+            spaceId: chat.space_id,
+            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+          });
+
+          // Phase 10.6: Emit error event
+          emitChatEvent({
+            type: 'error',
+            payload: {
+              error: cortexError,
+              context: 'cortex_request',
+            },
+          });
+
+          // Check for specific error types and provide appropriate responses
+          let errorResponse =
+            "I apologize, but I'm having trouble processing your message right now.";
+
+          if (cortexError?.message?.includes('timeout') || cortexError?.name === 'AbortError') {
+            errorResponse = 'The response is taking longer than expected. Your message was saved.';
+          } else if (
+            cortexError?.message?.includes('network') ||
+            cortexError?.message?.includes('fetch')
+          ) {
+            errorResponse = "I'm having network connectivity issues. Your message was saved.";
+          } else if (
+            cortexError?.message?.includes('auth') ||
+            cortexError?.message?.includes('unauthorized')
+          ) {
+            errorResponse = 'There was an authentication issue. Please try refreshing the app.';
+          }
+
+          // Still add an assistant message to acknowledge the user's input
+          try {
+            await appendAssistantMessage(errorResponse);
+            // Phase 10.6: Even on error, show replying state briefly
+            mascot.replying();
+          } catch (appendError) {
+            console.error('[ChatThread] Failed to append error message:', appendError);
+            // Phase 10.6: Return to idle on complete failure
+            mascot.idle();
+          }
         }
 
         console.log('[Analytics] space_chat_message_sent', { chatId });
@@ -228,12 +401,94 @@ export default function ChatThreadScreen({ route }: Props) {
         setSending(false);
       }
     },
-    [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages],
+    [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages, mascot],
   );
 
-  const handleMiniAction = useCallback((action: string) => {
-    // Placeholder for mini action bar buttons - no logic yet as per brief
-    console.log('[ChatThread] Mini action:', action);
+  // Convert from chip handler
+  const convertFromChip = useCallback(
+    (kind: OverlayKind) => {
+      const lastUser = messages.find((m, index) => {
+        // Find the last user message
+        return (
+          (m.role === 'user' && index === messages.length - 1) ||
+          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
+        );
+      });
+
+      if (!lastUser) return;
+
+      const initial = { title: (lastUser.content ?? '').trim() };
+      openUnifiedFromChat(
+        kind,
+        initial,
+        {
+          lane: 'space_chat',
+          spaceId: spaceId ?? null,
+          messageId: lastUser.id ?? null,
+          whyString: lastAssistantResponseRef.current?.explanation ?? null,
+        },
+        overlayController,
+      );
+    },
+    [messages, spaceId, overlayController],
+  );
+
+  // Map suggestion text to overlay kind
+  const getSuggestionKind = useCallback((suggestion: string): OverlayKind | null => {
+    const lower = suggestion.toLowerCase();
+    if (lower.includes('todo') || lower.includes('task') || lower.includes('do')) return 'todo';
+    if (lower.includes('note') || lower.includes('remember') || lower.includes('write'))
+      return 'note';
+    if (lower.includes('habit') || lower.includes('routine') || lower.includes('daily'))
+      return 'habit';
+    if (lower.includes('reflect') || lower.includes('think') || lower.includes('journal'))
+      return 'reflection';
+
+    // Default fallback for generic suggestions
+    return 'todo';
+  }, []);
+
+  const handleSuggestionPress = useCallback(
+    (suggestion: string) => {
+      const kind = getSuggestionKind(suggestion);
+      if (kind) {
+        convertFromChip(kind);
+        // Clear suggestions after conversion
+        setActiveSuggestions([]);
+      }
+    },
+    [getSuggestionKind, convertFromChip],
+  );
+
+  const handleMiniAction = useCallback(
+    (action: string) => {
+      // Map mini action icons to overlay kinds
+      const actionMap: Record<string, OverlayKind> = {
+        brain: 'reflection',
+        check: 'todo',
+        file: 'note',
+        flame: 'habit',
+        pen: 'note', // alternate mapping for pen
+      };
+
+      const kind = actionMap[action];
+      if (kind) {
+        convertFromChip(kind);
+      } else {
+        console.log('[ChatThread] Unknown mini action:', action);
+      }
+    },
+    [convertFromChip],
+  );
+
+  // Helper to show success toast cross-platform with chat-specific messaging
+  const showChatConversionToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      // TODO: Implement custom toast with Golden Pear color (#E0C47A)
+      Alert.alert('✅ Success', message);
+    }
   }, []);
 
   // Environment gate - wrap entire chat UI
@@ -258,59 +513,121 @@ export default function ChatThreadScreen({ route }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {/* Messages ScrollView */}
-        <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
-          {messages.length === 0 ? (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderIcon}>💬</Text>
-              <Text style={styles.placeholderTitle}>Start a conversation</Text>
-              <Text style={styles.placeholderText}>
-                This is a chat thread with Gremly. Type a message below to get started.
-              </Text>
+    <MascotProvider lane="space_chat">
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        >
+          {/* Header with Mascot - Phase 10.6 */}
+          {shouldShowMascot() && (
+            <View style={styles.header}>
+              <View style={styles.headerContent}>
+                <Text style={styles.headerTitle}>Chat with Gremly</Text>
+                <Mascot size="md" />
+              </View>
             </View>
-          ) : (
-            messages.map((message) => {
-              const messageConfirmations = confirmations.find((c) => c.messageId === message.id);
-              return (
-                <View key={message.id} style={styles.messageContainer}>
-                  <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
-                  {messageConfirmations && messageConfirmations.texts.length > 0 && (
-                    <View style={styles.confirmationsContainer}>
-                      {messageConfirmations.texts.map((confirmation, idx) => (
-                        <ConfirmationPill
-                          key={idx}
-                          text={confirmation}
-                          testID={`chat-confirmation-${message.id}-${idx}`}
+          )}
+
+          {/* Messages ScrollView */}
+          <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
+            {messages.length === 0 ? (
+              <View style={styles.placeholder}>
+                <Text style={styles.placeholderIcon}>💬</Text>
+                <Text style={styles.placeholderTitle}>Start a conversation</Text>
+                <Text style={styles.placeholderText}>
+                  This is a chat thread with Gremly. Type a message below to get started.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {messages.map((message) => {
+                  const messageConfirmations = confirmations.find(
+                    (c) => c.messageId === message.id,
+                  );
+                  return (
+                    <View key={message.id} style={styles.messageContainer}>
+                      <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
+                      {messageConfirmations && messageConfirmations.texts.length > 0 && (
+                        <View style={styles.confirmationsContainer}>
+                          {messageConfirmations.texts.map((confirmation, idx) => (
+                            <ConfirmationPill
+                              key={idx}
+                              text={confirmation}
+                              testID={`chat-confirmation-${message.id}-${idx}`}
+                            />
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {/* Suggestion chips for ask mode responses */}
+                {activeSuggestions.length > 0 && (
+                  <View style={styles.suggestionsContainer}>
+                    <Text style={styles.suggestionsLabel}>You could also:</Text>
+                    <View style={styles.suggestionChips}>
+                      {activeSuggestions.map((suggestion, index) => (
+                        <Chip
+                          key={index}
+                          label={suggestion}
+                          onPress={() => handleSuggestionPress(suggestion)}
+                          testID={`suggestion-chip-${index}`}
                         />
                       ))}
                     </View>
-                  )}
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
+                  </View>
+                )}
 
-        {/* Chat Composer */}
-        <ChatComposer onSend={handleSend} disabled={sending} testID="chat-composer" />
+                {/* Typing indicator - Phase 10.6 */}
+                {mascot.state === 'thinking' && (
+                  <View style={styles.typingContainer}>
+                    {/* TODO: Add TypingDots when ready */}
+                  </View>
+                )}
+              </>
+            )}
+          </ScrollView>
 
-        {/* Mini Action Bar */}
-        <MiniActionBar
-          onBrainPress={() => handleMiniAction('brain')}
-          onCheckPress={() => handleMiniAction('check')}
-          onFilePress={() => handleMiniAction('file')}
-          onFlamePress={() => handleMiniAction('flame')}
-          onPenPress={() => handleMiniAction('pen')}
-          testID="mini-action-bar"
+          {/* Chat Composer */}
+          <ChatComposer onSend={handleSend} disabled={sending} testID="chat-composer" />
+
+          {/* Mini Action Bar */}
+          <MiniActionBar
+            onBrainPress={() => handleMiniAction('brain')}
+            onCheckPress={() => handleMiniAction('check')}
+            onFilePress={() => handleMiniAction('file')}
+            onFlamePress={() => handleMiniAction('flame')}
+            onPenPress={() => handleMiniAction('pen')}
+            testID="mini-action-bar"
+          />
+        </KeyboardAvoidingView>
+
+        {/* Unified Create Overlay for Chat Conversions */}
+        <UnifiedCreateOverlay
+          visible={overlayController.state.visible}
+          mode={overlayController.state.mode}
+          initialEntity={overlayController.state.initialEntity}
+          initialSpaceId={overlayController.state.initialSpaceId}
+          conversionMeta={overlayController.state.conversionMeta}
+          onClose={overlayController.close}
+          onSaved={(result) => {
+            // Success toast with chat-specific messaging
+            const itemType =
+              result.type === 'note'
+                ? 'Note'
+                : result.type === 'todo'
+                  ? 'To-Do'
+                  : result.type === 'habit'
+                    ? 'Habit'
+                    : 'Item';
+            showChatConversionToast(`${itemType} created from chat ✨`);
+          }}
         />
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </MascotProvider>
   );
 }
 
@@ -322,11 +639,32 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  header: {
+    backgroundColor: lightTokens.colors.bg,
+    borderBottomWidth: 1,
+    borderBottomColor: lightTokens.colors.border,
+    paddingHorizontal: lightTokens.spacing[4],
+    paddingVertical: lightTokens.spacing[3],
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: lightTokens.typography.size.lg,
+    fontWeight: '600',
+    color: lightTokens.colors.text,
+  },
   messages: {
     flex: 1,
   },
   messagesContent: {
     padding: lightTokens.spacing[4],
+  },
+  typingContainer: {
+    alignSelf: 'flex-start',
+    marginTop: lightTokens.spacing[2],
   },
   placeholder: {
     alignItems: 'center',
@@ -356,6 +694,21 @@ const styles = StyleSheet.create({
     marginTop: lightTokens.spacing[2],
     alignSelf: 'flex-end',
     maxWidth: '80%',
+  },
+  suggestionsContainer: {
+    marginTop: lightTokens.spacing[3],
+    alignSelf: 'flex-start',
+    maxWidth: '90%',
+  },
+  suggestionsLabel: {
+    fontSize: lightTokens.typography.size.sm,
+    color: lightTokens.colors.subtle,
+    marginBottom: lightTokens.spacing[2],
+  },
+  suggestionChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: lightTokens.spacing[2],
   },
   loading: {
     flex: 1,

@@ -13,6 +13,7 @@ const raw = {
   REPO_BACKEND: process.env.EXPO_PUBLIC_REPO_BACKEND ?? 'memory',
 
   FEATURE_SPACES: process.env.EXPO_PUBLIC_FEATURE_SPACES ?? 'on',
+  FEATURE_CHAT: process.env.EXPO_PUBLIC_FEATURE_CHAT ?? 'off',
   UNIFIED_OVERLAY: process.env.EXPO_PUBLIC_UNIFIED_OVERLAY ?? 'on',
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
 
@@ -36,6 +37,10 @@ const raw = {
   CORTEX_BG_RETRIES: process.env.EXPO_PUBLIC_CORTEX_BG_RETRIES,
   CORTEX_MIN_THINK_MS: process.env.EXPO_PUBLIC_CORTEX_MIN_THINK_MS,
   CORTEX_MAX_THINK_MS: process.env.EXPO_PUBLIC_CORTEX_MAX_THINK_MS,
+
+  // Mascot settings (Phase 10.6)
+  MASCOT: process.env.EXPO_PUBLIC_MASCOT ?? 'on',
+  MASCOT_DEBUG: process.env.EXPO_PUBLIC_MASCOT_DEBUG ?? 'off',
 
   OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
 };
@@ -78,6 +83,19 @@ const debugWindow = raw.DEBUG_TODAY_TIMEWINDOW
   ? oneOf(raw.DEBUG_TODAY_TIMEWINDOW, ['morning', 'midday', 'evening'] as const, undefined)
   : undefined;
 
+// Validate chat feature configuration
+// Only enforce cortex URL when FEATURE_CHAT is explicitly enabled and not in test environment
+const featureChatExplicit = process.env.EXPO_PUBLIC_FEATURE_CHAT !== undefined;
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+
+if (featureChatExplicit && flag(raw.FEATURE_CHAT) && !isTestEnv) {
+  if (!raw.CORTEX_URL) {
+    throw new Error(
+      '[env] EXPO_PUBLIC_CORTEX_URL is required when FEATURE_CHAT=on. Please check your .env file.',
+    );
+  }
+}
+
 /**
  * Typed environment configuration object
  * Use this instead of process.env throughout the app
@@ -91,6 +109,7 @@ export const env = {
   // Feature flags
   feature: {
     spaces: flag(raw.FEATURE_SPACES),
+    chat: flag(raw.FEATURE_CHAT),
     unifiedOverlay: flag(raw.UNIFIED_OVERLAY),
     buddy: flag(raw.FEATURE_BUDDY),
 
@@ -99,6 +118,12 @@ export const env = {
       suggestions: flag(raw.TODAY_SUGGESTIONS),
       celebration: flag(raw.TODAY_CELEBRATION),
       eveningTeaser: flag(raw.TODAY_EVENING_TEASER),
+    },
+
+    // Mascot feature flags (Phase 10.6)
+    mascot: {
+      enabled: flag(raw.MASCOT),
+      debug: flag(raw.MASCOT_DEBUG),
     },
   },
 

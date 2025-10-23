@@ -19,12 +19,17 @@ import {
   type Tone,
 } from './explain';
 import { env } from '../env';
+import { type CortexContextBase, type Lane } from './lane';
+
+// Re-export lane types for convenience
+export type { Lane, CortexContextBase } from './lane';
 
 /**
  * Context provided by UI layers when calling Cortex
  * Phase 10.4: Extended with space defaults and user tone preferences
+ * Phase 10.6B: Extended with lane for routing context
  */
-export interface CortexContext {
+export interface CortexContext extends CortexContextBase {
   /** Current authenticated user ID */
   userId: string;
   /** Active space ID (if any) */
@@ -84,12 +89,20 @@ export interface CortexResponse {
   actions: CortexAction[];
   /** Friendly explanation for the user */
   explanation?: string;
+  /** Small-talk reply text (for chat surfaces when no actions/explanations) */
+  replyText?: string;
   /** Alternative suggestions (for ASK/KEEP modes) */
   suggestions?: string[];
   /** Confidence score from engine (0-1) */
   confidence?: number;
   /** Decision mode based on confidence threshold */
-  mode: 'auto' | 'ask' | 'keep';
+  mode: 'auto' | 'ask' | 'keep' | 'reply';
+  /** Additional metadata for telemetry and tracking */
+  meta?: {
+    lane?: Lane;
+    kind?: 'smalltalk' | 'decision' | 'classification';
+    [key: string]: any;
+  };
 }
 
 /**
@@ -140,6 +153,12 @@ export async function cortexDecide(
   ctx: CortexContext,
 ): Promise<CortexResponse> {
   try {
+    // Apply default lane if not specified (backward compatibility)
+    const normalizedCtx = {
+      ...ctx,
+      lane: ctx.lane ?? 'system',
+    };
+
     // Read configuration from env
     const timeoutMs = env.cortex.timeoutMs || 2500;
     const classifyCatchAll = env.cortex.classifyCatchAll;
@@ -161,7 +180,7 @@ export async function cortexDecide(
     // Prepare engine input
     const engineInput: CortexInput = {
       text: input.text || JSON.stringify(input.structured || {}),
-      spaceId: ctx.activeSpaceId,
+      spaceId: normalizedCtx.activeSpaceId,
     };
 
     // Call engine with timeout protection
@@ -171,7 +190,7 @@ export async function cortexDecide(
     ]);
 
     // Normalize engine output to canonical actions
-    const normalized = normalizeEngineOutput(engineOutput as any, ctx, engineInput.text);
+    const normalized = normalizeEngineOutput(engineOutput as any, normalizedCtx, engineInput.text);
 
     // Determine mode based on confidence
     const confidence = normalized.confidence;
@@ -179,13 +198,16 @@ export async function cortexDecide(
 
     // Phase 10.4: Choose tone based on priority: userPrefsTone > spaceDefaults.tone > env.optimistic > 'calm'
     const tone: Tone =
-      ctx.userPrefsTone ?? ctx.spaceDefaults?.tone ?? (optimistic ? 'warm' : 'calm');
+      normalizedCtx.userPrefsTone ??
+      normalizedCtx.spaceDefaults?.tone ??
+      (optimistic ? 'warm' : 'calm');
 
     // Generate explanation based on mode and actions
-    const explanation = generateExplanation(normalized.actions, mode, tone, ctx);
+    const explanation = generateExplanation(normalized.actions, mode, tone, normalizedCtx);
 
     // Generate suggestions for ASK/KEEP modes
-    const suggestions = mode !== 'auto' ? generateSuggestions(normalized.actions, ctx) : undefined;
+    const suggestions =
+      mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : undefined;
 
     return {
       actions: normalized.actions,
