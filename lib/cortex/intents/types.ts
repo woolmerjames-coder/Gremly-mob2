@@ -11,4 +11,6 @@ export interface DetectedIntent {
   title?: string; // e.g., "Start running daily"
   why?: string; // explanation or rationale
   curiositySuggestion?: string; // Phase 10.7C: clarifying question before action
+  suppressChips?: boolean; // Phase 10.7D: prevent chip display (for planning/exploring)
+  isPlanning?: boolean; // Phase 10.7D: user is in planning/exploring mode
 }

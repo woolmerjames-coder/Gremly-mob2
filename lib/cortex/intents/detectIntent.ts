@@ -1,5 +1,6 @@
 /**
  * Phase 10.7: Conversational Intelligence v2
+ * Phase 10.7D: Hardened intent detection with advice-first mode
  * Intent detection helper using rule-based classification
  *
  * This uses simple regex patterns for now. Can be replaced with
@@ -11,22 +12,85 @@ import type { DetectedIntent } from './types';
 /**
  * Detect user intent from input text
  * Returns intent kind, confidence, and suggested title
- * Priority: question > reflection > note > todo > habit > idea
- * Phase 10.7C: Adds curiosity suggestions for high-confidence intents
+ *
+ * Phase 10.7D Changes:
+ * - Priority: question > note > habit > todo > reflection > idea
+ * - New thresholds: habit≥0.85, todo≥0.88, note≥0.80, question≥0.70
+ * - Planning/exploring detector forces question mode
+ * - Advice-first: default to guidance, not creation
  */
 export function detectIntent(text: string): DetectedIntent {
   const t = text.toLowerCase();
   const trimmed = text.trim();
 
-  // 1. Question patterns: question words or question mark (HIGHEST PRIORITY)
+  // 0. Planning/exploring detector (HIGHEST PRIORITY)
+  // Forces question mode to provide advice instead of chips
+  if (
+    /\b(planning|thinking about|explore|exploring|not ready|just planning ahead|maybe|considering|might)\b/i.test(
+      t,
+    )
+  ) {
+    return {
+      kind: 'question',
+      confidence: 0.75,
+      suppressChips: true, // Flag to prevent chip display
+      isPlanning: true,
+    };
+  }
+
+  // 1. Question patterns: question words or question mark
+  // Lowered threshold to 0.70 for better question detection
   if (
     /\?/.test(t) ||
     /^(who|what|where|when|why|how|can|could|would|should|is|are|do|does)\b/i.test(t)
   ) {
-    return { kind: 'question', confidence: 0.8 };
+    return { kind: 'question', confidence: 0.7 };
   }
 
-  // 2. Reflection patterns: introspective words
+  // 2. Note patterns: memory/reminder words
+  // Moved up priority: question > note > habit > todo
+  if (/\b(note|remember|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)) {
+    return {
+      kind: 'note',
+      confidence: 0.8, // Threshold set to 0.80
+      title: trimmed,
+      curiositySuggestion: 'Should I capture this as a note, or just keeping it in mind?',
+    };
+  }
+
+  // 3. Habit patterns: routine, frequency words
+  // Raised threshold to 0.85 for more confidence
+  if (
+    /every\s+(day|morning|night|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(
+      t,
+    ) ||
+    /habit|routine|daily|weekly/i.test(t)
+  ) {
+    return {
+      kind: 'habit',
+      confidence: 0.85, // Threshold set to 0.85
+      title: trimmed,
+      curiositySuggestion: 'Want structured help building this habit, or just exploring?',
+    };
+  }
+
+  // 4. To-do patterns: action verbs, deadlines
+  // Raised threshold to 0.88 for highest confidence
+  if (
+    /\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b/i.test(
+      t,
+    ) &&
+    !/\b(how do|how to|how can)\b/i.test(t)
+  ) {
+    return {
+      kind: 'todo',
+      confidence: 0.88, // Threshold set to 0.88
+      title: trimmed,
+      curiositySuggestion: 'Want me to add this as a to-do, or just planning ahead?',
+    };
+  }
+
+  // 5. Reflection patterns: introspective words
   if (
     /\b(reflect|journal|grateful|thankful|learned|realized|felt|feeling|today was|today has been|proud of|great day|wonderful|amazing day)\b/i.test(
       t,
@@ -40,48 +104,8 @@ export function detectIntent(text: string): DetectedIntent {
     };
   }
 
-  // 3. Note patterns: memory/reminder words
-  if (/\b(note|remember|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)) {
-    return {
-      kind: 'note',
-      confidence: 0.8,
-      title: trimmed,
-      curiositySuggestion: 'Should I capture this as a note, or just keeping it in mind?',
-    };
-  }
-
-  // 4. To-do patterns: action verbs, deadlines
-  if (
-    /\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b/i.test(
-      t,
-    ) &&
-    !/\b(how do|how to|how can)\b/i.test(t)
-  ) {
-    return {
-      kind: 'todo',
-      confidence: 0.85,
-      title: trimmed,
-      curiositySuggestion: 'Want me to add this as a to-do, or just planning ahead?',
-    };
-  }
-
-  // 5. Habit patterns: routine, frequency words
-  if (
-    /every\s+(day|morning|night|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(
-      t,
-    ) ||
-    /habit|routine|daily|weekly/i.test(t)
-  ) {
-    return {
-      kind: 'habit',
-      confidence: 0.9,
-      title: trimmed,
-      curiositySuggestion: 'Want structured help building this habit, or just exploring?',
-    };
-  }
-
   // 6. Idea patterns: creative/conceptual words (LOWEST PRIORITY)
-  if (/\b(idea|concept|maybe we could|what if|thinking about|brainstorm|imagine)\b/i.test(t)) {
+  if (/\b(idea|concept|maybe we could|what if|brainstorm|imagine)\b/i.test(t)) {
     return {
       kind: 'idea',
       confidence: 0.8,
