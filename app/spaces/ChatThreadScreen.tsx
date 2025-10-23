@@ -54,6 +54,16 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
+// Phase 10.9: Type guards for safe meta access
+function metaHasDetectedIntent(meta: any): meta is { detectedIntent: unknown } {
+  return !!meta && typeof meta === 'object' && 'detectedIntent' in meta;
+}
+
+function metaKindAsAssistantKind(kind: any): 'classification' | 'smalltalk' | 'decision' | null {
+  if (kind === 'classification' || kind === 'smalltalk' || kind === 'decision') return kind;
+  return null;
+}
+
 export default function ChatThreadScreen({ route }: Props) {
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
@@ -363,21 +373,21 @@ export default function ChatThreadScreen({ route }: Props) {
               setActiveSuggestions(response.suggestions);
 
               // Store detected intent from meta if available
-              if (
-                response.meta &&
-                'detectedIntent' in response.meta &&
-                response.meta.detectedIntent
-              ) {
+              if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
                 setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
-                const detectedIntentObj = response.meta.detectedIntent as DetectedIntent;
-                console.log(
-                  '[Chips] render for messageId=',
-                  messages[messages.length - 1]?.id || 'unknown',
-                  'kind=',
-                  detectedIntentObj.kind,
-                  'confidence=',
-                  detectedIntentObj.confidence.toFixed(2),
-                );
+                try {
+                  const di = response.meta.detectedIntent as DetectedIntent;
+                  console.log(
+                    '[Chips] render for messageId=',
+                    messages[messages.length - 1]?.id || 'unknown',
+                    'kind=',
+                    di.kind,
+                    'confidence=',
+                    typeof di.confidence === 'number' ? di.confidence.toFixed(2) : di.confidence,
+                  );
+                } catch {
+                  // defensive: skip logging if structure unexpected
+                }
               }
 
               // Phase 10.7B: Auto-fade suggestions after 6 seconds
@@ -423,12 +433,12 @@ export default function ChatThreadScreen({ route }: Props) {
             }
 
             // Phase 10.6: Emit response final event with intent detection flag
-            const hasIntent =
-              response.meta &&
-              'detectedIntent' in response.meta &&
-              response.meta.detectedIntent &&
-              (response.meta.detectedIntent as DetectedIntent).kind !== 'none' &&
-              (response.meta.detectedIntent as DetectedIntent).confidence >= 0.75;
+            let hasIntent = false;
+            if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
+              const di = response.meta.detectedIntent as DetectedIntent;
+              hasIntent =
+                di.kind !== 'none' && typeof di.confidence === 'number' && di.confidence >= 0.75;
+            }
 
             emitChatEvent({
               type: 'response_final',
@@ -445,13 +455,7 @@ export default function ChatThreadScreen({ route }: Props) {
             lastAssistantResponseRef.current = {
               explanation: response.explanation,
               replyText: response.replyText,
-              kind:
-                (response.meta?.kind as
-                  | 'smalltalk'
-                  | 'decision'
-                  | 'classification'
-                  | null
-                  | undefined) ?? null,
+              kind: metaKindAsAssistantKind(response.meta?.kind),
             };
 
             // Phase 10.6: Trigger appropriate mascot state after assistant message
