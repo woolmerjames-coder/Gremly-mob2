@@ -41,7 +41,7 @@ export function detectIntent(text: string): DetectedIntent {
   // 0. Planning/exploring detector (HIGHEST PRIORITY)
   // Forces question mode to provide advice instead of chips
   if (
-    /\b(planning|thinking about|explore|exploring|not ready|just planning ahead|maybe|considering|might)\b/i.test(
+    /\b(planning|thinking about|explore|exploring|not ready|just planning ahead|considering|might)\b/i.test(
       t,
     )
   ) {
@@ -53,13 +53,24 @@ export function detectIntent(text: string): DetectedIntent {
     };
   }
 
+  // 0.5 Idea-first phrases that look like questions but are ideation
+  // Ensure "what if" and "maybe we could" classify as idea before generic question detection
+  if (/\b(what if|maybe we could)\b/i.test(t)) {
+    return {
+      kind: 'idea',
+      confidence: 0.8,
+      title: trimmed,
+      curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
+    };
+  }
+
   // 1. Question patterns: question words or question mark
   // Lowered threshold to 0.70 for better question detection
   if (
     /\?/.test(t) ||
     /^(who|what|where|when|why|how|can|could|would|should|is|are|do|does)\b/i.test(t)
   ) {
-    return { kind: 'question', confidence: 0.75 };
+    return { kind: 'question', confidence: 0.8 };
   }
 
   // 2. Note patterns: memory/reminder words

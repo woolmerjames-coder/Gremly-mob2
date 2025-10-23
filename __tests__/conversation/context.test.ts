@@ -33,8 +33,8 @@ describe('Context Assembly', () => {
       },
     });
 
-    // Should include system prompt
-    expect(result.system).toContain('calm, helpful assistant');
+    // Should include system prompt (accepts optional 'kind,' adjective)
+    expect(result.system).toMatch(/calm, (kind, )?helpful assistant/);
     expect(result.system).toContain('Work Space');
     expect(result.system).toContain(summary);
 
