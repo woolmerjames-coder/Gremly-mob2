@@ -173,30 +173,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     };
   }
 
-  // Treat ultra-short inputs as smalltalk only when no actionable intent is detected
-  const looksLikeSmalltalk = isGreeting(userText) || isSmalltalk(userText);
-  const previewIntent = looksLikeSmalltalk ? detectIntent(userText) : ({ kind: 'none' } as any);
-  if (looksLikeSmalltalk && (previewIntent.kind === 'none' || previewIntent.kind === 'question')) {
-    const spaceName = ctx.spaceId ? undefined : undefined; // TODO: Get space name from context
-    const smalltalkReply = respondSmalltalk(userText, { spaceName });
-
-    if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-      console.log('[CORTEX][10.7C] smalltalk_hit:', userText.substring(0, 30));
-    }
-
-    return {
-      mode: 'ask' as const,
-      actions: [],
-      suggestions: [],
-      replyText: smalltalkReply,
-      explanation: undefined,
-      confidence: 0,
-      meta: {
-        kind: 'smalltalk',
-        smalltalk_hit: true,
-      },
-    };
-  }
+  // Note: smalltalk/greeting handling is performed later as a fallback after normalizing the response
 
   // Try cortexDecide first, but fall back to direct worker call for Space Chat
   let raw: CortexResponse;
