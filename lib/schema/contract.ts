@@ -61,6 +61,24 @@ const REQUIRED: ColReq[] = [
       'owner_id',
     ],
   },
+  {
+    table: 'spaces',
+    columns: ['id', 'owner_id', 'last_summary', 'last_summary_at', 'last_summary_tokens'],
+  },
+  {
+    table: 'space_summaries',
+    columns: [
+      'id',
+      'space_id',
+      'summary',
+      'extracted_bullets',
+      'last_message_id',
+      'source_window',
+      'model',
+      'token_usage',
+      'created_at',
+    ],
+  },
 ];
 
 /**

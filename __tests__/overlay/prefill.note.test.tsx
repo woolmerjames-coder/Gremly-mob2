@@ -20,6 +20,7 @@ jest.mock('../../providers/RepoProvider', () => ({
 
 jest.mock('../../providers/CortexProvider', () => ({
   __esModule: true,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   CortexProvider: ({ children }: any) => <>{children}</>,
   useCortex: () => ({
     classify: jest.fn(),
@@ -44,11 +45,9 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
-// (Use real ThemeProvider below to provide theme context)
-
 // Mock dependencies: event emitter only
-
 jest.mock('../../app/lib/chat/events', () => ({
+  __esModule: true,
   emitChatEvent: jest.fn(),
 }));
 
@@ -75,7 +74,7 @@ describe('Note Prefill', () => {
   it('prefills title and note body from conversionMeta', () => {
     const onClose = jest.fn();
 
-    const { getByTestId } = render(
+    render(
       <ThemeProvider>
         <UnifiedCreateOverlay
           visible={true}
@@ -101,7 +100,7 @@ describe('Note Prefill', () => {
   it('handles note without initial values', () => {
     const onClose = jest.fn();
 
-    const { getByTestId } = render(
+    render(
       <ThemeProvider>
         <UnifiedCreateOverlay
           visible={true}

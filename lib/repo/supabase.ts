@@ -925,6 +925,69 @@ export class SupabaseRepo implements IRepo {
     return data?.summary_cached ?? null;
   }
 
+  /**
+   * Phase 10.8: Get latest Space Insight summary from projection
+   */
+  async getLatestSpaceInsight(spaceId: string): Promise<{
+    summary: string;
+    summary_at: string;
+    tokens: number;
+  } | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('spaces')
+      .select('last_summary, last_summary_at, last_summary_tokens')
+      .eq('id', spaceId)
+      .eq('owner_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      logSupabaseError('getLatestSpaceInsight', error);
+      return null;
+    }
+
+    if (!data?.last_summary) return null;
+
+    return {
+      summary: data.last_summary,
+      summary_at: data.last_summary_at || new Date().toISOString(),
+      tokens: data.last_summary_tokens || 0,
+    };
+  }
+
+  /**
+   * Phase 10.8: Fetch recent Space Insight history
+   */
+  async getSpaceInsightHistory(spaceId: string, limit: number = 10): Promise<any[]> {
+    const userId = this.ensureUserId();
+
+    // Verify ownership
+    const { data: space } = await supabase
+      .from('spaces')
+      .select('id')
+      .eq('id', spaceId)
+      .eq('owner_id', userId)
+      .single();
+
+    if (!space) return [];
+
+    const { data, error } = await supabase
+      .from('space_summaries')
+      .select('*')
+      .eq('space_id', spaceId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      logSupabaseError('getSpaceInsightHistory', error);
+      return [];
+    }
+
+    return data || [];
+  }
+
   async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
     const userId = this.ensureUserId();
 

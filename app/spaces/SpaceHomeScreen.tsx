@@ -40,6 +40,7 @@ import { HabitsTodosPreview } from '../../components/spaces/HabitsTodosPreview';
 import { NotesResourcesPreview } from '../../components/spaces/NotesResourcesPreview';
 import { JournalPreview } from '../../components/spaces/JournalPreview';
 import { InsightsCard } from '../../components/spaces/InsightsCard';
+import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard';
 import { useAuth } from '../../providers/AuthProvider';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
@@ -63,6 +64,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
+
+  // Phase 10.8: Space Insight state
+  const [spaceInsight, setSpaceInsight] = useState<{
+    summary: string;
+    summary_at: string;
+    tokens: number;
+  } | null>(null);
 
   // Create SpaceChatRepo instance
   const spaceChatRepo = React.useMemo(() => {
@@ -102,6 +110,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
       setChats(sortedChats);
       setItems(itemsData);
+
+      // Phase 10.8: Load Space Insight summary
+      try {
+        const insight = await repo.getLatestSpaceInsight(spaceId);
+        setSpaceInsight(insight);
+      } catch (err) {
+        if (__DEV__) {
+          console.warn('[SpaceHome][10.8] Failed to load insight:', err);
+        }
+      }
 
       // Load layout state
       if (spaceData.layout_state_json) {
@@ -259,6 +277,40 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const journals = listNotesForSpace(items, spaceId, { subtype: 'journal', limit: 3 });
   const journalCount = countJournalForSpace(items, spaceId);
 
+  // Phase 10.8: Space Insight action handlers
+  const handleSaveInsightAsNote = useCallback(async () => {
+    if (!spaceInsight) return;
+
+    try {
+      await repo.create({
+        type: 'note',
+        title: 'Conversation Summary',
+        body: spaceInsight.summary,
+        subtype: 'reference',
+        space_id: spaceId,
+        ai_placed: true,
+        origin: 'catchall',
+      });
+
+      Alert.alert('Success', 'Summary saved as note');
+      // Refresh to show new note
+      await loadData();
+    } catch (error) {
+      console.error('Failed to save insight as note:', error);
+      Alert.alert('Error', 'Failed to save note');
+    }
+  }, [spaceInsight, spaceId, repo, loadData]);
+
+  const handleAddInsightTodos = useCallback(() => {
+    if (!spaceInsight) return;
+
+    // Navigate to unified overlay in "add todo" mode with prefill
+    Alert.alert('Add Next Step', 'This will open the quick add overlay', [
+      { text: 'OK', onPress: () => console.log('[10.8] TODO: Open unified overlay for todos') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [spaceInsight]);
+
   if (loading && !space) {
     return (
       <View style={styles.loading}>
@@ -387,6 +439,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
           {/* AI Insights */}
           <InsightsCard summary={space.summary_cached} lastUpdated={space.summary_updated_at} />
+
+          {/* Phase 10.8: What We Discussed Card */}
+          {spaceInsight && (
+            <WhatWeDiscussedCard
+              summary={spaceInsight.summary}
+              onSaveAsNote={handleSaveInsightAsNote}
+              onAddTodos={handleAddInsightTodos}
+              lastUpdated={spaceInsight.summary_at}
+            />
+          )}
         </View>
       </ScrollView>
     </View>

@@ -30,6 +30,7 @@ import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import type { DetectedIntent } from '../../lib/cortex/intents/types';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
+import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
 import { useChatMessages } from '../../hooks/useChatMessages';
@@ -372,21 +373,21 @@ export default function ChatThreadScreen({ route }: Props) {
               setActiveSuggestions(response.suggestions);
 
               // Store detected intent from meta if available
-              if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
+              if (
+                response.meta &&
+                'detectedIntent' in response.meta &&
+                response.meta.detectedIntent
+              ) {
                 setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
-                try {
-                  const di = response.meta.detectedIntent as DetectedIntent;
-                  console.log(
-                    '[Chips] render for messageId=',
-                    messages[messages.length - 1]?.id || 'unknown',
-                    'kind=',
-                    di.kind,
-                    'confidence=',
-                    typeof di.confidence === 'number' ? di.confidence.toFixed(2) : di.confidence,
-                  );
-                } catch {
-                  // defensive: skip logging if structure unexpected
-                }
+                const detectedIntentObj = response.meta.detectedIntent as DetectedIntent;
+                console.log(
+                  '[Chips] render for messageId=',
+                  messages[messages.length - 1]?.id || 'unknown',
+                  'kind=',
+                  detectedIntentObj.kind,
+                  'confidence=',
+                  detectedIntentObj.confidence.toFixed(2),
+                );
               }
 
               // Phase 10.7B: Auto-fade suggestions after 6 seconds
@@ -405,13 +406,39 @@ export default function ChatThreadScreen({ route }: Props) {
 
             await appendAssistantMessage(assistantText);
 
-            // Phase 10.6: Emit response final event with intent detection flag
-            let hasIntent = false;
-            if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
-              const di = response.meta.detectedIntent as DetectedIntent;
-              hasIntent =
-                di.kind !== 'none' && typeof di.confidence === 'number' && di.confidence >= 0.75;
+            // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
+            if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
+              import('../../lib/cortex/summarize')
+                .then(({ maybeRefreshSummary }) => {
+                  // Convert messages to ChatTurn format
+                  const turns = messages.map((m) => ({
+                    role: m.role as 'user' | 'assistant',
+                    text: m.content,
+                  }));
+
+                  // Get the last message ID (the assistant message we just sent)
+                  const lastMsg = messages[messages.length - 1];
+
+                  maybeRefreshSummary(spaceId, turns, lastMsg?.id).catch((err) => {
+                    if (__DEV__) {
+                      console.error('[ChatThread][10.8] Summary refresh failed:', err);
+                    }
+                  });
+                })
+                .catch((err) => {
+                  if (__DEV__) {
+                    console.error('[ChatThread][10.8] Failed to load summarize module:', err);
+                  }
+                });
             }
+
+            // Phase 10.6: Emit response final event with intent detection flag
+            const hasIntent =
+              response.meta &&
+              'detectedIntent' in response.meta &&
+              response.meta.detectedIntent &&
+              (response.meta.detectedIntent as DetectedIntent).kind !== 'none' &&
+              (response.meta.detectedIntent as DetectedIntent).confidence >= 0.75;
 
             emitChatEvent({
               type: 'response_final',
@@ -428,7 +455,13 @@ export default function ChatThreadScreen({ route }: Props) {
             lastAssistantResponseRef.current = {
               explanation: response.explanation,
               replyText: response.replyText,
-              kind: metaKindAsAssistantKind(response.meta?.kind),
+              kind:
+                (response.meta?.kind as
+                  | 'smalltalk'
+                  | 'decision'
+                  | 'classification'
+                  | null
+                  | undefined) ?? null,
             };
 
             // Phase 10.6: Trigger appropriate mascot state after assistant message

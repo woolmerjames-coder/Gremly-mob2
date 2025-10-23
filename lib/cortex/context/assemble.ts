@@ -28,8 +28,8 @@ export interface AssembledContext {
 
 /**
  * Assemble conversation context for Cortex
- * Includes: persona prompt + pinned facts + running summary + last 12 turns
- * Phase 10.7C: Expanded from 10 to 12 turns for deeper memory
+ * Includes: persona prompt + pinned facts + running summary + last 10 turns
+ * Note: Keep at 10 turns to satisfy current context window policy and tests
  */
 export function assembleContext(input: AssembleContextInput): AssembledContext {
   const { lastTurns, runningSummary, pinnedFacts } = input;
@@ -59,8 +59,8 @@ export function assembleContext(input: AssembleContextInput): AssembledContext {
 
   const systemPrompt = systemParts.join(' ');
 
-  // 4) Recent turns: last 10 entries, preserve order (oldest -> newest within the slice)
-  const recentTurns = lastTurns && lastTurns.length > 10 ? lastTurns.slice(-10) : lastTurns;
+  // 4. Recent turns (last 10)
+  const recentTurns = lastTurns.slice(-10);
   const messages: ChatMessage[] = recentTurns.map((turn) => ({
     role: turn.role,
     content: turn.text,
