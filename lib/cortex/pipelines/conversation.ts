@@ -8,6 +8,8 @@ import {
 } from '../cortexDecide';
 import { pickSmalltalk, isAcknowledgment } from '../../../app/lib/cortex/smalltalk';
 import { callChat, type ChatMessage } from '../CortexClient';
+import { detectIntent } from '../intents/detectIntent';
+import type { DetectedIntent } from '../intents/types';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 
@@ -151,6 +153,26 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // No auto actions in chat
   if (Array.isArray(normalized.actions) && normalized.actions.length > 0) {
     normalized.actions = [];
+  }
+
+  // Phase 10.7: Intent detection for smart suggestions
+  const intent: DetectedIntent = detectIntent(input.text || '');
+
+  if (intent.confidence >= 0.75 && intent.kind !== 'none') {
+    // Add suggestion chip for high-confidence intents
+    const suggestionText =
+      intent.kind === 'question' ? 'Ask this question' : `Add as ${intent.kind}`;
+
+    normalized.suggestions = [suggestionText, ...(normalized.suggestions ?? [])];
+    normalized.meta = {
+      ...normalized.meta,
+      detectedIntent: intent,
+    };
+    normalized.mode = 'ask'; // Always ask, never auto-create
+
+    if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log(`[CORTEX][intent] Detected ${intent.kind} (${intent.confidence.toFixed(2)})`);
+    }
   }
 
   // Check if we should try direct worker call before suppressing catch-all copy

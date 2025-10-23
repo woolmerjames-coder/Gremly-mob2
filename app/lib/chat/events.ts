@@ -17,6 +17,7 @@ export type ChatEvent =
         assistantKind?: string;
         hasActions?: boolean;
         hasSuggestions?: boolean;
+        intentDetected?: boolean; // Phase 10.7: Intent detection flag
       };
     }
   | { type: 'suggestions_shown'; payload: { count: number } }
