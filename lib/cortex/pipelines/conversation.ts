@@ -7,9 +7,18 @@ import {
   type CortexResponse,
 } from '../cortexDecide';
 import { pickSmalltalk, isAcknowledgment } from '../../../app/lib/cortex/smalltalk';
+import { isGreeting, isSmalltalk, respond as respondSmalltalk } from '../smalltalk';
 import { callChat, type ChatMessage } from '../CortexClient';
 import { detectIntent } from '../intents/detectIntent';
 import type { DetectedIntent } from '../intents/types';
+import {
+  buildContextWindow,
+  summarize,
+  updateRunningSummary,
+  hasExplicitCreationIntent,
+  isAffirmation,
+  type ChatTurn,
+} from '../context/memory';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 
@@ -107,6 +116,8 @@ async function tryDirectWorkerCall(
  * - Keep suggestions for inline chips
  * Step 5.1: Small-talk fallback when no actionable content
  * Step 5.1b: Defensive mapper for worker content without choices
+ * Phase 10.7C: Smalltalk routing before cortexDecide
+ * Phase 10.7D: Context building, cooldown logic, empathy responses
  */
 export async function runConversationPipeline(input: DecideInput, ctx: CortexContext) {
   if (__DEV__) {
@@ -117,6 +128,52 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       recentAssistantKind: ctx.recentAssistantKind,
     });
   }
+
+  // Phase 10.7D: Build context window and running summary
+  const maxContext = parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
+  const allMessages: ChatTurn[] = (input as any).messages || [];
+  const contextWindow = buildContextWindow(allMessages, maxContext);
+
+  // Initialize or update running summary
+  if (!ctx.runningSummary && allMessages.length > 2) {
+    ctx.runningSummary = await summarize(allMessages);
+  }
+
+  if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+    console.log('[CORTEX][10.7D] context_built', {
+      windowSize: contextWindow.length,
+      summaryLength: ctx.runningSummary?.length || 0,
+    });
+  }
+
+  // Phase 10.7C: Check for greeting or smalltalk first
+  const userText = input.text?.trim() || '';
+
+  // Phase 10.7D: Check for empathy signals
+  if (
+    /\b(oh no|what's wrong|i'm upset|i'm sad|i'm worried|feeling down)\b/i.test(
+      userText.toLowerCase(),
+    )
+  ) {
+    if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log('[CORTEX][10.7D] empathy_triggered');
+    }
+
+    return {
+      mode: 'ask' as const,
+      actions: [],
+      suggestions: [],
+      replyText: "I'm here for you. What's going on?",
+      explanation: undefined,
+      confidence: 0,
+      meta: {
+        kind: 'empathy',
+        empathy_triggered: true,
+      },
+    };
+  }
+
+  // Note: smalltalk/greeting handling is performed later as a fallback after normalizing the response
 
   // Try cortexDecide first, but fall back to direct worker call for Space Chat
   let raw: CortexResponse;
@@ -155,41 +212,242 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.actions = [];
   }
 
-  // Phase 10.7: Intent detection for smart suggestions
+  // Phase 10.7B: Answer-first policy with intent detection
+  // Phase 10.7C: Curiosity gating for high-confidence intents
+  // Phase 10.7D: Cooldown mechanism with explicit creation bypass
   const intent: DetectedIntent = detectIntent(input.text || '');
 
-  if (intent.confidence >= 0.75 && intent.kind !== 'none') {
-    // Add suggestion chip for high-confidence intents
-    const suggestionText =
-      intent.kind === 'question' ? 'Ask this question' : `Add as ${intent.kind}`;
+  // Always record the locally detected intent in meta for downstream consumers/tests
+  normalized.meta = {
+    ...normalized.meta,
+    detectedIntent: intent,
+  };
 
-    normalized.suggestions = [suggestionText, ...(normalized.suggestions ?? [])];
+  // Questions: reply-only ergonomics regardless of upstream output
+  if (intent.kind === 'question') {
+    // Ensure no chips for questions
+    normalized.suggestions = [];
+    // Provide a minimal helpful reply text (tests expect non-empty)
+    if (!normalized.replyText || !normalized.replyText.trim()) {
+      normalized.replyText = 'I can help you think through that.';
+    }
+    normalized.mode = 'ask';
+  }
+
+  // Phase 10.7D: Get cooldown settings
+  const cooldownTurns = parseInt(process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2', 10);
+  let intentCooldown = ctx.intentCooldownTurns || 0;
+
+  // Decrement cooldown each turn
+  if (intentCooldown > 0) {
+    intentCooldown--;
+    if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log('[CORTEX][10.7D] cooldown_decremented:', intentCooldown);
+    }
+  }
+
+  // Check for explicit creation intent or affirmation
+  const hasExplicitIntent = hasExplicitCreationIntent(userText);
+  const isUserAffirming = isAffirmation(userText);
+  const bypassCooldown = hasExplicitIntent || isUserAffirming;
+
+  if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+    console.log('[CORTEX][10.7D] intent_check', {
+      kind: intent.kind,
+      confidence: intent.confidence,
+      suppressChips: intent.suppressChips,
+      isPlanning: intent.isPlanning,
+      cooldown: intentCooldown,
+      bypassCooldown,
+    });
+  }
+
+  const currentTurn = ctx.currentTurn || 0;
+  const lastChipTurn = typeof ctx.lastChipTurn === 'number' ? ctx.lastChipTurn : -2; // Default to allow chips
+  const recentIntentBuffer = ctx.recentIntentBuffer || [];
+  const clarifiedTopics = ctx.clarifiedTopics || new Set<string>();
+
+  // Check if curiosity phase is enabled
+  const curiosityEnabled = process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE === 'true';
+
+  // Phase 10.7D: Updated thresholds
+  const intentThresholds: Record<string, number> = {
+    habit: 0.85,
+    todo: 0.88,
+    note: 0.8,
+    question: 0.7,
+    reflection: 0.75,
+    idea: 0.75,
+  };
+
+  // Can show chip if:
+  // 1. Meets confidence threshold
+  // 2. Not a question
+  // 3. Not suppressed (planning mode)
+  // 4. Either cooldown is 0 OR user explicitly asked/affirmed
+  const threshold = intentThresholds[intent.kind] || 0.8;
+  // Cooldown based on turn distance from last shown chip (test expectation)
+  const turnsSinceLastChip = lastChipTurn >= 0 ? currentTurn - lastChipTurn : Infinity;
+  const cooldownActive = turnsSinceLastChip <= cooldownTurns && !bypassCooldown;
+  const shouldShowChip =
+    intent.confidence >= threshold &&
+    intent.kind !== 'none' &&
+    intent.kind !== 'question' &&
+    !intent.suppressChips &&
+    (!cooldownActive || bypassCooldown);
+
+  // Check if we should process this intent (use per-intent threshold, not fixed 0.75)
+  const shouldProcessIntent = intent.confidence >= threshold && intent.kind !== 'none';
+
+  if (shouldProcessIntent) {
     normalized.meta = {
       ...normalized.meta,
       detectedIntent: intent,
     };
-    normalized.mode = 'ask'; // Always ask, never auto-create
 
-    // If we don't have a replyText yet, provide a minimal nudge
-    if (!normalized.replyText || !normalized.replyText.trim()) {
+    // Phase 10.7D: Planning mode - provide advice without chips
+    if (intent.isPlanning || intent.suppressChips) {
       normalized.replyText =
-        intent.kind === 'habit'
-          ? 'Want me to add this as a habit?'
-          : intent.kind === 'todo'
-            ? 'Should I create this to-do?'
-            : intent.kind === 'note'
-              ? 'Want me to save this note?'
-              : intent.kind === 'reflection'
-                ? 'Should I save this reflection?'
-                : intent.kind === 'idea'
-                  ? 'Want me to capture this idea?'
-                  : intent.kind === 'question'
-                    ? 'Should I save this question?'
-                    : 'I can turn that into something actionable—want to do that?';
+        normalized.replyText ||
+        'I can help you think through that. What aspect would you like to explore?';
+      normalized.mode = 'ask';
+      normalized.suggestions = [];
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][10.7D] planning_mode_advice');
+      }
+
+      // Don't update cooldown for planning responses
+      // Continue to rest of function
+    } else if (intent.kind === 'question') {
+      // Questions: reply only, no chips
+      // Phase 10.7C: Remove filler text, let mascot thinking animation handle UX
+      if (!normalized.replyText || !normalized.replyText.trim()) {
+        // Return empty reply to trigger only mascot thinking state
+        normalized.replyText = '';
+      }
+      normalized.mode = 'ask';
+      normalized.suggestions = []; // Clear any suggestions
+    } else {
+      // Phase 10.7C: Curiosity phase - ask before acting
+      const topicKey = intent.kind;
+      const needsClarification = curiosityEnabled && !clarifiedTopics.has(topicKey);
+
+      if (needsClarification && intent.curiositySuggestion) {
+        // First time seeing this intent type - ask clarifying question
+        normalized.replyText = intent.curiositySuggestion;
+        normalized.suggestions = []; // No chips yet
+        normalized.mode = 'ask';
+        normalized.meta = {
+          ...normalized.meta,
+          isAwaitingClarification: true,
+          curiosityPrompted: topicKey,
+        };
+
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[CORTEX][10.7C] curiosity_prompted:', topicKey);
+        }
+      } else {
+        // Either curiosity disabled, already clarified, or no curiosity suggestion
+        // Check if we should show chip
+        const intentReiterated =
+          recentIntentBuffer.filter((i) => i.kind === intent.kind && currentTurn - i.turn <= 2)
+            .length >= 1;
+
+        if (shouldShowChip && (intentReiterated || bypassCooldown)) {
+          // Show chip for reiterated intent or explicit request
+          const suggestionText = `Add as ${intent.kind}`;
+          normalized.suggestions = [suggestionText]; // Max 1 chip
+          normalized.mode = 'ask';
+
+          // Add subtle line to reply
+          if (normalized.replyText && normalized.replyText.trim()) {
+            normalized.replyText += ' I can save this if you like.';
+          } else {
+            normalized.replyText = 'I can save this if you like.';
+          }
+
+          // Phase 10.7D: Set cooldown markers when chip shown
+          ctx.intentCooldownTurns = cooldownTurns;
+          ctx.lastChipTurn = currentTurn;
+
+          // Mark that we showed a chip this turn
+          normalized.meta = {
+            ...normalized.meta,
+            showedChip: true,
+            cooldownSet: cooldownTurns,
+          };
+
+          if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[CORTEX][10.7D] chip_shown_cooldown_set:', cooldownTurns);
+          }
+        } else {
+          // Reply only, no chip
+          if (!normalized.replyText || !normalized.replyText.trim()) {
+            normalized.replyText =
+              intent.kind === 'habit'
+                ? 'That sounds like a good habit to build.'
+                : intent.kind === 'todo'
+                  ? 'Got it, noted.'
+                  : intent.kind === 'note'
+                    ? "I'll remember that."
+                    : intent.kind === 'reflection'
+                      ? 'Thanks for sharing that.'
+                      : intent.kind === 'idea'
+                        ? 'Interesting idea!'
+                        : 'Understood.';
+          }
+          normalized.suggestions = []; // No chips
+          normalized.mode = 'ask';
+
+          // Phase 10.7D: Update cooldown in context
+          ctx.intentCooldownTurns = intentCooldown;
+        }
+      }
     }
 
     if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
       console.log(`[CORTEX][intent] Detected ${intent.kind} (${intent.confidence.toFixed(2)})`);
+      console.log(`[CORTEX][policy] Chip shown: ${!!normalized.meta?.showedChip}`);
+
+      // Phase 10.7C: Log chip suppression reasons
+      // Phase 10.7D: Enhanced suppression reasons
+      if (intent.confidence >= 0.75 && !normalized.meta?.showedChip) {
+        const isAwaitingClarification = normalized.meta?.isAwaitingClarification;
+        const hasReplyText = !!normalized.replyText?.trim();
+        const hasSuggestions = (normalized.suggestions?.length || 0) > 0;
+
+        let suppressionReason = 'unknown';
+        if (intent.isPlanning || intent.suppressChips) {
+          suppressionReason = 'planning_mode';
+        } else if (isAwaitingClarification) {
+          suppressionReason = 'awaiting_clarification';
+        } else if (intent.kind === 'question') {
+          suppressionReason = 'is_question';
+        } else if (intentCooldown > 0 && !bypassCooldown) {
+          suppressionReason = `cooldown_active(${intentCooldown})`;
+        } else if (!hasReplyText) {
+          suppressionReason = 'no_reply_text';
+        } else if (!hasSuggestions) {
+          suppressionReason = 'not_reiterated';
+        }
+
+        console.log('[CORTEX][10.7D] chips_suppressed_reason:', suppressionReason);
+      }
+    }
+  }
+
+  // Phase 10.7D: Update running summary after response
+  if (normalized.replyText && allMessages.length > 0) {
+    const newMessages: ChatTurn[] = [
+      ...allMessages.slice(-2), // Last 2 messages
+      { role: 'user', text: userText },
+      { role: 'assistant', text: normalized.replyText },
+    ];
+    ctx.runningSummary = await updateRunningSummary(ctx.runningSummary || '', newMessages);
+
+    if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log('[CORTEX][10.7D] summary_updated:', ctx.runningSummary?.substring(0, 100));
     }
   }
 
@@ -235,7 +493,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         if (__DEV__) {
           console.log('[CORTEX] Using worker response instead of generic response');
         }
-        return workerResponse;
+        // Preserve meta we have already computed (e.g., detectedIntent)
+        return {
+          ...workerResponse,
+          meta: {
+            ...(workerResponse as any)?.meta,
+            ...normalized.meta,
+          },
+        } as CortexResponse;
       }
     } catch (workerError) {
       if (__DEV__) {
@@ -273,6 +538,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
     }
   }
+
+  // Note: meta.detectedIntent has been set pre-emptively above
 
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {

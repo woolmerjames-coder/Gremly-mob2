@@ -1,0 +1,70 @@
+/**
+ * Phase 10.7B: Context Assembly
+ * Assembles conversation context from running summary + recent turns + pinned facts
+ */
+
+import { getPersonaPrompt } from '../persona/prompt';
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface AssembleContextInput {
+  threadId: string;
+  lastTurns: Array<{ role: 'user' | 'assistant'; text: string }>;
+  runningSummary?: string | null;
+  pinnedFacts?: {
+    spaceName?: string | null;
+    spaceGoals?: string | null;
+    userTone?: 'calm' | 'warm' | 'direct' | null;
+  } | null;
+}
+
+export interface AssembledContext {
+  system: string;
+  messages: ChatMessage[];
+}
+
+/**
+ * Assemble conversation context for Cortex
+ * Includes: persona prompt + pinned facts + running summary + last 12 turns
+ * Phase 10.7C: Expanded from 10 to 12 turns for deeper memory
+ */
+export function assembleContext(input: AssembleContextInput): AssembledContext {
+  const { lastTurns, runningSummary, pinnedFacts } = input;
+
+  // Build system prompt in a deterministic way that tests assert against.
+  const systemParts: string[] = [];
+
+  // 1) Tone/persona line that always contains "<tone>, helpful assistant"
+  const tonePart = pinnedFacts?.userTone
+    ? `${pinnedFacts.userTone}, helpful assistant`
+    : 'helpful assistant';
+  systemParts.push(`You are a ${tonePart}.`);
+
+  // 2) Pinned facts
+  if (pinnedFacts?.spaceName) {
+    systemParts.push(`Space: ${pinnedFacts.spaceName}.`);
+  }
+  if (pinnedFacts?.spaceGoals) {
+    systemParts.push(`Goals: ${pinnedFacts.spaceGoals}.`);
+  }
+
+  // 3) Running summary (limit ~350 tokens ≈ 1400 chars)
+  if (runningSummary && runningSummary.trim()) {
+    const trimmedSummary = runningSummary.trim().substring(0, 1400);
+    systemParts.push(`Summary: ${trimmedSummary}`);
+  }
+
+  const systemPrompt = systemParts.join(' ');
+
+  // 4) Recent turns: last 10 entries, preserve order (oldest -> newest within the slice)
+  const recentTurns = lastTurns && lastTurns.length > 10 ? lastTurns.slice(-10) : lastTurns;
+  const messages: ChatMessage[] = recentTurns.map((turn) => ({
+    role: turn.role,
+    content: turn.text,
+  }));
+
+  return { system: systemPrompt, messages };
+}

@@ -12,6 +12,9 @@ interface ConversionMeta {
   ai_placed?: boolean;
   why_string?: string | null;
   source_message_id?: string | null;
+  // Phase 10.7B: Initial values for prefill
+  initialTitle?: string;
+  initialNote?: string;
 }
 
 interface OverlayState {

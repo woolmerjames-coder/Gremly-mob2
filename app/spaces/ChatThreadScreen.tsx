@@ -1,9 +1,10 @@
 /**
  * ChatThreadScreen - Phase 10.5 Space Chats v1
+ * Phase 10.7D: Added debounce, spaceId validation, note prefill fixes
  * Now integrated with message persistence + new UI components
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -52,6 +53,16 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
+// Phase 10.7B: Type guards for safe meta access
+function metaHasDetectedIntent(meta: any): meta is { detectedIntent: unknown } {
+  return !!meta && typeof meta === 'object' && 'detectedIntent' in meta;
+}
+
+function metaKindAsAssistantKind(kind: any): 'classification' | 'smalltalk' | 'decision' | null {
+  if (kind === 'classification' || kind === 'smalltalk' || kind === 'decision') return kind;
+  return null;
+}
+
 export default function ChatThreadScreen({ route }: Props) {
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
@@ -68,6 +79,9 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Auto-fade suggestions after 3 seconds
   const suggestionFadeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Phase 10.7D: Debounce timer ref
+  const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Track last assistant response for conversion metadata and anti-spam logic
   const lastAssistantResponseRef = React.useRef<{
@@ -149,6 +163,13 @@ export default function ChatThreadScreen({ route }: Props) {
   const handleSend = useCallback(
     async (text: string) => {
       if (!text.trim() || !chat) return;
+
+      // Phase 10.7D: Validate spaceId
+      if (!spaceId) {
+        console.error('[ChatThread][10.7D] Missing spaceId');
+        Alert.alert('Error', 'Invalid space context');
+        return;
+      }
 
       const currentUserId = userId || 'anonymous';
 
@@ -351,19 +372,24 @@ export default function ChatThreadScreen({ route }: Props) {
               setActiveSuggestions(response.suggestions);
 
               // Store detected intent from meta if available
-              if (response.meta?.detectedIntent) {
+              if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
                 setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
-                console.log(
-                  '[Chips] render for messageId=',
-                  messages[messages.length - 1]?.id || 'unknown',
-                  'kind=',
-                  response.meta.detectedIntent.kind,
-                  'confidence=',
-                  response.meta.detectedIntent.confidence.toFixed(2),
-                );
+                try {
+                  const di = response.meta.detectedIntent as DetectedIntent;
+                  console.log(
+                    '[Chips] render for messageId=',
+                    messages[messages.length - 1]?.id || 'unknown',
+                    'kind=',
+                    di.kind,
+                    'confidence=',
+                    typeof di.confidence === 'number' ? di.confidence.toFixed(2) : di.confidence,
+                  );
+                } catch {
+                  // defensive: skip logging if structure unexpected
+                }
               }
 
-              // Phase 10.7: Auto-fade suggestions after 8 seconds (temporary for testing)
+              // Phase 10.7B: Auto-fade suggestions after 6 seconds
               if (suggestionFadeTimerRef.current) {
                 clearTimeout(suggestionFadeTimerRef.current);
               }
@@ -371,7 +397,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 console.log('[Chips] auto-fade triggered');
                 setActiveSuggestions([]);
                 setDetectedIntent(null);
-              }, 8000);
+              }, 6000);
             } else {
               setActiveSuggestions([]);
               setDetectedIntent(null);
@@ -380,10 +406,12 @@ export default function ChatThreadScreen({ route }: Props) {
             await appendAssistantMessage(assistantText);
 
             // Phase 10.6: Emit response final event with intent detection flag
-            const hasIntent =
-              response.meta?.detectedIntent &&
-              response.meta.detectedIntent.kind !== 'none' &&
-              response.meta.detectedIntent.confidence >= 0.75;
+            let hasIntent = false;
+            if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
+              const di = response.meta.detectedIntent as DetectedIntent;
+              hasIntent =
+                di.kind !== 'none' && typeof di.confidence === 'number' && di.confidence >= 0.75;
+            }
 
             emitChatEvent({
               type: 'response_final',
@@ -400,7 +428,7 @@ export default function ChatThreadScreen({ route }: Props) {
             lastAssistantResponseRef.current = {
               explanation: response.explanation,
               replyText: response.replyText,
-              kind: response.meta?.kind,
+              kind: metaKindAsAssistantKind(response.meta?.kind),
             };
 
             // Phase 10.6: Trigger appropriate mascot state after assistant message
@@ -469,6 +497,22 @@ export default function ChatThreadScreen({ route }: Props) {
     [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages, mascot],
   );
 
+  // Phase 10.7D: Debounced send wrapper (200ms)
+  const handleSendDebounced = useCallback(
+    (text: string) => {
+      // Clear any existing debounce timer
+      if (sendDebounceTimerRef.current) {
+        clearTimeout(sendDebounceTimerRef.current);
+      }
+
+      // Set new debounce timer
+      sendDebounceTimerRef.current = setTimeout(() => {
+        handleSend(text);
+      }, 200);
+    },
+    [handleSend],
+  );
+
   // Convert from chip handler
   const convertFromChip = useCallback(
     (kind: OverlayKind) => {
@@ -492,8 +536,27 @@ export default function ChatThreadScreen({ route }: Props) {
 
       if (!lastUser) return;
 
-      const initial = { title: (titleFromIntent || lastUser.content || '').trim() };
+      const lastUserText = lastUser.content || '';
+
+      // Phase 10.7D: For notes, put text in body, not title
+      const initial =
+        kind === 'note'
+          ? {
+              title: '',
+              note: lastUserText.trim(),
+            }
+          : { title: (titleFromIntent || lastUserText).trim() };
+
       const whyFromIntent = detectedIntent?.why;
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatThread][10.7D] Opening overlay:', {
+          kind,
+          hasTitle: !!(initial as any).title,
+          hasBody: !!(initial as any).note,
+          prefill: initial,
+        });
+      }
 
       openUnifiedFromChat(
         kind,
@@ -657,11 +720,12 @@ export default function ChatThreadScreen({ route }: Props) {
                 })}
 
                 {/* Suggestion chips for ask mode responses */}
+                {/* Phase 10.7B: Max 1 chip */}
                 {activeSuggestions.length > 0 && (
                   <View style={styles.suggestionsContainer}>
                     <Text style={styles.suggestionsLabel}>You could also:</Text>
                     <View style={styles.suggestionChips}>
-                      {activeSuggestions.map((suggestion, index) => {
+                      {activeSuggestions.slice(0, 1).map((suggestion, index) => {
                         console.log('[Chips] Rendering chip:', suggestion, 'index:', index);
                         return (
                           <Chip
@@ -687,7 +751,7 @@ export default function ChatThreadScreen({ route }: Props) {
           </ScrollView>
 
           {/* Chat Composer */}
-          <ChatComposer onSend={handleSend} disabled={sending} testID="chat-composer" />
+          <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
 
           {/* Mini Action Bar */}
           <MiniActionBar
