@@ -177,9 +177,21 @@ function mapNoteFromDb(dbRecord: any): any {
 
 export class SupabaseRepo implements IRepo {
   private currentUserId: string | null = null;
+  private lastCountCompletedTodayWarn: number = 0;
+  private readonly WARN_THROTTLE_MS = 60000; // Throttle warnings to once per minute
+
+  // Phase 10.7E: Space chat messages accessor
+  public spaceChatMessages: {
+    list: (spaceId: string, opts?: { limit?: number }) => Promise<any[]>;
+  };
 
   constructor(userId?: string) {
     this.currentUserId = userId || null;
+
+    // Initialize spaceChatMessages with bound methods
+    this.spaceChatMessages = {
+      list: this.listSpaceChatMessages.bind(this),
+    };
   }
 
   setUserId(userId: string | null) {
@@ -713,32 +725,49 @@ export class SupabaseRepo implements IRepo {
   }
 
   async countCompletedToday(): Promise<number> {
-    const userId = this.ensureUserId();
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    try {
+      const userId = this.ensureUserId();
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // Count todos completed today (completed_at = today)
-    const { count: todoCount, error: todoError } = await supabase
-      .from('todos')
-      .select('*', { count: 'exact', head: true })
-      .eq('owner_id', userId)
-      .not('completed_at', 'is', null)
-      .gte('completed_at', `${today}T00:00:00`)
-      .lt('completed_at', `${today}T23:59:59`);
+      // Count todos completed today (completed_at = today)
+      const { count: todoCount, error: todoError } = await supabase
+        .from('todos')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .not('completed_at', 'is', null)
+        .gte('completed_at', `${today}T00:00:00`)
+        .lt('completed_at', `${today}T23:59:59`);
 
-    if (todoError) {
-      if (__DEV__) {
-        console.warn('[SupabaseRepo.countCompletedToday] todos count error', {
-          code: (todoError as any)?.code,
-          details: (todoError as any)?.details,
-          hint: (todoError as any)?.hint,
-          message: todoError.message,
-        });
+      if (todoError) {
+        // Throttled logging: only warn once per minute
+        const now = Date.now();
+        if (now - this.lastCountCompletedTodayWarn > this.WARN_THROTTLE_MS) {
+          this.lastCountCompletedTodayWarn = now;
+          if (__DEV__) {
+            console.warn('[SupabaseRepo.countCompletedToday] todos count error', {
+              code: (todoError as any)?.code,
+              details: (todoError as any)?.details,
+              hint: (todoError as any)?.hint,
+              message: todoError.message,
+            });
+          }
+        }
+        return 0;
       }
-      throw new Error(`Failed to count completed todos: ${todoError.message}`);
-    }
 
-    // TODO: Add habit completions when we have a completion tracking table
-    return todoCount || 0;
+      // TODO: Add habit completions when we have a completion tracking table
+      return todoCount || 0;
+    } catch (error) {
+      // Catch any unexpected errors (e.g., ensureUserId throwing)
+      const now = Date.now();
+      if (now - this.lastCountCompletedTodayWarn > this.WARN_THROTTLE_MS) {
+        this.lastCountCompletedTodayWarn = now;
+        if (__DEV__) {
+          console.warn('[SupabaseRepo.countCompletedToday] unexpected error', error);
+        }
+      }
+      return 0;
+    }
   }
 
   // ==========================
@@ -1024,6 +1053,48 @@ export class SupabaseRepo implements IRepo {
       todos: (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
       notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
     };
+  }
+
+  // ==========================
+  // SPACE CHAT MESSAGES (Phase 10.7E)
+  // ==========================
+
+  /**
+   * List space chat messages for a given space
+   * Returns messages in chronological order (oldest first)
+   * Phase 10.7E: Used by buildChatContext for conversation memory
+   */
+  private async listSpaceChatMessages(spaceId: string, opts?: { limit?: number }): Promise<any[]> {
+    const DEFAULT_CHAT_LIMIT = 50;
+    const limit = opts?.limit ?? DEFAULT_CHAT_LIMIT;
+
+    try {
+      const userId = this.ensureUserId();
+
+      // Fetch messages in descending order (newest first), then reverse for chronological
+      const { data, error } = await supabase
+        .from('space_chat_messages')
+        .select('id, space_id, role, content, created_at')
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        if (__DEV__) {
+          console.warn('[SupabaseRepo.spaceChatMessages.list] error', error);
+        }
+        return [];
+      }
+
+      // Return in chronological order (oldest first) for conversation context
+      const rows = (data ?? []).slice().reverse();
+      return rows;
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[SupabaseRepo.spaceChatMessages.list] unexpected error', error);
+      }
+      return [];
+    }
   }
 
   // ==========================

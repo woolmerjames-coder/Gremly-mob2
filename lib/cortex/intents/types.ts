@@ -13,4 +13,5 @@ export interface DetectedIntent {
   curiositySuggestion?: string; // Phase 10.7C: clarifying question before action
   suppressChips?: boolean; // Phase 10.7D: prevent chip display (for planning/exploring)
   isPlanning?: boolean; // Phase 10.7D: user is in planning/exploring mode
+  isCommand?: boolean; // Phase 10.10: explicit command verb detected (set/add/create/etc)
 }

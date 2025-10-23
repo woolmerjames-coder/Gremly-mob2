@@ -36,6 +36,7 @@ export function openUnifiedFromChat(
 ) {
   const entityType = kindToType[kind];
 
+  // P0 Fix: Ensure proper mapping of title/note to initialTitle/initialNote
   overlayController.openCreate({
     type: entityType,
     spaceId: meta.spaceId,
@@ -44,9 +45,9 @@ export function openUnifiedFromChat(
       ai_placed: false,
       why_string: meta.whyString,
       source_message_id: meta.messageId,
-      // Phase 10.7B: Pass initial values for prefill
-      initialTitle: initial.title,
-      initialNote: initial.note,
+      // Map overlay initial values to prefill fields
+      initialTitle: initial.title || '',
+      initialNote: initial.note || '',
     },
   });
 }

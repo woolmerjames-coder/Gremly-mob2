@@ -48,6 +48,7 @@ import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
 import type { OverlayKind } from './chat/openUnifiedFromChat';
+import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
@@ -165,11 +166,19 @@ export default function ChatThreadScreen({ route }: Props) {
     async (text: string) => {
       if (!text.trim() || !chat) return;
 
-      // Phase 10.7D: Validate spaceId
+      // P0 Fix: Strict spaceId validation with dev error
       if (!spaceId) {
-        console.error('[ChatThread][10.7D] Missing spaceId');
+        console.error('[ChatThread][10.10] Missing spaceId - this should never happen');
+        if (__DEV__) {
+          throw new Error('[P0] spaceId is required for space_chat lane but was undefined/null');
+        }
         Alert.alert('Error', 'Invalid space context');
         return;
+      }
+
+      // Log spaceId once for debugging
+      if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[Chat] spaceId=', spaceId);
       }
 
       const currentUserId = userId || 'anonymous';
@@ -223,6 +232,8 @@ export default function ChatThreadScreen({ route }: Props) {
             activeSpaceId: chat.space_id || null,
             uiSurface: 'chat',
             spaceId: chat.space_id || null,
+            chatId: chat.id || null, // Phase 10.7E: For context building
+            repo, // Phase 10.7E: For fetching messages
             recentAssistantKind: lastAssistantResponseRef.current?.kind ?? null,
           };
 
@@ -241,9 +252,6 @@ export default function ChatThreadScreen({ route }: Props) {
             type: 'request_started',
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
-
-          // Log spaceId before cortex call
-          console.log('[Chat] spaceId:', ctx.spaceId);
 
           const response = await cortexRoute({ text }, ctx);
 
@@ -543,47 +551,51 @@ export default function ChatThreadScreen({ route }: Props) {
   // Convert from chip handler
   const convertFromChip = useCallback(
     (kind: OverlayKind) => {
-      // Phase 10.7: Use detected intent title if available, otherwise use last user message
-      const titleFromIntent = detectedIntent?.title;
-      const titleFromMessage = messages.find((m, index) => {
-        // Find the last user message
-        return (
-          (m.role === 'user' && index === messages.length - 1) ||
-          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
-        );
-      })?.content;
+      // Phase 10.10: Use lastUserMessage (current user message that triggered action)
+      // NOT first message or last assistant
+      const userText = lastUserMessage.trim();
 
-      const lastUser = messages.find((m, index) => {
-        // Find the last user message
-        return (
-          (m.role === 'user' && index === messages.length - 1) ||
-          (index < messages.length - 1 && messages[index + 1]?.role === 'assistant')
-        );
-      });
+      if (!userText) {
+        console.warn('[ChatThread][10.10] No user message to convert');
+        return;
+      }
 
-      if (!lastUser) return;
+      // Phase 10.10: Use utility functions for proper prefill mapping
+      let initial: { title?: string; note?: string };
 
-      const lastUserText = lastUser.content || '';
-
-      // Phase 10.7D: For notes, put text in body, not title
-      const initial =
-        kind === 'note'
-          ? {
-              title: '',
-              note: lastUserText.trim(),
-            }
-          : { title: (titleFromIntent || lastUserText).trim() };
+      if (kind === 'note') {
+        // For notes: smart title + full text in note field
+        initial = {
+          title: smartTitle(userText),
+          note: userText,
+        };
+      } else if (kind === 'todo') {
+        // For todos: extract imperative title
+        initial = {
+          title: extractTodoTitle(userText),
+        };
+      } else if (kind === 'habit') {
+        // For habits: parse habit with cadence
+        const habitData = parseHabit(userText);
+        initial = {
+          title: habitData.name,
+          // TODO: Pass cadence through once overlay supports it
+          // cadence: habitData.cadence
+        };
+      } else {
+        // Default: use detected intent title or message text
+        const titleFromIntent = detectedIntent?.title;
+        initial = { title: (titleFromIntent || userText).trim() };
+      }
 
       const whyFromIntent = detectedIntent?.why;
 
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[ChatThread][10.7D] Opening overlay:', {
-          kind,
-          hasTitle: !!(initial as any).title,
-          hasBody: !!(initial as any).note,
-          prefill: initial,
-        });
-      }
+      // Phase 10.10: Log before opening overlay
+      console.log('[ChatThread][10.10] Opening overlay', {
+        kind,
+        prefill: initial,
+        userText,
+      });
 
       openUnifiedFromChat(
         kind,
@@ -591,13 +603,13 @@ export default function ChatThreadScreen({ route }: Props) {
         {
           lane: 'space_chat',
           spaceId: spaceId ?? null,
-          messageId: lastUser.id ?? null,
+          messageId: null, // Not converting from specific message ID
           whyString: whyFromIntent || (lastAssistantResponseRef.current?.explanation ?? null),
         },
         overlayController,
       );
     },
-    [messages, spaceId, overlayController, detectedIntent],
+    [lastUserMessage, spaceId, overlayController, detectedIntent],
   );
 
   // Map suggestion text to overlay kind

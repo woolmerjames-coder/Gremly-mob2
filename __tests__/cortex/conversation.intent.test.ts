@@ -21,7 +21,13 @@ jest.mock('../../app/lib/cortex/smalltalk', () => ({
 }));
 
 jest.mock('../../lib/cortex/context/memory', () => ({
-  buildContextWindow: jest.fn((messages) => messages.slice(-8)),
+  buildContextWindow: jest.fn((messages) => (messages || []).slice(-8)),
+  buildChatContext: jest.fn(async () => ({
+    messages: [],
+    summary: '',
+    windowSize: 0,
+    summaryLength: 0,
+  })),
   summarize: jest.fn(async () => 'Test summary'),
   updateRunningSummary: jest.fn(async (existing, _messages) => existing || 'Updated summary'),
   hasExplicitCreationIntent: jest.fn(() => false),
@@ -80,7 +86,8 @@ describe('Conversation Pipeline - Intent Integration', () => {
       expect(result.suggestions).toContain('Add as habit');
       expect((result.meta as any)?.detectedIntent).toBeDefined();
       expect((result.meta as any)?.detectedIntent?.kind).toBe('habit');
-      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.75);
+      // P0 Fix: Updated threshold expectation to 0.90
+      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects todo intent', async () => {
@@ -99,7 +106,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
 
       expect(result.mode).toBe('ask');
       expect((result.meta as any)?.detectedIntent?.kind).toBe('todo');
-      // Phase 10.7B: First time mention → no chip
+      // Phase 10.7B: Answer-First Policy - no chip on first mention (needs reiteration)
       expect(result.suggestions).toEqual([]);
     });
 

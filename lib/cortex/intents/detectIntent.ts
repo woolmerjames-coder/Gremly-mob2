@@ -18,10 +18,20 @@ import type { DetectedIntent } from './types';
  * - New thresholds: habit≥0.85, todo≥0.88, note≥0.80, question≥0.70
  * - Planning/exploring detector forces question mode
  * - Advice-first: default to guidance, not creation
+ *
+ * Phase 10.10 Changes:
+ * - Detect explicit command verbs (set/add/create/save/send/log)
+ * - Set isCommand flag to bypass cooldown and enable immediate action
+ * - "remember" excluded from commands (it's a note hint, not explicit command)
  */
 export function detectIntent(text: string): DetectedIntent {
   const t = text.toLowerCase();
   const trimmed = text.trim();
+
+  // Phase 10.10: Detect explicit command verbs
+  // Note: "remember" removed - it's a note hint, not an explicit command
+  const commandPattern = /^(set|add|create|save|send|log)\b/i;
+  const isCommand = commandPattern.test(trimmed);
 
   // Special-case: creative exploration phrases should be classified as ideas
   // Ensure these do not get downgraded to questions by planning/exploring detector
@@ -35,21 +45,24 @@ export function detectIntent(text: string): DetectedIntent {
       confidence: 0.8,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
+      isCommand,
     };
   }
 
   // 0. Planning/exploring detector (HIGHEST PRIORITY)
-  // Forces question mode to provide advice instead of chips
+  // Phase 10.10 B2: Enhanced planning/exploring detection
+  // Forces advice-first mode instead of chips
   if (
-    /\b(planning|thinking about|explore|exploring|not ready|just planning ahead|considering|might)\b/i.test(
+    /\b(planning ahead|planning|thinking about|explore|exploring|not ready|just planning|considering|might|where to start|where do i start|how do i start)\b/i.test(
       t,
     )
   ) {
     return {
       kind: 'question',
       confidence: 0.75,
-      suppressChips: true, // Flag to prevent chip display
-      isPlanning: true,
+      suppressChips: true, // B2: Suppress chips for this turn
+      isPlanning: true, // B2: Flag for advice-first mode
+      isCommand,
     };
   }
 
@@ -61,6 +74,7 @@ export function detectIntent(text: string): DetectedIntent {
       confidence: 0.8,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
+      isCommand,
     };
   }
 
@@ -70,22 +84,25 @@ export function detectIntent(text: string): DetectedIntent {
     /\?/.test(t) ||
     /^(who|what|where|when|why|how|can|could|would|should|is|are|do|does)\b/i.test(t)
   ) {
-    return { kind: 'question', confidence: 0.8 };
+    return { kind: 'question', confidence: 0.8, isCommand };
   }
 
   // 2. Note patterns: memory/reminder words
   // Moved up priority: question > note > habit > todo
-  if (/\b(note|remember|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)) {
+  if (
+    /\b(note|remember|reminder|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)
+  ) {
     return {
       kind: 'note',
-      confidence: 0.8, // Threshold set to 0.80
+      confidence: 0.85, // P0 Fix: Raised to match pipeline threshold
       title: trimmed,
       curiositySuggestion: 'Should I capture this as a note, or just keeping it in mind?',
+      isCommand,
     };
   }
 
   // 3. Habit patterns: routine, frequency words
-  // Raised threshold to 0.85 for more confidence
+  // Raised threshold to 0.90 for more confidence
   if (
     /every\s+(day|morning|night|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(
       t,
@@ -94,14 +111,15 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'habit',
-      confidence: 0.85, // Threshold set to 0.85
+      confidence: 0.9, // P0 Fix: Raised to match pipeline threshold
       title: trimmed,
       curiositySuggestion: 'Want structured help building this habit, or just exploring?',
+      isCommand,
     };
   }
 
   // 4. To-do patterns: action verbs, deadlines
-  // Raised threshold to 0.88 for highest confidence
+  // Raised threshold to 0.92 for highest confidence
   if (
     /\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b/i.test(
       t,
@@ -110,9 +128,10 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'todo',
-      confidence: 0.88, // Threshold set to 0.88
+      confidence: 0.92, // P0 Fix: Raised to match pipeline threshold
       title: trimmed,
       curiositySuggestion: 'Want me to add this as a to-do, or just planning ahead?',
+      isCommand,
     };
   }
 
@@ -127,6 +146,7 @@ export function detectIntent(text: string): DetectedIntent {
       confidence: 0.85,
       title: trimmed,
       curiositySuggestion: 'Want to save this as a reflection, or just thinking out loud?',
+      isCommand,
     };
   }
 
@@ -137,9 +157,10 @@ export function detectIntent(text: string): DetectedIntent {
       confidence: 0.8,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
+      isCommand,
     };
   }
 
   // No clear intent detected
-  return { kind: 'none', confidence: 0 };
+  return { kind: 'none', confidence: 0, isCommand };
 }
