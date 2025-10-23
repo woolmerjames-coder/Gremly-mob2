@@ -173,7 +173,10 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     };
   }
 
-  if (isGreeting(userText) || isSmalltalk(userText)) {
+  // Treat ultra-short inputs as smalltalk only when no actionable intent is detected
+  const looksLikeSmalltalk = isGreeting(userText) || isSmalltalk(userText);
+  const previewIntent = looksLikeSmalltalk ? detectIntent(userText) : ({ kind: 'none' } as any);
+  if (looksLikeSmalltalk && (previewIntent.kind === 'none' || previewIntent.kind === 'question')) {
     const spaceName = ctx.spaceId ? undefined : undefined; // TODO: Get space name from context
     const smalltalkReply = respondSmalltalk(userText, { spaceName });
 
@@ -237,6 +240,23 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 10.7D: Cooldown mechanism with explicit creation bypass
   const intent: DetectedIntent = detectIntent(input.text || '');
 
+  // Always record the locally detected intent in meta for downstream consumers/tests
+  normalized.meta = {
+    ...normalized.meta,
+    detectedIntent: intent,
+  };
+
+  // Questions: reply-only ergonomics regardless of upstream output
+  if (intent.kind === 'question') {
+    // Ensure no chips for questions
+    normalized.suggestions = [];
+    // Empty reply triggers mascot thinking if none provided
+    if (!normalized.replyText || !normalized.replyText.trim()) {
+      normalized.replyText = '';
+    }
+    normalized.mode = 'ask';
+  }
+
   // Phase 10.7D: Get cooldown settings
   const cooldownTurns = parseInt(process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2', 10);
   let intentCooldown = ctx.intentCooldownTurns || 0;
@@ -296,7 +316,10 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     !intent.suppressChips &&
     (intentCooldown === 0 || bypassCooldown);
 
-  if (intent.confidence >= 0.75 && intent.kind !== 'none') {
+  // Check if we should process this intent (use per-intent threshold, not fixed 0.75)
+  const shouldProcessIntent = intent.confidence >= threshold && intent.kind !== 'none';
+
+  if (shouldProcessIntent) {
     normalized.meta = {
       ...normalized.meta,
       detectedIntent: intent,
@@ -489,7 +512,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         if (__DEV__) {
           console.log('[CORTEX] Using worker response instead of generic response');
         }
-        return workerResponse;
+        // Preserve meta we have already computed (e.g., detectedIntent)
+        return {
+          ...workerResponse,
+          meta: {
+            ...(workerResponse as any)?.meta,
+            ...normalized.meta,
+          },
+        } as CortexResponse;
       }
     } catch (workerError) {
       if (__DEV__) {
@@ -527,6 +557,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
     }
   }
+
+  // Note: meta.detectedIntent has been set pre-emptively above
 
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {
