@@ -243,7 +243,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   if (intent.kind === 'question') {
     // Ensure no chips for questions
     normalized.suggestions = [];
-    // Provide a minimal helpful reply text (tests expect non-empty)
+    // Provide a minimal helpful reply text (tests expect non-empty) but preserve any existing reply
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
     }
@@ -344,16 +344,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
       // Don't update cooldown for planning responses
       // Continue to rest of function
-    } else if (intent.kind === 'question') {
-      // Questions: reply only, no chips
-      // Phase 10.7C: Remove filler text, let mascot thinking animation handle UX
-      if (!normalized.replyText || !normalized.replyText.trim()) {
-        // Return empty reply to trigger only mascot thinking state
-        normalized.replyText = '';
-      }
-      normalized.mode = 'ask';
-      normalized.suggestions = []; // Clear any suggestions
-    } else {
+    } else if (intent.kind !== 'question') {
+      // Non-question intents follow curiosity/chip logic
       // Phase 10.7C: Curiosity phase - ask before acting
       const topicKey = intent.kind;
       const needsClarification = curiosityEnabled && !clarifiedTopics.has(topicKey);
@@ -569,6 +561,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {
     (normalized as any).debug.lane = 'space_chat';
+  }
+
+  // Ensure arrays are present; do not force mode for space_chat unless explicitly required upstream
+  if (!Array.isArray((normalized as any).suggestions)) normalized.suggestions = [];
+  if (!Array.isArray((normalized as any).actions)) normalized.actions = [];
+  if (ctx?.lane === 'space_chat') {
+    // Defensive: never perform actions in chat
+    normalized.actions = [];
   }
 
   return normalized;
