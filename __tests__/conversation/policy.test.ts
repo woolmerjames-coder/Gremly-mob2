@@ -59,7 +59,7 @@ describe('Answer-First Policy', () => {
       expect(result.suggestions).toEqual([]);
 
       // Should detect question intent
-      expect(result.meta?.detectedIntent?.kind).toBe('question');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('question');
     });
 
     it('handles question marks', async () => {
@@ -95,7 +95,7 @@ describe('Answer-First Policy', () => {
       expect(result.suggestions).toEqual([]);
 
       // Should detect habit
-      expect(result.meta?.detectedIntent?.kind).toBe('habit');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('habit');
     });
 
     it('returns reply only for first-time note intent', async () => {
@@ -113,7 +113,7 @@ describe('Answer-First Policy', () => {
 
       expect(result.replyText).toBeDefined();
       expect(result.suggestions).toEqual([]);
-      expect(result.meta?.detectedIntent?.kind).toBe('note');
+      expect((result.meta as any)?.detectedIntent?.kind).toBe('note');
     });
   });
 
@@ -143,7 +143,7 @@ describe('Answer-First Policy', () => {
       expect(result.suggestions?.[0]).toBe('Add as habit');
 
       // Should mark that chip was shown
-      expect(result.meta?.showedChip).toBe(true);
+      expect((result.meta as any)?.showedChip).toBe(true);
     });
 
     it('shows chip for reiterated note intent', async () => {
@@ -165,7 +165,7 @@ describe('Answer-First Policy', () => {
 
       expect(result.suggestions?.length).toBe(1);
       expect(result.suggestions?.[0]).toBe('Add as note');
-      expect(result.meta?.showedChip).toBe(true);
+      expect((result.meta as any)?.showedChip).toBe(true);
     });
   });
 
@@ -227,7 +227,7 @@ describe('Answer-First Policy', () => {
       const result = await runConversationPipeline(input, ctx);
 
       // Should meet 0.8 threshold
-      expect(result.meta?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.8);
+      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.8);
     });
   });
 });

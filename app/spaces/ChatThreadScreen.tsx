@@ -363,15 +363,20 @@ export default function ChatThreadScreen({ route }: Props) {
               setActiveSuggestions(response.suggestions);
 
               // Store detected intent from meta if available
-              if (response.meta?.detectedIntent) {
+              if (
+                response.meta &&
+                'detectedIntent' in response.meta &&
+                response.meta.detectedIntent
+              ) {
                 setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
+                const detectedIntentObj = response.meta.detectedIntent as DetectedIntent;
                 console.log(
                   '[Chips] render for messageId=',
                   messages[messages.length - 1]?.id || 'unknown',
                   'kind=',
-                  response.meta.detectedIntent.kind,
+                  detectedIntentObj.kind,
                   'confidence=',
-                  response.meta.detectedIntent.confidence.toFixed(2),
+                  detectedIntentObj.confidence.toFixed(2),
                 );
               }
 
@@ -419,9 +424,11 @@ export default function ChatThreadScreen({ route }: Props) {
 
             // Phase 10.6: Emit response final event with intent detection flag
             const hasIntent =
-              response.meta?.detectedIntent &&
-              response.meta.detectedIntent.kind !== 'none' &&
-              response.meta.detectedIntent.confidence >= 0.75;
+              response.meta &&
+              'detectedIntent' in response.meta &&
+              response.meta.detectedIntent &&
+              (response.meta.detectedIntent as DetectedIntent).kind !== 'none' &&
+              (response.meta.detectedIntent as DetectedIntent).confidence >= 0.75;
 
             emitChatEvent({
               type: 'response_final',
@@ -438,7 +445,13 @@ export default function ChatThreadScreen({ route }: Props) {
             lastAssistantResponseRef.current = {
               explanation: response.explanation,
               replyText: response.replyText,
-              kind: response.meta?.kind,
+              kind:
+                (response.meta?.kind as
+                  | 'smalltalk'
+                  | 'decision'
+                  | 'classification'
+                  | null
+                  | undefined) ?? null,
             };
 
             // Phase 10.6: Trigger appropriate mascot state after assistant message
