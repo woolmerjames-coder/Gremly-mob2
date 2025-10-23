@@ -1,12 +1,13 @@
 # Phase 10.7D Implementation Plan: Hardened Space Chat
 
-**Status**: Partial Implementation  
+**Status**: 50% Complete (Foundation Implemented)  
 **Branch**: `feat/10.7B-conversation-refinement`  
-**Date**: October 22, 2025
+**Date**: October 22, 2025  
+**Last Commit**: 50cdfae
 
 ## Completed ✅
 
-### 1. Intent Detection Hardening
+### 1. Intent Detection Hardening ✅
 **File**: `lib/cortex/intents/detectIntent.ts`
 - ✅ New priority order: question > note > habit > todo > reflection > idea
 - ✅ Adjusted thresholds: habit≥0.85, todo≥0.88, note≥0.80, question≥0.70
@@ -14,7 +15,7 @@
 - ✅ Added `suppressChips` and `isPlanning` flags
 - ✅ Planning phrases: "planning", "thinking about", "explore", "not ready", "just planning ahead", "maybe", "considering", "might"
 
-### 2. Type Definitions
+### 2. Type Definitions ✅
 **File**: `lib/cortex/intents/types.ts`
 - ✅ Added `suppressChips?: boolean` to DetectedIntent
 - ✅ Added `isPlanning?: boolean` to DetectedIntent
@@ -24,7 +25,7 @@
 - ✅ Added `runningSummary?: string | null` - ~700 char summary
 - ✅ Added `contextWindow?: Array<{role, text}>` - last N messages
 
-### 3. Context & Memory Helpers
+### 3. Context & Memory Helpers ✅
 **File**: `lib/cortex/context/memory.ts` (NEW)
 - ✅ `buildContextWindow()` - extracts last N turns (default 8)
 - ✅ `summarize()` - creates extractive summary (~700 chars)
@@ -32,105 +33,160 @@
 - ✅ `hasExplicitCreationIntent()` - detects "add/save/create/make this a"
 - ✅ `isAffirmation()` - detects "yes/ok/sure" responses
 
-### 4. Persona Updates
+### 4. Persona Updates ✅
 **File**: `lib/cortex/persona/prompt.ts`
 - ✅ Updated PERSONA_PROMPT: "Be brief (≤2 sentences), warm, practical"
 - ✅ Added rule: "Refuse to turn a question into a to-do unless user explicitly asks"
 - ✅ Added `getClarificationPrompt()` - for planning requests with max bullets cap
 - ✅ Applied brevity to all tone variants
 
+### 5. Environment Flags ✅
+**File**: `.env.local`
+- ✅ EXPO_PUBLIC_CHAT_MAX_CONTEXT=8
+- ✅ EXPO_PUBLIC_INTENT_COOLDOWN_TURNS=2
+- ✅ EXPO_PUBLIC_REPLY_MAX_BULLETS=5
+
 ## Remaining Work 🚧
 
-### 5. Conversation Pipeline Updates
+### 6. Conversation Pipeline Integration (HIGH PRIORITY)
 **File**: `lib/cortex/pipelines/conversation.ts`
 
-#### Context Building
+**Status**: Started but needs clean implementation
+
+**Required Changes**:
+
+1. **Add imports** (line 1-15):
 ```typescript
-// Build context window (last 8 turns)
+import {
+  buildContextWindow,
+  summarize,
+  updateRunningSummary,
+  hasExplicitCreationIntent,
+  isAffirmation,
+  type ChatTurn,
+} from '../context/memory';
+```
+
+2. **Build context window** (after function start, ~line 125):
+```typescript
+// Phase 10.7D: Build context window and running summary
 const maxContext = parseInt(process.env.EXPO_PUBLIC_CHAT_MAX_CONTEXT || '8', 10);
-const contextWindow = buildContextWindow(messages, maxContext);
+const allMessages: ChatTurn[] = (input as any).messages || [];
+const contextWindow = buildContextWindow(allMessages, maxContext);
 
-// Get or update running summary
-if (!ctx.runningSummary && messages.length > 2) {
-  ctx.runningSummary = await summarize(messages);
-}
-
-// Pass to worker
-const workerInput = {
-  ...input,
-  contextWindow,
-  runningSummary: ctx.runningSummary,
-};
-```
-
-#### Cooldown Logic
-```typescript
-// Check cooldown
-const cooldownTurns = parseInt(process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2', 10);
-let intentCooldown = ctx.intentCooldownTurns || 0;
-
-// Decrement cooldown each turn
-if (intentCooldown > 0) {
-  intentCooldown--;
-}
-
-// Can show chips if:
-// 1. Cooldown is 0
-// 2. Confidence >= threshold
-// 3. Either explicit creation verb OR user affirmed previous suggestion
-// 4. Not suppressed by intent (isPlanning/suppressChips)
-const canShowChip = 
-  intentCooldown === 0 &&
-  intent.confidence >= thresholds[intent.kind] &&
-  !intent.suppressChips &&
-  (hasExplicitCreationIntent(input.text) || isAffirmation(input.text));
-
-// If chip shown, set cooldown
-if (chipShown) {
-  intentCooldown = cooldownTurns;
+if (!ctx.runningSummary && allMessages.length > 2) {
+  ctx.runningSummary = await summarize(allMessages);
 }
 ```
 
-#### Fallback Guard
+3. **Add empathy check** (before smalltalk check, ~line 140):
 ```typescript
-// If catch-all with no content, force direct worker call
-if (wasCatchAllResponse && hasNoUsefulContent) {
-  console.log('[CORTEX][10.7D] Enforcing fallback for empty catch-all');
-  return await tryDirectWorkerCall(input, ctx);
-}
-```
-
-#### Empathy Responses
-```typescript
-// Check for distress signals
-if (/\b(oh no|what's wrong|i'm upset|i'm sad|i'm worried)\b/i.test(userText)) {
+// Phase 10.7D: Check for empathy signals
+if (/\b(oh no|what's wrong|i'm upset|i'm sad|i'm worried|feeling down)\b/i.test(userText.toLowerCase())) {
   return {
-    mode: 'ask',
-    replyText: "I'm here for you. What's going on?",
+    mode: 'ask' as const,
+    actions: [],
     suggestions: [],
-    // ... full response
+    replyText: "I'm here for you. What's going on?",
+    confidence: 0,
+    meta: { kind: 'empathy', empathy_triggered: true },
   };
 }
 ```
 
-### 6. ChatThreadScreen Updates
+4. **Add cooldown logic** (after intent detection, ~line 235):
+```typescript
+// Phase 10.7D: Get cooldown settings
+const cooldownTurns = parseInt(process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2', 10);
+let intentCooldown = ctx.intentCooldownTurns || 0;
+
+if (intentCooldown > 0) {
+  intentCooldown--;
+}
+
+const hasExplicitIntent = hasExplicitCreationIntent(userText);
+const isUserAffirming = isAffirmation(userText);
+const bypassCooldown = hasExplicitIntent || isUserAffirming;
+```
+
+5. **Update thresholds** (replace old threshold logic):
+```typescript
+const intentThresholds: Record<string, number> = {
+  habit: 0.85,
+  todo: 0.88,
+  note: 0.80,
+  question: 0.70,
+  reflection: 0.75,
+  idea: 0.75,
+};
+
+const threshold = intentThresholds[intent.kind] || 0.80;
+const shouldShowChip =
+  intent.confidence >= threshold &&
+  intent.kind !== 'none' &&
+  intent.kind !== 'question' &&
+  !intent.suppressChips &&
+  (intentCooldown === 0 || bypassCooldown);
+```
+
+6. **Add planning mode handler** (in intent handling block):
+```typescript
+if (intent.isPlanning || intent.suppressChips) {
+  normalized.replyText = normalized.replyText || "I can help you think through that. What aspect would you like to explore?";
+  normalized.mode = 'ask';
+  normalized.suggestions = [];
+  // Don't update cooldown for planning responses
+} else if (intent.kind === 'question') {
+  // existing question logic...
+} else {
+  // existing chip logic...
+}
+```
+
+7. **Set cooldown when chip shown** (in chip showing block):
+```typescript
+if (shouldShowChip && (intentReiterated || bypassCooldown)) {
+  // ... existing chip code ...
+  
+  // Phase 10.7D: Set cooldown
+  ctx.intentCooldownTurns = cooldownTurns;
+  
+  normalized.meta = {
+    ...normalized.meta,
+    showedChip: true,
+    cooldownSet: cooldownTurns,
+  };
+} else {
+  // ... no chip code ...
+  
+  // Phase 10.7D: Update cooldown
+  ctx.intentCooldownTurns = intentCooldown;
+}
+```
+
+8. **Update running summary** (before fallback check):
+```typescript
+// Phase 10.7D: Update running summary after response
+if (normalized.replyText && allMessages.length > 0) {
+  const newMessages: ChatTurn[] = [
+    ...allMessages.slice(-2),
+    { role: 'user', text: userText },
+    { role: 'assistant', text: normalized.replyText },
+  ];
+  ctx.runningSummary = await updateRunningSummary(ctx.runningSummary || '', newMessages);
+}
+```
+
+### 7. ChatThreadScreen Updates (MEDIUM PRIORITY)
 **File**: `app/spaces/ChatThreadScreen.tsx`
 
 #### Debounce Send
 ```typescript
-const [sendDebounceTimer, setSendDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+import { useDebouncedCallback } from 'use-debounce';
 
-const debouncedSend = useCallback((text: string) => {
-  if (sendDebounceTimer) {
-    clearTimeout(sendDebounceTimer);
-  }
-  
-  const timer = setTimeout(() => {
-    handleSendImmediate(text);
-  }, 200);
-  
-  setSendDebounceTimer(timer);
-}, [sendDebounceTimer]);
+const debouncedSend = useDebouncedCallback((text: string) => {
+  handleSendImmediate(text);
+}, 200);
 ```
 
 #### SpaceId Validation
@@ -154,8 +210,6 @@ const convertFromChip = useCallback((kind: OverlayKind) => {
     
   console.log('[ChatThread][10.7D] Opening overlay:', {
     kind,
-    hasTitle: !!initial.title,
-    hasBody: !!(initial as any).note,
     prefill: initial,
   });
   
@@ -163,17 +217,7 @@ const convertFromChip = useCallback((kind: OverlayKind) => {
 }, [lastUserMessage, detectedIntent]);
 ```
 
-### 7. Environment Flags
-**File**: `.env.local`
-```bash
-# Phase 10.7D: Hardened chat settings
-EXPO_PUBLIC_CHAT_MAX_CONTEXT=8
-EXPO_PUBLIC_INTENT_COOLDOWN_TURNS=2
-EXPO_PUBLIC_REPLY_MAX_BULLETS=5
-EXPO_PUBLIC_DEBUG_CORTEX=on
-```
-
-### 8. Tests
+### 8. Tests (LOW PRIORITY)
 
 #### Intent Detection
 **File**: `__tests__/conversation/intent-planning.test.ts` (NEW)
@@ -185,73 +229,38 @@ describe('Planning/Exploring Detection', () => {
     expect(intent.suppressChips).toBe(true);
     expect(intent.isPlanning).toBe(true);
   });
-  
-  test('Run every morning starting Monday', () => {
-    const intent = detectIntent('Run every morning starting Monday');
-    expect(intent.kind).toBe('habit');
-    expect(intent.confidence).toBeGreaterThanOrEqual(0.85);
-  });
 });
 ```
 
 #### Cooldown
 **File**: `__tests__/conversation/cooldown.test.ts` (NEW)
-```typescript
-describe('Intent Cooldown', () => {
-  test('chip shown once, suppressed next 2 turns', async () => {
-    // First turn: show chip, set cooldown=2
-    // Second turn: cooldown=1, no chip
-    // Third turn: cooldown=0, no chip (unless reiterated)
-    // Fourth turn: cooldown=0, can show chip again
-  });
-});
-```
-
-#### Small-talk
-**File**: `__tests__/conversation/smalltalk.test.ts` (UPDATE)
-```typescript
-test('How are you? → natural reply, no intent detection', async () => {
-  const response = await runConversationPipeline({text: 'How are you?'}, ctx);
-  expect(response.meta?.kind).toBe('smalltalk');
-  expect(response.suggestions).toEqual([]);
-});
-```
+- Test chip shown once, suppressed next 2 turns
+- Test explicit verbs bypass cooldown
+- Test affirmation bypasses cooldown
 
 #### Overlay Prefill
 **File**: `__tests__/overlay/prefill-notes.test.tsx` (NEW)
-```typescript
-test('Remember: cancel gym → note body filled', () => {
-  // Click chip for note
-  // Verify overlay opens with:
-  // - initialTitle: ''
-  // - initialBody: 'Remember: cancel gym'
-});
-```
-
-## Acceptance Criteria Checklist
-
-- [ ] Answers reference earlier turns for 6-8 messages
-- [ ] "How are you?" → natural small-talk
-- [ ] Planning phrases → advice, no chips
-- [ ] Chips only when asked OR crystal-clear
-- [ ] Chips suppressed for 2 turns after shown
-- [ ] Clicking chip prefills overlay (note → body)
-- [ ] No duplicate replies
-- [ ] No empty catch-all responses
-- [ ] Logs show spaceId and runningSummary
-- [ ] Questions never converted to todos
+- Test note prefills body not title
+- Test habit/todo prefills title
 
 ## Implementation Priority
 
-1. **HIGH**: Conversation pipeline cooldown + context
-2. **HIGH**: ChatThreadScreen debounce + prefill fix
-3. **MEDIUM**: Empathy responses
-4. **MEDIUM**: Environment flags
-5. **LOW**: Tests (can be added incrementally)
+1. **CRITICAL**: Conversation pipeline cooldown + context (30 min)
+2. **HIGH**: ChatThreadScreen debounce + prefill fix (15 min)
+3. **MEDIUM**: Tests (30 min)
+
+## Next Steps
+
+1. Apply conversation.ts changes carefully using the code snippets above
+2. Update ChatThreadScreen.tsx with debounce and prefill
+3. Add tests incrementally
+4. Run `npm run test:ci`
+5. Commit with message: "feat(10.7D): Complete Space Chat hardening"
 
 ## Notes
 
-- Current implementation is ~40% complete
-- Core types and helpers are in place
-- Main integration work remains in conversation.ts and ChatThreadScreen.tsx
-- Tests will validate behavior once pipeline is complete
+- Foundation (50%) is complete and pushed (commit 50cdfae)
+- Conversation pipeline needs careful integration due to complexity
+- All foundation files have 0 TypeScript errors
+- Environment flags already configured
+
