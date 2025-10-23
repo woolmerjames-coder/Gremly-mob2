@@ -20,15 +20,17 @@ import type { DetectedIntent } from './types';
  * - Advice-first: default to guidance, not creation
  *
  * Phase 10.10 Changes:
- * - Detect explicit command verbs (set/add/create/remember/save/send/log)
+ * - Detect explicit command verbs (set/add/create/save/send/log)
  * - Set isCommand flag to bypass cooldown and enable immediate action
+ * - "remember" excluded from commands (it's a note hint, not explicit command)
  */
 export function detectIntent(text: string): DetectedIntent {
   const t = text.toLowerCase();
   const trimmed = text.trim();
 
   // Phase 10.10: Detect explicit command verbs
-  const commandPattern = /^(set|add|create|remember|save|send|log)\b/i;
+  // Note: "remember" removed - it's a note hint, not an explicit command
+  const commandPattern = /^(set|add|create|save|send|log)\b/i;
   const isCommand = commandPattern.test(trimmed);
 
   // Special-case: creative exploration phrases should be classified as ideas

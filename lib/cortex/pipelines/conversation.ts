@@ -467,9 +467,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
           recentIntentBuffer.filter((i) => i.kind === intent.kind && currentTurn - i.turn <= 2)
             .length >= 1;
 
-        // Phase 10.10: Also bypass reiteration check for high confidence (≥0.85)
-        const highConfidence = intent.confidence >= 0.85;
-        const shouldBypassReiteration = intentReiterated || bypassCooldown || highConfidence;
+        // Phase 10.7B: Answer-First Policy - chips only for reiterated or explicit intents
+        // bypassCooldown = true when user explicitly requests or affirms
+        const shouldBypassReiteration = intentReiterated || bypassCooldown;
 
         if (shouldShowChip && shouldBypassReiteration) {
           // Show chip for reiterated intent or explicit request
@@ -516,6 +516,12 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
           }
           normalized.suggestions = []; // No chips
           normalized.mode = 'ask';
+
+          // Phase 10.7B: Mark that no chip was shown (for test assertions)
+          normalized.meta = {
+            ...normalized.meta,
+            showedChip: false,
+          };
 
           // Phase 10.7D: Update cooldown in context
           ctx.intentCooldownTurns = intentCooldown;

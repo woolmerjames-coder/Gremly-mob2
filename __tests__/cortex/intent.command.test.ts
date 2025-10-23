@@ -70,9 +70,9 @@ describe('Explicit Command Intent Detection', () => {
       expect(result.kind).toBe('todo');
     });
 
-    it('detects "remember" as command', () => {
+    it('detects "remember" as note hint (NOT command)', () => {
       const result = detectIntent('Remember to pack lunch');
-      expect(result.isCommand).toBe(true);
+      expect(result.isCommand).toBe(false); // "remember" is a hint, not explicit command
       expect(result.kind).toBe('note');
     });
 
@@ -244,11 +244,18 @@ describe('Explicit Command Intent Detection', () => {
         text: 'I want to meditate every morning', // High confidence but not a command
       };
 
-      const result = await runConversationPipeline(input, mockContext);
+      // First-time intent - no prior buffer
+      const ctx: CortexContext = {
+        ...mockContext,
+        recentIntentBuffer: [],
+      };
 
-      // Should show chip but NOT trigger immediate overlay
+      const result = await runConversationPipeline(input, ctx);
+
+      // Phase 10.7B: Answer-First Policy
+      // First-time high confidence intent should NOT show chip (needs reiteration)
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as habit');
+      expect(result.suggestions).toEqual([]); // No chip on first time
       expect(result.replyText).not.toBe('Opening...');
       expect((result.meta as any)?.shouldOpenOverlay).toBeFalsy();
     });

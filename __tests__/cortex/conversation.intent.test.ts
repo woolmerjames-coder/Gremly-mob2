@@ -106,8 +106,8 @@ describe('Conversation Pipeline - Intent Integration', () => {
 
       expect(result.mode).toBe('ask');
       expect((result.meta as any)?.detectedIntent?.kind).toBe('todo');
-      // Phase 10.10: High confidence (≥0.85) now shows chip even on first mention
-      expect(result.suggestions).toContain('Add as todo');
+      // Phase 10.7B: Answer-First Policy - no chip on first mention (needs reiteration)
+      expect(result.suggestions).toEqual([]);
     });
 
     it('detects reflection intent', async () => {
