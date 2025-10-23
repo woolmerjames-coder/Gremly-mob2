@@ -250,9 +250,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   if (intent.kind === 'question') {
     // Ensure no chips for questions
     normalized.suggestions = [];
-    // Empty reply triggers mascot thinking if none provided
+    // Provide a minimal helpful reply text (tests expect non-empty)
     if (!normalized.replyText || !normalized.replyText.trim()) {
-      normalized.replyText = '';
+      normalized.replyText = 'I can help you think through that.';
     }
     normalized.mode = 'ask';
   }
@@ -286,7 +286,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   const currentTurn = ctx.currentTurn || 0;
-  const lastChipTurn = ctx.lastChipTurn || -2; // Default to allow chips
+  const lastChipTurn = typeof ctx.lastChipTurn === 'number' ? ctx.lastChipTurn : -2; // Default to allow chips
   const recentIntentBuffer = ctx.recentIntentBuffer || [];
   const clarifiedTopics = ctx.clarifiedTopics || new Set<string>();
 
@@ -309,12 +309,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // 3. Not suppressed (planning mode)
   // 4. Either cooldown is 0 OR user explicitly asked/affirmed
   const threshold = intentThresholds[intent.kind] || 0.8;
+  // Cooldown based on turn distance from last shown chip (test expectation)
+  const turnsSinceLastChip = lastChipTurn >= 0 ? currentTurn - lastChipTurn : Infinity;
+  const cooldownActive = turnsSinceLastChip <= cooldownTurns && !bypassCooldown;
   const shouldShowChip =
     intent.confidence >= threshold &&
     intent.kind !== 'none' &&
     intent.kind !== 'question' &&
     !intent.suppressChips &&
-    (intentCooldown === 0 || bypassCooldown);
+    (!cooldownActive || bypassCooldown);
 
   // Check if we should process this intent (use per-intent threshold, not fixed 0.75)
   const shouldProcessIntent = intent.confidence >= threshold && intent.kind !== 'none';
@@ -387,8 +390,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
             normalized.replyText = 'I can save this if you like.';
           }
 
-          // Phase 10.7D: Set cooldown when chip shown
+          // Phase 10.7D: Set cooldown markers when chip shown
           ctx.intentCooldownTurns = cooldownTurns;
+          ctx.lastChipTurn = currentTurn;
 
           // Mark that we showed a chip this turn
           normalized.meta = {
