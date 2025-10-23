@@ -13,8 +13,8 @@ jest.setTimeout(10000);
 jest.mock('react-native-safe-area-context', () => {
   const React = require('react');
   return {
-    SafeAreaProvider: ({ children }) => <>{children}</>,
-    SafeAreaView: ({ children }) => <>{children}</>,
+    SafeAreaProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    SafeAreaView: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
     useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
   };
 });
@@ -132,12 +132,14 @@ jest.mock('../../providers/RepoProvider', () => ({
   }),
 }));
 
-// Mock Modal to avoid native portal complexities that can hang tests
-jest.mock('react-native/Libraries/Modal/Modal', () => {
+// Mock Modal to avoid native dependency issues
+jest.mock('react-native', () => {
   const React = require('react');
-  const { View } = require('react-native');
-  const Modal = ({ children }) => <View testID="mock-modal">{children}</View>;
-  return Modal;
+  const RN = jest.requireActual('react-native');
+  return {
+    ...RN,
+    Modal: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  };
 });
 
 // Helper to render with SafeAreaProvider consistently
