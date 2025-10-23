@@ -363,7 +363,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 );
               }
 
-              // Phase 10.7: Auto-fade suggestions after 8 seconds (temporary for testing)
+              // Phase 10.7B: Auto-fade suggestions after 6 seconds
               if (suggestionFadeTimerRef.current) {
                 clearTimeout(suggestionFadeTimerRef.current);
               }
@@ -371,7 +371,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 console.log('[Chips] auto-fade triggered');
                 setActiveSuggestions([]);
                 setDetectedIntent(null);
-              }, 8000);
+              }, 6000);
             } else {
               setActiveSuggestions([]);
               setDetectedIntent(null);
@@ -492,7 +492,15 @@ export default function ChatThreadScreen({ route }: Props) {
 
       if (!lastUser) return;
 
-      const initial = { title: (titleFromIntent || lastUser.content || '').trim() };
+      const lastUserText = lastUser.content || '';
+      const initial =
+        kind === 'note'
+          ? {
+              title: (titleFromIntent || lastUserText).trim(),
+              note: lastUserText.trim(),
+            }
+          : { title: (titleFromIntent || lastUserText).trim() };
+
       const whyFromIntent = detectedIntent?.why;
 
       openUnifiedFromChat(
@@ -657,11 +665,12 @@ export default function ChatThreadScreen({ route }: Props) {
                 })}
 
                 {/* Suggestion chips for ask mode responses */}
+                {/* Phase 10.7B: Max 1 chip */}
                 {activeSuggestions.length > 0 && (
                   <View style={styles.suggestionsContainer}>
                     <Text style={styles.suggestionsLabel}>You could also:</Text>
                     <View style={styles.suggestionChips}>
-                      {activeSuggestions.map((suggestion, index) => {
+                      {activeSuggestions.slice(0, 1).map((suggestion, index) => {
                         console.log('[Chips] Rendering chip:', suggestion, 'index:', index);
                         return (
                           <Chip

@@ -9,4 +9,10 @@ export interface CortexContextBase {
   userId?: string | null;
   /** Track the kind of the last assistant message for anti-spam logic */
   recentAssistantKind?: 'smalltalk' | 'decision' | 'classification' | null;
+  /** Phase 10.7B: Track recent intents to detect reiteration */
+  recentIntentBuffer?: Array<{ kind: string; turn: number }>;
+  /** Phase 10.7B: Turn counter for cooldown logic */
+  currentTurn?: number;
+  /** Phase 10.7B: Last turn that showed a chip */
+  lastChipTurn?: number;
 }

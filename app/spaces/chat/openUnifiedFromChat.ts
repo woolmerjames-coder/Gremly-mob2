@@ -9,6 +9,9 @@ export interface ChatConversionMeta {
   spaceId: string | null; // the current space
   messageId?: string | null; // chat message being converted
   whyString?: string | null; // explanation/summarization snippet if any
+  // Phase 10.7B: Initial values for prefill
+  initialTitle?: string;
+  initialNote?: string;
 }
 
 export interface OverlayInitial {
@@ -41,6 +44,9 @@ export function openUnifiedFromChat(
       ai_placed: false,
       why_string: meta.whyString,
       source_message_id: meta.messageId,
+      // Phase 10.7B: Pass initial values for prefill
+      initialTitle: initial.title,
+      initialNote: initial.note,
     },
   });
 }

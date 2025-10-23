@@ -67,6 +67,9 @@ export type UnifiedCreateOverlayProps = {
     ai_placed?: boolean;
     why_string?: string | null;
     source_message_id?: string | null;
+    // Phase 10.7B: Initial values for prefill
+    initialTitle?: string;
+    initialNote?: string;
   };
   onClose: () => void;
   onSaved?: (result: { type: string; id: string }) => void;

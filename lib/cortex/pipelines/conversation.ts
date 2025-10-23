@@ -155,41 +155,80 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.actions = [];
   }
 
-  // Phase 10.7: Intent detection for smart suggestions
+  // Phase 10.7B: Answer-first policy with intent detection
   const intent: DetectedIntent = detectIntent(input.text || '');
+  const currentTurn = ctx.currentTurn || 0;
+  const lastChipTurn = ctx.lastChipTurn || -2; // Default to allow chips
+  const recentIntentBuffer = ctx.recentIntentBuffer || [];
+
+  // Priority: question > reflection > note > todo > habit > idea
+  const shouldShowChip =
+    intent.confidence >= 0.8 &&
+    intent.kind !== 'none' &&
+    intent.kind !== 'question' && // Questions never get chips
+    currentTurn - lastChipTurn >= 2; // Cooldown: 2 turns between chips
 
   if (intent.confidence >= 0.75 && intent.kind !== 'none') {
-    // Add suggestion chip for high-confidence intents
-    const suggestionText =
-      intent.kind === 'question' ? 'Ask this question' : `Add as ${intent.kind}`;
-
-    normalized.suggestions = [suggestionText, ...(normalized.suggestions ?? [])];
     normalized.meta = {
       ...normalized.meta,
       detectedIntent: intent,
     };
-    normalized.mode = 'ask'; // Always ask, never auto-create
 
-    // If we don't have a replyText yet, provide a minimal nudge
-    if (!normalized.replyText || !normalized.replyText.trim()) {
-      normalized.replyText =
-        intent.kind === 'habit'
-          ? 'Want me to add this as a habit?'
-          : intent.kind === 'todo'
-            ? 'Should I create this to-do?'
-            : intent.kind === 'note'
-              ? 'Want me to save this note?'
-              : intent.kind === 'reflection'
-                ? 'Should I save this reflection?'
-                : intent.kind === 'idea'
-                  ? 'Want me to capture this idea?'
-                  : intent.kind === 'question'
-                    ? 'Should I save this question?'
-                    : 'I can turn that into something actionable—want to do that?';
+    // Questions: reply only, no chips
+    if (intent.kind === 'question') {
+      if (!normalized.replyText || !normalized.replyText.trim()) {
+        normalized.replyText = 'Let me think about that...';
+      }
+      normalized.mode = 'ask';
+      normalized.suggestions = []; // Clear any suggestions
+    } else {
+      // Non-questions: check if we should show chip
+      const intentReiterated =
+        recentIntentBuffer.filter((i) => i.kind === intent.kind && currentTurn - i.turn <= 2)
+          .length >= 1;
+
+      if (shouldShowChip && intentReiterated) {
+        // Show chip for reiterated intent
+        const suggestionText = `Add as ${intent.kind}`;
+        normalized.suggestions = [suggestionText]; // Max 1 chip
+        normalized.mode = 'ask';
+
+        // Add subtle line to reply
+        if (normalized.replyText && normalized.replyText.trim()) {
+          normalized.replyText += ' I can save this if you like.';
+        } else {
+          normalized.replyText = 'I can save this if you like.';
+        }
+
+        // Mark that we showed a chip this turn
+        normalized.meta = {
+          ...normalized.meta,
+          showedChip: true,
+        };
+      } else {
+        // Reply only, no chip
+        if (!normalized.replyText || !normalized.replyText.trim()) {
+          normalized.replyText =
+            intent.kind === 'habit'
+              ? 'That sounds like a good habit to build.'
+              : intent.kind === 'todo'
+                ? 'Got it, noted.'
+                : intent.kind === 'note'
+                  ? "I'll remember that."
+                  : intent.kind === 'reflection'
+                    ? 'Thanks for sharing that.'
+                    : intent.kind === 'idea'
+                      ? 'Interesting idea!'
+                      : 'Understood.';
+        }
+        normalized.suggestions = []; // No chips
+        normalized.mode = 'ask';
+      }
     }
 
     if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
       console.log(`[CORTEX][intent] Detected ${intent.kind} (${intent.confidence.toFixed(2)})`);
+      console.log(`[CORTEX][policy] Chip shown: ${!!normalized.meta?.showedChip}`);
     }
   }
 

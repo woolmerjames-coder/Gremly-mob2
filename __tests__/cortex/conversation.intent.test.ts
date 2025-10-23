@@ -30,6 +30,9 @@ describe('Conversation Pipeline - Intent Integration', () => {
     spaceId: 'test-space',
     lane: 'space_chat',
     uiSurface: 'chat',
+    currentTurn: 1,
+    lastChipTurn: -2,
+    recentIntentBuffer: [],
   };
 
   beforeEach(() => {
@@ -37,7 +40,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
   });
 
   describe('High Confidence Intent Detection', () => {
-    it('adds suggestion chip for habit intent', async () => {
+    it('detects habit intent and shows chip for reiterated intent', async () => {
       // Mock cortexDecide to return base response
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
@@ -50,7 +53,14 @@ describe('Conversation Pipeline - Intent Integration', () => {
         text: 'Start running every morning',
       };
 
-      const result = await runConversationPipeline(input, mockContext);
+      const ctx = {
+        ...mockContext,
+        currentTurn: 5,
+        lastChipTurn: 2,
+        recentIntentBuffer: [{ kind: 'habit', turn: 3 }], // Reiterated
+      };
+
+      const result = await runConversationPipeline(input, ctx);
 
       expect(result.mode).toBe('ask');
       expect(result.suggestions).toContain('Add as habit');
@@ -59,7 +69,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
       expect(result.meta?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.75);
     });
 
-    it('adds suggestion chip for todo intent', async () => {
+    it('detects todo intent', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
@@ -74,11 +84,12 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as todo');
       expect(result.meta?.detectedIntent?.kind).toBe('todo');
+      // Phase 10.7B: First time mention → no chip
+      expect(result.suggestions).toEqual([]);
     });
 
-    it('adds suggestion chip for reflection intent', async () => {
+    it('detects reflection intent', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
@@ -93,11 +104,12 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as reflection');
       expect(result.meta?.detectedIntent?.kind).toBe('reflection');
+      // Phase 10.7B: First time mention → no chip
+      expect(result.suggestions).toEqual([]);
     });
 
-    it('adds suggestion chip for idea intent', async () => {
+    it('detects idea intent', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
@@ -112,11 +124,12 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as idea');
       expect(result.meta?.detectedIntent?.kind).toBe('idea');
+      // Phase 10.7B: First time mention → no chip
+      expect(result.suggestions).toEqual([]);
     });
 
-    it('adds "Ask this question" for question intent', async () => {
+    it('questions get reply only, no chip suggestion', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
@@ -131,7 +144,8 @@ describe('Conversation Pipeline - Intent Integration', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Ask this question');
+      // Phase 10.7B: Questions never get chips
+      expect(result.suggestions).toEqual([]);
       expect(result.meta?.detectedIntent?.kind).toBe('question');
     });
   });
@@ -177,8 +191,8 @@ describe('Conversation Pipeline - Intent Integration', () => {
       expect(result.mode).toBe('ask');
       // Actions should be cleared in space_chat
       expect(result.actions).toEqual([]);
-      // Intent suggestion should be added
-      expect(result.suggestions).toContain('Add as todo');
+      // Phase 10.7B: First time → no chip
+      expect(result.suggestions).toEqual([]);
     });
 
     it('clears actions array even with intent detection', async () => {
@@ -236,7 +250,7 @@ describe('Conversation Pipeline - Intent Integration', () => {
   });
 
   describe('Minimal Reply with Chips', () => {
-    it('provides non-empty replyText when suggestions are added', async () => {
+    it('provides reply without chips on first mention (Phase 10.7B answer-first)', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
@@ -248,38 +262,47 @@ describe('Conversation Pipeline - Intent Integration', () => {
         text: 'Start running every morning',
       };
 
-      const result = await runConversationPipeline(input, mockContext);
+      const ctx = {
+        ...mockContext,
+        currentTurn: 1,
+        recentIntentBuffer: [], // First time mention
+      };
 
-      // Should have suggestion chips
-      expect(result.suggestions).toBeDefined();
-      expect(result.suggestions!.length).toBeGreaterThan(0);
+      const result = await runConversationPipeline(input, ctx);
 
-      // Should have a minimal reply nudge
+      // Phase 10.7B: First time → reply only, no chips
+      expect(result.suggestions).toEqual([]);
+
+      // Should have a reply
       expect(result.replyText).toBeDefined();
       expect(result.replyText).not.toBe('');
-      expect(result.replyText?.toLowerCase()).toContain('habit');
     });
 
-    it('provides different nudges for different intent kinds', async () => {
+    it('shows chip with nudge for reiterated intent (Phase 10.7B)', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
         confidence: 0.5,
       });
 
-      // Test todo intent
-      const todoInput: DecideInput = { text: 'Buy flowers tomorrow' };
-      const todoResult = await runConversationPipeline(todoInput, mockContext);
-      expect(todoResult.replyText).toBeDefined();
-      expect(todoResult.replyText).not.toBe('');
-      expect(todoResult.replyText?.toLowerCase()).toContain('to-do');
+      // Reiterated habit intent
+      const input: DecideInput = { text: 'I want to meditate daily' };
+      const ctx = {
+        ...mockContext,
+        currentTurn: 5,
+        lastChipTurn: 2,
+        recentIntentBuffer: [{ kind: 'habit', turn: 3 }],
+      };
 
-      // Test note intent
-      const noteInput: DecideInput = { text: 'Remember to check the mail' };
-      const noteResult = await runConversationPipeline(noteInput, mockContext);
-      expect(noteResult.replyText).toBeDefined();
-      expect(noteResult.replyText).not.toBe('');
-      expect(noteResult.replyText?.toLowerCase()).toContain('note');
+      const result = await runConversationPipeline(input, ctx);
+
+      // Should show chip for reiteration
+      expect(result.suggestions?.length).toBe(1);
+      expect(result.suggestions?.[0]).toBe('Add as habit');
+
+      // Should have reply with nudge
+      expect(result.replyText).toBeDefined();
+      expect(result.replyText).toContain('save this if you like');
     });
 
     it('does not override existing replyText from cortexDecide', async () => {
@@ -295,10 +318,17 @@ describe('Conversation Pipeline - Intent Integration', () => {
         text: 'Start meditation daily',
       };
 
-      const result = await runConversationPipeline(input, mockContext);
+      const ctx = {
+        ...mockContext,
+        currentTurn: 5,
+        lastChipTurn: 2,
+        recentIntentBuffer: [{ kind: 'habit', turn: 3 }],
+      };
 
-      // Should keep the existing replyText
-      expect(result.replyText).toBe(existingReply);
+      const result = await runConversationPipeline(input, ctx);
+
+      // Should keep the existing replyText (with nudge appended if chip shown)
+      expect(result.replyText).toContain(existingReply);
     });
   });
 });
