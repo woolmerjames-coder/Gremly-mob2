@@ -29,15 +29,15 @@ describe('Chat + Cortex Integration (Phase 10.3)', () => {
     const chatPath = path.join(__dirname, '../app/spaces/ChatThreadScreen.tsx');
     const chatSource = fs.readFileSync(chatPath, 'utf-8');
 
-    // Verify imports
-    expect(chatSource).toContain("import { cortexDecide } from '../../lib/cortex/cortexDecide'");
+    // Verify imports - now using cortexRoute instead of cortexDecide
+    expect(chatSource).toContain("import { cortexRoute } from '../../lib/cortex/router'");
     expect(chatSource).toContain('import type { CortexContext, CortexAction }');
     expect(chatSource).toContain('explainAddedToList');
     expect(chatSource).toContain('explainCreated');
     expect(chatSource).toContain('ConfirmationPill');
 
-    // Verify cortexDecide is called
-    expect(chatSource).toContain('cortexDecide({ text');
+    // Verify cortexRoute is called (updated from cortexDecide)
+    expect(chatSource).toContain('cortexRoute({ text');
 
     // Verify context construction
     expect(chatSource).toContain('userId:');

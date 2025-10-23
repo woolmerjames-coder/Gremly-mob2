@@ -1,13 +1,13 @@
 /**
  * Phase 10.3: Catch-All Notepad + Cortex SDK Integration Test
  * Lightweight test with mocked repo and Cortex - no network/DB
- * 
+ *
  * NOTE: These are shallow integration tests verifying the wiring
  * between CatchAllNotepad and the Cortex SDK. They test that:
  * 1. cortexDecide is called only in guided mode
  * 2. Repo methods are called based on Cortex response mode
  * 3. Low confidence saves to catch-all with suggestions
- * 
+ *
  * Given the complexity of full component rendering with all providers,
  * these tests focus on verifying that the critical integration points exist.
  */
@@ -26,32 +26,32 @@ describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
     // Verify that the types needed for integration exist
     const fs = require('fs');
     const path = require('path');
-    
+
     const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
     const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-    
-    // Verify imports
-    expect(catchAllSource).toContain("import { cortexDecide } from '../../lib/cortex/cortexDecide'");
-    expect(catchAllSource).toContain("import type { CortexContext, CortexAction }");
+
+    // Verify imports - now using cortexRoute instead of cortexDecide
+    expect(catchAllSource).toContain("import { cortexRoute } from '../../lib/cortex/router'");
+    expect(catchAllSource).toContain('import type { CortexContext, CortexAction }');
     expect(catchAllSource).toContain('explainAddedToList');
     expect(catchAllSource).toContain('explainCreated');
-    
+
     // Verify guided mode integration
     expect(catchAllSource).toContain("mode === 'guided'");
-    expect(catchAllSource).toContain('cortexDecide({ text:');
-    
+    expect(catchAllSource).toContain('cortexRoute({ text:');
+
     // Verify action execution
     expect(catchAllSource).toContain("action.type === 'add.to.list'");
     expect(catchAllSource).toContain('getOrCreateList');
     expect(catchAllSource).toContain('addListItem');
-    
+
     // Verify event logging
     expect(catchAllSource).toContain('writeEvent');
     expect(catchAllSource).toContain("'cortex_decision'");
-    
+
     // Verify fail-safe behavior
     expect(catchAllSource).toContain('catch');
-    
+
     // Verify confirmations and suggestions
     expect(catchAllSource).toContain('confirmations');
     expect(catchAllSource).toContain('suggestions');
@@ -61,10 +61,10 @@ describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
     // Verify the context structure expected by cortexDecide
     const fs = require('fs');
     const path = require('path');
-    
+
     const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
     const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-    
+
     // Check that CortexContext is constructed properly
     expect(catchAllSource).toContain('userId:');
     expect(catchAllSource).toContain('uiSurface:');
@@ -74,10 +74,10 @@ describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
   it('should handle all CortexAction types', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
     const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-    
+
     // Verify all action types are handled
     expect(catchAllSource).toContain("'add.to.list'");
     expect(catchAllSource).toContain("'create.todo'");
@@ -88,10 +88,10 @@ describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
   it('should set ai_placed=true for auto mode actions', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
     const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-    
+
     // Verify ai_placed flag is set
     expect(catchAllSource).toContain('ai_placed: true');
     expect(catchAllSource).toContain('why_string');
@@ -100,10 +100,10 @@ describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
   it('should handle keep/ask modes by saving to catch-all', () => {
     const fs = require('fs');
     const path = require('path');
-    
+
     const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
     const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-    
+
     // Verify mode checking
     expect(catchAllSource).toContain("mode === 'auto'");
     expect(catchAllSource).toContain('ai_placed: false');
