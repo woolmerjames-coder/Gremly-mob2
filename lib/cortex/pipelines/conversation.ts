@@ -549,8 +549,11 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.actions = [];
   }
 
+  // Normalize suggestions array for type safety
+  const suggestions = Array.isArray(normalized.suggestions) ? normalized.suggestions : [];
+
   // Early return for low-confidence decisions with no suggestions (when not suppressing smalltalk)
-  if (normalized.confidence === 0 && normalized.suggestions.length === 0 && !suppressSmalltalkAck) {
+  if (normalized.confidence === 0 && suggestions.length === 0 && !suppressSmalltalkAck) {
     return {
       mode: normalized.mode,
       replyText: "Let's explore that a bit more.",

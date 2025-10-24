@@ -778,12 +778,15 @@ export default function ChatThreadScreen({ route }: Props) {
             )
             .catch((err) => console.error('[ChatThread] Failed to log event:', err));
 
-          if (!toastShown && response.mode === 'auto' && response.actions.length > 0) {
+          // Normalize actions array for type safety
+          const actions = Array.isArray(response.actions) ? response.actions : [];
+
+          if (!toastShown && response.mode === 'auto' && actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
 
             await Promise.all(
-              response.actions.map(async (action: CortexAction) => {
+              actions.map(async (action: CortexAction) => {
                 try {
                   if (action.type === 'add.to.list') {
                     const list = await repo.getOrCreateList(action.payload.listKey, {
@@ -867,7 +870,7 @@ export default function ChatThreadScreen({ route }: Props) {
           let shouldTriggerPlayful = false;
 
           // Check if this is chit-chat/conversational content
-          if (response.mode === 'keep' && response.actions.length === 0) {
+          if (response.mode === 'keep' && actions.length === 0) {
             // Simple heuristic for chit-chat detection
             const chitChatPatterns =
               /\b(hello|hi|hey|thanks|thank you|how are you|what's up|good morning|good afternoon|good evening)\b/i;
