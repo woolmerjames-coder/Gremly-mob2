@@ -182,15 +182,34 @@ export interface SpaceChatUpdateInput {
  * Phase 10.5 feature
  * Phase 11.3: Added 'action-confirmation' role for inline action toasts
  * Phase 11.6: Added 'entry-card' role for showing created/retrieved entries
+ * Phase 11.7+: Updated to support flexible role types with metadata
  */
+export type MessageRole =
+  | 'user'
+  | 'assistant'
+  | 'system'
+  | 'action'
+  | 'confirmation'
+  | 'action-confirmation'
+  | 'entry-card';
+
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
   space_id: ID;
   user_id: ID;
-  role: 'user' | 'assistant' | 'system' | 'action-confirmation' | 'entry-card';
+  role: MessageRole;
   content: string;
-  metadata_json?: any | null;
+  metadata_json?: {
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent';
+    actionType?: string;
+    actionId?: string;
+    entryId?: string;
+    entry?: any;
+    entryType?: string;
+    options?: any[];
+    [key: string]: any;
+  } | null;
   created_at: string; // ISO 8601
 }
 
@@ -200,9 +219,18 @@ export interface SpaceChatMessage {
 export interface SpaceChatMessageInsert {
   chat_id: ID;
   space_id: ID;
-  role: 'user' | 'assistant' | 'system' | 'action-confirmation' | 'entry-card';
+  role: MessageRole;
   content: string;
-  metadata_json?: any | null;
+  metadata_json?: {
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent';
+    actionType?: string;
+    actionId?: string;
+    entryId?: string;
+    entry?: any;
+    entryType?: string;
+    options?: any[];
+    [key: string]: any;
+  } | null;
 }
 
 /**
