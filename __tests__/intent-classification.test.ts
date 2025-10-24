@@ -175,4 +175,37 @@ describe('Intent Classification Rules', () => {
       expect(intent.requiresAction).toBe(false);
     });
   });
+
+  describe('Ambiguous reflection/advice-seeking', () => {
+    test('Pondering statements should be ambiguous and show disambiguation', () => {
+      const ambiguousCases = [
+        'Thinking about whether I should change careers',
+        'Not sure about what to do next',
+        'Contemplating my options',
+        'Trying to figure out my next steps',
+        'Wondering if I should make a change',
+        'Considering whether to take the job',
+        'Conflicted about my decision',
+      ];
+
+      ambiguousCases.forEach((text) => {
+        const intent = classifyIntent(text);
+        expect(intent.kind).toBe('ambiguous');
+        expect(intent.showDisambiguationToast).toBe(true);
+        expect(intent.requiresAction).toBe(false);
+      });
+    });
+
+    test('Explicit commands should NOT be ambiguous', () => {
+      const intent = classifyIntent('Create a reminder to think about my career');
+      expect(intent.kind).not.toBe('ambiguous');
+      expect(intent.isCommand).toBe(true);
+    });
+
+    test('Questions should NOT be ambiguous', () => {
+      const intent = classifyIntent('What should I do about my career?');
+      expect(intent.kind).toBe('question');
+      expect(intent.kind).not.toBe('ambiguous');
+    });
+  });
 });

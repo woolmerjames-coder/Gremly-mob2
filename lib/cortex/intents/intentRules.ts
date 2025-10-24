@@ -22,6 +22,7 @@ export interface IntentRule {
       isCommand?: boolean;
       isPlanning?: boolean;
       requiresAction?: boolean;
+      showDisambiguationToast?: boolean;
     };
   };
 }
@@ -94,12 +95,13 @@ export const INTENT_RULES: IntentRule[] = [
     priority: 11,
     name: 'opt_out_planning',
     test: (text) => {
-      const patterns = [
-        /\b(thinking about|considering|exploring|weighing)\b/i,
-        /\b(might|maybe|perhaps|possibly)\b.*\b(could|should|would)\b/i,
-        /\b(brainstorming|ideating)\b/i,
-      ];
-      return patterns.some((pattern) => pattern.test(text));
+      // Only match planning mode if it has modal verbs (might/maybe/perhaps)
+      // Don't match simple "thinking about X" which could be ambiguous
+      const modalPlanning = /\b(might|maybe|perhaps|possibly)\b.*\b(could|should|would)\b/i;
+      const brainstorming = /\b(brainstorming|ideating)\b/i;
+      const justThinking = /^just (thinking|considering)/i; // "Just thinking about..."
+
+      return modalPlanning.test(text) || brainstorming.test(text) || justThinking.test(text);
     },
     classification: {
       kind: 'question',
@@ -108,6 +110,41 @@ export const INTENT_RULES: IntentRule[] = [
         isPlanning: true,
         suppressChips: true,
         requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 12: AMBIGUOUS REFLECTION/ADVICE-SEEKING
+  // User is pondering/uncertain - could want reflection OR advice
+  // Needs to come BEFORE commands/todos (20+) to catch uncertainty
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 12,
+    name: 'ambiguous_reflection_seeking_advice',
+    test: (text) => {
+      // Patterns that could be either reflection OR seeking advice
+      const ponderingPatterns = [
+        /\b(thinking|wondering|pondering|considering) (about|if|whether)\b/i,
+        /\bnot sure (about|if|whether|what)\b/i,
+        /\b(confused|torn|conflicted|undecided) about\b/i,
+        /\btrying to (figure out|decide|understand)\b/i,
+        /\bcontemplating\b/i,
+      ];
+
+      // Don't match if it's clearly a command or has explicit intent
+      const hasExplicitIntent = /^(create|add|set|remind me|note:)/i.test(text);
+      const hasQuestionMark = text.includes('?');
+
+      // Only ambiguous if NOT explicit and NOT clearly a question
+      return !hasExplicitIntent && !hasQuestionMark && ponderingPatterns.some((p) => p.test(text));
+    },
+    classification: {
+      kind: 'ambiguous',
+      confidence: 0.7,
+      flags: {
+        requiresAction: false,
+        showDisambiguationToast: true,
       },
     },
   },
