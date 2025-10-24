@@ -93,6 +93,10 @@ const INTENT_KIND_TO_ACTION: Partial<Record<DetectedIntent['kind'], ActionToastI
   idea: 'note',
 };
 
+// Smart gating helpers
+const TRIGGER_WORDS_RE = /\b(save|create|add|make|set|remind|log|start)\b/i;
+const SOFT_SKIP_RE = /\b(just thinking|maybe|not sure)\b/i;
+
 function cleanFragment(fragment: string | null | undefined): string | null {
   if (!fragment) return null;
   return fragment.replace(/[.,!?]+$/g, '').trim();
@@ -126,6 +130,12 @@ function buildActionToastPayload(
   intent: DetectedIntent | null,
   userText: string,
   spaceId: string | null,
+  handlers?: {
+    onConfirm?: () => Promise<void> | void;
+    onCancel?: () => void;
+    onEdit?: () => void;
+    onAutoDismiss?: () => void;
+  },
 ): ActionToastInput | null {
   if (!intent) return null;
   const type = INTENT_KIND_TO_ACTION[intent.kind];
@@ -148,6 +158,10 @@ function buildActionToastPayload(
         ...commonMetadata,
         dueDate: dueDate ?? null,
         dueTime: dueTime ?? null,
+        onConfirm: handlers?.onConfirm as any,
+        onCancel: handlers?.onCancel,
+        onEdit: handlers?.onEdit,
+        onAutoDismiss: handlers?.onAutoDismiss,
         conversionMeta: {
           initialTitle: title,
         },
@@ -167,6 +181,10 @@ function buildActionToastPayload(
         frequency: frequency ?? 'daily',
         habitSubtype: 'start_habit',
         frequencyValue: undefined,
+        onConfirm: handlers?.onConfirm as any,
+        onCancel: handlers?.onCancel,
+        onEdit: handlers?.onEdit,
+        onAutoDismiss: handlers?.onAutoDismiss,
         conversionMeta: {
           initialTitle: name,
         },
@@ -185,6 +203,10 @@ function buildActionToastPayload(
       ...commonMetadata,
       noteSubtype: subtype,
       noteBody: trimmedUserText,
+      onConfirm: handlers?.onConfirm as any,
+      onCancel: handlers?.onCancel,
+      onEdit: handlers?.onEdit,
+      onAutoDismiss: handlers?.onAutoDismiss,
       conversionMeta: {
         initialTitle: noteTitle,
         initialNote: trimmedUserText,
@@ -206,6 +228,21 @@ export default function ChatThreadScreen({ route }: Props) {
   const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
   const [detectedIntent, setDetectedIntent] = useState<DetectedIntent | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string>('');
+
+  // Chat-level message index and toast history for cooldowns
+  const userMsgIndexRef = React.useRef(0);
+  type ToastOutcome = 'confirm' | 'cancel' | 'edit' | 'auto-dismiss';
+  const toastHistoryRef = React.useRef<
+    Partial<Record<'todo' | 'note' | 'habit', Array<{ index: number; outcome: ToastOutcome }>>>
+  >({});
+
+  const recordToastOutcome = useCallback((t: 'todo' | 'note' | 'habit', outcome: ToastOutcome) => {
+    const idx = userMsgIndexRef.current;
+    const arr = toastHistoryRef.current[t] || [];
+    arr.push({ index: idx, outcome });
+    // Keep only recent 20
+    toastHistoryRef.current[t] = arr.slice(-20);
+  }, []);
 
   // Auto-fade suggestions after 3 seconds
   const suggestionFadeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -261,7 +298,68 @@ export default function ChatThreadScreen({ route }: Props) {
                   confidence: Math.max(0.9, intent.confidence || 0.9),
                   title: userText,
                 } as DetectedIntent;
-                const payload = buildActionToastPayload(selectedIntent, userText, spaceId ?? null);
+                const payload = buildActionToastPayload(selectedIntent, userText, spaceId ?? null, {
+                  onConfirm: async () => {
+                    recordToastOutcome(choice, 'confirm');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'confirm',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                  onCancel: () => {
+                    recordToastOutcome(choice, 'cancel');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'cancel',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                  onEdit: () => {
+                    recordToastOutcome(choice, 'edit');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'edit',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                  onAutoDismiss: () => {
+                    recordToastOutcome(choice, 'auto-dismiss');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'auto-dismiss',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                });
                 if (payload) {
                   hideActionToast();
                   showActionToast(payload);
@@ -276,6 +374,16 @@ export default function ChatThreadScreen({ route }: Props) {
       const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
       const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
       const isActionable = actionableKinds.has(intent.kind);
+      const actionType = INTENT_KIND_TO_ACTION[intent.kind] as
+        | 'todo'
+        | 'note'
+        | 'habit'
+        | undefined;
+
+      // Smart gating between 0.7-0.89 with trigger words, and soft skip phrases
+      const conf = typeof intent.confidence === 'number' ? intent.confidence : 0;
+      const hasTrigger = TRIGGER_WORDS_RE.test(userText);
+      const isSoftSkip = SOFT_SKIP_RE.test(userText);
 
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[ChatToast][gate] intent', {
@@ -288,16 +396,113 @@ export default function ChatThreadScreen({ route }: Props) {
         });
       }
 
-      if (!meetsConfidence || !isActionable) {
+      let allowed = false;
+      if (meetsConfidence && isActionable) {
+        allowed = true;
+      } else if (isActionable && !isSoftSkip && conf >= 0.7 && conf < 0.9 && hasTrigger) {
+        allowed = true;
+      }
+
+      // Cooldowns: block if same type shown within last 2 user messages; if canceled, block for 5
+      if (allowed && actionType) {
+        const history = toastHistoryRef.current[actionType] || [];
+        const idx = userMsgIndexRef.current;
+        const recentSame = history.some((h) => h.index >= idx - 2);
+        const recentCancel = history.some((h) => h.outcome === 'cancel' && h.index >= idx - 5);
+        if (recentSame || recentCancel) {
+          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[ChatToast][gate] cooldown_block', {
+              actionType,
+              recentSame,
+              recentCancel,
+            });
+          }
+          allowed = false;
+        }
+      }
+
+      if (!allowed) {
         if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
           console.log('[ChatToast][gate] skip_toast', {
-            reason: !meetsConfidence ? 'low_confidence' : 'non_actionable_intent',
+            reason: !isActionable
+              ? 'non_actionable_intent'
+              : isSoftSkip
+                ? 'soft_skip'
+                : 'threshold_not_met',
           });
         }
         return false;
       }
 
-      const payload = buildActionToastPayload(intent, userText, spaceId ?? null);
+      const payload = buildActionToastPayload(
+        intent,
+        userText,
+        spaceId ?? null,
+        actionType
+          ? {
+              onConfirm: async () => {
+                recordToastOutcome(actionType, 'confirm');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'confirm',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+              onCancel: () => {
+                recordToastOutcome(actionType, 'cancel');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'cancel',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+              onEdit: () => {
+                recordToastOutcome(actionType, 'edit');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'edit',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+              onAutoDismiss: () => {
+                recordToastOutcome(actionType, 'auto-dismiss');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'auto-dismiss',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+            }
+          : undefined,
+      );
       if (!payload) return false;
 
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
@@ -309,10 +514,25 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       hideActionToast();
+      // Analytics: toast shown (repo event)
+      if (actionType) {
+        repo
+          .writeEvent(
+            'toast',
+            {
+              event: 'shown',
+              toastType: actionType,
+              confidence: intent.confidence,
+              index: userMsgIndexRef.current,
+            },
+            { userId: userId || 'anonymous' },
+          )
+          .catch(() => {});
+      }
       showActionToast(payload);
       return true;
     },
-    [hideActionToast, showActionToast, spaceId],
+    [hideActionToast, showActionToast, spaceId, recordToastOutcome],
   );
 
   // Use new chat messages hook
@@ -405,6 +625,8 @@ export default function ChatThreadScreen({ route }: Props) {
 
       try {
         setSending(true);
+        // Advance user message index for cooldown tracking
+        userMsgIndexRef.current += 1;
 
         // Clear active suggestions when user sends a new message
         setActiveSuggestions([]);

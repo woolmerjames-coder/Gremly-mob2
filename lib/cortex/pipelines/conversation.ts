@@ -129,18 +129,15 @@ function advanceCooldownState(
   ctx.intentCooldownMap = nextCooldowns;
   ctx.recentIntentBuffer = trimmedBuffer;
 
-  const remainingGlobalCooldown = Object.values(nextCooldowns).reduce((max, value) => {
-    if (typeof value !== 'number') {
-      return max;
-    }
-    return Math.max(max, value);
-  }, 0);
+  const remainingGlobalCooldown = Object.values(nextCooldowns).reduce(
+    (max, value) => (typeof value === 'number' ? Math.max(max, value) : max),
+    0,
+  );
 
   ctx.intentCooldownTurns = remainingGlobalCooldown;
 
   return { previousCooldowns, nextCooldowns, trimmedBuffer };
 }
-
 /**
  * Defensive mapper for when worker returns { content: "text", hasChoices: false }
  * Maps to { mode: 'reply', replyText: content, actions: [], suggestions: [] }
@@ -563,6 +560,18 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     intent: { kind: intent.kind, confidence: intent.confidence },
   };
 
+  // Pre-set routing metadata for reiterated creation intents so fallbacks don't overwrite it
+  if (isCreationIntent) {
+    const hasRecentSameIntent = recentIntentBuffer.some((e) => e.kind === intent.kind);
+    if (hasRecentSameIntent) {
+      normalized.meta = {
+        ...normalized.meta,
+        intentRoutedAs: intent.kind,
+        intentKind: intent.kind,
+      };
+    }
+  }
+
   let intentHandled = false;
   let awaitingClarification = false;
 
@@ -680,6 +689,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       ...normalized.meta,
       intentCoolingDown: intent.kind,
       intentKind: intent.kind,
+      intentRoutedAs: intent.kind,
     };
   } else if (
     (!normalized.replyText || !normalized.replyText.trim()) &&
@@ -699,8 +709,24 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       normalized.meta = {
         ...normalized.meta,
         lane: 'space_chat',
-        intentRoutedAs: 'exploration',
+        intentRoutedAs:
+          normalized.meta?.intentRoutedAs && normalized.meta.intentRoutedAs !== 'planning'
+            ? normalized.meta.intentRoutedAs
+            : 'exploration',
         fallback: 'exploration',
+      };
+    }
+  }
+
+  // If not handled above, but this turn repeats a recent creation intent,
+  // record routing metadata to reflect the detected intent even without chips.
+  if (!normalized.meta?.intentRoutedAs && isCreationIntent) {
+    const hasRecentSameIntent = recentIntentBuffer.some((e) => e.kind === intent.kind);
+    if (hasRecentSameIntent) {
+      normalized.meta = {
+        ...normalized.meta,
+        intentRoutedAs: intent.kind,
+        intentKind: intent.kind,
       };
     }
   }
@@ -870,7 +896,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.mode = 'ask';
     normalized.meta = {
       ...normalized.meta,
-      intentRoutedAs: 'exploration',
+      intentRoutedAs: normalized.meta?.intentRoutedAs ?? 'exploration',
       fallback: 'exploration',
     };
   }
@@ -925,7 +951,10 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       meta: {
         ...normalized?.meta,
         lane: 'space_chat' as const,
-        intentRoutedAs: 'exploration',
+        intentRoutedAs:
+          normalized.meta?.intentRoutedAs && normalized.meta.intentRoutedAs !== 'planning'
+            ? normalized.meta.intentRoutedAs
+            : 'exploration',
         fallback: 'exploration',
       },
     };

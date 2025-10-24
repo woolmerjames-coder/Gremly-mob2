@@ -166,8 +166,8 @@ export function detectIntent(text: string): DetectedIntent {
   if (todoHardMatch) {
     todoCandidate = 0.92;
   }
-  // "remember to" implies actionable, boost todo candidate even if not hard verb
-  if (matchesRememberTo) {
+  // "remember to" implies actionable, but only boost toward todo when temporal hints exist
+  if (matchesRememberTo && matchesTemporal) {
     todoCandidate = Math.max(todoCandidate, 0.85);
   }
   if (matchesTemporal && matchesNotePhraseRaw) {

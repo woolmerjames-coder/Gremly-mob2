@@ -16,7 +16,7 @@ import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayContro
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { Frequency, HabitSubtype, NoteSubtype } from '../../lib/types';
 
-type ActionType = 'habit' | 'todo' | 'note' | 'disambiguation';
+type ActionType = 'habit' | 'todo' | 'note' | 'disambiguation' | 'success';
 
 type ActionToastInput = {
   type: ActionType;
@@ -41,6 +41,7 @@ type ActionToastMetadata = {
   onCancel?: () => void;
   onEdit?: () => void;
   onCompleted?: (recordId?: string) => void;
+  onAutoDismiss?: () => void;
   conversionMeta?: {
     initialTitle?: string;
     initialNote?: string;
@@ -61,6 +62,86 @@ type UseActionToastResult = {
 
 const GOLDEN_PEAR = '#E0C47A';
 const AUTO_DISMISS_MS = 6000;
+const SUCCESS_GREEN = '#34C759';
+const SUCCESS_DISMISS_MS = 3000;
+const SUCCESS_SUMMARY_MAX = 40;
+
+// Helpers: natural date/time normalization and title cleanup
+const DAY_ABBR: Record<string, string> = {
+  monday: 'Mon',
+  tuesday: 'Tue',
+  wednesday: 'Wed',
+  thursday: 'Thu',
+  friday: 'Fri',
+  saturday: 'Sat',
+  sunday: 'Sun',
+};
+
+function stripPrefixes(s: string): string {
+  return s
+    .replace(/^\s*(note to|note:|remember to|remember:|jot down|write down)\b\s*/i, '')
+    .trim();
+}
+
+function normalizeDueTime(raw?: string | null): string | null {
+  if (!raw) return null;
+  let t = raw.trim();
+  t = t.replace(/^\b(at|around)\s+/i, '').trim();
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?\s?(am|pm)$/i);
+  if (m) {
+    const hh = m[1];
+    const mm = m[2] ? `:${m[2]}` : '';
+    const ap = m[3].toLowerCase();
+    return `${hh}${mm}${ap}`;
+  }
+  if (/^(noon|midnight)$/i.test(t)) {
+    return t[0].toUpperCase() + t.slice(1).toLowerCase();
+  }
+  return t;
+}
+
+function normalizeDueDate(raw?: string | null): string | null {
+  if (!raw) return null;
+  let d = raw.trim();
+  d = d.replace(/^\b(by the|by|on|this)\s+/i, '').trim();
+  // Day-of-week
+  const dow = d.toLowerCase();
+  if (DAY_ABBR[dow]) return DAY_ABBR[dow];
+  if (/^tomorrow$/i.test(d)) {
+    const now = new Date();
+    now.setDate(now.getDate() + 1);
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
+  }
+  if (/^today$/i.test(d)) {
+    const now = new Date();
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
+  }
+  // Month name + day (keep as e.g., "Jan 2")
+  const monthDay = d.match(
+    /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?$/i,
+  );
+  if (monthDay) {
+    const parts = d.split(/\s+/);
+    const mon = parts[0].slice(0, 3);
+    const day = parts[1].replace(/(st|nd|rd|th)$/i, '');
+    return `${mon[0].toUpperCase()}${mon.slice(1).toLowerCase()} ${day}`;
+  }
+  // Numeric dates like 12/25 -> leave as-is
+  return d;
+}
+
+function deriveNoteSuccessTitle(content: string, noteBody?: string | null): string {
+  const fromBody = (noteBody || '').trim();
+  if (fromBody) {
+    const m = fromBody.match(/^\s*([^:]{1,40}):\s*(.+)$/);
+    if (m) {
+      const left = stripPrefixes(m[1]);
+      const right = stripPrefixes(m[2]);
+      return `${left}: ${right}`.trim();
+    }
+  }
+  return stripPrefixes(content.trim());
+}
 
 type UseActionToastConfig = {
   bottomOffset?: number;
@@ -76,6 +157,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
   const [isSaving, setIsSaving] = useState(false);
   const opacityRef = useRef(new Animated.Value(0));
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const payloadRef = useRef<ActionToastInput | null>(null);
 
   const clearExistingTimer = useCallback(() => {
     if (timerRef.current) {
@@ -97,16 +179,29 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
         console.log('[ActionToast] hidden');
       }
       setPayload(null);
+      payloadRef.current = null;
       setIsSaving(false);
     });
   }, [clearExistingTimer]);
 
-  const scheduleAutoDismiss = useCallback(() => {
-    clearExistingTimer();
-    timerRef.current = setTimeout(() => {
-      hideToast();
-    }, AUTO_DISMISS_MS);
-  }, [clearExistingTimer, hideToast]);
+  const scheduleAutoDismiss = useCallback(
+    (ms: number = AUTO_DISMISS_MS) => {
+      clearExistingTimer();
+      timerRef.current = setTimeout(() => {
+        // Trigger auto-dismiss callback if present and still the same payload
+        const current = payloadRef.current;
+        if (current?.metadata?.onAutoDismiss) {
+          try {
+            current.metadata.onAutoDismiss();
+          } catch (e) {
+            if (__DEV__) console.warn('[ActionToast] onAutoDismiss handler failed', e);
+          }
+        }
+        hideToast();
+      }, ms);
+    },
+    [clearExistingTimer, hideToast],
+  );
 
   const showToast = useCallback(
     (input: ActionToastInput) => {
@@ -118,6 +213,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
         });
       }
       setPayload(input);
+      payloadRef.current = input;
       setIsVisible(true);
       Animated.timing(opacityRef.current, {
         toValue: 1,
@@ -153,6 +249,10 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       return `"${baseText}"\nWould you like this as:`;
     }
 
+    if (type === 'success') {
+      return baseText;
+    }
+
     if (type === 'habit') {
       return `⚡ Habit: ${baseText}`;
     }
@@ -179,33 +279,47 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       if (__DEV__) {
         console.log('[ActionToast] performCreate:start', { type, content, metadata });
       }
-      if (type === 'disambiguation') {
-        throw new Error('Invalid create type: disambiguation');
+      if (type === 'disambiguation' || type === 'success') {
+        throw new Error('Invalid create type');
       }
-      const createPayload: CreateRecordInput = {
-        type,
-        ai_placed: metadata?.aiPlaced ?? false,
-        origin: metadata?.autoOrigin ?? 'manual',
-        space_id: metadata?.spaceId,
-      };
 
+      let createPayload: CreateRecordInput;
       if (type === 'todo') {
-        createPayload.name = content.trim() || 'Untitled';
-        createPayload.due_date = metadata?.dueDate ?? null;
-        createPayload.due_time = metadata?.dueTime ?? null;
-        createPayload.reminders = metadata?.reminders;
+        createPayload = {
+          type: 'todo',
+          ai_placed: metadata?.aiPlaced ?? false,
+          origin: metadata?.autoOrigin ?? 'manual',
+          space_id: metadata?.spaceId,
+          name: content.trim() || 'Untitled',
+          due_date: metadata?.dueDate ?? null,
+          due_time: metadata?.dueTime ?? null,
+          reminders: metadata?.reminders,
+        } as CreateRecordInput;
       } else if (type === 'habit') {
-        createPayload.name = content.trim() || 'Untitled Habit';
-        createPayload.frequency = metadata?.frequency ?? 'daily';
-        createPayload.subtype = metadata?.habitSubtype ?? 'start_habit';
-        createPayload.frequency_value = metadata?.frequencyValue;
-        createPayload.reminders = metadata?.reminders;
-        createPayload.notes = metadata?.noteBody ?? null;
+        createPayload = {
+          type: 'habit',
+          ai_placed: metadata?.aiPlaced ?? false,
+          origin: metadata?.autoOrigin ?? 'manual',
+          space_id: metadata?.spaceId,
+          name: content.trim() || 'Untitled Habit',
+          frequency: metadata?.frequency ?? 'daily',
+          subtype: metadata?.habitSubtype ?? 'start_habit',
+          frequency_value: metadata?.frequencyValue,
+          reminders: metadata?.reminders,
+          notes: metadata?.noteBody ?? null,
+        } as CreateRecordInput;
       } else {
-        createPayload.title = content.trim() || 'Untitled Note';
-        createPayload.subtype = metadata?.noteSubtype ?? 'catchall';
-        createPayload.body = metadata?.noteBody ?? content.trim();
-        createPayload.reminders = metadata?.reminders;
+        // note
+        createPayload = {
+          type: 'note',
+          ai_placed: metadata?.aiPlaced ?? false,
+          origin: metadata?.autoOrigin ?? 'manual',
+          space_id: metadata?.spaceId,
+          title: content.trim() || 'Untitled Note',
+          subtype: metadata?.noteSubtype ?? 'catchall',
+          body: metadata?.noteBody ?? content.trim(),
+          reminders: metadata?.reminders,
+        } as CreateRecordInput;
       }
 
       const record = await repo.create(createPayload);
@@ -239,7 +353,49 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       } else {
         await performCreate(payload);
       }
-      hideToast();
+      // After successful save, morph into success toast with short duration
+      const successLabel = (() => {
+        // Helper: constrain length with ellipsis
+        const constrain = (s: string) =>
+          s.length > SUCCESS_SUMMARY_MAX ? s.slice(0, SUCCESS_SUMMARY_MAX - 1) + '…' : s;
+        if (payload.type === 'todo') {
+          const title = stripPrefixes(payload.content.trim() || 'Untitled');
+          const d = normalizeDueDate(payload.metadata?.dueDate ?? null);
+          const t = normalizeDueTime(payload.metadata?.dueTime ?? null);
+          const when = d && t ? `${d} ${t}` : d || t || '';
+          const body = when ? `${title} — ${when}` : title;
+          return constrain(`✅ ${body}`);
+        }
+        if (payload.type === 'habit') {
+          const name = stripPrefixes(payload.content.trim() || 'New habit');
+          const freq = payload.metadata?.frequency || 'daily';
+          const niceFreq =
+            freq === 'daily'
+              ? 'every day'
+              : freq === 'weekly'
+                ? 'every week'
+                : freq === 'monthly'
+                  ? 'every month'
+                  : String(freq);
+          return constrain(`✅ ${name} — ${niceFreq}`);
+        }
+        if (payload.type === 'note') {
+          const title = deriveNoteSuccessTitle(payload.content, payload.metadata?.noteBody);
+          return constrain(`✅ ${title}`);
+        }
+        return constrain(`✅ Saved`);
+      })();
+
+      const successPayload: ActionToastInput = {
+        type: 'success',
+        content: successLabel,
+        metadata: {
+          summaryOverride: successLabel,
+        },
+      };
+      setPayload(successPayload);
+      payloadRef.current = successPayload;
+      scheduleAutoDismiss(SUCCESS_DISMISS_MS);
     } catch (error) {
       console.error('[useActionToast] confirm failed', error);
       if (Platform.OS === 'ios') {
@@ -252,7 +408,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
 
   const handleEdit = useCallback(() => {
     if (!payload) return;
-    if (payload.type === 'disambiguation') return;
+    if (payload.type === 'disambiguation' || payload.type === 'success') return;
 
     clearExistingTimer();
     hideToast();
@@ -272,7 +428,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
     const initialNote = payload.metadata?.conversionMeta?.initialNote ?? payload.metadata?.noteBody;
 
     overlay.openCreate({
-      type: payload.type,
+      type: payload.type as 'todo' | 'note' | 'habit',
       spaceId: payload.metadata?.spaceId,
       conversionMeta: {
         initialTitle,
@@ -309,6 +465,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
         pointerEvents={isVisible ? 'auto' : 'none'}
         style={[
           styles.container,
+          payload.type === 'success' && styles.successContainer,
           {
             opacity: opacityRef.current,
             width: toastWidth,
@@ -316,7 +473,10 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
           },
         ]}
       >
-        <Text style={styles.summary} numberOfLines={3}>
+        <Text
+          style={[styles.summary, payload.type === 'success' && styles.successSummary]}
+          numberOfLines={3}
+        >
           {summary}
         </Text>
         {payload.type === 'disambiguation' && payload.metadata?.disambiguationOptions ? (
@@ -336,6 +496,12 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
             ))}
             <TouchableOpacity style={styles.button} onPress={handleCancel}>
               <Text style={styles.buttonText}>✖️ Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : payload.type === 'success' ? (
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={[styles.button, styles.confirmButton]} onPress={hideToast}>
+              <Text style={[styles.buttonText, styles.confirmText]}>👍 Got it</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -385,11 +551,18 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
+  successContainer: {
+    borderColor: SUCCESS_GREEN,
+    backgroundColor: 'rgba(52, 199, 89, 0.12)',
+  },
   summary: {
     color: '#FFF',
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 12,
+  },
+  successSummary: {
+    color: '#E8FFE8',
   },
   buttonRow: {
     flexDirection: 'row',
