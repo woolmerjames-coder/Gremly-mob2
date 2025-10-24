@@ -8,6 +8,7 @@ import {
 import { isGreeting, isSmalltalk, respond as respondSmalltalk } from '../smalltalk';
 import { callChat, type ChatMessage } from '../CortexClient';
 import { detectIntent } from '../intents/detectIntent';
+import { detectMultipleIntents } from '../intents/multiIntentDetector';
 import type { DetectedIntent } from '../intents/types';
 import {
   buildContextWindow,
@@ -555,8 +556,32 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     isMetaComment: intent.isMetaComment,
   });
 
+  // Phase 11.6: Multi-intent detection for ambiguous inputs
+  // Check if this could be interpreted as multiple types
+  let finalIntent = intent;
+  if (
+    (intent.kind === 'ambiguous' || intent.kind === 'note') &&
+    intent.confidence >= 0.5 &&
+    intent.confidence < 0.9
+  ) {
+    const multiIntent = detectMultipleIntents(input.text || '', {
+      hasPersonContext: false, // Could enhance with actual context
+    });
+
+    if (multiIntent.alternativeIntents && multiIntent.alternativeIntents.length > 0) {
+      console.log('[DEBUG][conversation] Multi-intent detected:', {
+        primary: multiIntent.kind,
+        primaryConfidence: multiIntent.confidence,
+        alternatives: multiIntent.alternativeIntents.map((a) => `${a.kind} (${a.confidence})`),
+        isMultiIntent: multiIntent.isMultiIntent,
+      });
+
+      finalIntent = multiIntent;
+    }
+  }
+
   // Handle meta-comments immediately - don't process as actions
-  if (intent.suppressChips && intent.kind === 'question') {
+  if (finalIntent.suppressChips && finalIntent.kind === 'question') {
     console.log('[DEBUG][conversation] Meta-comment detected - returning clarification');
     return {
       mode: 'ask' as const,
@@ -667,7 +692,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   // hasExplicitIntent already defined earlier in function
   const isUserAffirming = isAffirmation(userText);
-  const bypassCooldown = hasExplicitIntent || isUserAffirming || intent.isCommand;
+  const bypassCooldown = hasExplicitIntent || isUserAffirming || finalIntent.isCommand;
 
   const creationIntents = new Set<DetectedIntent['kind']>([
     'habit',
@@ -676,11 +701,11 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     'reflection',
     'idea',
   ]);
-  const isCreationIntent = creationIntents.has(intent.kind);
-  const meetsConfidence = intent.confidence >= minIntentConfidence;
+  const isCreationIntent = creationIntents.has(finalIntent.kind);
+  const meetsConfidence = finalIntent.confidence >= minIntentConfidence;
   const priorCooldown =
-    typeof previousCooldowns[intent.kind] === 'number'
-      ? (previousCooldowns[intent.kind] as number)
+    typeof previousCooldowns[finalIntent.kind] === 'number'
+      ? (previousCooldowns[finalIntent.kind] as number)
       : 0;
   const chipCoolingDown =
     typeof ctx.lastChipTurn === 'number' && typeof currentTurn === 'number'
@@ -693,20 +718,20 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   normalized.meta = {
     ...normalized.meta,
-    detectedIntent: intent,
+    detectedIntent: finalIntent, // Phase 11.6: Use finalIntent which may include multi-intent data
     intentConfidenceMin: minIntentConfidence,
     // Expose concise intent shape for consumers that prefer a flat contract
-    intent: { kind: intent.kind, confidence: intent.confidence },
+    intent: { kind: finalIntent.kind, confidence: finalIntent.confidence },
   };
 
   // Pre-set routing metadata for reiterated creation intents so fallbacks don't overwrite it
   if (isCreationIntent) {
-    const hasRecentSameIntent = recentIntentBuffer.some((e) => e.kind === intent.kind);
+    const hasRecentSameIntent = recentIntentBuffer.some((e) => e.kind === finalIntent.kind);
     if (hasRecentSameIntent) {
       normalized.meta = {
         ...normalized.meta,
-        intentRoutedAs: intent.kind,
-        intentKind: intent.kind,
+        intentRoutedAs: finalIntent.kind,
+        intentKind: finalIntent.kind,
       };
     }
   }
@@ -714,7 +739,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   let intentHandled = false;
   let awaitingClarification = false;
 
-  if (intent.kind === 'question' && meetsConfidence) {
+  if (finalIntent.kind === 'question' && meetsConfidence) {
     normalized.mode = 'ask';
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
@@ -726,9 +751,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentRoutedAs: 'question',
-      intentKind: intent.kind,
+      intentKind: finalIntent.kind,
     };
-  } else if (intent.isPlanning || intent.suppressChips) {
+  } else if (finalIntent.isPlanning || finalIntent.suppressChips) {
     normalized.mode = 'ask';
     normalized.replyText =
       normalized.replyText ||
@@ -737,28 +762,28 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentRoutedAs: 'planning',
-      intentKind: intent.kind,
+      intentKind: finalIntent.kind,
     };
   } else if (isCreationIntent && meetsConfidence && !intentCoolingDown) {
-    const topicKey = intent.kind;
+    const topicKey = finalIntent.kind;
     const needsClarification =
-      !intent.isCommand &&
+      !finalIntent.isCommand &&
       curiosityEnabled &&
       topicKey &&
       !clarifiedTopics.has(topicKey) &&
-      !!intent.curiositySuggestion;
+      !!finalIntent.curiositySuggestion;
 
     if (needsClarification) {
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] awaiting_clarification', {
-          kind: intent.kind,
-          confidence: intent.confidence,
-          curiositySuggestion: intent.curiositySuggestion,
+          kind: finalIntent.kind,
+          confidence: finalIntent.confidence,
+          curiositySuggestion: finalIntent.curiositySuggestion,
         });
       }
       normalized.mode = 'ask';
       normalized.replyText =
-        intent.curiositySuggestion ||
+        finalIntent.curiositySuggestion ||
         "I'd like to understand this a bit better. What should we focus on?";
       normalized.meta = {
         ...normalized.meta,
@@ -767,11 +792,11 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
       awaitingClarification = true;
       intentHandled = true;
-    } else if (intent.isCommand) {
+    } else if (finalIntent.isCommand) {
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] explicit_intent -> open_overlay', {
-          kind: intent.kind,
-          confidence: intent.confidence,
+          kind: finalIntent.kind,
+          confidence: finalIntent.confidence,
         });
       }
       normalized.mode = 'ask';
@@ -779,9 +804,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       normalized.meta = {
         ...normalized.meta,
         shouldOpenOverlay: true,
-        overlayKind: intent.kind,
+        overlayKind: finalIntent.kind,
         intentRoutedAs: 'command',
-        intentKind: intent.kind,
+        intentKind: finalIntent.kind,
       };
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] overlay_meta_set', normalized.meta);
@@ -790,8 +815,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     } else {
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] implicit_creation_intent', {
-          kind: intent.kind,
-          confidence: intent.confidence,
+          kind: finalIntent.kind,
+          confidence: finalIntent.confidence,
           replyTextProvided: !!normalized.replyText?.trim(),
         });
       }
@@ -804,15 +829,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
 
       if (!normalized.replyText || !normalized.replyText.trim()) {
-        normalized.replyText = fallbackReplies[intent.kind] || 'Understood.';
+        normalized.replyText = fallbackReplies[finalIntent.kind] || 'Understood.';
       }
 
       normalized.mode = 'ask';
       intentHandled = true;
       normalized.meta = {
         ...normalized.meta,
-        intentRoutedAs: intent.kind,
-        intentKind: intent.kind,
+        intentRoutedAs: finalIntent.kind,
+        intentKind: finalIntent.kind,
       };
 
       if (curiosityEnabled && topicKey && !clarifiedTopics.has(topicKey)) {
@@ -826,9 +851,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
     normalized.meta = {
       ...normalized.meta,
-      intentCoolingDown: intent.kind,
-      intentKind: intent.kind,
-      intentRoutedAs: intent.kind,
+      intentCoolingDown: finalIntent.kind,
+      intentKind: finalIntent.kind,
+      intentRoutedAs: finalIntent.kind,
     };
   } else if (
     (!normalized.replyText || !normalized.replyText.trim()) &&
@@ -873,12 +898,12 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   if (intentHandled && isCreationIntent) {
-    recentIntentBuffer.push({ kind: intent.kind, turn: currentTurn });
+    recentIntentBuffer.push({ kind: finalIntent.kind, turn: currentTurn });
   }
   ctx.recentIntentBuffer = recentIntentBuffer;
 
   if (intentHandled && isCreationIntent) {
-    nextCooldowns[intent.kind] = cooldownTurns;
+    nextCooldowns[finalIntent.kind] = cooldownTurns;
   }
 
   ctx.intentCooldownMap = nextCooldowns;
@@ -892,8 +917,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
     console.log('[CORTEX][intent]', {
-      kind: intent.kind,
-      confidence: intent.confidence,
+      kind: finalIntent.kind,
+      confidence: finalIntent.confidence,
       meetsConfidence,
       intentCoolingDown,
       intentHandled,
