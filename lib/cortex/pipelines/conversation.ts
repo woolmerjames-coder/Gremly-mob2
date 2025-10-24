@@ -498,8 +498,17 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 11.1: Curiosity-first routing with conservative intent gating
   const intent: DetectedIntent = detectIntent(input.text || '');
 
+  console.log('[DEBUG][conversation] Intent detected:', {
+    text: input.text?.substring(0, 50),
+    kind: intent.kind,
+    confidence: intent.confidence,
+    suppressChips: intent.suppressChips,
+    isMetaComment: intent.isMetaComment,
+  });
+
   // Handle meta-comments immediately - don't process as actions
   if (intent.suppressChips && intent.kind === 'question') {
+    console.log('[DEBUG][conversation] Meta-comment detected - returning clarification');
     return {
       mode: 'ask' as const,
       actions: [],

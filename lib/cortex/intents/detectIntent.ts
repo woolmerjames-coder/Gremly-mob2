@@ -46,12 +46,15 @@ export function detectIntent(text: string): DetectedIntent {
   ];
 
   if (metaCommentPatterns.some((pattern) => pattern.test(text))) {
+    console.log('[DEBUG][detectIntent] Meta-comment detected:', text);
+    console.log('[DEBUG][detectIntent] Returning question with suppressChips');
     return {
       kind: 'question',
       confidence: 0.95,
       suppressChips: true,
       isPlanning: false,
       isCommand: false,
+      isMetaComment: true, // Add explicit flag for tracking
     };
   }
 

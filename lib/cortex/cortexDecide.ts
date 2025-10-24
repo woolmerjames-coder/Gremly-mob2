@@ -179,6 +179,14 @@ export async function cortexDecide(
     const userText = input.text || (input.structured ? JSON.stringify(input.structured) : '');
     const detected = detectIntent(userText);
 
+    console.log('[DEBUG][cortexDecide] Intent detected:', {
+      text: userText.substring(0, 50),
+      kind: detected.kind,
+      confidence: detected.confidence,
+      suppressChips: detected.suppressChips,
+      isMetaComment: (detected as any).isMetaComment,
+    });
+
     // Create engine instance
     const engine = createCortexEngine();
 
@@ -190,6 +198,7 @@ export async function cortexDecide(
 
     // Check for meta-comments FIRST - these should NEVER create actions
     if (detected.suppressChips || (detected.kind === 'question' && detected.confidence >= 0.9)) {
+      console.log('[DEBUG][cortexDecide] Meta-comment/question detected - returning reply mode');
       // This is a question or meta-comment, not an action request
       const isMetaComment = detected.suppressChips;
       const replyText = isMetaComment

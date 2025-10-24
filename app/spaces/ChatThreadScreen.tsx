@@ -282,6 +282,20 @@ export default function ChatThreadScreen({ route }: Props) {
       // Show confirmation toast for high-confidence actionable intents
       if (!intent) return false;
 
+      console.log('[DEBUG][Toast] maybeTriggerActionToast called:', {
+        text: userText.substring(0, 50),
+        intentKind: intent.kind,
+        confidence: intent.confidence,
+        suppressChips: intent.suppressChips,
+        isMetaComment: intent.isMetaComment,
+      });
+
+      // CRITICAL: Block toast for meta-comments
+      if (intent.isMetaComment || intent.suppressChips) {
+        console.log('[DEBUG][Toast] Blocking toast - meta-comment or suppressChips detected');
+        return false;
+      }
+
       // Disambiguation: show chooser when intent is ambiguous between note and todo
       if (intent.kind === 'ambiguous' && (intent as any).showDisambiguationToast) {
         const choices = (intent.options || ['note', 'todo']) as Array<'note' | 'todo'>;
@@ -507,6 +521,15 @@ export default function ChatThreadScreen({ route }: Props) {
           : undefined,
       );
       if (!payload) return false;
+
+      console.log('[DEBUG][Toast] Showing toast:', {
+        type: payload.type,
+        content: payload.content.substring(0, 50),
+        intentKind: intent.kind,
+        confidence: intent.confidence,
+        suppressChips: intent.suppressChips,
+        isMetaComment: intent.isMetaComment,
+      });
 
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[ChatToast] showing_toast', {
