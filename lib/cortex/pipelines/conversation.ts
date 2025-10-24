@@ -22,6 +22,7 @@ import {
 import { getPersonaPrompt } from '../persona/prompt';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
+const EXPLORATION_COPY_RE = /let's explore that a bit more\.?/i;
 
 function isExplicitActionRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
@@ -733,14 +734,21 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Check if we should try direct worker call before suppressing catch-all copy
   const wasCatchAllResponse =
     normalized.explanation && CATCHALL_COPY_RE.test(normalized.explanation);
+  const wasExplorationResponse =
+    normalized.explanation && EXPLORATION_COPY_RE.test(normalized.explanation);
 
   if (__DEV__ && wasCatchAllResponse) {
     console.log('[CORTEX] Detected catch-all response:', normalized.explanation?.substring(0, 50));
   }
 
-  // Suppress catch-all copy in chat
-  if (typeof normalized.explanation === 'string' && CATCHALL_COPY_RE.test(normalized.explanation)) {
-    normalized.explanation = '';
+  // Suppress catch-all and generic exploration copy in chat
+  if (typeof normalized.explanation === 'string') {
+    if (
+      CATCHALL_COPY_RE.test(normalized.explanation) ||
+      EXPLORATION_COPY_RE.test(normalized.explanation)
+    ) {
+      normalized.explanation = '';
+    }
   }
 
   // Step 5.1b: If cortexDecide returned generic response, try direct worker call
@@ -782,7 +790,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     });
   }
 
-  if (wasCatchAllResponse && hasNoUsefulContent) {
+  const wasGenericResponse = wasCatchAllResponse || wasExplorationResponse;
+
+  if (wasGenericResponse && hasNoUsefulContent) {
     if (__DEV__) {
       console.log('[CORTEX] Generic response detected, trying direct worker call');
     }
@@ -832,7 +842,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
   }
 
-  if (wasCatchAllResponse && (!normalized.replyText || !normalized.replyText.trim())) {
+  if (wasGenericResponse && (!normalized.replyText || !normalized.replyText.trim())) {
     normalized.replyText = "Let's explore that a bit more.";
     normalized.mode = 'ask';
     normalized.meta = {

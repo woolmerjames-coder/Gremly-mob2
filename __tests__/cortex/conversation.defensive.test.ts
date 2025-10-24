@@ -35,6 +35,7 @@ jest.mock('../../lib/cortex/CortexClient', () => ({
 }));
 
 import { runConversationPipeline } from '../../lib/cortex/pipelines/conversation';
+import { callChat } from '../../lib/cortex/CortexClient';
 
 describe('Space Chat defensive mapping', () => {
   beforeEach(() => {
@@ -101,5 +102,27 @@ describe('Space Chat defensive mapping', () => {
 
     // Should never return auto mode in chat
     expect(result.mode).not.toBe('auto');
+  });
+
+  it('surfaces worker reply when exploration explanation is returned', async () => {
+    const mockContext = {
+      lane: 'space_chat' as const,
+      userId: 'test-user',
+      spaceId: 'test-space',
+      uiSurface: 'chat' as const,
+    };
+
+    const input = {
+      text: 'random question without clear intent',
+    };
+
+    const result = await runConversationPipeline(input, mockContext);
+
+    // The pipeline should suppress the generic exploration explanation
+    // and use the worker's reply text instead
+    expect(callChat as jest.Mock).toHaveBeenCalled();
+    expect(result.mode).toBe('ask');
+    expect(result.replyText && result.replyText.length).toBeGreaterThan(0);
+    expect(result.explanation ?? '').not.toContain("let's explore");
   });
 });
