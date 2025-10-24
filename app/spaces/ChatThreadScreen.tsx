@@ -242,6 +242,37 @@ export default function ChatThreadScreen({ route }: Props) {
       // Show confirmation toast for high-confidence actionable intents
       if (!intent) return false;
 
+      // Disambiguation: show chooser when intent is ambiguous between note and todo
+      if (intent.kind === 'ambiguous' && (intent as any).showDisambiguationToast) {
+        const choices = (intent.options || ['note', 'todo']) as Array<'note' | 'todo'>;
+        const summaryOverride = `"${userText.trim()}"\nWould you like this as:`;
+        hideActionToast();
+        showActionToast({
+          type: 'disambiguation' as any,
+          content: userText,
+          metadata: {
+            summaryOverride,
+            disambiguationOptions: {
+              choices,
+              onChoose: (choice: 'note' | 'todo') => {
+                // After choose, show the normal action toast for the selected type
+                const selectedIntent = {
+                  kind: choice,
+                  confidence: Math.max(0.9, intent.confidence || 0.9),
+                  title: userText,
+                } as DetectedIntent;
+                const payload = buildActionToastPayload(selectedIntent, userText, spaceId ?? null);
+                if (payload) {
+                  hideActionToast();
+                  showActionToast(payload);
+                }
+              },
+            },
+          },
+        } as any);
+        return true;
+      }
+
       const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
       const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
       const isActionable = actionableKinds.has(intent.kind);

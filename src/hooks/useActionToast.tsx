@@ -16,7 +16,7 @@ import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayContro
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { Frequency, HabitSubtype, NoteSubtype } from '../../lib/types';
 
-type ActionType = 'habit' | 'todo' | 'note';
+type ActionType = 'habit' | 'todo' | 'note' | 'disambiguation';
 
 type ActionToastInput = {
   type: ActionType;
@@ -44,6 +44,11 @@ type ActionToastMetadata = {
   conversionMeta?: {
     initialTitle?: string;
     initialNote?: string;
+  };
+  // Disambiguation support
+  disambiguationOptions?: {
+    choices: Array<'todo' | 'note'>;
+    onChoose: (choice: 'todo' | 'note') => void;
   };
 };
 
@@ -144,6 +149,10 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
     const trimmed = content.trim();
     const baseText = trimmed || 'New item';
 
+    if (type === 'disambiguation') {
+      return `"${baseText}"\nWould you like this as:`;
+    }
+
     if (type === 'habit') {
       return `⚡ Habit: ${baseText}`;
     }
@@ -169,6 +178,9 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       const { type, content, metadata } = input;
       if (__DEV__) {
         console.log('[ActionToast] performCreate:start', { type, content, metadata });
+      }
+      if (type === 'disambiguation') {
+        throw new Error('Invalid create type: disambiguation');
       }
       const createPayload: CreateRecordInput = {
         type,
@@ -240,6 +252,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
 
   const handleEdit = useCallback(() => {
     if (!payload) return;
+    if (payload.type === 'disambiguation') return;
 
     clearExistingTimer();
     hideToast();
@@ -306,21 +319,42 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
         <Text style={styles.summary} numberOfLines={3}>
           {summary}
         </Text>
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={[styles.button, styles.confirmButton, isSaving && styles.disabledButton]}
-            onPress={handleConfirm}
-            disabled={isSaving}
-          >
-            <Text style={[styles.buttonText, styles.confirmText]}>✅ Confirm</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.button} onPress={handleEdit}>
-            <Text style={styles.buttonText}>✏️ Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.button} onPress={handleCancel}>
-            <Text style={styles.buttonText}>✖️ Cancel</Text>
-          </TouchableOpacity>
-        </View>
+        {payload.type === 'disambiguation' && payload.metadata?.disambiguationOptions ? (
+          <View style={styles.buttonRow}>
+            {payload.metadata.disambiguationOptions.choices.map((c) => (
+              <TouchableOpacity
+                key={c}
+                style={[styles.button, styles.confirmButton]}
+                onPress={() => {
+                  payload.metadata?.disambiguationOptions?.onChoose(c);
+                }}
+              >
+                <Text style={[styles.buttonText, styles.confirmText]}>
+                  {c === 'note' ? '📝 Note' : '✅ Todo/Reminder'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.button} onPress={handleCancel}>
+              <Text style={styles.buttonText}>✖️ Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.button, styles.confirmButton, isSaving && styles.disabledButton]}
+              onPress={handleConfirm}
+              disabled={isSaving}
+            >
+              <Text style={[styles.buttonText, styles.confirmText]}>✅ Confirm</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.button} onPress={handleEdit}>
+              <Text style={styles.buttonText}>✏️ Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.button} onPress={handleCancel}>
+              <Text style={styles.buttonText}>✖️ Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </Animated.View>
     );
   }, [handleCancel, handleConfirm, handleEdit, isSaving, isVisible, payload, summary, toastWidth]);

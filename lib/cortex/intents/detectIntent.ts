@@ -133,12 +133,68 @@ export function detectIntent(text: string): DetectedIntent {
     return { kind: 'question', confidence: 0.92, isCommand };
   }
 
+  // Precompute candidate confidences for note and todo to allow ambiguity handling
+  const matchesNotePhraseRaw = /\b(note|remember|keep in mind|write down|jot down)\b/i.test(t);
+  const matchesReminderPhrase = /\b(reminder|remind me|set(?:\s+up)?\s+(?:a\s+)?reminder)\b/i.test(
+    t,
+  );
+  // Heuristic: phrases like "remember to" or "don't forget" imply actionable follow-up
+  const matchesRememberTo = /\bremember\s+to\b/i.test(t) || /\bdon't\s+forget\b/i.test(t);
+  // Heuristic: temporal hints without strong verb ("tomorrow", "next week") slightly bias toward todo
+  const matchesTemporal =
+    /\b(today|tomorrow|tonight|this\s+week|next\s+(week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(
+      t,
+    );
+
+  let noteCandidate = 0;
+  if (matchesNotePhraseRaw) {
+    noteCandidate = 0.9;
+  }
+  // If it's a reminder phrase, still consider a weaker note candidate for ambiguity
+  if (matchesNotePhraseRaw && matchesReminderPhrase) {
+    noteCandidate = Math.max(noteCandidate, 0.75);
+  }
+
+  // 4. To-do patterns: action verbs, deadlines, reminder phrases
+  // Raised threshold to 0.92 for highest confidence
+  const todoHardMatch =
+    /(\bremind\s+me\b|\bset(?:\s+up)?\s+(?:a\s+)?reminder\b|\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b)/i.test(
+      t,
+    ) && !/\b(how do|how to|how can)\b/i.test(t);
+
+  let todoCandidate = 0;
+  if (todoHardMatch) {
+    todoCandidate = 0.92;
+  }
+  // "remember to" implies actionable, boost todo candidate even if not hard verb
+  if (matchesRememberTo) {
+    todoCandidate = Math.max(todoCandidate, 0.85);
+  }
+  if (matchesTemporal && matchesNotePhraseRaw) {
+    // temporal + note-ish phrasing: weak todo bias
+    todoCandidate = Math.max(todoCandidate, 0.72);
+  }
+
+  // Ambiguity tie-break: if both candidates strong (>=0.7) and within 0.2, surface chooser
+  if (noteCandidate >= 0.7 && todoCandidate >= 0.7) {
+    const diff = Math.abs(todoCandidate - noteCandidate);
+    if (diff < 0.2) {
+      return {
+        kind: 'ambiguous',
+        confidence: Math.max(noteCandidate, todoCandidate),
+        title: trimmed,
+        options: ['todo', 'note'],
+        confidences: { todo: todoCandidate, note: noteCandidate },
+        showDisambiguationToast: true,
+        isCommand,
+        curiositySuggestion: 'Should I save this as a to-do or a note?',
+      } as any;
+    }
+  }
+
   // 2. Note patterns: memory/note words (exclude reminders which map to To-Do)
   // Moved up priority: question > note > habit > todo
-  if (
-    /\b(note|remember|keep in mind|write down|jot down)\b/i.test(t) &&
-    !/\b(reminder|remind me|set (?:a )?reminder)\b/i.test(t)
-  ) {
+  if (matchesNotePhraseRaw && !matchesReminderPhrase) {
     return {
       kind: 'note',
       confidence: 0.9, // High confidence required for downstream handling
@@ -165,14 +221,7 @@ export function detectIntent(text: string): DetectedIntent {
     };
   }
 
-  // 4. To-do patterns: action verbs, deadlines, reminder phrases
-  // Raised threshold to 0.92 for highest confidence
-  if (
-    /(\bremind\s+me\b|\bset\s+(?:a\s+)?reminder\b|\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b)/i.test(
-      t,
-    ) &&
-    !/\b(how do|how to|how can)\b/i.test(t)
-  ) {
+  if (todoHardMatch) {
     return {
       kind: 'todo',
       confidence: 0.92, // P0 Fix: Raised to match pipeline threshold
