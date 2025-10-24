@@ -192,17 +192,44 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 18-19: HINT PHRASES (NOT COMMANDS)
+  // Must come BEFORE command detection to prevent false positives
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 18,
+    name: 'hint_remember',
+    test: (text) => {
+      // "remember" and similar phrases are hints, not commands
+      const hintPatterns = [/\bremember\b/i, /\bremind me\b/i, /\bdon'?t forget\b/i];
+      return hintPatterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'note',
+      confidence: 0.85,
+      flags: {
+        isCommand: false,
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 20-29: EXPLICIT COMMANDS
   // User explicitly commands action with verb+object
+  // Detect command verbs anywhere in sentence, not just at start
   // ═══════════════════════════════════════════════════════════════
   {
     priority: 20,
     name: 'command_explicit_habit',
     test: (text) => {
-      const commandVerbs = /^(create|add|set|start|begin|make|log|track|save|send)/i;
-      const habitWords =
-        /\b(habit|routine|practice|daily|weekly|every (day|week|morning|evening))\b/i;
-      return commandVerbs.test(text) && habitWords.test(text);
+      // Match command verb anywhere, followed by habit words within 4 words
+      const commandPattern =
+        /\b(create|add|set|start|begin|make|log|track|save)\b(?:\s+\w+){0,4}\s*(a\s+)?(habit|routine|practice)\b/i;
+      const frequencyPattern = /\b(daily|weekly|every (day|week|morning|evening))\b/i;
+      return (
+        commandPattern.test(text) ||
+        (frequencyPattern.test(text) && /\b(add|create|set|start|make)\b/i.test(text))
+      );
     },
     classification: {
       kind: 'habit',
@@ -218,9 +245,10 @@ export const INTENT_RULES: IntentRule[] = [
     priority: 21,
     name: 'command_explicit_todo',
     test: (text) => {
-      const commandVerbs = /^(create|add|set|make|log|save|send)/i;
-      const todoWords = /\b(todo|task|reminder|to-do)\b/i;
-      return commandVerbs.test(text) && todoWords.test(text);
+      // Match command verb anywhere, followed by todo/task/reminder within 4 words
+      const commandPattern =
+        /\b(create|add|set|make|log|save)\b(?:\s+\w+){0,4}\s*(a\s+)?(todo|task|reminder|to-do)\b/i;
+      return commandPattern.test(text);
     },
     classification: {
       kind: 'todo',
@@ -234,11 +262,67 @@ export const INTENT_RULES: IntentRule[] = [
 
   {
     priority: 22,
+    name: 'command_send_email',
+    test: (text) => {
+      // "send an email" or "send email to" is a command
+      return /\bsend\b(?:\s+\w+){0,3}\s*(an\s+)?email\b/i.test(text);
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 23,
+    name: 'command_save_idea',
+    test: (text) => {
+      // "save this idea" or "save idea" is a command
+      return /\bsave\b(?:\s+\w+){0,3}\s*(this\s+|an\s+)?idea\b/i.test(text);
+    },
+    classification: {
+      kind: 'idea',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 24,
+    name: 'command_log_reflection',
+    test: (text) => {
+      // "log today was" or "log" with reflection keywords is a command
+      const hasLogVerb = /\blog\b/i.test(text);
+      const hasReflectionContext = /\b(today|yesterday|this (week|month)|was|felt|feeling)\b/i.test(
+        text,
+      );
+      return hasLogVerb && hasReflectionContext;
+    },
+    classification: {
+      kind: 'reflection',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 25,
     name: 'command_explicit_note',
     test: (text) => {
-      const commandVerbs = /^(create|add|make|write|log|save|send)/i;
-      const noteWords = /\b(note|journal|entry|memo)\b/i;
-      return commandVerbs.test(text) && noteWords.test(text);
+      // Match command verb anywhere, followed by note/journal/entry within 4 words
+      const commandPattern =
+        /\b(create|add|make|write|log|save)\b(?:\s+\w+){0,4}\s*(a\s+)?(note|journal|entry|memo)\b/i;
+      return commandPattern.test(text);
     },
     classification: {
       kind: 'note',
@@ -679,7 +763,8 @@ export function classifyIntent(text: string): DetectedIntent {
         kind: rule.classification.kind,
         confidence: rule.classification.confidence,
         title: trimmed,
-        ...rule.classification.flags,
+        isCommand: false, // Default to false
+        ...rule.classification.flags, // Flags can override defaults
       };
     }
   }
@@ -693,6 +778,7 @@ export function classifyIntent(text: string): DetectedIntent {
     kind: 'none',
     confidence: 0,
     title: trimmed,
+    isCommand: false,
     requiresAction: false,
   };
 }
