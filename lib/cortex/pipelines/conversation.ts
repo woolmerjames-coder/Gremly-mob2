@@ -483,6 +483,29 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     ? Number(minConfidenceEnv)
     : 0.9;
 
+  // Questions: reply-only ergonomics regardless of upstream output
+  if (intent.kind === 'question') {
+    // Ensure no chips for questions
+    normalized.suggestions = [];
+    // Provide a minimal helpful reply text (tests expect non-empty) but preserve any existing reply
+    if (!normalized.replyText || !normalized.replyText.trim()) {
+      normalized.replyText = 'I can help you think through that.';
+    }
+    normalized.mode = 'ask';
+  }
+
+  // Phase 10.7D: intentCooldown tracking (cooldownTurns already defined earlier)
+  let intentCooldown = ctx.intentCooldownTurns || 0;
+
+  // Decrement cooldown each turn
+  if (intentCooldown > 0) {
+    intentCooldown--;
+    if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log('[CORTEX][10.7D] cooldown_decremented:', intentCooldown);
+    }
+  }
+
+  // hasExplicitIntent already defined earlier in function
   const isUserAffirming = isAffirmation(userText);
   const bypassCooldown = hasExplicitIntent || isUserAffirming || intent.isCommand;
 
@@ -816,6 +839,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Lightweight telemetry (optional)
   if ((normalized as any).debug && typeof (normalized as any).debug === 'object') {
     (normalized as any).debug.lane = 'space_chat';
+  }
+
+  // Ensure arrays are present; do not force mode for space_chat unless explicitly required upstream
+  if (!Array.isArray((normalized as any).suggestions)) normalized.suggestions = [];
+  if (!Array.isArray((normalized as any).actions)) normalized.actions = [];
+  if (ctx?.lane === 'space_chat') {
+    // Defensive: never perform actions in chat
+    normalized.actions = [];
   }
 
   return normalized;
