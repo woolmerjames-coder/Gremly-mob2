@@ -28,10 +28,107 @@ export function detectIntent(text: string): DetectedIntent {
   const t = text.toLowerCase();
   const trimmed = text.trim();
 
+  // CRITICAL: Detect meta-comments and complaints (should NOT create actions)
+  const metaCommentPatterns = [
+    /why did you/i,
+    /what did you (just\s+)?do/i,
+    /doesn't make sense/i,
+    /does(n't|nt) make any sense/i,
+    /that'?s? (wrong|incorrect|not right)/i,
+    /what are you doing/i,
+    /why are you/i,
+    /can you explain/i,
+    /what's going on/i,
+    /\bhuh\??\b/i,
+    /i don't understand/i,
+    /that doesn't work/i,
+    /why would you/i,
+  ];
+
+  if (metaCommentPatterns.some((pattern) => pattern.test(text))) {
+    return {
+      kind: 'question',
+      confidence: 0.95,
+      suppressChips: true,
+      isPlanning: false,
+      isCommand: false,
+    };
+  }
+
+  // CRITICAL: Detect explicit opt-out phrases (user does NOT want action)
+  const optOutPatterns = [
+    /\b(just thinking|just thought|just wondering)\b/i,
+    /\b(never mind|nevermind)\b/i,
+    /\bdon'?t save\b/i,
+    /\bno need\b/i,
+    /\b(just chatting|just talking)\b/i,
+    /\b(forget it|forget that)\b/i,
+    /\b(cancel that|cancel it)\b/i,
+    /\bi'?m good\b/i,
+    /\bnot sure\b/i,
+    /\bmaybe\b.*\?$/i, // "maybe?" at end suggests uncertainty
+  ];
+
+  if (optOutPatterns.some((pattern) => pattern.test(text))) {
+    return {
+      kind: 'none',
+      confidence: 0,
+      suppressChips: true,
+      isPlanning: false,
+      isCommand: false,
+    };
+  }
+
   // Phase 10.10: Detect explicit command verbs
   // Note: "remember" removed - it's a note hint, not an explicit command
   const commandPattern = /^(set|add|create|save|send|log)\b/i;
   const isCommand = commandPattern.test(trimmed);
+
+  // Phase 10.11: Action-verb + object combos should produce actionable intents
+  // Handles phrasing like "Can you create a habit?" by checking combos BEFORE generic question detection
+  // Verbs: create|log|set|set up|add|make|track|start
+  // Objects: habit|reminder|todo|note
+  // Also special patterns: "remind me", "set a reminder", "make a note"
+  const verbObjectRe = new RegExp(
+    `\\b(?:create|log|set(?:\\s+up)?|add|make|track|start)\\b[\\s\n\r]*(?:a|the|my)?[\\s\n\r]*(habit|reminder|todo|to-?do|note)s?\\b`,
+    'i',
+  );
+  const hasVerbObject = verbObjectRe.test(text);
+  const hasRemindMe = /\bremind\s+me\b/i.test(text);
+  const hasSetReminder = /\bset(?:\s+up)?\s+(?:a\s+)?reminder\b/i.test(text);
+  const hasMakeNote = /\bmake\s+(?:a\s+)?note\b/i.test(text);
+
+  if (hasVerbObject || hasRemindMe || hasSetReminder || hasMakeNote) {
+    let target: 'habit' | 'todo' | 'note' | null = null;
+
+    if (hasRemindMe || hasSetReminder) {
+      target = 'todo';
+    } else if (hasMakeNote) {
+      target = 'note';
+    } else {
+      const m = text.match(verbObjectRe);
+      const obj = (m && m[1] ? m[1].toLowerCase() : '') as string;
+      if (obj.includes('habit')) target = 'habit';
+      else if (obj.includes('todo') || obj.includes('to-do') || obj.includes('reminder'))
+        target = 'todo';
+      else if (obj.includes('note')) target = 'note';
+    }
+
+    if (target) {
+      return {
+        kind: target,
+        confidence: 0.95,
+        title: trimmed,
+        isCommand: true,
+        curiositySuggestion:
+          target === 'habit'
+            ? 'Want structured help building this habit, or just exploring?'
+            : target === 'todo'
+              ? 'Want me to add this as a to-do, or just planning ahead?'
+              : 'Should I capture this as a note, or just keeping it in mind?',
+      };
+    }
+  }
 
   // Special-case: creative exploration phrases should be classified as ideas
   // Ensure these do not get downgraded to questions by planning/exploring detector
@@ -42,7 +139,7 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'idea',
-      confidence: 0.8,
+      confidence: 0.9,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
       isCommand,
@@ -84,17 +181,79 @@ export function detectIntent(text: string): DetectedIntent {
     /\?/.test(t) ||
     /^(who|what|where|when|why|how|can|could|would|should|is|are|do|does)\b/i.test(t)
   ) {
-    return { kind: 'question', confidence: 0.8, isCommand };
+    return { kind: 'question', confidence: 0.92, isCommand };
   }
 
-  // 2. Note patterns: memory/reminder words
+  // Precompute candidate confidences for note and todo to allow ambiguity handling
+  const matchesNotePhraseRaw = /\b(note|remember|keep in mind|write down|jot down)\b/i.test(t);
+  const matchesReminderPhrase = /\b(reminder|remind me|set(?:\s+up)?\s+(?:a\s+)?reminder)\b/i.test(
+    t,
+  );
+  // Heuristic: phrases like "remember to" or "don't forget" imply actionable follow-up
+  const matchesRememberTo = /\bremember\s+to\b/i.test(t) || /\bdon't\s+forget\b/i.test(t);
+  // Heuristic: temporal hints without strong verb ("tomorrow", "next week") slightly bias toward todo
+  const matchesTemporal =
+    /\b(today|tomorrow|tonight|this\s+week|next\s+(week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(
+      t,
+    );
+
+  let noteCandidate = 0;
+  if (matchesNotePhraseRaw) {
+    noteCandidate = 0.9;
+  }
+  // If it's a reminder phrase, still consider a weaker note candidate for ambiguity
+  if (matchesNotePhraseRaw && matchesReminderPhrase) {
+    noteCandidate = Math.max(noteCandidate, 0.75);
+  }
+
+  // 4. To-do patterns: action verbs, deadlines, reminder phrases
+  // Raised threshold to 0.92 for highest confidence
+  // CRITICAL: Exclude meta-questions about the system AND common non-action phrases
+  const todoHardMatch =
+    /(\bremind\s+me\b|\bset(?:\s+up)?\s+(?:a\s+)?reminder\b|\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b)/i.test(
+      t,
+    ) &&
+    !/\b(how do|how to|how can|why did|why are|what did|what are)\b/i.test(t) &&
+    !/\byou\b.*\b(make|create|do|doing)\b/i.test(t) && // "Why did you make..." is NOT a todo
+    !/\bmake\s+sense\b/i.test(t) && // "make sense" is not a todo action
+    !/\bmake\s+(a|any)\s+(difference|point)\b/i.test(t); // "make a difference/point" are not todo actions
+
+  let todoCandidate = 0;
+  if (todoHardMatch) {
+    todoCandidate = 0.92;
+  }
+  // "remember to" implies actionable, but only boost toward todo when temporal hints exist
+  if (matchesRememberTo && matchesTemporal) {
+    todoCandidate = Math.max(todoCandidate, 0.85);
+  }
+  if (matchesTemporal && matchesNotePhraseRaw) {
+    // temporal + note-ish phrasing: weak todo bias
+    todoCandidate = Math.max(todoCandidate, 0.72);
+  }
+
+  // Ambiguity tie-break: if both candidates strong (>=0.7) and within 0.2, surface chooser
+  if (noteCandidate >= 0.7 && todoCandidate >= 0.7) {
+    const diff = Math.abs(todoCandidate - noteCandidate);
+    if (diff < 0.2) {
+      return {
+        kind: 'ambiguous',
+        confidence: Math.max(noteCandidate, todoCandidate),
+        title: trimmed,
+        options: ['todo', 'note'],
+        confidences: { todo: todoCandidate, note: noteCandidate },
+        showDisambiguationToast: true,
+        isCommand,
+        curiositySuggestion: 'Should I save this as a to-do or a note?',
+      } as any;
+    }
+  }
+
+  // 2. Note patterns: memory/note words (exclude reminders which map to To-Do)
   // Moved up priority: question > note > habit > todo
-  if (
-    /\b(note|remember|reminder|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)
-  ) {
+  if (matchesNotePhraseRaw && !matchesReminderPhrase) {
     return {
       kind: 'note',
-      confidence: 0.85, // P0 Fix: Raised to match pipeline threshold
+      confidence: 0.9, // High confidence required for downstream handling
       title: trimmed,
       curiositySuggestion: 'Should I capture this as a note, or just keeping it in mind?',
       isCommand,
@@ -118,14 +277,7 @@ export function detectIntent(text: string): DetectedIntent {
     };
   }
 
-  // 4. To-do patterns: action verbs, deadlines
-  // Raised threshold to 0.92 for highest confidence
-  if (
-    /\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b/i.test(
-      t,
-    ) &&
-    !/\b(how do|how to|how can)\b/i.test(t)
-  ) {
+  if (todoHardMatch) {
     return {
       kind: 'todo',
       confidence: 0.92, // P0 Fix: Raised to match pipeline threshold
@@ -143,7 +295,7 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'reflection',
-      confidence: 0.85,
+      confidence: 0.9,
       title: trimmed,
       curiositySuggestion: 'Want to save this as a reflection, or just thinking out loud?',
       isCommand,
@@ -154,7 +306,7 @@ export function detectIntent(text: string): DetectedIntent {
   if (/\b(idea|concept|maybe we could|what if|brainstorm|imagine)\b/i.test(t)) {
     return {
       kind: 'idea',
-      confidence: 0.8,
+      confidence: 0.9,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
       isCommand,

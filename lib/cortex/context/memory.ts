@@ -1,8 +1,11 @@
 /**
  * Phase 10.7D: Context & Memory Helpers
  * Phase 10.7E: Enhanced context building with database integration
+ * Phase 10.10B: Space-aware prompts and metadata injection
  * Build context windows and maintain running summaries
  */
+
+import { getPersonaPrompt } from '../persona/prompt';
 
 /**
  * Safely unwrap repo results that might be undefined, null, array, or {list: []}
@@ -26,6 +29,15 @@ export interface ChatContext {
   summary?: string;
   windowSize: number;
   summaryLength: number;
+  systemPrompt?: string;
+  space?: {
+    id?: string;
+    name?: string | null;
+    icon?: string | null;
+    theme?: string | null;
+    tags?: string[];
+    people?: string[];
+  };
 }
 
 /**
@@ -71,21 +83,114 @@ export async function buildChatContext(options: {
     // Keep only the last N turns (messages already in chronological order from repo)
     const trimmed = messages.slice(-maxContext);
 
-    // Build result with optional running summary
+    const repoAny = options.repo as any;
+
+    // Load supplemental space context in parallel (best-effort, failures fall back silently)
+    const [spaceRecord, latestSummary, linkedTags, linkedPeople] = await Promise.all([
+      typeof repoAny?.getSpaceById === 'function'
+        ? repoAny.getSpaceById(options.spaceId).catch(() => null)
+        : Promise.resolve(null),
+      typeof repoAny?.getLatestSpaceInsight === 'function'
+        ? repoAny.getLatestSpaceInsight(options.spaceId).catch(() => null)
+        : Promise.resolve(null),
+      typeof repoAny?.listItemTags === 'function'
+        ? repoAny.listItemTags(options.spaceId).catch(() => [])
+        : Promise.resolve([]),
+      typeof repoAny?.listLinkedPeopleByItem === 'function'
+        ? repoAny.listLinkedPeopleByItem(options.spaceId).catch(() => [])
+        : typeof repoAny?.listLinkedPeople === 'function'
+          ? repoAny.listLinkedPeople({ type: 'space', id: options.spaceId }).catch(() => [])
+          : Promise.resolve([]),
+    ]);
+
+    // Determine summary preference: prefer persisted insight, fall back to rolling summary
+    const summaryFromInsight =
+      latestSummary && typeof latestSummary.summary === 'string'
+        ? latestSummary.summary.trim()
+        : '';
+    const summaryFromCtx = options.runningSummary && options.runningSummary.trim();
+    const summaryText = (summaryFromInsight || summaryFromCtx || '').trim();
+
+    // Build space metadata for downstream consumers
+    const tagNames = Array.isArray(linkedTags)
+      ? Array.from(
+          new Set(
+            linkedTags
+              .map((t: any) => (typeof t?.name === 'string' ? t.name.trim() : undefined))
+              .filter((name): name is string => !!name && name.length > 0),
+          ),
+        ).slice(0, 6)
+      : [];
+
+    const personNamesSource = Array.isArray(linkedPeople) ? linkedPeople : [];
+
+    const personNames = Array.from(
+      new Set(
+        personNamesSource
+          .map((p: any) => {
+            if (typeof p === 'string') return p.trim();
+            if (p?.person_name && typeof p.person_name === 'string') return p.person_name.trim();
+            if (p?.display_name && typeof p.display_name === 'string') return p.display_name.trim();
+            if (p?.name && typeof p.name === 'string') return p.name.trim();
+            if (p?.person_email && typeof p.person_email === 'string') return p.person_email.trim();
+            return undefined;
+          })
+          .filter((name): name is string => !!name && name.trim().length > 0),
+      ),
+    ).slice(0, 6);
+
+    const spaceContext =
+      spaceRecord || tagNames.length > 0 || personNames.length > 0
+        ? {
+            id: spaceRecord?.id ?? options.spaceId,
+            name: spaceRecord?.name ?? spaceRecord?.title ?? null,
+            icon: spaceRecord?.icon ?? null,
+            theme: spaceRecord?.theme ?? null,
+            tags: tagNames,
+            people: personNames,
+          }
+        : undefined;
+
+    const personaPrompt = getPersonaPrompt();
+    const contextLines: string[] = [];
+
+    if (spaceContext?.name) {
+      contextLines.push(`Space name: ${spaceContext.name}`);
+    }
+    if (spaceContext?.icon) {
+      contextLines.push(`Icon: ${spaceContext.icon}`);
+    }
+    if (spaceContext?.theme) {
+      contextLines.push(`Theme: ${spaceContext.theme}`);
+    }
+    if (spaceContext?.tags && spaceContext.tags.length > 0) {
+      contextLines.push(`Linked tags: ${spaceContext.tags.join(', ')}`);
+    }
+    if (spaceContext?.people && spaceContext.people.length > 0) {
+      contextLines.push(`People mentioned: ${spaceContext.people.join(', ')}`);
+    }
+
+    const systemPrompt =
+      personaPrompt +
+      (contextLines.length > 0
+        ? `\n\nSpace context:\n${contextLines.join('\n')}\nKeep replies grounded in this space.`
+        : '');
+
+    // Build result with enriched context
     const result: ChatContext = {
       messages: trimmed,
-      summary:
-        options.runningSummary && options.runningSummary.trim()
-          ? options.runningSummary.trim()
-          : undefined,
+      summary: summaryText.length > 0 ? summaryText : undefined,
       windowSize: trimmed.length,
-      summaryLength: options.runningSummary?.length || 0,
+      summaryLength: summaryText.length,
+      systemPrompt,
+      space: spaceContext,
     };
 
     if (__DEV__) {
       console.log('[CORTEX][10.7E] context_built', {
         windowSize: result.windowSize,
         summaryLength: result.summaryLength,
+        hasSystemPrompt: !!result.systemPrompt,
       });
     }
 
@@ -101,6 +206,7 @@ export async function buildChatContext(options: {
       summary: undefined,
       windowSize: 0,
       summaryLength: 0,
+      systemPrompt: getPersonaPrompt(),
     };
   }
 }

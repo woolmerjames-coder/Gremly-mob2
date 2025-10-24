@@ -81,9 +81,12 @@ describe('Space Chat rules', () => {
     const result = await runConversationPipeline({ text: 'test' }, mockContext);
 
     expect(result.actions).toEqual([]);
-    expect(result.explanation).toBe('');
-    expect(result.mode).toBe('reply'); // Engine error → empty explanation → small-talk reply
-    expect(result.replyText).toBeDefined(); // Small-talk should be triggered
-    expect(result.meta?.kind).toBe('smalltalk');
+    expect(result.mode).toBe('ask');
+    const exp = result.explanation ?? '';
+    const reply = result.replyText ?? '';
+    expect(`${exp} ${reply}`.trim()).toContain("Let's explore");
+    // Ensure no legacy Catch-All copy leaks into chat
+    expect(exp).not.toMatch(/Catch-?All/i);
+    expect(reply).not.toMatch(/Catch-?All/i);
   });
 });

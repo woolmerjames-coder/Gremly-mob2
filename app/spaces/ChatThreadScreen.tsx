@@ -29,6 +29,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import type { DetectedIntent } from '../../lib/cortex/intents/types';
+import { detectIntent } from '../../lib/cortex/intents/detectIntent';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
@@ -37,6 +38,8 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
+// Removed PersistentActionBar to reduce clutter per UX polish
+import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
 // Phase 10.6: New mascot system
 import { MascotProvider } from '../features/mascot/useMascot';
@@ -52,6 +55,7 @@ import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
+import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -65,7 +69,156 @@ function metaKindAsAssistantKind(kind: any): 'classification' | 'smalltalk' | 'd
   return null;
 }
 
+const TODO_DUE_DATE_PATTERNS: RegExp[] = [
+  /\bby\s+(?:the\s+)?(end of (?:day|week)|tomorrow|today|tonight|this weekend|this week|next week|next month|next year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  /\bthis\s+(weekend|week|month|morning|afternoon|evening|year)\b/i,
+  /\bnext\s+(week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  /\bon\s+(?:this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b/i,
+  /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/,
+];
+
+const TODO_DUE_TIME_PATTERNS: RegExp[] = [
+  /\b(?:at|around)\s+\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i,
+  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i,
+  /\b(?:at\s+)?(noon|midnight)\b/i,
+  /\b(?:in the\s+)?(morning|afternoon|evening|night)\b/i,
+];
+
+const INTENT_KIND_TO_ACTION: Partial<Record<DetectedIntent['kind'], ActionToastInput['type']>> = {
+  habit: 'habit',
+  todo: 'todo',
+  note: 'note',
+  reflection: 'note',
+  idea: 'note',
+};
+
+// Smart gating helpers
+const TRIGGER_WORDS_RE = /\b(save|create|add|make|set|remind|log|start)\b/i;
+const SOFT_SKIP_RE = /\b(just thinking|maybe|not sure)\b/i;
+
+function cleanFragment(fragment: string | null | undefined): string | null {
+  if (!fragment) return null;
+  return fragment.replace(/[.,!?]+$/g, '').trim();
+}
+
+function extractMatch(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[0]) {
+      return cleanFragment(match[0]);
+    }
+  }
+  return null;
+}
+
+function deriveTodoDetails(userText: string) {
+  const dueDate = extractMatch(userText, TODO_DUE_DATE_PATTERNS);
+  const dueTime = extractMatch(userText, TODO_DUE_TIME_PATTERNS);
+  return { dueDate, dueTime };
+}
+
+function mapCadenceToFrequency(cadence?: string) {
+  if (!cadence) return undefined;
+  const normalized = cadence.toLowerCase();
+  if (normalized.includes('month')) return 'monthly' as const;
+  if (normalized.includes('week')) return 'weekly' as const;
+  return 'daily' as const;
+}
+
+function buildActionToastPayload(
+  intent: DetectedIntent | null,
+  userText: string,
+  spaceId: string | null,
+  handlers?: {
+    onConfirm?: () => Promise<void> | void;
+    onCancel?: () => void;
+    onEdit?: () => void;
+    onAutoDismiss?: () => void;
+  },
+): ActionToastInput | null {
+  if (!intent) return null;
+  const type = INTENT_KIND_TO_ACTION[intent.kind];
+  if (!type) return null;
+
+  const trimmedUserText = userText.trim();
+  const commonMetadata = {
+    autoOrigin: 'space_chat' as const,
+    aiPlaced: true,
+    spaceId,
+  };
+
+  if (type === 'todo') {
+    const title = intent.title?.trim() || extractTodoTitle(trimmedUserText) || 'Untitled';
+    const { dueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    return {
+      type,
+      content: title,
+      metadata: {
+        ...commonMetadata,
+        dueDate: dueDate ?? null,
+        dueTime: dueTime ?? null,
+        onConfirm: handlers?.onConfirm as any,
+        onCancel: handlers?.onCancel,
+        onEdit: handlers?.onEdit,
+        onAutoDismiss: handlers?.onAutoDismiss,
+        conversionMeta: {
+          initialTitle: title,
+        },
+      },
+    };
+  }
+
+  if (type === 'habit') {
+    const habitData = parseHabit(trimmedUserText);
+    const name = intent.title?.trim() || habitData.name || 'New habit';
+    const frequency = mapCadenceToFrequency(habitData.cadence);
+    return {
+      type,
+      content: name,
+      metadata: {
+        ...commonMetadata,
+        frequency: frequency ?? 'daily',
+        habitSubtype: 'start_habit',
+        frequencyValue: undefined,
+        onConfirm: handlers?.onConfirm as any,
+        onCancel: handlers?.onCancel,
+        onEdit: handlers?.onEdit,
+        onAutoDismiss: handlers?.onAutoDismiss,
+        conversionMeta: {
+          initialTitle: name,
+        },
+      },
+    };
+  }
+
+  // Note & reflection/idea handling
+  const noteTitle = intent.title?.trim() || smartTitle(trimmedUserText);
+  const subtype =
+    intent.kind === 'reflection' ? 'journal' : intent.kind === 'idea' ? 'idea' : 'catchall';
+  return {
+    type: 'note',
+    content: noteTitle,
+    metadata: {
+      ...commonMetadata,
+      noteSubtype: subtype,
+      noteBody: trimmedUserText,
+      onConfirm: handlers?.onConfirm as any,
+      onCancel: handlers?.onCancel,
+      onEdit: handlers?.onEdit,
+      onAutoDismiss: handlers?.onAutoDismiss,
+      conversionMeta: {
+        initialTitle: noteTitle,
+        initialNote: trimmedUserText,
+      },
+    },
+  };
+}
+
 export default function ChatThreadScreen({ route }: Props) {
+  // Scroll ref for auto-scrolling to the latest message
+  const scrollViewRef = useRef<import('react-native').ScrollView | null>(null);
+
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
   const { userId } = auth;
@@ -78,6 +231,21 @@ export default function ChatThreadScreen({ route }: Props) {
   const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
   const [detectedIntent, setDetectedIntent] = useState<DetectedIntent | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string>('');
+
+  // Chat-level message index and toast history for cooldowns
+  const userMsgIndexRef = React.useRef(0);
+  type ToastOutcome = 'confirm' | 'cancel' | 'edit' | 'auto-dismiss';
+  const toastHistoryRef = React.useRef<
+    Partial<Record<'todo' | 'note' | 'habit', Array<{ index: number; outcome: ToastOutcome }>>>
+  >({});
+
+  const recordToastOutcome = useCallback((t: 'todo' | 'note' | 'habit', outcome: ToastOutcome) => {
+    const idx = userMsgIndexRef.current;
+    const arr = toastHistoryRef.current[t] || [];
+    arr.push({ index: idx, outcome });
+    // Keep only recent 20
+    toastHistoryRef.current[t] = arr.slice(-20);
+  }, []);
 
   // Auto-fade suggestions after 3 seconds
   const suggestionFadeTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -98,6 +266,278 @@ export default function ChatThreadScreen({ route }: Props) {
   // Overlay controller for conversion
   const overlayController = useUnifiedOverlayController();
 
+  const actionToastOffset = React.useMemo(
+    () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
+    [],
+  );
+  const {
+    showToast: showActionToast,
+    hideToast: hideActionToast,
+    isVisible: isActionToastVisible,
+    Toast: ActionToast,
+  } = useActionToast({ bottomOffset: actionToastOffset });
+
+  const maybeTriggerActionToast = useCallback(
+    (intent: DetectedIntent | null, _meta: Record<string, any> | undefined, userText: string) => {
+      // Show confirmation toast for high-confidence actionable intents
+      if (!intent) return false;
+
+      // Disambiguation: show chooser when intent is ambiguous between note and todo
+      if (intent.kind === 'ambiguous' && (intent as any).showDisambiguationToast) {
+        const choices = (intent.options || ['note', 'todo']) as Array<'note' | 'todo'>;
+        const summaryOverride = `"${userText.trim()}"\nWould you like this as:`;
+        hideActionToast();
+        showActionToast({
+          type: 'disambiguation' as any,
+          content: userText,
+          metadata: {
+            summaryOverride,
+            disambiguationOptions: {
+              choices,
+              onChoose: (choice: 'note' | 'todo') => {
+                // After choose, show the normal action toast for the selected type
+                const selectedIntent = {
+                  kind: choice,
+                  confidence: Math.max(0.9, intent.confidence || 0.9),
+                  title: userText,
+                } as DetectedIntent;
+                const payload = buildActionToastPayload(selectedIntent, userText, spaceId ?? null, {
+                  onConfirm: async () => {
+                    recordToastOutcome(choice, 'confirm');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'confirm',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                  onCancel: () => {
+                    recordToastOutcome(choice, 'cancel');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'cancel',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                  onEdit: () => {
+                    recordToastOutcome(choice, 'edit');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'edit',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                  onAutoDismiss: () => {
+                    recordToastOutcome(choice, 'auto-dismiss');
+                    repo
+                      .writeEvent(
+                        'toast',
+                        {
+                          event: 'action',
+                          action: 'auto-dismiss',
+                          toastType: choice,
+                          index: userMsgIndexRef.current,
+                        },
+                        { userId: userId || 'anonymous' },
+                      )
+                      .catch(() => {});
+                  },
+                });
+                if (payload) {
+                  hideActionToast();
+                  showActionToast(payload);
+                }
+              },
+            },
+          },
+        } as any);
+        return true;
+      }
+
+      const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
+      const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
+      const isActionable = actionableKinds.has(intent.kind);
+      const actionType = INTENT_KIND_TO_ACTION[intent.kind] as
+        | 'todo'
+        | 'note'
+        | 'habit'
+        | undefined;
+
+      // Smart gating between 0.7-0.89 with trigger words, and soft skip phrases
+      const conf = typeof intent.confidence === 'number' ? intent.confidence : 0;
+      const hasTrigger = TRIGGER_WORDS_RE.test(userText);
+      const isSoftSkip = SOFT_SKIP_RE.test(userText);
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatToast][gate] intent', {
+          kind: intent.kind,
+          confidence: intent.confidence,
+          meetsConfidence,
+          isActionable,
+          spaceId,
+          userTextPreview: userText.substring(0, 80),
+        });
+      }
+
+      let allowed = false;
+      if (meetsConfidence && isActionable) {
+        allowed = true;
+      } else if (isActionable && !isSoftSkip && conf >= 0.7 && conf < 0.9 && hasTrigger) {
+        allowed = true;
+      }
+
+      // Cooldowns: block if same type shown within last 2 user messages; if canceled, block for 5
+      if (allowed && actionType) {
+        const history = toastHistoryRef.current[actionType] || [];
+        const idx = userMsgIndexRef.current;
+        const recentSame = history.some((h) => h.index >= idx - 2);
+        const recentCancel = history.some((h) => h.outcome === 'cancel' && h.index >= idx - 5);
+        if (recentSame || recentCancel) {
+          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[ChatToast][gate] cooldown_block', {
+              actionType,
+              recentSame,
+              recentCancel,
+            });
+          }
+          allowed = false;
+        }
+      }
+
+      if (!allowed) {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[ChatToast][gate] skip_toast', {
+            reason: !isActionable
+              ? 'non_actionable_intent'
+              : isSoftSkip
+                ? 'soft_skip'
+                : 'threshold_not_met',
+          });
+        }
+        return false;
+      }
+
+      const payload = buildActionToastPayload(
+        intent,
+        userText,
+        spaceId ?? null,
+        actionType
+          ? {
+              onConfirm: async () => {
+                recordToastOutcome(actionType, 'confirm');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'confirm',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+              onCancel: () => {
+                recordToastOutcome(actionType, 'cancel');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'cancel',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+              onEdit: () => {
+                recordToastOutcome(actionType, 'edit');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'edit',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+              onAutoDismiss: () => {
+                recordToastOutcome(actionType, 'auto-dismiss');
+                repo
+                  .writeEvent(
+                    'toast',
+                    {
+                      event: 'action',
+                      action: 'auto-dismiss',
+                      toastType: actionType,
+                      index: userMsgIndexRef.current,
+                    },
+                    { userId: userId || 'anonymous' },
+                  )
+                  .catch(() => {});
+              },
+            }
+          : undefined,
+      );
+      if (!payload) return false;
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatToast] showing_toast', {
+          type: payload.type,
+          content: payload.content,
+          meta: payload.metadata,
+        });
+      }
+
+      hideActionToast();
+      // Analytics: toast shown (repo event)
+      if (actionType) {
+        repo
+          .writeEvent(
+            'toast',
+            {
+              event: 'shown',
+              toastType: actionType,
+              confidence: intent.confidence,
+              index: userMsgIndexRef.current,
+            },
+            { userId: userId || 'anonymous' },
+          )
+          .catch(() => {});
+      }
+      showActionToast(payload);
+      return true;
+    },
+    [hideActionToast, showActionToast, spaceId, recordToastOutcome],
+  );
+
   // Use new chat messages hook
   const {
     messages,
@@ -105,7 +545,12 @@ export default function ChatThreadScreen({ route }: Props) {
     error: messagesError,
     sendUserMessage,
     appendAssistantMessage,
-  } = useChatMessages(chatId);
+  } = useChatMessages(chatId, spaceId);
+
+  // Auto-scroll when messages change (e.g., new assistant/user messages)
+  useEffect(() => {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [messages]);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
   const _spaceChatRepo = React.useMemo(() => {
@@ -164,7 +609,10 @@ export default function ChatThreadScreen({ route }: Props) {
 
   const handleSend = useCallback(
     async (text: string) => {
-      if (!text.trim() || !chat) return;
+      const trimmedText = text.trim();
+      if (!trimmedText || !chat) return;
+
+      hideActionToast();
 
       // P0 Fix: Strict spaceId validation with dev error
       if (!spaceId) {
@@ -185,11 +633,13 @@ export default function ChatThreadScreen({ route }: Props) {
 
       try {
         setSending(true);
+        // Advance user message index for cooldown tracking
+        userMsgIndexRef.current += 1;
 
         // Clear active suggestions when user sends a new message
         setActiveSuggestions([]);
         setDetectedIntent(null);
-        setLastUserMessage(text);
+        setLastUserMessage(trimmedText);
 
         // Clear any existing fade timer
         if (suggestionFadeTimerRef.current) {
@@ -203,12 +653,12 @@ export default function ChatThreadScreen({ route }: Props) {
         }
 
         // 1. Send user message via hook
-        await sendUserMessage(text);
+        await sendUserMessage(trimmedText);
 
         // Phase 10.6: Emit user message sent event
         emitChatEvent({
           type: 'user_message_sent',
-          payload: { text, spaceId: chat.space_id || undefined },
+          payload: { text: trimmedText, spaceId: chat.space_id || undefined },
         });
 
         // Phase 10.6: Start thinking animation
@@ -253,7 +703,41 @@ export default function ChatThreadScreen({ route }: Props) {
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
 
-          const response = await cortexRoute({ text }, ctx);
+          const response = await cortexRoute({ text: trimmedText }, ctx);
+
+          const responseDetectedIntent = metaHasDetectedIntent(response.meta)
+            ? (response.meta.detectedIntent as DetectedIntent)
+            : null;
+          const toastShown = maybeTriggerActionToast(
+            responseDetectedIntent,
+            response.meta as Record<string, any> | undefined,
+            trimmedText,
+          );
+
+          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[ChatToast] toast_decision', {
+              toastShown,
+              detectedIntent: responseDetectedIntent
+                ? {
+                    kind: responseDetectedIntent.kind,
+                    confidence: responseDetectedIntent.confidence,
+                  }
+                : null,
+              responseMeta: response.meta,
+            });
+          }
+
+          // Simple, direct fallback: if no toast shown yet, run local detection and gate purely by confidence/kind
+          if (!toastShown) {
+            const localIntent = detectIntent(trimmedText);
+            const fallbackShown = maybeTriggerActionToast(localIntent, undefined, trimmedText);
+            if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+              console.log('[ChatToast] fallback_local_detection', {
+                fallbackShown,
+                localIntent: { kind: localIntent.kind, confidence: localIntent.confidence },
+              });
+            }
+          }
 
           // Log event (non-blocking)
           repo
@@ -261,7 +745,7 @@ export default function ChatThreadScreen({ route }: Props) {
               'cortex_decision',
               {
                 source: 'chat',
-                text,
+                text: trimmedText,
                 actions: response.actions,
                 confidence: response.confidence,
                 mode: response.mode,
@@ -271,7 +755,7 @@ export default function ChatThreadScreen({ route }: Props) {
             )
             .catch((err) => console.error('[ChatThread] Failed to log event:', err));
 
-          if (response.mode === 'auto' && response.actions.length > 0) {
+          if (!toastShown && response.mode === 'auto' && response.actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
 
@@ -315,7 +799,7 @@ export default function ChatThreadScreen({ route }: Props) {
                   } else if (action.type === 'create.note') {
                     await repo.create({
                       type: 'note',
-                      title: action.payload.text || text,
+                      title: action.payload.text || trimmedText,
                       body: action.payload.text,
                       subtype:
                         (action.payload.subtype as
@@ -364,7 +848,7 @@ export default function ChatThreadScreen({ route }: Props) {
             // Simple heuristic for chit-chat detection
             const chitChatPatterns =
               /\b(hello|hi|hey|thanks|thank you|how are you|what's up|good morning|good afternoon|good evening)\b/i;
-            if (chitChatPatterns.test(text.toLowerCase())) {
+            if (chitChatPatterns.test(trimmedText.toLowerCase())) {
               shouldTriggerPlayful = true;
             }
           }
@@ -381,10 +865,10 @@ export default function ChatThreadScreen({ route }: Props) {
               setActiveSuggestions(response.suggestions);
 
               // Store detected intent from meta if available
-              if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
-                setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
+              if (responseDetectedIntent) {
+                setDetectedIntent(responseDetectedIntent);
                 try {
-                  const di = response.meta.detectedIntent as DetectedIntent;
+                  const di = responseDetectedIntent;
                   console.log(
                     '[Chips] render for messageId=',
                     messages[messages.length - 1]?.id || 'unknown',
@@ -412,22 +896,33 @@ export default function ChatThreadScreen({ route }: Props) {
               setDetectedIntent(null);
             }
 
-            await appendAssistantMessage(assistantText);
+            const appendedMessage = await appendAssistantMessage(assistantText);
 
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
               import('../../lib/cortex/summarize')
                 .then(({ maybeRefreshSummary }) => {
                   // Convert messages to ChatTurn format
-                  const turns = messages.map((m) => ({
+                  const historyTurns = messages.map((m) => ({
                     role: m.role as 'user' | 'assistant',
                     text: m.content,
                   }));
 
-                  // Get the last message ID (the assistant message we just sent)
-                  const lastMsg = messages[messages.length - 1];
+                  const hasLatestUser = historyTurns.some(
+                    (turn) => turn.role === 'user' && turn.text === trimmedText,
+                  );
 
-                  maybeRefreshSummary(spaceId, turns, lastMsg?.id).catch((err) => {
+                  if (!hasLatestUser) {
+                    historyTurns.push({ role: 'user', text: trimmedText });
+                  }
+
+                  historyTurns.push({ role: 'assistant', text: assistantText });
+
+                  const turns = historyTurns;
+
+                  const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
+
+                  maybeRefreshSummary(spaceId, turns, lastMsgId).catch((err) => {
                     if (__DEV__) {
                       console.error('[ChatThread][10.8] Summary refresh failed:', err);
                     }
@@ -442,8 +937,8 @@ export default function ChatThreadScreen({ route }: Props) {
 
             // Phase 10.6: Emit response final event with intent detection flag
             let hasIntent = false;
-            if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
-              const di = response.meta.detectedIntent as DetectedIntent;
+            if (responseDetectedIntent) {
+              const di = responseDetectedIntent;
               hasIntent =
                 di.kind !== 'none' && typeof di.confidence === 'number' && di.confidence >= 0.75;
             }
@@ -479,7 +974,7 @@ export default function ChatThreadScreen({ route }: Props) {
             error: cortexError,
             userId: currentUserId,
             spaceId: chat.space_id,
-            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+            text: trimmedText.substring(0, 100) + (trimmedText.length > 100 ? '...' : ''),
           });
 
           // Phase 10.6: Emit error event
@@ -529,8 +1024,26 @@ export default function ChatThreadScreen({ route }: Props) {
         setSending(false);
       }
     },
-    [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages, mascot],
+    [
+      chat,
+      chatId,
+      repo,
+      userId,
+      sendUserMessage,
+      appendAssistantMessage,
+      messages,
+      mascot,
+      maybeTriggerActionToast,
+      hideActionToast,
+    ],
   );
+
+  const handlePersistentActionPress = useCallback(() => {
+    if (shouldUseHaptics()) {
+      Haptics.selectionAsync();
+    }
+    overlayController.openCreate({ spaceId: spaceId ?? null });
+  }, [overlayController, spaceId]);
 
   // Phase 10.7D: Debounced send wrapper (200ms)
   const handleSendDebounced = useCallback(
@@ -710,7 +1223,7 @@ export default function ChatThreadScreen({ route }: Props) {
     <MascotProvider lane="space_chat">
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView
-          style={styles.flex}
+          style={[styles.flex, isActionToastVisible && { paddingBottom: actionToastOffset }]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
@@ -725,7 +1238,12 @@ export default function ChatThreadScreen({ route }: Props) {
           )}
 
           {/* Messages ScrollView */}
-          <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.messages}
+            contentContainerStyle={styles.messagesContent}
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+          >
             {messages.length === 0 ? (
               <View style={styles.placeholder}>
                 <Text style={styles.placeholderIcon}>💬</Text>
@@ -782,12 +1300,14 @@ export default function ChatThreadScreen({ route }: Props) {
                 {/* Typing indicator - Phase 10.6 */}
                 {mascot.state === 'thinking' && (
                   <View style={styles.typingContainer}>
-                    {/* TODO: Add TypingDots when ready */}
+                    <ChatThinkingIndicator visible variant="both" />
                   </View>
                 )}
               </>
             )}
           </ScrollView>
+
+          {/* Persistent Action Bar removed */}
 
           {/* Chat Composer */}
           <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
@@ -801,6 +1321,8 @@ export default function ChatThreadScreen({ route }: Props) {
             onPenPress={() => handleMiniAction('pen')}
             testID="mini-action-bar"
           />
+
+          {ActionToast}
         </KeyboardAvoidingView>
 
         {/* Unified Create Overlay for Chat Conversions */}

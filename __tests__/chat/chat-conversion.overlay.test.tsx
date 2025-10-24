@@ -132,14 +132,10 @@ jest.mock('../../providers/RepoProvider', () => ({
   }),
 }));
 
-// Mock Modal to avoid native dependency issues
-jest.mock('react-native', () => {
+// Mock Modal component separately to avoid native module issues
+jest.mock('react-native/Libraries/Modal/Modal', () => {
   const React = require('react');
-  const RN = jest.requireActual('react-native');
-  return {
-    ...RN,
-    Modal: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  };
+  return ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 });
 
 // Helper to render with SafeAreaProvider consistently

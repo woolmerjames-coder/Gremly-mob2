@@ -3,7 +3,15 @@
  * Intent detection types for smart suggestions
  */
 
-export type IntentKind = 'habit' | 'todo' | 'note' | 'reflection' | 'idea' | 'question' | 'none';
+export type IntentKind =
+  | 'habit'
+  | 'todo'
+  | 'note'
+  | 'reflection'
+  | 'idea'
+  | 'question'
+  | 'ambiguous'
+  | 'none';
 
 export interface DetectedIntent {
   kind: IntentKind;
@@ -14,4 +22,8 @@ export interface DetectedIntent {
   suppressChips?: boolean; // Phase 10.7D: prevent chip display (for planning/exploring)
   isPlanning?: boolean; // Phase 10.7D: user is in planning/exploring mode
   isCommand?: boolean; // Phase 10.10: explicit command verb detected (set/add/create/etc)
+  // Phase 10.11B: Ambiguity support for disambiguation toast
+  options?: Array<'todo' | 'note'>; // candidate choices when ambiguous
+  confidences?: { todo?: number; note?: number }; // raw confidences for candidates
+  showDisambiguationToast?: boolean; // hint for UI to surface chooser
 }

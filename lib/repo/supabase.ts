@@ -1074,7 +1074,7 @@ export class SupabaseRepo implements IRepo {
       // Fetch messages in descending order (newest first), then reverse for chronological
       const { data, error } = await supabase
         .from('space_chat_messages')
-        .select('id, space_id, role, content, created_at')
+        .select('id, chat_id, space_id, role, content, created_at')
         .eq('space_id', spaceId)
         .order('created_at', { ascending: false })
         .limit(limit);
@@ -1821,6 +1821,7 @@ export class SupabaseSpaceChatMessageRepo {
       .from('space_chat_messages')
       .insert({
         chat_id: input.chat_id,
+        space_id: input.space_id,
         user_id: userId,
         role: input.role,
         content: input.content,

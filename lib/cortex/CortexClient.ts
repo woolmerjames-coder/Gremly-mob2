@@ -223,7 +223,14 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
 
 export async function callChat(
   messages: ChatMessage[],
-  opts?: { model?: string; temperature?: number; maxTokens?: number },
+  opts?: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    spaceId?: string | null;
+    chatId?: string | null;
+    lane?: string;
+  },
 ) {
   return postJSON({
     type: 'chat',
@@ -231,6 +238,10 @@ export async function callChat(
     messages,
     temperature: opts?.temperature ?? 0.2,
     max_tokens: opts?.maxTokens ?? 400,
+    spaceId: opts?.spaceId ?? undefined,
+    space_id: opts?.spaceId ?? undefined, // duplicate for worker/backward compat
+    chatId: opts?.chatId ?? undefined,
+    lane: opts?.lane ?? undefined,
   });
 }
 

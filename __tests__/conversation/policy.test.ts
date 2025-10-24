@@ -117,8 +117,8 @@ describe('Answer-First Policy', () => {
     });
   });
 
-  describe('Repeated Intent - Shows Chip', () => {
-    it('shows chip for reiterated habit intent', async () => {
+  describe('Repeated Intent - Conservative Routing', () => {
+    it('responds without chips for reiterated habit intent', async () => {
       const input: DecideInput = {
         text: 'I want to meditate daily',
       };
@@ -133,39 +133,42 @@ describe('Answer-First Policy', () => {
       };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Should have reply with subtle nudge
       expect(result.replyText).toBeDefined();
-      expect(result.replyText).toContain('save this if you like');
-
-      // Should show ONE chip
-      expect(result.suggestions?.length).toBe(1);
-      expect(result.suggestions?.[0]).toBe('Add as habit');
-
-      // Should mark that chip was shown
-      expect((result.meta as any)?.showedChip).toBe(true);
+      expect(result.replyText).not.toBe('');
+      expect(result.suggestions).toEqual([]);
+      expect(meta.intentRoutedAs).toBe('habit');
+      expect(ctx.intentCooldownMap?.habit).toBe(2);
     });
 
-    it('shows chip for reiterated note intent', async () => {
+    it('responds without chips for reiterated note intent', async () => {
       const input: DecideInput = {
-        text: 'Remember: buy milk',
+        text: 'Note to self about the meeting',
       };
 
       const ctx: CortexContext = {
         ...mockContext,
         currentTurn: 5,
-        lastChipTurn: 2,
+        lastChipTurn: 3, // Within cooldown window (5-3=2, cooldownTurns=2)
         recentIntentBuffer: [
           { kind: 'note', turn: 3 },
           { kind: 'note', turn: 4 },
         ],
+        // Set cooldown to trigger intentCoolingDown logic
+        intentCooldownMap: { note: 1 },
       };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      expect(result.suggestions?.length).toBe(1);
-      expect(result.suggestions?.[0]).toBe('Add as note');
-      expect((result.meta as any)?.showedChip).toBe(true);
+      // Should have no chips due to cooldown
+      expect(result.suggestions).toEqual([]);
+      // Should detect note intent
+      expect(meta.detectedIntent?.kind).toBe('note');
+      // Should route as note despite cooldown
+      expect(meta.intentRoutedAs).toBe('note');
+      expect(meta.intentCoolingDown).toBe('note');
     });
   });
 
@@ -183,15 +186,14 @@ describe('Answer-First Policy', () => {
       };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Should NOT show chip due to cooldown
       expect(result.suggestions).toEqual([]);
-
-      // But should still have reply
       expect(result.replyText).toBeDefined();
+      expect(meta.intentCoolingDown).toBe('habit');
     });
 
-    it('allows chip after cooldown period', async () => {
+    it('allows routing after cooldown period', async () => {
       const input: DecideInput = {
         text: 'Meditate daily',
       };
@@ -204,15 +206,16 @@ describe('Answer-First Policy', () => {
       };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Cooldown passed, should show chip
-      expect(result.suggestions?.length).toBe(1);
+      expect(result.suggestions).toEqual([]);
+      expect(meta.intentRoutedAs).toBe('habit');
+      expect(ctx.intentCooldownMap?.habit).toBe(2);
     });
   });
 
   describe('Confidence Threshold', () => {
-    it('requires ≥0.8 confidence for chips', async () => {
-      // detectIntent returns 0.8 for notes, which meets threshold
+    it('skips chips even with high confidence', async () => {
       const input: DecideInput = {
         text: 'Remember something',
       };
@@ -225,9 +228,11 @@ describe('Answer-First Policy', () => {
       };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Should meet 0.8 threshold
-      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.8);
+      expect(result.suggestions).toEqual([]);
+      expect(meta.intentRoutedAs).toBe('note');
+      expect(meta.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.9);
     });
   });
 });
