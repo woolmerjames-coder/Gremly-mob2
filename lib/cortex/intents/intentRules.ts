@@ -192,16 +192,49 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
-  // PRIORITY 18-19: HINT PHRASES (NOT COMMANDS)
-  // Must come BEFORE command detection to prevent false positives
+  // PRIORITY 17: ACTION-ORIENTED REMINDERS
+  // "Remember to [action]" should be todo, not note
+  // Must come BEFORE generic "remember" → note rule (priority 18)
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 17,
+    name: 'reminder_action_todo',
+    test: (text) => {
+      // Match "remember to [action]" or "remind me to [action]" or "don't forget to [action]"
+      // Exclude information capture like "remember the name" or "remember that"
+      const actionReminderPatterns = [
+        /\bremember to\s+(?!the\b|that\b|this\b|my\b|your\b)(\w+)/i,
+        /\bremind me to\s+(?!the\b|that\b|this\b|my\b|your\b)(\w+)/i,
+        /\bdon'?t forget to\s+(?!the\b|that\b|this\b|my\b|your\b)(\w+)/i,
+      ];
+      return actionReminderPatterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.9,
+      flags: {
+        isCommand: false,
+        requiresAction: true,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 18-19: INFORMATION CAPTURE HINTS (NOT COMMANDS)
+  // Generic "remember" without "to [action]" is information storage
+  // Must come AFTER action-oriented reminders (priority 17)
   // ═══════════════════════════════════════════════════════════════
   {
     priority: 18,
-    name: 'hint_remember',
+    name: 'hint_remember_information',
     test: (text) => {
-      // "remember" and similar phrases are hints, not commands
-      const hintPatterns = [/\bremember\b/i, /\bremind me\b/i, /\bdon'?t forget\b/i];
-      return hintPatterns.some((pattern) => pattern.test(text));
+      // "remember the/that/this" or standalone "remember" are information hints
+      // This will catch "Remember the restaurant name" but NOT "Remember to call mom"
+      const informationPatterns = [
+        /\bremember\s+(the|that|this|my|your|about)\b/i,
+        /^remember$/i, // Just "remember" alone
+      ];
+      return informationPatterns.some((pattern) => pattern.test(text));
     },
     classification: {
       kind: 'note',
