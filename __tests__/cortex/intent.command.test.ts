@@ -54,8 +54,8 @@ describe('Explicit Command Intent Detection', () => {
     it('detects "set" as command', () => {
       const result = detectIntent('Set a reminder to call mom');
       expect(result.isCommand).toBe(true);
-      // "reminder" triggers note pattern
-      expect(result.kind).toBe('note');
+      // "set a reminder" triggers todo pattern (reminders map to todos)
+      expect(result.kind).toBe('todo');
     });
 
     it('detects "add" as command', () => {
@@ -105,9 +105,11 @@ describe('Explicit Command Intent Detection', () => {
       expect(result.isCommand).toBe(true);
     });
 
-    it('requires command verb at start of text', () => {
+    it('detects verb-object combos even when not at start', () => {
+      // "I want to add a habit" contains verb-object "add a habit" so it's a command
       const result = detectIntent('I want to add a habit');
-      expect(result.isCommand).toBe(false);
+      expect(result.isCommand).toBe(true);
+      expect(result.kind).toBe('habit');
     });
   });
 
@@ -219,11 +221,10 @@ describe('Explicit Command Intent Detection', () => {
       await runConversationPipeline(input, mockContext);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[CORTEX][policy] explicit_intent',
+        '[CORTEX][policy] explicit_intent -> open_overlay',
         expect.objectContaining({
-          isCommand: true,
-          kind: 'note',
-          action: 'open_overlay',
+          kind: 'todo',
+          confidence: expect.any(Number),
         }),
       );
 
