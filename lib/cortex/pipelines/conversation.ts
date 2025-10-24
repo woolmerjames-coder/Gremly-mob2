@@ -552,8 +552,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Normalize suggestions array for type safety
   const suggestions = Array.isArray(normalized.suggestions) ? normalized.suggestions : [];
 
-  // Early return for low-confidence decisions with no suggestions (when not suppressing smalltalk)
-  if (normalized.confidence === 0 && suggestions.length === 0 && !suppressSmalltalkAck) {
+  // Early return for low-confidence decisions with no suggestions (exclude smalltalk and greetings)
+  if (
+    normalized.confidence === 0 &&
+    suggestions.length === 0 &&
+    !suppressSmalltalkAck &&
+    !smalltalkDetected &&
+    !greetingDetected
+  ) {
     return {
       mode: normalized.mode,
       replyText: "Let's explore that a bit more.",
@@ -879,7 +885,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     (!normalized.replyText || !normalized.replyText.trim()) &&
     (!normalized.explanation || !normalized.explanation.trim())
   ) {
-    if (suppressSmalltalkAck) {
+    if (suppressSmalltalkAck || smalltalkDetected) {
       normalized.mode = 'keep';
       normalized.replyText = undefined;
       normalized.meta = {
@@ -1113,7 +1119,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   const noSuggestions = !normalized?.suggestions || normalized.suggestions.length === 0;
   const noExplanation = !normalized?.explanation || !normalized.explanation.trim();
   const noReplyText = !normalized?.replyText || !normalized.replyText.trim();
-  if (suppressSmalltalkAck && noExplanation && noSuggestions && noReplyText) {
+
+  // Suppress smalltalk acknowledgments (either follow-up acks or standalone smalltalk with no content)
+  if (
+    (suppressSmalltalkAck || smalltalkDetected) &&
+    noExplanation &&
+    noSuggestions &&
+    noReplyText
+  ) {
     return {
       ...normalized,
       mode: 'keep' as const,
