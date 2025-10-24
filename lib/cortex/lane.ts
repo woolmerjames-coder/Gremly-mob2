@@ -19,6 +19,8 @@ export interface CortexContextBase {
   clarifiedTopics?: Set<string>;
   /** Phase 10.7D: Intent cooldown turns remaining (0 = can show chips) */
   intentCooldownTurns?: number;
+  /** Phase 11.1: Intent-specific cooldown tracking */
+  intentCooldownMap?: Record<string, number>;
   /** Phase 10.7D: Running summary for context (~700 chars) */
   runningSummary?: string | null;
   /** Phase 10.7D: Context window (last N messages) */

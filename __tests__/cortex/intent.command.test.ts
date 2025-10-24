@@ -137,7 +137,7 @@ describe('Explicit Command Intent Detection', () => {
       const result = await runConversationPipeline(input, mockContext);
 
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as habit');
+      expect(result.suggestions).toEqual([]);
       expect(result.replyText).toBe('Opening...');
       expect((result.meta as any)?.shouldOpenOverlay).toBe(true);
       expect((result.meta as any)?.overlayKind).toBe('habit');
@@ -166,7 +166,7 @@ describe('Explicit Command Intent Detection', () => {
 
       // Should still open overlay despite cooldown
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as todo');
+      expect(result.suggestions).toEqual([]);
       expect((result.meta as any)?.shouldOpenOverlay).toBe(true);
     });
 
@@ -255,7 +255,7 @@ describe('Explicit Command Intent Detection', () => {
       // Phase 10.7B: Answer-First Policy
       // First-time high confidence intent should NOT show chip (needs reiteration)
       expect(result.mode).toBe('ask');
-      expect(result.suggestions).toEqual([]); // No chip on first time
+      expect(result.suggestions).toEqual([]);
       expect(result.replyText).not.toBe('Opening...');
       expect((result.meta as any)?.shouldOpenOverlay).toBeFalsy();
     });

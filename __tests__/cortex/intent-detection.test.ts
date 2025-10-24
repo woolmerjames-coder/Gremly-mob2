@@ -11,20 +11,20 @@ describe('Intent Detection', () => {
     it('detects habit with frequency words', () => {
       const result = detectIntent('Start running every morning');
       expect(result.kind).toBe('habit');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
       expect(result.title).toBe('Start running every morning');
     });
 
     it('detects habit with routine keyword', () => {
       const result = detectIntent('Create a daily routine for stretching');
       expect(result.kind).toBe('habit');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects habit with weekly frequency', () => {
       const result = detectIntent('Go to the gym every week');
       expect(result.kind).toBe('habit');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
   });
 
@@ -32,25 +32,25 @@ describe('Intent Detection', () => {
     it('detects todo with action verb "buy"', () => {
       const result = detectIntent('Buy flowers tomorrow');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
     });
 
     it('detects todo with action verb "finish"', () => {
       const result = detectIntent('Finish the report by Friday');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
     });
 
     it('detects todo with action verb "email"', () => {
       const result = detectIntent('Email the client about the proposal');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
     });
 
     it('detects todo with explicit "todo" keyword', () => {
       const result = detectIntent('Todo: Schedule dentist appointment');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
     });
   });
 
@@ -58,19 +58,19 @@ describe('Intent Detection', () => {
     it('detects reflection with journal keyword', () => {
       const result = detectIntent('I had a great day today');
       expect(result.kind).toBe('reflection');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects reflection with grateful keyword', () => {
       const result = detectIntent('Grateful for my supportive team');
       expect(result.kind).toBe('reflection');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects reflection with learned keyword', () => {
       const result = detectIntent('Learned a lot about patience today');
       expect(result.kind).toBe('reflection');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
   });
 
@@ -78,13 +78,13 @@ describe('Intent Detection', () => {
     it('detects idea with "idea" keyword', () => {
       const result = detectIntent('Idea for a new feature');
       expect(result.kind).toBe('idea');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects idea with "what if" phrase', () => {
       const result = detectIntent('What if we tried a different approach?');
       expect(result.kind).toBe('idea');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('detects idea with "maybe we could" phrase', () => {

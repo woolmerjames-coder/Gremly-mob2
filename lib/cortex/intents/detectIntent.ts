@@ -42,7 +42,7 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'idea',
-      confidence: 0.8,
+      confidence: 0.9,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
       isCommand,
@@ -84,7 +84,7 @@ export function detectIntent(text: string): DetectedIntent {
     /\?/.test(t) ||
     /^(who|what|where|when|why|how|can|could|would|should|is|are|do|does)\b/i.test(t)
   ) {
-    return { kind: 'question', confidence: 0.8, isCommand };
+    return { kind: 'question', confidence: 0.92, isCommand };
   }
 
   // 2. Note patterns: memory/reminder words
@@ -94,7 +94,7 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'note',
-      confidence: 0.85, // P0 Fix: Raised to match pipeline threshold
+      confidence: 0.9, // High confidence required for downstream handling
       title: trimmed,
       curiositySuggestion: 'Should I capture this as a note, or just keeping it in mind?',
       isCommand,
@@ -143,7 +143,7 @@ export function detectIntent(text: string): DetectedIntent {
   ) {
     return {
       kind: 'reflection',
-      confidence: 0.85,
+      confidence: 0.9,
       title: trimmed,
       curiositySuggestion: 'Want to save this as a reflection, or just thinking out loud?',
       isCommand,
@@ -154,7 +154,7 @@ export function detectIntent(text: string): DetectedIntent {
   if (/\b(idea|concept|maybe we could|what if|brainstorm|imagine)\b/i.test(t)) {
     return {
       kind: 'idea',
-      confidence: 0.8,
+      confidence: 0.9,
       title: trimmed,
       curiositySuggestion: 'Should I capture this idea, or just brainstorming?',
       isCommand,

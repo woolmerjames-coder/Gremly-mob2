@@ -1,6 +1,6 @@
 /**
- * Phase 10.7: Conversation Pipeline Intent Integration Tests
- * Test that intent detection properly adds suggestions and sets mode to 'ask'
+ * Conversation Pipeline Intent Integration Tests
+ * Validates conservative intent gating, per-intent cooldowns, and exploration fallback.
  */
 
 import { runConversationPipeline } from '../../lib/cortex/pipelines/conversation';
@@ -13,11 +13,6 @@ jest.mock('../../lib/cortex/cortexDecide', () => ({
 
 jest.mock('../../lib/cortex/CortexClient', () => ({
   callChat: jest.fn(),
-}));
-
-jest.mock('../../app/lib/cortex/smalltalk', () => ({
-  pickSmalltalk: jest.fn(() => "That's interesting!"),
-  isAcknowledgment: jest.fn(() => false),
 }));
 
 jest.mock('../../lib/cortex/context/memory', () => ({
@@ -43,313 +38,224 @@ jest.mock('../../lib/cortex/smalltalk', () => ({
 import { cortexDecide } from '../../lib/cortex/cortexDecide';
 
 const mockedCortexDecide = cortexDecide as jest.MockedFunction<typeof cortexDecide>;
+const mockedIsSmalltalk = require('../../lib/cortex/smalltalk').isSmalltalk as jest.Mock;
+
+const baseContext: CortexContext = {
+  userId: 'test-user',
+  spaceId: 'test-space',
+  lane: 'space_chat',
+  uiSurface: 'chat',
+  currentTurn: 1,
+  recentIntentBuffer: [],
+};
+
+const createContext = (overrides: Partial<CortexContext> = {}): CortexContext => ({
+  ...baseContext,
+  ...overrides,
+  currentTurn: overrides.currentTurn ?? baseContext.currentTurn,
+  recentIntentBuffer: overrides.recentIntentBuffer ? [...overrides.recentIntentBuffer] : [],
+  intentCooldownMap: overrides.intentCooldownMap
+    ? { ...overrides.intentCooldownMap }
+    : overrides.intentCooldownMap,
+});
 
 describe('Conversation Pipeline - Intent Integration', () => {
-  const mockContext: CortexContext = {
-    userId: 'test-user',
-    spaceId: 'test-space',
-    lane: 'space_chat',
-    uiSurface: 'chat',
-    currentTurn: 1,
-    lastChipTurn: -2,
-    recentIntentBuffer: [],
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedIsSmalltalk.mockImplementation(() => false);
   });
 
-  describe('High Confidence Intent Detection', () => {
-    it('detects habit intent and shows chip for reiterated intent', async () => {
-      // Mock cortexDecide to return base response
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: 'Saved',
-      });
+  describe('Curiosity subroutine', () => {
+    let curiosityEnv: string | undefined;
 
-      const input: DecideInput = {
-        text: 'Start running every morning',
-      };
+    beforeEach(() => {
+      curiosityEnv = process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE;
+      process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE = 'on';
+    });
 
-      const ctx = {
-        ...mockContext,
-        currentTurn: 5,
-        lastChipTurn: 2,
-        recentIntentBuffer: [{ kind: 'habit', turn: 3 }], // Reiterated
-      };
+    afterEach(() => {
+      if (curiosityEnv === undefined) {
+        delete process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE;
+      } else {
+        process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE = curiosityEnv;
+      }
+    });
+
+    it('asks a contextual follow-up question before intent detection', async () => {
+      const ctx = createContext();
+      const input: DecideInput = { text: 'I want to get in shape.' };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      expect(result.mode).toBe('ask');
-      expect(result.suggestions).toContain('Add as habit');
-      expect((result.meta as any)?.detectedIntent).toBeDefined();
-      expect((result.meta as any)?.detectedIntent?.kind).toBe('habit');
-      // P0 Fix: Updated threshold expectation to 0.90
-      expect((result.meta as any)?.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.9);
-    });
-
-    it('detects todo intent', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: 'Saved',
-      });
-
-      const input: DecideInput = {
-        text: 'Buy flowers tomorrow',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      expect(result.mode).toBe('ask');
-      expect((result.meta as any)?.detectedIntent?.kind).toBe('todo');
-      // Phase 10.7B: Answer-First Policy - no chip on first mention (needs reiteration)
+      expect(mockedCortexDecide).not.toHaveBeenCalled();
+      expect(result.replyText).toBe('Nice! What kind of workouts appeal most to you?');
       expect(result.suggestions).toEqual([]);
-    });
-
-    it('detects reflection intent', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: 'Saved',
-      });
-
-      const input: DecideInput = {
-        text: 'I had a great day today',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      expect(result.mode).toBe('ask');
-      expect((result.meta as any)?.detectedIntent?.kind).toBe('reflection');
-      // Phase 10.7B: First time mention → no chip
-      expect(result.suggestions).toEqual([]);
-    });
-
-    it('detects idea intent', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: 'Saved',
-      });
-
-      const input: DecideInput = {
-        text: 'Idea for a new feature',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      expect(result.mode).toBe('ask');
-      expect((result.meta as any)?.detectedIntent?.kind).toBe('idea');
-      // Phase 10.7B: First time mention → no chip
-      expect(result.suggestions).toEqual([]);
-    });
-
-    it('questions get reply only, no chip suggestion', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: 'Saved',
-      });
-
-      const input: DecideInput = {
-        text: 'What are good books on focus?',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      expect(result.mode).toBe('ask');
-      // Phase 10.7B: Questions never get chips
-      expect(result.suggestions).toEqual([]);
-      expect((result.meta as any)?.detectedIntent?.kind).toBe('question');
-    });
-  });
-
-  describe('Low Confidence Intent Detection', () => {
-    it('does not add suggestion chip for low confidence', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: 'Saved',
-      });
-
-      // Ambiguous text with no strong intent signals
-      const input: DecideInput = {
-        text: 'Hello there',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      // Should not have intent-based suggestions
-      expect((result.meta as any)?.detectedIntent?.confidence || 0).toBeLessThan(0.75);
-      expect(result.suggestions || []).not.toContain('Add as habit');
-      expect(result.suggestions || []).not.toContain('Add as todo');
-    });
-  });
-
-  describe('Pipeline Behavior', () => {
-    it('ensures mode is always "ask" with high-confidence intent, never auto', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'auto', // Try to set auto mode
-        actions: [{ type: 'create.todo', payload: { title: 'Test' } }],
-        confidence: 0.9,
-      });
-
-      const input: DecideInput = {
-        text: 'Buy milk',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      // Pipeline should override to 'ask' for space_chat
-      expect(result.mode).toBe('ask');
-      // Actions should be cleared in space_chat
-      expect(result.actions).toEqual([]);
-      // Phase 10.7B: First time → no chip
-      expect(result.suggestions).toEqual([]);
-    });
-
-    it('clears actions array even with intent detection', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'ask',
-        actions: [{ type: 'create.habit', payload: { name: 'Test' } }],
-        confidence: 0.8,
-      });
-
-      const input: DecideInput = {
-        text: 'Start meditation every day',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      // No actions in space_chat
-      expect(result.actions).toEqual([]);
+      expect(meta.curiosityPrompted).toBe(true);
       expect(result.mode).toBe('ask');
     });
 
-    it('sets correct lane metadata', async () => {
+    it('skips curiosity when the user requests an explicit action', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
-        confidence: 0.5,
+        confidence: 0.4,
       });
 
-      const input: DecideInput = {
-        text: 'Finish report',
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      expect((result.meta as any)?.detectedIntent).toBeDefined();
-    });
-  });
-
-  describe('Intent Title Preservation', () => {
-    it('preserves original text as title in intent', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-      });
-
-      const originalText = 'Buy groceries for the week';
-      const input: DecideInput = {
-        text: originalText,
-      };
-
-      const result = await runConversationPipeline(input, mockContext);
-
-      expect((result.meta as any)?.detectedIntent?.title).toBe(originalText);
-    });
-  });
-
-  describe('Minimal Reply with Chips', () => {
-    it('provides reply without chips on first mention (Phase 10.7B answer-first)', async () => {
-      mockedCortexDecide.mockResolvedValue({
-        mode: 'keep',
-        actions: [],
-        confidence: 0.5,
-        explanation: '', // No explanation from cortexDecide
-      });
-
-      const input: DecideInput = {
-        text: 'Start running every morning',
-      };
-
-      const ctx = {
-        ...mockContext,
-        currentTurn: 1,
-        recentIntentBuffer: [], // First time mention
-      };
+      const ctx = createContext({ currentTurn: 2 });
+      const input: DecideInput = { text: 'Add a habit to stretch daily.' };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Phase 10.7B: First time → reply only, no chips
+      expect(mockedCortexDecide).toHaveBeenCalledTimes(1);
+      expect(meta.shouldOpenOverlay).toBe(true);
+      expect(meta.intentRoutedAs).toBe('command');
+    });
+  });
+
+  describe('High-confidence routing', () => {
+    it('captures habit intent and primes cooldown without chips', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        confidence: 0.5,
+        explanation: 'Saved',
+      });
+
+      const ctx = createContext({ currentTurn: 3 });
+      const input: DecideInput = { text: 'Start running every morning' };
+
+      const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
+
+      expect(result.mode).toBe('ask');
       expect(result.suggestions).toEqual([]);
-
-      // Should have a reply
-      expect(result.replyText).toBeDefined();
-      expect(result.replyText).not.toBe('');
+      expect(meta.intentRoutedAs).toBe('habit');
+      expect(meta.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.9);
+      expect(ctx.intentCooldownMap?.habit).toBe(2);
+      expect(ctx.intentCooldownTurns).toBe(2);
+      expect(ctx.recentIntentBuffer?.[0]?.kind).toBe('habit');
     });
 
-    it('shows chip with nudge for reiterated intent (Phase 10.7B)', async () => {
+    it('flags question intents with supportive reply', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
-        confidence: 0.5,
+        confidence: 0.4,
       });
 
-      // Reiterated habit intent
-      const input: DecideInput = { text: 'I want to meditate daily' };
-      const ctx = {
-        ...mockContext,
-        currentTurn: 5,
-        lastChipTurn: 2,
-        recentIntentBuffer: [{ kind: 'habit', turn: 3 }],
-      };
+      const ctx = createContext();
+      const input: DecideInput = { text: 'How do I focus better?' };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Should show chip for reiteration
-      expect(result.suggestions?.length).toBe(1);
-      expect(result.suggestions?.[0]).toBe('Add as habit');
-
-      // Should have reply with nudge
-      expect(result.replyText).toBeDefined();
-      expect(result.replyText).toContain('save this if you like');
+      expect(meta.intentRoutedAs).toBe('question');
+      expect(result.suggestions).toEqual([]);
+      expect(result.replyText).toBe('I can help you think through that.');
     });
 
-    it('does not override existing replyText from cortexDecide', async () => {
-      const existingReply = 'I already have a response for you!';
+    it('sets overlay metadata for explicit command even during cooldown', async () => {
       mockedCortexDecide.mockResolvedValue({
         mode: 'keep',
         actions: [],
-        confidence: 0.5,
-        replyText: existingReply,
+        confidence: 0.4,
       });
 
-      const input: DecideInput = {
-        text: 'Start meditation daily',
-      };
-
-      const ctx = {
-        ...mockContext,
-        currentTurn: 5,
-        lastChipTurn: 2,
-        recentIntentBuffer: [{ kind: 'habit', turn: 3 }],
-      };
+      const ctx = createContext({ intentCooldownMap: { habit: 1 }, currentTurn: 6 });
+      const input: DecideInput = { text: 'Add a habit to stretch daily' };
 
       const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
 
-      // Should keep the existing replyText (with nudge appended if chip shown)
-      expect(result.replyText).toContain(existingReply);
+      expect(meta.shouldOpenOverlay).toBe(true);
+      expect(meta.overlayKind).toBe('habit');
+      expect(meta.intentRoutedAs).toBe('command');
+      expect(result.replyText).toBe('Opening...');
+      expect(result.suggestions).toEqual([]);
+      expect(ctx.intentCooldownMap?.habit).toBe(2);
+    });
+  });
+
+  describe('Cooldown enforcement', () => {
+    it('suppresses creation when intent is cooling down', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        confidence: 0.6,
+      });
+
+      const ctx = createContext({ intentCooldownMap: { todo: 1 }, currentTurn: 4 });
+      const input: DecideInput = { text: 'Finish the report by Friday' };
+
+      const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
+
+      expect(meta.intentCoolingDown).toBe('todo');
+      expect(result.replyText).toContain("Let's keep exploring");
+      expect(result.suggestions).toEqual([]);
+    });
+
+    it('decrements cooldown map when no new intent fires', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        confidence: 0.2,
+      });
+
+      const ctx = createContext({ intentCooldownMap: { note: 1 }, currentTurn: 2 });
+      const input: DecideInput = { text: 'Just checking in' };
+
+      await runConversationPipeline(input, ctx);
+
+      expect(ctx.intentCooldownMap?.note).toBeUndefined();
+      expect(ctx.intentCooldownTurns).toBe(0);
+    });
+  });
+
+  describe('Fallback behavior', () => {
+    it('returns exploration fallback when no clear intent', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        suggestions: [],
+        explanation: '',
+        confidence: 0,
+      });
+
+      const ctx = createContext();
+      const input: DecideInput = { text: 'Maybe later' };
+
+      const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
+
+      expect(result.replyText).toBe("Let's explore that a bit more.");
+      expect(meta.intentRoutedAs).toBe('exploration');
+      expect(meta.fallback).toBe('exploration');
+      expect(result.suggestions).toEqual([]);
+    });
+
+    it('suppresses follow-up smalltalk acknowledgments', async () => {
+      mockedCortexDecide.mockResolvedValue({
+        mode: 'keep',
+        actions: [],
+        explanation: '',
+        confidence: 0,
+      });
+
+      mockedIsSmalltalk.mockReturnValueOnce(true);
+
+      const ctx = createContext({ recentAssistantKind: 'smalltalk' });
+      const input: DecideInput = { text: 'ok' };
+
+      const result = await runConversationPipeline(input, ctx);
+      const meta = (result.meta ?? {}) as Record<string, any>;
+
+      expect(result.mode).toBe('keep');
+      expect(result.replyText).toBeUndefined();
+      expect(result.suggestions).toEqual([]);
+      expect(meta.suppressedSmalltalk).toBe(true);
     });
   });
 });

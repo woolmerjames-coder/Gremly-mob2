@@ -82,8 +82,9 @@ describe('Space Chat rules', () => {
 
     expect(result.actions).toEqual([]);
     expect(result.explanation).toBe('');
-    expect(result.mode).toBe('reply'); // Engine error → empty explanation → small-talk reply
-    expect(result.replyText).toBeDefined(); // Small-talk should be triggered
+    expect(result.mode).toBe('ask');
+    expect(result.replyText).toContain("Let's explore");
     expect(result.meta?.kind).toBe('smalltalk');
+    expect((result.meta as any)?.fallback).toBe('exploration');
   });
 });
