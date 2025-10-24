@@ -3,7 +3,7 @@
  * Multiline text input with Send icon for composing chat messages
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   TextInput,
@@ -32,19 +32,31 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [inputHeight, setInputHeight] = useState(44);
+  const inputRef = useRef<TextInput>(null);
 
   const handleSend = () => {
     if (!text.trim() || disabled) return;
 
-    onSend(text.trim());
+    const messageToSend = text.trim();
+
+    // Clear input and reset height immediately
     setText('');
-    setInputHeight(44); // Reset to minimum height
+    setInputHeight(44);
+
+    // Send message
+    onSend(messageToSend);
+
+    // Keep keyboard open and focused
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
   };
 
   const handleContentSizeChange = (event: { nativeEvent: { contentSize: { height: number } } }) => {
     const { height } = event.nativeEvent.contentSize;
     // Constrain height between 44pt and 120pt (approx up to ~3 lines)
-    const newHeight = Math.max(44, Math.min(120, height + 16)); // +16 for padding
+    // Account for padding: content height + container padding
+    const newHeight = Math.max(44, Math.min(120, height + 16));
     setInputHeight(newHeight);
   };
 
@@ -54,6 +66,7 @@ export function ChatComposer({
     <View style={styles.container} testID={testID}>
       <View style={[styles.inputContainer, { height: inputHeight }]}>
         <TextInput
+          ref={inputRef}
           style={styles.textInput}
           value={text}
           onChangeText={setText}
@@ -75,7 +88,6 @@ export function ChatComposer({
           onKeyPress={({ nativeEvent }: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
             if (nativeEvent.key === 'Enter') {
               // If Shift not held (best-effort; shiftKey may be undefined on some platforms), send.
-              // RN does not expose preventDefault for newline; we clear text after sending.
               // @ts-expect-error - shiftKey may not exist on all platforms
               const shift = nativeEvent.shiftKey === true;
               if (!shift && text.trim()) {
@@ -114,13 +126,13 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     backgroundColor: lightTokens.colors.surface,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: lightTokens.colors.border,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 0,
     minHeight: 44,
   },
   textInput: {
@@ -129,9 +141,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: lightTokens.colors.text,
     maxHeight: 104, // 120 - 16 padding
-    textAlignVertical: 'top',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    textAlignVertical: 'center',
+    paddingTop: Platform.OS === 'ios' ? 10 : 8,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+    paddingHorizontal: 0,
   },
   sendButton: {
     width: 32,
