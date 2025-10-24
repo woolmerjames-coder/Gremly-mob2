@@ -18,7 +18,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
-import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
+import { SupabaseSpaceChatRepo, SupabaseSpaceChatMessageRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { Space, SpaceChat, AppRecord } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -40,6 +40,7 @@ import { InsightsCard } from '../../components/spaces/InsightsCard';
 import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard';
 import { useAuth } from '../../providers/AuthProvider';
 import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
+import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
 import {
   OverviewHeader,
   LastTimeCard,
@@ -66,6 +67,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // State
   const { space, chats, items, stats, upcoming, reload } = useSpaceAggregate(spaceId);
+  const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
@@ -207,11 +209,38 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
       try {
-        await spaceChatRepo.delete(chatId);
+        // Archive is the safer default: soft-archive when supported
+        const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+        if (backend === 'supabase' && spaceChatRepo instanceof SupabaseSpaceChatRepo) {
+          await spaceChatRepo.archive(chatId);
+        } else {
+          // Memory repo uses delete() to mark archived
+          await spaceChatRepo.delete(chatId);
+        }
         await reload();
       } catch (error) {
         console.error('Failed to archive chat:', error);
         Alert.alert('Error', 'Failed to archive chat');
+      }
+    },
+    [spaceChatRepo, reload],
+  );
+
+  // Hard delete handler
+  const handleDeleteChat = useCallback(
+    async (chatId: string) => {
+      try {
+        const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+        if (backend === 'supabase' && spaceChatRepo instanceof SupabaseSpaceChatRepo) {
+          await spaceChatRepo.delete(chatId);
+        } else {
+          // Memory repo: mimic hard delete by archiving (existing behavior)
+          await spaceChatRepo.delete(chatId);
+        }
+        await reload();
+      } catch (error) {
+        console.error('Failed to delete chat:', error);
+        Alert.alert('Error', 'Failed to delete chat');
       }
     },
     [spaceChatRepo, reload],
@@ -249,6 +278,38 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       Alert.alert('Error', 'Failed to save note');
     }
   }, [spaceInsight, spaceId, repo, reload]);
+
+  // Compute AI summaries for visible chats (top 3)
+  useEffect(() => {
+    let cancelled = false;
+
+    const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+    if (backend !== 'supabase') {
+      // For memory backend, rely on last_message_snippet fallback rendered inline
+      return;
+    }
+
+    const messageRepo = new SupabaseSpaceChatMessageRepo(userId || undefined);
+    const target = chats.slice(0, 3);
+
+    (async () => {
+      for (const chat of target) {
+        try {
+          const msgs = await messageRepo.list(chat.id);
+          const summary = await summarizeChatForCard(chat.id, msgs);
+          if (!cancelled) {
+            setAiSummaries((prev) => (prev[chat.id] ? prev : { ...prev, [chat.id]: summary }));
+          }
+        } catch (e) {
+          // Ignore; fallback will render
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chats, userId]);
 
   const handleAddInsightTodos = useCallback(() => {
     if (!spaceInsight) return;
@@ -361,6 +422,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     onUnpin={handleUnpinChat}
                     onRename={handleRenameChat}
                     onArchive={handleArchiveChat}
+                    onDelete={handleDeleteChat}
+                    aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
                   />
                 ))}
                 {chats.length > 3 && (
