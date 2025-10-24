@@ -1,12 +1,12 @@
 /**
- * InlineActionConfirmation - Phase 11.3
+ * InlineActionConfirmation - Phase 11.3 / Phase 11.4
  * Renders action confirmations inline with chat messages instead of overlay toast
+ * Updated: Clean styling with brand colors, no emojis
  */
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { SpaceChatMessage } from '../../lib/types';
-import { lightTokens } from '../../design/tokens';
 
 type ActionType = 'habit' | 'todo' | 'note';
 
@@ -29,29 +29,16 @@ export function InlineActionConfirmation({
   const actionType: ActionType = metadata.actionType || 'todo';
   const content = message.content || 'New item';
 
-  const getActionIcon = () => {
+  const getTypeLabel = () => {
     switch (actionType) {
       case 'habit':
-        return '⚡';
+        return 'HABIT';
       case 'todo':
-        return '✓';
+        return 'TASK';
       case 'note':
-        return '📝';
+        return 'NOTE';
       default:
-        return '✓';
-    }
-  };
-
-  const getActionLabel = () => {
-    switch (actionType) {
-      case 'habit':
-        return 'Habit';
-      case 'todo':
-        return 'Todo';
-      case 'note':
-        return 'Note';
-      default:
-        return 'Item';
+        return 'ITEM';
     }
   };
 
@@ -76,18 +63,20 @@ export function InlineActionConfirmation({
   return (
     <View style={styles.container} testID={testID}>
       <View style={styles.header}>
-        <Text style={styles.title}>
-          {getActionIcon()} {getActionLabel()}: {content}
-        </Text>
+        <Text style={styles.typeLabel}>{getTypeLabel()}</Text>
       </View>
 
-      <View style={styles.buttonRow}>
+      <Text style={styles.title} numberOfLines={2}>
+        {content}
+      </Text>
+
+      <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={[styles.button, styles.confirmButton]}
           onPress={handleConfirmPress}
           testID={`${testID}-confirm`}
         >
-          <Text style={[styles.buttonText, styles.confirmButtonText]}>Confirm</Text>
+          <Text style={[styles.buttonText, styles.confirmText]}>Confirm</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -95,7 +84,7 @@ export function InlineActionConfirmation({
           onPress={handleEditPress}
           testID={`${testID}-edit`}
         >
-          <Text style={styles.buttonText}>Edit</Text>
+          <Text style={[styles.buttonText, styles.editText]}>Edit</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -103,7 +92,7 @@ export function InlineActionConfirmation({
           onPress={handleCancelPress}
           testID={`${testID}-cancel`}
         >
-          <Text style={styles.buttonText}>Cancel</Text>
+          <Text style={[styles.buttonText, styles.cancelText]}>Cancel</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -112,13 +101,13 @@ export function InlineActionConfirmation({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: lightTokens.colors.linenCream, // #F9F6F1
-    borderRadius: 12,
+    backgroundColor: 'rgba(249, 246, 241, 0.98)', // Linen Cream with slight transparency
+    borderRadius: 14,
     padding: 16,
     marginVertical: 8,
     marginHorizontal: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: lightTokens.colors.mossGreen, // #2E5540
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.1)', // Subtle Moss Green border
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -126,42 +115,61 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   header: {
-    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  typeLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E5540', // Moss Green
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   title: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: lightTokens.colors.charcoalInk, // #222222
+    color: '#222222', // Charcoal Ink
+    paddingRight: 8,
   },
-  buttonRow: {
+  buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 8,
+    marginTop: 14,
   },
   button: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    minHeight: 36,
     borderRadius: 8,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
   },
   confirmButton: {
-    backgroundColor: lightTokens.colors.mossGreen, // #2E5540
+    backgroundColor: '#2E5540', // Moss Green - primary action
   },
   editButton: {
-    backgroundColor: lightTokens.colors.sageMist, // #BFD8C0
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#BFD8C0', // Sage Mist border
   },
   cancelButton: {
-    backgroundColor: '#E8E8E8',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#E0E0E0', // Light gray border
   },
   buttonText: {
-    textAlign: 'center',
-    fontWeight: '600',
     fontSize: 14,
-    color: '#FFFFFF',
+    fontWeight: '500',
   },
-  confirmButtonText: {
-    color: '#FFFFFF',
+  confirmText: {
+    color: '#F9F6F1', // Linen Cream on dark background
+  },
+  editText: {
+    color: '#2E5540', // Moss Green
+  },
+  cancelText: {
+    color: '#666666', // Gray
   },
 });
