@@ -247,6 +247,7 @@ export const INTENT_RULES: IntentRule[] = [
         /\b(remind me|set (a )?reminder)\b/i,
         /\bdon't (let me )?forget (to)?\b/i,
         /\bneed to remember (to)?\b/i,
+        /\bremember to\b/i, // "Remember to [action]" = todo
       ];
       return patterns.some((pattern) => pattern.test(text));
     },
@@ -282,6 +283,37 @@ export const INTENT_RULES: IntentRule[] = [
 
   {
     priority: 52,
+    name: 'todo_modal_action',
+    test: (text) => {
+      // "Need to call", "Have to buy", "Must finish", "I should finish the report"
+      // But NOT "Should I do..." (that's a question)
+
+      // FIRST: Check if it's a question - questions should not be todos
+      if (text.includes('?')) return false; // Explicit question mark
+      if (/^(should|could|would|can|will) (i|we|you|they)\b/i.test(text)) return false; // Question form
+
+      // Modal + action patterns for todos
+      const modalPattern = /^(need to|have to|must|got to|gotta)\b/i;
+      const shouldPattern = /\b(i|we|you|they) should\b/i; // "I should finish" = todo
+      const actionVerbs =
+        /\b(call|email|text|message|contact|buy|purchase|get|pick up|grab|schedule|book|arrange|organize|finish|complete|submit|send|check|review|read|watch|write|create|start|do|make)\b/i;
+
+      const hasModalAction = modalPattern.test(text) && actionVerbs.test(text);
+      const hasShouldAction = shouldPattern.test(text) && actionVerbs.test(text);
+
+      return hasModalAction || hasShouldAction;
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.9,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 53,
     name: 'todo_imperative',
     test: (text) => {
       const imperativeVerbs = [
@@ -291,7 +323,12 @@ export const INTENT_RULES: IntentRule[] = [
         /^(finish|complete|submit|send)\b/i,
         /^(check|review|read|watch)\b/i,
       ];
-      return imperativeVerbs.some((pattern) => pattern.test(text));
+      // Match imperative verbs, OR "need/must/should + action" with time
+      const hasImperative = imperativeVerbs.some((pattern) => pattern.test(text));
+      const hasModalAction = /^(need to|have to|must|should)\b/i.test(text);
+      const hasTime = /\b(by|before|tomorrow|today|next)\b/i.test(text);
+
+      return hasImperative || (hasModalAction && hasTime);
     },
     classification: {
       kind: 'todo',
@@ -366,10 +403,35 @@ export const INTENT_RULES: IntentRule[] = [
 
   // ═══════════════════════════════════════════════════════════════
   // PRIORITY 70-79: IDEA/REFLECTION
-  // Exploratory, future-thinking
+  // Exploratory, future-thinking (BEFORE questions to catch "I've been thinking...")
   // ═══════════════════════════════════════════════════════════════
   {
     priority: 70,
+    name: 'reflection',
+    test: (text) => {
+      const patterns = [
+        /\bthinking about\b/i,
+        /\breflecting on\b/i,
+        /\bpondering\b/i,
+        /\bi wonder\b/i,
+        /\bi'?m curious\b/i,
+        /\bi'?ve been thinking/i, // Remove \b at end - "I've been thinking about..."
+        /\bi'?m thinking/i, // "I'm thinking about..."
+        /\b(learned|realized|noticed|observed) (that)?\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'reflection',
+      confidence: 0.8,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  {
+    priority: 71,
     name: 'idea_what_if',
     test: (text) => {
       const patterns = [
@@ -389,26 +451,6 @@ export const INTENT_RULES: IntentRule[] = [
     },
   },
 
-  {
-    priority: 71,
-    name: 'reflection',
-    test: (text) => {
-      const patterns = [
-        /\b(thinking about|reflecting on|pondering)\b/i,
-        /\b(i wonder|i'm curious|i've been thinking)\b/i,
-        /\b(learned|realized|noticed|observed) (that)?\b/i,
-      ];
-      return patterns.some((pattern) => pattern.test(text));
-    },
-    classification: {
-      kind: 'reflection',
-      confidence: 0.8,
-      flags: {
-        requiresAction: false,
-      },
-    },
-  },
-
   // ═══════════════════════════════════════════════════════════════
   // PRIORITY 80-89: QUESTIONS
   // Seeking information or clarification
@@ -417,11 +459,18 @@ export const INTENT_RULES: IntentRule[] = [
     priority: 80,
     name: 'question_interrogative',
     test: (text) => {
+      // Exclude reflective statements that might start with "I've been" or "I'm thinking"
+      if (/\bi'?ve been (thinking|reflecting|pondering)/i.test(text)) return false;
+      if (/\bi'?m thinking about/i.test(text)) return false;
+
       const hasQuestionMark = text.includes('?');
       const startsWithWh = /^(what|how|why|when|where|who|which)\b/i.test(text);
-      const startsWithAux = /^(can|could|would|should|will|do|does|did|is|are|was|were)\b/i.test(
-        text,
-      );
+      // Question form: auxiliary verb + pronoun (Should I, Can you, etc.)
+      const startsWithAux =
+        /^(can|could|would|should|will|do|does|did|is|are|was|were) (i|you|we|they|he|she|it|this|that)\b/i.test(
+          text,
+        );
+
       return hasQuestionMark || startsWithWh || startsWithAux;
     },
     classification: {
