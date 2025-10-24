@@ -37,6 +37,7 @@ import { detectIntent } from '../../lib/cortex/intents/detectIntent';
 import { detectMultipleIntents } from '../../lib/cortex/intents/multiIntentDetector';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { maybeRefreshSummary } from '../../lib/cortex/summarize';
+import { createToastSummary, getActivityName } from '../../lib/chat/contextualSummary';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
@@ -405,6 +406,19 @@ export default function ChatThreadScreen({ route }: Props) {
         return false;
       }
 
+      // Phase 11.7+: Get recent user messages for context-aware summaries
+      const recentMessages = messages
+        .slice(-10) // Last 10 messages
+        .filter((m) => m.role === 'user') // User messages only
+        .map((m) => m.content);
+
+      // Create context-aware summary
+      const contextualSummary = createToastSummary(userText, intent.kind, recentMessages);
+
+      // Get activity name for habit creation
+      const activityName =
+        intent.kind === 'habit' ? getActivityName(userText, recentMessages) : undefined;
+
       // Build action metadata with handlers
       const metadata: Record<string, any> = {
         actionType,
@@ -412,6 +426,10 @@ export default function ChatThreadScreen({ route }: Props) {
         aiPlaced: true,
         spaceId: spaceId ?? null,
         confidence: intent.confidence,
+        // Phase 11.7+: Context-aware summary and activity name
+        summary: contextualSummary,
+        activityName,
+        fullText: userText,
         // Phase 11.5: Include multi-intent data if present
         alternativeIntents: intent.alternativeIntents || undefined,
         isMultiIntent: intent.isMultiIntent || false,

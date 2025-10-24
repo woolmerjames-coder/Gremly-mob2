@@ -21,6 +21,7 @@ import {
   type ChatContext,
 } from '../context/memory';
 import { getPersonaPrompt } from '../persona/prompt';
+import { smartRefine } from '../persona/refine';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 const EXPLORATION_COPY_RE = /let's explore that a bit more\.?/i;
@@ -276,8 +277,11 @@ async function tryDirectWorkerCall(
           ? Math.max(0, Math.min(1, data.confidence))
           : 0.85;
 
+      // Phase 11.7+: Refine AI response to match brand voice
+      const refinedReply = smartRefine(replyText);
+
       // Phase 11.2: Update consecutive questions counter
-      const hasQuestion = containsQuestion(replyText);
+      const hasQuestion = containsQuestion(refinedReply);
       if (hasQuestion) {
         ctx.consecutiveQuestions = (ctx.consecutiveQuestions ?? 0) + 1;
       } else {
@@ -288,14 +292,14 @@ async function tryDirectWorkerCall(
         console.log('[CORTEX][11.2] Question tracking:', {
           hasQuestion,
           consecutiveQuestions: ctx.consecutiveQuestions,
-          replyPreview: replyText.substring(0, 60),
+          replyPreview: refinedReply.substring(0, 60),
         });
       }
 
       return {
         actions: [],
         explanation: undefined,
-        replyText,
+        replyText: refinedReply,
         suggestions,
         mode: 'reply',
         confidence: workerConfidence,
@@ -319,7 +323,7 @@ async function tryDirectWorkerCall(
     return {
       actions: [],
       mode: 'ask',
-      replyText: "Let's explore that a bit more.",
+      replyText: 'Break that down for me?',
       suggestions: [],
       explanation: undefined,
       confidence: 0,
@@ -472,7 +476,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       mode: 'ask' as const,
       actions: [],
       suggestions: [],
-      replyText: "I'm here for you. What's going on?",
+      replyText: "I'm here. What's going on?",
       explanation: undefined,
       confidence: 0,
       meta: {
@@ -1112,7 +1116,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     return {
       ...normalized,
       mode: 'ask' as const,
-      replyText: "Let's explore that a bit more.",
+      replyText: 'Break that down for me?',
       actions: [],
       suggestions: [],
       meta: {

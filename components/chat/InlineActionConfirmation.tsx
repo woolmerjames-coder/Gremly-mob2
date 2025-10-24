@@ -27,7 +27,8 @@ export function InlineActionConfirmation({
 }: InlineActionConfirmationProps) {
   const metadata = message.metadata_json || {};
   const actionType: ActionType = metadata.actionType || 'todo';
-  const content = message.content || 'New item';
+  // Phase 11.7+: Use contextual summary if available, otherwise fall back to content
+  const displayText = metadata.summary || message.content || 'New item';
 
   const getTypeLabel = () => {
     switch (actionType) {
@@ -67,7 +68,7 @@ export function InlineActionConfirmation({
       </View>
 
       <Text style={styles.title} numberOfLines={2}>
-        {content}
+        {displayText}
       </Text>
 
       <View style={styles.buttonContainer}>

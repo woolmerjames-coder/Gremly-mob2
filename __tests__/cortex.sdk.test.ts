@@ -69,9 +69,9 @@ describe('Cortex Explainability', () => {
       expect(result).toContain('Filed to Fitness');
     });
 
-    it('should include hints when provided', () => {
+    it('should not include hints (Gremly style - brief)', () => {
       const result = explainFiledToSpace('Fitness', 'calm', ['you mentioned running']);
-      expect(result).toContain('you mentioned running');
+      expect(result).toBe('Filed to Fitness.');
     });
 
     it('should add emoji for warm tone', () => {
@@ -86,50 +86,53 @@ describe('Cortex Explainability', () => {
   });
 
   describe('explainAddedToList', () => {
-    it('should generate basic list explanation', () => {
+    it('should generate basic list explanation (brief)', () => {
       const result = explainAddedToList('Shopping');
-      expect(result).toContain('Added to Shopping');
+      expect(result).toContain('Added');
+      expect(result).toContain('🛒'); // Contextual emoji
     });
 
-    it('should add emoji for shopping list', () => {
+    it('should add emoji for shopping list (warm)', () => {
       const result = explainAddedToList('Shopping', 'warm');
       expect(result).toContain('🛒');
     });
 
-    it('should be brief for direct tone', () => {
+    it('should be very brief for direct tone', () => {
       const result = explainAddedToList('Reading', 'direct');
-      expect(result).toBe('Reading: added');
+      expect(result).toBe('Added');
     });
   });
 
   describe('explainCreated', () => {
-    it('should explain todo creation', () => {
+    it('should explain todo creation (brief, Gremly style)', () => {
       const result = explainCreated('todo', 'calm');
-      expect(result).toContain('Todo created');
+      expect(result).toBe('All sorted.');
     });
 
-    it('should add emoji for warm tone', () => {
+    it('should vary responses for warm tone', () => {
       const result = explainCreated('habit', 'warm');
-      expect(result).toContain('Habit created');
-      expect(result).toContain('🎯');
+      expect([
+        'On it 🎯',
+        "Nice work — that's one less thing buzzing around your brain.",
+        'Habit locked in',
+      ]).toContain(result);
     });
 
     it('should be brief for direct tone', () => {
       const result = explainCreated('note', 'direct');
-      expect(result).toBe('Note created');
+      expect(result).toBe('Saved.');
     });
   });
 
   describe('explainAmbiguous', () => {
-    it('should indicate uncertainty', () => {
+    it('should indicate uncertainty (brief, friendly)', () => {
       const result = explainAmbiguous('calm');
-      expect(result).toContain("Let's explore that a bit more.");
+      expect(result).toBe('Break that down for me?');
     });
 
-    it('should mention suggestions when provided', () => {
+    it('should mention suggestions when provided (brief)', () => {
       const result = explainAmbiguous('warm', ['File to Fitness?', 'Add to list?']);
-      expect(result).toContain('Not quite sure');
-      expect(result).toContain('ideas');
+      expect(result).toBe('A few options here:');
     });
   });
 });
