@@ -144,25 +144,31 @@ describe('Answer-First Policy', () => {
 
     it('responds without chips for reiterated note intent', async () => {
       const input: DecideInput = {
-        text: 'Remember: buy milk',
+        text: 'Note to self about the meeting',
       };
 
       const ctx: CortexContext = {
         ...mockContext,
         currentTurn: 5,
-        lastChipTurn: 2,
+        lastChipTurn: 3, // Within cooldown window (5-3=2, cooldownTurns=2)
         recentIntentBuffer: [
           { kind: 'note', turn: 3 },
           { kind: 'note', turn: 4 },
         ],
+        // Set cooldown to trigger intentCoolingDown logic
+        intentCooldownMap: { note: 1 },
       };
 
       const result = await runConversationPipeline(input, ctx);
       const meta = (result.meta ?? {}) as Record<string, any>;
 
+      // Should have no chips due to cooldown
       expect(result.suggestions).toEqual([]);
+      // Should detect note intent
+      expect(meta.detectedIntent?.kind).toBe('note');
+      // Should route as note despite cooldown
       expect(meta.intentRoutedAs).toBe('note');
-      expect(ctx.intentCooldownMap?.note).toBe(2);
+      expect(meta.intentCoolingDown).toBe('note');
     });
   });
 
