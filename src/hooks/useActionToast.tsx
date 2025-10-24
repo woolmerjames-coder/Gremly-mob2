@@ -158,6 +158,10 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
   const opacityRef = useRef(new Animated.Value(0));
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const payloadRef = useRef<ActionToastInput | null>(null);
+  const showTimeRef = useRef<number | null>(null);
+  const isHidingRef = useRef(false);
+
+  const MIN_DISPLAY_MS = 4000; // 4 seconds minimum
 
   const clearExistingTimer = useCallback(() => {
     if (timerRef.current) {
@@ -167,6 +171,32 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
   }, []);
 
   const hideToast = useCallback(() => {
+    // Prevent duplicate hide calls
+    if (!isVisible || isHidingRef.current) {
+      if (__DEV__) {
+        console.log('[ActionToast] hide blocked - already hidden or hiding');
+      }
+      return;
+    }
+
+    // Check minimum display duration
+    if (showTimeRef.current) {
+      const elapsed = Date.now() - showTimeRef.current;
+      if (elapsed < MIN_DISPLAY_MS) {
+        // Don't hide yet, schedule for later
+        if (__DEV__) {
+          console.log('[ActionToast] hide deferred - minimum display time not met', {
+            elapsed,
+            remaining: MIN_DISPLAY_MS - elapsed,
+          });
+        }
+        clearExistingTimer();
+        timerRef.current = setTimeout(() => hideToast(), MIN_DISPLAY_MS - elapsed);
+        return;
+      }
+    }
+
+    isHidingRef.current = true;
     clearExistingTimer();
     setIsVisible(false);
     Animated.timing(opacityRef.current, {
@@ -180,9 +210,11 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       }
       setPayload(null);
       payloadRef.current = null;
+      showTimeRef.current = null;
+      isHidingRef.current = false;
       setIsSaving(false);
     });
-  }, [clearExistingTimer]);
+  }, [clearExistingTimer, isVisible]);
 
   const scheduleAutoDismiss = useCallback(
     (ms: number = AUTO_DISMISS_MS) => {
@@ -212,6 +244,13 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
           metadata: input.metadata,
         });
       }
+
+      // Clear any pending hide operation
+      isHidingRef.current = false;
+
+      // Record show time for minimum display duration
+      showTimeRef.current = Date.now();
+
       setPayload(input);
       payloadRef.current = input;
       setIsVisible(true);
