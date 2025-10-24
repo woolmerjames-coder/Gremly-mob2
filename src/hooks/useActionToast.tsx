@@ -57,7 +57,12 @@ type UseActionToastResult = {
 const GOLDEN_PEAR = '#E0C47A';
 const AUTO_DISMISS_MS = 6000;
 
-export function useActionToast(): UseActionToastResult {
+type UseActionToastConfig = {
+  bottomOffset?: number;
+};
+
+export function useActionToast(config: UseActionToastConfig = {}): UseActionToastResult {
+  const { bottomOffset = 32 } = config;
   const repo = useRepo();
   const overlay = useUnifiedOverlayController();
 
@@ -262,6 +267,7 @@ export function useActionToast(): UseActionToastResult {
           {
             opacity: opacityRef.current,
             width: toastWidth,
+            bottom: bottomOffset,
           },
         ]}
       >
@@ -300,7 +306,6 @@ export type { ActionToastInput, ActionToastMetadata };
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 32,
     alignSelf: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
     borderRadius: 24,

@@ -52,6 +52,7 @@ import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
+import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -63,6 +64,130 @@ function metaHasDetectedIntent(meta: any): meta is { detectedIntent: unknown } {
 function metaKindAsAssistantKind(kind: any): 'classification' | 'smalltalk' | 'decision' | null {
   if (kind === 'classification' || kind === 'smalltalk' || kind === 'decision') return kind;
   return null;
+}
+
+const TODO_DUE_DATE_PATTERNS: RegExp[] = [
+  /\bby\s+(?:the\s+)?(end of (?:day|week)|tomorrow|today|tonight|this weekend|this week|next week|next month|next year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  /\bthis\s+(weekend|week|month|morning|afternoon|evening|year)\b/i,
+  /\bnext\s+(week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  /\bon\s+(?:this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b/i,
+  /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/,
+];
+
+const TODO_DUE_TIME_PATTERNS: RegExp[] = [
+  /\b(?:at|around)\s+\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i,
+  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i,
+  /\b(?:at\s+)?(noon|midnight)\b/i,
+  /\b(?:in the\s+)?(morning|afternoon|evening|night)\b/i,
+];
+
+const INTENT_KIND_TO_ACTION: Partial<Record<DetectedIntent['kind'], ActionToastInput['type']>> = {
+  habit: 'habit',
+  todo: 'todo',
+  note: 'note',
+  reflection: 'note',
+  idea: 'note',
+};
+
+function cleanFragment(fragment: string | null | undefined): string | null {
+  if (!fragment) return null;
+  return fragment.replace(/[.,!?]+$/g, '').trim();
+}
+
+function extractMatch(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[0]) {
+      return cleanFragment(match[0]);
+    }
+  }
+  return null;
+}
+
+function deriveTodoDetails(userText: string) {
+  const dueDate = extractMatch(userText, TODO_DUE_DATE_PATTERNS);
+  const dueTime = extractMatch(userText, TODO_DUE_TIME_PATTERNS);
+  return { dueDate, dueTime };
+}
+
+function mapCadenceToFrequency(cadence?: string) {
+  if (!cadence) return undefined;
+  const normalized = cadence.toLowerCase();
+  if (normalized.includes('month')) return 'monthly' as const;
+  if (normalized.includes('week')) return 'weekly' as const;
+  return 'daily' as const;
+}
+
+function buildActionToastPayload(
+  intent: DetectedIntent | null,
+  userText: string,
+  spaceId: string | null,
+): ActionToastInput | null {
+  if (!intent) return null;
+  const type = INTENT_KIND_TO_ACTION[intent.kind];
+  if (!type) return null;
+
+  const trimmedUserText = userText.trim();
+  const commonMetadata = {
+    autoOrigin: 'space_chat' as const,
+    aiPlaced: true,
+    spaceId,
+  };
+
+  if (type === 'todo') {
+    const title = intent.title?.trim() || extractTodoTitle(trimmedUserText) || 'Untitled';
+    const { dueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    return {
+      type,
+      content: title,
+      metadata: {
+        ...commonMetadata,
+        dueDate: dueDate ?? null,
+        dueTime: dueTime ?? null,
+        conversionMeta: {
+          initialTitle: title,
+        },
+      },
+    };
+  }
+
+  if (type === 'habit') {
+    const habitData = parseHabit(trimmedUserText);
+    const name = intent.title?.trim() || habitData.name || 'New habit';
+    const frequency = mapCadenceToFrequency(habitData.cadence);
+    return {
+      type,
+      content: name,
+      metadata: {
+        ...commonMetadata,
+        frequency: frequency ?? 'daily',
+        habitSubtype: 'start_habit',
+        frequencyValue: undefined,
+        conversionMeta: {
+          initialTitle: name,
+        },
+      },
+    };
+  }
+
+  // Note & reflection/idea handling
+  const noteTitle = intent.title?.trim() || smartTitle(trimmedUserText);
+  const subtype =
+    intent.kind === 'reflection' ? 'journal' : intent.kind === 'idea' ? 'idea' : 'catchall';
+  return {
+    type: 'note',
+    content: noteTitle,
+    metadata: {
+      ...commonMetadata,
+      noteSubtype: subtype,
+      noteBody: trimmedUserText,
+      conversionMeta: {
+        initialTitle: noteTitle,
+        initialNote: trimmedUserText,
+      },
+    },
+  };
 }
 
 export default function ChatThreadScreen({ route }: Props) {
@@ -97,6 +222,40 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Overlay controller for conversion
   const overlayController = useUnifiedOverlayController();
+
+  const actionToastOffset = React.useMemo(
+    () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
+    [],
+  );
+  const {
+    showToast: showActionToast,
+    hideToast: hideActionToast,
+    isVisible: isActionToastVisible,
+    Toast: ActionToast,
+  } = useActionToast({ bottomOffset: actionToastOffset });
+
+  const maybeTriggerActionToast = useCallback(
+    (intent: DetectedIntent | null, meta: Record<string, any> | undefined, userText: string) => {
+      if (!intent) return false;
+      const confidenceOk = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
+      const explicitCommand =
+        intent.isCommand === true || meta?.intentRoutedAs === 'command' || meta?.shouldOpenOverlay;
+
+      if (!confidenceOk || !explicitCommand) {
+        return false;
+      }
+
+      const payload = buildActionToastPayload(intent, userText, spaceId ?? null);
+      if (!payload) {
+        return false;
+      }
+
+      hideActionToast();
+      showActionToast(payload);
+      return true;
+    },
+    [hideActionToast, showActionToast, spaceId],
+  );
 
   // Use new chat messages hook
   const {
@@ -166,6 +325,8 @@ export default function ChatThreadScreen({ route }: Props) {
     async (text: string) => {
       const trimmedText = text.trim();
       if (!trimmedText || !chat) return;
+
+      hideActionToast();
 
       // P0 Fix: Strict spaceId validation with dev error
       if (!spaceId) {
@@ -256,6 +417,15 @@ export default function ChatThreadScreen({ route }: Props) {
 
           const response = await cortexRoute({ text: trimmedText }, ctx);
 
+          const responseDetectedIntent = metaHasDetectedIntent(response.meta)
+            ? (response.meta.detectedIntent as DetectedIntent)
+            : null;
+          const toastShown = maybeTriggerActionToast(
+            responseDetectedIntent,
+            response.meta as Record<string, any> | undefined,
+            trimmedText,
+          );
+
           // Log event (non-blocking)
           repo
             .writeEvent(
@@ -272,7 +442,7 @@ export default function ChatThreadScreen({ route }: Props) {
             )
             .catch((err) => console.error('[ChatThread] Failed to log event:', err));
 
-          if (response.mode === 'auto' && response.actions.length > 0) {
+          if (!toastShown && response.mode === 'auto' && response.actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
 
@@ -382,10 +552,10 @@ export default function ChatThreadScreen({ route }: Props) {
               setActiveSuggestions(response.suggestions);
 
               // Store detected intent from meta if available
-              if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
-                setDetectedIntent(response.meta.detectedIntent as DetectedIntent);
+              if (responseDetectedIntent) {
+                setDetectedIntent(responseDetectedIntent);
                 try {
-                  const di = response.meta.detectedIntent as DetectedIntent;
+                  const di = responseDetectedIntent;
                   console.log(
                     '[Chips] render for messageId=',
                     messages[messages.length - 1]?.id || 'unknown',
@@ -454,8 +624,8 @@ export default function ChatThreadScreen({ route }: Props) {
 
             // Phase 10.6: Emit response final event with intent detection flag
             let hasIntent = false;
-            if (metaHasDetectedIntent(response.meta) && response.meta.detectedIntent) {
-              const di = response.meta.detectedIntent as DetectedIntent;
+            if (responseDetectedIntent) {
+              const di = responseDetectedIntent;
               hasIntent =
                 di.kind !== 'none' && typeof di.confidence === 'number' && di.confidence >= 0.75;
             }
@@ -541,7 +711,18 @@ export default function ChatThreadScreen({ route }: Props) {
         setSending(false);
       }
     },
-    [chat, chatId, repo, userId, sendUserMessage, appendAssistantMessage, messages, mascot],
+    [
+      chat,
+      chatId,
+      repo,
+      userId,
+      sendUserMessage,
+      appendAssistantMessage,
+      messages,
+      mascot,
+      maybeTriggerActionToast,
+      hideActionToast,
+    ],
   );
 
   // Phase 10.7D: Debounced send wrapper (200ms)
@@ -722,7 +903,7 @@ export default function ChatThreadScreen({ route }: Props) {
     <MascotProvider lane="space_chat">
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView
-          style={styles.flex}
+          style={[styles.flex, isActionToastVisible && { paddingBottom: actionToastOffset }]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
@@ -813,6 +994,8 @@ export default function ChatThreadScreen({ route }: Props) {
             onPenPress={() => handleMiniAction('pen')}
             testID="mini-action-bar"
           />
+
+          {ActionToast}
         </KeyboardAvoidingView>
 
         {/* Unified Create Overlay for Chat Conversions */}
