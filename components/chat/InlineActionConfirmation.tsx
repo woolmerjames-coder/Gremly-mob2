@@ -26,7 +26,7 @@ export function InlineActionConfirmation({
   testID,
 }: InlineActionConfirmationProps) {
   const metadata = message.metadata_json || {};
-  const actionType: ActionType = metadata.actionType || 'todo';
+  const actionType: ActionType = (metadata.actionType as ActionType) || 'todo';
   // Phase 11.7+: Use contextual summary if available, otherwise fall back to content
   const displayText = metadata.summary || message.content || 'New item';
 

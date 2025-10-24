@@ -25,7 +25,7 @@ export function MultiIntentConfirmation({
   testID,
 }: MultiIntentConfirmationProps) {
   const metadata = message.metadata_json || {};
-  const primaryKind: IntentKind = metadata.actionType || 'todo';
+  const primaryKind: IntentKind = (metadata.actionType as IntentKind) || 'todo';
   const content = message.content || 'New item';
   const alternatives: AlternativeIntent[] = metadata.alternativeIntents || [];
   const isMultiIntent: boolean = metadata.isMultiIntent || false;

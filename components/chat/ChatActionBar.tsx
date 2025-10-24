@@ -34,8 +34,11 @@ export const ChatActionBar = ({ onAddPress, lastCreatedItem }: ChatActionBarProp
   const buttonScale = useMemo(() => new Animated.Value(1), []);
   const buttonGlow = useMemo(() => new Animated.Value(0), []);
 
-  // Generate encouragement message based on item type
-  const getEncouragementText = (itemType: string, count: number = 1): string => {
+  // timersRef to keep track of timeouts so they can be cleared on cleanup
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Generate encouragement message based on item type (memoized)
+  const getEncouragementText = useCallback((itemType: string, count: number = 1): string => {
     const messageMap: Record<string, string[]> = {
       habit: ['Habit added 🪴', 'Building momentum 💫', 'Pattern recognized ⚡'],
       todo: ['To-Do sorted ✅', 'Task captured 📌', 'On your list 📝'],
@@ -49,26 +52,43 @@ export const ChatActionBar = ({ onAddPress, lastCreatedItem }: ChatActionBarProp
 
     const options = messageMap[itemType] || messageMap.default;
     return options[Math.floor(Math.random() * options.length)];
-  };
+  }, []);
 
   // Handle item creation
   useEffect(() => {
-    if (lastCreatedItem) {
-      const newMessage: EncouragementMessage = {
-        id: Date.now().toString(),
-        text: getEncouragementText(lastCreatedItem.type),
-        side: messages.length % 2 === 0 ? 'left' : 'right', // Alternate sides
-        timestamp: Date.now(),
-      };
+    if (!lastCreatedItem) return;
 
-      setMessages((prev) => [...prev, newMessage]);
+    const id = Date.now().toString();
 
-      // Auto-remove after 2 seconds
-      setTimeout(() => {
-        setMessages((prev) => prev.filter((m) => m.id !== newMessage.id));
+    // Defer the setState to avoid synchronous setState inside the effect
+    const addTimer = setTimeout(() => {
+      // Use functional update so we compute side from the previous state safely
+      setMessages((prev) => {
+        const side = prev.length % 2 === 0 ? 'left' : 'right';
+        const newMessage: EncouragementMessage = {
+          id,
+          text: getEncouragementText(lastCreatedItem.type),
+          side,
+          timestamp: Date.now(),
+        };
+        return [...prev, newMessage];
+      });
+
+      const removeTimer = setTimeout(() => {
+        setMessages((prev) => prev.filter((m) => m.id !== id));
       }, 2000);
-    }
-  }, [lastCreatedItem]);
+
+      timersRef.current.push(removeTimer);
+    }, 0);
+
+    timersRef.current.push(addTimer);
+
+    return () => {
+      // Clear all timers on unmount or when lastCreatedItem changes
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, [lastCreatedItem, getEncouragementText]);
 
   // Button press animation
   const handlePressIn = useCallback(() => {
