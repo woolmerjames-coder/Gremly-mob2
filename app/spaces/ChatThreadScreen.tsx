@@ -4,6 +4,7 @@
  * Phase 11.3: Inline action confirmations instead of overlay toast
  * Phase 11.5: Multi-intent detection and disambiguation
  * Phase 11.6: Entry cards for created/retrieved entries
+ * Phase 11.7: Calm Action Bar v1.1 with centered + button
  * Now integrated with message persistence + new UI components
  */
 
@@ -41,10 +42,10 @@ import { Placeholder } from '../../components/common/Placeholder';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
-import { MiniActionBar } from '../../components/chat/MiniActionBar';
 import { InlineActionConfirmation } from '../../components/chat/InlineActionConfirmation';
 import { MultiIntentConfirmation } from '../../components/chat/MultiIntentConfirmation';
 import { EntryCard } from '../../components/chat/EntryCard';
+import { ChatActionBar } from '../../components/chat/ChatActionBar';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -238,6 +239,13 @@ export default function ChatThreadScreen({ route }: Props) {
   const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
   const [detectedIntent, setDetectedIntent] = useState<DetectedIntent | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string>('');
+
+  // Phase 11.7: Track last created item for encouragement messages
+  const [lastCreatedItem, setLastCreatedItem] = useState<{
+    type: string;
+    title?: string;
+    timestamp: number;
+  } | null>(null);
 
   // Chat-level message index and toast history for cooldowns
   const userMsgIndexRef = React.useRef(0);
@@ -1163,27 +1171,6 @@ export default function ChatThreadScreen({ route }: Props) {
     [detectedIntent, getSuggestionKind, convertFromChip],
   );
 
-  const handleMiniAction = useCallback(
-    (action: string) => {
-      // Map mini action icons to overlay kinds
-      const actionMap: Record<string, OverlayKind> = {
-        brain: 'reflection',
-        check: 'todo',
-        file: 'note',
-        flame: 'habit',
-        pen: 'note', // alternate mapping for pen
-      };
-
-      const kind = actionMap[action];
-      if (kind) {
-        convertFromChip(kind);
-      } else {
-        console.log('[ChatThread] Unknown mini action:', action);
-      }
-    },
-    [convertFromChip],
-  );
-
   // Helper to show success toast cross-platform with chat-specific messaging
   const showChatConversionToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
@@ -1378,14 +1365,12 @@ export default function ChatThreadScreen({ route }: Props) {
           {/* Chat Composer */}
           <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
 
-          {/* Mini Action Bar */}
-          <MiniActionBar
-            onBrainPress={() => handleMiniAction('brain')}
-            onCheckPress={() => handleMiniAction('check')}
-            onFilePress={() => handleMiniAction('file')}
-            onFlamePress={() => handleMiniAction('flame')}
-            onPenPress={() => handleMiniAction('pen')}
-            testID="mini-action-bar"
+          {/* Phase 11.7: Calm Action Bar with centered + button */}
+          <ChatActionBar
+            onAddPress={() => {
+              overlayController.openCreate({ spaceId: spaceId ?? undefined });
+            }}
+            lastCreatedItem={lastCreatedItem}
           />
 
           {ActionToast}
@@ -1410,6 +1395,12 @@ export default function ChatThreadScreen({ route }: Props) {
                     ? 'Habit'
                     : 'Item';
             showChatConversionToast(`${itemType} created from chat ✨`);
+
+            // Phase 11.7: Track last created item for encouragement messages
+            setLastCreatedItem({
+              type: result.type,
+              timestamp: Date.now(),
+            });
 
             // Phase 11.6: Add entry card to chat thread
             try {
