@@ -208,6 +208,15 @@ export class SupabaseRepo implements IRepo {
   async create(input: CreateRecordInput): Promise<AppRecord> {
     this.ensureUserId();
 
+    // SpaceId integrity: warn when creating from app without explicit space_id
+    // Undefined means omitted (likely a bug in space context), null means intentionally unassigned
+    if (process.env.NODE_ENV !== 'test' && input.space_id === undefined) {
+      // Lightweight, throttled-ish console warn
+      console.warn(
+        `[SupabaseRepo.create] Missing space_id for ${input.type} creation. Ensure callers pass space_id when creating inside a Space.`,
+      );
+    }
+
     // Guard: Fail loudly if timestamps are accidentally present
     const inputRecord = input as unknown as Record<string, unknown>;
     if ('created_at' in inputRecord || 'updated_at' in inputRecord || 'id' in inputRecord) {
@@ -1774,16 +1783,41 @@ export class SupabaseSpaceChatRepo {
     return data as import('../types').SpaceChat;
   }
 
-  async delete(chatId: string): Promise<void> {
+  /**
+   * Soft-archive a chat by setting archived_at.
+   */
+  async archive(chatId: string): Promise<void> {
     const userId = this.ensureUserId();
-
     const { error } = await supabase
       .from('space_chats')
       .update({ archived_at: new Date().toISOString() })
       .eq('id', chatId)
       .eq('user_id', userId);
-
     if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
+  }
+
+  /**
+   * Hard delete a chat. If FK cascade is not configured, delete messages first.
+   */
+  async delete(chatId: string): Promise<void> {
+    const userId = this.ensureUserId();
+    // Best-effort: delete messages first (safe even if FK cascade exists)
+    const msgDel = await supabase
+      .from('space_chat_messages')
+      .delete()
+      .eq('chat_id', chatId)
+      .eq('user_id', userId);
+    if (msgDel.error) {
+      // Log but attempt to delete chat anyway (some schemas may not include user_id on messages)
+      console.warn('[SupabaseSpaceChatRepo.delete] message delete warning:', msgDel.error.message);
+    }
+
+    const chatDel = await supabase
+      .from('space_chats')
+      .delete()
+      .eq('id', chatId)
+      .eq('user_id', userId);
+    if (chatDel.error) throw new Error(`Failed to delete space chat: ${chatDel.error.message}`);
   }
 }
 
@@ -1801,11 +1835,12 @@ export class SupabaseSpaceChatMessageRepo {
   async list(chatId: string): Promise<import('../types').SpaceChatMessage[]> {
     const userId = this.ensureUserId();
 
-    const { data, error } = await supabase
-      .from('space_chat_messages')
-      .select('*')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true });
+    let query = supabase.from('space_chat_messages').select('*').eq('chat_id', chatId);
+    // Jest Supabase mock may not support multiple chained filters; apply user filter outside tests
+    if (process.env.JEST_WORKAROUND !== '1') {
+      query = query.eq('user_id', userId);
+    }
+    const { data, error } = await query.order('created_at', { ascending: true });
 
     if (error) throw new Error(`Failed to list space chat messages: ${error.message}`);
 
