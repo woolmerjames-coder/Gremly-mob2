@@ -180,13 +180,14 @@ export interface SpaceChatUpdateInput {
 /**
  * SpaceChatMessage - Individual message within a space chat thread
  * Phase 10.5 feature
+ * Phase 11.3: Added 'action-confirmation' role for inline action toasts
  */
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
   space_id: ID;
   user_id: ID;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'action-confirmation';
   content: string;
   metadata_json?: any | null;
   created_at: string; // ISO 8601
@@ -198,7 +199,7 @@ export interface SpaceChatMessage {
 export interface SpaceChatMessageInsert {
   chat_id: ID;
   space_id: ID;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'action-confirmation';
   content: string;
   metadata_json?: any | null;
 }

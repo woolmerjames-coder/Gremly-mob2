@@ -101,6 +101,37 @@ export function useChatMessages(chatId: string, spaceId: string) {
     [chatId, spaceId, user?.id, messageRepo, chatRepo],
   );
 
+  const appendActionConfirmation = useCallback(
+    async (
+      content: string,
+      metadata: Record<string, unknown>,
+    ): Promise<SpaceChatMessage | undefined> => {
+      if (!content.trim() || !chatId || !spaceId || !user?.id) return undefined;
+
+      try {
+        setError(null);
+
+        const input: SpaceChatMessageInsert = {
+          chat_id: chatId,
+          space_id: spaceId,
+          role: 'action-confirmation',
+          content: content.trim(),
+          metadata_json: metadata,
+        };
+
+        const newMessage = await messageRepo.append(input);
+        setMessages((prev) => [...prev, newMessage]);
+
+        return newMessage;
+      } catch (err) {
+        console.error('Failed to append action confirmation:', err);
+        setError(err instanceof Error ? err.message : 'Failed to append action confirmation');
+        throw err;
+      }
+    },
+    [chatId, spaceId, user?.id, messageRepo, chatRepo],
+  );
+
   // Load messages on mount and when chatId changes
   useEffect(() => {
     refresh();
@@ -113,5 +144,6 @@ export function useChatMessages(chatId: string, spaceId: string) {
     refresh,
     sendUserMessage,
     appendAssistantMessage,
+    appendActionConfirmation,
   };
 }

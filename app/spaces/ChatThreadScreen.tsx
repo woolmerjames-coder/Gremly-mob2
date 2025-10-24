@@ -1,6 +1,7 @@
 /**
  * ChatThreadScreen - Phase 10.5 Space Chats v1
  * Phase 10.7D: Added debounce, spaceId validation, note prefill fixes
+ * Phase 11.3: Inline action confirmations instead of overlay toast
  * Now integrated with message persistence + new UI components
  */
 
@@ -22,7 +23,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
-import type { SpaceChat } from '../../lib/types';
+import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
@@ -38,6 +39,7 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
+import { InlineActionConfirmation } from '../../components/chat/InlineActionConfirmation';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -277,9 +279,24 @@ export default function ChatThreadScreen({ route }: Props) {
     Toast: ActionToast,
   } = useActionToast({ bottomOffset: actionToastOffset });
 
+  // Use new chat messages hook
+  const {
+    messages,
+    loading: messagesLoading,
+    error: messagesError,
+    sendUserMessage,
+    appendAssistantMessage,
+    appendActionConfirmation,
+  } = useChatMessages(chatId, spaceId);
+
+  // Phase 11.3: Inline action confirmation function (moved after useChatMessages)
   const maybeTriggerActionToast = useCallback(
-    (intent: DetectedIntent | null, _meta: Record<string, any> | undefined, userText: string) => {
-      // Show confirmation toast for high-confidence actionable intents
+    async (
+      intent: DetectedIntent | null,
+      _meta: Record<string, any> | undefined,
+      userText: string,
+    ) => {
+      // Phase 11.3: Add inline action confirmation messages instead of overlay toast
       if (!intent) return false;
 
       console.log('[DEBUG][Toast] maybeTriggerActionToast called:', {
@@ -290,102 +307,10 @@ export default function ChatThreadScreen({ route }: Props) {
         isMetaComment: intent.isMetaComment,
       });
 
-      // CRITICAL: Block toast for meta-comments
+      // CRITICAL: Block for meta-comments
       if (intent.isMetaComment || intent.suppressChips) {
-        console.log('[DEBUG][Toast] Blocking toast - meta-comment or suppressChips detected');
+        console.log('[DEBUG][Toast] Blocking - meta-comment or suppressChips detected');
         return false;
-      }
-
-      // Disambiguation: show chooser when intent is ambiguous between note and todo
-      if (intent.kind === 'ambiguous' && (intent as any).showDisambiguationToast) {
-        const choices = (intent.options || ['note', 'todo']) as Array<'note' | 'todo'>;
-        const summaryOverride = `"${userText.trim()}"\nWould you like this as:`;
-        hideActionToast();
-        showActionToast({
-          type: 'disambiguation' as any,
-          content: userText,
-          metadata: {
-            summaryOverride,
-            disambiguationOptions: {
-              choices,
-              onChoose: (choice: 'note' | 'todo') => {
-                // After choose, show the normal action toast for the selected type
-                const selectedIntent = {
-                  kind: choice,
-                  confidence: Math.max(0.9, intent.confidence || 0.9),
-                  title: userText,
-                } as DetectedIntent;
-                const payload = buildActionToastPayload(selectedIntent, userText, spaceId ?? null, {
-                  onConfirm: async () => {
-                    recordToastOutcome(choice, 'confirm');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'confirm',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                  onCancel: () => {
-                    recordToastOutcome(choice, 'cancel');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'cancel',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                  onEdit: () => {
-                    recordToastOutcome(choice, 'edit');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'edit',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                  onAutoDismiss: () => {
-                    recordToastOutcome(choice, 'auto-dismiss');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'auto-dismiss',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                });
-                if (payload) {
-                  hideActionToast();
-                  showActionToast(payload);
-                }
-              },
-            },
-          },
-        } as any);
-        return true;
       }
 
       const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
@@ -465,124 +390,125 @@ export default function ChatThreadScreen({ route }: Props) {
         return false;
       }
 
-      const payload = buildActionToastPayload(
-        intent,
-        userText,
-        spaceId ?? null,
-        actionType
-          ? {
-              onConfirm: async () => {
-                recordToastOutcome(actionType, 'confirm');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'confirm',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
+      // Build action metadata with handlers
+      const metadata: Record<string, any> = {
+        actionType,
+        autoOrigin: 'space_chat' as const,
+        aiPlaced: true,
+        spaceId: spaceId ?? null,
+        onConfirm: async () => {
+          if (actionType) {
+            recordToastOutcome(actionType, 'confirm');
+            repo
+              .writeEvent(
+                'toast',
+                {
+                  event: 'action',
+                  action: 'confirm',
+                  toastType: actionType,
+                  index: userMsgIndexRef.current,
+                },
+                { userId: userId || 'anonymous' },
+              )
+              .catch(() => {});
+          }
+          // Open overlay for confirmation
+          if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+            overlayController.openCreate({
+              type: intent.kind as 'habit' | 'todo' | 'note',
+              spaceId: spaceId ?? undefined,
+              conversionMeta: {
+                initialTitle: userText,
               },
-              onCancel: () => {
-                recordToastOutcome(actionType, 'cancel');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'cancel',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
+            });
+          }
+        },
+        onCancel: () => {
+          if (actionType) {
+            recordToastOutcome(actionType, 'cancel');
+            repo
+              .writeEvent(
+                'toast',
+                {
+                  event: 'action',
+                  action: 'cancel',
+                  toastType: actionType,
+                  index: userMsgIndexRef.current,
+                },
+                { userId: userId || 'anonymous' },
+              )
+              .catch(() => {});
+          }
+        },
+        onEdit: () => {
+          if (actionType) {
+            recordToastOutcome(actionType, 'edit');
+            repo
+              .writeEvent(
+                'toast',
+                {
+                  event: 'action',
+                  action: 'edit',
+                  toastType: actionType,
+                  index: userMsgIndexRef.current,
+                },
+                { userId: userId || 'anonymous' },
+              )
+              .catch(() => {});
+          }
+          // Open overlay for editing
+          if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+            overlayController.openCreate({
+              type: intent.kind as 'habit' | 'todo' | 'note',
+              spaceId: spaceId ?? undefined,
+              conversionMeta: {
+                initialTitle: userText,
               },
-              onEdit: () => {
-                recordToastOutcome(actionType, 'edit');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'edit',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
-              },
-              onAutoDismiss: () => {
-                recordToastOutcome(actionType, 'auto-dismiss');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'auto-dismiss',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
-              },
-            }
-          : undefined,
-      );
-      if (!payload) return false;
+            });
+          }
+        },
+      };
 
-      console.log('[DEBUG][Toast] Showing toast:', {
-        type: payload.type,
-        content: payload.content.substring(0, 50),
-        intentKind: intent.kind,
-        confidence: intent.confidence,
-        suppressChips: intent.suppressChips,
-        isMetaComment: intent.isMetaComment,
-      });
+      // Phase 11.3: Add inline action confirmation message
+      try {
+        await appendActionConfirmation(userText, metadata);
 
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[ChatToast] showing_toast', {
-          type: payload.type,
-          content: payload.content,
-          meta: payload.metadata,
-        });
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[ChatToast] Inline action confirmation added:', {
+            type: actionType,
+            content: userText.substring(0, 50),
+          });
+        }
+
+        // Analytics: toast shown (repo event)
+        if (actionType) {
+          repo
+            .writeEvent(
+              'toast',
+              {
+                event: 'shown',
+                toastType: actionType,
+                confidence: intent.confidence,
+                index: userMsgIndexRef.current,
+              },
+              { userId: userId || 'anonymous' },
+            )
+            .catch(() => {});
+        }
+
+        // Auto-scroll to show the new confirmation
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+
+        return true;
+      } catch (err) {
+        console.error('[ChatToast] Failed to add inline confirmation:', err);
+        return false;
       }
-
-      hideActionToast();
-      // Analytics: toast shown (repo event)
-      if (actionType) {
-        repo
-          .writeEvent(
-            'toast',
-            {
-              event: 'shown',
-              toastType: actionType,
-              confidence: intent.confidence,
-              index: userMsgIndexRef.current,
-            },
-            { userId: userId || 'anonymous' },
-          )
-          .catch(() => {});
-      }
-      showActionToast(payload);
-      return true;
     },
-    [hideActionToast, showActionToast, spaceId, recordToastOutcome],
+    [spaceId, recordToastOutcome, repo, userId, appendActionConfirmation, overlayController],
   );
-
-  // Use new chat messages hook
-  const {
-    messages,
-    loading: messagesLoading,
-    error: messagesError,
-    sendUserMessage,
-    appendAssistantMessage,
-  } = useChatMessages(chatId, spaceId);
 
   // Auto-scroll when messages change (e.g., new assistant/user messages)
   useEffect(() => {
@@ -1295,6 +1221,22 @@ export default function ChatThreadScreen({ route }: Props) {
                   const messageConfirmations = confirmations.find(
                     (c) => c.messageId === message.id,
                   );
+
+                  // Phase 11.3: Render inline action confirmation
+                  if (message.role === 'action-confirmation') {
+                    const metadata = message.metadata_json || {};
+                    return (
+                      <InlineActionConfirmation
+                        key={message.id}
+                        message={message}
+                        onConfirm={metadata.onConfirm}
+                        onEdit={metadata.onEdit}
+                        onCancel={metadata.onCancel}
+                        testID={`inline-action-${message.id}`}
+                      />
+                    );
+                  }
+
                   return (
                     <View key={message.id} style={styles.messageContainer}>
                       <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
