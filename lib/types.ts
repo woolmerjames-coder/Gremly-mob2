@@ -181,13 +181,14 @@ export interface SpaceChatUpdateInput {
  * SpaceChatMessage - Individual message within a space chat thread
  * Phase 10.5 feature
  * Phase 11.3: Added 'action-confirmation' role for inline action toasts
+ * Phase 11.6: Added 'entry-card' role for showing created/retrieved entries
  */
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
   space_id: ID;
   user_id: ID;
-  role: 'user' | 'assistant' | 'system' | 'action-confirmation';
+  role: 'user' | 'assistant' | 'system' | 'action-confirmation' | 'entry-card';
   content: string;
   metadata_json?: any | null;
   created_at: string; // ISO 8601
@@ -199,7 +200,7 @@ export interface SpaceChatMessage {
 export interface SpaceChatMessageInsert {
   chat_id: ID;
   space_id: ID;
-  role: 'user' | 'assistant' | 'system' | 'action-confirmation';
+  role: 'user' | 'assistant' | 'system' | 'action-confirmation' | 'entry-card';
   content: string;
   metadata_json?: any | null;
 }

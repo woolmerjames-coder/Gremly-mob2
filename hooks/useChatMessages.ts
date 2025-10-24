@@ -132,6 +132,45 @@ export function useChatMessages(chatId: string, spaceId: string) {
     [chatId, spaceId, user?.id, messageRepo, chatRepo],
   );
 
+  const appendEntryCard = useCallback(
+    async (
+      entry: Record<string, any>,
+      entryType: 'note' | 'todo' | 'habit' | 'person',
+    ): Promise<SpaceChatMessage | undefined> => {
+      if (!entry || !chatId || !spaceId || !user?.id) return undefined;
+
+      try {
+        setError(null);
+
+        // Generate summary for content
+        const entryName =
+          entryType === 'person' ? entry.name : entry.title || entry.name || 'Untitled';
+
+        const input: SpaceChatMessageInsert = {
+          chat_id: chatId,
+          space_id: spaceId,
+          role: 'entry-card',
+          content: `${entryType}: ${entryName}`,
+          metadata_json: {
+            entry,
+            entryType,
+            entryId: entry.id,
+          },
+        };
+
+        const newMessage = await messageRepo.append(input);
+        setMessages((prev) => [...prev, newMessage]);
+
+        return newMessage;
+      } catch (err) {
+        console.error('Failed to append entry card:', err);
+        setError(err instanceof Error ? err.message : 'Failed to append entry card');
+        throw err;
+      }
+    },
+    [chatId, spaceId, user?.id, messageRepo, chatRepo],
+  );
+
   // Load messages on mount and when chatId changes
   useEffect(() => {
     refresh();
@@ -145,5 +184,6 @@ export function useChatMessages(chatId: string, spaceId: string) {
     sendUserMessage,
     appendAssistantMessage,
     appendActionConfirmation,
+    appendEntryCard,
   };
 }

@@ -3,6 +3,7 @@
  * Phase 10.7D: Added debounce, spaceId validation, note prefill fixes
  * Phase 11.3: Inline action confirmations instead of overlay toast
  * Phase 11.5: Multi-intent detection and disambiguation
+ * Phase 11.6: Entry cards for created/retrieved entries
  * Now integrated with message persistence + new UI components
  */
 
@@ -43,6 +44,7 @@ import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
 import { InlineActionConfirmation } from '../../components/chat/InlineActionConfirmation';
 import { MultiIntentConfirmation } from '../../components/chat/MultiIntentConfirmation';
+import { EntryCard } from '../../components/chat/EntryCard';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -290,6 +292,7 @@ export default function ChatThreadScreen({ route }: Props) {
     sendUserMessage,
     appendAssistantMessage,
     appendActionConfirmation,
+    appendEntryCard,
   } = useChatMessages(chatId, spaceId);
 
   // Phase 11.3: Inline action confirmation function (moved after useChatMessages)
@@ -1252,6 +1255,33 @@ export default function ChatThreadScreen({ route }: Props) {
                     (c) => c.messageId === message.id,
                   );
 
+                  // Phase 11.6: Render entry card
+                  if (message.role === 'entry-card') {
+                    const metadata = message.metadata_json || {};
+                    const entry = metadata.entry;
+                    const entryType = metadata.entryType;
+
+                    if (entry && entryType) {
+                      // Add type property to entry object
+                      const typedEntry = { ...entry, type: entryType };
+
+                      return (
+                        <EntryCard
+                          key={message.id}
+                          entry={typedEntry}
+                          onPress={(entry) => {
+                            // Open unified overlay with full entry data
+                            overlayController.openEdit({
+                              record: entry as any, // Full entry object includes all required fields
+                              spaceId: spaceId ?? undefined,
+                            });
+                          }}
+                          testID={`entry-card-${message.id}`}
+                        />
+                      );
+                    }
+                  }
+
                   // Phase 11.3/11.5: Render inline action confirmation
                   if (message.role === 'action-confirmation') {
                     const metadata = message.metadata_json || {};
@@ -1369,7 +1399,7 @@ export default function ChatThreadScreen({ route }: Props) {
           initialSpaceId={overlayController.state.initialSpaceId}
           conversionMeta={overlayController.state.conversionMeta}
           onClose={overlayController.close}
-          onSaved={(result) => {
+          onSaved={async (result) => {
             // Success toast with chat-specific messaging
             const itemType =
               result.type === 'note'
@@ -1380,6 +1410,21 @@ export default function ChatThreadScreen({ route }: Props) {
                     ? 'Habit'
                     : 'Item';
             showChatConversionToast(`${itemType} created from chat ✨`);
+
+            // Phase 11.6: Add entry card to chat thread
+            try {
+              // Fetch the created record
+              const record = await repo.getById(result.id);
+
+              if (
+                record &&
+                (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
+              ) {
+                await appendEntryCard(record, result.type as 'note' | 'todo' | 'habit');
+              }
+            } catch (err) {
+              console.error('[EntryCard] Failed to add entry card to chat:', err);
+            }
           }}
         />
       </SafeAreaView>
