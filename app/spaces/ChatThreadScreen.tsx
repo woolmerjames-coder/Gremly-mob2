@@ -36,6 +36,7 @@ import type { DetectedIntent, IntentKind } from '../../lib/cortex/intents/types'
 import { detectIntent } from '../../lib/cortex/intents/detectIntent';
 import { detectMultipleIntents } from '../../lib/cortex/intents/multiIntentDetector';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
+import { maybeRefreshSummary } from '../../lib/cortex/summarize';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
@@ -904,39 +905,32 @@ export default function ChatThreadScreen({ route }: Props) {
 
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
-              import('../../lib/cortex/summarize')
-                .then(({ maybeRefreshSummary }) => {
-                  // Convert messages to ChatTurn format
-                  const historyTurns = messages.map((m) => ({
-                    role: m.role as 'user' | 'assistant',
-                    text: m.content,
-                  }));
+              // Convert messages to ChatTurn format
+              const historyTurns = messages.map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                text: m.content,
+              }));
 
-                  const hasLatestUser = historyTurns.some(
-                    (turn) => turn.role === 'user' && turn.text === trimmedText,
-                  );
+              const hasLatestUser = historyTurns.some(
+                (turn) => turn.role === 'user' && turn.text === trimmedText,
+              );
 
-                  if (!hasLatestUser) {
-                    historyTurns.push({ role: 'user', text: trimmedText });
-                  }
+              if (!hasLatestUser) {
+                historyTurns.push({ role: 'user', text: trimmedText });
+              }
 
-                  historyTurns.push({ role: 'assistant', text: assistantText });
+              historyTurns.push({ role: 'assistant', text: assistantText });
 
-                  const turns = historyTurns;
+              const turns = historyTurns;
 
-                  const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
+              const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
 
-                  maybeRefreshSummary(spaceId, turns, lastMsgId).catch((err) => {
-                    if (__DEV__) {
-                      console.error('[ChatThread][10.8] Summary refresh failed:', err);
-                    }
-                  });
-                })
-                .catch((err) => {
-                  if (__DEV__) {
-                    console.error('[ChatThread][10.8] Failed to load summarize module:', err);
-                  }
-                });
+              // Use static import instead of dynamic import
+              maybeRefreshSummary(spaceId, turns, lastMsgId).catch((err) => {
+                if (__DEV__) {
+                  console.error('[ChatThread][10.8] Summary refresh failed:', err);
+                }
+              });
             }
 
             // Phase 10.6: Emit response final event with intent detection flag
