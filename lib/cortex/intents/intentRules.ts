@@ -113,6 +113,28 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 5: EXPLICIT REFLECTIONS
+  // High priority to catch "I've been thinking about X" before question rules
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 5,
+    name: 'reflection_explicit_been_thinking',
+    test: (text) => {
+      // Explicitly catch "I've been thinking/pondering/reflecting about X"
+      return /^i'?ve been (thinking|pondering|reflecting|wondering|contemplating) (about|on)\b/i.test(
+        text,
+      );
+    },
+    classification: {
+      kind: 'reflection',
+      confidence: 0.85,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 20-29: EXPLICIT COMMANDS
   // User explicitly commands action with verb+object
   // ═══════════════════════════════════════════════════════════════
