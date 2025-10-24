@@ -549,6 +549,19 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.actions = [];
   }
 
+  // Early return for low-confidence decisions with no suggestions (when not suppressing smalltalk)
+  if (normalized.confidence === 0 && normalized.suggestions.length === 0 && !suppressSmalltalkAck) {
+    return {
+      mode: normalized.mode,
+      replyText: "Let's explore that a bit more.",
+      suggestions: [],
+      meta: {
+        intentRoutedAs: 'exploration',
+        fallback: 'exploration',
+      },
+    };
+  }
+
   // Phase 11.1: Curiosity-first routing with conservative intent gating
   const intent: DetectedIntent = detectIntent(input.text || '');
 
