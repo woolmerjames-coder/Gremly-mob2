@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { lightTokens as t } from '../../../design/tokens';
 
-export type TabKey = 'chats' | 'habits' | 'todos' | 'notes';
+export type TabKey = 'all' | 'chats' | 'habits' | 'todos' | 'notes';
 export type Tab = { key: TabKey; label: string; count?: number };
 
 export type TabbedSectionProps = {

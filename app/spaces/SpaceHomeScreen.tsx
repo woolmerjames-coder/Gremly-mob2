@@ -10,6 +10,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   Text,
+  TextInput,
+  Animated,
   Alert,
   RefreshControl,
   TouchableOpacity,
@@ -48,6 +50,8 @@ import {
   ProgressSnapshot,
   TabbedSection,
 } from '../../components/spaces/v3';
+import { useIsFocused } from '@react-navigation/native';
+import ConfettiBurst from '../../components/ConfettiBurst';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -68,10 +72,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // State
   const { space, chats, items, stats, upcoming, reload } = useSpaceAggregate(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'all' | 'chats' | 'habits' | 'todos' | 'notes'>(
+    'chats',
+  );
+  const isFocused = useIsFocused();
+  const [summaryPulse] = useState(() => new Animated.Value(1));
+  const [showConfetti, setShowConfetti] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
-  const [activeTab, setActiveTab] = useState<'chats' | 'habits' | 'todos' | 'notes'>('chats');
+  // moved above to include 'all'
 
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
@@ -94,6 +106,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (space || space === null) setLoading(false);
   }, [space]);
+
+  // Screen focus pulse for SpaceSummaryCard
+  useEffect(() => {
+    if (isFocused) {
+      summaryPulse.setValue(0.98);
+      Animated.timing(summaryPulse, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+    }
+  }, [isFocused, summaryPulse]);
 
   // Load insight and layout state when space changes
   useEffect(() => {
@@ -121,6 +141,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         .catch(() => undefined),
     ]).finally(() => setRefreshing(false));
   }, [reload, repo, spaceId]);
+
+  const handleSearchPress = useCallback(() => {
+    setSearchVisible((v) => !v);
+  }, []);
+
+  const handleFilterPress = useCallback((key: 'all' | 'chats' | 'habits' | 'todos' | 'notes') => {
+    setActiveTab(key);
+  }, []);
 
   // Persist layout state
   const persistLayoutState = useCallback(
@@ -311,6 +339,30 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     };
   }, [chats, userId]);
 
+  // Search filtering helpers
+  const needle = searchQuery.trim().toLowerCase();
+  const filterChats = (arr: SpaceChat[]) => {
+    if (!needle) return arr;
+    return arr.filter((c) => {
+      const fields = [c.title, c.last_message_snippet || '', aiSummaries[c.id] || '']
+        .join(' ')
+        .toLowerCase();
+      return fields.includes(needle);
+    });
+  };
+  const filterHabits = (arr: any[]) => {
+    if (!needle) return arr;
+    return arr.filter((h) => (h.name || '').toLowerCase().includes(needle));
+  };
+  const filterTodos = (arr: any[]) => {
+    if (!needle) return arr;
+    return arr.filter((t) => `${t.name || ''} ${t.body || ''}`.toLowerCase().includes(needle));
+  };
+  const filterNotes = (arr: any[]) => {
+    if (!needle) return arr;
+    return arr.filter((n) => `${n.title || ''} ${n.body || ''}`.toLowerCase().includes(needle));
+  };
+
   const handleAddInsightTodos = useCallback(() => {
     if (!spaceInsight) return;
 
@@ -347,9 +399,31 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {/* Header & optional banner */}
         <OverviewHeader
           spaceName={space?.name ?? 'Space'}
-          onSearch={() => console.log('[Space] search tapped')}
+          onSearch={handleSearchPress}
           onBack={() => navigation.goBack()}
         />
+        {/* Collapsible search bar */}
+        {searchVisible && (
+          <View style={{ paddingHorizontal: T.spacing[4], marginTop: T.spacing[2] }}>
+            <TextInput
+              placeholder="Search this space"
+              placeholderTextColor={T.colors.subtle}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              style={{
+                backgroundColor: T.colors.surface,
+                borderColor: T.colors.border,
+                borderWidth: 1,
+                borderRadius: T.radius[2],
+                paddingHorizontal: T.spacing[3],
+                paddingVertical: T.spacing[2],
+                color: T.colors.text,
+              }}
+              accessibilityLabel="Search space"
+              testID="space-search"
+            />
+          </View>
+        )}
         <SpaceBanner space={space} />
 
         <View style={[styles.content, { padding: T.spacing[4] }]}>
@@ -358,10 +432,41 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
           {/* Summary */}
           <View style={{ marginTop: T.spacing[3] }}>
-            <SpaceSummaryCard
-              headline={`You’ve logged ${stats.chatsActive} chats and completed ${stats.habitsCompletedThisWeek}/${stats.habitsTotalThisWeek} habits this week.`}
-              secondary={`You’re ${Math.round(stats.completionPct * 100)}% to your weekly goal.`}
-            />
+            <Animated.View style={{ transform: [{ scale: summaryPulse }], opacity: summaryPulse }}>
+              <SpaceSummaryCard
+                headline={`You’ve logged ${stats.chatsActive} chats and completed ${stats.habitsCompletedThisWeek}/${stats.habitsTotalThisWeek} habits this week.`}
+                secondary={`You’re ${Math.round(stats.completionPct * 100)}% to your weekly goal.`}
+              />
+            </Animated.View>
+          </View>
+
+          {/* Filter pills */}
+          <View style={{ marginTop: T.spacing[3], flexDirection: 'row', gap: T.spacing[2] }}>
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'chats', label: 'Chats' },
+              { key: 'habits', label: 'Habits' },
+              { key: 'todos', label: 'To-Dos' },
+              { key: 'notes', label: 'Notes' },
+            ].map((p) => (
+              <TouchableOpacity
+                key={p.key}
+                onPress={() => handleFilterPress(p.key as any)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: activeTab === p.key }}
+                style={{
+                  paddingHorizontal: T.spacing[3],
+                  paddingVertical: T.spacing[1],
+                  borderRadius: T.radius[2],
+                  backgroundColor:
+                    activeTab === (p.key as any) ? T.colors.accentMint : T.colors.surface,
+                  borderWidth: 1,
+                  borderColor: T.colors.border,
+                }}
+              >
+                <Text style={{ color: T.colors.text, fontSize: 14 }}>{p.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
           {/* Optional: What we discussed */}
@@ -399,6 +504,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={{ marginTop: T.spacing[4] }}>
             <TabbedSection
               tabs={[
+                { key: 'all', label: 'All' },
                 { key: 'chats', label: 'Chats', count: chats.length },
                 { key: 'habits', label: 'Habits', count: habits.length },
                 { key: 'todos', label: 'To-Dos', count: todos.length },
@@ -411,22 +517,79 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
           {/* Tab content */}
           <View style={{ marginTop: T.spacing[3], gap: T.spacing[2] }}>
+            {activeTab === 'all' && (
+              <>
+                {filterChats(chats)
+                  .slice(0, 2)
+                  .map((chat) => (
+                    <ChatCard
+                      key={chat.id}
+                      chat={chat}
+                      onPress={() => handleChatPress(chat.id)}
+                      onPin={handlePinChat}
+                      onUnpin={handleUnpinChat}
+                      onRename={handleRenameChat}
+                      onArchive={handleArchiveChat}
+                      onDelete={handleDeleteChat}
+                      aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
+                    />
+                  ))}
+                {filterHabits(habits)
+                  .slice(0, 2)
+                  .map((h) => (
+                    <Text key={h.id} style={{ color: T.colors.text }}>
+                      {h.name}
+                    </Text>
+                  ))}
+                {filterTodos(todos)
+                  .slice(0, 2)
+                  .map((t) => (
+                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ color: T.colors.text, flex: 1 }}>{t.name}</Text>
+                      <TouchableOpacity
+                        accessibilityLabel={`Complete to-do '${t.name}'`}
+                        accessibilityRole="button"
+                        onPress={async () => {
+                          try {
+                            await repo.completeTodo(t.id, new Date().toISOString());
+                            setShowConfetti(true);
+                            await reload();
+                          } catch (e) {
+                            console.warn('Failed to complete todo', e);
+                          }
+                        }}
+                      >
+                        <Text style={{ color: T.colors.primary }}>✓</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                {filterNotes(notes)
+                  .slice(0, 2)
+                  .map((n) => (
+                    <Text key={n.id} style={{ color: T.colors.text }}>
+                      {n.title}
+                    </Text>
+                  ))}
+              </>
+            )}
             {activeTab === 'chats' && (
               <>
-                {chats.slice(0, 3).map((chat) => (
-                  <ChatCard
-                    key={chat.id}
-                    chat={chat}
-                    onPress={() => handleChatPress(chat.id)}
-                    onPin={handlePinChat}
-                    onUnpin={handleUnpinChat}
-                    onRename={handleRenameChat}
-                    onArchive={handleArchiveChat}
-                    onDelete={handleDeleteChat}
-                    aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
-                  />
-                ))}
-                {chats.length > 3 && (
+                {filterChats(chats)
+                  .slice(0, 3)
+                  .map((chat) => (
+                    <ChatCard
+                      key={chat.id}
+                      chat={chat}
+                      onPress={() => handleChatPress(chat.id)}
+                      onPin={handlePinChat}
+                      onUnpin={handleUnpinChat}
+                      onRename={handleRenameChat}
+                      onArchive={handleArchiveChat}
+                      onDelete={handleDeleteChat}
+                      aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
+                    />
+                  ))}
+                {filterChats(chats).length > 3 && (
                   <TouchableOpacity
                     onPress={() => console.log('view all chats')}
                     accessibilityRole="button"
@@ -440,12 +603,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             )}
             {activeTab === 'habits' && (
               <>
-                {habits.slice(0, 3).map((h) => (
-                  <Text key={h.id} style={{ color: T.colors.text }}>
-                    {h.name}
-                  </Text>
-                ))}
-                {habits.length > 3 && (
+                {filterHabits(habits)
+                  .slice(0, 3)
+                  .map((h) => (
+                    <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ color: T.colors.text, flex: 1 }}>{h.name}</Text>
+                      <TouchableOpacity
+                        accessibilityLabel={`Complete habit '${h.name}'`}
+                        accessibilityRole="button"
+                        onPress={async () => {
+                          try {
+                            await repo.completeHabit(h.id, new Date().toISOString());
+                            setShowConfetti(true);
+                            await reload();
+                          } catch (e) {
+                            console.warn('Failed to complete habit', e);
+                          }
+                        }}
+                      >
+                        <Text style={{ color: T.colors.primary }}>✓</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                {filterHabits(habits).length > 3 && (
                   <TouchableOpacity onPress={() => console.log('view all habits')}>
                     <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
                       View all habits
@@ -456,12 +636,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             )}
             {activeTab === 'todos' && (
               <>
-                {todos.slice(0, 3).map((t) => (
-                  <Text key={t.id} style={{ color: T.colors.text }}>
-                    {t.name}
-                  </Text>
-                ))}
-                {todos.length > 3 && (
+                {filterTodos(todos)
+                  .slice(0, 3)
+                  .map((t) => (
+                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ color: T.colors.text, flex: 1 }}>{t.name}</Text>
+                      <TouchableOpacity
+                        accessibilityLabel={`Complete to-do '${t.name}'`}
+                        accessibilityRole="button"
+                        onPress={async () => {
+                          try {
+                            await repo.completeTodo(t.id, new Date().toISOString());
+                            setShowConfetti(true);
+                            await reload();
+                          } catch (e) {
+                            console.warn('Failed to complete todo', e);
+                          }
+                        }}
+                      >
+                        <Text style={{ color: T.colors.primary }}>✓</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                {filterTodos(todos).length > 3 && (
                   <TouchableOpacity onPress={() => console.log('view all todos')}>
                     <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
                       View all to-dos
@@ -472,12 +669,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             )}
             {activeTab === 'notes' && (
               <>
-                {notes.slice(0, 3).map((n) => (
-                  <Text key={n.id} style={{ color: T.colors.text }}>
-                    {n.title}
-                  </Text>
-                ))}
-                {notes.length > 3 && (
+                {filterNotes(notes)
+                  .slice(0, 3)
+                  .map((n) => (
+                    <Text key={n.id} style={{ color: T.colors.text }}>
+                      {n.title}
+                    </Text>
+                  ))}
+                {filterNotes(notes).length > 3 && (
                   <TouchableOpacity onPress={() => console.log('view all notes')}>
                     <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
                       View all notes
@@ -504,6 +703,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Micro celebration overlay */}
+      <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
     </View>
   );
 }
