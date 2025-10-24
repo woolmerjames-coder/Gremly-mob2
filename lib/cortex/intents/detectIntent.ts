@@ -33,6 +33,52 @@ export function detectIntent(text: string): DetectedIntent {
   const commandPattern = /^(set|add|create|save|send|log)\b/i;
   const isCommand = commandPattern.test(trimmed);
 
+  // Phase 10.11: Action-verb + object combos should produce actionable intents
+  // Handles phrasing like "Can you create a habit?" by checking combos BEFORE generic question detection
+  // Verbs: create|log|set|add|make|track|start
+  // Objects: habit|reminder|todo|note
+  // Also special patterns: "remind me", "set a reminder", "make a note"
+  const verbObjectRe = new RegExp(
+    `\\b(?:create|log|set|add|make|track|start)\\b[\\s\n\r]*(?:a|the|my)?[\\s\n\r]*(habit|reminder|todo|to-?do|note)s?\\b`,
+    'i',
+  );
+  const hasVerbObject = verbObjectRe.test(text);
+  const hasRemindMe = /\bremind\s+me\b/i.test(text);
+  const hasSetReminder = /\bset\s+(?:a\s+)?reminder\b/i.test(text);
+  const hasMakeNote = /\bmake\s+(?:a\s+)?note\b/i.test(text);
+
+  if (hasVerbObject || hasRemindMe || hasSetReminder || hasMakeNote) {
+    let target: 'habit' | 'todo' | 'note' | null = null;
+
+    if (hasRemindMe || hasSetReminder) {
+      target = 'todo';
+    } else if (hasMakeNote) {
+      target = 'note';
+    } else {
+      const m = text.match(verbObjectRe);
+      const obj = (m && m[1] ? m[1].toLowerCase() : '') as string;
+      if (obj.includes('habit')) target = 'habit';
+      else if (obj.includes('todo') || obj.includes('to-do') || obj.includes('reminder'))
+        target = 'todo';
+      else if (obj.includes('note')) target = 'note';
+    }
+
+    if (target) {
+      return {
+        kind: target,
+        confidence: 0.95,
+        title: trimmed,
+        isCommand: true,
+        curiositySuggestion:
+          target === 'habit'
+            ? 'Want structured help building this habit, or just exploring?'
+            : target === 'todo'
+              ? 'Want me to add this as a to-do, or just planning ahead?'
+              : 'Should I capture this as a note, or just keeping it in mind?',
+      };
+    }
+  }
+
   // Special-case: creative exploration phrases should be classified as ideas
   // Ensure these do not get downgraded to questions by planning/exploring detector
   if (
@@ -87,10 +133,11 @@ export function detectIntent(text: string): DetectedIntent {
     return { kind: 'question', confidence: 0.92, isCommand };
   }
 
-  // 2. Note patterns: memory/reminder words
+  // 2. Note patterns: memory/note words (exclude reminders which map to To-Do)
   // Moved up priority: question > note > habit > todo
   if (
-    /\b(note|remember|reminder|don't forget|remind me|keep in mind|write down|jot down)\b/i.test(t)
+    /\b(note|remember|keep in mind|write down|jot down)\b/i.test(t) &&
+    !/\b(reminder|remind me|set (?:a )?reminder)\b/i.test(t)
   ) {
     return {
       kind: 'note',
@@ -118,10 +165,10 @@ export function detectIntent(text: string): DetectedIntent {
     };
   }
 
-  // 4. To-do patterns: action verbs, deadlines
+  // 4. To-do patterns: action verbs, deadlines, reminder phrases
   // Raised threshold to 0.92 for highest confidence
   if (
-    /\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b/i.test(
+    /(\bremind\s+me\b|\bset\s+(?:a\s+)?reminder\b|\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b)/i.test(
       t,
     ) &&
     !/\b(how do|how to|how can)\b/i.test(t)
