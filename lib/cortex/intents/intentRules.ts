@@ -71,6 +71,7 @@ export const INTENT_RULES: IntentRule[] = [
       if (normalized.includes('doesnt make sense')) return true;
       if (normalized.includes('does not make sense')) return true;
       if (/why did you/i.test(normalized)) return true;
+      if (/why would you/i.test(normalized)) return true;
       if (/what did you/i.test(normalized)) return true;
       if (/what are you doing/i.test(normalized)) return true;
       if (/why are you/i.test(normalized)) return true;
@@ -104,15 +105,23 @@ export const INTENT_RULES: IntentRule[] = [
     name: 'opt_out_explicit',
     test: (text) => {
       const patterns = [
-        /\b(just thinking|just thought|just wondering)\b/i,
+        /\b(just thinking|just thought|just wondering|just chatting)\b/i,
         /\b(never mind|nevermind)\b/i,
         /\b(forget it|ignore that)\b/i,
         /\b(not really|not now|later maybe)\b/i,
+        /\bmaybe\b.*\blater\b/i, // "Maybe I could do this later"
+        /^just\b/i, // "Just thinking about..."
+        /\b(don't|dont) save\b/i, // "Don't save that"
+        /\bno need\b/i, // "No need to save"
+        /\bcancel that\b/i, // "Cancel that"
+        /^i'?m good\b/i, // "I'm good"
+        /^maybe\?*$/i, // "Maybe?" by itself
+        /^not sure\b(?!\s+about\s+(what|whether|if))/i, // "Not sure" but NOT "Not sure about what/whether/if" (those are ambiguous)
       ];
       return patterns.some((pattern) => pattern.test(text));
     },
     classification: {
-      kind: 'none',
+      kind: 'none', // Changed back to 'none' to match meta-comments test
       confidence: 0,
       flags: {
         suppressChips: true,
@@ -139,11 +148,15 @@ export const INTENT_RULES: IntentRule[] = [
         return false;
       }
 
+      // Don't match if it has "later" (that's an opt-out, handled above)
+      if (/\blater\b/i.test(text)) {
+        return false;
+      }
+
       const modalPlanning = /\b(might|maybe|perhaps|possibly)\b.*\b(could|should|would)\b/i;
       const brainstorming = /\b(brainstorming|ideating)\b/i;
-      const justThinking = /^just (thinking|considering)/i; // "Just thinking about..."
 
-      return modalPlanning.test(text) || brainstorming.test(text) || justThinking.test(text);
+      return modalPlanning.test(text) || brainstorming.test(text);
     },
     classification: {
       kind: 'question',
@@ -317,6 +330,23 @@ export const INTENT_RULES: IntentRule[] = [
 
   {
     priority: 22,
+    name: 'command_remind_me',
+    test: (text) => {
+      // "Remind me" or "Set a reminder" are explicit commands
+      return /\b(remind me|set (a |an )?reminder)\b/i.test(text);
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 23,
     name: 'command_send_email',
     test: (text) => {
       // "send an email" or "send email to" is a command
@@ -333,7 +363,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 23,
+    priority: 24,
     name: 'command_save_idea',
     test: (text) => {
       // "save this idea" or "save idea" is a command
@@ -350,7 +380,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 24,
+    priority: 25,
     name: 'command_log_reflection',
     test: (text) => {
       // "log today was" or "log" with reflection keywords is a command
@@ -371,7 +401,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 25,
+    priority: 26,
     name: 'command_explicit_note',
     test: (text) => {
       // Match command verb anywhere, followed by note/journal/entry within 4 words
@@ -832,46 +862,83 @@ export const INTENT_RULES: IntentRule[] = [
  * @param text - User input text to classify
  * @returns DetectedIntent with kind, confidence, and flags
  */
-export function classifyIntent(text: string): DetectedIntent {
-  const trimmed = text.trim();
-  const normalized = trimmed.toLowerCase();
+export function classifyIntent(input: unknown): DetectedIntent {
+  // Defensive: coerce input to string and trim
+  const text = String(input ?? '').trim();
 
-  // Process rules in priority order
-  const sortedRules = [...INTENT_RULES].sort((a, b) => a.priority - b.priority);
+  // Early return for empty input
+  if (!text) {
+    return {
+      kind: 'none',
+      confidence: 0,
+      title: '',
+      isCommand: false,
+      isMetaComment: false,
+      suppressChips: false,
+      requiresAction: false,
+      showDisambiguationToast: false,
+    };
+  }
 
-  for (const rule of sortedRules) {
-    if (rule.test(normalized)) {
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[intentRules] Matched rule:', {
-          name: rule.name,
-          priority: rule.priority,
+  try {
+    const normalized = text.toLowerCase();
+
+    // Process rules in priority order
+    const sortedRules = [...INTENT_RULES].sort((a, b) => a.priority - b.priority);
+
+    for (const rule of sortedRules) {
+      if (rule.test(normalized)) {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[intentRules] Matched rule:', {
+            name: rule.name,
+            priority: rule.priority,
+            kind: rule.classification.kind,
+            text: text.substring(0, 50),
+          });
+        }
+
+        return {
           kind: rule.classification.kind,
-          text: trimmed.substring(0, 50),
-        });
+          confidence: rule.classification.confidence,
+          title: text,
+          isCommand: false, // Default to false
+          isMetaComment: false, // Default to false
+          suppressChips: false, // Default to false
+          showDisambiguationToast: false, // Default to false
+          ...rule.classification.flags, // Flags can override defaults
+        };
       }
-
-      return {
-        kind: rule.classification.kind,
-        confidence: rule.classification.confidence,
-        title: trimmed,
-        isCommand: false, // Default to false
-        ...rule.classification.flags, // Flags can override defaults
-      };
     }
-  }
 
-  // Should never reach here due to default rule, but safety fallback
-  if (__DEV__) {
-    console.warn('[intentRules] No rule matched (should not happen):', trimmed.substring(0, 50));
-  }
+    // Should never reach here due to default rule, but safety fallback
+    if (__DEV__) {
+      console.warn('[intentRules] No rule matched (should not happen):', text.substring(0, 50));
+    }
 
-  return {
-    kind: 'none',
-    confidence: 0,
-    title: trimmed,
-    isCommand: false,
-    requiresAction: false,
-  };
+    return {
+      kind: 'none',
+      confidence: 0,
+      title: text,
+      isCommand: false,
+      isMetaComment: false,
+      suppressChips: false,
+      requiresAction: false,
+      showDisambiguationToast: false,
+    };
+  } catch (error) {
+    // Fail-safe: if any error occurs, return safe default
+    console.error('[intentRules] Error classifying intent:', error);
+    return {
+      kind: 'none',
+      confidence: 0,
+      title: text,
+      isCommand: false,
+      isMetaComment: false,
+      suppressChips: false,
+      requiresAction: false,
+      showDisambiguationToast: false,
+    };
+  }
 }
 
 /**
