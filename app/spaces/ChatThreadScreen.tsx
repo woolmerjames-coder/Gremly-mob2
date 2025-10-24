@@ -402,6 +402,20 @@ export default function ChatThreadScreen({ route }: Props) {
       const hasTrigger = TRIGGER_WORDS_RE.test(userText);
       const isSoftSkip = SOFT_SKIP_RE.test(userText);
 
+      // SPECIAL GATE: Habits require higher confidence or very explicit phrases
+      if (intent.kind === 'habit' && conf < 0.9) {
+        const isVeryExplicit = /every (day|morning|evening|night)/i.test(userText);
+        if (!isVeryExplicit) {
+          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[ChatToast] Habit detected but confidence too low:', {
+              confidence: conf,
+              text: userText.substring(0, 80),
+            });
+          }
+          return false;
+        }
+      }
+
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[ChatToast][gate] intent', {
           kind: intent.kind,

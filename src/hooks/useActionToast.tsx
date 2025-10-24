@@ -578,17 +578,18 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    borderRadius: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 2,
     borderColor: GOLDEN_PEAR,
+    zIndex: 999, // Below modal (1000) but above everything else
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.16,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
     shadowRadius: 8,
-    elevation: 6,
+    elevation: 10, // Android shadow
   },
   successContainer: {
     borderColor: SUCCESS_GREEN,
