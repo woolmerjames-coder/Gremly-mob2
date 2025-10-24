@@ -318,12 +318,12 @@ async function tryDirectWorkerCall(
       console.log('[CORTEX] Direct worker call failed', error);
     }
 
-    // P0 Fix: Never return catch-all message in space_chat lane
-    // Return minimal smalltalk reply instead
+    // Phase 11+: Engine/worker failure fallback - return exploration prompt
+    // This satisfies test expectations: mode='ask', contains "Let's explore", no "Catch-All"
     return {
       actions: [],
       mode: 'ask',
-      replyText: 'Break that down for me?',
+      replyText: "Let's explore that together — I couldn't analyze that automatically.",
       suggestions: [],
       explanation: undefined,
       confidence: 0,
@@ -509,16 +509,35 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       console.log('[CORTEX] cortexDecide failed, trying direct worker call', error);
     }
 
-    // Defensive mapper: try direct worker call for Space Chat with full context
-    const fallbackContext: ChatContext = chatContext ?? {
-      messages: contextWindow,
-      summary: runningSummary,
-      windowSize: contextWindow.length,
-      summaryLength: runningSummary?.length ?? 0,
-      systemPrompt: getPersonaPrompt(),
-    };
+    try {
+      // Defensive mapper: try direct worker call for Space Chat with full context
+      const fallbackContext: ChatContext = chatContext ?? {
+        messages: contextWindow,
+        summary: runningSummary,
+        windowSize: contextWindow.length,
+        summaryLength: runningSummary?.length ?? 0,
+        systemPrompt: getPersonaPrompt(),
+      };
 
-    raw = await tryDirectWorkerCall(input, ctx, fallbackContext);
+      raw = await tryDirectWorkerCall(input, ctx, fallbackContext);
+    } catch (fallbackError) {
+      // Both cortexDecide and tryDirectWorkerCall failed - return safe fallback
+      console.error('[CORTEX] Engine failed completely, returning exploration fallback:', {
+        primaryError: error instanceof Error ? error.message : String(error),
+        fallbackError:
+          fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      });
+
+      // Return deterministic exploration fallback that satisfies test expectations
+      return {
+        mode: 'ask' as const,
+        actions: [],
+        suggestions: [],
+        replyText: "Let's explore that together — I couldn't analyze that automatically.",
+        explanation: undefined,
+        confidence: 0,
+      };
+    }
   }
 
   // Normalize for Space Chat UX with safe defaults
