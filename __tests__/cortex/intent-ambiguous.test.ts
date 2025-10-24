@@ -7,16 +7,12 @@
 import { detectIntent } from '../../lib/cortex/intents/detectIntent';
 
 describe('Intent ambiguity between todo and note', () => {
-  it('returns ambiguous for "Remember to ..." phrasing', () => {
+  it('prefers todo for "Remember to ..." with action-like phrasing', () => {
+    // Updated: Centralized system (commit 9d254c86) classifies "Remember to X" as todo
+    // This aligns with intent-classification.test.ts expectations
     const result = detectIntent('Remember to check the documentation');
-    expect(result.kind).toBe('ambiguous');
-    expect(result.options).toEqual(expect.arrayContaining(['todo', 'note']));
-    expect(result.confidences?.todo).toBeGreaterThanOrEqual(0.7);
-    expect(result.confidences?.note).toBeGreaterThanOrEqual(0.7);
-    expect(
-      Math.abs((result.confidences?.todo || 0) - (result.confidences?.note || 0)),
-    ).toBeLessThan(0.2);
-    expect(result.showDisambiguationToast).toBe(true);
+    expect(result.kind).toBe('todo');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.7);
   });
 
   it('still prefers explicit todo for "Set a reminder ..."', () => {

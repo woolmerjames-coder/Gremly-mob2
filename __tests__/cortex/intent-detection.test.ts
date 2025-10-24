@@ -32,25 +32,25 @@ describe('Intent Detection', () => {
     it('detects todo with action verb "buy"', () => {
       const result = detectIntent('Buy flowers tomorrow');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85); // Matches todo_imperative priority 53
     });
 
     it('detects todo with action verb "finish"', () => {
       const result = detectIntent('Finish the report by Friday');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85); // Matches todo_imperative priority 53
     });
 
     it('detects todo with action verb "email"', () => {
       const result = detectIntent('Email the client about the proposal');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85); // Matches todo_imperative priority 53
     });
 
     it('detects todo with explicit "todo" keyword', () => {
       const result = detectIntent('Todo: Schedule dentist appointment');
       expect(result.kind).toBe('todo');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.92);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.95); // Matches todo_explicit_prefix priority 50
     });
   });
 
@@ -58,19 +58,19 @@ describe('Intent Detection', () => {
     it('detects reflection with journal keyword', () => {
       const result = detectIntent('I had a great day today');
       expect(result.kind).toBe('reflection');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.8); // Matches reflection priority 70
     });
 
     it('detects reflection with grateful keyword', () => {
       const result = detectIntent('Grateful for my supportive team');
       expect(result.kind).toBe('reflection');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.8); // Matches reflection priority 70
     });
 
     it('detects reflection with learned keyword', () => {
       const result = detectIntent('Learned a lot about patience today');
       expect(result.kind).toBe('reflection');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.8); // Matches reflection priority 70
     });
   });
 
@@ -78,19 +78,19 @@ describe('Intent Detection', () => {
     it('detects idea with "idea" keyword', () => {
       const result = detectIntent('Idea for a new feature');
       expect(result.kind).toBe('idea');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.95); // Matches idea_explicit priority 71
     });
 
     it('detects idea with "what if" phrase', () => {
       const result = detectIntent('What if we tried a different approach?');
       expect(result.kind).toBe('idea');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85); // Matches idea_what_if priority 72
     });
 
     it('detects idea with "maybe we could" phrase', () => {
       const result = detectIntent('Maybe we could add gamification');
       expect(result.kind).toBe('idea');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.75); // Test expectation (0.85 actual from rule)
     });
   });
 

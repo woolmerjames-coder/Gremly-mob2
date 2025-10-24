@@ -2,7 +2,8 @@
  * Cortex Explainability Helpers
  *
  * Generates friendly, one-line explanations for Cortex decisions.
- * Tone-aware and Gremly-style (concise, helpful, slightly playful).
+ * Tone-aware and Gremly-style (concise, helpful, witty).
+ * Phase 11.7+: Updated to match brand voice - calm, witty, intelligent, empathetic
  */
 
 /**
@@ -23,25 +24,23 @@ export type Tone = 'calm' | 'warm' | 'direct';
  *
  * @example
  * explainFiledToSpace('Fitness', 'warm', ['you mentioned running'])
- * // "Popped this into Fitness for you 💫 (you mentioned running)"
+ * // "Filed to Fitness 💫"
  */
 export function explainFiledToSpace(
   spaceName: string,
   tone: Tone = 'calm',
-  hints?: string[],
+  _hints?: string[],
 ): string {
-  const hintText = hints && hints.length > 0 ? ` (${hints[0]})` : '';
-
   if (tone === 'warm') {
-    return `Popped this into ${spaceName} for you 💫${hintText}`;
+    return `Filed to ${spaceName} 💫`;
   }
 
   if (tone === 'direct') {
-    return `Filed: ${spaceName}${hintText}`;
+    return `Filed: ${spaceName}`;
   }
 
-  // calm
-  return `Filed to ${spaceName}${hintText ? hintText + '.' : '.'}`;
+  // calm - brief and clear
+  return `Filed to ${spaceName}.`;
 }
 
 /**
@@ -53,22 +52,25 @@ export function explainFiledToSpace(
  *
  * @example
  * explainAddedToList('Shopping', 'warm')
- * // "Added to Shopping 🛒"
+ * // "Added 🛒"
  * explainAddedToList('Shopping', 'direct')
- * // "Shopping: added"
+ * // "Added"
  */
 export function explainAddedToList(listName: string, tone: Tone = 'calm'): string {
   if (tone === 'warm') {
     const emoji = getListEmoji(listName);
-    return `Added to ${listName}${emoji ? ' ' + emoji : ' 💫'}`;
+    // Gremly style: Brief, friendly, emoji for context
+    return `Added${emoji ? ' ' + emoji : ' 💫'}`;
   }
 
   if (tone === 'direct') {
-    return `${listName}: added`;
+    // Super brief
+    return 'Added';
   }
 
-  // calm
-  return `Added to ${listName}.`;
+  // calm - brief but clear
+  const emoji = getListEmoji(listName);
+  return `Added${emoji ? ' ' + emoji : '.'}`;
 }
 
 /**
@@ -80,21 +82,42 @@ export function explainAddedToList(listName: string, tone: Tone = 'calm'): strin
  *
  * @example
  * explainCreated('todo', 'warm')
- * // "Todo created ✓"
+ * // "Got it ✓"
+ * explainCreated('habit', 'warm')
+ * // "On it 🎯"
  */
 export function explainCreated(kind: 'todo' | 'habit' | 'note', tone: Tone = 'calm'): string {
-  const kindLabel = kind.charAt(0).toUpperCase() + kind.slice(1);
-
   if (tone === 'warm') {
-    const emoji = kind === 'todo' ? '✓' : kind === 'habit' ? '🎯' : '📝';
-    return `${kindLabel} created ${emoji}`;
+    // Gremly style: Varied, brief, action-oriented
+    const responses = {
+      todo: ['Got it ✓', 'All sorted', 'Done and dusted'],
+      habit: [
+        'On it 🎯',
+        "Nice work — that's one less thing buzzing around your brain.",
+        'Habit locked in',
+      ],
+      note: ['Captured 📝', "Saved. It's not going anywhere.", 'Got it'],
+    };
+    const options = responses[kind];
+    return options[Math.floor(Math.random() * options.length)];
   }
 
   if (tone === 'direct') {
-    return `${kindLabel} created`;
+    const responses = {
+      todo: 'Done.',
+      habit: 'Set.',
+      note: 'Saved.',
+    };
+    return responses[kind];
   }
 
-  return `${kindLabel} created.`;
+  // calm - clear and brief
+  const responses = {
+    todo: 'All sorted.',
+    habit: 'On it.',
+    note: 'Captured 📝',
+  };
+  return responses[kind];
 }
 
 /**
@@ -106,25 +129,25 @@ export function explainCreated(kind: 'todo' | 'habit' | 'note', tone: Tone = 'ca
  *
  * @example
  * explainAmbiguous('warm', ['File to Fitness?', 'Add to Shopping list?'])
- * // "Not quite sure—here are some ideas:"
+ * // "Tell me more?"
  */
 export function explainAmbiguous(tone: Tone = 'calm', suggestions?: string[]): string {
   if (tone === 'warm') {
     if (suggestions && suggestions.length > 0) {
-      return 'Not quite sure—here are some ideas:';
+      return 'A few options here:';
     }
-    return 'Hmm, not quite sure what you meant—want to clarify?';
+    return 'Tell me more?';
   }
 
   if (tone === 'direct') {
-    return 'Need clarification';
+    return 'Clarify?';
   }
 
   if (suggestions && suggestions.length > 0) {
-    return 'Unclear—see suggestions below:';
+    return 'Some options:';
   }
 
-  return "Let's explore that a bit more.";
+  return 'Break that down for me?';
 }
 
 /**

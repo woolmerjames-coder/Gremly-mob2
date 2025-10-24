@@ -73,7 +73,9 @@ describe('Explicit Command Intent Detection', () => {
     it('detects "remember" as note hint (NOT command)', () => {
       const result = detectIntent('Remember to pack lunch');
       expect(result.isCommand).toBe(false); // "remember" is a hint, not explicit command
-      expect(result.kind).toBe('note');
+      // Note: "remember to [action]" is classified as 'todo' (action reminder) per intent-classification.test.ts
+      expect(result.kind).toBe('todo');
+      expect(result.requiresAction).toBe(true);
     });
 
     it('detects "save" as command', () => {

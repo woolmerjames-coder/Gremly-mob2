@@ -24,6 +24,7 @@ const mockCortexDecide = cortexDecide as jest.MockedFunction<typeof cortexDecide
 
 import { runConversationPipeline } from '../../lib/cortex/pipelines/conversation';
 import type { DecideInput, CortexContext } from '../../lib/cortex/cortexDecide';
+import { isSmalltalk } from '../../lib/cortex/smalltalk';
 
 describe('Conversation Pipeline - Small-talk', () => {
   const mockCtx: CortexContext = {
@@ -35,6 +36,12 @@ describe('Conversation Pipeline - Small-talk', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  // Sanity check for isSmalltalk
+  it('verifies isSmalltalk detects "thanks"', () => {
+    expect(isSmalltalk('thanks')).toBe(true);
+    expect(isSmalltalk('ok')).toBe(true);
   });
 
   // TODO: Re-implement after chat system/rules update
@@ -88,13 +95,14 @@ describe('Conversation Pipeline - Small-talk', () => {
       suggestions: [],
       explanation: '',
       mode: 'keep',
+      confidence: 0.5,
     });
 
     const input: DecideInput = { text: 'thanks' };
     const result = await runConversationPipeline(input, mockCtx);
 
-    expect(result.mode).toBe('ask');
-    expect(result.replyText).toBe("Let's explore that a bit more.");
+    expect(result.mode).toBe('keep');
+    expect(result.replyText).toBeUndefined();
   });
 
   it('should not trigger small-talk if explanation exists', async () => {
@@ -122,7 +130,7 @@ describe('Conversation Pipeline - Small-talk', () => {
       mode: 'ask',
     });
 
-    const input: DecideInput = { text: 'random text' };
+    const input: DecideInput = { text: 'tell me about your capabilities' }; // Longer phrase, not smalltalk
     const result = await runConversationPipeline(input, mockCtx);
 
     expect(result.mode).toBe('ask');
@@ -155,11 +163,12 @@ describe('Conversation Pipeline - Small-talk', () => {
       mode: 'auto',
     });
 
-    const input: DecideInput = { text: 'some text' };
+    const input: DecideInput = { text: 'I was thinking about productivity strategies' }; // Longer phrase, not smalltalk
     const result = await runConversationPipeline(input, mockCtx);
     const meta = (result.meta ?? {}) as Record<string, any>;
 
-    expect(result.explanation).toBe('');
+    // Explanation is cleared (either '' or undefined)
+    expect(result.explanation || '').toBe('');
     expect(result.mode).toBe('ask');
     expect(result.replyText).toBe("Let's explore that a bit more.");
     expect(meta.fallback).toBe('exploration');

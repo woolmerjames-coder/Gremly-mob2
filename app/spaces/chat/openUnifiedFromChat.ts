@@ -40,6 +40,8 @@ export function openUnifiedFromChat(
   overlayController.openCreate({
     type: entityType,
     spaceId: meta.spaceId,
+    // NEW: Pass subtype for reflection notes
+    subtype: kind === 'reflection' ? 'journal' : undefined,
     conversionMeta: {
       origin: 'space_chat',
       ai_placed: false,

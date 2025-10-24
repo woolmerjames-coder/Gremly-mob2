@@ -194,8 +194,9 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const result = await cortexDecide({ text: 'call dentist' }, ctx);
 
-      // Warm tone should include emoji
-      expect(result.explanation).toContain('✓');
+      // Warm tone should return one of the varied responses (Phase 11.7+)
+      const warmResponses = ['Got it ✓', 'All sorted', 'Done and dusted'];
+      expect(warmResponses).toContain(result.explanation);
     });
 
     it('should fall back to spaceDefaults.tone when userPrefsTone not set', async () => {
@@ -217,8 +218,8 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const result = await cortexDecide({ text: 'call dentist' }, ctx);
 
-      // Direct tone should be brief with no period
-      expect(result.explanation).toBe('Todo created');
+      // Direct tone should be brief (Phase 11.7+: 'Done.')
+      expect(result.explanation).toBe('Done.');
     });
 
     it('should use calm tone as final fallback', async () => {
@@ -238,8 +239,8 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const result = await cortexDecide({ text: 'call dentist' }, ctx);
 
-      // Calm tone should end with period
-      expect(result.explanation).toBe('Todo created.');
+      // Calm tone is clear and brief (Phase 11.7+: 'All sorted.')
+      expect(result.explanation).toBe('All sorted.');
     });
 
     it('should prioritize userPrefsTone over spaceDefaults.tone', async () => {
@@ -264,8 +265,14 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       const result = await cortexDecide({ text: 'meditate daily' }, ctx);
 
       // Should use warm tone (user pref) not direct (space default)
-      expect(result.explanation).toContain('🎯');
-      expect(result.explanation).not.toBe('Habit created'); // Not direct tone
+      // Phase 11.7+: warm tone returns one of varied responses
+      const warmHabitResponses = [
+        'On it 🎯',
+        "Nice work — that's one less thing buzzing around your brain.",
+        'Habit locked in',
+      ];
+      expect(warmHabitResponses).toContain(result.explanation);
+      expect(result.explanation).not.toBe('Set.'); // Not direct tone
     });
   });
 

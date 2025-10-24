@@ -1,6 +1,10 @@
 /**
  * ChatThreadScreen - Phase 10.5 Space Chats v1
  * Phase 10.7D: Added debounce, spaceId validation, note prefill fixes
+ * Phase 11.3: Inline action confirmations instead of overlay toast
+ * Phase 11.5: Multi-intent detection and disambiguation
+ * Phase 11.6: Entry cards for created/retrieved entries
+ * Phase 11.7: Calm Action Bar v1.1 with centered + button
  * Now integrated with message persistence + new UI components
  */
 
@@ -22,22 +26,28 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
-import type { SpaceChat } from '../../lib/types';
+import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
-import type { DetectedIntent } from '../../lib/cortex/intents/types';
+import type { DetectedIntent, IntentKind } from '../../lib/cortex/intents/types';
 import { detectIntent } from '../../lib/cortex/intents/detectIntent';
+import { detectMultipleIntents } from '../../lib/cortex/intents/multiIntentDetector';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
+import { maybeRefreshSummary } from '../../lib/cortex/summarize';
+import { createToastSummary, getActivityName } from '../../lib/chat/contextualSummary';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
-import { MiniActionBar } from '../../components/chat/MiniActionBar';
+import { InlineActionConfirmation } from '../../components/chat/InlineActionConfirmation';
+import { MultiIntentConfirmation } from '../../components/chat/MultiIntentConfirmation';
+import { EntryCard } from '../../components/chat/EntryCard';
+import { ChatActionBar } from '../../components/chat/ChatActionBar';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -232,6 +242,13 @@ export default function ChatThreadScreen({ route }: Props) {
   const [detectedIntent, setDetectedIntent] = useState<DetectedIntent | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string>('');
 
+  // Phase 11.7: Track last created item for encouragement messages
+  const [lastCreatedItem, setLastCreatedItem] = useState<{
+    type: string;
+    title?: string;
+    timestamp: number;
+  } | null>(null);
+
   // Chat-level message index and toast history for cooldowns
   const userMsgIndexRef = React.useRef(0);
   type ToastOutcome = 'confirm' | 'cancel' | 'edit' | 'auto-dismiss';
@@ -277,101 +294,39 @@ export default function ChatThreadScreen({ route }: Props) {
     Toast: ActionToast,
   } = useActionToast({ bottomOffset: actionToastOffset });
 
+  // Use new chat messages hook
+  const {
+    messages,
+    loading: messagesLoading,
+    error: messagesError,
+    sendUserMessage,
+    appendAssistantMessage,
+    appendActionConfirmation,
+    appendEntryCard,
+  } = useChatMessages(chatId, spaceId);
+
+  // Phase 11.3: Inline action confirmation function (moved after useChatMessages)
   const maybeTriggerActionToast = useCallback(
-    (intent: DetectedIntent | null, _meta: Record<string, any> | undefined, userText: string) => {
-      // Show confirmation toast for high-confidence actionable intents
+    async (
+      intent: DetectedIntent | null,
+      _meta: Record<string, any> | undefined,
+      userText: string,
+    ) => {
+      // Phase 11.3: Add inline action confirmation messages instead of overlay toast
       if (!intent) return false;
 
-      // Disambiguation: show chooser when intent is ambiguous between note and todo
-      if (intent.kind === 'ambiguous' && (intent as any).showDisambiguationToast) {
-        const choices = (intent.options || ['note', 'todo']) as Array<'note' | 'todo'>;
-        const summaryOverride = `"${userText.trim()}"\nWould you like this as:`;
-        hideActionToast();
-        showActionToast({
-          type: 'disambiguation' as any,
-          content: userText,
-          metadata: {
-            summaryOverride,
-            disambiguationOptions: {
-              choices,
-              onChoose: (choice: 'note' | 'todo') => {
-                // After choose, show the normal action toast for the selected type
-                const selectedIntent = {
-                  kind: choice,
-                  confidence: Math.max(0.9, intent.confidence || 0.9),
-                  title: userText,
-                } as DetectedIntent;
-                const payload = buildActionToastPayload(selectedIntent, userText, spaceId ?? null, {
-                  onConfirm: async () => {
-                    recordToastOutcome(choice, 'confirm');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'confirm',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                  onCancel: () => {
-                    recordToastOutcome(choice, 'cancel');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'cancel',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                  onEdit: () => {
-                    recordToastOutcome(choice, 'edit');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'edit',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                  onAutoDismiss: () => {
-                    recordToastOutcome(choice, 'auto-dismiss');
-                    repo
-                      .writeEvent(
-                        'toast',
-                        {
-                          event: 'action',
-                          action: 'auto-dismiss',
-                          toastType: choice,
-                          index: userMsgIndexRef.current,
-                        },
-                        { userId: userId || 'anonymous' },
-                      )
-                      .catch(() => {});
-                  },
-                });
-                if (payload) {
-                  hideActionToast();
-                  showActionToast(payload);
-                }
-              },
-            },
-          },
-        } as any);
-        return true;
+      console.log('[DEBUG][Toast] maybeTriggerActionToast called:', {
+        text: userText.substring(0, 50),
+        intentKind: intent.kind,
+        confidence: intent.confidence,
+        suppressChips: intent.suppressChips,
+        isMetaComment: intent.isMetaComment,
+      });
+
+      // CRITICAL: Block for meta-comments
+      if (intent.isMetaComment || intent.suppressChips) {
+        console.log('[DEBUG][Toast] Blocking - meta-comment or suppressChips detected');
+        return false;
       }
 
       const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
@@ -387,6 +342,20 @@ export default function ChatThreadScreen({ route }: Props) {
       const conf = typeof intent.confidence === 'number' ? intent.confidence : 0;
       const hasTrigger = TRIGGER_WORDS_RE.test(userText);
       const isSoftSkip = SOFT_SKIP_RE.test(userText);
+
+      // SPECIAL GATE: Habits require higher confidence or very explicit phrases
+      if (intent.kind === 'habit' && conf < 0.9) {
+        const isVeryExplicit = /every (day|morning|evening|night)/i.test(userText);
+        if (!isVeryExplicit) {
+          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[ChatToast] Habit detected but confidence too low:', {
+              confidence: conf,
+              text: userText.substring(0, 80),
+            });
+          }
+          return false;
+        }
+      }
 
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[ChatToast][gate] intent', {
@@ -437,115 +406,169 @@ export default function ChatThreadScreen({ route }: Props) {
         return false;
       }
 
-      const payload = buildActionToastPayload(
-        intent,
-        userText,
-        spaceId ?? null,
-        actionType
-          ? {
-              onConfirm: async () => {
-                recordToastOutcome(actionType, 'confirm');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'confirm',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
+      // Phase 11.7+: Get recent user messages for context-aware summaries
+      const recentMessages = messages
+        .slice(-10) // Last 10 messages
+        .filter((m) => m.role === 'user') // User messages only
+        .map((m) => m.content);
+
+      // Create context-aware summary
+      const contextualSummary = createToastSummary(userText, intent.kind, recentMessages);
+
+      // Get activity name for habit creation
+      const activityName =
+        intent.kind === 'habit' ? getActivityName(userText, recentMessages) : undefined;
+
+      // Build action metadata with handlers
+      const metadata: Record<string, any> = {
+        actionType,
+        autoOrigin: 'space_chat' as const,
+        aiPlaced: true,
+        spaceId: spaceId ?? null,
+        confidence: intent.confidence,
+        // Phase 11.7+: Context-aware summary and activity name
+        summary: contextualSummary,
+        activityName,
+        fullText: userText,
+        // Phase 11.5: Include multi-intent data if present
+        alternativeIntents: intent.alternativeIntents || undefined,
+        isMultiIntent: intent.isMultiIntent || false,
+        onConfirm: async () => {
+          if (actionType) {
+            recordToastOutcome(actionType, 'confirm');
+            repo
+              .writeEvent(
+                'toast',
+                {
+                  event: 'action',
+                  action: 'confirm',
+                  toastType: actionType,
+                  index: userMsgIndexRef.current,
+                },
+                { userId: userId || 'anonymous' },
+              )
+              .catch(() => {});
+          }
+          // Open overlay for confirmation
+          if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+            overlayController.openCreate({
+              type: intent.kind as 'habit' | 'todo' | 'note',
+              spaceId: spaceId ?? undefined,
+              conversionMeta: {
+                initialTitle: userText,
               },
-              onCancel: () => {
-                recordToastOutcome(actionType, 'cancel');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'cancel',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
-              },
-              onEdit: () => {
-                recordToastOutcome(actionType, 'edit');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'edit',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
-              },
-              onAutoDismiss: () => {
-                recordToastOutcome(actionType, 'auto-dismiss');
-                repo
-                  .writeEvent(
-                    'toast',
-                    {
-                      event: 'action',
-                      action: 'auto-dismiss',
-                      toastType: actionType,
-                      index: userMsgIndexRef.current,
-                    },
-                    { userId: userId || 'anonymous' },
-                  )
-                  .catch(() => {});
-              },
+            });
+          }
+        },
+        onCreateMultiple: intent.isMultiIntent
+          ? async () => {
+              // Create multiple items based on intent and alternatives
+              console.log('[MultiIntent] Creating multiple items:', {
+                primary: intent.kind,
+                alternatives: intent.alternativeIntents?.map((a) => a.kind),
+              });
+
+              // Create primary first
+              if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+                overlayController.openCreate({
+                  type: intent.kind as 'habit' | 'todo' | 'note',
+                  spaceId: spaceId ?? undefined,
+                  conversionMeta: {
+                    initialTitle: userText,
+                  },
+                });
+              }
+
+              // TODO: Queue additional creations
+              // For now, just open the first one - future enhancement would create all
             }
           : undefined,
-      );
-      if (!payload) return false;
+        onCancel: () => {
+          if (actionType) {
+            recordToastOutcome(actionType, 'cancel');
+            repo
+              .writeEvent(
+                'toast',
+                {
+                  event: 'action',
+                  action: 'cancel',
+                  toastType: actionType,
+                  index: userMsgIndexRef.current,
+                },
+                { userId: userId || 'anonymous' },
+              )
+              .catch(() => {});
+          }
+        },
+        onEdit: () => {
+          if (actionType) {
+            recordToastOutcome(actionType, 'edit');
+            repo
+              .writeEvent(
+                'toast',
+                {
+                  event: 'action',
+                  action: 'edit',
+                  toastType: actionType,
+                  index: userMsgIndexRef.current,
+                },
+                { userId: userId || 'anonymous' },
+              )
+              .catch(() => {});
+          }
+          // Open overlay for editing
+          if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+            overlayController.openCreate({
+              type: intent.kind as 'habit' | 'todo' | 'note',
+              spaceId: spaceId ?? undefined,
+              conversionMeta: {
+                initialTitle: userText,
+              },
+            });
+          }
+        },
+      };
 
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[ChatToast] showing_toast', {
-          type: payload.type,
-          content: payload.content,
-          meta: payload.metadata,
-        });
-      }
+      // Phase 11.3: Add inline action confirmation message
+      try {
+        await appendActionConfirmation(userText, metadata);
 
-      hideActionToast();
-      // Analytics: toast shown (repo event)
-      if (actionType) {
-        repo
-          .writeEvent(
-            'toast',
-            {
-              event: 'shown',
-              toastType: actionType,
-              confidence: intent.confidence,
-              index: userMsgIndexRef.current,
-            },
-            { userId: userId || 'anonymous' },
-          )
-          .catch(() => {});
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[ChatToast] Inline action confirmation added:', {
+            type: actionType,
+            content: userText.substring(0, 50),
+          });
+        }
+
+        // Analytics: toast shown (repo event)
+        if (actionType) {
+          repo
+            .writeEvent(
+              'toast',
+              {
+                event: 'shown',
+                toastType: actionType,
+                confidence: intent.confidence,
+                index: userMsgIndexRef.current,
+              },
+              { userId: userId || 'anonymous' },
+            )
+            .catch(() => {});
+        }
+
+        // Auto-scroll to show the new confirmation
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+
+        return true;
+      } catch (err) {
+        console.error('[ChatToast] Failed to add inline confirmation:', err);
+        return false;
       }
-      showActionToast(payload);
-      return true;
     },
-    [hideActionToast, showActionToast, spaceId, recordToastOutcome],
+    [spaceId, recordToastOutcome, repo, userId, appendActionConfirmation, overlayController],
   );
-
-  // Use new chat messages hook
-  const {
-    messages,
-    loading: messagesLoading,
-    error: messagesError,
-    sendUserMessage,
-    appendAssistantMessage,
-  } = useChatMessages(chatId, spaceId);
 
   // Auto-scroll when messages change (e.g., new assistant/user messages)
   useEffect(() => {
@@ -755,12 +778,15 @@ export default function ChatThreadScreen({ route }: Props) {
             )
             .catch((err) => console.error('[ChatThread] Failed to log event:', err));
 
-          if (!toastShown && response.mode === 'auto' && response.actions.length > 0) {
+          // Normalize actions array for type safety
+          const actions = Array.isArray(response.actions) ? response.actions : [];
+
+          if (!toastShown && response.mode === 'auto' && actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
 
             await Promise.all(
-              response.actions.map(async (action: CortexAction) => {
+              actions.map(async (action: CortexAction) => {
                 try {
                   if (action.type === 'add.to.list') {
                     const list = await repo.getOrCreateList(action.payload.listKey, {
@@ -844,7 +870,7 @@ export default function ChatThreadScreen({ route }: Props) {
           let shouldTriggerPlayful = false;
 
           // Check if this is chit-chat/conversational content
-          if (response.mode === 'keep' && response.actions.length === 0) {
+          if (response.mode === 'keep' && actions.length === 0) {
             // Simple heuristic for chit-chat detection
             const chitChatPatterns =
               /\b(hello|hi|hey|thanks|thank you|how are you|what's up|good morning|good afternoon|good evening)\b/i;
@@ -900,39 +926,32 @@ export default function ChatThreadScreen({ route }: Props) {
 
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
-              import('../../lib/cortex/summarize')
-                .then(({ maybeRefreshSummary }) => {
-                  // Convert messages to ChatTurn format
-                  const historyTurns = messages.map((m) => ({
-                    role: m.role as 'user' | 'assistant',
-                    text: m.content,
-                  }));
+              // Convert messages to ChatTurn format
+              const historyTurns = messages.map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                text: m.content,
+              }));
 
-                  const hasLatestUser = historyTurns.some(
-                    (turn) => turn.role === 'user' && turn.text === trimmedText,
-                  );
+              const hasLatestUser = historyTurns.some(
+                (turn) => turn.role === 'user' && turn.text === trimmedText,
+              );
 
-                  if (!hasLatestUser) {
-                    historyTurns.push({ role: 'user', text: trimmedText });
-                  }
+              if (!hasLatestUser) {
+                historyTurns.push({ role: 'user', text: trimmedText });
+              }
 
-                  historyTurns.push({ role: 'assistant', text: assistantText });
+              historyTurns.push({ role: 'assistant', text: assistantText });
 
-                  const turns = historyTurns;
+              const turns = historyTurns;
 
-                  const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
+              const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
 
-                  maybeRefreshSummary(spaceId, turns, lastMsgId).catch((err) => {
-                    if (__DEV__) {
-                      console.error('[ChatThread][10.8] Summary refresh failed:', err);
-                    }
-                  });
-                })
-                .catch((err) => {
-                  if (__DEV__) {
-                    console.error('[ChatThread][10.8] Failed to load summarize module:', err);
-                  }
-                });
+              // Use static import instead of dynamic import
+              maybeRefreshSummary(spaceId, turns, lastMsgId).catch((err) => {
+                if (__DEV__) {
+                  console.error('[ChatThread][10.8] Summary refresh failed:', err);
+                }
+              });
             }
 
             // Phase 10.6: Emit response final event with intent detection flag
@@ -1167,27 +1186,6 @@ export default function ChatThreadScreen({ route }: Props) {
     [detectedIntent, getSuggestionKind, convertFromChip],
   );
 
-  const handleMiniAction = useCallback(
-    (action: string) => {
-      // Map mini action icons to overlay kinds
-      const actionMap: Record<string, OverlayKind> = {
-        brain: 'reflection',
-        check: 'todo',
-        file: 'note',
-        flame: 'habit',
-        pen: 'note', // alternate mapping for pen
-      };
-
-      const kind = actionMap[action];
-      if (kind) {
-        convertFromChip(kind);
-      } else {
-        console.log('[ChatThread] Unknown mini action:', action);
-      }
-    },
-    [convertFromChip],
-  );
-
   // Helper to show success toast cross-platform with chat-specific messaging
   const showChatConversionToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
@@ -1258,6 +1256,76 @@ export default function ChatThreadScreen({ route }: Props) {
                   const messageConfirmations = confirmations.find(
                     (c) => c.messageId === message.id,
                   );
+
+                  // Phase 11.6: Render entry card
+                  if (message.role === 'entry-card') {
+                    const metadata = message.metadata_json || {};
+                    const entry = metadata.entry;
+                    const entryType = metadata.entryType;
+
+                    if (entry && entryType) {
+                      // Add type property to entry object
+                      const typedEntry = { ...entry, type: entryType };
+
+                      return (
+                        <EntryCard
+                          key={message.id}
+                          entry={typedEntry}
+                          onPress={(entry) => {
+                            // Open unified overlay with full entry data
+                            overlayController.openEdit({
+                              record: entry as any, // Full entry object includes all required fields
+                              spaceId: spaceId ?? undefined,
+                            });
+                          }}
+                          testID={`entry-card-${message.id}`}
+                        />
+                      );
+                    }
+                  }
+
+                  // Phase 11.3/11.5: Render inline action confirmation
+                  if (message.role === 'action-confirmation') {
+                    const metadata = message.metadata_json || {};
+
+                    // Phase 11.5: Check if this is a multi-intent confirmation
+                    if (metadata.alternativeIntents && metadata.alternativeIntents.length > 0) {
+                      return (
+                        <MultiIntentConfirmation
+                          key={message.id}
+                          message={message}
+                          onSelectIntent={async (kind: IntentKind) => {
+                            // Open overlay for selected intent type
+                            if (kind === 'habit' || kind === 'todo' || kind === 'note') {
+                              overlayController.openCreate({
+                                type: kind as 'habit' | 'todo' | 'note',
+                                spaceId: spaceId ?? undefined,
+                                conversionMeta: {
+                                  initialTitle: message.content,
+                                },
+                              });
+                            }
+                          }}
+                          onCreateMultiple={metadata.onCreateMultiple}
+                          onCancel={metadata.onCancel}
+                          testID={`multi-intent-${message.id}`}
+                        />
+                      );
+                    }
+
+                    // Standard single-intent confirmation
+                    return (
+                      <InlineActionConfirmation
+                        key={message.id}
+                        message={message}
+                        onConfirm={metadata.onConfirm}
+                        onEdit={metadata.onEdit}
+                        onCancel={metadata.onCancel}
+                        testID={`inline-action-${message.id}`}
+                      />
+                    );
+                  }
+
                   return (
                     <View key={message.id} style={styles.messageContainer}>
                       <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
@@ -1312,14 +1380,12 @@ export default function ChatThreadScreen({ route }: Props) {
           {/* Chat Composer */}
           <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
 
-          {/* Mini Action Bar */}
-          <MiniActionBar
-            onBrainPress={() => handleMiniAction('brain')}
-            onCheckPress={() => handleMiniAction('check')}
-            onFilePress={() => handleMiniAction('file')}
-            onFlamePress={() => handleMiniAction('flame')}
-            onPenPress={() => handleMiniAction('pen')}
-            testID="mini-action-bar"
+          {/* Phase 11.7: Calm Action Bar with centered + button */}
+          <ChatActionBar
+            onAddPress={() => {
+              overlayController.openCreate({ spaceId: spaceId ?? undefined });
+            }}
+            lastCreatedItem={lastCreatedItem}
           />
 
           {ActionToast}
@@ -1333,7 +1399,7 @@ export default function ChatThreadScreen({ route }: Props) {
           initialSpaceId={overlayController.state.initialSpaceId}
           conversionMeta={overlayController.state.conversionMeta}
           onClose={overlayController.close}
-          onSaved={(result) => {
+          onSaved={async (result) => {
             // Success toast with chat-specific messaging
             const itemType =
               result.type === 'note'
@@ -1344,6 +1410,27 @@ export default function ChatThreadScreen({ route }: Props) {
                     ? 'Habit'
                     : 'Item';
             showChatConversionToast(`${itemType} created from chat ✨`);
+
+            // Phase 11.7: Track last created item for encouragement messages
+            setLastCreatedItem({
+              type: result.type,
+              timestamp: Date.now(),
+            });
+
+            // Phase 11.6: Add entry card to chat thread
+            try {
+              // Fetch the created record
+              const record = await repo.getById(result.id);
+
+              if (
+                record &&
+                (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
+              ) {
+                await appendEntryCard(record, result.type as 'note' | 'todo' | 'habit');
+              }
+            } catch (err) {
+              console.error('[EntryCard] Failed to add entry card to chat:', err);
+            }
           }}
         />
       </SafeAreaView>
@@ -1354,15 +1441,20 @@ export default function ChatThreadScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: lightTokens.colors.linenCream,
   },
   flex: {
     flex: 1,
   },
+  // Atmosphere overlay for depth
+  atmosphereOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    pointerEvents: 'none',
+    opacity: 0.02,
+  },
   header: {
-    backgroundColor: lightTokens.colors.bg,
-    borderBottomWidth: 1,
-    borderBottomColor: lightTokens.colors.border,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
     paddingHorizontal: lightTokens.spacing[4],
     paddingVertical: lightTokens.spacing[3],
   },
@@ -1374,13 +1466,15 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: lightTokens.typography.size.lg,
     fontWeight: '600',
-    color: lightTokens.colors.text,
+    color: lightTokens.colors.charcoalInk,
   },
   messages: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   messagesContent: {
     padding: lightTokens.spacing[4],
+    paddingBottom: lightTokens.spacing[6],
   },
   typingContainer: {
     alignSelf: 'flex-start',
@@ -1398,7 +1492,7 @@ const styles = StyleSheet.create({
   placeholderTitle: {
     fontSize: lightTokens.typography.size.xl,
     fontWeight: '600',
-    color: lightTokens.colors.text,
+    color: lightTokens.colors.charcoalInk,
     marginBottom: lightTokens.spacing[2],
   },
   placeholderText: {
@@ -1434,6 +1528,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: lightTokens.colors.linenCream,
   },
 });

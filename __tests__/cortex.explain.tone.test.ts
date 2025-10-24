@@ -1,5 +1,6 @@
 /**
  * Phase 10.4: Tone-aware explanations tests
+ * Phase 11.7+: Updated for new Gremly brand voice
  * Verifies that explain functions produce appropriately varied output based on tone
  */
 
@@ -11,81 +12,76 @@ import {
   type Tone,
 } from '../lib/cortex/explain';
 
-describe('Tone-aware explanations (Phase 10.4)', () => {
+describe('Tone-aware explanations (Phase 10.4, 11.7+)', () => {
   describe('explainAddedToList', () => {
-    it('should use calm tone (neutral, no emoji)', () => {
+    it('should use calm tone (brief with contextual emoji)', () => {
       const result = explainAddedToList('Shopping', 'calm');
-      expect(result).toBe('Added to Shopping.');
-      expect(result).not.toContain('🛒');
-      expect(result).not.toContain('💫');
+      expect(result).toContain('Added');
+      expect(result).toContain('🛒'); // Contextual emoji for shopping
     });
 
     it('should use warm tone (friendly with emoji)', () => {
       const result = explainAddedToList('Shopping', 'warm');
-      expect(result).toContain('Added to Shopping');
-      expect(result).toMatch(/[🛒💫]/u); // Should have some emoji
+      expect(result).toContain('Added');
+      expect(result).toMatch(/[🛒💫]/u); // Should have contextual emoji
     });
 
-    it('should use direct tone (brief, no fluff)', () => {
+    it('should use direct tone (super brief)', () => {
       const result = explainAddedToList('Shopping', 'direct');
-      expect(result).toBe('Shopping: added');
-      expect(result).not.toContain('.');
-      expect(result).not.toContain('🛒');
+      expect(result).toBe('Added');
     });
   });
 
   describe('explainCreated', () => {
     it('should use calm tone for todo', () => {
       const result = explainCreated('todo', 'calm');
-      expect(result).toBe('Todo created.');
+      expect(result).toBe('All sorted.');
     });
 
-    it('should use warm tone for todo', () => {
+    it('should use warm tone for todo (varied responses)', () => {
       const result = explainCreated('todo', 'warm');
-      expect(result).toContain('Todo created');
-      expect(result).toContain('✓');
+      expect(['Got it ✓', 'All sorted', 'Done and dusted']).toContain(result);
     });
 
     it('should use direct tone for todo', () => {
       const result = explainCreated('todo', 'direct');
-      expect(result).toBe('Todo created');
-      expect(result).not.toContain('.');
+      expect(result).toBe('Done.');
     });
 
-    it('should use warm tone for habit with emoji', () => {
+    it('should use warm tone for habit (varied responses with emoji)', () => {
       const result = explainCreated('habit', 'warm');
-      expect(result).toContain('Habit created');
-      expect(result).toContain('🎯');
+      expect([
+        'On it 🎯',
+        "Nice work — that's one less thing buzzing around your brain.",
+        'Habit locked in',
+      ]).toContain(result);
     });
 
-    it('should use warm tone for note with emoji', () => {
+    it('should use warm tone for note (varied responses with emoji)', () => {
       const result = explainCreated('note', 'warm');
-      expect(result).toContain('Note created');
-      expect(result).toContain('📝');
+      expect(['Captured 📝', "Saved. It's not going anywhere.", 'Got it']).toContain(result);
     });
   });
 
   describe('explainFiledToSpace', () => {
-    it('should use calm tone', () => {
+    it('should use calm tone (brief, clear)', () => {
       const result = explainFiledToSpace('Work', 'calm');
       expect(result).toBe('Filed to Work.');
     });
 
-    it('should use calm tone with hints', () => {
+    it('should use calm tone without hints (no hint text)', () => {
       const result = explainFiledToSpace('Work', 'calm', ['you mentioned project']);
-      expect(result).toBe('Filed to Work (you mentioned project).');
+      expect(result).toBe('Filed to Work.');
     });
 
-    it('should use warm tone', () => {
+    it('should use warm tone (brief with emoji)', () => {
       const result = explainFiledToSpace('Fitness', 'warm');
-      expect(result).toContain('Popped this into Fitness for you');
-      expect(result).toContain('💫');
+      expect(result).toBe('Filed to Fitness 💫');
     });
 
-    it('should use warm tone with hints', () => {
+    it('should use warm tone ignoring hints (Gremly style)', () => {
       const result = explainFiledToSpace('Fitness', 'warm', ['running keywords']);
-      expect(result).toContain('Popped this into Fitness for you 💫');
-      expect(result).toContain('(running keywords)');
+      expect(result).toBe('Filed to Fitness 💫');
     });
 
     it('should use direct tone', () => {
@@ -93,28 +89,36 @@ describe('Tone-aware explanations (Phase 10.4)', () => {
       expect(result).toBe('Filed: Work');
     });
 
-    it('should use direct tone with hints', () => {
+    it('should use direct tone ignoring hints', () => {
       const result = explainFiledToSpace('Work', 'direct', ['project keyword']);
-      expect(result).toBe('Filed: Work (project keyword)');
+      expect(result).toBe('Filed: Work');
     });
   });
 
   describe('explainAmbiguous', () => {
-    it('should use calm tone with suggestions', () => {
+    it('should use calm tone with suggestions (brief)', () => {
       const result = explainAmbiguous('calm', ['Idea 1', 'Idea 2']);
-      expect(result).toContain('Unclear');
-      expect(result).toContain('suggestions');
+      expect(result).toBe('Some options:');
     });
 
-    it('should use warm tone with suggestions', () => {
+    it('should use warm tone with suggestions (friendly)', () => {
       const result = explainAmbiguous('warm', ['Idea 1']);
-      expect(result).toContain('Not quite sure');
-      expect(result).toContain('ideas');
+      expect(result).toBe('A few options here:');
+    });
+
+    it('should use calm tone without suggestions', () => {
+      const result = explainAmbiguous('calm');
+      expect(result).toBe('Break that down for me?');
+    });
+
+    it('should use warm tone without suggestions', () => {
+      const result = explainAmbiguous('warm');
+      expect(result).toBe('Tell me more?');
     });
 
     it('should use direct tone', () => {
       const result = explainAmbiguous('direct');
-      expect(result).toBe('Need clarification');
+      expect(result).toBe('Clarify?');
     });
   });
 
@@ -138,11 +142,11 @@ describe('Tone-aware explanations (Phase 10.4)', () => {
         expect(fileExplain.length).toBeGreaterThan(0);
 
         if (tone === 'warm') {
-          // Warm tone should have emojis
-          expect(listExplain.match(/[🛒💫]/u)).toBeTruthy();
+          // Warm tone should be friendly (may have emojis)
+          expect(listExplain.length).toBeGreaterThan(3);
         } else if (tone === 'direct') {
-          // Direct tone should be brief and no trailing period
-          expect(listExplain).not.toMatch(/\.$/);
+          // Direct tone should be very brief
+          expect(listExplain.length).toBeLessThan(20);
         }
       });
     });

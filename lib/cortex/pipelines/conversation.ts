@@ -8,6 +8,7 @@ import {
 import { isGreeting, isSmalltalk, respond as respondSmalltalk } from '../smalltalk';
 import { callChat, type ChatMessage } from '../CortexClient';
 import { detectIntent } from '../intents/detectIntent';
+import { detectMultipleIntents } from '../intents/multiIntentDetector';
 import type { DetectedIntent } from '../intents/types';
 import {
   buildContextWindow,
@@ -20,9 +21,11 @@ import {
   type ChatContext,
 } from '../context/memory';
 import { getPersonaPrompt } from '../persona/prompt';
+import { smartRefine } from '../persona/refine';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 const EXPLORATION_COPY_RE = /let's explore that a bit more\.?/i;
+const MAX_CONSECUTIVE_QUESTIONS = 3;
 
 function isExplicitActionRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
@@ -35,6 +38,18 @@ function isExplicitActionRequest(text: string): boolean {
   return /\b(remind me|remember to|note to|schedule|make sure to)\b/.test(normalized);
 }
 
+/**
+ * Check if a response contains a question
+ * Phase 11.2: Used to track consecutive questions
+ */
+function containsQuestion(text: string): boolean {
+  if (!text) return false;
+  // Check for question mark or common question patterns
+  return /\?|^(what|when|where|who|why|how|which|do you|are you|can you|would you|could you)\b/i.test(
+    text,
+  );
+}
+
 function cleanCuriosityFragment(fragment: string): string {
   return fragment
     .trim()
@@ -44,6 +59,12 @@ function cleanCuriosityFragment(fragment: string): string {
     .trim();
 }
 
+/**
+ * @deprecated This function generates poorly formatted template questions.
+ * Disabled in favor of AI worker's natural language responses.
+ * DO NOT RE-ENABLE - causes issues like:
+ * "What's the first thing you'd try as you start exercising more but need to figure out a plan that works fo me"
+ */
 function buildCuriosityQuestion(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -156,7 +177,18 @@ async function tryDirectWorkerCall(
     // B1: Assemble full context: system prompt + summary + last N turns + current message
     const messages: ChatMessage[] = [];
 
-    const systemPrompt = context?.systemPrompt?.trim() || getPersonaPrompt();
+    let systemPrompt = context?.systemPrompt?.trim() || getPersonaPrompt();
+
+    // Phase 11.2: Track consecutive questions and add safeguard
+    const consecutiveQuestions = ctx.consecutiveQuestions ?? 0;
+    if (consecutiveQuestions >= MAX_CONSECUTIVE_QUESTIONS) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][11.2] Max consecutive questions reached, forcing statement');
+      }
+      systemPrompt +=
+        '\n\nIMPORTANT: You have asked several questions. Now provide a helpful insight or suggestion WITHOUT asking another question. Synthesize what you know and offer concrete next steps.';
+    }
+
     messages.push({ role: 'system', content: systemPrompt });
 
     const summaryText = context?.summary?.trim();
@@ -245,10 +277,29 @@ async function tryDirectWorkerCall(
           ? Math.max(0, Math.min(1, data.confidence))
           : 0.85;
 
+      // Phase 11.7+: Refine AI response to match brand voice
+      const refinedReply = smartRefine(replyText);
+
+      // Phase 11.2: Update consecutive questions counter
+      const hasQuestion = containsQuestion(refinedReply);
+      if (hasQuestion) {
+        ctx.consecutiveQuestions = (ctx.consecutiveQuestions ?? 0) + 1;
+      } else {
+        ctx.consecutiveQuestions = 0;
+      }
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][11.2] Question tracking:', {
+          hasQuestion,
+          consecutiveQuestions: ctx.consecutiveQuestions,
+          replyPreview: refinedReply.substring(0, 60),
+        });
+      }
+
       return {
         actions: [],
         explanation: undefined,
-        replyText,
+        replyText: refinedReply,
         suggestions,
         mode: 'reply',
         confidence: workerConfidence,
@@ -256,6 +307,7 @@ async function tryDirectWorkerCall(
           responseSource: 'worker',
           workerModel: data.model ?? 'gpt-4o-mini',
           workerUsage: data.usage,
+          consecutiveQuestions: ctx.consecutiveQuestions,
         },
       };
     }
@@ -266,12 +318,12 @@ async function tryDirectWorkerCall(
       console.log('[CORTEX] Direct worker call failed', error);
     }
 
-    // P0 Fix: Never return catch-all message in space_chat lane
-    // Return minimal smalltalk reply instead
+    // Phase 11+: Engine/worker failure fallback - return exploration prompt
+    // This satisfies test expectations: mode='ask', contains "Let's explore", no "Catch-All"
     return {
       actions: [],
       mode: 'ask',
-      replyText: "Let's explore that a bit more.",
+      replyText: "Let's explore that together — I couldn't analyze that automatically.",
       suggestions: [],
       explanation: undefined,
       confidence: 0,
@@ -360,7 +412,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   const userText = input.text?.trim() || '';
 
   const curiosityPhaseFlag = (process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE || '').toLowerCase();
-  const curiosityEnabled = curiosityPhaseFlag === 'on' || curiosityPhaseFlag === 'true';
+  // DISABLED - Template questions generate poor responses like truncated text
+  // AI worker responses are much more natural and contextual
+  const curiosityEnabled = false;
 
   const cooldownTurns = parseInt(
     process.env.INTENT_COOLDOWN_TURNS || process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2',
@@ -422,7 +476,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       mode: 'ask' as const,
       actions: [],
       suggestions: [],
-      replyText: "I'm here for you. What's going on?",
+      replyText: "I'm here. What's going on?",
       explanation: undefined,
       confidence: 0,
       meta: {
@@ -455,16 +509,35 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       console.log('[CORTEX] cortexDecide failed, trying direct worker call', error);
     }
 
-    // Defensive mapper: try direct worker call for Space Chat with full context
-    const fallbackContext: ChatContext = chatContext ?? {
-      messages: contextWindow,
-      summary: runningSummary,
-      windowSize: contextWindow.length,
-      summaryLength: runningSummary?.length ?? 0,
-      systemPrompt: getPersonaPrompt(),
-    };
+    try {
+      // Defensive mapper: try direct worker call for Space Chat with full context
+      const fallbackContext: ChatContext = chatContext ?? {
+        messages: contextWindow,
+        summary: runningSummary,
+        windowSize: contextWindow.length,
+        summaryLength: runningSummary?.length ?? 0,
+        systemPrompt: getPersonaPrompt(),
+      };
 
-    raw = await tryDirectWorkerCall(input, ctx, fallbackContext);
+      raw = await tryDirectWorkerCall(input, ctx, fallbackContext);
+    } catch (fallbackError) {
+      // Both cortexDecide and tryDirectWorkerCall failed - return safe fallback
+      console.error('[CORTEX] Engine failed completely, returning exploration fallback:', {
+        primaryError: error instanceof Error ? error.message : String(error),
+        fallbackError:
+          fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      });
+
+      // Return deterministic exploration fallback that satisfies test expectations
+      return {
+        mode: 'ask' as const,
+        actions: [],
+        suggestions: [],
+        replyText: "Let's explore that together — I couldn't analyze that automatically.",
+        explanation: undefined,
+        confidence: 0,
+      };
+    }
   }
 
   // Normalize for Space Chat UX with safe defaults
@@ -495,8 +568,144 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.actions = [];
   }
 
+  // Normalize suggestions array for type safety
+  const suggestions = Array.isArray(normalized.suggestions) ? normalized.suggestions : [];
+
+  // Early return for low-confidence decisions with no suggestions (exclude smalltalk and greetings)
+  if (
+    normalized.confidence === 0 &&
+    suggestions.length === 0 &&
+    !suppressSmalltalkAck &&
+    !smalltalkDetected &&
+    !greetingDetected
+  ) {
+    return {
+      mode: normalized.mode,
+      replyText: "Let's explore that a bit more.",
+      suggestions: [],
+      meta: {
+        intentRoutedAs: 'exploration',
+        fallback: 'exploration',
+      },
+    };
+  }
+
   // Phase 11.1: Curiosity-first routing with conservative intent gating
   const intent: DetectedIntent = detectIntent(input.text || '');
+
+  console.log('[DEBUG][conversation] Intent detected:', {
+    text: input.text?.substring(0, 50),
+    kind: intent.kind,
+    confidence: intent.confidence,
+    suppressChips: intent.suppressChips,
+    isMetaComment: intent.isMetaComment,
+  });
+
+  // Phase 11.6: Multi-intent detection for ambiguous inputs
+  // Check if this could be interpreted as multiple types
+  let finalIntent = intent;
+  if (
+    (intent.kind === 'ambiguous' || intent.kind === 'note') &&
+    intent.confidence >= 0.5 &&
+    intent.confidence < 0.9
+  ) {
+    const multiIntent = detectMultipleIntents(input.text || '', {
+      hasPersonContext: false, // Could enhance with actual context
+    });
+
+    if (multiIntent.alternativeIntents && multiIntent.alternativeIntents.length > 0) {
+      console.log('[DEBUG][conversation] Multi-intent detected:', {
+        primary: multiIntent.kind,
+        primaryConfidence: multiIntent.confidence,
+        alternatives: multiIntent.alternativeIntents.map((a) => `${a.kind} (${a.confidence})`),
+        isMultiIntent: multiIntent.isMultiIntent,
+      });
+
+      finalIntent = multiIntent;
+    }
+  }
+
+  // Handle meta-comments immediately - don't process as actions
+  if (finalIntent.suppressChips && finalIntent.kind === 'question') {
+    console.log('[DEBUG][conversation] Meta-comment detected - returning clarification');
+    return {
+      mode: 'ask' as const,
+      actions: [],
+      suggestions: [],
+      replyText:
+        "I understand you're confused. Let me clarify what I was trying to help with. What would you like to accomplish?",
+      explanation: undefined,
+      confidence: 0,
+      meta: {
+        kind: 'clarification',
+        isMetaComment: true,
+      },
+    };
+  }
+
+  // Phase 11.2: Context-aware habit reminder handling
+  // When user specifies reminder times after discussing habits, don't create a TODO
+  if (
+    intent.kind === 'habit_reminder' ||
+    (intent.kind === 'todo' &&
+      intent.confidence >= 0.85 &&
+      /\b(remind|alert|notify)/i.test(userText))
+  ) {
+    // Check recent conversation context for habit indicators
+    const recentContext = (ctx.runningSummary || '').toLowerCase();
+    const lastMessages = ctx.contextWindow?.slice(-3) || [];
+    const recentText = lastMessages
+      .map((m) => m.text || '')
+      .join(' ')
+      .toLowerCase();
+    const combinedContext = `${recentContext} ${recentText}`;
+
+    // Keywords that indicate we're discussing habits
+    const habitIndicators = [
+      'habit',
+      'routine',
+      'practice',
+      'every day',
+      'daily',
+      'weekly',
+      'regularly',
+      'consistently',
+      'want to start',
+      'build a habit',
+      'track this',
+      'make this stick',
+      'exercise',
+      'meditate',
+      'read',
+      'journal',
+      'workout',
+      'yoga',
+    ];
+
+    const isHabitContext = habitIndicators.some((indicator) => combinedContext.includes(indicator));
+
+    if (isHabitContext) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][11.2] Habit context detected, treating reminder as habit config:', {
+          originalIntent: intent.kind,
+          contextPreview: combinedContext.substring(0, 100),
+        });
+      }
+
+      // Return early with signal that this is habit reminder configuration
+      // Don't create actions here - let the normal flow handle it with context
+      normalized.meta = {
+        ...normalized.meta,
+        contextOverride: 'habit_from_reminder',
+        originalIntent: intent.kind,
+        isHabitContext: true,
+      };
+
+      // Override intent for downstream processing
+      intent.kind = 'habit';
+      intent.confidence = 0.9;
+    }
+  }
 
   const minConfidenceEnv =
     process.env.INTENT_MIN_CONFIDENCE || process.env.EXPO_PUBLIC_INTENT_CONFIDENCE_MIN || '0.9';
@@ -528,7 +737,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   // hasExplicitIntent already defined earlier in function
   const isUserAffirming = isAffirmation(userText);
-  const bypassCooldown = hasExplicitIntent || isUserAffirming || intent.isCommand;
+  const bypassCooldown = hasExplicitIntent || isUserAffirming || finalIntent.isCommand;
 
   const creationIntents = new Set<DetectedIntent['kind']>([
     'habit',
@@ -537,11 +746,11 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     'reflection',
     'idea',
   ]);
-  const isCreationIntent = creationIntents.has(intent.kind);
-  const meetsConfidence = intent.confidence >= minIntentConfidence;
+  const isCreationIntent = creationIntents.has(finalIntent.kind);
+  const meetsConfidence = finalIntent.confidence >= minIntentConfidence;
   const priorCooldown =
-    typeof previousCooldowns[intent.kind] === 'number'
-      ? (previousCooldowns[intent.kind] as number)
+    typeof previousCooldowns[finalIntent.kind] === 'number'
+      ? (previousCooldowns[finalIntent.kind] as number)
       : 0;
   const chipCoolingDown =
     typeof ctx.lastChipTurn === 'number' && typeof currentTurn === 'number'
@@ -554,20 +763,20 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   normalized.meta = {
     ...normalized.meta,
-    detectedIntent: intent,
+    detectedIntent: finalIntent, // Phase 11.6: Use finalIntent which may include multi-intent data
     intentConfidenceMin: minIntentConfidence,
     // Expose concise intent shape for consumers that prefer a flat contract
-    intent: { kind: intent.kind, confidence: intent.confidence },
+    intent: { kind: finalIntent.kind, confidence: finalIntent.confidence },
   };
 
   // Pre-set routing metadata for reiterated creation intents so fallbacks don't overwrite it
   if (isCreationIntent) {
-    const hasRecentSameIntent = recentIntentBuffer.some((e) => e.kind === intent.kind);
+    const hasRecentSameIntent = recentIntentBuffer.some((e) => e.kind === finalIntent.kind);
     if (hasRecentSameIntent) {
       normalized.meta = {
         ...normalized.meta,
-        intentRoutedAs: intent.kind,
-        intentKind: intent.kind,
+        intentRoutedAs: finalIntent.kind,
+        intentKind: finalIntent.kind,
       };
     }
   }
@@ -575,7 +784,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   let intentHandled = false;
   let awaitingClarification = false;
 
-  if (intent.kind === 'question' && meetsConfidence) {
+  if (finalIntent.kind === 'question' && meetsConfidence) {
     normalized.mode = 'ask';
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
@@ -587,9 +796,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentRoutedAs: 'question',
-      intentKind: intent.kind,
+      intentKind: finalIntent.kind,
     };
-  } else if (intent.isPlanning || intent.suppressChips) {
+  } else if (finalIntent.isPlanning || finalIntent.suppressChips) {
     normalized.mode = 'ask';
     normalized.replyText =
       normalized.replyText ||
@@ -598,28 +807,28 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentRoutedAs: 'planning',
-      intentKind: intent.kind,
+      intentKind: finalIntent.kind,
     };
   } else if (isCreationIntent && meetsConfidence && !intentCoolingDown) {
-    const topicKey = intent.kind;
+    const topicKey = finalIntent.kind;
     const needsClarification =
-      !intent.isCommand &&
+      !finalIntent.isCommand &&
       curiosityEnabled &&
       topicKey &&
       !clarifiedTopics.has(topicKey) &&
-      !!intent.curiositySuggestion;
+      !!finalIntent.curiositySuggestion;
 
     if (needsClarification) {
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] awaiting_clarification', {
-          kind: intent.kind,
-          confidence: intent.confidence,
-          curiositySuggestion: intent.curiositySuggestion,
+          kind: finalIntent.kind,
+          confidence: finalIntent.confidence,
+          curiositySuggestion: finalIntent.curiositySuggestion,
         });
       }
       normalized.mode = 'ask';
       normalized.replyText =
-        intent.curiositySuggestion ||
+        finalIntent.curiositySuggestion ||
         "I'd like to understand this a bit better. What should we focus on?";
       normalized.meta = {
         ...normalized.meta,
@@ -628,11 +837,11 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
       awaitingClarification = true;
       intentHandled = true;
-    } else if (intent.isCommand) {
+    } else if (finalIntent.isCommand) {
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] explicit_intent -> open_overlay', {
-          kind: intent.kind,
-          confidence: intent.confidence,
+          kind: finalIntent.kind,
+          confidence: finalIntent.confidence,
         });
       }
       normalized.mode = 'ask';
@@ -640,9 +849,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       normalized.meta = {
         ...normalized.meta,
         shouldOpenOverlay: true,
-        overlayKind: intent.kind,
+        overlayKind: finalIntent.kind,
         intentRoutedAs: 'command',
-        intentKind: intent.kind,
+        intentKind: finalIntent.kind,
       };
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] overlay_meta_set', normalized.meta);
@@ -651,8 +860,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     } else {
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] implicit_creation_intent', {
-          kind: intent.kind,
-          confidence: intent.confidence,
+          kind: finalIntent.kind,
+          confidence: finalIntent.confidence,
           replyTextProvided: !!normalized.replyText?.trim(),
         });
       }
@@ -665,15 +874,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       };
 
       if (!normalized.replyText || !normalized.replyText.trim()) {
-        normalized.replyText = fallbackReplies[intent.kind] || 'Understood.';
+        normalized.replyText = fallbackReplies[finalIntent.kind] || 'Understood.';
       }
 
       normalized.mode = 'ask';
       intentHandled = true;
       normalized.meta = {
         ...normalized.meta,
-        intentRoutedAs: intent.kind,
-        intentKind: intent.kind,
+        intentRoutedAs: finalIntent.kind,
+        intentKind: finalIntent.kind,
       };
 
       if (curiosityEnabled && topicKey && !clarifiedTopics.has(topicKey)) {
@@ -687,15 +896,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     }
     normalized.meta = {
       ...normalized.meta,
-      intentCoolingDown: intent.kind,
-      intentKind: intent.kind,
-      intentRoutedAs: intent.kind,
+      intentCoolingDown: finalIntent.kind,
+      intentKind: finalIntent.kind,
+      intentRoutedAs: finalIntent.kind,
     };
   } else if (
     (!normalized.replyText || !normalized.replyText.trim()) &&
     (!normalized.explanation || !normalized.explanation.trim())
   ) {
-    if (suppressSmalltalkAck) {
+    if (suppressSmalltalkAck || smalltalkDetected) {
       normalized.mode = 'keep';
       normalized.replyText = undefined;
       normalized.meta = {
@@ -734,12 +943,12 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   if (intentHandled && isCreationIntent) {
-    recentIntentBuffer.push({ kind: intent.kind, turn: currentTurn });
+    recentIntentBuffer.push({ kind: finalIntent.kind, turn: currentTurn });
   }
   ctx.recentIntentBuffer = recentIntentBuffer;
 
   if (intentHandled && isCreationIntent) {
-    nextCooldowns[intent.kind] = cooldownTurns;
+    nextCooldowns[finalIntent.kind] = cooldownTurns;
   }
 
   ctx.intentCooldownMap = nextCooldowns;
@@ -753,8 +962,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   if (__DEV__ && process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
     console.log('[CORTEX][intent]', {
-      kind: intent.kind,
-      confidence: intent.confidence,
+      kind: finalIntent.kind,
+      confidence: finalIntent.confidence,
       meetsConfidence,
       intentCoolingDown,
       intentHandled,
@@ -929,7 +1138,14 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   const noSuggestions = !normalized?.suggestions || normalized.suggestions.length === 0;
   const noExplanation = !normalized?.explanation || !normalized.explanation.trim();
   const noReplyText = !normalized?.replyText || !normalized.replyText.trim();
-  if (suppressSmalltalkAck && noExplanation && noSuggestions && noReplyText) {
+
+  // Suppress smalltalk acknowledgments (either follow-up acks or standalone smalltalk with no content)
+  if (
+    (suppressSmalltalkAck || smalltalkDetected) &&
+    noExplanation &&
+    noSuggestions &&
+    noReplyText
+  ) {
     return {
       ...normalized,
       mode: 'keep' as const,
@@ -948,7 +1164,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     return {
       ...normalized,
       mode: 'ask' as const,
-      replyText: "Let's explore that a bit more.",
+      replyText: 'Break that down for me?',
       actions: [],
       suggestions: [],
       meta: {

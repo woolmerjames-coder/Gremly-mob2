@@ -32,6 +32,7 @@ interface OverlayState {
 interface CreateOptions {
   type?: EntityType;
   spaceId?: string | null;
+  subtype?: string | null;
   conversionMeta?: ConversionMeta;
 }
 
@@ -50,29 +51,32 @@ export function useUnifiedOverlayController() {
   const isOpeningRef = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const openCreate = useCallback(({ type, spaceId, conversionMeta }: CreateOptions = {}) => {
-    if (isOpeningRef.current) {
-      console.log('[OverlayController] open already in progress, ignoring');
-      return;
-    }
+  const openCreate = useCallback(
+    ({ type, spaceId, subtype, conversionMeta }: CreateOptions = {}) => {
+      if (isOpeningRef.current) {
+        console.log('[OverlayController] open already in progress, ignoring');
+        return;
+      }
 
-    isOpeningRef.current = true;
-    setState({
-      visible: true,
-      mode: 'create',
-      initialEntity: type ? { type, id: undefined, subtype: null } : undefined,
-      initialSpaceId: spaceId,
-      conversionMeta,
-    });
+      isOpeningRef.current = true;
+      setState({
+        visible: true,
+        mode: 'create',
+        initialEntity: type ? { type, id: undefined, subtype: subtype || null } : undefined,
+        initialSpaceId: spaceId,
+        conversionMeta,
+      });
 
-    // Reset debounce flag after 600ms
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      isOpeningRef.current = false;
-    }, 600);
-  }, []);
+      // Reset debounce flag after 600ms
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        isOpeningRef.current = false;
+      }, 600);
+    },
+    [],
+  );
 
   const openEdit = useCallback(({ record, spaceId }: EditOptions) => {
     if (isOpeningRef.current) {

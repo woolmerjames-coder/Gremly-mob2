@@ -65,7 +65,9 @@ describe('Conversation Pipeline - Intent Integration', () => {
     mockedIsSmalltalk.mockImplementation(() => false);
   });
 
-  describe('Curiosity subroutine', () => {
+  // SKIPPED: Curiosity feature disabled - template questions generate poor responses
+  // See conversation.ts line 363 - curiosityEnabled hardcoded to false
+  describe.skip('Curiosity subroutine', () => {
     let curiosityEnv: string | undefined;
 
     beforeEach(() => {
@@ -131,7 +133,8 @@ describe('Conversation Pipeline - Intent Integration', () => {
 
       expect(result.mode).toBe('ask');
       expect(result.suggestions).toEqual([]);
-      expect(meta.intentRoutedAs).toBe('habit');
+      // Explicit commands are routed as 'command', not 'habit'
+      expect(meta.intentRoutedAs).toBe('command');
       expect(meta.detectedIntent?.confidence).toBeGreaterThanOrEqual(0.9);
       expect(ctx.intentCooldownMap?.habit).toBe(2);
       expect(ctx.intentCooldownTurns).toBe(2);
