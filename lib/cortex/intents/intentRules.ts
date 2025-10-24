@@ -127,6 +127,18 @@ export const INTENT_RULES: IntentRule[] = [
     test: (text) => {
       // Only match planning mode if it has modal verbs (might/maybe/perhaps)
       // Don't match simple "thinking about X" which could be ambiguous
+      // IMPORTANT: Don't match idea patterns like "maybe we could" or "what if"
+      const ideaPatterns = [
+        /^what if\b/i,
+        /^(maybe|perhaps) (i|we) could\b/i,
+        /\bwouldn't it be (cool|great|nice|interesting) (if|to)\b/i,
+      ];
+
+      // If it matches an idea pattern, don't classify as planning
+      if (ideaPatterns.some((pattern) => pattern.test(text))) {
+        return false;
+      }
+
       const modalPlanning = /\b(might|maybe|perhaps|possibly)\b.*\b(could|should|would)\b/i;
       const brainstorming = /\b(brainstorming|ideating)\b/i;
       const justThinking = /^just (thinking|considering)/i; // "Just thinking about..."
@@ -495,6 +507,22 @@ export const INTENT_RULES: IntentRule[] = [
   // ═══════════════════════════════════════════════════════════════
   {
     priority: 50,
+    name: 'todo_explicit_prefix',
+    test: (text) => {
+      // Match explicit "Todo:", "Task:", "To-do:", or "TODO:" prefix
+      return /^(todo|task|to-do):/i.test(text);
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.95,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 51,
     name: 'todo_reminder_explicit',
     test: (text) => {
       const patterns = [
@@ -515,7 +543,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 51,
+    priority: 52,
     name: 'todo_temporal',
     test: (text) => {
       const timePatterns = [
@@ -536,7 +564,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 52,
+    priority: 53,
     name: 'todo_modal_action',
     test: (text) => {
       // "Need to call", "Have to buy", "Must finish", "I should finish the report"
@@ -567,7 +595,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 53,
+    priority: 54,
     name: 'todo_imperative',
     test: (text) => {
       const imperativeVerbs = [
@@ -672,6 +700,10 @@ export const INTENT_RULES: IntentRule[] = [
         /\bi'?ve been thinking/i, // Remove \b at end - "I've been thinking about..."
         /\bi'?m thinking/i, // "I'm thinking about..."
         /\b(learned|realized|noticed|observed) (that)?\b/i,
+        /\b(grateful|thankful|blessed) (for|that)\b/i, // "Grateful for...", "Thankful that..."
+        /\b(had a|what a) (great|good|wonderful|amazing|tough|difficult|challenging) (day|week|time)\b/i, // "Had a great day"
+        /^grateful\b/i, // "Grateful for my team"
+        /^learned\b/i, // "Learned a lot about..."
       ];
       return patterns.some((pattern) => pattern.test(text));
     },
@@ -686,6 +718,22 @@ export const INTENT_RULES: IntentRule[] = [
 
   {
     priority: 71,
+    name: 'idea_explicit',
+    test: (text) => {
+      // Match explicit "Idea:" prefix or "Idea for/about..."
+      return /^idea\s*(:|for|about)\b/i.test(text);
+    },
+    classification: {
+      kind: 'idea',
+      confidence: 0.95,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  {
+    priority: 72,
     name: 'idea_what_if',
     test: (text) => {
       const patterns = [
