@@ -25,4 +25,6 @@ export interface CortexContextBase {
   runningSummary?: string | null;
   /** Phase 10.7D: Context window (last N messages) */
   contextWindow?: Array<{ role: 'user' | 'assistant'; text: string }>;
+  /** Phase 11.2: Track consecutive questions to prevent overload */
+  consecutiveQuestions?: number;
 }

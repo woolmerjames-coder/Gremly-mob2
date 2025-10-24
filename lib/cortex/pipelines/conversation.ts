@@ -23,6 +23,7 @@ import { getPersonaPrompt } from '../persona/prompt';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 const EXPLORATION_COPY_RE = /let's explore that a bit more\.?/i;
+const MAX_CONSECUTIVE_QUESTIONS = 3;
 
 function isExplicitActionRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
@@ -33,6 +34,18 @@ function isExplicitActionRequest(text: string): boolean {
   }
 
   return /\b(remind me|remember to|note to|schedule|make sure to)\b/.test(normalized);
+}
+
+/**
+ * Check if a response contains a question
+ * Phase 11.2: Used to track consecutive questions
+ */
+function containsQuestion(text: string): boolean {
+  if (!text) return false;
+  // Check for question mark or common question patterns
+  return /\?|^(what|when|where|who|why|how|which|do you|are you|can you|would you|could you)\b/i.test(
+    text,
+  );
 }
 
 function cleanCuriosityFragment(fragment: string): string {
@@ -162,7 +175,18 @@ async function tryDirectWorkerCall(
     // B1: Assemble full context: system prompt + summary + last N turns + current message
     const messages: ChatMessage[] = [];
 
-    const systemPrompt = context?.systemPrompt?.trim() || getPersonaPrompt();
+    let systemPrompt = context?.systemPrompt?.trim() || getPersonaPrompt();
+
+    // Phase 11.2: Track consecutive questions and add safeguard
+    const consecutiveQuestions = ctx.consecutiveQuestions ?? 0;
+    if (consecutiveQuestions >= MAX_CONSECUTIVE_QUESTIONS) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][11.2] Max consecutive questions reached, forcing statement');
+      }
+      systemPrompt +=
+        '\n\nIMPORTANT: You have asked several questions. Now provide a helpful insight or suggestion WITHOUT asking another question. Synthesize what you know and offer concrete next steps.';
+    }
+
     messages.push({ role: 'system', content: systemPrompt });
 
     const summaryText = context?.summary?.trim();
@@ -251,6 +275,22 @@ async function tryDirectWorkerCall(
           ? Math.max(0, Math.min(1, data.confidence))
           : 0.85;
 
+      // Phase 11.2: Update consecutive questions counter
+      const hasQuestion = containsQuestion(replyText);
+      if (hasQuestion) {
+        ctx.consecutiveQuestions = (ctx.consecutiveQuestions ?? 0) + 1;
+      } else {
+        ctx.consecutiveQuestions = 0;
+      }
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][11.2] Question tracking:', {
+          hasQuestion,
+          consecutiveQuestions: ctx.consecutiveQuestions,
+          replyPreview: replyText.substring(0, 60),
+        });
+      }
+
       return {
         actions: [],
         explanation: undefined,
@@ -262,6 +302,7 @@ async function tryDirectWorkerCall(
           responseSource: 'worker',
           workerModel: data.model ?? 'gpt-4o-mini',
           workerUsage: data.usage,
+          consecutiveQuestions: ctx.consecutiveQuestions,
         },
       };
     }
