@@ -37,6 +37,7 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
+import { PersistentActionBar } from '../../components/chat/PersistentActionBar';
 
 // Phase 10.6: New mascot system
 import { MascotProvider } from '../features/mascot/useMascot';
@@ -725,6 +726,13 @@ export default function ChatThreadScreen({ route }: Props) {
     ],
   );
 
+  const handlePersistentActionPress = useCallback(() => {
+    if (shouldUseHaptics()) {
+      Haptics.selectionAsync();
+    }
+    overlayController.openCreate({ spaceId: spaceId ?? null });
+  }, [overlayController, spaceId]);
+
   // Phase 10.7D: Debounced send wrapper (200ms)
   const handleSendDebounced = useCallback(
     (text: string) => {
@@ -981,6 +989,12 @@ export default function ChatThreadScreen({ route }: Props) {
               </>
             )}
           </ScrollView>
+
+          {/* Persistent Action Bar (always visible, above input) */}
+          <PersistentActionBar
+            onPress={handlePersistentActionPress}
+            testID="persistent-action-bar"
+          />
 
           {/* Chat Composer */}
           <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
