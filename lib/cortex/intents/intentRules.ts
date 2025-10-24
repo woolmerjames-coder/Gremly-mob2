@@ -37,22 +37,42 @@ export const INTENT_RULES: IntentRule[] = [
     priority: 0,
     name: 'meta_comment_confusion',
     test: (text) => {
-      const patterns = [
-        /why did you/i,
-        /what did you (just\s+)?do/i,
-        /doesn't make sense/i,
-        /does(n't|nt) make any sense/i,
-        /that'?s? (wrong|incorrect|not right)/i,
-        /what are you doing/i,
-        /why are you/i,
-        /can you explain/i,
-        /what's going on/i,
-        /\bhuh\??\b/i,
-        /i don't understand/i,
-        /that doesn't work/i,
-        /why would you/i,
-      ];
-      return patterns.some((pattern) => pattern.test(text));
+      const normalized = text.toLowerCase().trim();
+
+      // Debug log for "doesn't make sense" detection
+      if (normalized.includes('make sense')) {
+        console.log('[META_DEBUG] Checking meta-comment for:', normalized);
+        console.log(
+          '[META_DEBUG] Contains "doesn\'t make sense"?',
+          normalized.includes("doesn't make sense"),
+        );
+        console.log(
+          '[META_DEBUG] Contains "doesnt make sense"?',
+          normalized.includes('doesnt make sense'),
+        );
+        console.log(
+          '[META_DEBUG] Contains "does not make sense"?',
+          normalized.includes('does not make sense'),
+        );
+      }
+
+      // Check each pattern individually for better debugging
+      if (normalized.includes("doesn't make sense")) return true;
+      if (normalized.includes('doesnt make sense')) return true;
+      if (normalized.includes('does not make sense')) return true;
+      if (/why did you/i.test(normalized)) return true;
+      if (/what did you/i.test(normalized)) return true;
+      if (/what are you doing/i.test(normalized)) return true;
+      if (/why are you/i.test(normalized)) return true;
+      if (/that'?s? wrong/i.test(normalized)) return true;
+      if (/that'?s? incorrect/i.test(normalized)) return true;
+      if (/that'?s? not right/i.test(normalized)) return true;
+      if (/\bhuh\??\b/i.test(normalized)) return true;
+      if (/i don'?t understand/i.test(normalized)) return true;
+      if (/can you explain/i.test(normalized)) return true;
+      if (/what'?s? going on/i.test(normalized)) return true;
+
+      return false;
     },
     classification: {
       kind: 'question',
