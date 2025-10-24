@@ -3,8 +3,16 @@
  * Phase 10.7D: Hardened intent detection with advice-first mode
  * Intent detection helper using centralized rule-based classification
  *
+ * ⚠️ THIN WRAPPER ONLY - This file delegates to intentRules.ts
  * This now delegates to intentRules.ts for the single source of truth.
  * All classification logic is centralized in intentRules.ts.
+ *
+ * ⚠️ DO NOT ADD CLASSIFICATION LOGIC HERE
+ * This file only:
+ * 1. Calls classifyIntent() from intentRules.ts
+ * 2. Adds optional curiositySuggestion based on kind
+ *
+ * See lib/cortex/intents/README.md for architecture details.
  */
 
 import type { DetectedIntent } from './types';

@@ -2,9 +2,19 @@
  * Central intent classification rules
  * Single source of truth for all intent decisions
  *
+ * ⚠️ AUTHORITY: This file is the SINGLE SOURCE OF TRUTH for intent classification
+ * Established by commit 9d254c86daac76e7b441c6487b0340a1a1a455a1
+ *
+ * ⚠️ CRITICAL: ALL intent classification MUST go through this file
+ * - NO direct regex pattern matching for intents outside this file
+ * - NO hardcoded intent.kind assignments outside this file
+ * - ALL modules MUST use detectIntent() -> classifyIntent() flow
+ *
  * This file defines all intent classification rules in priority order.
  * Rules are checked sequentially, and the first matching rule wins.
  * This eliminates ambiguity and ensures consistent behavior across the app.
+ *
+ * See lib/cortex/intents/README.md for architecture details and guidelines.
  */
 
 import type { DetectedIntent, IntentKind } from './types';
