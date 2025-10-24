@@ -11,6 +11,7 @@ export type IntentKind =
   | 'idea'
   | 'question'
   | 'ambiguous'
+  | 'habit_reminder' // Phase 11.2: Reminder configuration in habit context
   | 'none';
 
 export interface DetectedIntent {

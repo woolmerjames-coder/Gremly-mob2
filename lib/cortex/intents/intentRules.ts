@@ -315,6 +315,54 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 49: HABIT REMINDER CONFIGURATION
+  // When user is specifying reminder times/frequency for a habit
+  // This prevents "remind me at 7am" from creating a TODO when in habit context
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 49,
+    name: 'habit_reminder_details',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Check if this message is about setting reminder times/frequency
+      const isAboutReminders = /\b(remind|alert|notify|ping)\s*(me)?\b/i.test(normalized);
+      const hasTimeSpecification =
+        /\b(\d{1,2}(:\d{2})?\s*(am|pm)|morning|afternoon|evening|night|noon|midnight)\b/i.test(
+          normalized,
+        );
+      const hasFrequencyPattern =
+        /\b(every|each|mon|tue|wed|thu|fri|sat|sun|weekday|weekend|daily|weekly)\b/i.test(
+          normalized,
+        );
+
+      // This is likely reminder configuration if it mentions times AND (reminders OR frequencies)
+      const isSettingReminders = isAboutReminders && (hasTimeSpecification || hasFrequencyPattern);
+
+      // Check for "Yes" confirmation pattern (user confirming they want reminders)
+      const isConfirmingReminders =
+        /^(yes|yeah|yep|yup|sure|ok|okay|sounds good|that works),?\s*(remind|alert|notify|that sounds good|please)/i.test(
+          normalized,
+        );
+
+      // Also catch standalone time specifications that follow habit discussion
+      const isTimeOnly =
+        hasTimeSpecification && !isAboutReminders && normalized.split(/\s+/).length <= 5; // Short response like "7am and 5pm"
+
+      return isSettingReminders || isConfirmingReminders || isTimeOnly;
+    },
+    classification: {
+      kind: 'habit_reminder' as any, // Special kind to signal context-aware handling
+      confidence: 0.85,
+      flags: {
+        requiresAction: false, // Don't create action directly
+        // @ts-expect-error - Adding custom flag for context awareness
+        needsContext: true, // Signal to check conversation context
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 50-59: TODO/REMINDER PATTERNS
   // Time-bound or action-oriented tasks
   // ═══════════════════════════════════════════════════════════════

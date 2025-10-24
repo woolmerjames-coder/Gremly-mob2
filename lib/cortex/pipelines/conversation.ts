@@ -573,6 +573,70 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     };
   }
 
+  // Phase 11.2: Context-aware habit reminder handling
+  // When user specifies reminder times after discussing habits, don't create a TODO
+  if (
+    intent.kind === 'habit_reminder' ||
+    (intent.kind === 'todo' &&
+      intent.confidence >= 0.85 &&
+      /\b(remind|alert|notify)/i.test(userText))
+  ) {
+    // Check recent conversation context for habit indicators
+    const recentContext = (ctx.runningSummary || '').toLowerCase();
+    const lastMessages = ctx.contextWindow?.slice(-3) || [];
+    const recentText = lastMessages
+      .map((m) => m.text || '')
+      .join(' ')
+      .toLowerCase();
+    const combinedContext = `${recentContext} ${recentText}`;
+
+    // Keywords that indicate we're discussing habits
+    const habitIndicators = [
+      'habit',
+      'routine',
+      'practice',
+      'every day',
+      'daily',
+      'weekly',
+      'regularly',
+      'consistently',
+      'want to start',
+      'build a habit',
+      'track this',
+      'make this stick',
+      'exercise',
+      'meditate',
+      'read',
+      'journal',
+      'workout',
+      'yoga',
+    ];
+
+    const isHabitContext = habitIndicators.some((indicator) => combinedContext.includes(indicator));
+
+    if (isHabitContext) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][11.2] Habit context detected, treating reminder as habit config:', {
+          originalIntent: intent.kind,
+          contextPreview: combinedContext.substring(0, 100),
+        });
+      }
+
+      // Return early with signal that this is habit reminder configuration
+      // Don't create actions here - let the normal flow handle it with context
+      normalized.meta = {
+        ...normalized.meta,
+        contextOverride: 'habit_from_reminder',
+        originalIntent: intent.kind,
+        isHabitContext: true,
+      };
+
+      // Override intent for downstream processing
+      intent.kind = 'habit';
+      intent.confidence = 0.9;
+    }
+  }
+
   const minConfidenceEnv =
     process.env.INTENT_MIN_CONFIDENCE || process.env.EXPO_PUBLIC_INTENT_CONFIDENCE_MIN || '0.9';
   const minIntentConfidence = Number.isFinite(Number(minConfidenceEnv))
