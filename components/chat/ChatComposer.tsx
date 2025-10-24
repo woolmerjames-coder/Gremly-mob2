@@ -143,6 +143,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: 'transparent',
+    marginBottom: 64, // Space for ChatActionBar (height: 64)
   },
   inputContainer: {
     flexDirection: 'row',
