@@ -19,6 +19,9 @@ import {
   type Tone,
 } from './explain';
 import { env } from '../env';
+import { detectIntent } from './intents/detectIntent';
+import { getPersonaPrompt } from './persona/prompt';
+import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
 
 // Re-export lane types for convenience
@@ -172,15 +175,9 @@ export async function cortexDecide(
     const classifyCatchAll = env.cortex.classifyCatchAll;
     const optimistic = env.cortex.optimistic;
 
-    // If classification is disabled, return keep mode immediately
-    if (!classifyCatchAll) {
-      return {
-        actions: [],
-        mode: 'ask',
-        explanation: "Let's explore that a bit more.",
-        confidence: 0,
-      };
-    }
+    // Detect intent up-front for fast-path routing when highly confident
+    const userText = input.text || (input.structured ? JSON.stringify(input.structured) : '');
+    const detected = detectIntent(userText);
 
     // Create engine instance
     const engine = createCortexEngine();
@@ -191,18 +188,115 @@ export async function cortexDecide(
       spaceId: normalizedCtx.activeSpaceId,
     };
 
-    // Call engine with timeout protection
-    const engineOutput = await Promise.race([
-      engine.classify(engineInput),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Engine timeout')), timeoutMs)),
-    ]);
+    // Question fast-path: if intent is a question with high confidence, generate contextual reply
+    if (detected.kind === 'question' && detected.confidence >= 0.9) {
+      try {
+        const messages: ChatMessage[] = [
+          { role: 'system', content: getPersonaPrompt() },
+          { role: 'user', content: userText },
+        ];
+        const response = await callChat(messages, {
+          model: 'gpt-4o-mini',
+          temperature: 0.7,
+          maxTokens: 200,
+          spaceId: (ctx as any).spaceId ?? ctx.activeSpaceId ?? null,
+          chatId: ctx.chatId ?? null,
+          lane: ctx.lane ?? 'system',
+        });
+
+        if (response.ok && (response.data as any)?.content) {
+          const content = String((response.data as any).content).trim();
+          if (content) {
+            return {
+              actions: [],
+              mode: 'reply',
+              replyText: content,
+              explanation: undefined,
+              suggestions: [],
+              confidence: detected.confidence,
+              meta: { intent: { kind: detected.kind, confidence: detected.confidence } },
+            };
+          }
+        }
+      } catch (e) {
+        // Fall through to normal classification
+      }
+    }
+
+    // If classification is disabled, skip engine and map from high-confidence intent
+    let engineOutput: any;
+    let engineFailed = false;
+    if (!classifyCatchAll) {
+      engineOutput = null;
+    } else {
+      // Call engine with timeout protection
+      try {
+        engineOutput = await Promise.race([
+          engine.classify(engineInput),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Engine timeout')), timeoutMs),
+          ),
+        ]);
+      } catch (_err) {
+        // Treat engine failure like disabled classification and attempt intent mapping fallback
+        engineOutput = null;
+        engineFailed = true;
+      }
+    }
 
     // Normalize engine output to canonical actions
-    const normalized = normalizeEngineOutput(engineOutput as any, normalizedCtx, engineInput.text);
+    let normalized = { actions: [] as CortexAction[], confidence: 0 } as {
+      actions: CortexAction[];
+      confidence: number;
+    };
+
+    if (engineOutput) {
+      normalized = normalizeEngineOutput(engineOutput as any, normalizedCtx, engineInput.text);
+    } else if (detected.confidence >= 0.9) {
+      // Map high-confidence intents to actions when engine is disabled/unavailable
+      const title = (detected as any).title || engineInput.text;
+      if (detected.kind === 'note') {
+        normalized = {
+          actions: [
+            {
+              type: 'create.note',
+              payload: { text: title, subtype: 'note', spaceId: normalizedCtx.activeSpaceId },
+            },
+          ],
+          confidence: detected.confidence,
+        };
+      } else if (detected.kind === 'todo') {
+        normalized = {
+          actions: [
+            {
+              type: 'create.todo',
+              payload: { title, spaceId: normalizedCtx.activeSpaceId },
+            },
+          ],
+          confidence: detected.confidence,
+        };
+      } else if (detected.kind === 'habit') {
+        normalized = {
+          actions: [
+            {
+              type: 'create.habit',
+              payload: { name: title, freq: 'daily', spaceId: normalizedCtx.activeSpaceId },
+            },
+          ],
+          confidence: detected.confidence,
+        };
+      } else {
+        normalized = { actions: [], confidence: 0 };
+      }
+    }
 
     // Determine mode based on confidence
     const confidence = normalized.confidence;
-    const mode = decideMode(confidence);
+    let mode = decideMode(confidence);
+    // Ensure safe UX: when no actions and low confidence, prefer 'ask' over 'keep'
+    if (mode === 'keep' && normalized.actions.length === 0) {
+      mode = 'ask';
+    }
 
     // Phase 10.4: Choose tone based on priority: userPrefsTone > spaceDefaults.tone > env.optimistic > 'calm'
     const tone: Tone =
@@ -211,19 +305,26 @@ export async function cortexDecide(
       (optimistic ? 'warm' : 'calm');
 
     // Generate explanation based on mode and actions
-    const explanation = generateExplanation(normalized.actions, mode, tone, normalizedCtx);
+    // Favor canonical exploration copy when engine failed/timed-out and no actions were produced
+    const explanation =
+      (engineFailed || !engineOutput) && normalized.actions.length === 0
+        ? "Let's explore that a bit more."
+        : generateExplanation(normalized.actions, mode, tone, normalizedCtx);
 
     // Generate suggestions for ASK/KEEP modes
     const suggestions =
       mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : undefined;
 
-    return {
+    const result: CortexResponse = {
       actions: normalized.actions,
       explanation,
       suggestions,
       confidence,
       mode,
+      meta: { intent: { kind: detected.kind, confidence: detected.confidence } },
     };
+
+    return result;
   } catch (error) {
     // Never throw - return safe fallback
     if (__DEV__) {

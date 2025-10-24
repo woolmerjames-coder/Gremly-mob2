@@ -274,7 +274,7 @@ async function tryDirectWorkerCall(
     return {
       actions: [],
       mode: 'ask',
-      replyText: "Let's explore that together. What should we focus on?",
+      replyText: "Let's explore that a bit more.",
       suggestions: [],
       explanation: undefined,
       confidence: 0,
@@ -559,6 +559,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     ...normalized.meta,
     detectedIntent: intent,
     intentConfidenceMin: minIntentConfidence,
+    // Expose concise intent shape for consumers that prefer a flat contract
+    intent: { kind: intent.kind, confidence: intent.confidence },
   };
 
   let intentHandled = false;
@@ -792,7 +794,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
   const wasGenericResponse = wasCatchAllResponse || wasExplorationResponse;
 
-  if (wasGenericResponse && hasNoUsefulContent) {
+  // If we got a generic response from cortexDecide and there's no reply text yet,
+  // proactively try to get a contextual reply from the worker even if meta is present.
+  if (wasGenericResponse && !hasReply) {
     if (__DEV__) {
       console.log('[CORTEX] Generic response detected, trying direct worker call');
     }
@@ -830,6 +834,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
             responseSource: (workerResponse as any)?.meta?.responseSource ?? 'worker',
             isWorkerFallback: true,
           },
+          // Preserve suppressed explanation in chat when replacing generic exploration
+          explanation: '',
         } as CortexResponse;
       }
     } catch (workerError) {
