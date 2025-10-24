@@ -142,7 +142,7 @@ describe('Cortex Golden Phrase Tests', () => {
   });
 
   describe('G4 - Heuristics win before LLM (timeout path)', () => {
-    it('should return keep mode with safe explanation when engine times out', async () => {
+    it('should return ask mode with safe exploration message when engine times out', async () => {
       // Mock engine that never resolves (simulates timeout)
       mockEngine.classify.mockImplementation(
         () =>
@@ -166,13 +166,13 @@ describe('Cortex Golden Phrase Tests', () => {
       expect(duration).toBeLessThan(3000);
 
       // Expect safe fallback
-      expect(result.mode).toBe('keep');
+      expect(result.mode).toBe('ask');
       expect(result.actions).toHaveLength(0);
       expect(result.confidence).toBe(0);
-      expect(result.explanation).toBe('Saving to Catch-All for now.');
+      expect(result.explanation).toBe("Let's explore that a bit more.");
     });
 
-    it('should respect CORTEX_TIMEOUT_MS environment variable', async () => {
+    it('should still return exploration message when custom timeout hits', async () => {
       // This test verifies timeout enforcement exists
       // Actual value tested in previous test
       mockEngine.classify.mockImplementation(
@@ -187,8 +187,8 @@ describe('Cortex Golden Phrase Tests', () => {
 
       const result = await cortexDecide({ text: 'timeout test' }, ctx);
 
-      expect(result.mode).toBe('keep');
-      expect(result.explanation).toBe('Saving to Catch-All for now.');
+      expect(result.mode).toBe('ask');
+      expect(result.explanation).toBe("Let's explore that a bit more.");
     });
   });
 
@@ -216,7 +216,7 @@ describe('Cortex Golden Phrase Tests', () => {
       expect(result.actions).toBeDefined();
     });
 
-    it('should handle engine throwing errors gracefully', async () => {
+    it('should handle engine throwing errors gracefully with exploration fallback', async () => {
       // Mock engine throws error
       mockEngine.classify.mockRejectedValue(new Error('Engine internal error'));
 
@@ -230,9 +230,9 @@ describe('Cortex Golden Phrase Tests', () => {
 
       // Should catch error and return safe fallback
       expect(result).toBeDefined();
-      expect(result.mode).toBe('keep');
+      expect(result.mode).toBe('ask');
       expect(result.actions).toHaveLength(0);
-      expect(result.explanation).toBe('Saving to Catch-All for now.');
+      expect(result.explanation).toBe("Let's explore that a bit more.");
     });
 
     it('should handle missing fields in engine output', async () => {

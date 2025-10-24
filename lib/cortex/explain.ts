@@ -124,7 +124,7 @@ export function explainAmbiguous(tone: Tone = 'calm', suggestions?: string[]): s
     return 'Unclear—see suggestions below:';
   }
 
-  return 'Saving to Catch-All for now.';
+  return "Let's explore that a bit more.";
 }
 
 /**

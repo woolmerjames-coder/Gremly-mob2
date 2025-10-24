@@ -132,7 +132,7 @@ export type DecideInput =
  * - Never throws - fail-safe design ensures UX degradation, not crashes
  *
  * **Failure Modes:**
- * - Engine timeout → keep mode with "Saving to Catch-All for now."
+ * - Engine timeout → keep mode with "Let's explore that a bit more."
  * - Engine error → keep mode with safe explanation
  * - Malformed output → keep mode with empty actions
  *
@@ -176,8 +176,8 @@ export async function cortexDecide(
     if (!classifyCatchAll) {
       return {
         actions: [],
-        mode: 'keep',
-        explanation: 'Saving to Catch-All for now.',
+        mode: 'ask',
+        explanation: "Let's explore that a bit more.",
         confidence: 0,
       };
     }
@@ -232,8 +232,8 @@ export async function cortexDecide(
 
     return {
       actions: [],
-      mode: 'keep',
-      explanation: 'Saving to Catch-All for now.',
+      mode: 'ask',
+      explanation: "Let's explore that a bit more.",
       confidence: 0,
     };
   }

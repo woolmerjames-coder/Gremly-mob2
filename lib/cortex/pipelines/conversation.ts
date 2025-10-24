@@ -545,6 +545,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
     }
+    if (typeof normalized.explanation === 'string') {
+      normalized.explanation = undefined;
+    }
     intentHandled = true;
     normalized.meta = {
       ...normalized.meta,

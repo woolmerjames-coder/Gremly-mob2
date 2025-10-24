@@ -14,8 +14,8 @@ jest.mock('../../lib/env', () => ({
 jest.mock('../../lib/cortex/cortexDecide', () => ({
   cortexDecide: jest.fn().mockResolvedValue({
     actions: [],
-    mode: 'keep',
-    explanation: 'Saving to Catch-All for now.',
+    mode: 'ask',
+    explanation: "Let's explore that a bit more.",
     confidence: 0,
   }),
 }));
