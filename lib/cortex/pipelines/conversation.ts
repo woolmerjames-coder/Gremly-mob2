@@ -44,6 +44,12 @@ function cleanCuriosityFragment(fragment: string): string {
     .trim();
 }
 
+/**
+ * @deprecated This function generates poorly formatted template questions.
+ * Disabled in favor of AI worker's natural language responses.
+ * DO NOT RE-ENABLE - causes issues like:
+ * "What's the first thing you'd try as you start exercising more but need to figure out a plan that works fo me"
+ */
 function buildCuriosityQuestion(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -360,7 +366,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   const userText = input.text?.trim() || '';
 
   const curiosityPhaseFlag = (process.env.EXPO_PUBLIC_CHAT_CURIOSITY_PHASE || '').toLowerCase();
-  const curiosityEnabled = curiosityPhaseFlag === 'on' || curiosityPhaseFlag === 'true';
+  // DISABLED - Template questions generate poor responses like truncated text
+  // AI worker responses are much more natural and contextual
+  const curiosityEnabled = false;
 
   const cooldownTurns = parseInt(
     process.env.INTENT_COOLDOWN_TURNS || process.env.EXPO_PUBLIC_INTENT_COOLDOWN_TURNS || '2',
