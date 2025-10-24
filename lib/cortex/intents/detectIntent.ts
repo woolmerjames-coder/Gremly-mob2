@@ -35,16 +35,16 @@ export function detectIntent(text: string): DetectedIntent {
 
   // Phase 10.11: Action-verb + object combos should produce actionable intents
   // Handles phrasing like "Can you create a habit?" by checking combos BEFORE generic question detection
-  // Verbs: create|log|set|add|make|track|start
+  // Verbs: create|log|set|set up|add|make|track|start
   // Objects: habit|reminder|todo|note
   // Also special patterns: "remind me", "set a reminder", "make a note"
   const verbObjectRe = new RegExp(
-    `\\b(?:create|log|set|add|make|track|start)\\b[\\s\n\r]*(?:a|the|my)?[\\s\n\r]*(habit|reminder|todo|to-?do|note)s?\\b`,
+    `\\b(?:create|log|set(?:\\s+up)?|add|make|track|start)\\b[\\s\n\r]*(?:a|the|my)?[\\s\n\r]*(habit|reminder|todo|to-?do|note)s?\\b`,
     'i',
   );
   const hasVerbObject = verbObjectRe.test(text);
   const hasRemindMe = /\bremind\s+me\b/i.test(text);
-  const hasSetReminder = /\bset\s+(?:a\s+)?reminder\b/i.test(text);
+  const hasSetReminder = /\bset(?:\s+up)?\s+(?:a\s+)?reminder\b/i.test(text);
   const hasMakeNote = /\bmake\s+(?:a\s+)?note\b/i.test(text);
 
   if (hasVerbObject || hasRemindMe || hasSetReminder || hasMakeNote) {
