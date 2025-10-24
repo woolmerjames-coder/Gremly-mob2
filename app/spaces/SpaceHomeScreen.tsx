@@ -284,7 +284,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     let cancelled = false;
 
     const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-    if (backend !== 'supabase') {
+    if (backend !== 'supabase' || !userId) {
       // For memory backend, rely on last_message_snippet fallback rendered inline
       return;
     }

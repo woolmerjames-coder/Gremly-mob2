@@ -155,7 +155,7 @@ export function ChatCard({
     <TouchableOpacity
       style={[styles.card, chat.pinned && styles.pinnedCard]}
       onPress={onPress}
-      onLongPress={showActionMenu}
+      onLongPress={confirmDelete}
       disabled={isProcessing}
       accessibilityLabel={`Chat: ${chat.title}`}
       accessibilityHint="Tap to open, long press for options"
