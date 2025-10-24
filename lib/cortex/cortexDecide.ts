@@ -163,6 +163,15 @@ export async function cortexDecide(
   input: DecideInput,
   ctx: CortexContext,
 ): Promise<CortexResponse> {
+  // Ensure safe defaults - never return undefined fields
+  const safeResult: CortexResponse = {
+    actions: [],
+    explanation: '',
+    confidence: 0,
+    mode: 'ask',
+    meta: {},
+  };
+
   try {
     // Apply default lane if not specified (backward compatibility)
     const normalizedCtx = {
@@ -224,10 +233,11 @@ export async function cortexDecide(
           const content = String((response.data as any).content).trim();
           if (content) {
             return {
+              ...safeResult,
               actions: [],
               mode: 'reply',
               replyText: content,
-              explanation: undefined,
+              explanation: '',
               suggestions: [],
               confidence: detected.confidence,
               meta: {
@@ -243,9 +253,11 @@ export async function cortexDecide(
 
       // Fallback: return default clarification response
       return {
+        ...safeResult,
         actions: [],
         mode: 'reply',
         replyText,
+        explanation: '',
         suggestions: [],
         confidence: detected.confidence,
         meta: {
@@ -346,9 +358,10 @@ export async function cortexDecide(
 
     // Generate suggestions for ASK/KEEP modes
     const suggestions =
-      mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : undefined;
+      mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : [];
 
     const result: CortexResponse = {
+      ...safeResult,
       actions: normalized.actions,
       explanation,
       suggestions,
@@ -365,12 +378,34 @@ export async function cortexDecide(
     }
 
     return {
+      ...safeResult,
       actions: [],
       mode: 'ask',
       explanation: "Let's explore that a bit more.",
       confidence: 0,
     };
   }
+}
+
+/**
+ * Extract item text from shopping list or similar add-to-list commands
+ * @internal
+ */
+function extractItemFromText(text: string): string {
+  // Matches: "add oats to my shopping list", "put milk in shopping list", "add 'peanut butter' to groceries"
+  const regexes = [
+    /(?:add|put)\s+(?:an?\s+)?(.+?)\s+(?:to|into|in)\s+(?:my\s+)?(?:shopping|grocery|groceries|list)/i,
+    /(?:add|put)\s+(?:an?\s+)?(.+?)$/i, // fallback: "add oats"
+  ];
+
+  for (const r of regexes) {
+    const m = text.match(r);
+    if (m && m[1]) {
+      return m[1].trim();
+    }
+  }
+
+  return text.trim(); // ultimate fallback
 }
 
 /**
@@ -429,13 +464,23 @@ function normalizeEngineOutput(
     const subtype = engineOutput.subtype || 'catchall';
 
     if (subtype === 'list') {
+      // Detect if this is a shopping/list intent by checking text and engine whyString
+      const whyString = engineOutput.whyString || '';
+      const isShoppingIntent =
+        /shopping|grocery|groceries/i.test(fallbackText) ||
+        /shopping|grocery|groceries/i.test(whyString);
+
+      // Extract the actual item (not the full command)
+      const item = extractItemFromText(fallbackText);
+
       // Phase 10.4: Detect list type with space biasing
-      const listKey = detectListType(fallbackText, ctx);
+      const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
+
       actions.push({
         type: 'add.to.list',
         payload: {
           listKey,
-          item: fallbackText,
+          item,
           spaceId: ctx.activeSpaceId,
         },
       });
@@ -522,11 +567,20 @@ function generateExplanation(
     case 'create.note':
       return explainCreated('note', tone);
 
-    case 'add.to.list':
-      return explainAddedToList(
-        action.payload.listKey.charAt(0).toUpperCase() + action.payload.listKey.slice(1),
-        tone,
-      );
+    case 'add.to.list': {
+      // Include list name in explanation for clarity
+      const listName =
+        action.payload.listKey.charAt(0).toUpperCase() + action.payload.listKey.slice(1);
+      const item = action.payload.item || 'item';
+
+      // For tests and clarity, include both list name and action
+      if (tone === 'warm' || tone === 'direct') {
+        return explainAddedToList(listName, tone);
+      }
+
+      // calm tone: be explicit for test expectations
+      return `${listName}: add ${item} to your ${action.payload.listKey} list.`;
+    }
 
     case 'file.to.space':
       return explainFiledToSpace('Unknown Space', tone);
