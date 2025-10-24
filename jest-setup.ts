@@ -30,13 +30,61 @@ jest.useRealTimers();
 // Mock Reanimated with minimal implementation
 jest.mock('react-native-reanimated', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { View } = require('react-native');
+  const RN = require('react-native');
+  const { View } = RN;
+
+  // Mock animation builder chain - must return self for method chaining
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createMockAnimation = (): any => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mock: any = {
+      duration: jest.fn(function () {
+        return mock;
+      }),
+      springify: jest.fn(function () {
+        return mock;
+      }),
+      mass: jest.fn(function () {
+        return mock;
+      }),
+      delay: jest.fn(function () {
+        return mock;
+      }),
+      withInitialValues: jest.fn(function () {
+        return mock;
+      }),
+    };
+    return mock;
+  };
 
   return {
     default: {
       View: View, // Use React Native's View for testing
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      createAnimatedComponent: (Component: any) => Component,
+      createAnimatedComponent: (Component: unknown) => Component,
+    },
+    // Animated.View should be a regular View in tests
+    Animated: {
+      View: View,
+      Text: RN.Text,
+      ScrollView: RN.ScrollView,
+    },
+    // Animation entering/exiting helpers
+    FadeIn: createMockAnimation(),
+    FadeOut: createMockAnimation(),
+    SlideInLeft: createMockAnimation(),
+    SlideInRight: createMockAnimation(),
+    SlideInUp: createMockAnimation(),
+    SlideInDown: createMockAnimation(),
+    SlideOutLeft: createMockAnimation(),
+    SlideOutRight: createMockAnimation(),
+    SlideOutUp: createMockAnimation(),
+    SlideOutDown: createMockAnimation(),
+    ZoomIn: createMockAnimation(),
+    ZoomOut: createMockAnimation(),
+    // Layout animation
+    Layout: {
+      springify: jest.fn(() => ({})),
+      duration: jest.fn(() => ({})),
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     useSharedValue: jest.fn(() => ({ value: 0 })),
