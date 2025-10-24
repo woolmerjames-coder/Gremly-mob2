@@ -498,6 +498,23 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 11.1: Curiosity-first routing with conservative intent gating
   const intent: DetectedIntent = detectIntent(input.text || '');
 
+  // Handle meta-comments immediately - don't process as actions
+  if (intent.suppressChips && intent.kind === 'question') {
+    return {
+      mode: 'ask' as const,
+      actions: [],
+      suggestions: [],
+      replyText:
+        "I understand you're confused. Let me clarify what I was trying to help with. What would you like to accomplish?",
+      explanation: undefined,
+      confidence: 0,
+      meta: {
+        kind: 'clarification',
+        isMetaComment: true,
+      },
+    };
+  }
+
   const minConfidenceEnv =
     process.env.INTENT_MIN_CONFIDENCE || process.env.EXPO_PUBLIC_INTENT_CONFIDENCE_MIN || '0.9';
   const minIntentConfidence = Number.isFinite(Number(minConfidenceEnv))
