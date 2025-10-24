@@ -14,6 +14,13 @@ export type IntentKind =
   | 'habit_reminder' // Phase 11.2: Reminder configuration in habit context
   | 'none';
 
+export interface AlternativeIntent {
+  kind: IntentKind;
+  confidence: number;
+  subtype?: string;
+  rationale: string; // Why this interpretation is valid
+}
+
 export interface DetectedIntent {
   kind: IntentKind;
   confidence: number; // 0–1
@@ -29,4 +36,7 @@ export interface DetectedIntent {
   options?: Array<'todo' | 'note'>; // candidate choices when ambiguous
   confidences?: { todo?: number; note?: number }; // raw confidences for candidates
   showDisambiguationToast?: boolean; // hint for UI to surface chooser
+  // Phase 11.5: Multi-intent detection
+  alternativeIntents?: AlternativeIntent[]; // Other valid interpretations
+  isMultiIntent?: boolean; // Whether multiple intents should be created
 }

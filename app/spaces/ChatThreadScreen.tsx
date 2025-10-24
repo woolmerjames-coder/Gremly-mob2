@@ -2,6 +2,7 @@
  * ChatThreadScreen - Phase 10.5 Space Chats v1
  * Phase 10.7D: Added debounce, spaceId validation, note prefill fixes
  * Phase 11.3: Inline action confirmations instead of overlay toast
+ * Phase 11.5: Multi-intent detection and disambiguation
  * Now integrated with message persistence + new UI components
  */
 
@@ -29,8 +30,9 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
-import type { DetectedIntent } from '../../lib/cortex/intents/types';
+import type { DetectedIntent, IntentKind } from '../../lib/cortex/intents/types';
 import { detectIntent } from '../../lib/cortex/intents/detectIntent';
+import { detectMultipleIntents } from '../../lib/cortex/intents/multiIntentDetector';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
@@ -40,6 +42,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
 import { InlineActionConfirmation } from '../../components/chat/InlineActionConfirmation';
+import { MultiIntentConfirmation } from '../../components/chat/MultiIntentConfirmation';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -396,6 +399,10 @@ export default function ChatThreadScreen({ route }: Props) {
         autoOrigin: 'space_chat' as const,
         aiPlaced: true,
         spaceId: spaceId ?? null,
+        confidence: intent.confidence,
+        // Phase 11.5: Include multi-intent data if present
+        alternativeIntents: intent.alternativeIntents || undefined,
+        isMultiIntent: intent.isMultiIntent || false,
         onConfirm: async () => {
           if (actionType) {
             recordToastOutcome(actionType, 'confirm');
@@ -423,6 +430,29 @@ export default function ChatThreadScreen({ route }: Props) {
             });
           }
         },
+        onCreateMultiple: intent.isMultiIntent
+          ? async () => {
+              // Create multiple items based on intent and alternatives
+              console.log('[MultiIntent] Creating multiple items:', {
+                primary: intent.kind,
+                alternatives: intent.alternativeIntents?.map((a) => a.kind),
+              });
+
+              // Create primary first
+              if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+                overlayController.openCreate({
+                  type: intent.kind as 'habit' | 'todo' | 'note',
+                  spaceId: spaceId ?? undefined,
+                  conversionMeta: {
+                    initialTitle: userText,
+                  },
+                });
+              }
+
+              // TODO: Queue additional creations
+              // For now, just open the first one - future enhancement would create all
+            }
+          : undefined,
         onCancel: () => {
           if (actionType) {
             recordToastOutcome(actionType, 'cancel');
@@ -1222,9 +1252,36 @@ export default function ChatThreadScreen({ route }: Props) {
                     (c) => c.messageId === message.id,
                   );
 
-                  // Phase 11.3: Render inline action confirmation
+                  // Phase 11.3/11.5: Render inline action confirmation
                   if (message.role === 'action-confirmation') {
                     const metadata = message.metadata_json || {};
+
+                    // Phase 11.5: Check if this is a multi-intent confirmation
+                    if (metadata.alternativeIntents && metadata.alternativeIntents.length > 0) {
+                      return (
+                        <MultiIntentConfirmation
+                          key={message.id}
+                          message={message}
+                          onSelectIntent={async (kind: IntentKind) => {
+                            // Open overlay for selected intent type
+                            if (kind === 'habit' || kind === 'todo' || kind === 'note') {
+                              overlayController.openCreate({
+                                type: kind as 'habit' | 'todo' | 'note',
+                                spaceId: spaceId ?? undefined,
+                                conversionMeta: {
+                                  initialTitle: message.content,
+                                },
+                              });
+                            }
+                          }}
+                          onCreateMultiple={metadata.onCreateMultiple}
+                          onCancel={metadata.onCancel}
+                          testID={`multi-intent-${message.id}`}
+                        />
+                      );
+                    }
+
+                    // Standard single-intent confirmation
                     return (
                       <InlineActionConfirmation
                         key={message.id}
