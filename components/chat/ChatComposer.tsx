@@ -34,6 +34,7 @@ export function ChatComposer({
   const [text, setText] = useState('');
   const [inputHeight, setInputHeight] = useState(44);
   const inputRef = useRef<TextInput>(null);
+  const shouldPreventNextChange = useRef(false);
 
   const handleSend = () => {
     if (!text.trim() || disabled) return;
@@ -43,16 +44,26 @@ export function ChatComposer({
     // Haptic feedback on send
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Clear input and reset height immediately
+    // Mark that we're sending to prevent newline
+    shouldPreventNextChange.current = true;
+
+    // Clear input and reset height IMMEDIATELY before any async operations
     setText('');
     setInputHeight(44);
 
-    // Send message
+    // Also clear the native input to ensure no residual text
+    if (inputRef.current) {
+      inputRef.current.clear();
+      inputRef.current.setNativeProps({ text: '' });
+    }
+
+    // Send message (async operation happens after clearing)
     onSend(messageToSend);
 
     // Keep keyboard open and focused
     setTimeout(() => {
       inputRef.current?.focus();
+      shouldPreventNextChange.current = false;
     }, 50);
   };
 
@@ -64,6 +75,14 @@ export function ChatComposer({
     setInputHeight(newHeight);
   };
 
+  const handleTextChange = (newText: string) => {
+    // If we just sent a message, ignore text changes briefly
+    if (shouldPreventNextChange.current) {
+      return;
+    }
+    setText(newText);
+  };
+
   const canSend = text.trim().length > 0 && !disabled;
 
   return (
@@ -73,25 +92,22 @@ export function ChatComposer({
           ref={inputRef}
           style={styles.textInput}
           value={text}
-          onChangeText={setText}
+          onChangeText={handleTextChange}
           placeholder={placeholder}
           placeholderTextColor="rgba(34, 34, 34, 0.4)"
           multiline
           numberOfLines={3}
           onContentSizeChange={handleContentSizeChange}
           scrollEnabled={true}
-          blurOnSubmit={false}
+          blurOnSubmit={true} // Prevent adding newline on submit
           returnKeyType="send"
           onSubmitEditing={(_e: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => {
-            // On iOS multiline, onSubmitEditing may not fire unless blurOnSubmit is true,
-            // so also handle Enter in onKeyPress below.
             if (text.trim()) {
               handleSend();
             }
           }}
           onKeyPress={({ nativeEvent }: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
             if (nativeEvent.key === 'Enter') {
-              // If Shift not held (best-effort; shiftKey may be undefined on some platforms), send.
               // @ts-expect-error - shiftKey may not exist on all platforms
               const shift = nativeEvent.shiftKey === true;
               if (!shift && text.trim()) {
@@ -153,8 +169,9 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.charcoalInk,
     maxHeight: 104, // 120 - 16 padding
     textAlignVertical: 'center',
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+    // Consistent padding on all platforms
+    paddingTop: 12,
+    paddingBottom: 12,
     paddingHorizontal: 0,
   },
   sendButton: {
