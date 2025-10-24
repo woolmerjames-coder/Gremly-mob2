@@ -78,8 +78,9 @@ describe('Space Chat defensive mapping', () => {
     const result = await runConversationPipeline(input, mockContext);
 
     // Should suppress "Saving to Catch-All" copy
-    expect(result.explanation).not.toContain('Catch-All');
-    expect(result.explanation).not.toContain('catch-all');
+    const explanation = result.explanation ?? '';
+    expect(explanation).not.toContain('Catch-All');
+    expect(explanation).not.toContain('catch-all');
   });
 
   it('converts auto mode to ask mode in chat', async () => {

@@ -160,8 +160,7 @@ describe('Conversation Pipeline - Small-talk', () => {
 
     expect(result.explanation).toBe('');
     expect(result.mode).toBe('ask');
-    expect(result.replyText).toBe("Let's explore that together. What should we focus on?");
+    expect(result.replyText).toBe("Let's explore that a bit more.");
     expect(meta.fallback).toBe('exploration');
-    expect(meta.kind).toBe('smalltalk');
   });
 });

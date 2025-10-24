@@ -227,15 +227,37 @@ async function tryDirectWorkerCall(
         });
       }
 
+      const replyText = data.content.trim();
+      const followUpsRaw =
+        data.followupQuestions ?? data.follow_up_questions ?? data.suggestions ?? [];
+      const suggestions = Array.isArray(followUpsRaw)
+        ? (followUpsRaw as any[])
+            .map((item) =>
+              typeof item === 'string'
+                ? item.trim()
+                : typeof item?.text === 'string'
+                  ? item.text.trim()
+                  : null,
+            )
+            .filter((item): item is string => !!item && item.length > 0)
+        : [];
+
+      const workerConfidence =
+        typeof data.confidence === 'number' && Number.isFinite(data.confidence)
+          ? Math.max(0, Math.min(1, data.confidence))
+          : 0.85;
+
       return {
         actions: [],
-        explanation: '', // Keep empty so we don't show legacy text
-        replyText: data.content, // Model's text becomes reply
-        suggestions: [], // None
+        explanation: undefined,
+        replyText,
+        suggestions,
         mode: 'reply',
-        confidence: 0.8, // Assume good confidence for direct responses
+        confidence: workerConfidence,
         meta: {
-          kind: 'smalltalk', // Mark as reply-type response
+          responseSource: 'worker',
+          workerModel: data.model ?? 'gpt-4o-mini',
+          workerUsage: data.usage,
         },
       };
     }
@@ -253,11 +275,12 @@ async function tryDirectWorkerCall(
       mode: 'ask',
       replyText: "Let's explore that together. What should we focus on?",
       suggestions: [],
-      explanation: '', // Empty explanation to avoid catch-all text
+      explanation: undefined,
       confidence: 0,
       meta: {
-        kind: 'smalltalk',
         fallback: 'exploration',
+        responseSource: 'worker',
+        workerFallback: true,
       },
     };
   }
@@ -552,6 +575,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentRoutedAs: 'question',
+      intentKind: intent.kind,
     };
   } else if (intent.isPlanning || intent.suppressChips) {
     normalized.mode = 'ask';
@@ -562,6 +586,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentRoutedAs: 'planning',
+      intentKind: intent.kind,
     };
   } else if (isCreationIntent && meetsConfidence && !intentCoolingDown) {
     const topicKey = intent.kind;
@@ -592,6 +617,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         shouldOpenOverlay: true,
         overlayKind: intent.kind,
         intentRoutedAs: 'command',
+        intentKind: intent.kind,
       };
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[CORTEX][policy] explicit_intent', {
@@ -619,6 +645,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       normalized.meta = {
         ...normalized.meta,
         intentRoutedAs: intent.kind,
+        intentKind: intent.kind,
       };
 
       if (curiosityEnabled && topicKey && !clarifiedTopics.has(topicKey)) {
@@ -633,6 +660,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.meta = {
       ...normalized.meta,
       intentCoolingDown: intent.kind,
+      intentKind: intent.kind,
     };
   } else if (
     (!normalized.replyText || !normalized.replyText.trim()) &&
@@ -716,11 +744,32 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   }
 
   // Step 5.1b: If cortexDecide returned generic response, try direct worker call
-  const hasNoUsefulContent =
-    (!normalized.actions || normalized.actions.length === 0) &&
-    (!normalized.suggestions || normalized.suggestions.length === 0) &&
-    (!normalized.explanation || !normalized.explanation.trim()) &&
-    (!normalized.replyText || !normalized.replyText.trim());
+  const hasActions = Array.isArray(normalized.actions) && normalized.actions.length > 0;
+  const hasSuggestions =
+    Array.isArray(normalized.suggestions) &&
+    normalized.suggestions.some((suggestion) =>
+      typeof suggestion === 'string' ? suggestion.trim().length > 0 : false,
+    );
+  const hasExplanation =
+    typeof normalized.explanation === 'string' && normalized.explanation.trim().length > 0;
+  const hasReply =
+    typeof normalized.replyText === 'string' && normalized.replyText.trim().length > 0;
+  const hasIntentMeta = Boolean(
+    normalized.meta?.detectedIntent ||
+      normalized.meta?.intentRoutedAs ||
+      normalized.meta?.intentKind ||
+      normalized.meta?.isAwaitingClarification,
+  );
+  const isReplyMode = normalized.mode === 'reply';
+
+  const hasNoUsefulContent = !(
+    hasActions ||
+    hasSuggestions ||
+    hasExplanation ||
+    hasReply ||
+    hasIntentMeta ||
+    isReplyMode
+  );
 
   if (__DEV__) {
     console.log('[CORTEX] Content check', {
@@ -753,11 +802,23 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
           console.log('[CORTEX] Using worker response instead of generic response');
         }
         // Preserve meta we have already computed (e.g., detectedIntent)
+        const mergedConfidence =
+          workerResponse.confidence && workerResponse.confidence > 0
+            ? workerResponse.confidence
+            : normalized.confidence && normalized.confidence > 0
+              ? normalized.confidence
+              : intent.confidence && intent.confidence > 0
+                ? intent.confidence
+                : 0.85;
+
         return {
           ...workerResponse,
+          confidence: mergedConfidence,
           meta: {
             ...(workerResponse as any)?.meta,
             ...normalized.meta,
+            responseSource: (workerResponse as any)?.meta?.responseSource ?? 'worker',
+            isWorkerFallback: true,
           },
         } as CortexResponse;
       }

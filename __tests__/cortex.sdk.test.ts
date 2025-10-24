@@ -123,7 +123,7 @@ describe('Cortex Explainability', () => {
   describe('explainAmbiguous', () => {
     it('should indicate uncertainty', () => {
       const result = explainAmbiguous('calm');
-      expect(result).toContain('Catch-All');
+      expect(result).toContain("Let's explore that a bit more.");
     });
 
     it('should mention suggestions when provided', () => {
@@ -207,10 +207,10 @@ describe('cortexDecide Integration', () => {
 
     const result = await cortexDecide({ text: 'test input' }, mockContext);
 
-    expect(result.mode).toBe('keep');
+    expect(result.mode).toBe('ask');
     expect(result.confidence).toBe(0);
     expect(result.actions).toHaveLength(0);
-    expect(result.explanation).toContain('Catch-All');
+    expect(result.explanation).toContain("Let's explore that a bit more.");
   });
 
   it('should handle engine timeout gracefully', async () => {
@@ -229,9 +229,9 @@ describe('cortexDecide Integration', () => {
 
     const result = await cortexDecide({ text: 'test input' }, mockContext);
 
-    expect(result.mode).toBe('keep');
+    expect(result.mode).toBe('ask');
     expect(result.actions).toHaveLength(0);
-    expect(result.explanation).toContain('Catch-All');
+    expect(result.explanation).toContain("Let's explore that a bit more.");
   });
 
   it('should normalize habit creation with daily frequency', async () => {
