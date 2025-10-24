@@ -241,22 +241,31 @@ describe('Hub Edit Item (Phase 7)', () => {
     });
     fireEvent.press(screen.getByTestId('tab-notes'));
 
+    // Wait for Notes tab to be active and filters to appear
+    await waitFor(() => {
+      expect(screen.getByTestId('notes-filter-all')).toBeTruthy();
+    });
+
     // Filter to Lists
     await waitFor(() => {
       expect(screen.getByTestId('notes-filter-list')).toBeTruthy();
     });
     fireEvent.press(screen.getByTestId('notes-filter-list'));
 
-    // Should show list note
+    // Wait for Lists filter to be selected and list note to appear
     await waitFor(() => {
+      const listFilter = screen.getByTestId('notes-filter-list');
+      expect(listFilter).toBeTruthy();
       expect(screen.getByTestId('item-note-edit-1')).toBeTruthy();
     });
 
     // Switch to Ideas filter
     fireEvent.press(screen.getByTestId('notes-filter-idea'));
 
-    // List note should not be visible
+    // Wait for Ideas filter to be selected and list note to disappear
     await waitFor(() => {
+      const ideaFilter = screen.getByTestId('notes-filter-idea');
+      expect(ideaFilter).toBeTruthy();
       expect(screen.queryByTestId('item-note-edit-1')).toBeNull();
     });
   });
