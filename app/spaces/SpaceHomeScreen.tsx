@@ -1,9 +1,9 @@
 /**
- * SpaceHomeScreen - Main space detail screen with chats, previews, and insights
- * Phase 8 Spaces v2 UI
+ * SpaceHomeScreen - Space v3 layout
+ * Header + context + summary + upcoming + progress + tabs (compact)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   ScrollView,
@@ -13,6 +13,7 @@ import {
   Alert,
   RefreshControl,
   TouchableOpacity,
+  useColorScheme,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -20,7 +21,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { Space, SpaceChat, AppRecord } from '../../lib/types';
-import { lightTokens } from '../../design/tokens';
+import { lightTokens, darkTokens } from '../../design/tokens';
 import {
   getSchedulePreview,
   listHabitsForSpace,
@@ -34,14 +35,18 @@ import { startOfWeek, formatISO } from 'date-fns';
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
 import { NewChatButton } from '../../components/spaces/NewChatButton';
 import { ChatCard } from '../../components/spaces/ChatCard';
-import { CollapsibleCard } from '../../components/spaces/CollapsibleCard';
 import { SchedulePreview } from '../../components/spaces/SchedulePreview';
-import { HabitsTodosPreview } from '../../components/spaces/HabitsTodosPreview';
-import { NotesResourcesPreview } from '../../components/spaces/NotesResourcesPreview';
-import { JournalPreview } from '../../components/spaces/JournalPreview';
 import { InsightsCard } from '../../components/spaces/InsightsCard';
 import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard';
 import { useAuth } from '../../providers/AuthProvider';
+import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
+import {
+  OverviewHeader,
+  LastTimeCard,
+  SpaceSummaryCard,
+  ProgressSnapshot,
+  TabbedSection,
+} from '../../components/spaces/v3';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -56,14 +61,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
   const repo = useRepo();
   const { userId } = useAuth();
+  const colorScheme = useColorScheme();
+  const T = colorScheme === 'dark' ? darkTokens : lightTokens;
 
   // State
-  const [space, setSpace] = useState<Space | null>(null);
-  const [chats, setChats] = useState<SpaceChat[]>([]);
-  const [items, setItems] = useState<AppRecord[]>([]);
+  const { space, chats, items, stats, upcoming, reload } = useSpaceAggregate(spaceId);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
+  const [activeTab, setActiveTab] = useState<'chats' | 'habits' | 'todos' | 'notes'>('chats');
 
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
@@ -72,7 +78,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     tokens: number;
   } | null>(null);
 
-  // Create SpaceChatRepo instance
+  // Create SpaceChatRepo instance (for actions)
   const spaceChatRepo = React.useMemo(() => {
     const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
     return backend === 'supabase'
@@ -80,76 +86,39 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       : new MemorySpaceChatRepo(userId || 'anonymous');
   }, [userId]);
 
-  // Load data
-  const loadData = useCallback(async () => {
-    try {
-      const [spaceData, chatsData, itemsData] = await Promise.all([
-        repo.getSpaceById(spaceId),
-        spaceChatRepo.list(spaceId),
-        repo.listBySpace(spaceId),
-      ]);
-
-      if (!spaceData) {
-        Alert.alert('Error', 'Space not found');
-        navigation.goBack();
-        return;
-      }
-
-      setSpace(spaceData);
-
-      // Phase 8 polish: Sort chats - pinned first, then by updated_at desc
-      const sortedChats = [...chatsData].sort((a, b) => {
-        // Pinned chats come first
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        // Then sort by updated_at descending
-        const dateA = new Date(a.updated_at).getTime();
-        const dateB = new Date(b.updated_at).getTime();
-        return dateB - dateA;
-      });
-
-      setChats(sortedChats);
-      setItems(itemsData);
-
-      // Phase 10.8: Load Space Insight summary
-      try {
-        const insight = await repo.getLatestSpaceInsight(spaceId);
-        setSpaceInsight(insight);
-      } catch (err) {
-        if (__DEV__) {
-          console.warn('[SpaceHome][10.8] Failed to load insight:', err);
-        }
-      }
-
-      // Load layout state
-      if (spaceData.layout_state_json) {
-        try {
-          setLayoutState(spaceData.layout_state_json as LayoutState);
-        } catch (e) {
-          console.warn('Failed to parse layout state', e);
-        }
-      }
-
-      // TODO: Fire analytics event
-      // analytics.track('space_home_opened', { spaceId });
-      console.log('[Analytics] space_home_opened', { spaceId }); // Phase 8 polish: Placeholder analytics
-    } catch (error) {
-      console.warn('Failed to load space data:', error);
-      Alert.alert('Error', 'Failed to load space data. Please check your connection.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [spaceId, repo, spaceChatRepo, navigation]);
-
+  // Initial visual loading phase mirrors hook's first fetch
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    // When hook provides any space value, consider initial load complete
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (space || space === null) setLoading(false);
+  }, [space]);
+
+  // Load insight and layout state when space changes
+  useEffect(() => {
+    if (space?.layout_state_json) {
+      try {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setLayoutState(space.layout_state_json as LayoutState);
+      } catch (e) {
+        console.warn('Failed to parse layout state', e);
+      }
+    }
+    repo
+      .getLatestSpaceInsight(spaceId)
+      .then(setSpaceInsight)
+      .catch(() => undefined);
+  }, [spaceId, space, repo]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData();
-  }, [loadData]);
+    Promise.all([
+      reload(),
+      repo
+        .getLatestSpaceInsight(spaceId)
+        .then(setSpaceInsight)
+        .catch(() => undefined),
+    ]).finally(() => setRefreshing(false));
+  }, [reload, repo, spaceId]);
 
   // Persist layout state
   const persistLayoutState = useCallback(
@@ -175,16 +144,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const newChat = await spaceChatRepo.create(spaceId, {
         title: 'New Chat',
       });
-      setChats((prev) => [newChat, ...prev]);
       // TODO: Fire analytics
       // analytics.track('space_chat_created', { spaceId, chatId: newChat.id });
       console.log('[Analytics] space_chat_created', { spaceId, chatId: newChat.id }); // Phase 8 polish
       navigation.navigate('ChatThread', { spaceId, chatId: newChat.id });
+      reload();
     } catch (error) {
       console.error('Failed to create chat:', error);
       Alert.alert('Error', 'Failed to create chat');
     }
-  }, [spaceId, spaceChatRepo, navigation]);
+  }, [spaceId, spaceChatRepo, navigation, reload]);
 
   const handleChatPress = useCallback(
     (chatId: string) => {
@@ -200,72 +169,52 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     async (chatId: string) => {
       try {
         await spaceChatRepo.update(chatId, { pinned: true });
-        // Re-sort after pinning
-        setChats((prev) => {
-          const updated = prev.map((c) => (c.id === chatId ? { ...c, pinned: true } : c));
-          return updated.sort((a, b) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            const dateA = new Date(a.updated_at).getTime();
-            const dateB = new Date(b.updated_at).getTime();
-            return dateB - dateA;
-          });
-        });
+        await reload();
       } catch (error) {
         console.warn('Failed to pin chat:', error);
         Alert.alert('Error', 'Failed to pin chat');
       }
     },
-    [spaceChatRepo],
+    [spaceChatRepo, reload],
   );
 
   const handleUnpinChat = useCallback(
     async (chatId: string) => {
       try {
         await spaceChatRepo.update(chatId, { pinned: false });
-        // Re-sort after unpinning
-        setChats((prev) => {
-          const updated = prev.map((c) => (c.id === chatId ? { ...c, pinned: false } : c));
-          return updated.sort((a, b) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            const dateA = new Date(a.updated_at).getTime();
-            const dateB = new Date(b.updated_at).getTime();
-            return dateB - dateA;
-          });
-        });
+        await reload();
       } catch (error) {
         console.warn('Failed to unpin chat:', error);
         Alert.alert('Error', 'Failed to unpin chat');
       }
     },
-    [spaceChatRepo],
+    [spaceChatRepo, reload],
   );
 
   const handleRenameChat = useCallback(
     async (chatId: string, newTitle: string) => {
       try {
         await spaceChatRepo.update(chatId, { title: newTitle });
-        setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c)));
+        await reload();
       } catch (error) {
         console.error('Failed to rename chat:', error);
         Alert.alert('Error', 'Failed to rename chat');
       }
     },
-    [spaceChatRepo],
+    [spaceChatRepo, reload],
   );
 
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
       try {
         await spaceChatRepo.delete(chatId);
-        setChats((prev) => prev.filter((c) => c.id !== chatId));
+        await reload();
       } catch (error) {
         console.error('Failed to archive chat:', error);
         Alert.alert('Error', 'Failed to archive chat');
       }
     },
-    [spaceChatRepo],
+    [spaceChatRepo, reload],
   );
 
   // Compute preview data using selectors
@@ -294,12 +243,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
       Alert.alert('Success', 'Summary saved as note');
       // Refresh to show new note
-      await loadData();
+      await reload();
     } catch (error) {
       console.error('Failed to save insight as note:', error);
       Alert.alert('Error', 'Failed to save note');
     }
-  }, [spaceInsight, spaceId, repo, loadData]);
+  }, [spaceInsight, spaceId, repo, reload]);
 
   const handleAddInsightTodos = useCallback(() => {
     if (!spaceInsight) return;
@@ -314,7 +263,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   if (loading && !space) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color={lightTokens.colors.primary} />
+        <ActivityIndicator size="large" color={T.colors.primary} />
       </View>
     );
   }
@@ -328,129 +277,170 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
-        {/* Banner */}
+        {/* Header & optional banner */}
+        <OverviewHeader
+          spaceName={space?.name ?? 'Space'}
+          onSearch={() => console.log('[Space] search tapped')}
+          onBack={() => navigation.goBack()}
+        />
         <SpaceBanner space={space} />
 
-        <View style={styles.content}>
-          {/* Phase 8 polish: Show archived banner if space is archived */}
-          {space.archived_at && (
-            <View style={styles.archivedBanner}>
-              <Text style={styles.archivedBannerText}>⚠️ This space is archived</Text>
-            </View>
-          )}
+        <View style={[styles.content, { padding: T.spacing[4] }]}>
+          {/* Last time */}
+          <LastTimeCard text={computeLastTimeText(items, chats)} />
 
-          {/* Chats Section - Feature flag gated */}
-          {process.env.EXPO_PUBLIC_FEATURE_CHAT === 'on' && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Chats</Text>
-
-              {chats.length === 0 ? (
-                <View style={styles.emptyChats}>
-                  <Text style={styles.emptyChatsTitle}>No chats yet</Text>
-                  <Text style={styles.emptyChatsText}>
-                    Start a conversation with Gremly to get insights, ask questions, or explore this
-                    space together!
-                  </Text>
-                  <NewChatButton onPress={handleNewChat} disabled={!!space.archived_at} />
-                </View>
-              ) : (
-                <>
-                  {chats.map((chat) => (
-                    <ChatCard
-                      key={chat.id}
-                      chat={chat}
-                      onPress={() => handleChatPress(chat.id)}
-                      onPin={handlePinChat}
-                      onUnpin={handleUnpinChat}
-                      onRename={handleRenameChat}
-                      onArchive={handleArchiveChat}
-                    />
-                  ))}
-                  {/* Plus FAB for new chat */}
-                  <View style={styles.fabContainer}>
-                    <TouchableOpacity
-                      style={styles.fab}
-                      onPress={handleNewChat}
-                      disabled={!!space.archived_at}
-                      accessibilityLabel="Start new chat"
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.fabIcon}>➕</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
-            </View>
-          )}
-
-          {/* Schedule Preview */}
-          <CollapsibleCard
-            title="This Week"
-            icon="📅"
-            initialCollapsed={layoutState.scheduleCollapsed}
-            onToggle={(collapsed) =>
-              persistLayoutState({ ...layoutState, scheduleCollapsed: collapsed })
-            }
-          >
-            <SchedulePreview items={scheduleItems} />
-          </CollapsibleCard>
-
-          {/* Habits & Todos */}
-          <CollapsibleCard
-            title="Habits & To-Dos"
-            icon="🎯"
-            initialCollapsed={layoutState.habitsTodosCollapsed}
-            onToggle={(collapsed) =>
-              persistLayoutState({ ...layoutState, habitsTodosCollapsed: collapsed })
-            }
-          >
-            <HabitsTodosPreview habits={habits} todos={todos} />
-          </CollapsibleCard>
-
-          {/* Notes & Resources */}
-          <CollapsibleCard
-            title="Notes & Resources"
-            icon="📚"
-            initialCollapsed={layoutState.notesResourcesCollapsed}
-            onToggle={(collapsed) =>
-              persistLayoutState({ ...layoutState, notesResourcesCollapsed: collapsed })
-            }
-          >
-            <NotesResourcesPreview notes={notes} />
-          </CollapsibleCard>
-
-          {/* Journal */}
-          <CollapsibleCard
-            title="Journal"
-            icon="📖"
-            initialCollapsed={layoutState.journalCollapsed}
-            onToggle={(collapsed) =>
-              persistLayoutState({ ...layoutState, journalCollapsed: collapsed })
-            }
-          >
-            <JournalPreview journals={journals} count={journalCount} />
-          </CollapsibleCard>
-
-          {/* AI Insights */}
-          <InsightsCard summary={space.summary_cached} lastUpdated={space.summary_updated_at} />
-
-          {/* Phase 10.8: What We Discussed Card */}
-          {spaceInsight && (
-            <WhatWeDiscussedCard
-              summary={spaceInsight.summary}
-              onSaveAsNote={handleSaveInsightAsNote}
-              onAddTodos={handleAddInsightTodos}
-              lastUpdated={spaceInsight.summary_at}
+          {/* Summary */}
+          <View style={{ marginTop: T.spacing[3] }}>
+            <SpaceSummaryCard
+              headline={`You’ve logged ${stats.chatsActive} chats and completed ${stats.habitsCompletedThisWeek}/${stats.habitsTotalThisWeek} habits this week.`}
+              secondary={`You’re ${Math.round(stats.completionPct * 100)}% to your weekly goal.`}
             />
+          </View>
+
+          {/* Optional: What we discussed */}
+          {spaceInsight && (
+            <View style={{ marginTop: T.spacing[3] }}>
+              <WhatWeDiscussedCard
+                summary={spaceInsight.summary}
+                onSaveAsNote={handleSaveInsightAsNote}
+                onAddTodos={handleAddInsightTodos}
+                lastUpdated={spaceInsight.summary_at}
+              />
+            </View>
           )}
+
+          {/* Upcoming schedule */}
+          <View style={{ marginTop: T.spacing[3] }}>
+            <SchedulePreview
+              items={scheduleItems}
+              onViewAll={() => console.log('view all schedule')}
+            />
+          </View>
+
+          {/* Progress snapshot */}
+          <View style={{ marginTop: T.spacing[3] }}>
+            <ProgressSnapshot
+              habitsCompleted={stats.habitsCompletedThisWeek}
+              habitsTotal={stats.habitsTotalThisWeek}
+              todosOpen={stats.todosOpen}
+              notesAddedThisWeek={stats.notesAddedThisWeek}
+              chatsActive={stats.chatsActive}
+            />
+          </View>
+
+          {/* Tabs */}
+          <View style={{ marginTop: T.spacing[4] }}>
+            <TabbedSection
+              tabs={[
+                { key: 'chats', label: 'Chats', count: chats.length },
+                { key: 'habits', label: 'Habits', count: habits.length },
+                { key: 'todos', label: 'To-Dos', count: todos.length },
+                { key: 'notes', label: 'Notes', count: notes.length },
+              ]}
+              activeKey={activeTab}
+              onChange={(k) => setActiveTab(k)}
+            />
+          </View>
+
+          {/* Tab content */}
+          <View style={{ marginTop: T.spacing[3], gap: T.spacing[2] }}>
+            {activeTab === 'chats' && (
+              <>
+                {chats.slice(0, 3).map((chat) => (
+                  <ChatCard
+                    key={chat.id}
+                    chat={chat}
+                    onPress={() => handleChatPress(chat.id)}
+                    onPin={handlePinChat}
+                    onUnpin={handleUnpinChat}
+                    onRename={handleRenameChat}
+                    onArchive={handleArchiveChat}
+                  />
+                ))}
+                {chats.length > 3 && (
+                  <TouchableOpacity
+                    onPress={() => console.log('view all chats')}
+                    accessibilityRole="button"
+                  >
+                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
+                      View all chats
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+            {activeTab === 'habits' && (
+              <>
+                {habits.slice(0, 3).map((h) => (
+                  <Text key={h.id} style={{ color: T.colors.text }}>
+                    {h.name}
+                  </Text>
+                ))}
+                {habits.length > 3 && (
+                  <TouchableOpacity onPress={() => console.log('view all habits')}>
+                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
+                      View all habits
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+            {activeTab === 'todos' && (
+              <>
+                {todos.slice(0, 3).map((t) => (
+                  <Text key={t.id} style={{ color: T.colors.text }}>
+                    {t.name}
+                  </Text>
+                ))}
+                {todos.length > 3 && (
+                  <TouchableOpacity onPress={() => console.log('view all todos')}>
+                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
+                      View all to-dos
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+            {activeTab === 'notes' && (
+              <>
+                {notes.slice(0, 3).map((n) => (
+                  <Text key={n.id} style={{ color: T.colors.text }}>
+                    {n.title}
+                  </Text>
+                ))}
+                {notes.length > 3 && (
+                  <TouchableOpacity onPress={() => console.log('view all notes')}>
+                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
+                      View all notes
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
         </View>
       </ScrollView>
+
+      {/* New chat floating button */}
+      {activeTab === 'chats' && (
+        <View style={styles.fabContainer}>
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: T.colors.primary }]}
+            onPress={handleNewChat}
+            disabled={!!space.archived_at}
+            accessibilityLabel="Start new chat"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.fabIcon, { color: T.colors.onPrimary }]}>➕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -464,7 +454,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: lightTokens.spacing[6], // Phase 8 polish: Extra bottom padding for safe area
+    paddingBottom: lightTokens.spacing[6], // will be overridden with token variable at runtime
   },
   content: {
     padding: lightTokens.spacing[4],
@@ -530,11 +520,11 @@ const styles = StyleSheet.create({
     marginBottom: lightTokens.spacing[3],
   },
   fabContainer: {
-    alignItems: 'flex-end',
-    marginTop: lightTokens.spacing[3],
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
   },
   fab: {
-    backgroundColor: lightTokens.colors.primary,
     borderRadius: 24, // 24pt radius as requested
     width: 56,
     height: 56,
@@ -547,3 +537,16 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.onPrimary,
   },
 });
+
+// Helpers
+function computeLastTimeText(items: AppRecord[], chats: SpaceChat[]): string {
+  const lastChatTs = chats.reduce((acc, c) => Math.max(acc, new Date(c.updated_at).getTime()), 0);
+  const lastItemTs = items.reduce((acc, it: any) => {
+    const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+    return Math.max(acc, ts);
+  }, 0);
+  const lastTs = Math.max(lastChatTs, lastItemTs);
+  if (!lastTs) return 'Last time you were here, we set things up. Ready to explore?';
+  const d = new Date(lastTs);
+  return `Last time you were here on ${d.toLocaleDateString()}.`;
+}
