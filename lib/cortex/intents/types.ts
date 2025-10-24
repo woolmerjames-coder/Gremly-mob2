@@ -23,6 +23,7 @@ export interface DetectedIntent {
   isPlanning?: boolean; // Phase 10.7D: user is in planning/exploring mode
   isCommand?: boolean; // Phase 10.10: explicit command verb detected (set/add/create/etc)
   isMetaComment?: boolean; // Explicit flag for meta-comments that should never create actions
+  requiresAction?: boolean; // Whether this intent should trigger action creation (vs just conversation)
   // Phase 10.11B: Ambiguity support for disambiguation toast
   options?: Array<'todo' | 'note'>; // candidate choices when ambiguous
   confidences?: { todo?: number; note?: number }; // raw confidences for candidates

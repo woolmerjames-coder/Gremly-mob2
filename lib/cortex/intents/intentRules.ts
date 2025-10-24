@@ -1,0 +1,538 @@
+/**
+ * Central intent classification rules
+ * Single source of truth for all intent decisions
+ *
+ * This file defines all intent classification rules in priority order.
+ * Rules are checked sequentially, and the first matching rule wins.
+ * This eliminates ambiguity and ensures consistent behavior across the app.
+ */
+
+import type { DetectedIntent, IntentKind } from './types';
+
+export interface IntentRule {
+  priority: number; // Lower number = higher priority
+  name: string; // Human-readable rule name for debugging
+  test: (text: string) => boolean;
+  classification: {
+    kind: IntentKind;
+    confidence: number;
+    flags: {
+      isMetaComment?: boolean;
+      suppressChips?: boolean;
+      isCommand?: boolean;
+      isPlanning?: boolean;
+      requiresAction?: boolean;
+    };
+  };
+}
+
+// Priority-ordered rules (check in order, first match wins)
+export const INTENT_RULES: IntentRule[] = [
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 0-9: SYSTEM META-COMMENTS (HIGHEST PRIORITY)
+  // These should NEVER create actions, always return clarification
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 0,
+    name: 'meta_comment_confusion',
+    test: (text) => {
+      const patterns = [
+        /why did you/i,
+        /what did you (just\s+)?do/i,
+        /doesn't make sense/i,
+        /does(n't|nt) make any sense/i,
+        /that'?s? (wrong|incorrect|not right)/i,
+        /what are you doing/i,
+        /why are you/i,
+        /can you explain/i,
+        /what's going on/i,
+        /\bhuh\??\b/i,
+        /i don't understand/i,
+        /that doesn't work/i,
+        /why would you/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'question',
+      confidence: 0.95,
+      flags: {
+        isMetaComment: true,
+        suppressChips: true,
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 10-19: EXPLICIT OPT-OUTS
+  // User explicitly doesn't want action
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 10,
+    name: 'opt_out_explicit',
+    test: (text) => {
+      const patterns = [
+        /\b(just thinking|just thought|just wondering)\b/i,
+        /\b(never mind|nevermind)\b/i,
+        /\b(forget it|ignore that)\b/i,
+        /\b(not really|not now|later maybe)\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'none',
+      confidence: 0,
+      flags: {
+        suppressChips: true,
+        requiresAction: false,
+      },
+    },
+  },
+
+  {
+    priority: 11,
+    name: 'opt_out_planning',
+    test: (text) => {
+      const patterns = [
+        /\b(thinking about|considering|exploring|weighing)\b/i,
+        /\b(might|maybe|perhaps|possibly)\b.*\b(could|should|would)\b/i,
+        /\b(brainstorming|ideating)\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'question',
+      confidence: 0.7,
+      flags: {
+        isPlanning: true,
+        suppressChips: true,
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 20-29: EXPLICIT COMMANDS
+  // User explicitly commands action with verb+object
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 20,
+    name: 'command_explicit_habit',
+    test: (text) => {
+      const commandVerbs = /^(create|add|set|start|begin|make|log|track|save|send)/i;
+      const habitWords =
+        /\b(habit|routine|practice|daily|weekly|every (day|week|morning|evening))\b/i;
+      return commandVerbs.test(text) && habitWords.test(text);
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 21,
+    name: 'command_explicit_todo',
+    test: (text) => {
+      const commandVerbs = /^(create|add|set|make|log|save|send)/i;
+      const todoWords = /\b(todo|task|reminder|to-do)\b/i;
+      return commandVerbs.test(text) && todoWords.test(text);
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 22,
+    name: 'command_explicit_note',
+    test: (text) => {
+      const commandVerbs = /^(create|add|make|write|log|save|send)/i;
+      const noteWords = /\b(note|journal|entry|memo)\b/i;
+      return commandVerbs.test(text) && noteWords.test(text);
+    },
+    classification: {
+      kind: 'note',
+      confidence: 0.95,
+      flags: {
+        isCommand: true,
+        requiresAction: true,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 30-39: GREETINGS (should be handled elsewhere)
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 30,
+    name: 'greeting',
+    test: (text) => {
+      const greetings = /^(hi|hey|hello|good morning|good afternoon|good evening|sup|yo)\b/i;
+      return greetings.test(text.trim()) && text.split(/\s+/).length <= 3;
+    },
+    classification: {
+      kind: 'none',
+      confidence: 0,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 40-49: HABIT PATTERNS
+  // Strong indicators of recurring behavior
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 40,
+    name: 'habit_frequency',
+    test: (text) => {
+      const frequencyPatterns = [
+        /\b(every|each) (day|morning|evening|night|week|month)\b/i,
+        /\b(daily|weekly|monthly|regularly|consistently)\b/i,
+        /\b(routine|practice|discipline|ritual)\b/i,
+        /\b\d+ times (a|per) (day|week|month)\b/i,
+      ];
+      return frequencyPatterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.9,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 41,
+    name: 'habit_start',
+    test: (text) => {
+      const startPatterns = [
+        /\b(start|begin|initiate|commence)\b.*\b(habit|routine|practice)\b/i,
+        /\b(want to|need to|should|must) (start|begin)\b/i,
+        /\bi want to make.*a habit/i,
+      ];
+      return startPatterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.88,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 50-59: TODO/REMINDER PATTERNS
+  // Time-bound or action-oriented tasks
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 50,
+    name: 'todo_reminder_explicit',
+    test: (text) => {
+      const patterns = [
+        /\b(remind me|set (a )?reminder)\b/i,
+        /\bdon't (let me )?forget (to)?\b/i,
+        /\bneed to remember (to)?\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.92,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 51,
+    name: 'todo_temporal',
+    test: (text) => {
+      const timePatterns = [
+        /\b(tomorrow|today|tonight|this (morning|afternoon|evening|week|weekend))\b/i,
+        /\b(next (week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i,
+        /\b(at|by|before|after) \d+/i,
+      ];
+      const actionVerbs = /\b(need to|should|must|have to|got to|gotta)\b/i;
+      return timePatterns.some((p) => p.test(text)) && actionVerbs.test(text);
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.88,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 52,
+    name: 'todo_imperative',
+    test: (text) => {
+      const imperativeVerbs = [
+        /^(call|email|text|message|contact)\b/i,
+        /^(buy|purchase|get|pick up|grab)\b/i,
+        /^(schedule|book|arrange|organize)\b/i,
+        /^(finish|complete|submit|send)\b/i,
+        /^(check|review|read|watch)\b/i,
+      ];
+      return imperativeVerbs.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'todo',
+      confidence: 0.85,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 60-69: NOTE PATTERNS
+  // Information capture, not action-oriented
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 60,
+    name: 'note_remember_prefix',
+    test: (text) => {
+      const patterns = [
+        /^(note to self|note:|remember to note|keep in mind|don't forget)\b/i,
+        /^(jot down|write down|make a note)\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'note',
+      confidence: 0.9,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 61,
+    name: 'note_remember',
+    test: (text) => {
+      const hasRemember = /\b(remember|note|keep track)\b/i.test(text);
+      const noTimeReference = !/\b(tomorrow|today|next|by|at|before)\b/i.test(text);
+      const noActionVerb = !/\b(need to|should|must|have to|call|buy|send)\b/i.test(text);
+      return hasRemember && noTimeReference && noActionVerb;
+    },
+    classification: {
+      kind: 'note',
+      confidence: 0.85,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 62,
+    name: 'note_factual',
+    test: (text) => {
+      const factPatterns = [
+        /^(the|a|an) .{3,} (is|are|was|were|has|have)\b/i,
+        /^(my|his|her|their|our) .{3,} (is|are|was|were|has|have)\b/i,
+        /^\w+ (said|mentioned|told me|explained)\b/i,
+      ];
+      const isShort = text.split(/\s+/).length >= 5;
+      return isShort && factPatterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'note',
+      confidence: 0.8,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 70-79: IDEA/REFLECTION
+  // Exploratory, future-thinking
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 70,
+    name: 'idea_what_if',
+    test: (text) => {
+      const patterns = [
+        /^what if\b/i,
+        /^(maybe|perhaps) (i|we) could\b/i,
+        /\bwouldn't it be (cool|great|nice|interesting) (if|to)\b/i,
+        /\b(imagine if|picture this|consider)\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'idea',
+      confidence: 0.85,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  {
+    priority: 71,
+    name: 'reflection',
+    test: (text) => {
+      const patterns = [
+        /\b(thinking about|reflecting on|pondering)\b/i,
+        /\b(i wonder|i'm curious|i've been thinking)\b/i,
+        /\b(learned|realized|noticed|observed) (that)?\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'reflection',
+      confidence: 0.8,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 80-89: QUESTIONS
+  // Seeking information or clarification
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 80,
+    name: 'question_interrogative',
+    test: (text) => {
+      const hasQuestionMark = text.includes('?');
+      const startsWithWh = /^(what|how|why|when|where|who|which)\b/i.test(text);
+      const startsWithAux = /^(can|could|would|should|will|do|does|did|is|are|was|were)\b/i.test(
+        text,
+      );
+      return hasQuestionMark || startsWithWh || startsWithAux;
+    },
+    classification: {
+      kind: 'question',
+      confidence: 0.92,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 90-98: AMBIGUOUS CASES
+  // Could be multiple things
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 90,
+    name: 'ambiguous_note_todo',
+    test: (text) => {
+      const hasRemember = /\b(remember|note)\b/i.test(text);
+      const hasAction = /\b(need to|should|must|call|buy|send|email)\b/i.test(text);
+      const hasTime = /\b(tomorrow|today|next|by|at)\b/i.test(text);
+      // Ambiguous if has remember + (action OR time), unclear which takes precedence
+      return hasRemember && (hasAction || hasTime);
+    },
+    classification: {
+      kind: 'ambiguous',
+      confidence: 0.5,
+      flags: {
+        requiresAction: false, // Let disambiguation UI handle it
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 999: DEFAULT (LOWEST PRIORITY)
+  // Catch-all for everything else
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 999,
+    name: 'default_none',
+    test: () => true,
+    classification: {
+      kind: 'none',
+      confidence: 0,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+];
+
+/**
+ * Classify intent based on centralized rules
+ * This is the single source of truth for intent classification
+ *
+ * @param text - User input text to classify
+ * @returns DetectedIntent with kind, confidence, and flags
+ */
+export function classifyIntent(text: string): DetectedIntent {
+  const trimmed = text.trim();
+  const normalized = trimmed.toLowerCase();
+
+  // Process rules in priority order
+  const sortedRules = [...INTENT_RULES].sort((a, b) => a.priority - b.priority);
+
+  for (const rule of sortedRules) {
+    if (rule.test(normalized)) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[intentRules] Matched rule:', {
+          name: rule.name,
+          priority: rule.priority,
+          kind: rule.classification.kind,
+          text: trimmed.substring(0, 50),
+        });
+      }
+
+      return {
+        kind: rule.classification.kind,
+        confidence: rule.classification.confidence,
+        title: trimmed,
+        ...rule.classification.flags,
+      };
+    }
+  }
+
+  // Should never reach here due to default rule, but safety fallback
+  if (__DEV__) {
+    console.warn('[intentRules] No rule matched (should not happen):', trimmed.substring(0, 50));
+  }
+
+  return {
+    kind: 'none',
+    confidence: 0,
+    title: trimmed,
+    requiresAction: false,
+  };
+}
+
+/**
+ * Get human-readable explanation of why a rule matched
+ * Useful for debugging and user transparency
+ */
+export function explainClassification(text: string): string {
+  const sortedRules = [...INTENT_RULES].sort((a, b) => a.priority - b.priority);
+
+  for (const rule of sortedRules) {
+    if (rule.test(text.toLowerCase())) {
+      return `Matched rule "${rule.name}" (priority ${rule.priority})`;
+    }
+  }
+
+  return 'No rule matched';
+}
