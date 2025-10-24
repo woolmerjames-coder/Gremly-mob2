@@ -1,6 +1,6 @@
 /**
- * MiniActionBar - Phase 10.5 Space Chats v1
- * Icon-only action buttons with 30% translucent blur effect
+ * MiniActionBar - Phase 10.5 Space Chats v1 + Harmonic Glass Design
+ * Icon-only action buttons with glass effect and hover states
  */
 
 import React from 'react';
@@ -45,7 +45,10 @@ export function MiniActionBar({
             disabled={!onPress}
             testID={testID ? `${testID}-${actionTestID}` : undefined}
           >
-            <Icon size={20} color={onPress ? lightTokens.colors.text : lightTokens.colors.subtle} />
+            <Icon
+              size={20}
+              color={onPress ? lightTokens.colors.periwinkleSmoke : 'rgba(34, 34, 34, 0.3)'}
+            />
           </TouchableOpacity>
         ))}
       </View>
@@ -58,11 +61,11 @@ const styles = StyleSheet.create({
     position: 'relative',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)', // 30% translucent white backdrop
+    backgroundColor: 'rgba(249, 246, 241, 0.6)', // Semi-translucent Linen Cream
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Additional subtle overlay
+    backgroundColor: 'rgba(249, 246, 241, 0.1)', // Subtle overlay
   },
   actionRow: {
     flexDirection: 'row',
@@ -76,6 +79,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)', // Subtle button background
+    backgroundColor: 'rgba(255, 255, 255, 0.3)', // Subtle glass button
   },
 });

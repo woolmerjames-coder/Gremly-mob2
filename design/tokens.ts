@@ -18,6 +18,16 @@ export const lightTokens = {
     danger: '#E25555',
     border: '#E7E2D9',
     card: '#FFFFFF',
+
+    // Harmonic Glass chat colors
+    linenCream: '#F9F6F1',
+    linenCreamLight: '#F3EFE8',
+    mossGreen: '#2E5540',
+    sageMist: '#BFD8C0',
+    sageMistTranslucent: 'rgba(191, 216, 192, 0.85)',
+    deepForest: '#1A3328',
+    charcoalInk: '#222222',
+    periwinkleSmoke: '#9CA6E0',
   },
   spacing: [0, 4, 8, 12, 16, 20, 24, 32] as const,
   radius: [0, 6, 12, 16, 20] as const,
@@ -70,6 +80,21 @@ export const lightTokens = {
       shadowOpacity: 0.1,
       shadowRadius: 8,
       elevation: 3,
+    },
+    // Chat bubble shadows
+    chatUser: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06,
+      shadowRadius: 3,
+      elevation: 1,
+    },
+    chatGremly: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.04,
+      shadowRadius: 2,
+      elevation: 1,
     },
   },
   blur: {

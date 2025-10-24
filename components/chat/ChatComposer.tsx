@@ -1,6 +1,6 @@
 /**
- * ChatComposer - Phase 10.5 Space Chats v1
- * Multiline text input with Send icon for composing chat messages
+ * ChatComposer - Phase 10.5 Space Chats v1 + Harmonic Glass Design
+ * Multiline text input with Send icon and glass effect styling
  */
 
 import React, { useState, useRef } from 'react';
@@ -14,6 +14,7 @@ import {
   TextInputSubmitEditingEventData,
   TextInputKeyPressEventData,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Send } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 
@@ -38,6 +39,9 @@ export function ChatComposer({
     if (!text.trim() || disabled) return;
 
     const messageToSend = text.trim();
+
+    // Haptic feedback on send
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     // Clear input and reset height immediately
     setText('');
@@ -71,7 +75,7 @@ export function ChatComposer({
           value={text}
           onChangeText={setText}
           placeholder={placeholder}
-          placeholderTextColor={lightTokens.colors.subtle}
+          placeholderTextColor="rgba(34, 34, 34, 0.4)"
           multiline
           numberOfLines={3}
           onContentSizeChange={handleContentSizeChange}
@@ -110,7 +114,7 @@ export function ChatComposer({
         >
           <Send
             size={20}
-            color={canSend ? lightTokens.colors.onPrimary : lightTokens.colors.subtle}
+            color={canSend ? lightTokens.colors.linenCream : 'rgba(34, 34, 34, 0.4)'}
           />
         </TouchableOpacity>
       </View>
@@ -122,24 +126,31 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: 'transparent',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.surface,
-    borderRadius: 24,
+    // Glass effect background
+    backgroundColor: 'rgba(249, 246, 241, 0.7)', // Semi-translucent Linen Cream
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: lightTokens.colors.border,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
     paddingHorizontal: 16,
     paddingVertical: 0,
     minHeight: 44,
+    // Subtle shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   textInput: {
     flex: 1,
     fontSize: 16,
     lineHeight: 22,
-    color: lightTokens.colors.text,
+    color: lightTokens.colors.charcoalInk,
     maxHeight: 104, // 120 - 16 padding
     textAlignVertical: 'center',
     paddingTop: Platform.OS === 'ios' ? 10 : 8,
@@ -156,7 +167,7 @@ const styles = StyleSheet.create({
     marginBottom: 2, // Slight visual alignment
   },
   sendButtonActive: {
-    backgroundColor: lightTokens.colors.primary,
+    backgroundColor: lightTokens.colors.mossGreen,
   },
   sendButtonDisabled: {
     backgroundColor: 'transparent',

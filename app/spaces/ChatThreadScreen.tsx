@@ -1377,15 +1377,20 @@ export default function ChatThreadScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: lightTokens.colors.linenCream,
   },
   flex: {
     flex: 1,
   },
+  // Atmosphere overlay for depth
+  atmosphereOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    pointerEvents: 'none',
+    opacity: 0.02,
+  },
   header: {
-    backgroundColor: lightTokens.colors.bg,
-    borderBottomWidth: 1,
-    borderBottomColor: lightTokens.colors.border,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
     paddingHorizontal: lightTokens.spacing[4],
     paddingVertical: lightTokens.spacing[3],
   },
@@ -1397,13 +1402,15 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: lightTokens.typography.size.lg,
     fontWeight: '600',
-    color: lightTokens.colors.text,
+    color: lightTokens.colors.charcoalInk,
   },
   messages: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   messagesContent: {
     padding: lightTokens.spacing[4],
+    paddingBottom: lightTokens.spacing[6],
   },
   typingContainer: {
     alignSelf: 'flex-start',
@@ -1421,7 +1428,7 @@ const styles = StyleSheet.create({
   placeholderTitle: {
     fontSize: lightTokens.typography.size.xl,
     fontWeight: '600',
-    color: lightTokens.colors.text,
+    color: lightTokens.colors.charcoalInk,
     marginBottom: lightTokens.spacing[2],
   },
   placeholderText: {
@@ -1457,6 +1464,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: lightTokens.colors.linenCream,
   },
 });
