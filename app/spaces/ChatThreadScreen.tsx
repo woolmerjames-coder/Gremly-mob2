@@ -38,6 +38,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
 import { PersistentActionBar } from '../../components/chat/PersistentActionBar';
+import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
 // Phase 10.6: New mascot system
 import { MascotProvider } from '../features/mascot/useMascot';
@@ -983,7 +984,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 {/* Typing indicator - Phase 10.6 */}
                 {mascot.state === 'thinking' && (
                   <View style={styles.typingContainer}>
-                    {/* TODO: Add TypingDots when ready */}
+                    <ChatThinkingIndicator visible variant="both" />
                   </View>
                 )}
               </>
