@@ -38,7 +38,7 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { MiniActionBar } from '../../components/chat/MiniActionBar';
-import { PersistentActionBar } from '../../components/chat/PersistentActionBar';
+// Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
 // Phase 10.6: New mascot system
@@ -216,6 +216,9 @@ function buildActionToastPayload(
 }
 
 export default function ChatThreadScreen({ route }: Props) {
+  // Scroll ref for auto-scrolling to the latest message
+  const scrollViewRef = useRef<import('react-native').ScrollView | null>(null);
+
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
   const { userId } = auth;
@@ -543,6 +546,11 @@ export default function ChatThreadScreen({ route }: Props) {
     sendUserMessage,
     appendAssistantMessage,
   } = useChatMessages(chatId, spaceId);
+
+  // Auto-scroll when messages change (e.g., new assistant/user messages)
+  useEffect(() => {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [messages]);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
   const _spaceChatRepo = React.useMemo(() => {
@@ -1230,7 +1238,12 @@ export default function ChatThreadScreen({ route }: Props) {
           )}
 
           {/* Messages ScrollView */}
-          <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.messages}
+            contentContainerStyle={styles.messagesContent}
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+          >
             {messages.length === 0 ? (
               <View style={styles.placeholder}>
                 <Text style={styles.placeholderIcon}>💬</Text>
@@ -1294,11 +1307,7 @@ export default function ChatThreadScreen({ route }: Props) {
             )}
           </ScrollView>
 
-          {/* Persistent Action Bar (always visible, above input) */}
-          <PersistentActionBar
-            onPress={handlePersistentActionPress}
-            testID="persistent-action-bar"
-          />
+          {/* Persistent Action Bar removed */}
 
           {/* Chat Composer */}
           <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />

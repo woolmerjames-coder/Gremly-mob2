@@ -712,7 +712,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         intentRoutedAs:
           normalized.meta?.intentRoutedAs && normalized.meta.intentRoutedAs !== 'planning'
             ? normalized.meta.intentRoutedAs
-            : 'exploration',
+            : isCreationIntent
+              ? intent.kind
+              : 'exploration',
         fallback: 'exploration',
       };
     }
@@ -896,7 +898,8 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     normalized.mode = 'ask';
     normalized.meta = {
       ...normalized.meta,
-      intentRoutedAs: normalized.meta?.intentRoutedAs ?? 'exploration',
+      intentRoutedAs:
+        normalized.meta?.intentRoutedAs ?? (isCreationIntent ? intent.kind : 'exploration'),
       fallback: 'exploration',
     };
   }
@@ -954,7 +957,9 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         intentRoutedAs:
           normalized.meta?.intentRoutedAs && normalized.meta.intentRoutedAs !== 'planning'
             ? normalized.meta.intentRoutedAs
-            : 'exploration',
+            : isCreationIntent
+              ? intent.kind
+              : 'exploration',
         fallback: 'exploration',
       },
     };
@@ -973,6 +978,15 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   if (ctx?.lane === 'space_chat') {
     // Defensive: never perform actions in chat
     normalized.actions = [];
+  }
+
+  // Final guard: if we detected a creation intent but never set routing meta, record it.
+  if (!normalized.meta?.intentRoutedAs && isCreationIntent) {
+    normalized.meta = {
+      ...normalized.meta,
+      intentRoutedAs: intent.kind,
+      intentKind: intent.kind,
+    };
   }
 
   return normalized;

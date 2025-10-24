@@ -28,6 +28,57 @@ export function detectIntent(text: string): DetectedIntent {
   const t = text.toLowerCase();
   const trimmed = text.trim();
 
+  // CRITICAL: Detect meta-comments and complaints (should NOT create actions)
+  const metaCommentPatterns = [
+    /why did you/i,
+    /what did you (just\s+)?do/i,
+    /doesn't make sense/i,
+    /does(n't|nt) make any sense/i,
+    /that'?s? (wrong|incorrect|not right)/i,
+    /what are you doing/i,
+    /why are you/i,
+    /can you explain/i,
+    /what's going on/i,
+    /\bhuh\??\b/i,
+    /i don't understand/i,
+    /that doesn't work/i,
+    /why would you/i,
+  ];
+
+  if (metaCommentPatterns.some((pattern) => pattern.test(text))) {
+    return {
+      kind: 'question',
+      confidence: 0.95,
+      suppressChips: true,
+      isPlanning: false,
+      isCommand: false,
+    };
+  }
+
+  // CRITICAL: Detect explicit opt-out phrases (user does NOT want action)
+  const optOutPatterns = [
+    /\b(just thinking|just thought|just wondering)\b/i,
+    /\b(never mind|nevermind)\b/i,
+    /\bdon'?t save\b/i,
+    /\bno need\b/i,
+    /\b(just chatting|just talking)\b/i,
+    /\b(forget it|forget that)\b/i,
+    /\b(cancel that|cancel it)\b/i,
+    /\bi'?m good\b/i,
+    /\bnot sure\b/i,
+    /\bmaybe\b.*\?$/i, // "maybe?" at end suggests uncertainty
+  ];
+
+  if (optOutPatterns.some((pattern) => pattern.test(text))) {
+    return {
+      kind: 'none',
+      confidence: 0,
+      suppressChips: true,
+      isPlanning: false,
+      isCommand: false,
+    };
+  }
+
   // Phase 10.10: Detect explicit command verbs
   // Note: "remember" removed - it's a note hint, not an explicit command
   const commandPattern = /^(set|add|create|save|send|log)\b/i;
@@ -157,10 +208,15 @@ export function detectIntent(text: string): DetectedIntent {
 
   // 4. To-do patterns: action verbs, deadlines, reminder phrases
   // Raised threshold to 0.92 for highest confidence
+  // CRITICAL: Exclude meta-questions about the system AND common non-action phrases
   const todoHardMatch =
     /(\bremind\s+me\b|\bset(?:\s+up)?\s+(?:a\s+)?reminder\b|\b(todo|buy|finish|email|send|book|call|schedule|check|complete|submit|review|sign|pay|order|pick up|drop off|get|make|do)\b)/i.test(
       t,
-    ) && !/\b(how do|how to|how can)\b/i.test(t);
+    ) &&
+    !/\b(how do|how to|how can|why did|why are|what did|what are)\b/i.test(t) &&
+    !/\byou\b.*\b(make|create|do|doing)\b/i.test(t) && // "Why did you make..." is NOT a todo
+    !/\bmake\s+sense\b/i.test(t) && // "make sense" is not a todo action
+    !/\bmake\s+(a|any)\s+(difference|point)\b/i.test(t); // "make a difference/point" are not todo actions
 
   let todoCandidate = 0;
   if (todoHardMatch) {
