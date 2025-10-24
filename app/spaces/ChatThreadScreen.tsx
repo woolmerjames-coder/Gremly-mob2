@@ -29,6 +29,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import type { DetectedIntent } from '../../lib/cortex/intents/types';
+import { detectIntent } from '../../lib/cortex/intents/detectIntent';
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
@@ -237,19 +238,43 @@ export default function ChatThreadScreen({ route }: Props) {
   } = useActionToast({ bottomOffset: actionToastOffset });
 
   const maybeTriggerActionToast = useCallback(
-    (intent: DetectedIntent | null, meta: Record<string, any> | undefined, userText: string) => {
+    (intent: DetectedIntent | null, _meta: Record<string, any> | undefined, userText: string) => {
+      // Show confirmation toast for high-confidence actionable intents
       if (!intent) return false;
-      const confidenceOk = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
-      const explicitCommand =
-        intent.isCommand === true || meta?.intentRoutedAs === 'command' || meta?.shouldOpenOverlay;
 
-      if (!confidenceOk || !explicitCommand) {
+      const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
+      const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
+      const isActionable = actionableKinds.has(intent.kind);
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatToast][gate] intent', {
+          kind: intent.kind,
+          confidence: intent.confidence,
+          meetsConfidence,
+          isActionable,
+          spaceId,
+          userTextPreview: userText.substring(0, 80),
+        });
+      }
+
+      if (!meetsConfidence || !isActionable) {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[ChatToast][gate] skip_toast', {
+            reason: !meetsConfidence ? 'low_confidence' : 'non_actionable_intent',
+          });
+        }
         return false;
       }
 
       const payload = buildActionToastPayload(intent, userText, spaceId ?? null);
-      if (!payload) {
-        return false;
+      if (!payload) return false;
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatToast] showing_toast', {
+          type: payload.type,
+          content: payload.content,
+          meta: payload.metadata,
+        });
       }
 
       hideActionToast();
@@ -427,6 +452,31 @@ export default function ChatThreadScreen({ route }: Props) {
             response.meta as Record<string, any> | undefined,
             trimmedText,
           );
+
+          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[ChatToast] toast_decision', {
+              toastShown,
+              detectedIntent: responseDetectedIntent
+                ? {
+                    kind: responseDetectedIntent.kind,
+                    confidence: responseDetectedIntent.confidence,
+                  }
+                : null,
+              responseMeta: response.meta,
+            });
+          }
+
+          // Simple, direct fallback: if no toast shown yet, run local detection and gate purely by confidence/kind
+          if (!toastShown) {
+            const localIntent = detectIntent(trimmedText);
+            const fallbackShown = maybeTriggerActionToast(localIntent, undefined, trimmedText);
+            if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+              console.log('[ChatToast] fallback_local_detection', {
+                fallbackShown,
+                localIntent: { kind: localIntent.kind, confidence: localIntent.confidence },
+              });
+            }
+          }
 
           // Log event (non-blocking)
           repo

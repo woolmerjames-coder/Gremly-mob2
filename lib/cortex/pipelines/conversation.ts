@@ -601,6 +601,13 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       !!intent.curiositySuggestion;
 
     if (needsClarification) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][policy] awaiting_clarification', {
+          kind: intent.kind,
+          confidence: intent.confidence,
+          curiositySuggestion: intent.curiositySuggestion,
+        });
+      }
       normalized.mode = 'ask';
       normalized.replyText =
         intent.curiositySuggestion ||
@@ -613,6 +620,12 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       awaitingClarification = true;
       intentHandled = true;
     } else if (intent.isCommand) {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][policy] explicit_intent -> open_overlay', {
+          kind: intent.kind,
+          confidence: intent.confidence,
+        });
+      }
       normalized.mode = 'ask';
       normalized.replyText = normalized.replyText?.trim() ? normalized.replyText : 'Opening...';
       normalized.meta = {
@@ -623,14 +636,17 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         intentKind: intent.kind,
       };
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[CORTEX][policy] explicit_intent', {
-          isCommand: true,
-          kind: intent.kind,
-          action: 'open_overlay',
-        });
+        console.log('[CORTEX][policy] overlay_meta_set', normalized.meta);
       }
       intentHandled = true;
     } else {
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[CORTEX][policy] implicit_creation_intent', {
+          kind: intent.kind,
+          confidence: intent.confidence,
+          replyTextProvided: !!normalized.replyText?.trim(),
+        });
+      }
       const fallbackReplies: Record<string, string> = {
         habit: 'That sounds like a habit worth reinforcing.',
         todo: 'Got it, noted.',
@@ -716,6 +732,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       intentHandled,
       awaitingClarification,
       nextCooldowns,
+      meta: normalized.meta,
     });
   }
 

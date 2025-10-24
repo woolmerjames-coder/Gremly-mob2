@@ -88,6 +88,9 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start(() => {
+      if (__DEV__) {
+        console.log('[ActionToast] hidden');
+      }
       setPayload(null);
       setIsSaving(false);
     });
@@ -102,6 +105,13 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
 
   const showToast = useCallback(
     (input: ActionToastInput) => {
+      if (__DEV__) {
+        console.log('[ActionToast] show', {
+          type: input.type,
+          content: input.content,
+          metadata: input.metadata,
+        });
+      }
       setPayload(input);
       setIsVisible(true);
       Animated.timing(opacityRef.current, {
@@ -157,6 +167,9 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
   const performCreate = useCallback(
     async (input: ActionToastInput) => {
       const { type, content, metadata } = input;
+      if (__DEV__) {
+        console.log('[ActionToast] performCreate:start', { type, content, metadata });
+      }
       const createPayload: CreateRecordInput = {
         type,
         ai_placed: metadata?.aiPlaced ?? false,
@@ -184,6 +197,9 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       }
 
       const record = await repo.create(createPayload);
+      if (__DEV__) {
+        console.log('[ActionToast] performCreate:success', { id: record.id, type });
+      }
       metadata?.onCompleted?.(record.id);
     },
     [repo],
@@ -198,6 +214,13 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
     setIsSaving(true);
 
     try {
+      if (__DEV__) {
+        console.log('[ActionToast] confirm_clicked', {
+          hasCustomConfirm: !!payload.metadata?.onConfirm,
+          type: payload.type,
+          content: payload.content,
+        });
+      }
       if (payload.metadata?.onConfirm) {
         await payload.metadata.onConfirm();
         payload.metadata.onCompleted?.();
@@ -222,10 +245,16 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
     hideToast();
 
     if (payload.metadata?.onEdit) {
+      if (__DEV__) {
+        console.log('[ActionToast] edit_clicked:custom');
+      }
       payload.metadata.onEdit();
       return;
     }
 
+    if (__DEV__) {
+      console.log('[ActionToast] edit_clicked:open_overlay');
+    }
     const initialTitle = payload.metadata?.conversionMeta?.initialTitle ?? payload.content;
     const initialNote = payload.metadata?.conversionMeta?.initialNote ?? payload.metadata?.noteBody;
 
@@ -243,6 +272,9 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
     if (!payload) return;
 
     clearExistingTimer();
+    if (__DEV__) {
+      console.log('[ActionToast] cancel_clicked');
+    }
     payload.metadata?.onCancel?.();
     hideToast();
   }, [clearExistingTimer, hideToast, payload]);
