@@ -208,4 +208,28 @@ describe('Intent Classification Rules', () => {
       expect(intent.kind).not.toBe('ambiguous');
     });
   });
+
+  describe('Ambiguous cases trigger disambiguation', () => {
+    test('Uncertain pondering should be ambiguous', () => {
+      const cases = [
+        'Thinking about whether I should change careers',
+        'Not sure about what to do next',
+        'Contemplating my options',
+        'Trying to figure out my next steps',
+      ];
+
+      cases.forEach((text) => {
+        const intent = classifyIntent(text);
+        expect(intent.kind).toBe('ambiguous');
+        expect(intent.showDisambiguationToast).toBe(true);
+        expect(intent.requiresAction).toBe(false);
+      });
+    });
+
+    test('Clear reflections should not be ambiguous', () => {
+      const intent = classifyIntent("I've been thinking about my career goals");
+      expect(intent.kind).toBe('reflection');
+      expect(intent.showDisambiguationToast).toBeFalsy();
+    });
+  });
 });
