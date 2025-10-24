@@ -20,8 +20,23 @@ jest.mock('../../app/lib/cortex/smalltalk', () => ({
   isAcknowledgment: jest.fn(() => false),
 }));
 
+jest.mock('../../lib/cortex/intents/detectIntent', () => ({
+  detectIntent: jest.fn(),
+}));
+
+jest.mock('../../lib/cortex/intents/multiIntentDetector', () => ({
+  detectMultipleIntents: jest.fn((text: string) => ({
+    kind: 'note',
+    confidence: 0.95,
+    isMultiIntent: false,
+    alternativeIntents: [],
+  })),
+}));
+
 import { cortexDecide } from '../../lib/cortex/cortexDecide';
+import { detectIntent } from '../../lib/cortex/intents/detectIntent';
 const mockedCortexDecide = cortexDecide as jest.MockedFunction<typeof cortexDecide>;
+const mockedDetectIntent = detectIntent as jest.MockedFunction<typeof detectIntent>;
 
 describe('Answer-First Policy', () => {
   const mockContext: CortexContext = {
@@ -41,10 +56,24 @@ describe('Answer-First Policy', () => {
       actions: [],
       confidence: 0.5,
     });
+    // Default mock for detectIntent - will be overridden per test
+    mockedDetectIntent.mockReturnValue({
+      kind: 'note',
+      confidence: 0.95,
+      isMetaComment: false,
+      suppressChips: false,
+    });
   });
 
   describe('Questions', () => {
     it('returns reply only, no chips for questions', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'question',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'What is the best time to exercise?',
       };
@@ -63,6 +92,13 @@ describe('Answer-First Policy', () => {
     });
 
     it('handles question marks', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'question',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'Should I start running?',
       };
@@ -76,6 +112,13 @@ describe('Answer-First Policy', () => {
 
   describe('Non-Questions - First Time', () => {
     it('returns reply only (no chip) for first-time habit intent', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'habit',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'I want to run every morning',
       };
@@ -99,6 +142,13 @@ describe('Answer-First Policy', () => {
     });
 
     it('returns reply only for first-time note intent', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'note',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'Remember to cancel gym',
       };
@@ -119,6 +169,13 @@ describe('Answer-First Policy', () => {
 
   describe('Repeated Intent - Conservative Routing', () => {
     it('responds without chips for reiterated habit intent', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'habit',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'I want to meditate daily',
       };
@@ -176,6 +233,13 @@ describe('Answer-First Policy', () => {
 
   describe('Cooldown', () => {
     it('respects chip cooldown (2 turns)', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'habit',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'Run every day',
       };
@@ -196,6 +260,13 @@ describe('Answer-First Policy', () => {
     });
 
     it('allows routing after cooldown period', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'habit',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'Meditate daily',
       };
@@ -218,6 +289,13 @@ describe('Answer-First Policy', () => {
 
   describe('Confidence Threshold', () => {
     it('skips chips even with high confidence', async () => {
+      mockedDetectIntent.mockReturnValueOnce({
+        kind: 'note',
+        confidence: 0.95,
+        isMetaComment: false,
+        suppressChips: false,
+      });
+
       const input: DecideInput = {
         text: 'Remember something',
       };
