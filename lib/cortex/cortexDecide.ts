@@ -188,8 +188,15 @@ export async function cortexDecide(
       spaceId: normalizedCtx.activeSpaceId,
     };
 
-    // Question fast-path: if intent is a question with high confidence, generate contextual reply
-    if (detected.kind === 'question' && detected.confidence >= 0.9) {
+    // Check for meta-comments FIRST - these should NEVER create actions
+    if (detected.suppressChips || (detected.kind === 'question' && detected.confidence >= 0.9)) {
+      // This is a question or meta-comment, not an action request
+      const isMetaComment = detected.suppressChips;
+      const replyText = isMetaComment
+        ? "I see you're asking for clarification. What would you like help with?"
+        : 'Let me help you with that question.';
+
+      // For questions/meta-comments, try to generate contextual reply
       try {
         const messages: ChatMessage[] = [
           { role: 'system', content: getPersonaPrompt() },
@@ -214,13 +221,29 @@ export async function cortexDecide(
               explanation: undefined,
               suggestions: [],
               confidence: detected.confidence,
-              meta: { intent: { kind: detected.kind, confidence: detected.confidence } },
+              meta: {
+                intent: { kind: detected.kind, confidence: detected.confidence },
+                isMetaComment,
+              },
             };
           }
         }
       } catch (e) {
-        // Fall through to normal classification
+        // Fall back to default reply text
       }
+
+      // Fallback: return default clarification response
+      return {
+        actions: [],
+        mode: 'reply',
+        replyText,
+        suggestions: [],
+        confidence: detected.confidence,
+        meta: {
+          intent: { kind: detected.kind, confidence: detected.confidence },
+          isMetaComment,
+        },
+      };
     }
 
     // If classification is disabled, skip engine and map from high-confidence intent
@@ -252,8 +275,9 @@ export async function cortexDecide(
 
     if (engineOutput) {
       normalized = normalizeEngineOutput(engineOutput as any, normalizedCtx, engineInput.text);
-    } else if (detected.confidence >= 0.9) {
+    } else if (detected.confidence >= 0.9 && !detected.suppressChips) {
       // Map high-confidence intents to actions when engine is disabled/unavailable
+      // NEVER create actions when suppressChips is true (meta-comments/questions)
       const title = (detected as any).title || engineInput.text;
       if (detected.kind === 'note') {
         normalized = {
