@@ -7,7 +7,10 @@ export type AdaptiveMode = 'reflective' | 'progress' | 'catchup' | 'action';
 
 export type AdaptiveSummaryProps = {
   mode: AdaptiveMode;
-  text: string;
+  text?: string; // Optional: if omitted, will map from intent + nextItem
+  intent?: 'habit' | 'trip' | 'goal' | 'other';
+  nextItem?: { title?: string; dateLabel?: string } | null;
+  spaceName?: string;
   onPrimary?: () => void;
   onSecondary?: () => void;
 };
@@ -15,12 +18,33 @@ export type AdaptiveSummaryProps = {
 export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
   mode,
   text,
+  intent,
+  nextItem,
+  spaceName,
   onPrimary,
   onSecondary,
 }) => {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const accent = getAccent(mode);
+  const resolvedText = React.useMemo(() => {
+    if (text) return text;
+    switch (intent) {
+      case 'habit':
+        return 'You’re building rhythm here. Want to review today’s check-ins?';
+      case 'trip': {
+        const title = nextItem?.title ? `${nextItem.title} ` : '';
+        const when = nextItem?.dateLabel ? nextItem.dateLabel : '';
+        return when
+          ? `Next key date: ${title}${when}.`
+          : 'Have travel coming up. Want to review key dates?';
+      }
+      case 'goal':
+        return `Ready for your next step${spaceName ? ` in ${spaceName}` : ''}?`;
+      default:
+        return 'What should we focus on today?';
+    }
+  }, [text, intent, nextItem?.title, nextItem?.dateLabel, spaceName]);
   return (
     <View
       style={[
@@ -39,7 +63,7 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
         style={[styles.body, isDark ? { color: '#EDEDE8' } : { color: COLORS.Text }]}
         numberOfLines={3}
       >
-        {text}
+        {resolvedText}
       </Text>
       {(onPrimary || onSecondary) && (
         <View style={styles.actions}>

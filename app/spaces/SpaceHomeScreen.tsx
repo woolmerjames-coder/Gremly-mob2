@@ -76,7 +76,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
 
   // State
-  const { space, chats, items, stats, upcoming, reload } = useSpaceAggregate(spaceId);
+  const { space, chats, items, stats, upcoming, intent, nextItem, reload } =
+    useSpaceAggregate(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -696,7 +697,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <AdaptiveSummaryV22
               mode="reflective"
-              text="Take a minute to reflect on one thing that felt good today. Capture a quick note so you can build on it tomorrow."
+              intent={intent}
+              nextItem={nextItem ?? undefined}
+              spaceName={space?.name}
               onSecondary={() => console.log('[v22] summary later')}
               onPrimary={() => console.log('[v22] summary now')}
             />

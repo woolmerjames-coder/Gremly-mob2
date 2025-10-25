@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppRecord, Space, SpaceChat } from '../lib/types';
+import { inferSpaceIntent, type SpaceIntent } from '../lib/ai/spaceIntent';
 import { useRepo } from '../providers/RepoProvider';
 import { useAuth } from '../providers/AuthProvider';
 import { SupabaseSpaceChatRepo } from '../lib/repo/supabase';
@@ -27,6 +28,15 @@ export type SpaceAggregate = {
     dateLabel?: string;
     progressPct?: number; // optional, 0..1 when relevant (e.g., checklists)
   }>;
+  intent: SpaceIntent;
+  counts: { habits: number; todosOpen: number; notes: number; chats: number };
+  nextItem: {
+    id: string;
+    type: 'todo' | 'note' | 'event';
+    title: string;
+    dueAt?: string | null;
+    dateLabel?: string;
+  } | null;
   reload: () => Promise<void>;
 };
 
@@ -161,6 +171,57 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
     return candidates.slice(0, 3);
   }, []);
 
+  // Compute nextItem = earliest dated item (todo/note/event)
+  const computeNextItem = useCallback((all: AppRecord[]) => {
+    type Dated = {
+      id: string;
+      type: 'todo' | 'note' | 'event';
+      title: string;
+      dueAt?: string | null;
+      ts: number;
+    };
+    const out: Dated[] = [];
+    for (const item of all) {
+      if (item.type === 'todo') {
+        const t: any = item;
+        const dueAt = t.due_date
+          ? t.due_time
+            ? `${t.due_date}T${t.due_time}:00`
+            : t.due_date
+          : null;
+        if (dueAt) {
+          const ts = new Date(dueAt).getTime();
+          if (!Number.isNaN(ts))
+            out.push({ id: t.id, type: 'todo', title: t.title || t.name, dueAt, ts });
+        }
+      } else if (item.type === 'note') {
+        const n: any = item;
+        const dateIso = n.date || null;
+        if (dateIso) {
+          const ts = new Date(dateIso).getTime();
+          if (!Number.isNaN(ts))
+            out.push({ id: n.id, type: 'note', title: n.title || 'Note', dueAt: dateIso, ts });
+        }
+      }
+      // events not modeled yet
+    }
+
+    if (out.length === 0) return null;
+
+    const now = Date.now();
+    const future = out.filter((d) => d.ts >= now);
+    const pool = future.length > 0 ? future : out;
+    pool.sort((a, b) => a.ts - b.ts);
+    const next = pool[0];
+    return {
+      id: next.id,
+      type: next.type,
+      title: next.title,
+      dueAt: next.dueAt,
+      dateLabel: formatUpcomingLabel(next.dueAt || undefined),
+    } as const;
+  }, []);
+
   const reload = useCallback(async () => {
     if (!spaceId || reloadingRef.current) return;
     reloadingRef.current = true;
@@ -239,6 +300,22 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
 
   const stats = useMemo(() => computeStats(items, chats), [items, chats, computeStats]);
   const upcoming = useMemo(() => buildUpcoming(items), [items, buildUpcoming]);
+  const intent = useMemo(() => {
+    const habits = items.filter((r) => r.type === 'habit');
+    const todos = items.filter((r) => r.type === 'todo');
+    const notes = items.filter((r) => r.type === 'note');
+    return inferSpaceIntent({ habits, todos, notes, chats });
+  }, [items, chats]);
+  const counts = useMemo(
+    () => ({
+      habits: items.filter((r) => r.type === 'habit').length,
+      todosOpen: items.filter((r) => r.type === 'todo' && !(r as any).completed_at).length,
+      notes: items.filter((r) => r.type === 'note').length,
+      chats: chats.length,
+    }),
+    [items, chats],
+  );
+  const nextItem = useMemo(() => computeNextItem(items), [items, computeNextItem]);
 
   return {
     space,
@@ -246,6 +323,9 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
     items,
     stats,
     upcoming,
+    intent,
+    counts,
+    nextItem,
     reload,
   };
 }
