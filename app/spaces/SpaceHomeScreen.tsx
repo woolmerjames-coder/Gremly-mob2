@@ -42,6 +42,8 @@ import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
 // v3 legacy components removed in v4 path
 import { FocusCard, CalendarStrip, QuickStatsRow, ChatCTA } from '../../components/spaces/v4';
 import HeaderV22 from '../../components/spaces/v22/Header';
+import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
+import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -75,6 +77,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
+  const [selectedDayISO, setSelectedDayISO] = useState<string>(() =>
+    formatISO(new Date(), { representation: 'date' }),
+  );
+  const [showTimeline, setShowTimeline] = useState(false);
   // moved above to include 'all'
 
   // Feature flag: Space v3 layout (robust parsing)
@@ -537,6 +543,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
+        {/* Week strip (v22) */}
+        {isSpaceV22 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <WeekStripV22
+              days={buildMockWeek(selectedDayISO)}
+              onSelect={setSelectedDayISO}
+              onOpenTimeline={() => setShowTimeline(true)}
+            />
+          </View>
+        )}
+
         {/* Collapsible search bar */}
         {searchVisible && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
@@ -636,6 +653,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
       {/* Micro celebration overlay */}
       <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
+      {/* Timeline overlay (v22) */}
+      <TimelineOverlay visible={showTimeline} onClose={() => setShowTimeline(false)} />
     </View>
   );
 }
@@ -778,6 +797,22 @@ function buildLastVisitedLabel(items: AppRecord[], chats: SpaceChat[]): string {
     d.getDate() === today.getDate();
   if (sameDay) return 'Last visited today';
   return `Last visited ${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+}
+
+// v22 helpers
+function buildMockWeek(selectedISO: string) {
+  const start = startOfWeek(new Date());
+  const todayISO = formatISO(new Date(), { representation: 'date' });
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(start, i);
+    const iso = formatISO(d, { representation: 'date' });
+    return {
+      dateISO: iso,
+      isActive: iso === todayISO,
+      isSelected: iso === selectedISO,
+      hasItems: false,
+    };
+  });
 }
 
 function buildFocusText(habitCount: number, upcoming: Array<{ id: string }>, todos: any[]): string {
