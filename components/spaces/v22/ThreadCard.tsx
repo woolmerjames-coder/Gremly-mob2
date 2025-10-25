@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   useColorScheme,
 } from 'react-native';
-import { SPACE } from './_tokens';
+import { SPACE, COLORS } from './_tokens';
 
 export type ThreadCardProps = {
   title: string;
@@ -58,7 +58,7 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
           </Text>
         )}
         {!!lastActive && (
-          <Text style={[styles.meta, isDark ? { color: '#BBBBBB' } : { color: '#666666' }]}>
+          <Text style={[styles.meta, isDark ? { color: '#BBBBBB' } : { color: COLORS.Sage }]}>
             {lastActive}
           </Text>
         )}
@@ -126,9 +126,15 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     padding: SPACE.md,
+    // subtle shadow for warmth
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   title: {
     fontWeight: '600',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, Animated } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { CalendarClock } from '../../icons';
 
@@ -16,54 +16,65 @@ export type WeekStripProps = {
   onOpenTimeline?: () => void;
 };
 
+const DayCell: React.FC<{
+  d: WeekStripDay;
+  isDark: boolean;
+  onSelect: (iso: string) => void;
+}> = ({ d, isDark, onSelect }) => {
+  const date = new Date(d.dateISO);
+  const weekday = date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 1);
+  const dayNum = date.getDate();
+  const active = d.isActive;
+  const selected = d.isSelected;
+  const pulse = React.useMemo(() => new Animated.Value(1), []);
+
+  const handlePress = React.useCallback(() => {
+    Animated.sequence([
+      Animated.timing(pulse, { toValue: 0.6, duration: 90, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 140, useNativeDriver: true }),
+    ]).start();
+    onSelect(d.dateISO);
+  }, [d.dateISO, onSelect, pulse]);
+
+  return (
+    <Animated.View style={{ opacity: pulse }}>
+      <TouchableOpacity
+        onPress={handlePress}
+        accessibilityRole="button"
+        accessibilityLabel={`Select ${date.toDateString()}`}
+        style={[styles.cell, active ? styles.cellActive : styles.cellInactive]}
+      >
+        <Text
+          style={[
+            styles.weekInitial,
+            active ? styles.textActive : isDark ? styles.textInactiveDark : styles.textInactive,
+          ]}
+        >
+          {weekday}
+        </Text>
+        <Text
+          style={[
+            styles.dayNum,
+            active ? styles.textActive : isDark ? styles.textInactiveDark : styles.textInactive,
+          ]}
+        >
+          {dayNum}
+        </Text>
+        {selected && <View style={styles.underline} />}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
 export const WeekStrip: React.FC<WeekStripProps> = ({ days, onSelect, onOpenTimeline }) => {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   return (
     <View style={styles.row}>
       <View style={styles.daysWrap}>
-        {days.map((d) => {
-          const date = new Date(d.dateISO);
-          const weekday = date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 1);
-          const dayNum = date.getDate();
-          const active = d.isActive;
-          const selected = d.isSelected;
-          return (
-            <TouchableOpacity
-              key={d.dateISO}
-              onPress={() => onSelect(d.dateISO)}
-              accessibilityRole="button"
-              accessibilityLabel={`Select ${date.toDateString()}`}
-              style={[styles.cell, active ? styles.cellActive : styles.cellInactive]}
-            >
-              <Text
-                style={[
-                  styles.weekInitial,
-                  active
-                    ? styles.textActive
-                    : isDark
-                      ? styles.textInactiveDark
-                      : styles.textInactive,
-                ]}
-              >
-                {weekday}
-              </Text>
-              <Text
-                style={[
-                  styles.dayNum,
-                  active
-                    ? styles.textActive
-                    : isDark
-                      ? styles.textInactiveDark
-                      : styles.textInactive,
-                ]}
-              >
-                {dayNum}
-              </Text>
-              {selected && <View style={styles.underline} />}
-            </TouchableOpacity>
-          );
-        })}
+        {days.map((d) => (
+          <DayCell key={d.dateISO} d={d} isDark={isDark} onSelect={onSelect} />
+        ))}
       </View>
       <TouchableOpacity
         onPress={onOpenTimeline}

@@ -26,7 +26,7 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
 }) => {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
-  const accent = getAccent(mode);
+  // using a subtle pear top border; no accent fill needed
   const resolvedText = React.useMemo(() => {
     if (text) return text;
     switch (intent) {
@@ -55,10 +55,13 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
       ]}
       accessibilityRole="summary"
     >
-      <View style={[styles.accent, { backgroundColor: accent }]} />
+      <View style={[styles.topBorder]} />
       <View style={styles.headerRow}>
         <MessageSquare color={COLORS.Moss} size={18} />
       </View>
+      <Text style={styles.lead} accessibilityRole="header">
+        Let’s center on today’s focus.
+      </Text>
       <Text
         style={[styles.body, isDark ? { color: '#EDEDE8' } : { color: COLORS.Text }]}
         numberOfLines={3}
@@ -74,7 +77,7 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
               accessibilityLabel="Secondary action"
               style={styles.secondaryBtn}
             >
-              <Text style={styles.secondaryText}>Later</Text>
+              <Text style={styles.secondaryText}>Maybe later</Text>
             </TouchableOpacity>
           )}
           {onPrimary && (
@@ -84,7 +87,7 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
               accessibilityLabel="Primary action"
               style={styles.primaryBtn}
             >
-              <Text style={styles.primaryText}>Do it now</Text>
+              <Text style={styles.primaryText}>Let’s go</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -114,15 +117,22 @@ const styles = StyleSheet.create({
     borderRadius: RADII.btn,
     padding: SPACE.md,
   },
-  accent: {
-    height: 3,
-    borderRadius: 2,
+  topBorder: {
+    borderTopColor: COLORS.Pear,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderRadius: 0,
     marginBottom: SPACE.sm,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 6,
+  },
+  lead: {
+    color: COLORS.Deep,
+    fontSize: 13,
+    fontWeight: '700',
     marginBottom: 6,
   },
   body: {
@@ -139,17 +149,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.Sage,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   secondaryText: {
     color: COLORS.Moss,
     fontWeight: '600',
   },
   primaryBtn: {
-    backgroundColor: COLORS.Moss,
+    backgroundColor: '#436653', // Moss lightened ~10%
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   primaryText: {
     color: COLORS.Linen,

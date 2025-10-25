@@ -70,6 +70,8 @@ export const Header: React.FC<HeaderProps> = ({
           {contextLine.text}
         </Text>
       )}
+      {/* Soft fade under header to mimic gradient */}
+      <View style={styles.fadeUnder} />
     </View>
   );
 };
@@ -96,6 +98,12 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderBottomLeftRadius: RADII.header,
     borderBottomRightRadius: RADII.header,
+    // subtle drop shadow
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   row: {
     flexDirection: 'row',
@@ -134,6 +142,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter-Regular',
     textAlign: 'center',
+  },
+  fadeUnder: {
+    height: 12,
+    marginTop: 8,
+    // approximate soft gradient with a translucent Moss tint
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    borderBottomLeftRadius: RADII.header,
+    borderBottomRightRadius: RADII.header,
   },
 });
 

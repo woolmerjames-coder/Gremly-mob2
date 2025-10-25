@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Animated } from 'react-native';
 import { COLORS, RADII } from './_tokens';
 import { MessageSquarePlus } from '../../icons';
 
@@ -8,11 +8,19 @@ type Props = {
 };
 
 export const NewChatCTA: React.FC<Props> = ({ onPress }) => {
+  const scale = React.useMemo(() => new Animated.Value(1), []);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Chat with Gremly"
-      onPress={onPress}
+      accessibilityLabel="Start a chat with Gremly"
+      onPress={() => {
+        // quick pulse on icon then fire
+        Animated.sequence([
+          Animated.timing(scale, { toValue: 0.92, duration: 80, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true }),
+        ]).start();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.btn,
         {
@@ -22,8 +30,10 @@ export const NewChatCTA: React.FC<Props> = ({ onPress }) => {
       ]}
     >
       <View style={styles.row}>
-        <MessageSquarePlus color={COLORS.Moss} size={20} />
-        <Text style={styles.label}>Chat with Gremly</Text>
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <MessageSquarePlus color={COLORS.Moss} size={20} />
+        </Animated.View>
+        <Text style={styles.label}>Start a chat with Gremly</Text>
       </View>
     </Pressable>
   );

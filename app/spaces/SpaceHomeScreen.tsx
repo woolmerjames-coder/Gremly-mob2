@@ -106,6 +106,28 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const undoHandlerRef = React.useRef<null | (() => Promise<void>)>(null);
   // Unified timeline hook (v22)
   const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
+  // Cascade fade-in for v22 sections
+  const oWeek = React.useMemo(() => new Animated.Value(0), []);
+  const oDay = React.useMemo(() => new Animated.Value(0), []);
+  const oSummary = React.useMemo(() => new Animated.Value(0), []);
+  const oInsights = React.useMemo(() => new Animated.Value(0), []);
+  const oCTA = React.useMemo(() => new Animated.Value(0), []);
+  const oThreads = React.useMemo(() => new Animated.Value(0), []);
+  // Feature flag: Space v22 header (strict equality as requested)
+  const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
+
+  useEffect(() => {
+    if (!isSpaceV22) return;
+    const timings = [oWeek, oDay, oSummary, oInsights, oCTA, oThreads].map((v, i) =>
+      Animated.timing(v, {
+        toValue: 1,
+        duration: 180,
+        delay: i * 50, // 0.05s stagger
+        useNativeDriver: true,
+      }),
+    );
+    Animated.stagger(50, timings).start();
+  }, [isSpaceV22, oCTA, oDay, oInsights, oSummary, oThreads, oWeek]);
 
   const showSageToast = useCallback(() => {
     setShowUnsortedToast(true);
@@ -193,8 +215,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
     return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
   })();
-  // Feature flag: Space v22 header (strict equality as requested)
-  const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
@@ -654,7 +674,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
         {/* Week strip (v22) */}
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oWeek }}>
             <WeekStripV22
               days={(() => {
                 const todayISO = formatISO(new Date(), { representation: 'date' });
@@ -668,11 +688,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onSelect={setSelectedDayISO}
               onOpenTimeline={() => setShowTimeline(true)}
             />
-          </View>
+          </Animated.View>
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oDay }}>
             <DayPanelV22
               dateISO={selectedDayISO}
               habits={(() => {
@@ -743,11 +763,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 }
               }}
             />
-          </View>
+          </Animated.View>
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oSummary }}>
             <AdaptiveSummaryV22
               mode="reflective"
               intent={intent}
@@ -756,27 +776,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onSecondary={() => console.log('[v22] summary later')}
               onPrimary={() => console.log('[v22] summary now')}
             />
-          </View>
+          </Animated.View>
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oInsights }}>
             <InsightsRow
               onOpenNotepad={() => setShowNotepad(true)}
               onOpenPeople={() => setShowPeople(true)}
               onOpenTimeline={() => setShowTimeline(true)}
             />
-          </View>
+          </Animated.View>
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oCTA }}>
             <NewChatCTA onPress={handleNewChat} />
-          </View>
+          </Animated.View>
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oThreads }}>
             <Text style={{ fontWeight: '700', fontSize: 16, color: T.colors.text }}>
               Recent chats
             </Text>
@@ -831,7 +851,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 />
               ))}
             </View>
-          </View>
+          </Animated.View>
         )}
 
         {/* Collapsible search bar */}
