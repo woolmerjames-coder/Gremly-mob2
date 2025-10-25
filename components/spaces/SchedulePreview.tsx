@@ -5,12 +5,19 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import type { AppRecord } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
-import { format, parseISO } from 'date-fns';
+
+export type UpcomingItem = {
+  id: string;
+  type: 'habit' | 'todo' | 'note' | 'event';
+  title: string;
+  dueAt?: string | null;
+  dateLabel?: string;
+  progressPct?: number; // 0..1 optional
+};
 
 interface SchedulePreviewProps {
-  items: AppRecord[];
+  items: UpcomingItem[];
   onViewAll?: () => void;
 }
 
@@ -26,30 +33,63 @@ export function SchedulePreview({ items, onViewAll }: SchedulePreviewProps) {
 
   return (
     <View style={styles.container}>
-      {items.slice(0, 5).map((item) => {
-        const date =
-          item.type === 'todo' && item.due_date
-            ? item.due_date
-            : item.type === 'habit' && item.start_date
-              ? item.start_date
-              : null;
+      {items.slice(0, 3).map((item) => {
+        const icon =
+          item.type === 'habit'
+            ? '🔄'
+            : item.type === 'todo'
+              ? '✓'
+              : item.type === 'note'
+                ? '📝'
+                : '📅';
+        const isSoon = (() => {
+          if (!item.dueAt) return false;
+          const now = Date.now();
+          const ts = new Date(item.dueAt).getTime();
+          return ts - now <= 48 * 60 * 60 * 1000; // within 48h
+        })();
 
         return (
           <View key={item.id} style={styles.item}>
-            <Text style={styles.itemIcon}>{item.type === 'habit' ? '🔄' : '✓'}</Text>
+            <Text style={styles.itemIcon}>{icon}</Text>
             <View style={styles.itemContent}>
               <Text style={styles.itemTitle} numberOfLines={1}>
-                {item.type === 'habit' ? item.name : item.type === 'todo' ? item.name : item.title}
+                {item.title}
               </Text>
-              {date && <Text style={styles.itemDate}>{format(parseISO(date), 'EEE, MMM d')}</Text>}
+              {!!item.dateLabel && (
+                <Text
+                  style={[
+                    styles.itemDate,
+                    {
+                      color: isSoon
+                        ? lightTokens.colors.sageMist
+                        : lightTokens.colors.periwinkleSmoke,
+                    },
+                  ]}
+                >
+                  {item.dateLabel}
+                </Text>
+              )}
+              {typeof item.progressPct === 'number' && item.progressPct >= 0 && (
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${Math.min(100, Math.max(0, Math.round(item.progressPct * 100)))}%`,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
             </View>
           </View>
         );
       })}
 
-      {items.length > 5 && onViewAll && (
+      {items.length > 3 && onViewAll && (
         <TouchableOpacity style={styles.viewAllButton} onPress={onViewAll}>
-          <Text style={styles.viewAllText}>View all {items.length} items</Text>
+          <Text style={styles.viewAllText}>View all upcoming</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -82,6 +122,17 @@ const styles = StyleSheet.create({
   itemDate: {
     fontSize: lightTokens.typography.size.xs,
     color: lightTokens.colors.subtle,
+  },
+  progressTrack: {
+    marginTop: 4,
+    height: 4,
+    backgroundColor: lightTokens.colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 4,
+    backgroundColor: lightTokens.colors.primary,
   },
   empty: {
     alignItems: 'center',

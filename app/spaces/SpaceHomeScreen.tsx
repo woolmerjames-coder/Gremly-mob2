@@ -25,7 +25,6 @@ import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { Space, SpaceChat, AppRecord } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import {
-  getSchedulePreview,
   listHabitsForSpace,
   listTodosForSpace,
   listNotesForSpace,
@@ -290,7 +289,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Compute preview data using selectors
   const weekStart = formatISO(startOfWeek(new Date()), { representation: 'date' });
-  const scheduleItems = getSchedulePreview(items, spaceId, weekStart);
   const habits = listHabitsForSpace(items, spaceId, { limit: 3 });
   const todos = listTodosForSpace(items, spaceId, { limit: 3 });
   const notes = listNotesForSpace(items, spaceId, { limit: 5 });
@@ -598,8 +596,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           {/* Upcoming schedule */}
           <View style={{ marginTop: T.spacing[3] }}>
             <SchedulePreview
-              items={scheduleItems}
-              onViewAll={() => console.log('view all schedule')}
+              items={upcoming}
+              onViewAll={() =>
+                Alert.alert('Upcoming', 'Full upcoming list coming soon', [
+                  { text: 'OK', style: 'default' },
+                ])
+              }
             />
           </View>
 

@@ -25,6 +25,7 @@ export type SpaceAggregate = {
     title: string;
     dueAt?: string | null;
     dateLabel?: string;
+    progressPct?: number; // optional, 0..1 when relevant (e.g., checklists)
   }>;
   reload: () => Promise<void>;
 };
@@ -60,9 +61,10 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
     const todos = all.filter((r) => r.type === 'todo');
     const notes = all.filter((r) => r.type === 'note');
 
-    // TODO: If/when habit completions are modeled, compute actuals
-    const habitsTotalThisWeek = habits.length;
-    const habitsCompletedThisWeek = 0;
+    // TODO(Phase 6): If/when habit completions are modeled per date, compute real values.
+    // Guards: fall back to simple counts so UI remains stable.
+    const habitsTotalThisWeek = Math.max(0, habits.length);
+    const habitsCompletedThisWeek = 0; // Placeholder until per-day completion modeling exists
 
     const openTodos = todos.filter((t: any) => !t.completed_at).length;
     const completedTodos = todos.filter(
@@ -75,8 +77,9 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
 
     const chatsActive = chatsList.length; // or refine by recent messages later
 
-    const denom = habitsTotalThisWeek + openTodos;
-    const numer = habitsCompletedThisWeek + completedTodos;
+    // Progress math refinement: use available signals only; clamp to [0,1]
+    const denom = Math.max(0, habitsTotalThisWeek + openTodos);
+    const numer = Math.max(0, habitsCompletedThisWeek + completedTodos);
     const completionPct = denom > 0 ? Math.max(0, Math.min(1, numer / denom)) : 0;
 
     return {
@@ -90,6 +93,37 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
     };
   }, []);
 
+  // Phase 6: Simple date label helper for upcoming items
+  const formatUpcomingLabel = (iso?: string | null): string | undefined => {
+    if (!iso) return undefined;
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const sameDay =
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate();
+
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      const isTomorrow =
+        d.getFullYear() === tomorrow.getFullYear() &&
+        d.getMonth() === tomorrow.getMonth() &&
+        d.getDate() === tomorrow.getDate();
+
+      // Show time when same day or tomorrow, else abbreviated date
+      if (sameDay) {
+        return `Today ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+      }
+      if (isTomorrow) {
+        return `Tomorrow ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+      }
+      return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    } catch {
+      return undefined;
+    }
+  };
+
   const buildUpcoming = useCallback((all: AppRecord[]) => {
     const candidates: Array<{
       id: string;
@@ -97,13 +131,21 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
       title: string;
       dueAt?: string | null;
       dateLabel?: string;
+      progressPct?: number;
     }> = [];
 
     for (const item of all) {
       if (item.type === 'todo') {
         const t: any = item;
         if (t.due_date) {
-          candidates.push({ id: t.id, type: 'todo', title: t.title || t.name, dueAt: t.due_date });
+          const dueAt = t.due_time ? `${t.due_date}T${t.due_time}:00` : t.due_date;
+          candidates.push({
+            id: t.id,
+            type: 'todo',
+            title: t.title || t.name,
+            dueAt,
+            dateLabel: formatUpcomingLabel(dueAt),
+          });
         }
       }
       // Future: include habits with next check-in and notes with reminders
@@ -115,6 +157,7 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
       return at - bt;
     });
 
+    // Only return top 3 for preview
     return candidates.slice(0, 3);
   }, []);
 
