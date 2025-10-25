@@ -16,6 +16,8 @@ export type ThreadCardProps = {
   lastActive?: string;
   onOpen: () => void;
   onMenu?: () => void;
+  onArchive?: () => void;
+  onDelete?: () => void;
 };
 
 export const ThreadCard: React.FC<ThreadCardProps> = ({
@@ -24,6 +26,8 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
   lastActive,
   onOpen,
   onMenu,
+  onArchive,
+  onDelete,
 }) => {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -94,7 +98,7 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
               onPress={() => {
                 setMenuVisible(false);
                 onMenu?.();
-                // Placeholder: parent can handle archive intent
+                onArchive?.();
               }}
               accessibilityRole="button"
             >
@@ -105,7 +109,7 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
               onPress={() => {
                 setMenuVisible(false);
                 onMenu?.();
-                // Placeholder: parent can handle delete intent
+                onDelete?.();
               }}
               accessibilityRole="button"
             >

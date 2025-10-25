@@ -729,14 +729,52 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             </Text>
             <View style={{ height: 10 }} />
             <View style={{ gap: 10 }}>
-              {mockThreads.slice(0, 3).map((t) => (
+              {chats.slice(0, 3).map((c) => (
                 <ThreadCard
-                  key={t.id}
-                  title={t.title}
-                  snippet={t.snippet}
-                  lastActive={t.lastActive}
-                  onOpen={() => console.log('[v22] open thread', t.id)}
-                  onMenu={() => console.log('[v22] thread menu', t.id)}
+                  key={c.id}
+                  title={c.title}
+                  snippet={aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
+                  lastActive={new Date(c.updated_at).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                  onOpen={() => handleChatPress(c.id)}
+                  onMenu={() => {}}
+                  onArchive={async () => {
+                    try {
+                      const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+                      if (
+                        backend === 'supabase' &&
+                        spaceChatRepo instanceof SupabaseSpaceChatRepo
+                      ) {
+                        await spaceChatRepo.archive(c.id);
+                      } else {
+                        await spaceChatRepo.delete(c.id);
+                      }
+                      await reload();
+                    } catch (e) {
+                      console.warn('Archive chat failed', e);
+                      Alert.alert('Error', 'Failed to archive chat');
+                    }
+                  }}
+                  onDelete={async () => {
+                    try {
+                      const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+                      if (
+                        backend === 'supabase' &&
+                        spaceChatRepo instanceof SupabaseSpaceChatRepo
+                      ) {
+                        await spaceChatRepo.delete(c.id);
+                      } else {
+                        await spaceChatRepo.delete(c.id);
+                      }
+                      await reload();
+                    } catch (e) {
+                      console.warn('Delete chat failed', e);
+                      Alert.alert('Error', 'Failed to delete chat');
+                    }
+                  }}
                 />
               ))}
             </View>
