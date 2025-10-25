@@ -41,6 +41,7 @@ import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
 import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
 // v3 legacy components removed in v4 path
 import { FocusCard, CalendarStrip, QuickStatsRow, ChatCTA } from '../../components/spaces/v4';
+import HeaderV22 from '../../components/spaces/v22/Header';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -81,6 +82,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
     return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
   })();
+  // Feature flag: Space v22 header (strict equality as requested)
+  const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
@@ -469,52 +472,70 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
-        {/* Header v4 minimal band */}
-        <View
-          style={{
-            backgroundColor: lightTokens.colors.mossGreen,
-            paddingHorizontal: 16,
-            paddingTop: 16,
-            paddingBottom: 16,
-          }}
-        >
+        {/* Header: v22 Moss band or existing v4 minimal band */}
+        {isSpaceV22 ? (
+          <HeaderV22
+            title={space?.name ?? 'Space'}
+            lastVisited={buildLastVisitedLabel(items, chats)}
+            onBack={() => navigation.goBack()}
+            onSearch={handleSearchPress}
+            onSettings={() => Alert.alert('Settings', 'Coming soon')}
+          />
+        ) : (
           <View
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+            style={{
+              backgroundColor: lightTokens.colors.mossGreen,
+              paddingHorizontal: 16,
+              paddingTop: 16,
+              paddingBottom: 16,
+            }}
           >
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              accessibilityLabel="Back"
-              accessibilityRole="button"
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
             >
-              <Text style={{ color: lightTokens.colors.linenCream, fontSize: 18 }}>‹</Text>
-            </TouchableOpacity>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text
-                style={{ color: lightTokens.colors.linenCream, fontSize: 20, fontWeight: '700' }}
-                numberOfLines={1}
-              >
-                {space?.name ?? 'Space'}
-              </Text>
-              <Text
-                style={{ color: lightTokens.colors.sageMist, fontSize: 12, marginTop: 2 }}
-                numberOfLines={1}
-              >
-                {buildLastVisitedLabel(items, chats)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity onPress={handleSearchPress} accessibilityRole="button">
-                <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>🔍</Text>
-              </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => Alert.alert('Settings', 'Coming soon')}
+                onPress={() => navigation.goBack()}
+                accessibilityLabel="Back"
                 accessibilityRole="button"
               >
-                <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>⚙︎</Text>
+                <Text style={{ color: lightTokens.colors.linenCream, fontSize: 18 }}>‹</Text>
               </TouchableOpacity>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text
+                  style={{
+                    color: lightTokens.colors.linenCream,
+                    fontSize: 20,
+                    fontWeight: '700',
+                  }}
+                  numberOfLines={1}
+                >
+                  {space?.name ?? 'Space'}
+                </Text>
+                <Text
+                  style={{ color: lightTokens.colors.sageMist, fontSize: 12, marginTop: 2 }}
+                  numberOfLines={1}
+                >
+                  {buildLastVisitedLabel(items, chats)}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity onPress={handleSearchPress} accessibilityRole="button">
+                  <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>🔍</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Alert.alert('Settings', 'Coming soon')}
+                  accessibilityRole="button"
+                >
+                  <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>⚙︎</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Collapsible search bar */}
         {searchVisible && (
