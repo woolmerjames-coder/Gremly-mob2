@@ -85,6 +85,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [layoutState, setLayoutState] = useState<LayoutState>({});
   // moved above to include 'all'
 
+  // Feature flag: Space v3 layout
+  const isSpaceV3 = (process.env.EXPO_PUBLIC_SPACE_V3 || 'on') === 'on';
+
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
     summary: string;
@@ -385,6 +388,106 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return (
       <View style={styles.error}>
         <Text style={styles.errorText}>Space not found</Text>
+      </View>
+    );
+  }
+
+  if (!isSpaceV3) {
+    // Legacy stacked layout fallback
+    return (
+      <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        >
+          <SpaceBanner space={space} />
+          <View style={[styles.content, { padding: T.spacing[4] }]}>
+            <Text style={styles.sectionTitle}>Chats</Text>
+            {chats.length === 0 ? (
+              <View style={styles.emptyChats}>
+                <Text style={styles.emptyChatsTitle}>No chats yet</Text>
+                <Text style={styles.emptyChatsText}>
+                  Start a conversation with Gremly to plan, reflect, and track progress.
+                </Text>
+                <TouchableOpacity onPress={handleNewChat} accessibilityRole="button">
+                  <Text style={{ color: T.colors.primary, fontWeight: '600' }}>New chat</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              chats
+                .slice(0, 5)
+                .map((chat) => (
+                  <ChatCard
+                    key={chat.id}
+                    chat={chat}
+                    onPress={() => handleChatPress(chat.id)}
+                    onPin={handlePinChat}
+                    onUnpin={handleUnpinChat}
+                    onRename={handleRenameChat}
+                    onArchive={handleArchiveChat}
+                    onDelete={handleDeleteChat}
+                    aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
+                  />
+                ))
+            )}
+
+            <View style={{ height: T.spacing[4] }} />
+            <Text style={styles.sectionTitle}>Habits</Text>
+            {habits.slice(0, 5).map((h) => (
+              <Text key={h.id} style={{ color: T.colors.text, marginBottom: 8 }}>
+                {h.name}
+              </Text>
+            ))}
+
+            <View style={{ height: T.spacing[4] }} />
+            <Text style={styles.sectionTitle}>To-Dos</Text>
+            {todos.slice(0, 5).map((t) => (
+              <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ color: T.colors.text, flex: 1 }}>{t.name}</Text>
+                <TouchableOpacity
+                  accessibilityLabel={`Complete to-do '${t.name}'`}
+                  accessibilityRole="button"
+                  onPress={async () => {
+                    try {
+                      await repo.completeTodo(t.id, new Date().toISOString());
+                      setShowConfetti(true);
+                      await reload();
+                    } catch (e) {
+                      console.warn('Failed to complete todo', e);
+                    }
+                  }}
+                >
+                  <Text style={{ color: T.colors.primary }}>✓</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            <View style={{ height: T.spacing[4] }} />
+            <Text style={styles.sectionTitle}>Notes</Text>
+            {notes.slice(0, 5).map((n) => (
+              <Text key={n.id} style={{ color: T.colors.text, marginBottom: 8 }}>
+                {n.title}
+              </Text>
+            ))}
+          </View>
+        </ScrollView>
+
+        {/* New chat floating button */}
+        <View style={styles.fabContainer}>
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: T.colors.primary }]}
+            onPress={handleNewChat}
+            disabled={!!space.archived_at}
+            accessibilityLabel="Start new chat"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.fabIcon, { color: T.colors.onPrimary }]}>➕</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Micro celebration overlay */}
+        <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
       </View>
     );
   }
