@@ -85,8 +85,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [layoutState, setLayoutState] = useState<LayoutState>({});
   // moved above to include 'all'
 
-  // Feature flag: Space v3 layout
-  const isSpaceV3 = (process.env.EXPO_PUBLIC_SPACE_V3 || 'on') === 'on';
+  // Feature flag: Space v3 layout (robust parsing)
+  const isSpaceV3 = (() => {
+    const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
+    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+  })();
 
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
