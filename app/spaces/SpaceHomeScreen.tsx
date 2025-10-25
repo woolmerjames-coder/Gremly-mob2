@@ -45,6 +45,7 @@ import HeaderV22 from '../../components/spaces/v22/Header';
 import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
 import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
 import DayPanelV22 from '../../components/spaces/v22/DayPanel';
+import AdaptiveSummaryV22 from '../../components/spaces/v22/AdaptiveSummary';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -577,6 +578,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               todos={mockTodos}
               onToggleHabit={(id) => console.log('[v22] toggle habit', id)}
               onToggleTodo={(id) => console.log('[v22] toggle todo', id)}
+            />
+          </View>
+        )}
+
+        {isSpaceV22 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <AdaptiveSummaryV22
+              mode="reflective"
+              text="Take a minute to reflect on one thing that felt good today. Capture a quick note so you can build on it tomorrow."
+              onSecondary={() => console.log('[v22] summary later')}
+              onPrimary={() => console.log('[v22] summary now')}
             />
           </View>
         )}
