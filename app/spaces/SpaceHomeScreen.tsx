@@ -44,6 +44,7 @@ import { FocusCard, CalendarStrip, QuickStatsRow, ChatCTA } from '../../componen
 import HeaderV22 from '../../components/spaces/v22/Header';
 import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
 import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
+import DayPanelV22 from '../../components/spaces/v22/DayPanel';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -81,6 +82,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     formatISO(new Date(), { representation: 'date' }),
   );
   const [showTimeline, setShowTimeline] = useState(false);
+  const mockHabits = React.useMemo(
+    () => [
+      { id: 'h1', title: 'Running', doneCount: 2, target: 3 },
+      { id: 'h2', title: 'Read', doneCount: 1, target: 4 },
+    ],
+    [],
+  );
+  const mockTodos = React.useMemo(
+    () => [
+      { id: 't1', title: 'Write 3 gratitude lines', done: false },
+      { id: 't2', title: 'Email Alex about plan', done: true },
+    ],
+    [],
+  );
   // moved above to include 'all'
 
   // Feature flag: Space v3 layout (robust parsing)
@@ -550,6 +565,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               days={buildMockWeek(selectedDayISO)}
               onSelect={setSelectedDayISO}
               onOpenTimeline={() => setShowTimeline(true)}
+            />
+          </View>
+        )}
+
+        {isSpaceV22 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <DayPanelV22
+              dateISO={selectedDayISO}
+              habits={mockHabits}
+              todos={mockTodos}
+              onToggleHabit={(id) => console.log('[v22] toggle habit', id)}
+              onToggleTodo={(id) => console.log('[v22] toggle todo', id)}
             />
           </View>
         )}
