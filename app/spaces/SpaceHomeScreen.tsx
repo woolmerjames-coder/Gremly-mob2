@@ -171,44 +171,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     },
     [undoOpacity],
   );
-  const mockHabits = React.useMemo(
-    () => [
-      { id: 'h1', title: 'Running', doneCount: 2, target: 3 },
-      { id: 'h2', title: 'Read', doneCount: 1, target: 4 },
-    ],
-    [],
-  );
-  const mockTodos = React.useMemo(
-    () => [
-      { id: 't1', title: 'Write 3 gratitude lines', done: false },
-      { id: 't2', title: 'Email Alex about plan', done: true },
-    ],
-    [],
-  );
-  const mockThreads = React.useMemo(
-    () => [
-      {
-        id: 'c1',
-        title: 'Weekly planning',
-        snippet: 'Outlined goals and focus areas for the week',
-        lastActive: 'Yesterday',
-      },
-      {
-        id: 'c2',
-        title: 'Reflect on energy',
-        snippet: 'Noted a mid-week dip; try earlier runs',
-        lastActive: 'Tue',
-      },
-      {
-        id: 'c3',
-        title: 'Prep for meeting',
-        snippet: 'Drafted agenda and next steps',
-        lastActive: 'Mon',
-      },
-    ],
-    [],
-  );
-  // moved above to include 'all'
+  //
+  // removed legacy mock data used during design polish; real data wired via hooks
+  //
 
   // Feature flag: Space v3 layout (robust parsing)
   const isSpaceV3 = (() => {
@@ -229,7 +194,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       // eslint-disable-next-line no-console
       console.log('[SpaceHome] v3 flag is', isSpaceV3);
     }
-  }, []);
+  }, [isSpaceV3]);
 
   // Create SpaceChatRepo instance (for actions)
   const spaceChatRepo = React.useMemo(() => {

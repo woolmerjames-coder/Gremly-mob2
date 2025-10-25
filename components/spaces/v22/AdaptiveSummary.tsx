@@ -16,7 +16,7 @@ export type AdaptiveSummaryProps = {
 };
 
 export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
-  mode,
+  mode: _mode,
   text,
   intent,
   nextItem,
@@ -96,20 +96,7 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
   );
 };
 
-function getAccent(mode: AdaptiveMode): string {
-  switch (mode) {
-    case 'reflective':
-      return COLORS.Sage;
-    case 'progress':
-      return COLORS.Pear;
-    case 'catchup':
-      return COLORS.Periwinkle;
-    case 'action':
-      return COLORS.Moss;
-    default:
-      return COLORS.Sage;
-  }
-}
+// getAccent removed: using subtle Pear top border instead of accent fills
 
 const styles = StyleSheet.create({
   wrap: {
