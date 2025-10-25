@@ -11,14 +11,63 @@ import {
 import { BlurView } from 'expo-blur';
 import { COLORS, SPACE } from '../_tokens';
 import { X as CloseIcon } from 'lucide-react-native';
+import { useRepo } from '../../../../providers/RepoProvider';
+import type { AppRecord } from '../../../../lib/types';
 
 export type NotepadOverlayProps = {
   visible: boolean;
   onClose: () => void;
+  spaceId: string;
 };
 
-export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({ visible, onClose }) => {
+export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({ visible, onClose, spaceId }) => {
+  const repo = useRepo();
+  const [notes, setNotes] = React.useState<AppRecord[]>([]);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [text, setText] = React.useState('');
+  const [fmt, setFmt] = React.useState<'bullets' | 'checkboxes' | 'none'>('none');
+  const [isJournal, setIsJournal] = React.useState<boolean>(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      const list = await repo.listByType('note', { spaceId });
+      setNotes(list);
+      if (list.length > 0 && !selectedId) {
+        const first = list[0] as any;
+        setSelectedId(first.id);
+        setText(first.body || '');
+        setFmt((first.fmt as any) || 'none');
+        setIsJournal(first.subtype === 'journal');
+      }
+    } catch {
+      setNotes([]);
+    }
+  }, [repo, spaceId, selectedId]);
+
+  React.useEffect(() => {
+    if (visible) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, spaceId]);
+
+  const selectNote = (note: any) => {
+    setSelectedId(note.id);
+    setText(note.body || '');
+    setFmt((note.fmt as any) || 'none');
+    setIsJournal(note.subtype === 'journal');
+  };
+
+  const save = async () => {
+    if (!selectedId) return;
+    try {
+      const patch: any = { body: text };
+      if (fmt === 'bullets' || fmt === 'checkboxes') patch.fmt = fmt;
+      if (isJournal) patch.subtype = 'journal';
+      await repo.update({ id: selectedId, patch });
+      await load();
+    } catch {
+      // no-op for now
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -36,6 +85,59 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({ visible, onClose
             </TouchableOpacity>
           </View>
           <View style={{ height: 12 }} />
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <ScrollView style={{ maxHeight: 140 }}>
+                {notes.length === 0 ? (
+                  <Text style={{ color: '#D9E6DA' }}>No notes yet in this Space.</Text>
+                ) : (
+                  notes.map((n: any) => (
+                    <TouchableOpacity
+                      key={n.id}
+                      onPress={() => selectNote(n)}
+                      style={{ paddingVertical: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit note ${n.title || 'Untitled'}`}
+                    >
+                      <Text
+                        style={{
+                          color: n.id === selectedId ? COLORS.Pear : COLORS.Linen,
+                          fontWeight: n.id === selectedId ? '700' : '500',
+                        }}
+                        numberOfLines={1}
+                      >
+                        {n.title || 'Untitled'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => setFmt((prev) => (prev === 'bullets' ? 'none' : 'bullets'))}
+                style={styles.toggleChip}
+                accessibilityRole="button"
+              >
+                <Text style={styles.toggleText}>{fmt === 'bullets' ? '• Bullets' : 'Bullets'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setFmt((prev) => (prev === 'checkboxes' ? 'none' : 'checkboxes'))}
+                style={styles.toggleChip}
+                accessibilityRole="button"
+              >
+                <Text style={styles.toggleText}>
+                  {fmt === 'checkboxes' ? '☑︎ Check' : 'Checkboxes'}
+                </Text>
+              </TouchableOpacity>
+              {isJournal && (
+                <View style={[styles.toggleChip, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
+                  <Text style={styles.toggleText}>Journal</Text>
+                </View>
+              )}
+            </View>
+          </View>
+          <View style={{ height: 12 }} />
           <ScrollView keyboardShouldPersistTaps="handled">
             <TextInput
               value={text}
@@ -46,6 +148,10 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({ visible, onClose
               style={styles.textArea}
             />
           </ScrollView>
+          <View style={{ height: 12 }} />
+          <TouchableOpacity onPress={save} accessibilityRole="button" style={styles.saveBtn}>
+            <Text style={styles.saveText}>Save</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -83,6 +189,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 12,
     padding: 12,
+  },
+  toggleChip: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
+  },
+  toggleText: {
+    color: COLORS.Linen,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveBtn: {
+    alignSelf: 'flex-end',
+    backgroundColor: COLORS.Moss,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  saveText: {
+    color: COLORS.Linen,
+    fontWeight: '700',
   },
 });
 

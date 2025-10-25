@@ -843,11 +843,23 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       {/* Micro celebration overlay */}
       <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
       {/* Timeline overlay (v22) */}
-      <TimelineOverlay visible={showTimeline} onClose={() => setShowTimeline(false)} />
+      <TimelineOverlay
+        visible={showTimeline}
+        onClose={() => setShowTimeline(false)}
+        spaceId={spaceId}
+        onSelectDate={(iso) => {
+          setSelectedDayISO(iso);
+          setShowTimeline(false);
+        }}
+      />
       {/* Notepad overlay (v22) */}
-      <NotepadOverlay visible={showNotepad} onClose={() => setShowNotepad(false)} />
+      <NotepadOverlay
+        visible={showNotepad}
+        onClose={() => setShowNotepad(false)}
+        spaceId={spaceId}
+      />
       {/* People overlay (v22) */}
-      <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} />
+      <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} spaceId={spaceId} />
 
       {/* Floating Plus (v22) */}
       {isSpaceV22 && (

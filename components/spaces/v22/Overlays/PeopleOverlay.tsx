@@ -4,18 +4,35 @@ import { BlurView } from 'expo-blur';
 import { COLORS, SPACE } from '../_tokens';
 import { X as CloseIcon } from 'lucide-react-native';
 import { Users } from '../../../icons';
+import { useRepo } from '../../../../providers/RepoProvider';
 
 export type PeopleOverlayProps = {
   visible: boolean;
   onClose: () => void;
+  spaceId: string;
 };
 
-export const PeopleOverlay: React.FC<PeopleOverlayProps> = ({ visible, onClose }) => {
-  const sample = [
-    { id: 'p1', name: 'Alex', context: 'We discussed plans' },
-    { id: 'p2', name: 'Jordan', context: 'Follow-up on note' },
-    { id: 'p3', name: 'Riley', context: 'Shared a resource' },
-  ];
+export const PeopleOverlay: React.FC<PeopleOverlayProps> = ({ visible, onClose, spaceId }) => {
+  const repo = useRepo();
+  const [people, setPeople] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [supported, setSupported] = React.useState<boolean>(true);
+
+  React.useEffect(() => {
+    const run = async () => {
+      try {
+        const list = await repo.listPeople();
+        const filtered = (list || []).filter((p: any) => !spaceId || p.space_id === spaceId);
+        setPeople(
+          filtered.map((p: any) => ({ id: p.id, name: p.display_name || p.name || 'Person' })),
+        );
+        setSupported(true);
+      } catch {
+        setSupported(false);
+      }
+    };
+    if (visible) run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, spaceId]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -33,19 +50,27 @@ export const PeopleOverlay: React.FC<PeopleOverlayProps> = ({ visible, onClose }
             </TouchableOpacity>
           </View>
           <View style={{ height: 12 }} />
-          <View style={{ gap: 12 }}>
-            {sample.map((p) => (
-              <View key={p.id} style={styles.personRow}>
-                <View style={styles.avatar}>
-                  <Users color={COLORS.Moss} size={18} />
+          {!supported ? (
+            <Text style={{ color: '#D9E6DA' }}>
+              People linking isn’t enabled in this environment.
+            </Text>
+          ) : people.length === 0 ? (
+            <Text style={{ color: '#D9E6DA' }}>No people linked to this Space yet.</Text>
+          ) : (
+            <View style={{ gap: 12 }}>
+              {people.map((p) => (
+                <View key={p.id} style={styles.personRow}>
+                  <View style={styles.avatar}>
+                    <Users color={COLORS.Moss} size={18} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.personName}>{p.name}</Text>
+                    <Text style={styles.personContext}>Linked to this space</Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.personName}>{p.name}</Text>
-                  <Text style={styles.personContext}>{p.context}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </View>
       </View>
     </Modal>
