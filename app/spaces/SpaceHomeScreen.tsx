@@ -57,6 +57,7 @@ import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
+import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -97,6 +98,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const overlay = useUnifiedOverlayController();
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
   const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
+  // Unified timeline hook (v22)
+  const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
 
   const showSageToast = useCallback(() => {
     setShowUnsortedToast(true);
@@ -620,7 +623,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {isSpaceV22 && (
           <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <WeekStripV22
-              days={buildMockWeek(selectedDayISO)}
+              days={(() => {
+                const todayISO = formatISO(new Date(), { representation: 'date' });
+                return (timelineDays || []).map((d) => ({
+                  dateISO: d.dateISO,
+                  isActive: d.dateISO === todayISO,
+                  isSelected: d.dateISO === selectedDayISO,
+                  hasItems: (d.items?.length ?? 0) > 0,
+                }));
+              })()}
               onSelect={setSelectedDayISO}
               onOpenTimeline={() => setShowTimeline(true)}
             />
@@ -631,10 +642,52 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <DayPanelV22
               dateISO={selectedDayISO}
-              habits={mockHabits}
-              todos={mockTodos}
-              onToggleHabit={(id) => console.log('[v22] toggle habit', id)}
-              onToggleTodo={(id) => console.log('[v22] toggle todo', id)}
+              habits={(() => {
+                const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
+                const habits = (day?.items || []).filter((it) => it.type === 'habit');
+                return habits.map((h) => ({
+                  id: h.id,
+                  title: h.title,
+                  // With no per-day completions history, approximate: done -> 1/3 else 0/3
+                  doneCount: h.done ? 1 : 0,
+                  target: 3,
+                }));
+              })()}
+              todos={(() => {
+                const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
+                const todos = (day?.items || []).filter((it) => it.type === 'todo');
+                return todos.map((t) => ({ id: t.id, title: t.title, done: !!t.done }));
+              })()}
+              onToggleHabit={async (id) => {
+                try {
+                  // Find current state
+                  const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
+                  const h = day?.items.find((it) => it.type === 'habit' && it.id === id);
+                  if (h?.done) {
+                    await repo.undoCompletion(id);
+                  } else {
+                    await repo.completeHabit(id, new Date().toISOString());
+                  }
+                  await Promise.all([reload(), reloadTimeline()]);
+                } catch (e) {
+                  console.warn('[v22] toggle habit failed', e);
+                }
+              }}
+              onToggleTodo={async (id) => {
+                try {
+                  const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
+                  const t = day?.items.find((it) => it.type === 'todo' && it.id === id);
+                  if (t?.done) {
+                    await repo.undoCompletion(id);
+                  } else {
+                    await repo.completeTodo(id, new Date().toISOString());
+                  }
+                  await Promise.all([reload(), reloadTimeline()]);
+                  setShowConfetti(!t?.done);
+                } catch (e) {
+                  console.warn('[v22] toggle todo failed', e);
+                }
+              }}
             />
           </View>
         )}
