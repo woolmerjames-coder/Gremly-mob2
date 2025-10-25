@@ -30,26 +30,17 @@ import {
   listNotesForSpace,
   countJournalForSpace,
 } from '../../lib/selectors/spaceSelectors';
-import { startOfWeek, formatISO } from 'date-fns';
+import { startOfWeek, formatISO, addDays } from 'date-fns';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
-import { NewChatButton } from '../../components/spaces/NewChatButton';
 import { ChatCard } from '../../components/spaces/ChatCard';
-import { SchedulePreview } from '../../components/spaces/SchedulePreview';
-import { InsightsCard } from '../../components/spaces/InsightsCard';
 import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard';
 import { useAuth } from '../../providers/AuthProvider';
 import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
 import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
-import {
-  OverviewHeader,
-  LastTimeCard,
-  SpaceSummaryCard,
-  ProgressSnapshot,
-  TabbedSection,
-  NewChatCTA,
-} from '../../components/spaces/v3';
+// v3 legacy components removed in v4 path
+import { FocusCard, CalendarStrip, QuickStatsRow, ChatCTA } from '../../components/spaces/v4';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -322,64 +313,33 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Compute AI summaries for visible chats (top 3)
   useEffect(() => {
-    let cancelled = false;
-
-    const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-    if (backend !== 'supabase' || !userId) {
-      // For memory backend, rely on last_message_snippet fallback rendered inline
-      return;
-    }
-
-    const messageRepo = new SupabaseSpaceChatMessageRepo(userId || undefined);
-    const target = chats.slice(0, 3);
-
-    (async () => {
-      for (const chat of target) {
-        try {
-          const msgs = await messageRepo.list(chat.id);
-          const summary = await summarizeChatForCard(chat.id, msgs);
-          if (!cancelled) {
-            setAiSummaries((prev) => (prev[chat.id] ? prev : { ...prev, [chat.id]: summary }));
-          }
-        } catch (e) {
-          // Ignore; fallback will render
-        }
+    const run = async () => {
+      try {
+        const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+        if (backend !== 'supabase' || !userId) return;
+        const msgRepo = new SupabaseSpaceChatMessageRepo(userId);
+        const subset = chats.slice(0, 3);
+        const entries = await Promise.all(
+          subset.map(async (c) => {
+            const msgs = await msgRepo.list(c.id);
+            const summary = await summarizeChatForCard(c.id, msgs);
+            return [c.id, summary] as const;
+          }),
+        );
+        setAiSummaries((prev) => {
+          const next = { ...prev };
+          for (const [id, s] of entries) next[id] = s;
+          return next;
+        });
+      } catch {
+        // ignore summarization errors in UI
       }
-    })();
-
-    return () => {
-      cancelled = true;
     };
+    run();
   }, [chats, userId]);
-
-  // Search filtering helpers
-  const needle = searchQuery.trim().toLowerCase();
-  const filterChats = (arr: SpaceChat[]) => {
-    if (!needle) return arr;
-    return arr.filter((c) => {
-      const fields = [c.title, c.last_message_snippet || '', aiSummaries[c.id] || '']
-        .join(' ')
-        .toLowerCase();
-      return fields.includes(needle);
-    });
-  };
-  const filterHabits = (arr: any[]) => {
-    if (!needle) return arr;
-    return arr.filter((h) => (h.name || '').toLowerCase().includes(needle));
-  };
-  const filterTodos = (arr: any[]) => {
-    if (!needle) return arr;
-    return arr.filter((t) => `${t.name || ''} ${t.body || ''}`.toLowerCase().includes(needle));
-  };
-  const filterNotes = (arr: any[]) => {
-    if (!needle) return arr;
-    return arr.filter((n) => `${n.title || ''} ${n.body || ''}`.toLowerCase().includes(needle));
-  };
 
   const handleAddInsightTodos = useCallback(() => {
     if (!spaceInsight) return;
-
-    // Navigate to unified overlay in "add todo" mode with prefill
     Alert.alert('Add Next Step', 'This will open the quick add overlay', [
       { text: 'OK', onPress: () => console.log('[10.8] TODO: Open unified overlay for todos') },
       { text: 'Cancel', style: 'cancel' },
@@ -509,15 +469,56 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
-        {/* Header */}
-        <OverviewHeader
-          spaceName={space?.name ?? 'Space'}
-          onSearch={handleSearchPress}
-          onBack={() => navigation.goBack()}
-        />
+        {/* Header v4 minimal band */}
+        <View
+          style={{
+            backgroundColor: lightTokens.colors.mossGreen,
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 16,
+          }}
+        >
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              accessibilityLabel="Back"
+              accessibilityRole="button"
+            >
+              <Text style={{ color: lightTokens.colors.linenCream, fontSize: 18 }}>‹</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text
+                style={{ color: lightTokens.colors.linenCream, fontSize: 20, fontWeight: '700' }}
+                numberOfLines={1}
+              >
+                {space?.name ?? 'Space'}
+              </Text>
+              <Text
+                style={{ color: lightTokens.colors.sageMist, fontSize: 12, marginTop: 2 }}
+                numberOfLines={1}
+              >
+                {buildLastVisitedLabel(items, chats)}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity onPress={handleSearchPress} accessibilityRole="button">
+                <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>🔍</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => Alert.alert('Settings', 'Coming soon')}
+                accessibilityRole="button"
+              >
+                <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>⚙︎</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
         {/* Collapsible search bar */}
         {searchVisible && (
-          <View style={{ paddingHorizontal: T.spacing[4], marginTop: T.spacing[2] }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
             <TextInput
               placeholder="Search this space"
               placeholderTextColor={T.colors.subtle}
@@ -539,27 +540,39 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         <View style={[styles.content, { padding: T.spacing[4] }]}>
-          {/* Last time */}
-          <LastTimeCard text={computeLastTimeText(items, chats)} />
+          {/* Focus card */}
+          <FocusCard
+            spaceType={
+              listHabitsForSpace(items, spaceId, { limit: 1 }).length > 0 ? 'habit' : 'other'
+            }
+            summaryText={buildFocusText(
+              listHabitsForSpace(items, spaceId, { limit: 1 }).length,
+              upcoming,
+              todos,
+            )}
+            onPress={() => {}}
+          />
 
-          {/* Summary */}
-          <View style={{ marginTop: T.spacing[3] }}>
-            <Animated.View style={{ transform: [{ scale: summaryPulse }], opacity: summaryPulse }}>
-              <SpaceSummaryCard
-                headline={buildSummaryHeadline(
-                  user?.email || '',
-                  stats.chatsActive,
-                  stats.habitsCompletedThisWeek,
-                  stats.habitsTotalThisWeek,
-                )}
-                secondary={`You’re ${Math.round(stats.completionPct * 100)}% to your weekly goal.`}
-              />
-            </Animated.View>
+          {/* Calendar snapshot */}
+          <View style={{ marginTop: 24 }}>
+            <CalendarStrip days={buildCalendarDays(items)} />
+          </View>
+
+          {/* Quick stats (non-zero only) */}
+          <View style={{ marginTop: 24 }}>
+            <QuickStatsRow
+              habitsCount={listHabitsForSpace(items, spaceId, { limit: 9999 }).length}
+              todosCount={listTodosForSpace(items, spaceId, { limit: 9999 }).length}
+              notesCount={listNotesForSpace(items, spaceId, { limit: 9999 }).length}
+              journalCount={
+                listNotesForSpace(items, spaceId, { subtype: 'journal', limit: 9999 }).length
+              }
+            />
           </View>
 
           {/* Primary CTA */}
-          <View style={{ marginTop: T.spacing[3] }}>
-            <NewChatCTA onPress={handleNewChat} disabled={!!space.archived_at} />
+          <View style={{ marginTop: 32 }}>
+            <ChatCTA onPress={handleNewChat} disabled={!!space.archived_at} />
           </View>
 
           {/* Optional: What we discussed */}
@@ -574,220 +587,31 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             </View>
           )}
 
-          {/* Tabs */}
-          <View style={{ marginTop: T.spacing[4] }}>
-            <TabbedSection
-              tabs={[
-                { key: 'all', label: 'All' },
-                { key: 'chats', label: 'Chats', count: chats.length },
-                { key: 'habits', label: 'Habits', count: habits.length },
-                { key: 'todos', label: 'To-Dos', count: todos.length },
-                { key: 'notes', label: 'Notes', count: notes.length },
-              ]}
-              activeKey={activeTab}
-              onChange={(k) => setActiveTab(k)}
-            />
-          </View>
-
-          {/* Tab content */}
-          <View style={{ marginTop: T.spacing[3], gap: T.spacing[2] }}>
-            {activeTab === 'all' && (
-              <>
-                {filterChats(chats)
-                  .slice(0, 2)
-                  .map((chat) => (
-                    <ChatCard
-                      key={chat.id}
-                      chat={chat}
-                      onPress={() => handleChatPress(chat.id)}
-                      onPin={handlePinChat}
-                      onUnpin={handleUnpinChat}
-                      onRename={handleRenameChat}
-                      onArchive={handleArchiveChat}
-                      onDelete={handleDeleteChat}
-                      aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
-                    />
-                  ))}
-                {filterHabits(habits)
-                  .slice(0, 2)
-                  .map((h) => (
-                    <Text key={h.id} style={{ color: T.colors.text }}>
-                      {h.name}
-                    </Text>
-                  ))}
-                {filterTodos(todos)
-                  .slice(0, 2)
-                  .map((t) => (
-                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ color: T.colors.text, flex: 1 }}>{t.name}</Text>
-                      <TouchableOpacity
-                        accessibilityLabel={`Complete to-do '${t.name}'`}
-                        accessibilityRole="button"
-                        onPress={async () => {
-                          try {
-                            await repo.completeTodo(t.id, new Date().toISOString());
-                            setShowConfetti(true);
-                            await reload();
-                          } catch (e) {
-                            console.warn('Failed to complete todo', e);
-                          }
-                        }}
-                      >
-                        <Text style={{ color: T.colors.primary }}>✓</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                {filterNotes(notes)
-                  .slice(0, 2)
-                  .map((n) => (
-                    <Text key={n.id} style={{ color: T.colors.text }}>
-                      {n.title}
-                    </Text>
-                  ))}
-              </>
-            )}
-            {activeTab === 'chats' && (
-              <>
-                {filterChats(chats)
-                  .slice(0, 3)
-                  .map((chat) => (
-                    <ChatCard
-                      key={chat.id}
-                      chat={chat}
-                      onPress={() => handleChatPress(chat.id)}
-                      onPin={handlePinChat}
-                      onUnpin={handleUnpinChat}
-                      onRename={handleRenameChat}
-                      onArchive={handleArchiveChat}
-                      onDelete={handleDeleteChat}
-                      aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
-                    />
-                  ))}
-                {filterChats(chats).length > 3 && (
-                  <TouchableOpacity
-                    onPress={() => console.log('view all chats')}
-                    accessibilityRole="button"
-                  >
-                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
-                      View all chats
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-            {activeTab === 'habits' && (
-              <>
-                {filterHabits(habits)
-                  .slice(0, 3)
-                  .map((h) => (
-                    <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ color: T.colors.text, flex: 1 }}>{h.name}</Text>
-                      <TouchableOpacity
-                        accessibilityLabel={`Complete habit '${h.name}'`}
-                        accessibilityRole="button"
-                        onPress={async () => {
-                          try {
-                            await repo.completeHabit(h.id, new Date().toISOString());
-                            setShowConfetti(true);
-                            await reload();
-                          } catch (e) {
-                            console.warn('Failed to complete habit', e);
-                          }
-                        }}
-                      >
-                        <Text style={{ color: T.colors.primary }}>✓</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                {filterHabits(habits).length > 3 && (
-                  <TouchableOpacity onPress={() => console.log('view all habits')}>
-                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
-                      View all habits
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-            {activeTab === 'todos' && (
-              <>
-                {filterTodos(todos)
-                  .slice(0, 3)
-                  .map((t) => (
-                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ color: T.colors.text, flex: 1 }}>{t.name}</Text>
-                      <TouchableOpacity
-                        accessibilityLabel={`Complete to-do '${t.name}'`}
-                        accessibilityRole="button"
-                        onPress={async () => {
-                          try {
-                            await repo.completeTodo(t.id, new Date().toISOString());
-                            setShowConfetti(true);
-                            await reload();
-                          } catch (e) {
-                            console.warn('Failed to complete todo', e);
-                          }
-                        }}
-                      >
-                        <Text style={{ color: T.colors.primary }}>✓</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                {filterTodos(todos).length > 3 && (
-                  <TouchableOpacity onPress={() => console.log('view all todos')}>
-                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
-                      View all to-dos
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-            {activeTab === 'notes' && (
-              <>
-                {filterNotes(notes)
-                  .slice(0, 3)
-                  .map((n) => (
-                    <Text key={n.id} style={{ color: T.colors.text }}>
-                      {n.title}
-                    </Text>
-                  ))}
-                {filterNotes(notes).length > 3 && (
-                  <TouchableOpacity onPress={() => console.log('view all notes')}>
-                    <Text style={{ color: T.colors.primary, fontWeight: '600' }}>
-                      View all notes
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-          </View>
-
-          {/* Progress snapshot at bottom */}
-          <View style={{ marginTop: T.spacing[3] }}>
-            <ProgressSnapshot
-              habitsCompleted={stats.habitsCompletedThisWeek}
-              habitsTotal={stats.habitsTotalThisWeek}
-              todosOpen={stats.todosOpen}
-              notesAddedThisWeek={stats.notesAddedThisWeek}
-              chatsActive={stats.chatsActive}
-            />
+          {/* Recent reflections (last 2 chats) */}
+          <View style={{ marginTop: 32, gap: 12 }}>
+            {chats.slice(0, 2).map((chat) => (
+              <TouchableOpacity
+                key={chat.id}
+                onPress={() => handleChatPress(chat.id)}
+                style={{
+                  backgroundColor: lightTokens.colors.linenCream,
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+                accessibilityLabel={`Open chat ${chat.title}`}
+                accessibilityRole="button"
+              >
+                <Text style={{ color: T.colors.text, fontWeight: '600' }} numberOfLines={1}>
+                  {chat.title}
+                </Text>
+                <Text style={{ color: T.colors.subtle }} numberOfLines={1}>
+                  {aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
       </ScrollView>
-
-      {/* New chat floating button */}
-      {activeTab === 'chats' && (
-        <View style={styles.fabContainer}>
-          <TouchableOpacity
-            style={[styles.fab, { backgroundColor: T.colors.primary }]}
-            onPress={handleNewChat}
-            disabled={!!space.archived_at}
-            accessibilityLabel="Start new chat"
-            accessibilityRole="button"
-          >
-            <Text style={[styles.fabIcon, { color: T.colors.onPrimary }]}>➕</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {/* Micro celebration overlay */}
       <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
@@ -875,12 +699,7 @@ const styles = StyleSheet.create({
     right: 24,
   },
   fab: {
-    borderRadius: 24,
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...lightTokens.elevation.md,
+    display: 'none',
   },
   fabIcon: {
     fontSize: 24,
@@ -919,4 +738,66 @@ function deriveFirstName(email: string): string {
   const cleaned = namePart.replace(/[._-]+/g, ' ');
   const cap = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   return cap || 'You';
+}
+
+// v4 helpers
+function buildLastVisitedLabel(items: AppRecord[], chats: SpaceChat[]): string {
+  const lastChatTs = chats.reduce((acc, c) => Math.max(acc, new Date(c.updated_at).getTime()), 0);
+  const lastItemTs = items.reduce((acc, it: any) => {
+    const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+    return Math.max(acc, ts);
+  }, 0);
+  const lastTs = Math.max(lastChatTs, lastItemTs);
+  if (!lastTs) return 'Welcome — new space';
+  const d = new Date(lastTs);
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  if (sameDay) return 'Last visited today';
+  return `Last visited ${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+}
+
+function buildFocusText(habitCount: number, upcoming: Array<{ id: string }>, todos: any[]): string {
+  const parts: string[] = [];
+  if (habitCount > 0) parts.push(`${habitCount} habit${habitCount > 1 ? 's' : ''}`);
+  if (upcoming && upcoming.length > 0) parts.push(`${upcoming.length} upcoming`);
+  if (todos && todos.length > 0) parts.push(`${todos.length} to-do${todos.length > 1 ? 's' : ''}`);
+  if (parts.length === 0) return 'Nothing urgent — breathe and reflect.';
+  return parts.join(' • ');
+}
+
+function buildCalendarDays(items: AppRecord[]): Array<{
+  date: Date;
+  hasTodos?: boolean;
+  hasNotes?: boolean;
+  hasHabits?: boolean;
+}> {
+  const start = startOfWeek(new Date());
+  const days = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  return days.map((d) => {
+    const hasTodos = items.some((it: any) => {
+      if (it.type !== 'todo') return false;
+      const due = it.due_date ? new Date(it.due_date) : null;
+      const created = it.created_at ? new Date(it.created_at) : null;
+      return (due && isSameDay(d, due)) || (created && isSameDay(d, created));
+    });
+    const hasNotes = items.some((it: any) => {
+      if (it.type !== 'note') return false;
+      const created = it.created_at ? new Date(it.created_at) : null;
+      return created ? isSameDay(d, created) : false;
+    });
+    const hasHabits = items.some((it: any) => {
+      if (it.type !== 'habit') return false;
+      const created = it.created_at ? new Date(it.created_at) : null;
+      return created ? isSameDay(d, created) : false;
+    });
+    return { date: d, hasTodos, hasNotes, hasHabits };
+  });
 }
