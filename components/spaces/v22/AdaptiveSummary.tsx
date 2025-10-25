@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { MessageSquare } from '../../icons';
 
@@ -18,14 +18,27 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
   onPrimary,
   onSecondary,
 }) => {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
   const accent = getAccent(mode);
   return (
-    <View style={[styles.wrap, { borderColor: COLORS.Sage }]} accessibilityRole="summary">
+    <View
+      style={[
+        styles.wrap,
+        isDark
+          ? { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)' }
+          : { backgroundColor: 'rgba(249, 246, 241, 0.95)', borderColor: COLORS.Sage },
+      ]}
+      accessibilityRole="summary"
+    >
       <View style={[styles.accent, { backgroundColor: accent }]} />
       <View style={styles.headerRow}>
         <MessageSquare color={COLORS.Moss} size={18} />
       </View>
-      <Text style={styles.body} numberOfLines={3}>
+      <Text
+        style={[styles.body, isDark ? { color: '#EDEDE8' } : { color: COLORS.Text }]}
+        numberOfLines={3}
+      >
         {text}
       </Text>
       {(onPrimary || onSecondary) && (
@@ -73,7 +86,6 @@ function getAccent(mode: AdaptiveMode): string {
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: 'rgba(249, 246, 241, 0.95)', // Linen 95%
     borderWidth: 1,
     borderRadius: RADII.btn,
     padding: SPACE.md,

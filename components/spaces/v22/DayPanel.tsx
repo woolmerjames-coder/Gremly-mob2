@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, useColorScheme } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 
 export type HabitItem = { id: string; title: string; doneCount: number; target: number };
@@ -20,14 +20,25 @@ export const DayPanel: React.FC<DayPanelProps> = ({
   onToggleHabit,
   onToggleTodo,
 }) => {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
   const dateLabel = useMemo(() => {
     const d = new Date(dateISO);
     return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
   }, [dateISO]);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.headerText}>{dateLabel}</Text>
+    <View
+      style={[
+        styles.card,
+        isDark
+          ? { backgroundColor: 'rgba(255,255,255,0.06)', shadowOpacity: 0 }
+          : { backgroundColor: COLORS.Linen },
+      ]}
+    >
+      <Text style={[styles.headerText, isDark ? { color: COLORS.Linen } : { color: COLORS.Deep }]}>
+        {dateLabel}
+      </Text>
 
       {!!habits.length && (
         <View style={{ marginTop: SPACE.sm }}>
@@ -53,6 +64,8 @@ const HabitRow: React.FC<{ item: HabitItem; delay?: number; onToggle?: (id: stri
   delay = 0,
   onToggle,
 }) => {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
   const blocks = Math.max(1, item.target || 1);
   const filled = Math.max(0, Math.min(blocks, item.doneCount || 0));
   // simple fade-in for filled blocks
@@ -94,13 +107,17 @@ const HabitRow: React.FC<{ item: HabitItem; delay?: number; onToggle?: (id: stri
                 { opacity: anims[i] },
                 isFilled
                   ? { backgroundColor: COLORS.Pear }
-                  : { borderColor: '#00000014', borderWidth: 1 },
+                  : isDark
+                    ? { borderColor: 'rgba(255,255,255,0.18)', borderWidth: 1 }
+                    : { borderColor: '#00000014', borderWidth: 1 },
               ]}
             />
           );
         })}
       </View>
-      <Text style={styles.habitMeta}>{`${filled}/${blocks} this week`}</Text>
+      <Text
+        style={[styles.habitMeta, isDark ? { color: '#C8D5CE' } : null]}
+      >{`${filled}/${blocks} this week`}</Text>
     </TouchableOpacity>
   );
 };
@@ -109,6 +126,8 @@ const TodoRow: React.FC<{ item: TodoItem; onToggle?: (id: string) => void }> = (
   item,
   onToggle,
 }) => {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
   const scale = React.useMemo(() => new Animated.Value(1), []);
   const bounce = () => {
     Animated.sequence([
@@ -141,7 +160,14 @@ const TodoRow: React.FC<{ item: TodoItem; onToggle?: (id: string) => void }> = (
           ]}
         />
       </TouchableOpacity>
-      <Text style={[styles.todoText, item.done && styles.todoTextDone]} numberOfLines={1}>
+      <Text
+        style={[
+          styles.todoText,
+          isDark ? { color: '#EDEDE8' } : null,
+          item.done && styles.todoTextDone,
+        ]}
+        numberOfLines={1}
+      >
         {item.title}
       </Text>
     </View>
@@ -150,7 +176,6 @@ const TodoRow: React.FC<{ item: TodoItem; onToggle?: (id: string) => void }> = (
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: COLORS.Linen,
     borderRadius: RADII.card,
     padding: SPACE.md,
     // shadow approximation (RN)
@@ -161,7 +186,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   headerText: {
-    color: COLORS.Deep,
     fontSize: 14,
     fontWeight: '600',
   },

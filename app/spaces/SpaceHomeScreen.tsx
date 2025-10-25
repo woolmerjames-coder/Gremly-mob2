@@ -56,6 +56,7 @@ import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayContro
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
+import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -602,13 +603,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               </View>
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity onPress={handleSearchPress} accessibilityRole="button">
-                  <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>🔍</Text>
+                  <SearchIcon color={lightTokens.colors.linenCream} size={18} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => Alert.alert('Settings', 'Coming soon')}
                   accessibilityRole="button"
                 >
-                  <Text style={{ color: lightTokens.colors.linenCream, fontSize: 16 }}>⚙︎</Text>
+                  <SettingsIcon color={lightTokens.colors.linenCream} size={18} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -617,7 +618,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
         {/* Week strip (v22) */}
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <WeekStripV22
               days={buildMockWeek(selectedDayISO)}
               onSelect={setSelectedDayISO}
@@ -627,7 +628,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <DayPanelV22
               dateISO={selectedDayISO}
               habits={mockHabits}
@@ -639,7 +640,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <AdaptiveSummaryV22
               mode="reflective"
               text="Take a minute to reflect on one thing that felt good today. Capture a quick note so you can build on it tomorrow."
@@ -650,7 +651,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <InsightsRow
               onOpenNotepad={() => setShowNotepad(true)}
               onOpenPeople={() => setShowPeople(true)}
@@ -660,13 +661,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <NewChatCTA onPress={handleNewChat} />
           </View>
         )}
 
         {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
             <Text style={{ fontWeight: '700', fontSize: 16, color: T.colors.text }}>
               Recent chats
             </Text>

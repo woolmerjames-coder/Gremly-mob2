@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { CalendarClock } from '../../icons';
 
@@ -17,6 +17,8 @@ export type WeekStripProps = {
 };
 
 export const WeekStrip: React.FC<WeekStripProps> = ({ days, onSelect, onOpenTimeline }) => {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
   return (
     <View style={styles.row}>
       <View style={styles.daysWrap}>
@@ -34,10 +36,28 @@ export const WeekStrip: React.FC<WeekStripProps> = ({ days, onSelect, onOpenTime
               accessibilityLabel={`Select ${date.toDateString()}`}
               style={[styles.cell, active ? styles.cellActive : styles.cellInactive]}
             >
-              <Text style={[styles.weekInitial, active ? styles.textActive : styles.textInactive]}>
+              <Text
+                style={[
+                  styles.weekInitial,
+                  active
+                    ? styles.textActive
+                    : isDark
+                      ? styles.textInactiveDark
+                      : styles.textInactive,
+                ]}
+              >
                 {weekday}
               </Text>
-              <Text style={[styles.dayNum, active ? styles.textActive : styles.textInactive]}>
+              <Text
+                style={[
+                  styles.dayNum,
+                  active
+                    ? styles.textActive
+                    : isDark
+                      ? styles.textInactiveDark
+                      : styles.textInactive,
+                ]}
+              >
                 {dayNum}
               </Text>
               {selected && <View style={styles.underline} />}
@@ -51,7 +71,7 @@ export const WeekStrip: React.FC<WeekStripProps> = ({ days, onSelect, onOpenTime
         accessibilityLabel="Open timeline"
         style={styles.timelineBtn}
       >
-        <CalendarClock color={COLORS.Text} size={20} />
+        <CalendarClock color={isDark ? '#E6E6E6' : COLORS.Text} size={20} />
       </TouchableOpacity>
     </View>
   );
@@ -107,6 +127,9 @@ const styles = StyleSheet.create({
   },
   textInactive: {
     color: COLORS.Text,
+  },
+  textInactiveDark: {
+    color: '#E6E6E6',
   },
   timelineBtn: {
     paddingHorizontal: SPACE.xs,

@@ -1,5 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Modal,
+  TouchableOpacity,
+  useColorScheme,
+} from 'react-native';
+import { SPACE } from './_tokens';
 
 export type ThreadCardProps = {
   title: string;
@@ -16,20 +25,39 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
   onOpen,
   onMenu,
 }) => {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
   const [menuVisible, setMenuVisible] = React.useState(false);
 
   return (
-    <View style={styles.card}>
+    <View
+      style={[
+        styles.card,
+        isDark
+          ? { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)' }
+          : { backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.06)' },
+      ]}
+    >
       <Pressable style={{ flex: 1 }} onPress={onOpen} accessibilityRole="button">
-        <Text style={styles.title} numberOfLines={1}>
+        <Text
+          style={[styles.title, isDark ? { color: '#EEEEEE' } : { color: '#111111' }]}
+          numberOfLines={1}
+        >
           {title}
         </Text>
         {!!snippet && (
-          <Text style={styles.snippet} numberOfLines={1}>
+          <Text
+            style={[styles.snippet, isDark ? { color: '#DDDDDD' } : { color: '#333333' }]}
+            numberOfLines={1}
+          >
             {snippet}
           </Text>
         )}
-        {!!lastActive && <Text style={styles.meta}>{lastActive}</Text>}
+        {!!lastActive && (
+          <Text style={[styles.meta, isDark ? { color: '#BBBBBB' } : { color: '#666666' }]}>
+            {lastActive}
+          </Text>
+        )}
       </Pressable>
       <TouchableOpacity
         style={styles.kebab}
@@ -37,7 +65,9 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
         accessibilityLabel="Open menu"
         accessibilityRole="button"
       >
-        <Text style={styles.kebabText}>⋯</Text>
+        <Text style={[styles.kebabText, isDark ? { color: '#CCCCCC' } : { color: '#555555' }]}>
+          ⋯
+        </Text>
       </TouchableOpacity>
 
       {/* Simple menu modal */}
@@ -92,26 +122,21 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-    padding: 12,
+    padding: SPACE.md,
   },
   title: {
     fontWeight: '600',
     fontSize: 16,
-    color: '#111',
   },
   snippet: {
     marginTop: 2,
     opacity: 0.8,
-    color: '#333',
   },
   meta: {
     marginTop: 2,
     fontSize: 12,
-    color: '#666',
   },
   kebab: {
     marginLeft: 8,
@@ -120,7 +145,6 @@ const styles = StyleSheet.create({
   },
   kebabText: {
     fontSize: 18,
-    color: '#555',
   },
   backdrop: {
     flex: 1,
