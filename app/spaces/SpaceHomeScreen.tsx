@@ -53,6 +53,7 @@ import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import NewPlusFAB from '../../components/spaces/v22/NewPlusFAB';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -126,6 +127,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     () => [
       { id: 't1', title: 'Write 3 gratitude lines', done: false },
       { id: 't2', title: 'Email Alex about plan', done: true },
+    ],
+    [],
+  );
+  const mockThreads = React.useMemo(
+    () => [
+      {
+        id: 'c1',
+        title: 'Weekly planning',
+        snippet: 'Outlined goals and focus areas for the week',
+        lastActive: 'Yesterday',
+      },
+      {
+        id: 'c2',
+        title: 'Reflect on energy',
+        snippet: 'Noted a mid-week dip; try earlier runs',
+        lastActive: 'Tue',
+      },
+      {
+        id: 'c3',
+        title: 'Prep for meeting',
+        snippet: 'Drafted agenda and next steps',
+        lastActive: 'Mon',
+      },
     ],
     [],
   );
@@ -638,6 +662,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {isSpaceV22 && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
             <NewChatCTA onPress={handleNewChat} />
+          </View>
+        )}
+
+        {isSpaceV22 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            <Text style={{ fontWeight: '700', fontSize: 16, color: T.colors.text }}>
+              Recent chats
+            </Text>
+            <View style={{ height: 10 }} />
+            <View style={{ gap: 10 }}>
+              {mockThreads.slice(0, 3).map((t) => (
+                <ThreadCard
+                  key={t.id}
+                  title={t.title}
+                  snippet={t.snippet}
+                  lastActive={t.lastActive}
+                  onOpen={() => console.log('[v22] open thread', t.id)}
+                  onMenu={() => console.log('[v22] thread menu', t.id)}
+                />
+              ))}
+            </View>
           </View>
         )}
 
