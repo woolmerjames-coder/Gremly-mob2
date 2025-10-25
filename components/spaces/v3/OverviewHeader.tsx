@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
-import { lightTokens as t } from '../../../design/tokens';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, useColorScheme } from 'react-native';
+import { lightTokens as t, darkTokens } from '../../../design/tokens';
 
 export type OverviewHeaderProps = {
   spaceName: string;
@@ -15,6 +15,8 @@ export type OverviewHeaderProps = {
  */
 export const OverviewHeader: React.FC<OverviewHeaderProps> = ({ spaceName, onBack, onSearch }) => {
   const scale = useMemo(() => new Animated.Value(0.98), []);
+  const scheme = useColorScheme();
+  const T = scheme === 'dark' ? darkTokens : t;
 
   useEffect(() => {
     Animated.sequence([
@@ -24,8 +26,18 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({ spaceName, onBac
   }, [scale]);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.band} />
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: scheme === 'dark' ? t.colors.deepForest : t.colors.sageMist },
+      ]}
+    >
+      <View
+        style={[
+          styles.band,
+          { backgroundColor: scheme === 'dark' ? t.colors.deepForest : t.colors.sageMist },
+        ]}
+      />
       <View style={styles.row}>
         <View style={styles.left}>
           {onBack ? (
@@ -36,8 +48,14 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({ spaceName, onBac
             <View style={styles.iconBtnPlaceholder} />
           )}
         </View>
-        <Animated.View style={[styles.titleWrap, { transform: [{ scale }] }]}>
-          <Text style={styles.title} numberOfLines={1}>
+        <Animated.View style={{ flex: 1, alignItems: 'center', transform: [{ scale }] }}>
+          <Text
+            style={[
+              styles.title,
+              { color: scheme === 'dark' ? t.colors.linenCream : t.colors.charcoalInk },
+            ]}
+            numberOfLines={1}
+          >
             {spaceName}
           </Text>
         </Animated.View>
@@ -57,26 +75,21 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({ spaceName, onBac
 
 const R = t.radius;
 const S = t.spacing;
-const C = t.colors;
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: C.linenCream,
-    paddingBottom: S[3],
+    paddingBottom: S[2],
   },
   band: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 56,
-    backgroundColor: C.sageMist,
-    opacity: 0.9,
-    borderBottomLeftRadius: R[2],
-    borderBottomRightRadius: R[2],
+    height: 68,
+    opacity: 0.98,
   },
   row: {
-    paddingTop: S[3],
+    paddingTop: S[2],
     paddingHorizontal: S[4],
     flexDirection: 'row',
     alignItems: 'center',
@@ -87,28 +100,17 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: C.surface,
+    backgroundColor: t.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     ...t.elevation.sm,
   },
   iconBtnPlaceholder: { width: 36, height: 36 },
-  titleWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: S[1],
-    paddingHorizontal: S[3],
-    backgroundColor: C.linenCream,
-    borderRadius: R[2], // 10-12px equivalent
-    ...t.elevation.sm, // low shadow
-  },
   title: {
-    color: C.mossGreen,
     fontSize: t.typography.size.xl,
-    fontFamily: t.typography.fontFamily.bold,
+    fontWeight: '700',
   },
-  iconTxt: { color: C.mossGreen, fontSize: 18 },
+  iconTxt: { color: t.colors.mossGreen, fontSize: 18 },
 });
 
 export default OverviewHeader;

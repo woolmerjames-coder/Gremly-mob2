@@ -28,7 +28,7 @@ export const LastTimeCard: React.FC<LastTimeCardProps> = ({ text, updatedAt }) =
         🧠
       </Text>
       <View style={styles.content}>
-        <Text style={styles.text} numberOfLines={2}>
+        <Text style={styles.text} numberOfLines={1}>
           {text}
         </Text>
         {updatedAt ? (
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
     paddingVertical: S[3],
     ...t.elevation.sm,
   },
-  emoji: { fontSize: 18, marginRight: S[3] },
+  emoji: { fontSize: 21, marginRight: S[3] },
   content: { flex: 1 },
   text: {
     color: C.text,

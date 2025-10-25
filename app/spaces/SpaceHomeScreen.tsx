@@ -48,6 +48,7 @@ import {
   SpaceSummaryCard,
   ProgressSnapshot,
   TabbedSection,
+  NewChatCTA,
 } from '../../components/spaces/v3';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
@@ -64,7 +65,7 @@ interface LayoutState {
 export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
   const repo = useRepo();
-  const { userId } = useAuth();
+  const { userId, user } = useAuth();
   const colorScheme = useColorScheme();
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
 
@@ -508,7 +509,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
-        {/* Header & optional banner */}
+        {/* Header */}
         <OverviewHeader
           spaceName={space?.name ?? 'Space'}
           onSearch={handleSearchPress}
@@ -523,12 +524,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               value={searchQuery}
               onChangeText={setSearchQuery}
               style={{
-                backgroundColor: T.colors.surface,
+                backgroundColor: lightTokens.colors.linenCream,
                 borderColor: T.colors.border,
                 borderWidth: 1,
-                borderRadius: T.radius[2],
-                paddingHorizontal: T.spacing[3],
-                paddingVertical: T.spacing[2],
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
                 color: T.colors.text,
               }}
               accessibilityLabel="Search space"
@@ -536,7 +537,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             />
           </View>
         )}
-        <SpaceBanner space={space} />
 
         <View style={[styles.content, { padding: T.spacing[4] }]}>
           {/* Last time */}
@@ -546,39 +546,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={{ marginTop: T.spacing[3] }}>
             <Animated.View style={{ transform: [{ scale: summaryPulse }], opacity: summaryPulse }}>
               <SpaceSummaryCard
-                headline={`You’ve logged ${stats.chatsActive} chats and completed ${stats.habitsCompletedThisWeek}/${stats.habitsTotalThisWeek} habits this week.`}
+                headline={buildSummaryHeadline(
+                  user?.email || '',
+                  stats.chatsActive,
+                  stats.habitsCompletedThisWeek,
+                  stats.habitsTotalThisWeek,
+                )}
                 secondary={`You’re ${Math.round(stats.completionPct * 100)}% to your weekly goal.`}
               />
             </Animated.View>
           </View>
 
-          {/* Filter pills */}
-          <View style={{ marginTop: T.spacing[3], flexDirection: 'row', gap: T.spacing[2] }}>
-            {[
-              { key: 'all', label: 'All' },
-              { key: 'chats', label: 'Chats' },
-              { key: 'habits', label: 'Habits' },
-              { key: 'todos', label: 'To-Dos' },
-              { key: 'notes', label: 'Notes' },
-            ].map((p) => (
-              <TouchableOpacity
-                key={p.key}
-                onPress={() => handleFilterPress(p.key as any)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: activeTab === p.key }}
-                style={{
-                  paddingHorizontal: T.spacing[3],
-                  paddingVertical: T.spacing[1],
-                  borderRadius: T.radius[2],
-                  backgroundColor:
-                    activeTab === (p.key as any) ? T.colors.accentMint : T.colors.surface,
-                  borderWidth: 1,
-                  borderColor: T.colors.border,
-                }}
-              >
-                <Text style={{ color: T.colors.text, fontSize: 14 }}>{p.label}</Text>
-              </TouchableOpacity>
-            ))}
+          {/* Primary CTA */}
+          <View style={{ marginTop: T.spacing[3] }}>
+            <NewChatCTA onPress={handleNewChat} disabled={!!space.archived_at} />
           </View>
 
           {/* Optional: What we discussed */}
@@ -592,29 +573,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               />
             </View>
           )}
-
-          {/* Upcoming schedule */}
-          <View style={{ marginTop: T.spacing[3] }}>
-            <SchedulePreview
-              items={upcoming}
-              onViewAll={() =>
-                Alert.alert('Upcoming', 'Full upcoming list coming soon', [
-                  { text: 'OK', style: 'default' },
-                ])
-              }
-            />
-          </View>
-
-          {/* Progress snapshot */}
-          <View style={{ marginTop: T.spacing[3] }}>
-            <ProgressSnapshot
-              habitsCompleted={stats.habitsCompletedThisWeek}
-              habitsTotal={stats.habitsTotalThisWeek}
-              todosOpen={stats.todosOpen}
-              notesAddedThisWeek={stats.notesAddedThisWeek}
-              chatsActive={stats.chatsActive}
-            />
-          </View>
 
           {/* Tabs */}
           <View style={{ marginTop: T.spacing[4] }}>
@@ -802,6 +760,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               </>
             )}
           </View>
+
+          {/* Progress snapshot at bottom */}
+          <View style={{ marginTop: T.spacing[3] }}>
+            <ProgressSnapshot
+              habitsCompleted={stats.habitsCompletedThisWeek}
+              habitsTotal={stats.habitsTotalThisWeek}
+              todosOpen={stats.todosOpen}
+              notesAddedThisWeek={stats.notesAddedThisWeek}
+              chatsActive={stats.chatsActive}
+            />
+          </View>
         </View>
       </ScrollView>
 
@@ -906,9 +875,9 @@ const styles = StyleSheet.create({
     right: 24,
   },
   fab: {
-    borderRadius: 24, // 24pt radius as requested
-    width: 56,
-    height: 56,
+    borderRadius: 24,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
     ...lightTokens.elevation.md,
@@ -930,4 +899,24 @@ function computeLastTimeText(items: AppRecord[], chats: SpaceChat[]): string {
   if (!lastTs) return 'Last time you were here, we set things up. Ready to explore?';
   const d = new Date(lastTs);
   return `Last time you were here on ${d.toLocaleDateString()}.`;
+}
+
+// Build concise one-line summary
+function buildSummaryHeadline(
+  email: string,
+  chatsActive: number,
+  habitsCompleted: number,
+  habitsTotal: number,
+): string {
+  const first = deriveFirstName(email);
+  const base = `${first}, ${chatsActive} chats this week — ${habitsCompleted}/${habitsTotal} habits done.`;
+  return base.replace(/\s+/g, ' ').trim().slice(0, 110);
+}
+
+function deriveFirstName(email: string): string {
+  if (!email) return 'You';
+  const namePart = email.split('@')[0] || 'You';
+  const cleaned = namePart.replace(/[._-]+/g, ' ');
+  const cap = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  return cap || 'You';
 }

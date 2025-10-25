@@ -48,13 +48,15 @@ export const TabbedSection: React.FC<TabbedSectionProps> = ({ tabs, activeKey, o
             accessibilityRole="button"
             accessibilityState={{ selected: tItem.key === activeKey }}
           >
-            <Text
-              style={[styles.label, tItem.key === activeKey && styles.labelActive]}
-              numberOfLines={1}
-            >
-              {tItem.label}
-              {typeof tItem.count === 'number' ? ` ${tItem.count}` : ''}
-            </Text>
+            <View style={[styles.pill, tItem.key === activeKey && styles.pillActive]}>
+              <Text
+                style={[styles.label, tItem.key === activeKey && styles.labelActive]}
+                numberOfLines={1}
+              >
+                {tItem.label}
+                {typeof tItem.count === 'number' ? ` ${tItem.count}` : ''}
+              </Text>
+            </View>
           </TouchableOpacity>
         ))}
         <Animated.View
@@ -73,24 +75,32 @@ const S = t.spacing;
 const R = t.radius;
 
 const styles = StyleSheet.create({
-  wrap: {
-    backgroundColor: C.surface,
-    borderRadius: R[2],
-    ...t.elevation.sm,
-  },
+  wrap: {},
   tabs: {
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: S[2],
+    paddingTop: S[1],
+    paddingBottom: S[2],
     overflow: 'hidden',
   },
   tab: {
-    paddingVertical: S[2],
+    paddingVertical: S[1],
     alignItems: 'center',
   },
+  pill: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(46,85,64,0.15)',
+  },
+  pillActive: {
+    borderColor: C.mossGreen,
+  },
   label: {
-    color: C.subtle,
+    color: C.charcoalInk ?? C.subtle,
     fontSize: t.typography.size.sm,
   },
   labelActive: {
@@ -101,7 +111,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     left: 0,
-    height: 3,
+    height: 2,
     backgroundColor: C.mossGreen,
     borderRadius: R[1],
   },

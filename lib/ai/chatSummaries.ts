@@ -21,10 +21,10 @@ export async function summarizeChatForCard(
     const assistant = [...messages]
       .reverse()
       .find((m) => m.role === 'assistant' && m.content && m.content.trim().length > 0);
-    if (assistant) return clampToTwoLines(assistant.content);
+    if (assistant) return clampOneLine(assistant.content, 80);
 
     const last = messages[messages.length - 1];
-    if (last?.content) return clampToTwoLines(last.content);
+    if (last?.content) return clampOneLine(last.content, 80);
 
     return 'Tap to view';
   } catch {
@@ -32,8 +32,7 @@ export async function summarizeChatForCard(
   }
 }
 
-function clampToTwoLines(text: string, maxChars = 180): string {
-  // Light clamp by characters; UI will also set numberOfLines=2
+function clampOneLine(text: string, maxChars = 80): string {
   const t = text.replace(/\s+/g, ' ').trim();
   if (t.length <= maxChars) return t;
   return t.slice(0, maxChars - 1) + '…';

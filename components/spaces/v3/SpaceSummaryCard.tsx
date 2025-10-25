@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native
 import { lightTokens as t } from '../../../design/tokens';
 
 export type SpaceSummaryCardProps = {
-  headline: string;
-  secondary?: string;
+  headline: string; // already condensed to one sentence by caller
+  secondary?: string; // optional subtle line
   onExpand?: () => void;
 };
 
@@ -51,15 +51,15 @@ export const SpaceSummaryCard: React.FC<SpaceSummaryCardProps> = ({
   const renderHeadline = () => {
     if (numberInHeadline === null)
       return (
-        <Text style={styles.headline} numberOfLines={2}>
-          {headline}
+        <Text style={styles.headline} numberOfLines={1}>
+          {clampOneLine(headline, 110)}
         </Text>
       );
 
     const [pre, post] = headline.split(String(numberInHeadline));
     const num = numberInHeadline === null ? '' : (display ?? numberInHeadline);
     return (
-      <Text style={styles.headline} numberOfLines={2}>
+      <Text style={styles.headline} numberOfLines={1}>
         {pre}
         <Text style={styles.number}>{num}</Text>
         {post}
@@ -69,7 +69,12 @@ export const SpaceSummaryCard: React.FC<SpaceSummaryCardProps> = ({
 
   return (
     <TouchableOpacity activeOpacity={onExpand ? 0.7 : 1} onPress={onExpand} style={styles.card}>
-      {renderHeadline()}
+      <View style={styles.row}>
+        <Text style={styles.brain} accessibilityLabel="brain">
+          🧠
+        </Text>
+        <View style={{ flex: 1 }}>{renderHeadline()}</View>
+      </View>
       {secondary ? (
         <Text style={styles.secondary} numberOfLines={1}>
           {secondary}
@@ -85,18 +90,23 @@ const R = t.radius;
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: C.surface,
+    backgroundColor: C.linenCream,
     borderRadius: R[2],
     paddingHorizontal: S[4],
     paddingVertical: S[3],
-    ...t.elevation.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
+  row: { flexDirection: 'row', alignItems: 'center', gap: S[2] },
   headline: {
-    color: C.text,
+    color: C.charcoalInk ?? C.text,
     fontSize: t.typography.size.lg,
   },
   number: {
-    color: C.accentMint,
+    color: '#E0C47A',
     fontWeight: '700',
   },
   secondary: {
@@ -104,6 +114,13 @@ const styles = StyleSheet.create({
     color: C.subtle,
     fontSize: t.typography.size.sm,
   },
+  brain: { fontSize: 20, opacity: 0.7, marginRight: S[1] },
 });
 
 export default SpaceSummaryCard;
+
+function clampOneLine(text: string, maxChars = 110): string {
+  const t1 = text.replace(/\s+/g, ' ').replace(/\n/g, ' ').trim();
+  if (t1.length <= maxChars) return t1;
+  return t1.slice(0, maxChars - 1) + '…';
+}
