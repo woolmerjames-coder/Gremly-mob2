@@ -49,6 +49,10 @@ import AdaptiveSummaryV22 from '../../components/spaces/v22/AdaptiveSummary';
 import InsightsRow from '../../components/spaces/v22/InsightsRow';
 import NotepadOverlay from '../../components/spaces/v22/Overlays/NotepadOverlay';
 import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
+import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
+import NewPlusFAB from '../../components/spaces/v22/NewPlusFAB';
+import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -88,6 +92,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showTimeline, setShowTimeline] = useState(false);
   const [showNotepad, setShowNotepad] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
+  const overlay = useUnifiedOverlayController();
+  const [showUnsortedToast, setShowUnsortedToast] = useState(false);
+  const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
+
+  const showSageToast = useCallback(() => {
+    setShowUnsortedToast(true);
+    unsortedOpacity.setValue(0);
+    Animated.timing(unsortedOpacity, {
+      toValue: 1,
+      duration: 160,
+      useNativeDriver: true,
+    }).start(() => {
+      setTimeout(() => {
+        Animated.timing(unsortedOpacity, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) setShowUnsortedToast(false);
+        });
+      }, 1800);
+    });
+  }, [unsortedOpacity]);
   const mockHabits = React.useMemo(
     () => [
       { id: 'h1', title: 'Running', doneCount: 2, target: 3 },
@@ -608,6 +635,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
+        {isSpaceV22 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <NewChatCTA onPress={handleNewChat} />
+          </View>
+        )}
+
         {/* Collapsible search bar */}
         {searchVisible && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
@@ -713,6 +746,41 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       <NotepadOverlay visible={showNotepad} onClose={() => setShowNotepad(false)} />
       {/* People overlay (v22) */}
       <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} />
+
+      {/* Floating Plus (v22) */}
+      {isSpaceV22 && (
+        <View style={{ position: 'absolute', right: 16, bottom: 24 }} pointerEvents="box-none">
+          <NewPlusFAB
+            onPress={() => {
+              if (overlay.state.visible) {
+                showSageToast();
+                return;
+              }
+              overlay.openCreate({ spaceId });
+            }}
+          />
+        </View>
+      )}
+
+      {/* Sage toast for unsorted items */}
+      {showUnsortedToast && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            bottom: 96,
+            alignSelf: 'center',
+            backgroundColor: V22.Sage,
+            borderRadius: 12,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            opacity: unsortedOpacity,
+          }}
+        >
+          <Text style={{ color: '#153326', fontWeight: '700' }}>
+            1 unsorted item waiting in this Space.
+          </Text>
+        </Animated.View>
+      )}
     </View>
   );
 }
