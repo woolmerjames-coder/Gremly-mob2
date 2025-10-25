@@ -46,6 +46,9 @@ import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
 import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
 import DayPanelV22 from '../../components/spaces/v22/DayPanel';
 import AdaptiveSummaryV22 from '../../components/spaces/v22/AdaptiveSummary';
+import InsightsRow from '../../components/spaces/v22/InsightsRow';
+import NotepadOverlay from '../../components/spaces/v22/Overlays/NotepadOverlay';
+import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 
@@ -83,6 +86,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     formatISO(new Date(), { representation: 'date' }),
   );
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showNotepad, setShowNotepad] = useState(false);
+  const [showPeople, setShowPeople] = useState(false);
   const mockHabits = React.useMemo(
     () => [
       { id: 'h1', title: 'Running', doneCount: 2, target: 3 },
@@ -593,6 +598,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
+        {isSpaceV22 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+            <InsightsRow
+              onOpenNotepad={() => setShowNotepad(true)}
+              onOpenPeople={() => setShowPeople(true)}
+              onOpenTimeline={() => setShowTimeline(true)}
+            />
+          </View>
+        )}
+
         {/* Collapsible search bar */}
         {searchVisible && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
@@ -694,6 +709,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
       {/* Timeline overlay (v22) */}
       <TimelineOverlay visible={showTimeline} onClose={() => setShowTimeline(false)} />
+      {/* Notepad overlay (v22) */}
+      <NotepadOverlay visible={showNotepad} onClose={() => setShowNotepad(false)} />
+      {/* People overlay (v22) */}
+      <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} />
     </View>
   );
 }
