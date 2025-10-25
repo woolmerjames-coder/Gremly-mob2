@@ -5,13 +5,22 @@ import LottieView from 'lottie-react-native';
 export interface ConfettiBurstProps {
   visible: boolean;
   onComplete?: () => void;
+  /**
+   * How long to keep the burst visible before calling onComplete.
+   * Defaults to 350ms for subtle micro-celebrations.
+   */
+  durationMs?: number;
 }
 
 /**
  * ConfettiBurst - lightweight, subtle confetti overlay for micro-celebrations.
  * Auto-plays once when visible and then hides via onComplete().
  */
-export default function ConfettiBurst({ visible, onComplete }: ConfettiBurstProps) {
+export default function ConfettiBurst({
+  visible,
+  onComplete,
+  durationMs = 350,
+}: ConfettiBurstProps) {
   const ref = useRef<LottieView>(null);
 
   useEffect(() => {
@@ -19,7 +28,7 @@ export default function ConfettiBurst({ visible, onComplete }: ConfettiBurstProp
       // Play the animation and schedule completion
       ref.current?.reset();
       ref.current?.play();
-      const t = setTimeout(() => onComplete?.(), 900);
+      const t = setTimeout(() => onComplete?.(), Math.max(200, durationMs));
       return () => clearTimeout(t);
     }
   }, [visible, onComplete]);

@@ -115,9 +115,9 @@ const HabitRow: React.FC<{ item: HabitItem; delay?: number; onToggle?: (id: stri
           );
         })}
       </View>
-      <Text
-        style={[styles.habitMeta, isDark ? { color: '#C8D5CE' } : null]}
-      >{`${filled}/${blocks} this week`}</Text>
+      <Text style={[styles.habitMeta, isDark ? { color: '#C8D5CE' } : null]}>
+        {filled > 0 ? `${filled}/${blocks} this week` : `This week: let's begin`}
+      </Text>
     </TouchableOpacity>
   );
 };

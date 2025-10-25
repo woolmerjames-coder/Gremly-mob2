@@ -99,6 +99,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const overlay = useUnifiedOverlayController();
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
   const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
+  // Undo snackbar (Sage bg)
+  const [showUndoToast, setShowUndoToast] = useState(false);
+  const [undoText, setUndoText] = useState<string>('Marked complete');
+  const undoOpacity = React.useMemo(() => new Animated.Value(0), []);
+  const undoHandlerRef = React.useRef<null | (() => Promise<void>)>(null);
   // Unified timeline hook (v22)
   const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
 
@@ -121,6 +126,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       }, 1800);
     });
   }, [unsortedOpacity]);
+
+  const showUndoSnackbar = useCallback(
+    (text: string, onUndo: () => Promise<void>) => {
+      setUndoText(text);
+      undoHandlerRef.current = onUndo;
+      setShowUndoToast(true);
+      undoOpacity.setValue(0);
+      Animated.timing(undoOpacity, { toValue: 1, duration: 160, useNativeDriver: true }).start(
+        () => {
+          setTimeout(() => {
+            Animated.timing(undoOpacity, {
+              toValue: 0,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(({ finished }) => {
+              if (finished) setShowUndoToast(false);
+            });
+          }, 2000);
+        },
+      );
+    },
+    [undoOpacity],
+  );
   const mockHabits = React.useMemo(
     () => [
       { id: 'h1', title: 'Running', doneCount: 2, target: 3 },
@@ -543,7 +571,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         </View>
 
         {/* Micro celebration overlay */}
-        <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
+        <ConfettiBurst
+          visible={showConfetti}
+          durationMs={350}
+          onComplete={() => setShowConfetti(false)}
+        />
       </View>
     );
   }
@@ -668,6 +700,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     await repo.undoCompletion(id);
                   } else {
                     await repo.completeHabit(id, new Date().toISOString());
+                    // Micro feedback: short confetti + Undo snackbar
+                    setShowConfetti(true);
+                    showUndoSnackbar('Marked habit complete', async () => {
+                      try {
+                        await repo.undoCompletion(id);
+                        await Promise.all([reload(), reloadTimeline()]);
+                      } catch (e) {
+                        console.warn('[v22] undo habit failed', e);
+                      }
+                    });
                   }
                   await Promise.all([reload(), reloadTimeline()]);
                 } catch (e) {
@@ -684,7 +726,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     await repo.completeTodo(id, new Date().toISOString());
                   }
                   await Promise.all([reload(), reloadTimeline()]);
-                  setShowConfetti(!t?.done);
+                  if (!t?.done) {
+                    // Micro feedback: short confetti + Undo snackbar
+                    setShowConfetti(true);
+                    showUndoSnackbar('Marked to-do complete', async () => {
+                      try {
+                        await repo.undoCompletion(id);
+                        await Promise.all([reload(), reloadTimeline()]);
+                      } catch (e) {
+                        console.warn('[v22] undo todo failed', e);
+                      }
+                    });
+                  }
                 } catch (e) {
                   console.warn('[v22] toggle todo failed', e);
                 }
@@ -879,7 +932,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       </ScrollView>
 
       {/* Micro celebration overlay */}
-      <ConfettiBurst visible={showConfetti} onComplete={() => setShowConfetti(false)} />
+      <ConfettiBurst
+        visible={showConfetti}
+        durationMs={350}
+        onComplete={() => setShowConfetti(false)}
+      />
       {/* Timeline overlay (v22) */}
       <TimelineOverlay
         visible={showTimeline}
@@ -931,6 +988,44 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <Text style={{ color: '#153326', fontWeight: '700' }}>
             1 unsorted item waiting in this Space.
           </Text>
+        </Animated.View>
+      )}
+
+      {/* Undo snackbar (Sage) */}
+      {showUndoToast && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            bottom: 140,
+            alignSelf: 'center',
+            backgroundColor: V22.Sage,
+            borderRadius: 12,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+            opacity: undoOpacity,
+          }}
+        >
+          <Text style={{ color: '#153326', fontWeight: '700' }}>{undoText}</Text>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Undo completion"
+            onPress={async () => {
+              const fn = undoHandlerRef.current;
+              setShowUndoToast(false);
+              if (fn) {
+                try {
+                  await fn();
+                } catch (e) {
+                  console.warn('[v22] undo action failed', e);
+                }
+              }
+            }}
+          >
+            <Text style={{ color: V22.Deep, fontWeight: '800' }}>Undo</Text>
+          </TouchableOpacity>
         </Animated.View>
       )}
     </View>
@@ -1098,7 +1193,7 @@ function buildFocusText(habitCount: number, upcoming: Array<{ id: string }>, tod
   if (habitCount > 0) parts.push(`${habitCount} habit${habitCount > 1 ? 's' : ''}`);
   if (upcoming && upcoming.length > 0) parts.push(`${upcoming.length} upcoming`);
   if (todos && todos.length > 0) parts.push(`${todos.length} to-do${todos.length > 1 ? 's' : ''}`);
-  if (parts.length === 0) return 'Nothing urgent — breathe and reflect.';
+  if (parts.length === 0) return 'All clear — take a moment to reflect.';
   return parts.join(' • ');
 }
 
