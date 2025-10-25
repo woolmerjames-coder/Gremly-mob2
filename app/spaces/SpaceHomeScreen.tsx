@@ -98,6 +98,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     tokens: number;
   } | null>(null);
 
+  // Dev-only diagnostics to confirm layout branch
+  useEffect(() => {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log('[SpaceHome] v3 flag is', isSpaceV3);
+    }
+  }, []);
+
   // Create SpaceChatRepo instance (for actions)
   const spaceChatRepo = React.useMemo(() => {
     const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
