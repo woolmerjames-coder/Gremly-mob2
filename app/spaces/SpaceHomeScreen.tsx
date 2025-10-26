@@ -61,6 +61,7 @@ import WeeklyGoalCard from '../../components/spaces/v22/WeeklyGoalCard';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
+import { useSpaceNotes } from '../../hooks/useSpaceNotes';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
@@ -112,6 +113,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // State
   const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
     useSpaceAggregate(spaceId);
+  const { totalCount: notesCount } = useSpaceNotes(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -788,38 +790,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* Centered icon row */}
             <IconRowV33
               counts={{
-                notes: listNotesForSpace(items, spaceId, { limit: 9999 }).length,
+                notes: notesCount,
                 milestones: (upcoming || []).length,
               }}
               onOpenNotepad={() => setShowNotepad(true)}
               onOpenCalendar={() => setShowCalendarV33(true)}
               onAdd={() => setShowUnifiedAdd(true)}
             />
-
-            <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-              {(() => {
-                // Calculate inactivity days for sparkle
-                const lastChatTs = chats.reduce(
-                  (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
-                  0,
-                );
-                const lastItemTs = items.reduce((acc, it: any) => {
-                  const ts = new Date(it.updated_at || it.created_at || 0).getTime();
-                  return Math.max(acc, ts);
-                }, 0);
-                const lastTs = Math.max(lastChatTs, lastItemTs);
-                const daysSince = lastTs
-                  ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
-                  : 999;
-                return (
-                  <NewChatSectionV33
-                    spaceName={space?.name ?? 'this space'}
-                    inactiveDays={daysSince}
-                    onPress={handleNewChat}
-                  />
-                );
-              })()}
-            </View>
 
             {/* Goals: expandable GoalList with See All / Show Less */}
             {(() => {
@@ -962,6 +939,32 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 </View>
               );
             })()}
+
+            {/* Chat CTA */}
+            <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+              {(() => {
+                // Calculate inactivity days for sparkle
+                const lastChatTs = chats.reduce(
+                  (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
+                  0,
+                );
+                const lastItemTs = items.reduce((acc, it: any) => {
+                  const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+                  return Math.max(acc, ts);
+                }, 0);
+                const lastTs = Math.max(lastChatTs, lastItemTs);
+                const daysSince = lastTs
+                  ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
+                  : 999;
+                return (
+                  <NewChatSectionV33
+                    spaceName={space?.name ?? 'this space'}
+                    inactiveDays={daysSince}
+                    onPress={handleNewChat}
+                  />
+                );
+              })()}
+            </View>
 
             {/* Recent Chats (last 3) */}
             {(() => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRepo } from '../providers/RepoProvider';
 import { useAuth } from '../providers/AuthProvider';
 
@@ -110,10 +110,19 @@ export function useSpaceNotes(spaceId: string) {
   }, [repo, spaceId, userId]);
 
   const journals = notes.filter((n) => n.type === 'journal');
+  const lists: Note[] = []; // Placeholder for future list support
+
+  // Total count for badge: notes + journals + lists
+  const totalCount = useMemo(
+    () => notes.length + journals.length + lists.length,
+    [notes.length, journals.length, lists.length],
+  );
 
   return {
     notes,
     journals,
+    lists,
+    totalCount,
     list,
     create,
     update,

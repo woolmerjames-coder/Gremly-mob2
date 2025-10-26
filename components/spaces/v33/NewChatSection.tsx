@@ -12,18 +12,25 @@ type Props = {
 export default function NewChatSection({ spaceName, onPress, inactiveDays }: Props) {
   const showSparkle = (inactiveDays || 0) > 5;
   return (
-    <View style={styles.card}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={styles.iconWrap}>
-            <Svg width={18} height={18} viewBox="0 0 24 24">
-              <Path d="M4 6h16v12H4z" fill="none" stroke={COLORS.Moss} strokeWidth={2} />
-              <Circle cx={7} cy={9} r={1.2} fill={COLORS.Moss} />
-              <Circle cx={12} cy={9} r={1.2} fill={COLORS.Moss} />
-              <Circle cx={17} cy={9} r={1.2} fill={COLORS.Moss} />
-            </Svg>
-          </View>
-          <Text style={styles.title}>Talk to Gremly about this Space.</Text>
+    <View style={styles.container}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.btnPrimary,
+          pressed && { backgroundColor: 'rgba(46,85,64,0.9)', transform: [{ translateY: 2 }] },
+        ]}
+      >
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center' }}
+        >
+          <Svg width={18} height={18} viewBox="0 0 24 24">
+            <Path d="M4 6h16v12H4z" fill="none" stroke={COLORS.Linen} strokeWidth={2} />
+            <Circle cx={7} cy={9} r={1.2} fill={COLORS.Linen} />
+            <Circle cx={12} cy={9} r={1.2} fill={COLORS.Linen} />
+            <Circle cx={17} cy={9} r={1.2} fill={COLORS.Linen} />
+          </Svg>
+          <Text style={styles.btnPrimaryText}>Start a new chat with Gremly</Text>
           {showSparkle && (
             <Svg width={16} height={16} viewBox="0 0 24 24">
               <Path
@@ -33,49 +40,31 @@ export default function NewChatSection({ spaceName, onPress, inactiveDays }: Pro
             </Svg>
           )}
         </View>
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.btnSecondary,
-          pressed && { backgroundColor: 'rgba(191,216,192,0.9)', transform: [{ translateY: 2 }] },
-        ]}
-      >
-        <Text style={styles.btnSecondaryText}>Start a new chat with Gremly</Text>
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.Linen,
-    borderRadius: RADII.card,
-    padding: SPACE.md,
-    borderWidth: 1,
-    borderColor: 'rgba(21,51,38,0.12)',
+  container: {
+    // Simple wrapper, no card background
+  },
+  btnPrimary: {
+    backgroundColor: COLORS.Moss,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
     // soft shadow
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  iconWrap: {
-    backgroundColor: 'rgba(46,85,64,0.08)',
-    borderRadius: 10,
-    padding: 6,
+  btnPrimaryText: {
+    color: COLORS.Linen,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    fontSize: 16,
   },
-  title: { color: COLORS.Deep, fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
-  copy: { color: 'rgba(26,51,40,0.8)', marginTop: 6, marginBottom: 12, lineHeight: 20 },
-  btnSecondary: {
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.Sage,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  btnSecondaryText: { color: COLORS.Moss, fontWeight: '800', letterSpacing: 0.2 },
 });
