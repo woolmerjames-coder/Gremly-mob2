@@ -71,6 +71,7 @@ import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay
 import IconRowV33 from '../../components/spaces/v33/IconRow';
 import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
 import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
+import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 import Menu from '../../components/spaces/v33/Menu';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
@@ -96,6 +97,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   })();
   // Feature flag: Space v3.3 (v33) - strict equality per spec
   const isSpaceV33 = process.env.EXPO_PUBLIC_SPACE_V33 === 'on';
+  // Debug flags (dev only)
+  if (__DEV__) {
+    // eslint-disable-next-line no-console
+    console.log('[SpaceHome] flags', {
+      v3: isSpaceV3,
+      v22: process.env.EXPO_PUBLIC_SPACE_V22 === 'on',
+      v33: isSpaceV33,
+    });
+  }
 
   // State
   const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
@@ -142,8 +152,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Unified timeline hook (v22)
   const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
   // v33 page load motion
-  const oV33 = React.useMemo(() => new Animated.Value(0), []);
-  const yV33 = React.useMemo(() => new Animated.Value(20), []);
+  // Safe defaults so content is visible even if animation doesn’t kick in
+  const oV33 = React.useMemo(() => new Animated.Value(1), []);
+  const yV33 = React.useMemo(() => new Animated.Value(0), []);
   useEffect(() => {
     if (!isSpaceV33) return;
     Animated.parallel([
@@ -631,9 +642,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // New: Space v33 gated layout
   if (isSpaceV33) {
+    if (__DEV__) {
+      console.log('[SpaceHome] render v33');
+      console.log(
+        '[SpaceHome v33] space?',
+        !!space,
+        'items:',
+        items.length,
+        'chats:',
+        chats.length,
+      );
+      console.log('[SpaceHome v33] title:', space?.name ?? 'Space');
+    }
     return (
       <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
-        <Animated.View style={{ opacity: oV33, transform: [{ translateY: yV33 }] }}>
+        <Animated.View style={{ flex: 1, opacity: oV33, transform: [{ translateY: yV33 }] }}>
           <ScrollView
             ref={scrollRef}
             style={styles.scroll}
@@ -1023,6 +1046,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             }
           }}
         />
+        {/* Notepad overlay (v33) */}
+        <NotepadOverlayV33
+          spaceId={spaceId}
+          isOpen={showNotepad}
+          onClose={() => setShowNotepad(false)}
+        />
         {/* Edit Goal modal (v33) */}
         {editGoalRecord && (
           <EditGoalModal
@@ -1039,6 +1068,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }
 
   if (!isSpaceV3) {
+    if (__DEV__) console.log('[SpaceHome] render legacy (not v3)');
     // Legacy stacked layout fallback
     return (
       <View style={[styles.container, { backgroundColor: T.colors.bg }]}>

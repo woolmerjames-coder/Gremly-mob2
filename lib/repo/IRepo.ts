@@ -294,4 +294,41 @@ export interface IRepo {
    * Returns updated defaults_json.
    */
   setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any>;
+
+  // Phase v3.3 - Notes/Journal methods
+  /**
+   * List notes for a space (notes + journals).
+   * Supports optional text search query.
+   */
+  listNotes(spaceId: string, opts?: { query?: string }): Promise<any[]>;
+
+  /**
+   * Create a note or journal entry.
+   */
+  createNote(input: {
+    space_id: string;
+    user_id: string;
+    type: 'note' | 'journal';
+    content: string;
+    date?: string | null;
+    title?: string;
+  }): Promise<any>;
+
+  /**
+   * Update a note or journal entry.
+   */
+  updateNote(
+    id: string,
+    patch: Partial<{ content: string; title: string; date: string | null }>,
+  ): Promise<void>;
+
+  /**
+   * Delete a note or journal entry.
+   */
+  deleteNote(id: string): Promise<void>;
+
+  /**
+   * Subscribe to realtime notes updates for a space.
+   */
+  subscribeToNotes?(spaceId: string, callback: (payload: any) => void): any;
 }

@@ -16,4 +16,10 @@ export {
   Users,
   StickyNote,
   Bot,
+  CheckSquare2,
+  List,
+  ListOrdered,
+  Save,
+  Trash2,
+  X,
 } from 'lucide-react-native';

@@ -1778,6 +1778,115 @@ export class SupabaseRepo implements IRepo {
 
     return data.defaults_json;
   }
+
+  // Phase v3.3 - Notes/Journal methods
+  async listNotes(spaceId: string, opts?: { query?: string }): Promise<any[]> {
+    const userId = this.ensureUserId();
+    let query = supabase
+      .from('items')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .in('type', ['note', 'journal'])
+      .order('updated_at', { ascending: false });
+
+    if (opts?.query) {
+      const q = `%${opts.query}%`;
+      query = query.or(`title.ilike.${q},body.ilike.${q}`);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to list notes: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      user_id: row.owner_id,
+      space_id: row.space_id,
+      type: row.type,
+      title: row.title || row.body?.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
+      content: row.body || '',
+      date: row.due_date || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  async createNote(input: {
+    space_id: string;
+    user_id: string;
+    type: 'note' | 'journal';
+    content: string;
+    date?: string | null;
+    title?: string;
+  }): Promise<any> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('items')
+      .insert({
+        owner_id: userId,
+        space_id: input.space_id,
+        type: input.type,
+        subtype: input.type === 'journal' ? 'journal' : 'reference',
+        title: input.title || input.content.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
+        body: input.content,
+        due_date: input.date || null,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to create note: ${error.message}`);
+    return {
+      id: data.id,
+      user_id: data.owner_id,
+      space_id: data.space_id,
+      type: data.type,
+      title: data.title,
+      content: data.body || '',
+      date: data.due_date,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+  }
+
+  async updateNote(
+    id: string,
+    patch: Partial<{ content: string; title: string; date: string | null }>,
+  ): Promise<void> {
+    const userId = this.ensureUserId();
+    const updates: any = {};
+    if (patch.content !== undefined) updates.body = patch.content;
+    if (patch.title !== undefined) updates.title = patch.title;
+    if (patch.date !== undefined) updates.due_date = patch.date;
+
+    const { error } = await supabase
+      .from('items')
+      .update(updates)
+      .eq('id', id)
+      .eq('owner_id', userId);
+    if (error) throw new Error(`Failed to update note: ${error.message}`);
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase.from('items').delete().eq('id', id).eq('owner_id', userId);
+    if (error) throw new Error(`Failed to delete note: ${error.message}`);
+  }
+
+  subscribeToNotes(spaceId: string, callback: (payload: any) => void): any {
+    const userId = this.ensureUserId();
+    const channel = supabase
+      .channel(`notes:${spaceId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'items',
+          filter: `owner_id=eq.${userId},space_id=eq.${spaceId}`,
+        },
+        callback,
+      )
+      .subscribe();
+    return channel;
+  }
 }
 
 /**

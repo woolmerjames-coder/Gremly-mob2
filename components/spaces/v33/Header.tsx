@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { Search as SearchIcon } from '../../icons';
 
@@ -11,6 +12,13 @@ export type HeaderProps = {
 };
 
 export default function Header({ title, lastVisited, moodLine, onSearch }: HeaderProps) {
+  const insets = useSafeAreaInsets();
+
+  // Debug: log what we receive
+  if (__DEV__) {
+    console.log('[HeaderV33] title:', title, 'lastVisited:', lastVisited);
+  }
+
   const moodColor = (() => {
     if (!moodLine) return 'rgba(34,34,34,0.6)';
     switch (moodLine.tone) {
@@ -25,31 +33,33 @@ export default function Header({ title, lastVisited, moodLine, onSearch }: Heade
   })();
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.center}>
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
-        {!!lastVisited && (
-          <Text style={styles.subline} numberOfLines={1}>
-            {lastVisited}
+    <View style={[styles.wrap, { paddingTop: insets.top + 12 }]}>
+      <View style={styles.inner}>
+        <View style={styles.center}>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
           </Text>
-        )}
-        {!!moodLine && (
-          <Text style={[styles.mood, { color: moodColor }]} numberOfLines={1}>
-            {moodLine.text}
-          </Text>
-        )}
-      </View>
-      <View style={styles.actions}>
-        <TouchableOpacity
-          accessibilityLabel="Search"
-          accessibilityRole="button"
-          onPress={onSearch}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <SearchIcon color={COLORS.Deep} size={24} strokeWidth={2} />
-        </TouchableOpacity>
+          {!!lastVisited && (
+            <Text style={styles.subline} numberOfLines={1}>
+              {lastVisited}
+            </Text>
+          )}
+          {!!moodLine && (
+            <Text style={[styles.mood, { color: moodColor }]} numberOfLines={1}>
+              {moodLine.text}
+            </Text>
+          )}
+        </View>
+        <View style={styles.actions}>
+          <TouchableOpacity
+            accessibilityLabel="Search"
+            accessibilityRole="button"
+            onPress={onSearch}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <SearchIcon color={COLORS.Deep} size={24} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
       </View>
       <View style={styles.divider} />
     </View>
@@ -60,7 +70,7 @@ const styles = StyleSheet.create({
   wrap: {
     backgroundColor: COLORS.Sage,
     paddingHorizontal: SPACE.md,
-    paddingTop: 12,
+    // paddingTop now dynamic via insets.top + 12
     paddingBottom: 8,
     borderBottomLeftRadius: RADII.card,
     borderBottomRightRadius: RADII.card,
@@ -71,9 +81,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  inner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 40,
+  },
   center: { flex: 1, alignItems: 'center' },
   title: {
-    color: COLORS.Moss,
+    color: COLORS.Deep, // Changed from Moss to Deep for better contrast on Sage background
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: 0.2,
@@ -82,9 +98,6 @@ const styles = StyleSheet.create({
   subline: { marginTop: 2, fontSize: 12, color: 'rgba(34,34,34,0.6)', lineHeight: 17 },
   mood: { marginTop: 2, fontSize: 11, lineHeight: 16, letterSpacing: 0.2 },
   actions: {
-    position: 'absolute',
-    right: SPACE.md,
-    top: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
