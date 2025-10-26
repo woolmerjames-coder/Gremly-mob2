@@ -1587,6 +1587,16 @@ export default function ChatThreadScreen({ route }: Props) {
                 // Remove the toast message from UI
                 console.log('[Toast] Removing toast message:', pendingActionConfirmation.id);
                 removeMessage(pendingActionConfirmation.id);
+
+                // Add acknowledgment message to resume conversation
+                setTimeout(async () => {
+                  try {
+                    await appendAssistantMessage("No problem! Let me know when you're ready.");
+                    console.log('[Chat] Acknowledgment message added after cancellation');
+                  } catch (err) {
+                    console.error('[Chat] Failed to add acknowledgment message:', err);
+                  }
+                }, 500);
               };
 
               // Phase 11.5: Check if this is a multi-intent confirmation
@@ -1709,6 +1719,19 @@ export default function ChatThreadScreen({ route }: Props) {
                     habitId: record.id,
                     locked: true,
                   });
+
+                  // Add follow-up message after short delay to resume conversation
+                  setTimeout(async () => {
+                    try {
+                      const habitName = habitRecord.name || 'habit';
+                      await appendAssistantMessage(
+                        `Great! Your ${habitName} is set. What else would you like to work on?`,
+                      );
+                      console.log('[Chat] Follow-up message added after habit creation');
+                    } catch (err) {
+                      console.error('[Chat] Failed to add follow-up message:', err);
+                    }
+                  }, 1500);
                 } else {
                   // For todos and notes, add the regular entry card
                   await appendEntryCard(record, result.type as 'note' | 'todo' | 'habit');
