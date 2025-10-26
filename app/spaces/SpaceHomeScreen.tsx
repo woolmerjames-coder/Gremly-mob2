@@ -66,6 +66,7 @@ import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
 import GoalCardV33 from '../../components/spaces/v33/GoalCard';
+import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -586,10 +587,19 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         >
           <HeaderV33
             title={space?.name ?? 'Space'}
-            subtitle={buildLastVisitedLabel(items, chats)}
-            onBack={() => navigation.goBack()}
-            onSearch={handleSearchPress}
-            onMenu={() => Alert.alert('Menu', 'Coming soon')}
+            lastVisited={buildLastVisitedLabel(items, chats)}
+            moodLine={headerMood}
+            onSearch={() => setSearchVisible((v) => !v)}
+          />
+
+          {/* Slide-down search overlay under header */}
+          <SearchOverlayV33
+            visible={searchVisible}
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onClose={() => setSearchVisible(false)}
+            active={'chats'}
+            onSetActive={(_k) => {}}
           />
 
           <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
