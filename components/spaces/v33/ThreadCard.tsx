@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { SpaceChat } from '../../../lib/types';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { generateChatTitle } from '../../../lib/ai/chatTitle';
+import { format } from 'date-fns';
 
 export type ThreadCardProps = {
   chat: SpaceChat;
@@ -24,6 +25,15 @@ export default function ThreadCard({ chat, onPress }: ThreadCardProps) {
   }, [chat]);
 
   const snippet = chat.last_message_snippet || '';
+  const dateLabel = (() => {
+    const iso = (chat.updated_at as unknown as string) || (chat as any).created_at;
+    if (!iso) return '';
+    try {
+      return format(new Date(iso), 'MMM d');
+    } catch {
+      return '';
+    }
+  })();
 
   return (
     <Pressable
@@ -54,6 +64,11 @@ export default function ThreadCard({ chat, onPress }: ThreadCardProps) {
             </Text>
           )}
         </View>
+        {!!dateLabel && (
+          <Text style={styles.date} numberOfLines={1}>
+            {dateLabel}
+          </Text>
+        )}
       </Animated.View>
     </Pressable>
   );
@@ -79,4 +94,5 @@ const styles = StyleSheet.create({
   },
   title: { color: COLORS.Deep, fontWeight: '700' },
   snippet: { color: 'rgba(26,51,40,0.7)', fontSize: 12, marginTop: 2 },
+  date: { color: 'rgba(26,51,40,0.6)', fontSize: 12, marginLeft: 8 },
 });

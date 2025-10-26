@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 import Svg, { Path, Circle } from 'react-native-svg';
 
@@ -23,7 +23,7 @@ export default function NewChatSection({ spaceName, onPress, inactiveDays }: Pro
               <Circle cx={17} cy={9} r={1.2} fill={COLORS.Moss} />
             </Svg>
           </View>
-          <Text style={styles.title}>Talk to Gremly</Text>
+          <Text style={styles.title}>Talk to Gremly about this Space.</Text>
           {showSparkle && (
             <Svg width={16} height={16} viewBox="0 0 24 24">
               <Path
@@ -35,11 +35,16 @@ export default function NewChatSection({ spaceName, onPress, inactiveDays }: Pro
         </View>
       </View>
 
-      <Text style={styles.copy}>Ask a question or start a new chat about {spaceName}.</Text>
-
-      <TouchableOpacity accessibilityRole="button" onPress={onPress} style={styles.btnSecondary}>
-        <Text style={styles.btnSecondaryText}>Start Chat</Text>
-      </TouchableOpacity>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.btnSecondary,
+          pressed && { backgroundColor: 'rgba(191,216,192,0.9)', transform: [{ translateY: 2 }] },
+        ]}
+      >
+        <Text style={styles.btnSecondaryText}>Start a new chat with Gremly</Text>
+      </Pressable>
     </View>
   );
 }
