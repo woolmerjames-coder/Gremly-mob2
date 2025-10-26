@@ -2,10 +2,11 @@
  * InlineActionConfirmation - Phase 11.3 / Phase 11.4
  * Renders action confirmations inline with chat messages instead of overlay toast
  * Updated: Clean styling with brand colors, no emojis
+ * CRITICAL FIX: Use Pressable for better touch handling and proper z-index
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { SpaceChatMessage } from '../../lib/types';
 
 type ActionType = 'habit' | 'todo' | 'note';
@@ -80,7 +81,7 @@ export function InlineActionConfirmation({
   };
 
   return (
-    <View style={styles.container} testID={testID}>
+    <View style={styles.container} testID={testID} pointerEvents="box-none">
       <View style={styles.header}>
         <Text style={styles.typeLabel}>{getTypeLabel()}</Text>
       </View>
@@ -89,9 +90,13 @@ export function InlineActionConfirmation({
         {displayText}
       </Text>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.confirmButton]}
+      <View style={styles.buttonContainer} pointerEvents="box-none">
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            styles.confirmButton,
+            pressed && styles.buttonPressed,
+          ]}
           onPress={() => {
             console.log('[Button] Confirm press detected');
             handleConfirmPress();
@@ -99,13 +104,17 @@ export function InlineActionConfirmation({
           onPressIn={() => console.log('[Button] Confirm press in')}
           onPressOut={() => console.log('[Button] Confirm press out')}
           testID={`${testID}-confirm`}
-          activeOpacity={0.7}
+          hitSlop={10}
         >
           <Text style={[styles.buttonText, styles.confirmText]}>Confirm</Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
-          style={[styles.button, styles.editButton]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            styles.editButton,
+            pressed && styles.buttonPressed,
+          ]}
           onPress={() => {
             console.log('[Button] Edit press detected');
             handleEditPress();
@@ -113,13 +122,17 @@ export function InlineActionConfirmation({
           onPressIn={() => console.log('[Button] Edit press in')}
           onPressOut={() => console.log('[Button] Edit press out')}
           testID={`${testID}-edit`}
-          activeOpacity={0.7}
+          hitSlop={10}
         >
           <Text style={[styles.buttonText, styles.editText]}>Edit</Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
-          style={[styles.button, styles.cancelButton]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            styles.cancelButton,
+            pressed && styles.buttonPressed,
+          ]}
           onPress={() => {
             console.log('[Button] Cancel press detected');
             handleCancelPress();
@@ -127,10 +140,10 @@ export function InlineActionConfirmation({
           onPressIn={() => console.log('[Button] Cancel press in')}
           onPressOut={() => console.log('[Button] Cancel press out')}
           testID={`${testID}-cancel`}
-          activeOpacity={0.7}
+          hitSlop={10}
         >
           <Text style={[styles.buttonText, styles.cancelText]}>Cancel</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </View>
   );
@@ -149,7 +162,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 5, // Increased elevation for Android
+    zIndex: 1000, // High z-index to ensure it's above other elements
   },
   header: {
     flexDirection: 'row',
@@ -177,11 +191,16 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 44, // Increased for better touch target (Apple HIG guideline)
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  buttonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   confirmButton: {
     backgroundColor: '#2E5540', // Moss Green - primary action
