@@ -44,20 +44,38 @@ export function InlineActionConfirmation({
   };
 
   const handleConfirmPress = async () => {
+    console.log('[InlineActionConfirmation] Confirm button pressed');
+    console.log('[InlineActionConfirmation] onConfirm handler:', typeof onConfirm);
     if (onConfirm) {
-      await onConfirm();
+      try {
+        console.log('[InlineActionConfirmation] Calling onConfirm...');
+        await onConfirm();
+        console.log('[InlineActionConfirmation] onConfirm completed successfully');
+      } catch (error) {
+        console.error('[InlineActionConfirmation] onConfirm failed:', error);
+      }
+    } else {
+      console.warn('[InlineActionConfirmation] No onConfirm handler provided!');
     }
   };
 
   const handleEditPress = () => {
+    console.log('[InlineActionConfirmation] Edit button pressed');
+    console.log('[InlineActionConfirmation] onEdit handler:', typeof onEdit);
     if (onEdit) {
       onEdit();
+    } else {
+      console.warn('[InlineActionConfirmation] No onEdit handler provided!');
     }
   };
 
   const handleCancelPress = () => {
+    console.log('[InlineActionConfirmation] Cancel button pressed');
+    console.log('[InlineActionConfirmation] onCancel handler:', typeof onCancel);
     if (onCancel) {
       onCancel();
+    } else {
+      console.warn('[InlineActionConfirmation] No onCancel handler provided!');
     }
   };
 
@@ -74,24 +92,42 @@ export function InlineActionConfirmation({
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={[styles.button, styles.confirmButton]}
-          onPress={handleConfirmPress}
+          onPress={() => {
+            console.log('[Button] Confirm press detected');
+            handleConfirmPress();
+          }}
+          onPressIn={() => console.log('[Button] Confirm press in')}
+          onPressOut={() => console.log('[Button] Confirm press out')}
           testID={`${testID}-confirm`}
+          activeOpacity={0.7}
         >
           <Text style={[styles.buttonText, styles.confirmText]}>Confirm</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.editButton]}
-          onPress={handleEditPress}
+          onPress={() => {
+            console.log('[Button] Edit press detected');
+            handleEditPress();
+          }}
+          onPressIn={() => console.log('[Button] Edit press in')}
+          onPressOut={() => console.log('[Button] Edit press out')}
           testID={`${testID}-edit`}
+          activeOpacity={0.7}
         >
           <Text style={[styles.buttonText, styles.editText]}>Edit</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.cancelButton]}
-          onPress={handleCancelPress}
+          onPress={() => {
+            console.log('[Button] Cancel press detected');
+            handleCancelPress();
+          }}
+          onPressIn={() => console.log('[Button] Cancel press in')}
+          onPressOut={() => console.log('[Button] Cancel press out')}
           testID={`${testID}-cancel`}
+          activeOpacity={0.7}
         >
           <Text style={[styles.buttonText, styles.cancelText]}>Cancel</Text>
         </TouchableOpacity>

@@ -909,7 +909,13 @@ export default function ChatThreadScreen({ route }: Props) {
           }
 
           // Add AI response message for all cortex responses (explanation or replyText)
-          const assistantText = response.explanation?.trim() || response.replyText?.trim();
+          // CRITICAL FIX: Don't show explanation if we're showing a toast/confirmation
+          // The explanation might contain "Habit locked in" which is premature before user confirms
+          const shouldShowExplanation = !toastShown;
+          const assistantText = shouldShowExplanation
+            ? response.explanation?.trim() || response.replyText?.trim()
+            : response.replyText?.trim() || '';
+
           if (assistantText) {
             // Phase 10.7: Handle intent-based suggestions
             if (
@@ -1318,7 +1324,8 @@ export default function ChatThreadScreen({ route }: Props) {
                   );
 
                   // Phase 11.6: Render entry card
-                  if (message.role === 'entry-card') {
+                  // Check for system role with type 'entry-card' in metadata
+                  if (message.role === 'system' && message.metadata_json?.type === 'entry-card') {
                     const metadata = message.metadata_json || {};
                     const entry = metadata.entry;
                     const entryType = metadata.entryType;
@@ -1345,7 +1352,11 @@ export default function ChatThreadScreen({ route }: Props) {
                   }
 
                   // Phase 11.3/11.5: Render inline action confirmation
-                  if (message.role === 'action-confirmation') {
+                  // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
+                  if (
+                    message.role === 'system' &&
+                    message.metadata_json?.type === 'action-confirmation'
+                  ) {
                     const metadata = message.metadata_json || {};
 
                     // Phase 11.5: Check if this is a multi-intent confirmation

@@ -18,14 +18,20 @@ export function extractActivity(text: string): string | null {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      const activity = match[1]
+      let activity = match[1]
         .trim()
         .replace(/^(a|an|the|my)\s+/i, '')
         .replace(/\s+(more|regularly|daily|weekly|habit|routine)$/i, '');
 
+      // Convert gerunds to base form
+      if (activity.endsWith('ing')) {
+        activity = activity.replace(/ing$/, '').replace(/nn$/, 'n').replace(/mm$/, 'm');
+      }
+
       // Filter out non-activities
       if (!['it', 'this', 'that', 'habit'].includes(activity.toLowerCase())) {
-        return activity;
+        // Capitalize first letter
+        return activity.charAt(0).toUpperCase() + activity.slice(1);
       }
     }
   }
@@ -103,12 +109,14 @@ export function extractActivityFromContext(currentText: string, recentMessages?:
     // Then check for activity keywords
     for (const activity of activityWords) {
       if (lowerMessage.includes(activity)) {
-        // Found the activity! Clean it up
+        // Found the activity! Clean it up and capitalize
+        let cleaned = activity;
         if (activity.endsWith('ing')) {
-          // Convert gerund to base form: "running" -> "run"
-          return activity.replace(/ing$/, '').replace(/tt$/, 't').replace(/mm$/, 'm');
+          // Convert gerund to base form: "running" -> "Run"
+          cleaned = activity.replace(/ing$/, '').replace(/nn$/, 'n').replace(/mm$/, 'm');
         }
-        return activity;
+        // Capitalize first letter
+        return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
       }
     }
 
