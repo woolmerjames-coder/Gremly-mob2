@@ -22,6 +22,7 @@ import {
   ToastAndroid,
   Image,
   TouchableOpacity,
+  Pressable,
 } from 'react-native';
 import { Search as SearchIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -1347,6 +1348,43 @@ export default function ChatThreadScreen({ route }: Props) {
                     (c) => c.messageId === message.id,
                   );
 
+                  // Render locked habit confirmation
+                  if (
+                    message.role === 'assistant' &&
+                    (message.metadata_json as any)?.type === 'habit-locked'
+                  ) {
+                    const metadata = message.metadata_json || {};
+                    return (
+                      <Pressable
+                        key={message.id}
+                        style={styles.lockedHabit}
+                        onPress={() => {
+                          // Navigate to habit in space
+                          if (metadata.habitId) {
+                            // TODO: Navigate to habit detail or open edit overlay
+                            console.log('[LockedHabit] Tapped, habitId:', metadata.habitId);
+                            overlayController.openEdit({
+                              record: { id: metadata.habitId, type: 'habit' } as any,
+                              spaceId: spaceId ?? undefined,
+                            });
+                          }
+                        }}
+                      >
+                        <View style={styles.lockedContent}>
+                          <Text style={styles.lockIcon}>🔒</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.lockedTitle}>
+                              Habit locked in for {metadata.frequency}
+                            </Text>
+                            <Text style={styles.lockedSubtext}>
+                              Click this entry or find it in the Space to edit
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  }
+
                   // Phase 11.6: Render entry card
                   // Check for system role with type 'entry-card' in metadata
                   if (message.role === 'system' && message.metadata_json?.type === 'entry-card') {
@@ -1661,7 +1699,20 @@ export default function ChatThreadScreen({ route }: Props) {
                 record &&
                 (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
               ) {
-                await appendEntryCard(record, result.type as 'note' | 'todo' | 'habit');
+                // For habits, add a locked confirmation message instead of entry card
+                if (result.type === 'habit') {
+                  const habitRecord = record as any;
+                  await appendAssistantMessage('', {
+                    type: 'habit-locked',
+                    habitName: habitRecord.name || 'Habit',
+                    frequency: habitRecord.frequency || 'regularly',
+                    habitId: record.id,
+                    locked: true,
+                  });
+                } else {
+                  // For todos and notes, add the regular entry card
+                  await appendEntryCard(record, result.type as 'note' | 'todo' | 'habit');
+                }
               }
             } catch (err) {
               console.error('[EntryCard] Failed to add entry card to chat:', err);
@@ -1823,5 +1874,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: lightTokens.colors.linenCream,
+  },
+  lockedHabit: {
+    backgroundColor: '#E8F5E9', // Light green background
+    borderLeftWidth: 4,
+    borderLeftColor: '#2E5540', // Moss Green
+    padding: 12,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 8,
+  },
+  lockedContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lockIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  lockedTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
+  },
+  lockedSubtext: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
   },
 });
