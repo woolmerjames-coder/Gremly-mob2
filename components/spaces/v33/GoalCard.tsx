@@ -105,9 +105,15 @@ const styles = StyleSheet.create({
     padding: SPACE.md,
     borderWidth: 1,
     borderColor: 'rgba(46,85,64,0.2)', // Sage @20%
+    // soft shadow
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  title: { fontWeight: '700', color: COLORS.Deep },
-  subtitle: { color: 'rgba(26,51,40,0.7)', marginTop: 2, fontSize: 12 },
+  title: { fontWeight: '700', color: COLORS.Deep, letterSpacing: 0.2, lineHeight: 20 },
+  subtitle: { color: 'rgba(26,51,40,0.7)', marginTop: 2, fontSize: 12, lineHeight: 17 },
   kebab: { paddingHorizontal: 6, paddingVertical: 4 },
   menuWrap: {
     position: 'absolute',

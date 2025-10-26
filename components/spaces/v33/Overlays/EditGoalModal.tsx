@@ -221,10 +221,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(191,216,192,0.4)',
   },
-  headerTitle: { color: COLORS.Linen, fontSize: 16, fontWeight: '700' },
+  headerTitle: {
+    color: COLORS.Linen,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    lineHeight: 22,
+  },
   closeText: { color: COLORS.Sage, fontSize: 22, fontWeight: '700' },
   body: { paddingTop: SPACE.md },
-  label: { color: COLORS.Linen, fontWeight: '700', marginBottom: 6 },
+  label: { color: COLORS.Linen, fontWeight: '700', marginBottom: 6, letterSpacing: 0.2 },
   input: {
     backgroundColor: 'rgba(249,246,241,0.08)',
     borderWidth: 1,
@@ -233,6 +239,7 @@ const styles = StyleSheet.create({
     color: COLORS.Linen,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    letterSpacing: 0.2,
   },
   textarea: { minHeight: 84, textAlignVertical: 'top' },
   segmentRow: { flexDirection: 'row', gap: 8 },
@@ -260,7 +267,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: RADII.btn,
   },
-  saveText: { color: COLORS.Linen, fontWeight: '700' },
+  saveText: { color: COLORS.Linen, fontWeight: '700', letterSpacing: 0.2 },
   toast: {
     position: 'absolute',
     left: 16,
@@ -274,5 +281,5 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(191,216,192,0.35)',
     alignItems: 'center',
   },
-  toastText: { color: COLORS.Linen, fontWeight: '700' },
+  toastText: { color: COLORS.Linen, fontWeight: '700', letterSpacing: 0.2 },
 });

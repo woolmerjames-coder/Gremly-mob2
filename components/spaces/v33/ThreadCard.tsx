@@ -83,6 +83,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(46,85,64,0.2)', // Sage @20%
     borderRadius: 10,
     padding: SPACE.md,
+    // soft shadow
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   iconWrap: {
     width: 28,
@@ -92,7 +98,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(46,85,64,0.08)',
   },
-  title: { color: COLORS.Deep, fontWeight: '700' },
-  snippet: { color: 'rgba(26,51,40,0.7)', fontSize: 12, marginTop: 2 },
-  date: { color: 'rgba(26,51,40,0.6)', fontSize: 12, marginLeft: 8 },
+  title: { color: COLORS.Deep, fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
+  snippet: { color: 'rgba(26,51,40,0.7)', fontSize: 12, marginTop: 2, lineHeight: 17 },
+  date: { color: 'rgba(26,51,40,0.6)', fontSize: 12, marginLeft: 8, lineHeight: 17 },
 });

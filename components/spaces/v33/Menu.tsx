@@ -69,6 +69,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACE.md,
     paddingVertical: 10,
   },
-  menuText: { color: COLORS.Deep, fontWeight: '600' },
+  menuText: { color: COLORS.Deep, fontWeight: '600', letterSpacing: 0.2 },
   menuTextDanger: { color: '#A91D1D' },
 });

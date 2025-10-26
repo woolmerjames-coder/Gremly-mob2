@@ -56,14 +56,20 @@ const styles = StyleSheet.create({
     padding: SPACE.md,
     borderWidth: 1,
     borderColor: 'rgba(21,51,38,0.12)',
+    // soft shadow
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   iconWrap: {
     backgroundColor: 'rgba(46,85,64,0.08)',
     borderRadius: 10,
     padding: 6,
   },
-  title: { color: COLORS.Deep, fontWeight: '700' },
-  copy: { color: 'rgba(26,51,40,0.8)', marginTop: 6, marginBottom: 12 },
+  title: { color: COLORS.Deep, fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
+  copy: { color: 'rgba(26,51,40,0.8)', marginTop: 6, marginBottom: 12, lineHeight: 20 },
   btnSecondary: {
     alignSelf: 'flex-start',
     backgroundColor: COLORS.Sage,
@@ -71,5 +77,5 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
   },
-  btnSecondaryText: { color: COLORS.Moss, fontWeight: '800' },
+  btnSecondaryText: { color: COLORS.Moss, fontWeight: '800', letterSpacing: 0.2 },
 });

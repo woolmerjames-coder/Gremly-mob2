@@ -188,6 +188,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(46,85,64,0.1)', // Sage @10%
   },
   flatIcon: { width: 14, height: 14, borderRadius: 7, backgroundColor: 'rgba(46,85,64,0.25)' },
-  flatTitle: { fontWeight: '700', color: COLORS.Deep, fontSize: 15 },
-  flatSubtitle: { color: 'rgba(26,51,40,0.7)', marginTop: 2, fontSize: 12 },
+  flatTitle: {
+    fontWeight: '700',
+    color: COLORS.Deep,
+    fontSize: 15,
+    letterSpacing: 0.2,
+    lineHeight: 21,
+  },
+  flatSubtitle: { color: 'rgba(26,51,40,0.7)', marginTop: 2, fontSize: 12, lineHeight: 17 },
 });

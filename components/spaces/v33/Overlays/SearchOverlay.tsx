@@ -126,6 +126,7 @@ const styles = StyleSheet.create({
     borderRadius: RADII.btn,
     paddingHorizontal: 12,
     color: COLORS.Deep,
+    letterSpacing: 0.2,
   },
   chips: {
     flexDirection: 'row',

@@ -72,9 +72,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   center: { flex: 1, alignItems: 'center' },
-  title: { color: COLORS.Moss, fontSize: 20, fontWeight: '700' },
-  subline: { marginTop: 2, fontSize: 12, color: 'rgba(34,34,34,0.6)' },
-  mood: { marginTop: 2, fontSize: 11 },
+  title: {
+    color: COLORS.Moss,
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    lineHeight: 28,
+  },
+  subline: { marginTop: 2, fontSize: 12, color: 'rgba(34,34,34,0.6)', lineHeight: 17 },
+  mood: { marginTop: 2, fontSize: 11, lineHeight: 16, letterSpacing: 0.2 },
   actions: {
     position: 'absolute',
     right: SPACE.md,

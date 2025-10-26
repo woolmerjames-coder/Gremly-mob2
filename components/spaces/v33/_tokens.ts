@@ -18,7 +18,7 @@ export const RADII = {
 } as const;
 
 export const ELEV = {
-  card: '0 2px 10px rgba(0,0,0,0.06)',
+  card: '0 2px 10px rgba(0,0,0,0.05)',
 } as const;
 
 export const SPACE = {
