@@ -940,6 +940,53 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               conversionMeta: { initialTitle: 'Milestone' },
             });
           }}
+          onEditItem={(id: string) => {
+            const rec = (items as any[]).find((r) => r.id === id);
+            if (rec) overlay.openEdit({ record: rec, spaceId });
+          }}
+          onToggleTodoPause={async (id: string) => {
+            const rec = (items as any[]).find((r) => r.id === id);
+            if (!rec) return;
+            try {
+              const paused = !!rec.undefined_due || !rec.due_date;
+              const patch: any = {};
+              if (paused) {
+                // Resume: set due_date to today and clear undefined_due
+                patch.due_date = formatISO(new Date(), { representation: 'date' });
+                patch.undefined_due = false;
+              } else {
+                // Pause: unset due_date and mark undefined_due
+                patch.due_date = null;
+                patch.undefined_due = true;
+              }
+              await repo.update({ id, patch });
+              await reload();
+            } catch (e) {
+              console.warn('[v33] toggle todo pause failed', e);
+            }
+          }}
+          onDeleteItem={async (id: string) => {
+            try {
+              await repo.remove(id);
+              await reload();
+            } catch (e) {
+              console.warn('[v33] delete item failed', e);
+            }
+          }}
+          onViewChatContext={async () => {
+            try {
+              const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+              const chatRepo =
+                backend === 'supabase'
+                  ? new SupabaseSpaceChatRepo(userId || undefined)
+                  : new MemorySpaceChatRepo(userId || 'anonymous');
+              const list = await chatRepo.list(spaceId).catch(() => []);
+              const chat = list[0] || (await chatRepo.create(spaceId, { title: 'General' }));
+              navigation.navigate('ChatThread', { spaceId, chatId: chat.id } as any);
+            } catch (e) {
+              console.warn('[v33] view chat context (overlay) failed', e);
+            }
+          }}
         />
         {/* Edit Goal modal (v33) */}
         {editGoalRecord && (

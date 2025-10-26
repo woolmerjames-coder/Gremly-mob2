@@ -15,6 +15,7 @@ import { addDays, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } fro
 import { COLORS, RADII, SPACE } from '../_tokens';
 import { useAuth } from '../../../../providers/AuthProvider';
 import { SupabaseSpaceMilestoneRepo } from '../../../../lib/repo/supabase';
+import Menu from '../../v33/Menu';
 
 export type TimelineDay = {
   dateISO: string;
@@ -37,6 +38,11 @@ type Props = {
   selectedISO: string;
   onSelectDate: (iso: string) => void;
   onAddMilestone?: () => void; // optional: legacy callback (will be ignored if repo available)
+  // Kebab actions delegated to parent (SpaceHome) for items
+  onEditItem?: (id: string) => void;
+  onToggleTodoPause?: (id: string) => void | Promise<void>;
+  onDeleteItem?: (id: string) => void | Promise<void>;
+  onViewChatContext?: () => void;
 };
 
 export default function CalendarOverlay({
@@ -48,6 +54,10 @@ export default function CalendarOverlay({
   selectedISO,
   onSelectDate,
   onAddMilestone,
+  onEditItem,
+  onToggleTodoPause,
+  onDeleteItem,
+  onViewChatContext,
 }: Props) {
   const y = useMemo(() => new Animated.Value(500), []);
   const opacity = useMemo(() => new Animated.Value(0), []);
@@ -187,6 +197,10 @@ export default function CalendarOverlay({
     return milestones.filter((m) => m.date === iso);
   }, [milestones, selectedDate]);
 
+  // Local menu state for item rows and milestones
+  const [menuTodoId, setMenuTodoId] = useState<string | null>(null);
+  const [menuMilestoneId, setMenuMilestoneId] = useState<string | null>(null);
+
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       <Animated.View style={[styles.backdrop, { opacity }]}>
@@ -300,20 +314,50 @@ export default function CalendarOverlay({
             <Text style={styles.emptyEntries}>No entries for this day.</Text>
           ) : (
             <View style={{ gap: 8 }}>
-              {selectedEntries.map((it) => (
-                <View key={(it as any).id} style={styles.entryRow}>
-                  <Text style={styles.entryTitle}>
-                    {(it as any).title || (it as any).name || 'Untitled'}
-                  </Text>
-                  <Text style={styles.entryMeta}>
-                    {(it as any).type === 'habit'
-                      ? 'Habit'
-                      : (it as any).type === 'todo'
-                        ? 'To-do'
-                        : 'Note'}
-                  </Text>
-                </View>
-              ))}
+              {selectedEntries.map((it: any) => {
+                const isTodo = it.type === 'todo';
+                return (
+                  <View key={it.id} style={styles.entryRow}>
+                    <View style={{ paddingRight: 36 }}>
+                      <Text style={styles.entryTitle}>{it.title || it.name || 'Untitled'}</Text>
+                      <Text style={styles.entryMeta}>
+                        {isTodo ? 'To-do' : it.type === 'habit' ? 'Habit' : 'Note'}
+                      </Text>
+                    </View>
+                    {isTodo && (
+                      <View style={{ position: 'absolute', right: 0, top: 10 }}>
+                        <TouchableOpacity
+                          onPress={() => setMenuTodoId(it.id)}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.kebab}>⋯</Text>
+                        </TouchableOpacity>
+                        {menuTodoId === it.id && (
+                          <View style={styles.menuWrap}>
+                            <Menu
+                              items={[
+                                { key: 'edit', label: 'Edit' },
+                                { key: 'toggle', label: 'Pause/Resume' },
+                                { key: 'delete', label: 'Delete', danger: true },
+                                { key: 'chat', label: 'View Chat Context' },
+                              ]}
+                              onSelect={async (key: string) => {
+                                if (key === 'edit' && onEditItem) onEditItem(it.id);
+                                else if (key === 'toggle' && onToggleTodoPause)
+                                  await onToggleTodoPause(it.id);
+                                else if (key === 'delete' && onDeleteItem)
+                                  await onDeleteItem(it.id);
+                                else if (key === 'chat' && onViewChatContext) onViewChatContext();
+                                setMenuTodoId(null);
+                              }}
+                            />
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           )}
         </View>
@@ -400,31 +444,41 @@ export default function CalendarOverlay({
               {dayMilestones.map((m) => (
                 <View key={m.id} style={styles.milestoneRow}>
                   <Text style={styles.milestoneItem}>• {m.title}</Text>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ position: 'relative' }}>
                     <TouchableOpacity
-                      onPress={() => {
-                        setEditingId(m.id);
-                        setAdding(false);
-                        setDraftTitle(m.title);
-                        setDraftNote(m.note || '');
-                      }}
+                      onPress={() => setMenuMilestoneId(m.id)}
+                      accessibilityRole="button"
                     >
-                      <Text style={styles.inlineAction}>Edit</Text>
+                      <Text style={styles.kebabLight}>⋯</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        if (!userId) return;
-                        const repo = new SupabaseSpaceMilestoneRepo(userId);
-                        try {
-                          await repo.delete(m.id);
-                          await loadMilestones();
-                        } catch (e) {
-                          setErrorMs((e as any)?.message || 'Failed to delete milestone');
-                        }
-                      }}
-                    >
-                      <Text style={styles.inlineActionDanger}>Delete</Text>
-                    </TouchableOpacity>
+                    {menuMilestoneId === m.id && (
+                      <View style={[styles.menuWrap, { right: 0 }]}>
+                        <Menu
+                          items={[
+                            { key: 'edit', label: 'Edit' },
+                            { key: 'delete', label: 'Delete', danger: true },
+                          ]}
+                          onSelect={async (key: string) => {
+                            if (key === 'edit') {
+                              setEditingId(m.id);
+                              setAdding(false);
+                              setDraftTitle(m.title);
+                              setDraftNote(m.note || '');
+                            } else if (key === 'delete') {
+                              if (!userId) return;
+                              const repo = new SupabaseSpaceMilestoneRepo(userId);
+                              try {
+                                await repo.delete(m.id);
+                                await loadMilestones();
+                              } catch (e) {
+                                setErrorMs((e as any)?.message || 'Failed to delete milestone');
+                              }
+                            }
+                            setMenuMilestoneId(null);
+                          }}
+                        />
+                      </View>
+                    )}
                   </View>
                 </View>
               ))}
@@ -524,6 +578,14 @@ const styles = StyleSheet.create({
   milestonesTitle: { color: COLORS.Linen, fontWeight: '700', marginBottom: 6 },
   milestonesTodo: { color: 'rgba(249,246,241,0.7)', marginBottom: 6 },
   milestoneItem: { color: COLORS.Linen },
+  kebab: { color: COLORS.Linen, fontSize: 18, paddingHorizontal: 8, paddingVertical: 4 },
+  kebabLight: { color: COLORS.Linen, fontSize: 16, paddingHorizontal: 6, paddingVertical: 2 },
+  menuWrap: {
+    position: 'absolute',
+    top: 24,
+    right: 0,
+    zIndex: 10,
+  },
   // New styles for milestones CRUD
   formWrap: {
     marginTop: SPACE.sm,
