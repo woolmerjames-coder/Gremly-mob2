@@ -88,6 +88,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const colorScheme = useColorScheme();
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
 
+  // Feature flag: Space v3 layout (robust parsing)
+  const isSpaceV3 = (() => {
+    const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
+    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+  })();
+  // Feature flag: Space v3.3 (v33)
+  const isSpaceV33 = (() => {
+    const raw = (process.env.EXPO_PUBLIC_SPACE_V33 ?? 'off').toString().trim().toLowerCase();
+    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+  })();
+
   // State
   const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
     useSpaceAggregate(spaceId);
@@ -130,6 +141,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const undoHandlerRef = React.useRef<null | (() => Promise<void>)>(null);
   // Unified timeline hook (v22)
   const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
+  // v33 page load motion
+  const oV33 = React.useMemo(() => new Animated.Value(0), []);
+  const yV33 = React.useMemo(() => new Animated.Value(20), []);
+  useEffect(() => {
+    if (!isSpaceV33) return;
+    Animated.parallel([
+      Animated.timing(oV33, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.timing(yV33, {
+        toValue: 0,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSpaceV33]);
   // Refs for smooth scrolling to sections (v22)
   const scrollRef = React.useRef<ScrollView | null>(null);
   const [dayPanelY, setDayPanelY] = React.useState<number | null>(null);
@@ -297,17 +324,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   //
   // removed legacy mock data used during design polish; real data wired via hooks
   //
-
-  // Feature flag: Space v3 layout (robust parsing)
-  const isSpaceV3 = (() => {
-    const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
-    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
-  })();
-  // Feature flag: Space v3.3 (v33)
-  const isSpaceV33 = (() => {
-    const raw = (process.env.EXPO_PUBLIC_SPACE_V33 ?? 'off').toString().trim().toLowerCase();
-    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
-  })();
 
   // Phase 10.8: Space Insight state
   const [spaceInsight, setSpaceInsight] = useState<{
@@ -679,201 +695,227 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   if (isSpaceV33) {
     return (
       <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
-        <ScrollView
-          ref={scrollRef}
-          style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-        >
-          <HeaderV33
-            title={space?.name ?? 'Space'}
-            lastVisited={buildLastVisitedLabel(items, chats)}
-            moodLine={headerMood}
-            onSearch={() => setSearchVisible((v) => !v)}
-          />
+        <Animated.View style={{ opacity: oV33, transform: [{ translateY: yV33 }] }}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          >
+            <HeaderV33
+              title={space?.name ?? 'Space'}
+              lastVisited={buildLastVisitedLabel(items, chats)}
+              moodLine={headerMood}
+              onSearch={() => setSearchVisible((v) => !v)}
+            />
 
-          {/* Slide-down search overlay under header */}
-          <SearchOverlayV33
-            visible={searchVisible}
-            value={searchQuery}
-            onChange={setSearchQuery}
-            onClose={() => setSearchVisible(false)}
-            active={searchActiveV33}
-            onSetActive={setSearchActiveV33}
-          />
+            {/* Slide-down search overlay under header */}
+            <SearchOverlayV33
+              visible={searchVisible}
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onClose={() => setSearchVisible(false)}
+              active={searchActiveV33}
+              onSetActive={setSearchActiveV33}
+            />
 
-          {/* Search results (v33) */}
-          {searchVisible && searchQuery.trim().length > 0 && (
-            <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
-              {v33FilteredResults.chats.length + v33FilteredResults.items.length === 0 ? (
-                <Text style={{ color: T.colors.subtle }}>No results</Text>
-              ) : (
-                <View style={{ gap: 8 }}>
-                  {searchActiveV33 === 'chats' &&
-                    v33FilteredResults.chats.map((c) => (
-                      <TouchableOpacity
-                        key={c.id}
-                        onPress={() => handleChatPress(c.id)}
-                        accessibilityRole="button"
-                      >
-                        <View
-                          style={{
-                            paddingVertical: 10,
-                            borderBottomWidth: StyleSheet.hairlineWidth,
-                            borderColor: T.colors.border,
-                          }}
+            {/* Search results (v33) */}
+            {searchVisible && searchQuery.trim().length > 0 && (
+              <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+                {v33FilteredResults.chats.length + v33FilteredResults.items.length === 0 ? (
+                  <Text style={{ color: T.colors.subtle }}>
+                    {searchActiveV33 === 'chats'
+                      ? 'No conversations yet — want to ask Gremly something?'
+                      : searchActiveV33 === 'notes'
+                        ? 'Blank page, clear mind.'
+                        : 'All clear — nothing pressing in this Space.'}
+                  </Text>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    {searchActiveV33 === 'chats' &&
+                      v33FilteredResults.chats.map((c) => (
+                        <TouchableOpacity
+                          key={c.id}
+                          onPress={() => handleChatPress(c.id)}
+                          accessibilityRole="button"
                         >
-                          <Text style={{ color: T.colors.text, fontWeight: '600' }}>
-                            {c.title || 'Chat'}
-                          </Text>
-                          {!!c.last_message_snippet && (
-                            <Text
-                              style={{ color: T.colors.subtle, marginTop: 2 }}
-                              numberOfLines={1}
-                            >
-                              {c.last_message_snippet}
+                          <View
+                            style={{
+                              paddingVertical: 10,
+                              borderBottomWidth: StyleSheet.hairlineWidth,
+                              borderColor: T.colors.border,
+                            }}
+                          >
+                            <Text style={{ color: T.colors.text, fontWeight: '600' }}>
+                              {c.title || 'Chat'}
                             </Text>
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  {searchActiveV33 !== 'chats' &&
-                    v33FilteredResults.items.map((it) => (
-                      <TouchableOpacity
-                        key={it.id}
-                        onPress={() => overlay.openEdit({ record: it as any, spaceId })}
-                        accessibilityRole="button"
-                      >
-                        <View
-                          style={{
-                            paddingVertical: 10,
-                            borderBottomWidth: StyleSheet.hairlineWidth,
-                            borderColor: T.colors.border,
-                          }}
+                            {!!c.last_message_snippet && (
+                              <Text
+                                style={{ color: T.colors.subtle, marginTop: 2 }}
+                                numberOfLines={1}
+                              >
+                                {c.last_message_snippet}
+                              </Text>
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    {searchActiveV33 !== 'chats' &&
+                      v33FilteredResults.items.map((it) => (
+                        <TouchableOpacity
+                          key={it.id}
+                          onPress={() => overlay.openEdit({ record: it as any, spaceId })}
+                          accessibilityRole="button"
                         >
-                          <Text style={{ color: T.colors.text, fontWeight: '600' }}>
-                            {(it as any).title || (it as any).name || 'Untitled'}
-                          </Text>
-                          <Text style={{ color: T.colors.subtle, marginTop: 2 }}>
-                            {it.type === 'habit' ? 'Habit' : it.type === 'todo' ? 'To-do' : 'Note'}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                </View>
-              )}
+                          <View
+                            style={{
+                              paddingVertical: 10,
+                              borderBottomWidth: StyleSheet.hairlineWidth,
+                              borderColor: T.colors.border,
+                            }}
+                          >
+                            <Text style={{ color: T.colors.text, fontWeight: '600' }}>
+                              {(it as any).title || (it as any).name || 'Untitled'}
+                            </Text>
+                            <Text style={{ color: T.colors.subtle, marginTop: 2 }}>
+                              {it.type === 'habit'
+                                ? 'Habit'
+                                : it.type === 'todo'
+                                  ? 'To-do'
+                                  : 'Note'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Centered icon row */}
+            <IconRowV33
+              counts={{
+                notes: listNotesForSpace(items, spaceId, { limit: 9999 }).length,
+                milestones: (upcoming || []).length,
+              }}
+              onOpenNotepad={() => setShowNotepad(true)}
+              onOpenCalendar={() => setShowCalendarV33(true)}
+              onAdd={() => {
+                if (overlay.state.visible) {
+                  (async () => {
+                    try {
+                      await repo.addUnsorted(spaceId, {
+                        type: 'note',
+                        title: 'Quick capture',
+                        subtype: 'catchall',
+                      });
+                      showSageToast();
+                      await reload();
+                    } catch (e) {
+                      console.warn('[v33] quick capture failed', e);
+                    }
+                  })();
+                  return;
+                }
+                overlay.openCreate({ spaceId });
+              }}
+            />
+
+            <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+              {(() => {
+                // Calculate inactivity days for sparkle
+                const lastChatTs = chats.reduce(
+                  (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
+                  0,
+                );
+                const lastItemTs = items.reduce((acc, it: any) => {
+                  const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+                  return Math.max(acc, ts);
+                }, 0);
+                const lastTs = Math.max(lastChatTs, lastItemTs);
+                const daysSince = lastTs
+                  ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
+                  : 999;
+                return (
+                  <NewChatSectionV33
+                    spaceName={space?.name ?? 'this space'}
+                    inactiveDays={daysSince}
+                    onPress={handleNewChat}
+                  />
+                );
+              })()}
             </View>
-          )}
 
-          {/* Centered icon row */}
-          <IconRowV33
-            counts={{
-              notes: listNotesForSpace(items, spaceId, { limit: 9999 }).length,
-              milestones: (upcoming || []).length,
-            }}
-            onOpenNotepad={() => setShowNotepad(true)}
-            onOpenCalendar={() => setShowCalendarV33(true)}
-            onAdd={() => {
-              if (overlay.state.visible) {
-                (async () => {
-                  try {
-                    await repo.addUnsorted(spaceId, {
-                      type: 'note',
-                      title: 'Quick capture',
-                      subtype: 'catchall',
-                    });
-                    showSageToast();
-                    await reload();
-                  } catch (e) {
-                    console.warn('[v33] quick capture failed', e);
-                  }
-                })();
-                return;
-              }
-              overlay.openCreate({ spaceId });
-            }}
-          />
-
-          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            {/* Goals: expandable GoalList with See All / Show Less */}
             {(() => {
-              // Calculate inactivity days for sparkle
-              const lastChatTs = chats.reduce(
-                (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
-                0,
-              );
-              const lastItemTs = items.reduce((acc, it: any) => {
-                const ts = new Date(it.updated_at || it.created_at || 0).getTime();
-                return Math.max(acc, ts);
-              }, 0);
-              const lastTs = Math.max(lastChatTs, lastItemTs);
-              const daysSince = lastTs
-                ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
-                : 999;
+              const wk = weekly?.habits || [];
+              if (!wk.length)
+                return (
+                  <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+                    <Text style={{ color: T.colors.subtle }}>
+                      All clear — nothing pressing in this Space.
+                    </Text>
+                  </View>
+                );
+              const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
+              const goals = wk.map((row) => {
+                const rec = byId.get(row.id);
+                const done = row.doneCount ?? 0;
+                const target = row.target ?? 3;
+                const state: 'idle' | 'active' | 'complete' =
+                  done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
+                return {
+                  id: row.id,
+                  title: (rec?.title || rec?.name || 'Habit') as string,
+                  subtitle: `${done}/${target} this week`,
+                  state,
+                  lastActivityAt: (rec?.updated_at as string) || null,
+                  createdAt: (rec?.created_at as string) || null,
+                  pinned: !!rec?.pinned,
+                } as const;
+              });
               return (
-                <NewChatSectionV33
-                  spaceName={space?.name ?? 'this space'}
-                  inactiveDays={daysSince}
-                  onPress={handleNewChat}
-                />
+                <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+                  <GoalListV33
+                    goals={goals as any}
+                    topN={3}
+                    persistKey={`goalList:expanded:${spaceId}`}
+                    totalCountLabel={(n) => `See All Goals (${n})`}
+                    onOpen={(id) => {
+                      const rec = (items as any[]).find((r) => r.id === id);
+                      if (rec) overlay.openEdit({ record: rec, spaceId });
+                    }}
+                    onMenu={(id) => openGoalMenu(id)}
+                  />
+                </View>
               );
             })()}
-          </View>
 
-          {/* Goals: expandable GoalList with See All / Show Less */}
-          {(() => {
-            const wk = weekly?.habits || [];
-            if (!wk.length) return null;
-            const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
-            const goals = wk.map((row) => {
-              const rec = byId.get(row.id);
-              const done = row.doneCount ?? 0;
-              const target = row.target ?? 3;
-              const state: 'idle' | 'active' | 'complete' =
-                done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
-              return {
-                id: row.id,
-                title: (rec?.title || rec?.name || 'Habit') as string,
-                subtitle: `${done}/${target} this week`,
-                state,
-                lastActivityAt: (rec?.updated_at as string) || null,
-                createdAt: (rec?.created_at as string) || null,
-                pinned: !!rec?.pinned,
-              } as const;
-            });
-            return (
-              <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-                <GoalListV33
-                  goals={goals as any}
-                  topN={3}
-                  persistKey={`goalList:expanded:${spaceId}`}
-                  totalCountLabel={(n) => `See All Goals (${n})`}
-                  onOpen={(id) => {
-                    const rec = (items as any[]).find((r) => r.id === id);
-                    if (rec) overlay.openEdit({ record: rec, spaceId });
-                  }}
-                  onMenu={(id) => openGoalMenu(id)}
-                />
-              </View>
-            );
-          })()}
-
-          {/* Recent Chats (last 3) */}
-          {(() => {
-            const list = chats.slice(0, 3);
-            if (list.length === 0) return null;
-            return (
-              <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 10 }}>
-                {list.map((c) => (
-                  <ThreadCardV33
-                    key={c.id}
-                    chat={c}
-                    onPress={(chatId) => navigation.navigate('ChatThread', { spaceId, chatId })}
-                  />
-                ))}
-              </View>
-            );
-          })()}
-        </ScrollView>
+            {/* Recent Chats (last 3) */}
+            {(() => {
+              const list = chats.slice(0, 3);
+              if (list.length === 0)
+                return (
+                  <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+                    <Text style={{ color: T.colors.subtle }}>
+                      No conversations yet — want to ask Gremly something?
+                    </Text>
+                  </View>
+                );
+              return (
+                <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 10 }}>
+                  {list.map((c) => (
+                    <ThreadCardV33
+                      key={c.id}
+                      chat={c}
+                      onPress={(chatId) => navigation.navigate('ChatThread', { spaceId, chatId })}
+                    />
+                  ))}
+                </View>
+              );
+            })()}
+          </ScrollView>
+        </Animated.View>
 
         {/* Micro celebration overlay */}
         <ConfettiBurst
@@ -885,6 +927,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         <CalendarOverlayV33
           visible={showCalendarV33}
           onClose={() => setShowCalendarV33(false)}
+          spaceId={spaceId}
           spaceName={space?.name || 'Space'}
           days={(timelineDays || []) as any}
           selectedISO={selectedDayISO}

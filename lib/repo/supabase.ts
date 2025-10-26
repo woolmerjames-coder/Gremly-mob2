@@ -1954,6 +1954,68 @@ export class SupabaseSpaceChatMessageRepo {
 
     return data as import('../types').SpaceChatMessage;
   }
+
+  // Phase 10.6: Milestones CRUD (space_milestones)
+  async listMilestones(spaceId: string): Promise<import('../types').SpaceMilestone[]> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(`Failed to list milestones: ${error.message}`);
+    return (data || []) as import('../types').SpaceMilestone[];
+  }
+
+  async createMilestone(
+    spaceId: string,
+    payload: { title: string; date: string; note?: string | null },
+  ): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .insert({
+        owner_id: userId,
+        space_id: spaceId,
+        title: payload.title,
+        date: payload.date,
+        note: payload.note ?? null,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to create milestone: ${error.message}`);
+    if (!data) throw new Error('No data returned from createMilestone');
+    return data as import('../types').SpaceMilestone;
+  }
+
+  async updateMilestone(
+    id: string,
+    patch: Partial<{ title: string; date: string; note: string | null }>,
+  ): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .update(stripNulls(compact(patch)))
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update milestone: ${error.message}`);
+    if (!data) throw new Error('No data returned from updateMilestone');
+    return data as import('../types').SpaceMilestone;
+  }
+
+  async deleteMilestone(id: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('space_milestones')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', userId);
+    if (error) throw new Error(`Failed to delete milestone: ${error.message}`);
+  }
 }
 
 /**
@@ -2010,5 +2072,21 @@ export class SupabaseSpaceMilestoneRepo {
       .eq('id', id)
       .eq('owner_id', userId);
     if (error) throw new Error(`Failed to delete milestone: ${error.message}`);
+  }
+
+  async update(
+    id: string,
+    patch: Partial<{ title: string; date: string; note: string | null }>,
+  ): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .update(stripNulls(compact(patch)))
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update milestone: ${error.message}`);
+    return data as import('../types').SpaceMilestone;
   }
 }

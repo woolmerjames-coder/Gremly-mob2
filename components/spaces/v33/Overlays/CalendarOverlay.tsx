@@ -1,9 +1,20 @@
-import React, { useEffect, useMemo } from 'react';
-import { Animated, Easing, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { BlurView } from 'expo-blur';
 import Svg, { Line } from 'react-native-svg';
 import { addDays, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
 import { COLORS, RADII, SPACE } from '../_tokens';
+import { useAuth } from '../../../../providers/AuthProvider';
+import { SupabaseSpaceMilestoneRepo } from '../../../../lib/repo/supabase';
 
 export type TimelineDay = {
   dateISO: string;
@@ -20,16 +31,18 @@ export type TimelineDay = {
 type Props = {
   visible: boolean;
   onClose: () => void;
+  spaceId: string;
   spaceName: string;
   days: TimelineDay[];
   selectedISO: string;
   onSelectDate: (iso: string) => void;
-  onAddMilestone: () => void;
+  onAddMilestone?: () => void; // optional: legacy callback (will be ignored if repo available)
 };
 
 export default function CalendarOverlay({
   visible,
   onClose,
+  spaceId,
   spaceName,
   days,
   selectedISO,
@@ -44,11 +57,11 @@ export default function CalendarOverlay({
       Animated.parallel([
         Animated.timing(y, {
           toValue: 0,
-          duration: 260,
+          duration: 250,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(opacity, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 250, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
@@ -95,6 +108,7 @@ export default function CalendarOverlay({
   const weekCounts = useMemo(() => {
     let runs = 0;
     let reflections = 0;
+    let milestones = 0;
     for (let i = 0; i < 7; i += 1) {
       const iso = format(addDays(weekStart, i), 'yyyy-MM-dd');
       const d = dayMap.get(iso);
@@ -104,14 +118,74 @@ export default function CalendarOverlay({
         (it) => it.type === 'note' && (it.subtype === 'journal' || it.subtype === 'reflection'),
       ).length;
       reflections += refls;
+      milestones += 0; // incremented later after loading milestones
     }
-    return { runs, reflections, milestones: 0 };
+    return { runs, reflections, milestones };
   }, [dayMap, weekStart]);
 
   const selectedEntries = useMemo(() => {
     const d = dayMap.get(format(selectedDate, 'yyyy-MM-dd'));
     return d?.items || [];
   }, [dayMap, selectedDate]);
+
+  // Milestones state and repo wiring
+  const { userId } = useAuth();
+  const [milestones, setMilestones] = useState<
+    Array<{
+      id: string;
+      title: string;
+      date: string;
+      note?: string | null;
+    }>
+  >([]);
+  const [loadingMs, setLoadingMs] = useState(false);
+  const [errorMs, setErrorMs] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftNote, setDraftNote] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  const loadMilestones = useCallback(async () => {
+    if (!userId) return;
+    setLoadingMs(true);
+    setErrorMs(null);
+    try {
+      const repo = new SupabaseSpaceMilestoneRepo(userId);
+      const rows = await repo.list(spaceId);
+      setMilestones(rows);
+    } catch (e: any) {
+      setErrorMs(e?.message || 'Failed to load milestones');
+    } finally {
+      setLoadingMs(false);
+    }
+  }, [spaceId, userId]);
+
+  useEffect(() => {
+    if (!visible) return;
+    void loadMilestones();
+  }, [visible, loadMilestones]);
+
+  const milestonesByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const ms of milestones) {
+      m.set(ms.date, (m.get(ms.date) || 0) + 1);
+    }
+    return m;
+  }, [milestones]);
+
+  const weekMilestoneCount = useMemo(() => {
+    let n = 0;
+    for (let i = 0; i < 7; i += 1) {
+      const iso = format(addDays(weekStart, i), 'yyyy-MM-dd');
+      n += milestonesByDate.get(iso) || 0;
+    }
+    return n;
+  }, [milestonesByDate, weekStart]);
+
+  const dayMilestones = useMemo(() => {
+    const iso = format(selectedDate, 'yyyy-MM-dd');
+    return milestones.filter((m) => m.date === iso);
+  }, [milestones, selectedDate]);
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -169,6 +243,7 @@ export default function CalendarOverlay({
                 const inMonth = dt.getMonth() === monthStart.getMonth();
                 const isSelected = iso === format(selectedDate, 'yyyy-MM-dd');
                 const hasItems = (dayMap.get(iso)?.items?.length || 0) > 0;
+                const hasMs = (milestonesByDate.get(iso) || 0) > 0;
                 return (
                   <TouchableOpacity
                     key={iso}
@@ -187,7 +262,7 @@ export default function CalendarOverlay({
                       <Text style={[styles.dayNum, !inMonth && styles.dayNumMuted]}>
                         {dt.getDate()}
                       </Text>
-                      {hasItems && <View style={styles.dayDot} />}
+                      {(hasItems || hasMs) && <View style={styles.dayDot} />}
                     </View>
                   </TouchableOpacity>
                 );
@@ -200,9 +275,18 @@ export default function CalendarOverlay({
         <View style={styles.summaryRow}>
           <Text style={styles.summaryText}>
             Week of {weekRangeLabel} • {weekCounts.runs} runs • {weekCounts.reflections} reflections
-            • {weekCounts.milestones} milestones
+            • {weekMilestoneCount} milestones
           </Text>
-          <TouchableOpacity onPress={onAddMilestone} accessibilityRole="button">
+          <TouchableOpacity
+            onPress={() => {
+              if (onAddMilestone) return onAddMilestone();
+              setAdding(true);
+              setEditingId(null);
+              setDraftTitle('');
+              setDraftNote('');
+            }}
+            accessibilityRole="button"
+          >
             <View style={styles.addMilestoneBtn}>
               <Text style={styles.addMilestoneText}>+ Add milestone</Text>
             </View>
@@ -234,15 +318,118 @@ export default function CalendarOverlay({
           )}
         </View>
 
-        {/* Milestones stub */}
+        {/* Milestones */}
         <View style={styles.milestonesWrap}>
           <Text style={styles.milestonesTitle}>Milestones</Text>
-          <Text style={styles.milestonesTodo}>
-            TODO: Wire milestones table. Showing stub list for now.
-          </Text>
-          <View style={{ gap: 6 }}>
-            <Text style={styles.milestoneItem}>• No milestones yet</Text>
-          </View>
+          {!!errorMs && <Text style={styles.milestonesTodo}>{errorMs}</Text>}
+          {/* Add/edit form */}
+          {(adding || editingId) && (
+            <View style={styles.formWrap}>
+              <Text style={styles.formLabel}>Title</Text>
+              <TextInput
+                placeholder="What happened?"
+                placeholderTextColor="rgba(249,246,241,0.6)"
+                style={styles.input}
+                value={draftTitle}
+                onChangeText={setDraftTitle}
+              />
+              <Text style={styles.formLabel}>Note (optional)</Text>
+              <TextInput
+                placeholder="Add a short note"
+                placeholderTextColor="rgba(249,246,241,0.6)"
+                style={[styles.input, { height: 64 }]}
+                value={draftNote}
+                onChangeText={setDraftNote}
+                multiline
+              />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (!userId) return;
+                    const repo = new SupabaseSpaceMilestoneRepo(userId);
+                    const dateIso = format(selectedDate, 'yyyy-MM-dd');
+                    try {
+                      if (editingId) {
+                        await repo.update(editingId, {
+                          title: draftTitle.trim() || 'Milestone',
+                          note: draftNote.trim() || null,
+                        });
+                      } else {
+                        await repo.create({
+                          space_id: spaceId,
+                          title: draftTitle.trim() || 'Milestone',
+                          date: dateIso,
+                          note: draftNote.trim() || null,
+                        });
+                      }
+                      setAdding(false);
+                      setEditingId(null);
+                      setDraftTitle('');
+                      setDraftNote('');
+                      await loadMilestones();
+                    } catch (e) {
+                      setErrorMs((e as any)?.message || 'Failed to save milestone');
+                    }
+                  }}
+                >
+                  <View style={styles.saveBtn}>
+                    <Text style={styles.saveBtnText}>Save</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setAdding(false);
+                    setEditingId(null);
+                    setDraftTitle('');
+                    setDraftNote('');
+                  }}
+                >
+                  <View style={styles.cancelBtn}>
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* List by selected day */}
+          {dayMilestones.length === 0 ? (
+            <Text style={styles.milestonesTodo}>No milestones for this day.</Text>
+          ) : (
+            <View style={{ gap: 6 }}>
+              {dayMilestones.map((m) => (
+                <View key={m.id} style={styles.milestoneRow}>
+                  <Text style={styles.milestoneItem}>• {m.title}</Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingId(m.id);
+                        setAdding(false);
+                        setDraftTitle(m.title);
+                        setDraftNote(m.note || '');
+                      }}
+                    >
+                      <Text style={styles.inlineAction}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        if (!userId) return;
+                        const repo = new SupabaseSpaceMilestoneRepo(userId);
+                        try {
+                          await repo.delete(m.id);
+                          await loadMilestones();
+                        } catch (e) {
+                          setErrorMs((e as any)?.message || 'Failed to delete milestone');
+                        }
+                      }}
+                    >
+                      <Text style={styles.inlineActionDanger}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       </Animated.View>
     </Modal>
@@ -337,4 +524,49 @@ const styles = StyleSheet.create({
   milestonesTitle: { color: COLORS.Linen, fontWeight: '700', marginBottom: 6 },
   milestonesTodo: { color: 'rgba(249,246,241,0.7)', marginBottom: 6 },
   milestoneItem: { color: COLORS.Linen },
+  // New styles for milestones CRUD
+  formWrap: {
+    marginTop: SPACE.sm,
+    backgroundColor: 'rgba(249,246,241,0.06)',
+    borderRadius: RADII.card,
+    padding: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(191,216,192,0.25)',
+  },
+  formLabel: { color: COLORS.Linen, fontWeight: '600', marginTop: 6, marginBottom: 4 },
+  input: {
+    color: COLORS.Linen,
+    backgroundColor: 'rgba(249,246,241,0.06)',
+    borderRadius: RADII.btn,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(191,216,192,0.25)',
+  },
+  saveBtn: {
+    backgroundColor: COLORS.Moss,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: RADII.btn,
+  },
+  saveBtnText: { color: COLORS.Linen, fontWeight: '700' },
+  cancelBtn: {
+    backgroundColor: 'transparent',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: RADII.btn,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(191,216,192,0.4)',
+  },
+  cancelBtnText: { color: COLORS.Sage, fontWeight: '700' },
+  milestoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(191,216,192,0.25)',
+  },
+  inlineAction: { color: COLORS.Sage, fontWeight: '700' },
+  inlineActionDanger: { color: '#ffb4a2', fontWeight: '700' },
 });
