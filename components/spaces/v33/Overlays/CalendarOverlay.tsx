@@ -341,6 +341,7 @@ export default function CalendarOverlay({
                                 { key: 'delete', label: 'Delete', danger: true },
                                 { key: 'chat', label: 'View Chat Context' },
                               ]}
+                              onClose={() => setMenuTodoId(null)}
                               onSelect={async (key: string) => {
                                 if (key === 'edit' && onEditItem) onEditItem(it.id);
                                 else if (key === 'toggle' && onToggleTodoPause)
@@ -458,6 +459,7 @@ export default function CalendarOverlay({
                             { key: 'edit', label: 'Edit' },
                             { key: 'delete', label: 'Delete', danger: true },
                           ]}
+                          onClose={() => setMenuMilestoneId(null)}
                           onSelect={async (key: string) => {
                             if (key === 'edit') {
                               setEditingId(m.id);

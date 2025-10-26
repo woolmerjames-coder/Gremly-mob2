@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import GoalCard, { type GoalCardProps } from './GoalCard';
-import { COLORS, RADII, SPACE } from './_tokens';
+import GoalRow from './GoalRow';
+import GoalSection from './GoalSection';
+import { COLORS } from './_tokens';
 
 export type GoalItem = {
   id: string;
@@ -103,42 +104,44 @@ export default function GoalList({
     // no collapse animation for simplicity (instant hide)
   }, [expanded, anim.opacity, anim.y]);
 
-  const renderTopCard = (g: GoalItem) => (
-    <GoalCard
-      key={g.id}
-      id={g.id}
-      title={g.title}
-      state={g.state as GoalCardProps['state']}
-      subtitle={g.subtitle}
-      onOpen={() => onOpen(g.id)}
-      onMenu={() => onMenu(g.id)}
-    />
-  );
+  const renderTopCard = (g: GoalItem) => {
+    // Extract done/target from subtitle "X/Y this week"
+    const match = g.subtitle?.match(/(\d+)\/(\d+)/);
+    const done = match ? parseInt(match[1], 10) : 0;
+    const target = match ? parseInt(match[2], 10) : 3;
+    return (
+      <GoalRow
+        key={g.id}
+        id={g.id}
+        title={g.title}
+        done={done}
+        target={target}
+        state={g.state}
+        onPress={() => onOpen(g.id)}
+      />
+    );
+  };
 
-  const renderFlatCard = (g: GoalItem) => (
-    <Pressable
-      key={g.id}
-      onPress={() => onOpen(g.id)}
-      accessibilityRole="button"
-      style={styles.flatCard}
-    >
-      <View style={styles.flatIcon} />
-      <View style={{ flex: 1, marginLeft: 10 }}>
-        <Text style={styles.flatTitle} numberOfLines={1}>
-          {g.title}
-        </Text>
-        {!!g.subtitle && (
-          <Text style={styles.flatSubtitle} numberOfLines={1}>
-            {g.subtitle}
-          </Text>
-        )}
-      </View>
-    </Pressable>
-  );
+  const renderFlatCard = (g: GoalItem) => {
+    const match = g.subtitle?.match(/(\d+)\/(\d+)/);
+    const done = match ? parseInt(match[1], 10) : 0;
+    const target = match ? parseInt(match[2], 10) : 3;
+    return (
+      <GoalRow
+        key={g.id}
+        id={g.id}
+        title={g.title}
+        done={done}
+        target={target}
+        state={g.state}
+        onPress={() => onOpen(g.id)}
+      />
+    );
+  };
 
   return (
-    <View style={{ marginVertical: 24 }}>
-      <View style={{ gap: 10 }}>{top.map(renderTopCard)}</View>
+    <GoalSection title="Goals & Focus">
+      {top.map(renderTopCard)}
 
       {remainingCount > 0 && (
         <View style={{ alignItems: 'center', marginTop: 12 }}>
@@ -161,8 +164,7 @@ export default function GoalList({
         <Animated.View
           testID="GoalsExpandedList"
           style={{
-            marginTop: 12,
-            gap: 10,
+            marginTop: 4,
             opacity: anim.opacity,
             transform: [{ translateY: anim.y }],
           }}
@@ -170,7 +172,7 @@ export default function GoalList({
           {rest.map(renderFlatCard)}
         </Animated.View>
       )}
-    </View>
+    </GoalSection>
   );
 }
 
@@ -178,22 +180,4 @@ const styles = StyleSheet.create({
   toggle: { paddingVertical: 6, paddingHorizontal: 10 },
   togglePressed: { textDecorationLine: 'underline' },
   toggleText: { color: COLORS.Moss, fontWeight: '700' },
-  flatCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.Linen,
-    borderRadius: RADII.card,
-    padding: SPACE.md,
-    borderWidth: 1,
-    borderColor: 'rgba(46,85,64,0.1)', // Sage @10%
-  },
-  flatIcon: { width: 14, height: 14, borderRadius: 7, backgroundColor: 'rgba(46,85,64,0.25)' },
-  flatTitle: {
-    fontWeight: '700',
-    color: COLORS.Deep,
-    fontSize: 15,
-    letterSpacing: 0.2,
-    lineHeight: 21,
-  },
-  flatSubtitle: { color: 'rgba(26,51,40,0.7)', marginTop: 2, fontSize: 12, lineHeight: 17 },
 });

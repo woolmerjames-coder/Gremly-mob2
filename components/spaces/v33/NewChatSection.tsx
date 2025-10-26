@@ -13,12 +13,13 @@ export default function NewChatSection({ spaceName, onPress, inactiveDays }: Pro
   const showSparkle = (inactiveDays || 0) > 5;
   return (
     <View style={styles.container}>
+      <Text style={styles.sectionTitle}>Conversations</Text>
       <Pressable
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [
           styles.btnPrimary,
-          pressed && { backgroundColor: 'rgba(46,85,64,0.9)', transform: [{ translateY: 2 }] },
+          pressed && { backgroundColor: 'rgba(46,85,64,0.85)', transform: [{ scale: 0.98 }] },
         ]}
       >
         <View
@@ -47,24 +48,38 @@ export default function NewChatSection({ spaceName, onPress, inactiveDays }: Pro
 
 const styles = StyleSheet.create({
   container: {
-    // Simple wrapper, no card background
+    backgroundColor: COLORS.SectionChatsTint,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34,34,34,0.12)',
+    paddingTop: SPACE.sectionY,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: `${COLORS.Moss}CC`, // Moss @80%
+    letterSpacing: 0.3,
+    marginBottom: 8,
+    fontFamily: 'Inter-Medium',
   },
   btnPrimary: {
-    backgroundColor: COLORS.Moss,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 10,
-    // soft shadow
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
+    backgroundColor: `${COLORS.Moss}E6`, // Moss @90%
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    height: 44,
+    shadowColor: 'rgba(0,0,0,0.05)',
+    shadowOpacity: 1,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   btnPrimaryText: {
     color: COLORS.Linen,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.3,
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
   },
 });

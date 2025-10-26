@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, TouchableOpacity } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { SpaceChat } from '../../../lib/types';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { generateChatTitle } from '../../../lib/ai/chatTitle';
 import { format } from 'date-fns';
-import { MoreVertical, Pencil, Trash2 } from '../../icons';
+import { MoreVertical } from '../../icons';
 import Menu from './Menu';
 
 export type ThreadCardProps = {
@@ -18,6 +18,13 @@ export type ThreadCardProps = {
 export default function ThreadCard({ chat, onPress, onRename, onDelete }: ThreadCardProps) {
   const lift = useMemo(() => new Animated.Value(0), []);
   const [showMenu, setShowMenu] = useState(false);
+  const [anchorLayout, setAnchorLayout] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const menuButtonRef = useRef<View>(null);
 
   const title = useMemo(() => {
     // Try AI generator based on last snippet and any existing title
@@ -76,38 +83,43 @@ export default function ThreadCard({ chat, onPress, onRename, onDelete }: Thread
         )}
         {(onRename || onDelete) && (
           <View style={{ position: 'relative' }}>
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation();
-                setShowMenu(!showMenu);
+            <View
+              ref={menuButtonRef}
+              collapsable={false}
+              onLayout={(e) => {
+                menuButtonRef.current?.measureInWindow((x, y, width, height) => {
+                  setAnchorLayout({ x, y, width, height });
+                });
               }}
-              style={styles.menuButton}
-              accessibilityRole="button"
-              accessibilityLabel="Chat options"
             >
-              <MoreVertical size={20} color={COLORS.Moss} opacity={0.6} />
-            </TouchableOpacity>
-            {showMenu && (
-              <>
-                <TouchableOpacity
-                  style={StyleSheet.absoluteFill}
-                  onPress={() => setShowMenu(false)}
-                  activeOpacity={1}
-                />
-                <View style={styles.menuContainer}>
-                  <Menu
-                    items={[
-                      ...(onRename ? [{ key: 'rename', label: 'Rename Chat' }] : []),
-                      ...(onDelete ? [{ key: 'delete', label: 'Delete Chat', danger: true }] : []),
-                    ]}
-                    onSelect={(key) => {
-                      setShowMenu(false);
-                      if (key === 'rename' && onRename) onRename(chat.id);
-                      if (key === 'delete' && onDelete) onDelete(chat.id);
-                    }}
-                  />
-                </View>
-              </>
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation();
+                  menuButtonRef.current?.measureInWindow((x, y, width, height) => {
+                    setAnchorLayout({ x, y, width, height });
+                    setShowMenu(true);
+                  });
+                }}
+                style={styles.menuButton}
+                accessibilityRole="button"
+                accessibilityLabel="Chat options"
+              >
+                <MoreVertical size={20} color={COLORS.Moss} opacity={0.6} />
+              </TouchableOpacity>
+            </View>
+            {showMenu && anchorLayout && (
+              <Menu
+                items={[
+                  ...(onRename ? [{ key: 'rename', label: 'Rename Chat' }] : []),
+                  ...(onDelete ? [{ key: 'delete', label: 'Delete Chat', danger: true }] : []),
+                ]}
+                onSelect={(key) => {
+                  if (key === 'rename' && onRename) onRename(chat.id);
+                  if (key === 'delete' && onDelete) onDelete(chat.id);
+                }}
+                onClose={() => setShowMenu(false)}
+                anchorLayout={anchorLayout}
+              />
             )}
           </View>
         )}
@@ -120,37 +132,30 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.Linen,
-    borderWidth: 1,
-    borderColor: 'rgba(46,85,64,0.2)', // Sage @20%
-    borderRadius: 10,
-    padding: SPACE.md,
-    // soft shadow
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    backgroundColor: 'transparent',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(34,34,34,0.08)',
   },
   iconWrap: {
     width: 28,
     height: 28,
-    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(46,85,64,0.08)',
+    backgroundColor: 'transparent',
   },
-  title: { color: COLORS.Deep, fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
+  title: {
+    color: COLORS.Deep,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+    letterSpacing: 0.2,
+    lineHeight: 20,
+  },
   snippet: { color: 'rgba(26,51,40,0.7)', fontSize: 12, marginTop: 2, lineHeight: 17 },
   date: { color: 'rgba(26,51,40,0.6)', fontSize: 12, marginLeft: 8, lineHeight: 17 },
   menuButton: {
     padding: 4,
     marginLeft: 4,
-  },
-  menuContainer: {
-    position: 'absolute',
-    right: 0,
-    top: 30,
-    zIndex: 10,
   },
 });

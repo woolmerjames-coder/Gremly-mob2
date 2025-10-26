@@ -25,7 +25,7 @@ export default function GoalPlaceholder() {
             <Path
               d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"
               fill={COLORS.Moss}
-              opacity={0.6}
+              opacity={0.4}
             />
           </Svg>
         </View>
@@ -50,7 +50,7 @@ export default function GoalPlaceholder() {
               fill="none"
               stroke={COLORS.Moss}
               strokeWidth={2}
-              opacity={0.6}
+              opacity={0.4}
             />
           </Svg>
         </View>
@@ -78,32 +78,33 @@ export default function GoalPlaceholder() {
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: SPACE.md,
-    marginTop: 16,
-    gap: 10,
+    backgroundColor: 'rgba(191,216,192,0.09)', // SectionGoalsTint
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 18,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
   },
   sampleCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.Linen,
-    borderWidth: 1,
-    borderColor: 'rgba(46,85,64,0.2)',
-    borderRadius: RADII.card,
-    padding: SPACE.md,
-    opacity: 0.6,
-    // No shadow for placeholder
+    backgroundColor: 'transparent',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(34,34,34,0.08)',
+    opacity: 0.5,
   },
   iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(46,85,64,0.08)',
+    backgroundColor: 'transparent',
   },
   sampleTitle: {
     color: COLORS.Deep,
-    fontWeight: '700',
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 15,
     letterSpacing: 0.2,
     lineHeight: 20,
@@ -136,7 +137,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 12,
     fontWeight: '400',
   },
 });

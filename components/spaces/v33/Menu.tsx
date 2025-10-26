@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo } from 'react';
-import { Animated, Easing, StyleSheet, Text } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, Modal, Pressable, View } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
-import { Pressable } from 'react-native';
 
 export type MenuItem = { key: string; label: string; danger?: boolean };
 
 type Props = {
   items: MenuItem[];
   onSelect: (key: string) => void;
+  onClose: () => void;
+  anchorLayout?: { x: number; y: number; width: number; height: number };
 };
 
-export default function Menu({ items, onSelect }: Props) {
+export default function Menu({ items, onSelect, onClose, anchorLayout }: Props) {
   const y = useMemo(() => new Animated.Value(6), []);
   const opacity = useMemo(() => new Animated.Value(0), []);
   const scale = useMemo(() => new Animated.Value(0.96), []);
@@ -33,22 +34,44 @@ export default function Menu({ items, onSelect }: Props) {
     ]).start();
   }, [y, opacity, scale]);
 
+  if (!anchorLayout) return null;
+
+  const menuTop = anchorLayout.y + anchorLayout.height + 8;
+  const menuRight = 16; // Distance from right edge
+
   return (
-    <Animated.View style={[styles.menu, { opacity, transform: [{ translateY: y }, { scale }] }]}>
-      {items.map((it) => (
-        <Pressable
-          key={it.key}
-          onPress={() => onSelect(it.key)}
-          style={({ hovered, pressed }: any) => [
-            styles.menuItem,
-            (hovered || pressed) && { backgroundColor: 'rgba(191,216,192,0.12)' },
-          ]}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.menuText, it.danger && styles.menuTextDanger]}>{it.label}</Text>
-        </Pressable>
-      ))}
-    </Animated.View>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <Animated.View
+        style={[
+          styles.menu,
+          {
+            position: 'absolute',
+            top: menuTop,
+            right: menuRight,
+            opacity,
+            transform: [{ translateY: y }, { scale }],
+          },
+        ]}
+      >
+        {items.map((it) => (
+          <Pressable
+            key={it.key}
+            onPress={() => {
+              onSelect(it.key);
+              onClose();
+            }}
+            style={({ pressed }: any) => [
+              styles.menuItem,
+              pressed && { backgroundColor: 'rgba(191,216,192,0.12)' },
+            ]}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.menuText, it.danger && styles.menuTextDanger]}>{it.label}</Text>
+          </Pressable>
+        ))}
+      </Animated.View>
+    </Modal>
   );
 }
 
