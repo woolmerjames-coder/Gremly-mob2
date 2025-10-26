@@ -52,7 +52,6 @@ import InsightsRow from '../../components/spaces/v22/InsightsRow';
 import NotepadOverlay from '../../components/spaces/v22/Overlays/NotepadOverlay';
 import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
 import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
-import NewPlusFAB from '../../components/spaces/v22/NewPlusFAB';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
@@ -67,6 +66,7 @@ import HeaderV33 from '../../components/spaces/v33/Header';
 import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
 import GoalCardV33 from '../../components/spaces/v33/GoalCard';
 import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
+import IconRowV33 from '../../components/spaces/v33/IconRow';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -600,6 +600,35 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             onClose={() => setSearchVisible(false)}
             active={'chats'}
             onSetActive={(_k) => {}}
+          />
+
+          {/* Centered icon row */}
+          <IconRowV33
+            counts={{
+              notes: listNotesForSpace(items, spaceId, { limit: 9999 }).length,
+              milestones: (upcoming || []).length,
+            }}
+            onOpenNotepad={() => setShowNotepad(true)}
+            onOpenCalendar={() => setShowTimeline(true)}
+            onAdd={() => {
+              if (overlay.state.visible) {
+                (async () => {
+                  try {
+                    await repo.addUnsorted(spaceId, {
+                      type: 'note',
+                      title: 'Quick capture',
+                      subtype: 'catchall',
+                    });
+                    showSageToast();
+                    await reload();
+                  } catch (e) {
+                    console.warn('[v33] quick capture failed', e);
+                  }
+                })();
+                return;
+              }
+              overlay.openCreate({ spaceId });
+            }}
           />
 
           <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
@@ -1269,34 +1298,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       {/* People overlay (v22) */}
       <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} spaceId={spaceId} />
 
-      {/* Floating Plus (v22) */}
-      {isSpaceV22 && (
-        <View style={{ position: 'absolute', right: 16, bottom: 24 }} pointerEvents="box-none">
-          <NewPlusFAB
-            onPress={() => {
-              (async () => {
-                if (overlay.state.visible) {
-                  // Fallback: drop a quick unsorted capture into this space
-                  try {
-                    await repo.addUnsorted(spaceId, {
-                      type: 'note',
-                      title: 'Quick capture',
-                      subtype: 'catchall',
-                    });
-                    showSageToast();
-                    // Optionally refresh lightweight aggregates
-                    await reload();
-                  } catch (e) {
-                    console.warn('[v22] quick capture failed', e);
-                  }
-                  return;
-                }
-                overlay.openCreate({ spaceId });
-              })();
-            }}
-          />
-        </View>
-      )}
+      {/* Floating Plus removed in v3.3; v22 FAB retired */}
 
       {/* Sage toast for unsorted items */}
       {showUnsortedToast && (
