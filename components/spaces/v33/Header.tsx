@@ -60,10 +60,16 @@ const styles = StyleSheet.create({
   wrap: {
     backgroundColor: COLORS.Sage,
     paddingHorizontal: SPACE.md,
-    paddingTop: 18,
-    paddingBottom: 10,
+    paddingTop: 12,
+    paddingBottom: 8,
     borderBottomLeftRadius: RADII.card,
     borderBottomRightRadius: RADII.card,
+    // subtle shadow
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   center: { flex: 1, alignItems: 'center' },
   title: { color: COLORS.Moss, fontSize: 20, fontWeight: '700' },
@@ -72,7 +78,7 @@ const styles = StyleSheet.create({
   actions: {
     position: 'absolute',
     right: SPACE.md,
-    top: 16,
+    top: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
