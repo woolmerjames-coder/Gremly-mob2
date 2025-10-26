@@ -96,11 +96,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   // v33 search filter chip state
   const [searchActiveV33, setSearchActiveV33] = useState<'chats' | 'notes' | 'habits'>('chats');
-  const [searchLoadingV33, setSearchLoadingV33] = useState(false);
-  const [searchResultsV33, setSearchResultsV33] = useState<{
-    items: AppRecord[];
-    chats: SpaceChat[];
-  } | null>(null);
+  // Local search results (computed client-side)
   const [activeTab, setActiveTab] = useState<'all' | 'chats' | 'habits' | 'todos' | 'notes'>(
     'chats',
   );
@@ -386,41 +382,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setActiveTab(key);
   }, []);
 
-  // v33: debounce search wiring to repo.searchInSpace
-  useEffect(() => {
-    if (!isSpaceV33) return;
-    const q = searchQuery.trim();
-    if (!searchVisible || q.length === 0) {
-      setSearchResultsV33(null);
-      return;
-    }
-    setSearchLoadingV33(true);
-    const t = setTimeout(() => {
-      repo
-        .searchInSpace(spaceId, q)
-        .then((res) => setSearchResultsV33(res))
-        .catch(() => setSearchResultsV33({ items: [], chats: [] }))
-        .finally(() => setSearchLoadingV33(false));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [isSpaceV33, repo, searchQuery, searchVisible, spaceId]);
-
   const v33FilteredResults = React.useMemo(() => {
     const empty = { items: [] as AppRecord[], chats: [] as SpaceChat[] };
-    if (!searchResultsV33) return empty;
-    if (searchActiveV33 === 'chats') return { items: [], chats: searchResultsV33.chats };
-    if (searchActiveV33 === 'notes')
-      return {
-        items: (searchResultsV33.items || []).filter((it) => it.type === 'note'),
-        chats: [],
-      };
-    if (searchActiveV33 === 'habits')
-      return {
-        items: (searchResultsV33.items || []).filter((it) => it.type === 'habit'),
-        chats: [],
-      };
+    const q = searchQuery.trim().toLowerCase();
+    if (!searchVisible || q.length === 0) return empty;
+
+    const match = (s?: string | null) => (s || '').toLowerCase().includes(q);
+
+    const matchedChats = chats.filter((c) => match(c.title) || match(c.last_message_snippet || ''));
+
+    const matchedNotes = (items as AppRecord[]).filter(
+      (it: any) => it.type === 'note' && (match((it as any).title) || match((it as any).body)),
+    );
+    const matchedHabits = (items as AppRecord[]).filter(
+      (it: any) => it.type === 'habit' && (match((it as any).name) || match((it as any).notes)),
+    );
+
+    if (searchActiveV33 === 'chats') return { items: [], chats: matchedChats };
+    if (searchActiveV33 === 'notes') return { items: matchedNotes, chats: [] };
+    if (searchActiveV33 === 'habits') return { items: matchedHabits, chats: [] };
     return empty;
-  }, [searchActiveV33, searchResultsV33]);
+  }, [searchActiveV33, searchQuery, searchVisible, chats, items]);
 
   // Persist layout state
   const persistLayoutState = useCallback(
@@ -723,9 +705,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           {/* Search results (v33) */}
           {searchVisible && searchQuery.trim().length > 0 && (
             <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
-              {searchLoadingV33 ? (
-                <Text style={{ color: T.colors.subtle }}>Searching…</Text>
-              ) : v33FilteredResults.chats.length + v33FilteredResults.items.length === 0 ? (
+              {v33FilteredResults.chats.length + v33FilteredResults.items.length === 0 ? (
                 <Text style={{ color: T.colors.subtle }}>No results</Text>
               ) : (
                 <View style={{ gap: 8 }}>
