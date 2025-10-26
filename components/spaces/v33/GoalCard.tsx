@@ -1,7 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
-import Menu from './Menu';
 import Svg, { Circle } from 'react-native-svg';
 
 export type GoalCardProps = {
@@ -14,7 +13,6 @@ export type GoalCardProps = {
 };
 
 export default function GoalCard({ id, title, state, subtitle, onOpen, onMenu }: GoalCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const lift = useMemo(() => new Animated.Value(0), []);
   const pulse = useMemo(() => new Animated.Value(1), []);
 
@@ -77,7 +75,6 @@ export default function GoalCard({ id, title, state, subtitle, onOpen, onMenu }:
         <Pressable
           onPress={(e) => {
             e.stopPropagation();
-            setMenuOpen((v) => !v);
             onMenu(id);
           }}
           style={({ pressed, hovered }: any) => [
@@ -94,23 +91,6 @@ export default function GoalCard({ id, title, state, subtitle, onOpen, onMenu }:
             <Circle cx={12} cy={19} r={1.8} fill={COLORS.Moss} />
           </Svg>
         </Pressable>
-
-        {menuOpen && (
-          <View style={styles.menuWrap} pointerEvents="box-none">
-            <Menu
-              items={[
-                { key: 'open', label: 'Open' },
-                { key: 'rename', label: 'Rename' },
-                { key: 'archive', label: 'Archive', danger: true },
-              ]}
-              onSelect={(key) => {
-                setMenuOpen(false);
-                // Bubble up id; parent can branch on key
-                onMenu(id);
-              }}
-            />
-          </View>
-        )}
       </Animated.View>
     </Pressable>
   );
