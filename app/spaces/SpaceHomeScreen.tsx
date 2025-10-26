@@ -57,6 +57,7 @@ import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayContro
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
+import WeeklyGoalCard from '../../components/spaces/v22/WeeklyGoalCard';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
@@ -109,6 +110,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const undoHandlerRef = React.useRef<null | (() => Promise<void>)>(null);
   // Unified timeline hook (v22)
   const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
+  // Refs for smooth scrolling to sections (v22)
+  const scrollRef = React.useRef<ScrollView | null>(null);
+  const [dayPanelY, setDayPanelY] = React.useState<number | null>(null);
   // Cascade fade-in for v22 sections
   const oWeek = React.useMemo(() => new Animated.Value(0), []);
   const oDay = React.useMemo(() => new Animated.Value(0), []);
@@ -133,6 +137,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     );
     Animated.stagger(50, timings).start();
   }, [isSpaceV22, oCTA, oDay, oInsights, oSummary, oThreads, oWeek]);
+
+  // When selected day changes in v22, scroll DayPanel into view (place before any early return)
+  useEffect(() => {
+    if (!isSpaceV22) return;
+    if (dayPanelY == null) return;
+    const t = setTimeout(() => {
+      try {
+        const y = Math.max(0, dayPanelY - 80);
+        scrollRef.current?.scrollTo({ y, animated: true });
+      } catch {
+        // no-op
+      }
+    }, 50);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDayISO]);
 
   // Load focus card dismissal from AsyncStorage
   useEffect(() => {
@@ -489,6 +509,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return (
       <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
@@ -588,9 +609,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     );
   }
 
+  // (moved above)
+
+  // (effect moved above to satisfy hooks rules)
+
   return (
     <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
@@ -709,7 +735,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     summary={summary}
                     mode="action"
                     onPrimary={() => {
-                      // Ensure today is selected; optionally could scroll into view if ref added
+                      // Ensure today is selected
                       setSelectedDayISO(todayISO);
                     }}
                     onSecondary={async () => {
@@ -751,8 +777,45 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
+        {/* Weekly Goal (v22): show for the first habit in the selected day */}
         {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oDay }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            {(() => {
+              const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
+              const habitsToday = (day?.items || []).filter((it) => it.type === 'habit');
+              if (!habitsToday.length) return null;
+              const firstHabit = habitsToday[0];
+              const allWeek = (timelineDays || []).flatMap((d) => d.items);
+              const weeklyDone = allWeek.filter(
+                (it) => it.type === 'habit' && it.id === firstHabit.id && it.done,
+              ).length;
+              const target = 3; // default weekly target (Phase v22)
+              const title = `${firstHabit.title} ${target}×/week`;
+              return (
+                <WeeklyGoalCard
+                  title={title}
+                  done={weeklyDone}
+                  target={target}
+                  onOpenDetail={() => {
+                    // Open overlay to edit this habit as a placeholder for habit detail
+                    const rec = (items as any[]).find((r) => r.id === firstHabit.id);
+                    if (rec) {
+                      overlay.openEdit({ record: rec, spaceId });
+                    } else {
+                      Alert.alert('Habit', 'Detail screen coming soon');
+                    }
+                  }}
+                />
+              );
+            })()}
+          </View>
+        )}
+
+        {isSpaceV22 && (
+          <Animated.View
+            style={{ paddingHorizontal: 16, marginTop: 24, opacity: oDay }}
+            onLayout={(e) => setDayPanelY(e.nativeEvent.layout.y)}
+          >
             <DayPanelV22
               dateISO={selectedDayISO}
               habits={(() => {
@@ -771,6 +834,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 const todos = (day?.items || []).filter((it) => it.type === 'todo');
                 return todos.map((t) => ({ id: t.id, title: t.title, done: !!t.done }));
               })()}
+              onAddItem={() => {
+                // Pre-fill space; due date prefill not yet supported by overlay API
+                // We can thread the intended date via initialTitle to hint the user
+                const friendly = new Date(selectedDayISO).toLocaleDateString(undefined, {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                });
+                overlay.openCreate({
+                  spaceId,
+                  conversionMeta: {
+                    initialTitle: `Task for ${friendly}`,
+                    initialDueDate: selectedDayISO,
+                  },
+                });
+              }}
               onToggleHabit={async (id) => {
                 try {
                   // Find current state
