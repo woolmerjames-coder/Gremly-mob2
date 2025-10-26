@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { Search, Settings } from '../../icons';
+import SearchOverlay from './Overlays/SearchOverlay';
 
 export type HeaderTone = 'calm' | 'neutral' | 'proud' | 'low';
 
@@ -22,6 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSettings,
   onBack,
 }) => {
+  const [showSearch, setShowSearch] = React.useState(false);
   const contextColor = getContextColor(contextLine?.tone);
   return (
     <View style={styles.wrap}>
@@ -49,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <View style={styles.actions}>
           <TouchableOpacity
-            onPress={onSearch}
+            onPress={() => setShowSearch(true)}
             accessibilityRole="button"
             accessibilityLabel="Search"
           >
@@ -72,6 +74,8 @@ export const Header: React.FC<HeaderProps> = ({
       )}
       {/* Soft fade under header to mimic gradient */}
       <View style={styles.fadeUnder} />
+      {/* Search overlay (slides under header) */}
+      <SearchOverlay visible={showSearch} onClose={() => setShowSearch(false)} />
     </View>
   );
 };
