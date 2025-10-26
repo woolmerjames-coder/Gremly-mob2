@@ -32,16 +32,16 @@ export default function IconRow({ counts, onOpenNotepad, onOpenCalendar, onAdd }
     };
   }, [pulse]);
 
-  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] });
   const glow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
 
   return (
     <View style={styles.wrap}>
       <Action onPress={onOpenNotepad} badge={counts?.notes}>
-        <StickyNote color={COLORS.Moss} size={24} strokeWidth={2} />
+        <StickyNote color={COLORS.Moss} size={20} strokeWidth={2} />
       </Action>
       <Action onPress={onOpenCalendar} badge={counts?.milestones}>
-        <CalendarClock color={COLORS.Moss} size={24} strokeWidth={2} />
+        <CalendarClock color={COLORS.Moss} size={20} strokeWidth={2} />
       </Action>
       <TouchableOpacity accessibilityRole="button" onPress={onAdd} style={{ alignItems: 'center' }}>
         <Animated.View
@@ -54,7 +54,7 @@ export default function IconRow({ counts, onOpenNotepad, onOpenCalendar, onAdd }
             },
           ]}
         >
-          <Plus color={COLORS.Moss} size={24} strokeWidth={2} />
+          <Plus color={COLORS.Moss} size={20} strokeWidth={2} />
         </Animated.View>
       </TouchableOpacity>
     </View>
@@ -87,7 +87,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-evenly',
+    justifyContent: 'center',
+    gap: 40,
   },
   iconWrap: {
     padding: 8,

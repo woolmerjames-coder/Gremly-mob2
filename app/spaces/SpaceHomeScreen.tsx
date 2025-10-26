@@ -1082,18 +1082,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         </ScrollView>
 
-        {/* New chat floating button */}
-        <View style={styles.fabContainer}>
-          <TouchableOpacity
-            style={[styles.fab, { backgroundColor: T.colors.primary }]}
-            onPress={handleNewChat}
-            disabled={!!space.archived_at}
-            accessibilityLabel="Start new chat"
-            accessibilityRole="button"
-          >
-            <Text style={[styles.fabIcon, { color: T.colors.onPrimary }]}>➕</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Floating FAB removed in v3.3; use IconRow + button actions instead */}
 
         {/* Micro celebration overlay */}
         <ConfettiBurst
@@ -1772,18 +1761,7 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.text,
     marginBottom: lightTokens.spacing[3],
   },
-  fabContainer: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-  },
-  fab: {
-    display: 'none',
-  },
-  fabIcon: {
-    fontSize: 24,
-    color: lightTokens.colors.onPrimary,
-  },
+  // FAB styles removed with v3.3 icon row
 });
 
 // Helpers
