@@ -20,9 +20,12 @@ import {
   Alert,
   SafeAreaView,
   ToastAndroid,
+  Image,
+  TouchableOpacity,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
@@ -226,6 +229,9 @@ function buildActionToastPayload(
 }
 
 export default function ChatThreadScreen({ route }: Props) {
+  // Navigation
+  const navigation = useNavigation();
+
   // Scroll ref for auto-scrolling to the latest message
   const scrollViewRef = useRef<import('react-native').ScrollView | null>(null);
 
@@ -304,6 +310,16 @@ export default function ChatThreadScreen({ route }: Props) {
     appendActionConfirmation,
     appendEntryCard,
   } = useChatMessages(chatId, spaceId);
+
+  // Back button handler
+  const handleBackPress = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      // Fallback: navigate to the space home if can't go back
+      (navigation as any).navigate('SpaceHome', { spaceId });
+    }
+  }, [navigation, spaceId]);
 
   // Phase 11.3: Inline action confirmation function (moved after useChatMessages)
   const maybeTriggerActionToast = useCallback(
@@ -1229,6 +1245,15 @@ export default function ChatThreadScreen({ route }: Props) {
           {shouldShowMascot() && (
             <View style={styles.header}>
               <View style={styles.headerContent}>
+                <TouchableOpacity
+                  onPress={handleBackPress}
+                  style={styles.backButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel="Go back to Space"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.backButtonText}>← Space</Text>
+                </TouchableOpacity>
                 <Text style={styles.headerTitle}>Chat with Gremly</Text>
                 <Mascot size="md" />
               </View>
@@ -1244,11 +1269,17 @@ export default function ChatThreadScreen({ route }: Props) {
           >
             {messages.length === 0 ? (
               <View style={styles.placeholder}>
-                <Text style={styles.placeholderIcon}>💬</Text>
-                <Text style={styles.placeholderTitle}>Start a conversation</Text>
-                <Text style={styles.placeholderText}>
-                  This is a chat thread with Gremly. Type a message below to get started.
-                </Text>
+                <Image
+                  source={require('../../assets/mascot/Gremlychat.png')}
+                  style={styles.peekingGremly}
+                  resizeMode="contain"
+                />
+                <View style={styles.emptyTextContainer}>
+                  <Text style={styles.placeholderTitle}>Start typing what's on your mind.</Text>
+                  <Text style={styles.placeholderText}>
+                    Gremly can help you sort ideas, set habits, or create next steps
+                  </Text>
+                </View>
               </View>
             ) : (
               <>
@@ -1468,6 +1499,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: lightTokens.colors.charcoalInk,
   },
+  backButton: {
+    paddingVertical: lightTokens.spacing[2],
+    paddingHorizontal: lightTokens.spacing[2],
+    marginRight: lightTokens.spacing[3],
+  },
+  backButtonText: {
+    fontSize: lightTokens.typography.size.md,
+    color: lightTokens.colors.mossGreen,
+    fontWeight: '500',
+  },
   messages: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -1481,25 +1522,35 @@ const styles = StyleSheet.create({
     marginTop: lightTokens.spacing[2],
   },
   placeholder: {
-    alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
-    paddingVertical: lightTokens.spacing[7],
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingBottom: 100, // Account for input field
   },
-  placeholderIcon: {
-    fontSize: 48,
-    marginBottom: lightTokens.spacing[3],
+  peekingGremly: {
+    width: 180,
+    height: 180,
+    marginBottom: 24,
+    transform: [{ rotate: '-5deg' }],
+  },
+  emptyTextContainer: {
+    alignItems: 'center',
+    maxWidth: 280,
   },
   placeholderTitle: {
-    fontSize: lightTokens.typography.size.xl,
+    fontSize: 18,
     fontWeight: '600',
-    color: lightTokens.colors.charcoalInk,
-    marginBottom: lightTokens.spacing[2],
+    color: '#2E5540', // Moss Green
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 24,
   },
   placeholderText: {
-    fontSize: lightTokens.typography.size.md,
-    color: lightTokens.colors.subtle,
+    fontSize: 15,
+    color: '#666666',
     textAlign: 'center',
-    maxWidth: 300,
+    lineHeight: 21,
   },
   messageContainer: {
     marginBottom: lightTokens.spacing[3],
