@@ -46,6 +46,7 @@ import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
 import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
 import DayPanelV22 from '../../components/spaces/v22/DayPanel';
 import AdaptiveSummaryV22 from '../../components/spaces/v22/AdaptiveSummary';
+import FocusTodayCard from '../../components/spaces/v22/FocusTodayCard';
 import InsightsRow from '../../components/spaces/v22/InsightsRow';
 import NotepadOverlay from '../../components/spaces/v22/Overlays/NotepadOverlay';
 import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
@@ -57,6 +58,7 @@ import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused } from '@react-navigation/native';
 import ConfettiBurst from '../../components/ConfettiBurst';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
@@ -95,6 +97,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   );
   const [showTimeline, setShowTimeline] = useState(false);
   const [showNotepad, setShowNotepad] = useState(false);
+  const [intentDraft, setIntentDraft] = useState<string | undefined>(undefined);
   const [showPeople, setShowPeople] = useState(false);
   const overlay = useUnifiedOverlayController();
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
@@ -113,6 +116,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const oInsights = React.useMemo(() => new Animated.Value(0), []);
   const oCTA = React.useMemo(() => new Animated.Value(0), []);
   const oThreads = React.useMemo(() => new Animated.Value(0), []);
+  // Focus card snooze state
+  const [focusDismissed, setFocusDismissed] = useState<boolean>(false);
   // Feature flag: Space v22 header (strict equality as requested)
   const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
@@ -128,6 +133,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     );
     Animated.stagger(50, timings).start();
   }, [isSpaceV22, oCTA, oDay, oInsights, oSummary, oThreads, oWeek]);
+
+  // Load focus card dismissal from AsyncStorage
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const todayISO = formatISO(new Date(), { representation: 'date' });
+        const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
+        const until = await AsyncStorage.getItem(key);
+        if (until) {
+          const ts = new Date(until).getTime();
+          if (!isNaN(ts) && ts > Date.now()) setFocusDismissed(true);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    run();
+  }, [spaceId]);
 
   const showSageToast = useCallback(() => {
     setShowUnsortedToast(true);
@@ -656,6 +679,78 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </Animated.View>
         )}
 
+        {/* Focus Today Card (v22) */}
+        {isSpaceV22 && !focusDismissed && (
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            {(() => {
+              const todayISO = formatISO(new Date(), { representation: 'date' });
+              const day = (timelineDays || []).find((d) => d.dateISO === todayISO);
+              const actionable = (day?.items || []).filter(
+                (it) => (it.type === 'habit' || it.type === 'todo') && !it.done,
+              );
+              const first = actionable[0]?.title;
+              const second = actionable[1]?.title;
+              const countHabits = (day?.items || []).filter(
+                (it) => it.type === 'habit' && !it.done,
+              ).length;
+              const countTodos = (day?.items || []).filter(
+                (it) => it.type === 'todo' && !it.done,
+              ).length;
+              const total = countHabits + countTodos;
+
+              if (total > 0) {
+                const summary = `You’ve got ${countHabits} habit${
+                  countHabits === 1 ? '' : 's'
+                } and ${countTodos} to-do${countTodos === 1 ? '' : 's'} today — start with ${
+                  first || 'the first task'
+                }${second ? ` or ${second}` : ''}?`;
+                return (
+                  <FocusTodayCard
+                    summary={summary}
+                    mode="action"
+                    onPrimary={() => {
+                      // Ensure today is selected; optionally could scroll into view if ref added
+                      setSelectedDayISO(todayISO);
+                    }}
+                    onSecondary={async () => {
+                      try {
+                        const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                        const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
+                        await AsyncStorage.setItem(key, until);
+                        setFocusDismissed(true);
+                      } catch {
+                        setFocusDismissed(true);
+                      }
+                    }}
+                  />
+                );
+              }
+
+              const summary = 'All calm here — want to set an intention for the day?';
+              return (
+                <FocusTodayCard
+                  summary={summary}
+                  mode="reflect"
+                  onPrimary={() => {
+                    setIntentDraft('Today, I intend to…');
+                    setShowNotepad(true);
+                  }}
+                  onSecondary={async () => {
+                    try {
+                      const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                      const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
+                      await AsyncStorage.setItem(key, until);
+                      setFocusDismissed(true);
+                    } catch {
+                      setFocusDismissed(true);
+                    }
+                  }}
+                />
+              );
+            })()}
+          </View>
+        )}
+
         {isSpaceV22 && (
           <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oDay }}>
             <DayPanelV22
@@ -937,6 +1032,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         visible={showNotepad}
         onClose={() => setShowNotepad(false)}
         spaceId={spaceId}
+        initialDraft={intentDraft}
       />
       {/* People overlay (v22) */}
       <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} spaceId={spaceId} />

@@ -18,9 +18,15 @@ export type NotepadOverlayProps = {
   visible: boolean;
   onClose: () => void;
   spaceId: string;
+  initialDraft?: string; // optional: when provided, ensure a note exists prefilled and selected
 };
 
-export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({ visible, onClose, spaceId }) => {
+export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
+  visible,
+  onClose,
+  spaceId,
+  initialDraft,
+}) => {
   const repo = useRepo();
   const [notes, setNotes] = React.useState<AppRecord[]>([]);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -45,7 +51,30 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({ visible, onClose
   }, [repo, spaceId, selectedId]);
 
   React.useEffect(() => {
-    if (visible) load();
+    if (visible) {
+      (async () => {
+        await load();
+        // If an initialDraft is provided and nothing selected yet, create a new note and select it
+        if (initialDraft && !selectedId) {
+          try {
+            const created = (await repo.create({
+              type: 'note',
+              space_id: spaceId,
+              title: 'Intention for today',
+              body: initialDraft,
+              subtype: 'note',
+            } as any)) as any;
+            setSelectedId(created.id);
+            setText(initialDraft);
+            setFmt('none');
+            setIsJournal(false);
+            await load();
+          } catch {
+            // ignore create failure to avoid blocking overlay
+          }
+        }
+      })();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, spaceId]);
 
