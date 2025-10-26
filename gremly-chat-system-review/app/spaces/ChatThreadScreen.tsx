@@ -41,8 +41,6 @@ import { detectMultipleIntents } from '../../lib/cortex/intents/multiIntentDetec
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { maybeRefreshSummary } from '../../lib/cortex/summarize';
 import { createToastSummary, getActivityName } from '../../lib/chat/contextualSummary';
-import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
-import { perfMonitor } from '../../lib/chat/performanceMonitor';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
@@ -702,49 +700,7 @@ export default function ChatThreadScreen({ route }: Props) {
           payload: { text: trimmedText, spaceId: chat.space_id || undefined },
         });
 
-        // Check for quick response (instant reply without API call)
-        const quickResponse = checkQuickResponse(trimmedText, messages.length);
-
-        if (quickResponse && quickResponse.confidence > 0.7) {
-          // Use quick response - no API call needed
-          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log('[Chat] Using quick response', {
-              confidence: quickResponse.confidence,
-              pattern: trimmedText.substring(0, 30),
-            });
-          }
-
-          // Phase 10.6: Start thinking animation briefly
-          mascot.thinking();
-
-          // Add slight delay so response feels natural (not instantaneous)
-          setTimeout(async () => {
-            const responseText = getQuickResponseText(quickResponse);
-
-            // Append assistant message with quick response metadata
-            await appendAssistantMessage(responseText, {
-              isQuickResponse: true,
-              confidence: quickResponse.confidence,
-            });
-
-            // Phase 10.6: Transition to replying state
-            mascot.replying();
-
-            // Record performance metric
-            await perfMonitor.recordQuickResponse();
-
-            // Brief replying state, then back to idle
-            setTimeout(() => {
-              mascot.idle();
-            }, 800);
-
-            setSending(false);
-          }, 300); // 300ms delay feels natural
-
-          return; // Skip Cortex API call
-        }
-
-        // Phase 10.6: Start thinking animation for API call
+        // Phase 10.6: Start thinking animation
         mascot.thinking();
 
         // 2. Process with Cortex in parallel (Phase 10.3)
@@ -786,18 +742,7 @@ export default function ChatThreadScreen({ route }: Props) {
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
 
-          const cortexStartTime = Date.now();
           const response = await cortexRoute({ text: trimmedText }, ctx);
-          const cortexDuration = Date.now() - cortexStartTime;
-
-          // Record API call performance
-          await perfMonitor.recordApiCall(cortexDuration);
-
-          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log('[Chat] Cortex API call completed', {
-              duration: `${cortexDuration}ms`,
-            });
-          }
 
           const responseDetectedIntent = metaHasDetectedIntent(response.meta)
             ? (response.meta.detectedIntent as DetectedIntent)
@@ -849,27 +794,96 @@ export default function ChatThreadScreen({ route }: Props) {
             )
             .catch((err) => console.error('[ChatThread] Failed to log event:', err));
 
-          // REMOVED: Automatic action creation without user confirmation (lines 800-883)
-          // CRITICAL BUG FIX: Actions should ONLY be created when user explicitly clicks "Confirm"
-          // in the InlineActionConfirmation component (Phase 11.3)
-          //
-          // The previous code automatically created actions when:
-          // - !toastShown && response.mode === 'auto' && actions.length > 0
-          //
-          // This bypassed user confirmation and created habits/todos/notes without permission.
-          // All action creation now goes through:
-          // 1. maybeTriggerActionToast() shows InlineActionConfirmation
-          // 2. User clicks "Confirm" button
-          // 3. InlineActionConfirmation calls repo.create()
-          // 4. EntryCard shows success (Phase 11.6)
-          //
-          // See: components/chat/InlineActionConfirmation.tsx for proper confirmation flow
+          // Normalize actions array for type safety
+          const actions = Array.isArray(response.actions) ? response.actions : [];
+
+          if (!toastShown && response.mode === 'auto' && actions.length > 0) {
+            // Execute actions in parallel
+            const confirmationTexts: string[] = [];
+
+            await Promise.all(
+              actions.map(async (action: CortexAction) => {
+                try {
+                  if (action.type === 'add.to.list') {
+                    const list = await repo.getOrCreateList(action.payload.listKey, {
+                      userId: currentUserId,
+                      spaceId: chat.space_id || null,
+                    });
+                    await repo.addListItem(list.id, action.payload.item);
+                    confirmationTexts.push(explainAddedToList(list.name, 'warm'));
+                  } else if (action.type === 'create.todo') {
+                    await repo.create({
+                      type: 'todo',
+                      name: action.payload.title,
+                      title: action.payload.title,
+                      due_date: action.payload.due ?? null,
+                      undefined_due: !action.payload.due,
+                      space_id: chat.space_id || null,
+                      ai_placed: true,
+                      why_string: response.explanation,
+                      origin: 'catchall',
+                    });
+                    confirmationTexts.push(explainCreated('todo', 'warm'));
+                  } else if (action.type === 'create.habit') {
+                    await repo.create({
+                      type: 'habit',
+                      name: action.payload.name,
+                      frequency:
+                        (action.payload.freq === 'custom' ? 'daily' : action.payload.freq) ||
+                        'daily',
+                      subtype: 'start_habit',
+                      space_id: chat.space_id || null,
+                      ai_placed: true,
+                      why_string: response.explanation,
+                      origin: 'catchall',
+                    });
+                    confirmationTexts.push(explainCreated('habit', 'warm'));
+                  } else if (action.type === 'create.note') {
+                    await repo.create({
+                      type: 'note',
+                      title: action.payload.text || trimmedText,
+                      body: action.payload.text,
+                      subtype:
+                        (action.payload.subtype as
+                          | 'journal'
+                          | 'list'
+                          | 'catchall'
+                          | 'idea'
+                          | 'reference') || 'catchall',
+                      space_id: chat.space_id || null,
+                      ai_placed: true,
+                      why_string: response.explanation,
+                      origin: 'catchall',
+                    });
+                    confirmationTexts.push(explainCreated('note', 'warm'));
+                  } else if (action.type === 'file.to.space' && action.payload.spaceId) {
+                    const spaces = await repo.listSpaces();
+                    const space = spaces.find((s) => s.id === action.payload.spaceId);
+                    if (space) {
+                      confirmationTexts.push(explainFiledToSpace(space.name, 'warm'));
+                    }
+                  }
+                } catch (err) {
+                  console.error('[ChatThread] Failed to execute action:', action, err);
+                }
+              }),
+            );
+
+            // Show confirmations for the latest message
+            if (confirmationTexts.length > 0 && messages.length > 0) {
+              const latestMessage = messages[messages.length - 1];
+              setConfirmations((prev) => [
+                ...prev.filter((c) => c.messageId !== latestMessage.id),
+                { messageId: latestMessage.id, texts: confirmationTexts },
+              ]);
+
+              // Phase 10.6: Celebration state when actions are successfully executed
+              mascot.celebrate();
+            }
+          }
 
           // Phase 10.6: Determine mascot state based on cortex response
           let shouldTriggerPlayful = false;
-
-          // Normalize actions array for type safety
-          const actions = Array.isArray(response.actions) ? response.actions : [];
 
           // Check if this is chit-chat/conversational content
           if (response.mode === 'keep' && actions.length === 0) {
@@ -1255,16 +1269,11 @@ export default function ChatThreadScreen({ route }: Props) {
           >
             {messages.length === 0 ? (
               <View style={styles.placeholder}>
-                {/* Gremly peeking from right edge */}
-                <View style={styles.gremlyContainer}>
-                  <Image
-                    source={require('../../assets/mascot/Gremlychat.png')}
-                    style={styles.peekingGremly}
-                    resizeMode="contain"
-                  />
-                </View>
-
-                {/* Text positioned on the left side */}
+                <Image
+                  source={require('../../assets/mascot/Gremlychat.png')}
+                  style={styles.peekingGremly}
+                  resizeMode="contain"
+                />
                 <View style={styles.emptyTextContainer}>
                   <Text style={styles.placeholderTitle}>Start typing what's on your mind.</Text>
                   <Text style={styles.placeholderText}>
@@ -1463,7 +1472,7 @@ export default function ChatThreadScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#D4E4D4', // Sage green background for seamless empty state
+    backgroundColor: lightTokens.colors.linenCream,
   },
   flex: {
     flex: 1,
@@ -1514,37 +1523,33 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     flex: 1,
-    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
     paddingBottom: 100, // Account for input field
   },
-  gremlyContainer: {
-    position: 'absolute',
-    right: -30, // Negative margin to peek from edge
-    top: '20%',
-    width: 220,
-    height: 220,
-    zIndex: 1,
-  },
   peekingGremly: {
-    width: '100%',
-    height: '100%',
+    width: 180,
+    height: 180,
+    marginBottom: 24,
+    transform: [{ rotate: '-5deg' }],
   },
   emptyTextContainer: {
-    position: 'absolute',
-    left: 32,
-    top: '30%',
-    maxWidth: '60%', // Don't overlap with mascot
+    alignItems: 'center',
+    maxWidth: 280,
   },
   placeholderTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
-    marginBottom: 12,
+    textAlign: 'center',
+    marginBottom: 8,
     lineHeight: 24,
   },
   placeholderText: {
     fontSize: 15,
-    color: '#4A5F4A', // Darker green for better contrast on sage background
+    color: '#666666',
+    textAlign: 'center',
     lineHeight: 21,
   },
   messageContainer: {
