@@ -1871,3 +1871,60 @@ export class SupabaseSpaceChatMessageRepo {
     return data as import('../types').SpaceChatMessage;
   }
 }
+
+/**
+ * SupabaseSpaceMilestoneRepo - CRUD for space_milestones (Phase 11.x)
+ */
+export class SupabaseSpaceMilestoneRepo {
+  constructor(private currentUserId?: string) {}
+
+  private ensureUserId(): string {
+    if (!this.currentUserId) throw new Error('User ID not available');
+    return this.currentUserId;
+  }
+
+  async list(spaceId: string): Promise<import('../types').SpaceMilestone[]> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(`Failed to list milestones: ${error.message}`);
+    return (data || []) as import('../types').SpaceMilestone[];
+  }
+
+  async create(input: {
+    space_id: string;
+    title: string;
+    date: string; // YYYY-MM-DD
+    note?: string | null;
+  }): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .insert({
+        owner_id: userId,
+        space_id: input.space_id,
+        title: input.title,
+        date: input.date,
+        note: input.note ?? null,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to create milestone: ${error.message}`);
+    return data as import('../types').SpaceMilestone;
+  }
+
+  async delete(id: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('space_milestones')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', userId);
+    if (error) throw new Error(`Failed to delete milestone: ${error.message}`);
+  }
+}

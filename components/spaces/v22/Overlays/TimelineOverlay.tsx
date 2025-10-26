@@ -1,10 +1,20 @@
 import React from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  Modal,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+} from 'react-native';
 import { BlurView } from 'expo-blur';
 import { COLORS, SPACE } from '../_tokens';
 import { X as CloseIcon } from 'lucide-react-native';
 import useSpaceTimeline from '../../../../hooks/useSpaceTimeline';
 import { format } from 'date-fns';
+import { SupabaseSpaceMilestoneRepo } from '../../../../lib/repo/supabase';
+import { useAuth } from '../../../../providers/AuthProvider';
 
 export type TimelineOverlayProps = {
   visible: boolean;
@@ -20,16 +30,72 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
   onSelectDate,
 }) => {
   const { days, reload } = useSpaceTimeline(spaceId);
+  const { userId } = useAuth();
+  const milestoneRepo = React.useMemo(
+    () => new SupabaseSpaceMilestoneRepo(userId || undefined),
+    [userId],
+  );
+  const [milestones, setMilestones] = React.useState<
+    Array<{
+      id: string;
+      title: string;
+      date: string;
+      note?: string | null;
+    }>
+  >([]);
+  const [adding, setAdding] = React.useState(false);
+  const [title, setTitle] = React.useState('');
+  const [date, setDate] = React.useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [note, setNote] = React.useState<string>('');
 
   React.useEffect(() => {
-    if (visible) reload();
+    const run = async () => {
+      if (!visible) return;
+      reload();
+      try {
+        const list = await milestoneRepo.list(spaceId);
+        setMilestones(list);
+      } catch (e) {
+        console.warn('[TimelineOverlay] list milestones failed', e);
+        setMilestones([]);
+      }
+    };
+    run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, spaceId]);
+
+  const handleAdd = async () => {
+    try {
+      if (!title.trim()) return;
+      const created = await milestoneRepo.create({
+        space_id: spaceId,
+        title: title.trim(),
+        date,
+        note: note.trim() ? note.trim() : null,
+      });
+      setMilestones((prev) => [...prev, created].sort((a, b) => a.date.localeCompare(b.date)));
+      setTitle('');
+      setDate(format(new Date(), 'yyyy-MM-dd'));
+      setNote('');
+      setAdding(false);
+    } catch (e) {
+      console.warn('[TimelineOverlay] create milestone failed', e);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await milestoneRepo.delete(id);
+      setMilestones((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      console.warn('[TimelineOverlay] delete milestone failed', e);
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFillObject} />
         <View style={styles.sheet}>
           <View style={styles.headerRow}>
             <Text style={styles.title}>Timeline</Text>
@@ -38,54 +104,85 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
               accessibilityRole="button"
               accessibilityLabel="Close timeline"
             >
-              <CloseIcon color={COLORS.Linen} size={22} />
+              <CloseIcon color={COLORS.Sage} size={24} />
             </TouchableOpacity>
           </View>
           <View style={{ height: 12 }} />
           <ScrollView>
-            {days.map((d) => (
-              <View key={d.dateISO} style={{ marginBottom: 12 }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    onSelectDate?.(d.dateISO);
-                    onClose();
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Jump to ${d.dateISO}`}
-                >
-                  <Text style={styles.dayHeader}>{format(new Date(d.dateISO), 'EEE, MMM d')}</Text>
-                </TouchableOpacity>
-                {d.items.length === 0 ? (
-                  <Text style={styles.emptyDay}>No items</Text>
-                ) : (
-                  d.items.map((it) => (
-                    <TouchableOpacity
-                      key={`${d.dateISO}-${it.id}`}
-                      onPress={() => {
-                        onSelectDate?.(d.dateISO);
-                        onClose();
-                      }}
-                      style={styles.itemRow}
-                    >
-                      <View
-                        style={[
-                          styles.dot,
-                          it.type === 'todo'
-                            ? { backgroundColor: COLORS.Pear }
-                            : it.type === 'habit'
-                              ? { backgroundColor: COLORS.Moss }
-                              : { backgroundColor: '#B8C7BF' },
-                        ]}
-                      />
-                      <Text style={styles.itemText} numberOfLines={1}>
-                        {it.title}
+            {milestones.length === 0 ? (
+              <Text style={styles.emptyState}>No milestones yet — want to drop one?</Text>
+            ) : (
+              milestones.map((m) => (
+                <View key={m.id} style={styles.milestoneRow}>
+                  <View style={styles.pearDot} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.milestoneTitle} numberOfLines={1}>
+                      {m.title}
+                    </Text>
+                    <Text style={styles.milestoneMeta}>
+                      {format(new Date(m.date), 'EEE, MMM d, yyyy')}
+                    </Text>
+                    {!!m.note && (
+                      <Text style={styles.milestoneNote} numberOfLines={2}>
+                        {m.note}
                       </Text>
-                    </TouchableOpacity>
-                  ))
-                )}
-              </View>
-            ))}
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleDelete(m.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete milestone ${m.title}`}
+                  >
+                    <Text style={styles.deleteText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+            <View style={{ height: 8 }} />
           </ScrollView>
+          <View style={{ height: 12 }} />
+          {!adding ? (
+            <TouchableOpacity
+              onPress={() => setAdding(true)}
+              accessibilityRole="button"
+              style={styles.addBtn}
+            >
+              <Text style={styles.addBtnText}>+ Add milestone</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.form}>
+              <TextInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Title"
+                placeholderTextColor="#9FB6A2"
+                style={styles.input}
+              />
+              <TextInput
+                value={date}
+                onChangeText={setDate}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#9FB6A2"
+                style={styles.input}
+              />
+              <TextInput
+                value={note}
+                onChangeText={setNote}
+                placeholder="Optional note"
+                placeholderTextColor="#9FB6A2"
+                style={[styles.input, { height: 72 }]}
+                multiline
+              />
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+                <TouchableOpacity onPress={() => setAdding(false)} accessibilityRole="button">
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleAdd} accessibilityRole="button">
+                  <Text style={styles.saveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -104,6 +201,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     padding: SPACE.lg,
     paddingBottom: SPACE.xl,
+    height: '80%',
   },
   headerRow: {
     flexDirection: 'row',
@@ -115,34 +213,73 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.Linen,
   },
-  placeholderList: {
-    gap: 12,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.Pear,
-  },
-  itemText: {
-    color: '#D9E6DA',
-    fontSize: 14,
-  },
-  dayHeader: {
-    color: COLORS.Linen,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  emptyDay: {
+  emptyState: {
     color: '#BFD0C4',
+    fontSize: 14,
+    marginVertical: 8,
+  },
+  milestoneRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  pearDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.Pear,
+    marginTop: 6,
+  },
+  milestoneTitle: {
+    color: COLORS.Linen,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  milestoneMeta: {
+    color: '#D9E6DA',
     fontSize: 12,
-    marginLeft: 16,
-    marginBottom: 8,
+    marginTop: 2,
+  },
+  milestoneNote: {
+    color: '#D9E6DA',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  addBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: COLORS.Sage,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  addBtnText: {
+    color: COLORS.Sage,
+    fontWeight: '700',
+  },
+  form: {
+    gap: 8,
+  },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: COLORS.Linen,
+  },
+  cancelText: {
+    color: '#BFD0C4',
+    fontWeight: '600',
+  },
+  saveText: {
+    color: COLORS.Pear,
+    fontWeight: '800',
+  },
+  deleteText: {
+    color: '#D66B6B',
+    fontWeight: '700',
   },
 });
 
