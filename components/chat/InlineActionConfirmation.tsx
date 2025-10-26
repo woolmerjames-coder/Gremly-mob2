@@ -31,16 +31,16 @@ export function InlineActionConfirmation({
   // Phase 11.7+: Use contextual summary if available, otherwise fall back to content
   const displayText = metadata.summary || message.content || 'New item';
 
-  const getTypeLabel = () => {
-    switch (actionType) {
+  const getToastHeader = (type: ActionType): string => {
+    switch (type) {
       case 'habit':
         return 'Lock in the habit?';
       case 'todo':
-        return 'TASK';
+        return 'Add this task?';
       case 'note':
-        return 'NOTE';
+        return 'Save this note?';
       default:
-        return 'ITEM';
+        return 'Create this?';
     }
   };
 
@@ -83,7 +83,7 @@ export function InlineActionConfirmation({
   return (
     <View style={styles.container} testID={testID} pointerEvents="box-none">
       <View style={styles.header}>
-        <Text style={styles.typeLabel}>{getTypeLabel()}</Text>
+        <Text style={styles.typeLabel}>{getToastHeader(actionType)}</Text>
       </View>
 
       <Text style={styles.title} numberOfLines={2}>
