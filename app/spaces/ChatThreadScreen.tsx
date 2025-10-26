@@ -1252,6 +1252,11 @@ export default function ChatThreadScreen({ route }: Props) {
     return <Placeholder text={`Error: ${messagesError}`} />;
   }
 
+  // Extract pending action confirmations to render outside ScrollView
+  const pendingActionConfirmation = messages.find(
+    (m) => m.role === 'system' && m.metadata_json?.type === 'action-confirmation',
+  );
+
   return (
     <MascotProvider lane="space_chat">
       <SafeAreaView style={styles.container}>
@@ -1351,50 +1356,14 @@ export default function ChatThreadScreen({ route }: Props) {
                     }
                   }
 
-                  // Phase 11.3/11.5: Render inline action confirmation
+                  // Phase 11.3/11.5: Skip action confirmations - they're rendered outside ScrollView
                   // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
                   if (
                     message.role === 'system' &&
                     message.metadata_json?.type === 'action-confirmation'
                   ) {
-                    const metadata = message.metadata_json || {};
-
-                    // Phase 11.5: Check if this is a multi-intent confirmation
-                    if (metadata.alternativeIntents && metadata.alternativeIntents.length > 0) {
-                      return (
-                        <MultiIntentConfirmation
-                          key={message.id}
-                          message={message}
-                          onSelectIntent={async (kind: IntentKind) => {
-                            // Open overlay for selected intent type
-                            if (kind === 'habit' || kind === 'todo' || kind === 'note') {
-                              overlayController.openCreate({
-                                type: kind as 'habit' | 'todo' | 'note',
-                                spaceId: spaceId ?? undefined,
-                                conversionMeta: {
-                                  initialTitle: message.content,
-                                },
-                              });
-                            }
-                          }}
-                          onCreateMultiple={metadata.onCreateMultiple}
-                          onCancel={metadata.onCancel}
-                          testID={`multi-intent-${message.id}`}
-                        />
-                      );
-                    }
-
-                    // Standard single-intent confirmation
-                    return (
-                      <InlineActionConfirmation
-                        key={message.id}
-                        message={message}
-                        onConfirm={metadata.onConfirm}
-                        onEdit={metadata.onEdit}
-                        onCancel={metadata.onCancel}
-                        testID={`inline-action-${message.id}`}
-                      />
-                    );
+                    // Don't render inside ScrollView - will be rendered as overlay below
+                    return null;
                   }
 
                   return (
@@ -1466,6 +1435,73 @@ export default function ChatThreadScreen({ route }: Props) {
           />
 
           {ActionToast}
+
+          {/* Phase 11.3/11.5: Render action confirmation OUTSIDE ScrollView for proper touch handling */}
+          {pendingActionConfirmation &&
+            (() => {
+              const metadata = pendingActionConfirmation.metadata_json || {};
+
+              // Phase 11.5: Check if this is a multi-intent confirmation
+              if (metadata.alternativeIntents && metadata.alternativeIntents.length > 0) {
+                return (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      bottom: 100,
+                      left: 16,
+                      right: 16,
+                      zIndex: 9999,
+                      elevation: 999,
+                    }}
+                    pointerEvents="box-none"
+                  >
+                    <MultiIntentConfirmation
+                      key={pendingActionConfirmation.id}
+                      message={pendingActionConfirmation}
+                      onSelectIntent={async (kind: IntentKind) => {
+                        // Open overlay for selected intent type
+                        if (kind === 'habit' || kind === 'todo' || kind === 'note') {
+                          overlayController.openCreate({
+                            type: kind as 'habit' | 'todo' | 'note',
+                            spaceId: spaceId ?? undefined,
+                            conversionMeta: {
+                              initialTitle: pendingActionConfirmation.content,
+                            },
+                          });
+                        }
+                      }}
+                      onCreateMultiple={metadata.onCreateMultiple}
+                      onCancel={metadata.onCancel}
+                      testID={`multi-intent-${pendingActionConfirmation.id}`}
+                    />
+                  </View>
+                );
+              }
+
+              // Standard single-intent confirmation
+              return (
+                <View
+                  style={{
+                    position: 'absolute',
+                    bottom: 100,
+                    left: 16,
+                    right: 16,
+                    zIndex: 9999,
+                    elevation: 999,
+                  }}
+                  pointerEvents="box-none"
+                >
+                  <InlineActionConfirmation
+                    key={pendingActionConfirmation.id}
+                    message={pendingActionConfirmation}
+                    onConfirm={metadata.onConfirm}
+                    onEdit={metadata.onEdit}
+                    onCancel={metadata.onCancel}
+                    testID={`inline-action-${pendingActionConfirmation.id}`}
+                  />
+                </View>
+              );
+            })()}
         </KeyboardAvoidingView>
 
         {/* Unified Create Overlay for Chat Conversions */}
