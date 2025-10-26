@@ -1,16 +1,23 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, Animated, Easing, Platform } from 'react-native';
 import { COLORS, SPACE, RADII } from './_tokens';
-import { StickyNote, CalendarClock, Plus } from '../../icons';
+import { StickyNote, CalendarClock, Plus, Search } from '../../icons';
 
 type Props = {
   counts?: { notes: number; milestones: number };
   onOpenNotepad: () => void;
   onOpenCalendar: () => void;
   onAdd: () => void;
+  onOpenSearch: () => void;
 };
 
-export default function IconRow({ counts, onOpenNotepad, onOpenCalendar, onAdd }: Props) {
+export default function IconRow({
+  counts,
+  onOpenNotepad,
+  onOpenCalendar,
+  onAdd,
+  onOpenSearch,
+}: Props) {
   const pulse = React.useMemo(() => new Animated.Value(0), []);
 
   React.useEffect(() => {
@@ -57,6 +64,9 @@ export default function IconRow({ counts, onOpenNotepad, onOpenCalendar, onAdd }
           <Plus color={COLORS.Moss} size={20} strokeWidth={2} />
         </Animated.View>
       </TouchableOpacity>
+      <Action onPress={onOpenSearch}>
+        <Search color={COLORS.Moss} size={20} strokeWidth={2} />
+      </Action>
     </View>
   );
 }
@@ -89,6 +99,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 40,
+    marginBottom: 12,
   },
   iconWrap: {
     padding: 8,

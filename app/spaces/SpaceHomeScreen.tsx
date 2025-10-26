@@ -17,6 +17,7 @@ import {
   RefreshControl,
   TouchableOpacity,
   useColorScheme,
+  BackHandler,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -55,7 +56,8 @@ import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ConfettiBurst from '../../components/ConfettiBurst';
 import WeeklyGoalCard from '../../components/spaces/v22/WeeklyGoalCard';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
@@ -68,6 +70,7 @@ import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
 import ThreadCardV33 from '../../components/spaces/v33/ThreadCard';
 // v33 goal components
 import GoalListV33 from '../../components/spaces/v33/GoalList';
+import GoalSectionV33, { GoalsZone } from '../../components/spaces/v33/GoalSection';
 import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
 import IconRowV33 from '../../components/spaces/v33/IconRow';
 import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
@@ -94,6 +97,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { userId, user } = useAuth();
   const colorScheme = useColorScheme();
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
+  const insets = useSafeAreaInsets();
 
   // Feature flag: Space v3 layout (robust parsing)
   const isSpaceV3 = (() => {
@@ -180,6 +184,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     ]).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpaceV33]);
+
+  // Android hardware back button support
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+          return true;
+        }
+        return false;
+      });
+      return () => subscription.remove();
+    }, [navigation]),
+  );
+
   // Refs for smooth scrolling to sections (v22)
   const scrollRef = React.useRef<ScrollView | null>(null);
   const [dayPanelY, setDayPanelY] = React.useState<number | null>(null);
@@ -743,7 +762,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               lastVisited={buildLastVisitedLabel(items, chats)}
               wittyLine={v33WittyLine}
               mood={v33Mood}
-              onSearch={() => setSearchVisible((v) => !v)}
             />
 
             {/* Slide-down search overlay under header */}
@@ -767,40 +785,42 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               }}
             />
 
-            {/* Centered icon row */}
-            <IconRowV33
-              counts={{
-                notes: notesCount,
-                milestones: (upcoming || []).length,
-              }}
-              onOpenNotepad={() => setShowNotepad(true)}
-              onOpenCalendar={() => setShowCalendarV33(true)}
-              onAdd={() => setShowUnifiedAdd(true)}
-            />
+            {/* Goals Zone: wraps IconRow and Goals with Sage tint background */}
+            <GoalsZone>
+              {/* Centered icon row */}
+              <IconRowV33
+                counts={{
+                  notes: notesCount,
+                  milestones: (upcoming || []).length,
+                }}
+                onOpenNotepad={() => setShowNotepad(true)}
+                onOpenCalendar={() => setShowCalendarV33(true)}
+                onAdd={() => setShowUnifiedAdd(true)}
+                onOpenSearch={() => setSearchVisible(true)}
+              />
 
-            {/* Goals: expandable GoalList with See All / Show Less */}
-            {(() => {
-              const wk = weekly?.habits || [];
-              if (!wk.length) return <GoalPlaceholder />;
-              const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
-              const goals = wk.map((row) => {
-                const rec = byId.get(row.id);
-                const done = row.doneCount ?? 0;
-                const target = row.target ?? 3;
-                const state: 'idle' | 'active' | 'complete' =
-                  done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
-                return {
-                  id: row.id,
-                  title: (rec?.title || rec?.name || 'Habit') as string,
-                  subtitle: `${done}/${target} this week`,
-                  state,
-                  lastActivityAt: (rec?.updated_at as string) || null,
-                  createdAt: (rec?.created_at as string) || null,
-                  pinned: !!rec?.pinned,
-                } as const;
-              });
-              return (
-                <View style={{ paddingHorizontal: 16, marginTop: 16, position: 'relative' }}>
+              {/* Goals: expandable GoalList with See All / Show Less */}
+              {(() => {
+                const wk = weekly?.habits || [];
+                if (!wk.length) return <GoalPlaceholder />;
+                const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
+                const goals = wk.map((row) => {
+                  const rec = byId.get(row.id);
+                  const done = row.doneCount ?? 0;
+                  const target = row.target ?? 3;
+                  const state: 'idle' | 'active' | 'complete' =
+                    done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
+                  return {
+                    id: row.id,
+                    title: (rec?.title || rec?.name || 'Habit') as string,
+                    subtitle: `${done}/${target} this week`,
+                    state,
+                    lastActivityAt: (rec?.updated_at as string) || null,
+                    createdAt: (rec?.created_at as string) || null,
+                    pinned: !!rec?.pinned,
+                  } as const;
+                });
+                return (
                   <GoalListV33
                     goals={goals as any}
                     topN={3}
@@ -810,123 +830,35 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       const rec = (items as any[]).find((r) => r.id === id);
                       if (rec) overlay.openEdit({ record: rec, spaceId });
                     }}
-                    onMenu={(id) => setGoalMenuId(id)}
-                  />
-                  {goalMenuId && (
-                    <>
-                      <TouchableOpacity
-                        style={StyleSheet.absoluteFill}
-                        accessibilityRole="button"
-                        onPress={() => setGoalMenuId(null)}
-                      />
-                      <View style={{ position: 'absolute', right: 0, top: 0, zIndex: 10 }}>
-                        <Menu
-                          items={(() => {
-                            const rec = (items as any[]).find((r) => r.id === goalMenuId);
-                            const paused = rec?.type === 'habit' && !!rec?.end_date;
-                            return [
-                              { key: 'edit', label: 'Edit' },
-                              { key: 'toggle', label: paused ? 'Resume' : 'Pause' },
-                              { key: 'delete', label: 'Delete', danger: true },
-                              { key: 'chat', label: 'View Chat Context' },
-                            ];
-                          })()}
-                          onSelect={async (key: string) => {
-                            const rec = (items as any[]).find((r) => r.id === goalMenuId);
-                            if (!rec) {
-                              setGoalMenuId(null);
-                              return;
-                            }
-                            if (key === 'edit') {
-                              setEditGoalRecord(rec);
-                              setEditGoalVisible(true);
-                            } else if (key === 'toggle') {
-                              try {
-                                const paused = rec.type === 'habit' && !!rec.end_date;
-                                const patch: any = {};
-                                if (rec.type === 'habit') {
-                                  patch.end_date = paused
-                                    ? null
-                                    : formatISO(new Date(), { representation: 'date' });
-                                }
-                                await repo.update({ id: rec.id, patch });
-                                await reload();
-                              } catch (e) {
-                                console.warn('[v33] toggle active failed', e);
-                              }
-                            } else if (key === 'delete') {
-                              Alert.alert(
-                                'Delete goal?',
-                                'This will remove the goal from this Space.',
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  {
-                                    text: 'Delete',
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      try {
-                                        await repo.remove(rec.id);
-                                        await reload();
-                                      } catch (e) {
-                                        console.warn('[v33] delete goal failed', e);
-                                      }
-                                    },
-                                  },
-                                ],
-                              );
-                            } else if (key === 'chat') {
-                              try {
-                                const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-                                const chatRepo =
-                                  backend === 'supabase'
-                                    ? new SupabaseSpaceChatRepo(userId || undefined)
-                                    : new MemorySpaceChatRepo(userId || 'anonymous');
-                                const list = await chatRepo.list(spaceId).catch(() => []);
-                                const chat =
-                                  list[0] || (await chatRepo.create(spaceId, { title: 'General' }));
-                                navigation.navigate('ChatThread', {
-                                  spaceId,
-                                  chatId: chat.id,
-                                } as any);
-                              } catch (e) {
-                                console.warn('[v33] view chat context (goals) failed', e);
-                              }
-                            }
-                            setGoalMenuId(null);
-                          }}
-                        />
-                      </View>
-                    </>
-                  )}
-                </View>
-              );
-            })()}
-
-            {/* Chat CTA */}
-            <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-              {(() => {
-                // Calculate inactivity days for sparkle
-                const lastChatTs = chats.reduce(
-                  (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
-                  0,
-                );
-                const lastItemTs = items.reduce((acc, it: any) => {
-                  const ts = new Date(it.updated_at || it.created_at || 0).getTime();
-                  return Math.max(acc, ts);
-                }, 0);
-                const lastTs = Math.max(lastChatTs, lastItemTs);
-                const daysSince = lastTs
-                  ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
-                  : 999;
-                return (
-                  <NewChatSectionV33
-                    spaceName={space?.name ?? 'this space'}
-                    inactiveDays={daysSince}
-                    onPress={handleNewChat}
+                    onMenu={() => {}}
                   />
                 );
               })()}
-            </View>
+            </GoalsZone>
+
+            {/* Chat CTA */}
+            {(() => {
+              // Calculate inactivity days for sparkle
+              const lastChatTs = chats.reduce(
+                (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
+                0,
+              );
+              const lastItemTs = items.reduce((acc, it: any) => {
+                const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+                return Math.max(acc, ts);
+              }, 0);
+              const lastTs = Math.max(lastChatTs, lastItemTs);
+              const daysSince = lastTs
+                ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
+                : 999;
+              return (
+                <NewChatSectionV33
+                  spaceName={space?.name ?? 'this space'}
+                  inactiveDays={daysSince}
+                  onPress={handleNewChat}
+                />
+              );
+            })()}
 
             {/* Recent Chats (last 3) */}
             {(() => {
