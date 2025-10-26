@@ -67,6 +67,7 @@ import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
 import GoalCardV33 from '../../components/spaces/v33/GoalCard';
 import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
 import IconRowV33 from '../../components/spaces/v33/IconRow';
+import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -90,6 +91,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // v33 search filter chip state
+  const [searchActiveV33, setSearchActiveV33] = useState<'chats' | 'notes' | 'habits'>('chats');
+  const [searchLoadingV33, setSearchLoadingV33] = useState(false);
+  const [searchResultsV33, setSearchResultsV33] = useState<{
+    items: AppRecord[];
+    chats: SpaceChat[];
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'chats' | 'habits' | 'todos' | 'notes'>(
     'chats',
   );
@@ -103,6 +111,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     formatISO(new Date(), { representation: 'date' }),
   );
   const [showTimeline, setShowTimeline] = useState(false);
+  // v33 calendar overlay state (separate from v22 timeline)
+  const [showCalendarV33, setShowCalendarV33] = useState(false);
   const [showNotepad, setShowNotepad] = useState(false);
   const [intentDraft, setIntentDraft] = useState<string | undefined>(undefined);
   const [showPeople, setShowPeople] = useState(false);
@@ -368,6 +378,42 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setActiveTab(key);
   }, []);
 
+  // v33: debounce search wiring to repo.searchInSpace
+  useEffect(() => {
+    if (!isSpaceV33) return;
+    const q = searchQuery.trim();
+    if (!searchVisible || q.length === 0) {
+      setSearchResultsV33(null);
+      return;
+    }
+    setSearchLoadingV33(true);
+    const t = setTimeout(() => {
+      repo
+        .searchInSpace(spaceId, q)
+        .then((res) => setSearchResultsV33(res))
+        .catch(() => setSearchResultsV33({ items: [], chats: [] }))
+        .finally(() => setSearchLoadingV33(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [isSpaceV33, repo, searchQuery, searchVisible, spaceId]);
+
+  const v33FilteredResults = React.useMemo(() => {
+    const empty = { items: [] as AppRecord[], chats: [] as SpaceChat[] };
+    if (!searchResultsV33) return empty;
+    if (searchActiveV33 === 'chats') return { items: [], chats: searchResultsV33.chats };
+    if (searchActiveV33 === 'notes')
+      return {
+        items: (searchResultsV33.items || []).filter((it) => it.type === 'note'),
+        chats: [],
+      };
+    if (searchActiveV33 === 'habits')
+      return {
+        items: (searchResultsV33.items || []).filter((it) => it.type === 'habit'),
+        chats: [],
+      };
+    return empty;
+  }, [searchActiveV33, searchResultsV33]);
+
   // Persist layout state
   const persistLayoutState = useCallback(
     async (newState: LayoutState) => {
@@ -598,9 +644,74 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             value={searchQuery}
             onChange={setSearchQuery}
             onClose={() => setSearchVisible(false)}
-            active={'chats'}
-            onSetActive={(_k) => {}}
+            active={searchActiveV33}
+            onSetActive={setSearchActiveV33}
           />
+
+          {/* Search results (v33) */}
+          {searchVisible && searchQuery.trim().length > 0 && (
+            <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+              {searchLoadingV33 ? (
+                <Text style={{ color: T.colors.subtle }}>Searching…</Text>
+              ) : v33FilteredResults.chats.length + v33FilteredResults.items.length === 0 ? (
+                <Text style={{ color: T.colors.subtle }}>No results</Text>
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {searchActiveV33 === 'chats' &&
+                    v33FilteredResults.chats.map((c) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        onPress={() => handleChatPress(c.id)}
+                        accessibilityRole="button"
+                      >
+                        <View
+                          style={{
+                            paddingVertical: 10,
+                            borderBottomWidth: StyleSheet.hairlineWidth,
+                            borderColor: T.colors.border,
+                          }}
+                        >
+                          <Text style={{ color: T.colors.text, fontWeight: '600' }}>
+                            {c.title || 'Chat'}
+                          </Text>
+                          {!!c.last_message_snippet && (
+                            <Text
+                              style={{ color: T.colors.subtle, marginTop: 2 }}
+                              numberOfLines={1}
+                            >
+                              {c.last_message_snippet}
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  {searchActiveV33 !== 'chats' &&
+                    v33FilteredResults.items.map((it) => (
+                      <TouchableOpacity
+                        key={it.id}
+                        onPress={() => overlay.openEdit({ record: it as any, spaceId })}
+                        accessibilityRole="button"
+                      >
+                        <View
+                          style={{
+                            paddingVertical: 10,
+                            borderBottomWidth: StyleSheet.hairlineWidth,
+                            borderColor: T.colors.border,
+                          }}
+                        >
+                          <Text style={{ color: T.colors.text, fontWeight: '600' }}>
+                            {(it as any).title || (it as any).name || 'Untitled'}
+                          </Text>
+                          <Text style={{ color: T.colors.subtle, marginTop: 2 }}>
+                            {it.type === 'habit' ? 'Habit' : it.type === 'todo' ? 'To-do' : 'Note'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Centered icon row */}
           <IconRowV33
@@ -609,7 +720,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               milestones: (upcoming || []).length,
             }}
             onOpenNotepad={() => setShowNotepad(true)}
-            onOpenCalendar={() => setShowTimeline(true)}
+            onOpenCalendar={() => setShowCalendarV33(true)}
             onAdd={() => {
               if (overlay.state.visible) {
                 (async () => {
@@ -658,6 +769,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           visible={showConfetti}
           durationMs={350}
           onComplete={() => setShowConfetti(false)}
+        />
+        {/* Calendar overlay (v33) */}
+        <CalendarOverlayV33
+          visible={showCalendarV33}
+          onClose={() => setShowCalendarV33(false)}
+          days={(() => {
+            const todayISO = formatISO(new Date(), { representation: 'date' });
+            return (timelineDays || []).map((d) => ({
+              dateISO: d.dateISO,
+              isActive: d.dateISO === todayISO,
+              hasItems: (d.items?.length ?? 0) > 0,
+            }));
+          })()}
+          selectedISO={selectedDayISO}
+          onSelectDate={(iso: string) => {
+            setSelectedDayISO(iso);
+            setShowCalendarV33(false);
+          }}
         />
       </View>
     );
