@@ -879,12 +879,25 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                                 console.warn('[v33] toggle active failed', e);
                               }
                             } else if (key === 'delete') {
-                              try {
-                                await repo.remove(rec.id);
-                                await reload();
-                              } catch (e) {
-                                console.warn('[v33] delete goal failed', e);
-                              }
+                              Alert.alert(
+                                'Delete goal?',
+                                'This will remove the goal from this Space.',
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        await repo.remove(rec.id);
+                                        await reload();
+                                      } catch (e) {
+                                        console.warn('[v33] delete goal failed', e);
+                                      }
+                                    },
+                                  },
+                                ],
+                              );
                             } else if (key === 'chat') {
                               try {
                                 const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';

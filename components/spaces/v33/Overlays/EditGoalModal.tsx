@@ -115,7 +115,7 @@ export default function EditGoalModal({ visible, onClose, record, onSaved }: Pro
         <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(26,51,40,0.6)' }]} />
 
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Edit Goal</Text>
+          <Text style={styles.headerTitle}>Adjust your rhythm</Text>
           <TouchableOpacity onPress={onClose} accessibilityRole="button">
             <Text style={styles.closeText}>×</Text>
           </TouchableOpacity>
