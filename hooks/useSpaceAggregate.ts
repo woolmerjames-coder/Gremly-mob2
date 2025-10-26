@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppRecord, Space, SpaceChat } from '../lib/types';
+import { startOfWeek, addDays, formatISO } from 'date-fns';
+import useSpaceTimeline from './useSpaceTimeline';
 import { inferSpaceIntent, type SpaceIntent } from '../lib/ai/spaceIntent';
 import { useRepo } from '../providers/RepoProvider';
 import { useAuth } from '../providers/AuthProvider';
@@ -37,6 +39,16 @@ export type SpaceAggregate = {
     dueAt?: string | null;
     dateLabel?: string;
   } | null;
+  weekly: {
+    weekStartISO: string;
+    habits: Array<{
+      id: string;
+      title: string;
+      doneCount: number;
+      target: number;
+      dayStreak: number; // simple within-week consecutive-day streak
+    }>;
+  };
   reload: () => Promise<void>;
 };
 
@@ -59,6 +71,7 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
   const [space, setSpace] = useState<Space | null>(null);
   const [items, setItems] = useState<AppRecord[]>([]);
   const [chats, setChats] = useState<SpaceChat[]>([]);
+  const { days: timelineDays } = useSpaceTimeline(spaceId);
 
   const reloadingRef = useRef(false);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
@@ -317,6 +330,39 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
   );
   const nextItem = useMemo(() => computeNextItem(items), [items, computeNextItem]);
 
+  // Weekly aggregation (Mon–Sun) using timeline days
+  const weekly = useMemo(() => {
+    const start = startOfWeek(new Date());
+    const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
+    const weekISO = formatISO(start, { representation: 'date' });
+    const habits = items.filter((r) => r.type === 'habit');
+    const out: Array<{
+      id: string;
+      title: string;
+      doneCount: number;
+      target: number;
+      dayStreak: number;
+    }> = [];
+    for (const h of habits as any[]) {
+      // Build done flags for the week by checking timeline days
+      const flags = weekDates.map((d) => {
+        const iso = formatISO(d, { representation: 'date' });
+        const day = (timelineDays || []).find((x: any) => x.dateISO === iso);
+        const match = (day?.items || []).find((it: any) => it.type === 'habit' && it.id === h.id);
+        return !!match?.done;
+      });
+      const doneCount = flags.filter(Boolean).length;
+      // Simple within-week trailing streak
+      let streak = 0;
+      for (let i = flags.length - 1; i >= 0; i--) {
+        if (flags[i]) streak++;
+        else break;
+      }
+      out.push({ id: h.id, title: h.title || h.name, doneCount, target: 3, dayStreak: streak });
+    }
+    return { weekStartISO: weekISO, habits: out };
+  }, [items, timelineDays]);
+
   return {
     space,
     chats,
@@ -326,6 +372,7 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
     intent,
     counts,
     nextItem,
+    weekly,
     reload,
   };
 }

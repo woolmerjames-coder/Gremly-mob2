@@ -302,6 +302,15 @@ export class MemoryRepo implements IRepo {
     });
   }
 
+  async searchInSpace(
+    spaceId: ID,
+    text: string,
+  ): Promise<{ items: AppRecord[]; chats: import('../types').SpaceChat[] }> {
+    const items = (await this.search(text)).filter((r) => r.space_id === spaceId);
+    // MemoryRepo doesn't store space chats; return empty array for chats
+    return { items, chats: [] };
+  }
+
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
@@ -381,6 +390,16 @@ export class MemoryRepo implements IRepo {
     // Emit event for UI sync
     const { eventBus } = await import('../events');
     eventBus.emit('ItemUpdated', { id });
+  }
+
+  async addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord> {
+    // Force ai_placed and origin while preserving provided fields
+    return this.create({
+      ...input,
+      space_id: spaceId ?? null,
+      ai_placed: true,
+      origin: 'catchall',
+    });
   }
 
   // ==========================

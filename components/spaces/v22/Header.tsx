@@ -14,6 +14,7 @@ export type HeaderProps = {
   onSettings?: () => void;
   onBack?: () => void;
   mascotState?: 'calm' | 'focused' | 'proud' | 'playful';
+  spaceId?: string; // for SearchOverlay scoping
 };
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSettings,
   onBack,
   mascotState = 'calm',
+  spaceId,
 }) => {
   const [showSearch, setShowSearch] = React.useState(false);
   // Mascot micro-animations
@@ -145,7 +147,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Soft fade under header to mimic gradient */}
       <View style={styles.fadeUnder} />
       {/* Search overlay (slides under header) */}
-      <SearchOverlay visible={showSearch} onClose={() => setShowSearch(false)} />
+      <SearchOverlay visible={showSearch} onClose={() => setShowSearch(false)} spaceId={spaceId} />
     </View>
   );
 };

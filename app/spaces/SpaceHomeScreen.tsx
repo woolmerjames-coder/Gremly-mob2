@@ -80,7 +80,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
 
   // State
-  const { space, chats, items, stats, upcoming, intent, nextItem, reload } =
+  const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
     useSpaceAggregate(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   const [searchVisible, setSearchVisible] = useState(false);
@@ -269,7 +269,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             }).start(({ finished }) => {
               if (finished) setShowUndoToast(false);
             });
-          }, 2000);
+          }, 3000);
         },
       );
     },
@@ -692,6 +692,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             onSearch={handleSearchPress}
             onSettings={() => Alert.alert('Settings', 'Coming soon')}
             mascotState={headerMascot}
+            spaceId={spaceId}
           />
         ) : (
           <View
@@ -840,7 +841,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* Weekly Goal (v22): show for the first habit in the selected day */}
+        {/* Weekly Goal (v22): show for the first habit in the selected day, driven by aggregate.weekly */}
         {isSpaceV22 && (
           <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
             {(() => {
@@ -848,11 +849,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               const habitsToday = (day?.items || []).filter((it) => it.type === 'habit');
               if (!habitsToday.length) return null;
               const firstHabit = habitsToday[0];
-              const allWeek = (timelineDays || []).flatMap((d) => d.items);
-              const weeklyDone = allWeek.filter(
-                (it) => it.type === 'habit' && it.id === firstHabit.id && it.done,
-              ).length;
-              const target = 3; // default weekly target (Phase v22)
+              const weeklyRow = (weekly?.habits || []).find((h) => h.id === firstHabit.id);
+              const weeklyDone = weeklyRow?.doneCount ?? 0;
+              const target = weeklyRow?.target ?? 3; // default weekly target (Phase v22)
               const title = `${firstHabit.title} ${target}×/week`;
               return (
                 <WeeklyGoalCard
@@ -915,6 +914,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               }}
               onToggleHabit={async (id) => {
                 try {
+                  // Guard: prevent rapid double toggles for same habit+date
+                  const guardKey = `habit:${id}:${selectedDayISO}`;
+                  if ((SpaceHomeScreen as any)._inflight?.has(guardKey)) return;
+                  (SpaceHomeScreen as any)._inflight =
+                    (SpaceHomeScreen as any)._inflight || new Set<string>();
+                  (SpaceHomeScreen as any)._inflight.add(guardKey);
                   // Find current state
                   const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
                   const h = day?.items.find((it) => it.type === 'habit' && it.id === id);
@@ -922,6 +927,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     await repo.undoCompletion(id);
                   } else {
                     await repo.completeHabit(id, new Date().toISOString());
+                    // Idempotency event for logging
+                    try {
+                      await repo.writeEvent('habit_log', {
+                        space_id: spaceId,
+                        habit_id: id,
+                        date: selectedDayISO,
+                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
+                      });
+                    } catch (e) {
+                      // Non-blocking analytics/idempotency event failure
+                      console.debug('[v22] habit_log event write failed (non-blocking)', e);
+                    }
                     // Micro feedback: short confetti + Undo snackbar
                     setShowConfetti(true);
                     setHeaderMascot('proud');
@@ -936,18 +953,41 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     });
                   }
                   await Promise.all([reload(), reloadTimeline()]);
+                  (SpaceHomeScreen as any)._inflight.delete(guardKey);
                 } catch (e) {
                   console.warn('[v22] toggle habit failed', e);
+                  try {
+                    (SpaceHomeScreen as any)._inflight.delete(`habit:${id}:${selectedDayISO}`);
+                  } catch (e2) {
+                    // Ensure inflight guard is cleared even if Set.delete throws
+                    console.debug('[v22] inflight guard cleanup failed (habit)', e2);
+                  }
                 }
               }}
               onToggleTodo={async (id) => {
                 try {
+                  const guardKey = `todo:${id}:${selectedDayISO}`;
+                  if ((SpaceHomeScreen as any)._inflight?.has(guardKey)) return;
+                  (SpaceHomeScreen as any)._inflight =
+                    (SpaceHomeScreen as any)._inflight || new Set<string>();
+                  (SpaceHomeScreen as any)._inflight.add(guardKey);
                   const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
                   const t = day?.items.find((it) => it.type === 'todo' && it.id === id);
                   if (t?.done) {
                     await repo.undoCompletion(id);
                   } else {
                     await repo.completeTodo(id, new Date().toISOString());
+                    try {
+                      await repo.writeEvent('todo_log', {
+                        space_id: spaceId,
+                        todo_id: id,
+                        date: selectedDayISO,
+                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
+                      });
+                    } catch (e) {
+                      // Non-blocking analytics/idempotency event failure
+                      console.debug('[v22] todo_log event write failed (non-blocking)', e);
+                    }
                   }
                   await Promise.all([reload(), reloadTimeline()]);
                   if (!t?.done) {
@@ -964,8 +1004,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       }
                     });
                   }
+                  (SpaceHomeScreen as any)._inflight.delete(guardKey);
                 } catch (e) {
                   console.warn('[v22] toggle todo failed', e);
+                  try {
+                    (SpaceHomeScreen as any)._inflight.delete(`todo:${id}:${selectedDayISO}`);
+                  } catch (e2) {
+                    // Ensure inflight guard is cleared even if Set.delete throws
+                    console.debug('[v22] inflight guard cleanup failed (todo)', e2);
+                  }
                 }
               }}
             />
@@ -1162,13 +1209,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 if (overlay.state.visible) {
                   // Fallback: drop a quick unsorted capture into this space
                   try {
-                    await repo.create({
+                    await repo.addUnsorted(spaceId, {
                       type: 'note',
                       title: 'Quick capture',
                       subtype: 'catchall',
-                      space_id: spaceId,
-                      ai_placed: true,
-                      origin: 'catchall',
                     });
                     showSageToast();
                     // Optionally refresh lightweight aggregates

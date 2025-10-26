@@ -12,16 +12,19 @@ import {
 import { BlurView } from 'expo-blur';
 import { COLORS, SPACE } from '../_tokens';
 import { X as CloseIcon } from 'lucide-react-native';
+import { useRepo } from '../../../../providers/RepoProvider';
+import type { AppRecord, SpaceChat } from '../../../../lib/types';
 
 export type SearchOverlayProps = {
   visible: boolean;
   onClose: () => void;
+  spaceId?: string; // if provided, enables backend search scoped to space
 };
 
 const FILTERS = ['Chats', 'Notes', 'To-Dos', 'Habits'] as const;
 export type FilterKey = (typeof FILTERS)[number];
 
-export const SearchOverlay: React.FC<SearchOverlayProps> = ({ visible, onClose }) => {
+export const SearchOverlay: React.FC<SearchOverlayProps> = ({ visible, onClose, spaceId }) => {
   const opacity = React.useMemo(() => new Animated.Value(0), []);
   const translateY = React.useMemo(() => new Animated.Value(-16), []);
   const [query, setQuery] = React.useState('');
@@ -31,6 +34,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({ visible, onClose }
     'To-Dos': true,
     Habits: true,
   });
+  const repo = useRepo();
+  const [items, setItems] = React.useState<AppRecord[]>([]);
+  const [chats, setChats] = React.useState<SpaceChat[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (visible) {
@@ -71,6 +79,53 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({ visible, onClose }
   const toggle = (key: FilterKey) => {
     setActive((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  // Debounced search
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!visible) return; // don't fetch when hidden
+    const q = query.trim();
+    if (!spaceId || q.length < 2) {
+      // Clear on short query or when spaceId not provided
+      setItems([]);
+      setChats([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const t = setTimeout(async () => {
+      try {
+        const res = await repo.searchInSpace(spaceId, q);
+        if (!cancelled) {
+          setItems(res.items ?? []);
+          setChats(res.chats ?? []);
+        }
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'Search failed');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query, spaceId, repo, visible]);
+
+  const filteredItems = React.useMemo(() => {
+    return items.filter((it) => {
+      if (it.type === 'todo') return active['To-Dos'];
+      if (it.type === 'note') return active['Notes'];
+      if (it.type === 'habit') return active['Habits'];
+      return false;
+    });
+  }, [items, active]);
+
+  const filteredChats = React.useMemo(() => {
+    return active['Chats'] ? chats : [];
+  }, [chats, active]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -122,6 +177,68 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({ visible, onClose }
                   </Text>
                 </TouchableOpacity>
               ))}
+            </View>
+
+            <View style={{ height: 12 }} />
+
+            {/* Results */}
+            <View style={styles.results} testID="search-overlay-results">
+              {!spaceId && (
+                <Text style={styles.resultHint}>
+                  Search is scoped to a space. No space detected.
+                </Text>
+              )}
+              {!!spaceId && query.trim().length < 2 && (
+                <Text style={styles.resultHint}>Type at least 2 characters to search.</Text>
+              )}
+              {loading && <Text style={styles.resultHint}>Searching…</Text>}
+              {!!error && <Text style={[styles.resultHint, { color: '#8B3A3A' }]}>{error}</Text>}
+
+              {!!spaceId && query.trim().length >= 2 && !loading && !error && (
+                <>
+                  {filteredChats.length > 0 && (
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>Chats</Text>
+                      {filteredChats.map((c) => (
+                        <View key={`chat-${c.id}`} style={styles.resultRow}>
+                          <Text style={styles.resultTitle} numberOfLines={1}>
+                            {c.title}
+                          </Text>
+                          {!!c.last_message_snippet && (
+                            <Text style={styles.resultSub} numberOfLines={1}>
+                              {c.last_message_snippet}
+                            </Text>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {filteredItems.length > 0 && (
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>Items</Text>
+                      {filteredItems.map((it) => (
+                        <View key={`${it.type}-${it.id}`} style={styles.resultRow}>
+                          <Text style={styles.badge}>
+                            {it.type === 'todo' ? 'To-Do' : it.type === 'note' ? 'Note' : 'Habit'}
+                          </Text>
+                          <Text style={styles.resultTitle} numberOfLines={1}>
+                            {'name' in it && it.name
+                              ? it.name
+                              : 'title' in it
+                                ? (it as any).title
+                                : ''}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {filteredChats.length === 0 && filteredItems.length === 0 && (
+                    <Text style={styles.resultHint}>No matches found.</Text>
+                  )}
+                </>
+              )}
             </View>
 
             <View style={{ height: 12 }} />
@@ -198,6 +315,48 @@ const styles = StyleSheet.create({
   },
   hint: {
     textAlign: 'center',
+    color: '#5A6D60',
+    fontSize: 12,
+  },
+  results: {
+    marginTop: 8,
+    gap: 6,
+  },
+  section: {
+    marginBottom: 8,
+    gap: 6,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.Deep,
+    marginBottom: 4,
+  },
+  resultRow: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(21,51,38,0.08)',
+  },
+  resultTitle: {
+    color: '#1F2E27',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  resultSub: {
+    color: '#5A6D60',
+    fontSize: 12,
+  },
+  badge: {
+    alignSelf: 'flex-start',
+    fontSize: 10,
+    color: '#2E5540',
+    backgroundColor: '#E6EDE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    marginBottom: 2,
+  },
+  resultHint: {
     color: '#5A6D60',
     fontSize: 12,
   },
