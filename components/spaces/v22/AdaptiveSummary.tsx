@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-
 import { COLORS, RADII, SPACE } from './_tokens';
 import { MessageSquare } from '../../icons';
 
-export type AdaptiveMode = 'reflective' | 'progress' | 'catchup' | 'action';
+export type AdaptiveMode = 'reflective' | 'progress' | 'catchup' | 'planning';
 
 export type AdaptiveSummaryProps = {
   mode: AdaptiveMode;
@@ -11,8 +11,8 @@ export type AdaptiveSummaryProps = {
   intent?: 'habit' | 'trip' | 'goal' | 'other';
   nextItem?: { title?: string; dateLabel?: string } | null;
   spaceName?: string;
-  onPrimary?: () => void;
-  onSecondary?: () => void;
+  onPrimary?: () => void; // Primary: Add Next Step
+  onSecondary?: () => void; // Secondary: Save as Note
 };
 
 export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
@@ -29,22 +29,21 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
   // using a subtle pear top border; no accent fill needed
   const resolvedText = React.useMemo(() => {
     if (text) return text;
-    switch (intent) {
-      case 'habit':
-        return 'You’re building rhythm here. Want to review today’s check-ins?';
-      case 'trip': {
-        const title = nextItem?.title ? `${nextItem.title} ` : '';
-        const when = nextItem?.dateLabel ? nextItem.dateLabel : '';
-        return when
-          ? `Next key date: ${title}${when}.`
-          : 'Have travel coming up. Want to review key dates?';
-      }
-      case 'goal':
-        return `Ready for your next step${spaceName ? ` in ${spaceName}` : ''}?`;
-      default:
-        return 'What should we focus on today?';
-    }
-  }, [text, intent, nextItem?.title, nextItem?.dateLabel, spaceName]);
+    // Mode-first copy with second-person voice
+    const modeCopy: Record<AdaptiveMode, string> = {
+      reflective: 'You’ve been reflecting here. Want to save a quick note or add a next step?',
+      progress: 'You’re making steady progress. Ready to take the next step?',
+      catchup:
+        'It’s been a little while. Want to catch up on what changed and plan your next move?',
+      planning: 'Let’s plan ahead together. What’s the next step you’d like to take?',
+    };
+    // If we have intent-specific context, append lightly
+    let base = modeCopy[_mode as AdaptiveMode] || modeCopy.planning;
+    if (intent === 'goal' && spaceName) base = `${base} In ${spaceName}, you’re right on track.`;
+    if (intent === 'trip' && nextItem?.dateLabel)
+      base = `${base} Next key date: ${nextItem.dateLabel}.`;
+    return base;
+  }, [_mode, text, intent, nextItem?.dateLabel, spaceName]);
   return (
     <View
       style={[
@@ -60,7 +59,7 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
         <MessageSquare color={COLORS.Moss} size={18} />
       </View>
       <Text style={styles.lead} accessibilityRole="header">
-        Let’s center on today’s focus.
+        What we discussed
       </Text>
       <Text
         style={[styles.body, isDark ? { color: '#EDEDE8' } : { color: COLORS.Text }]}
@@ -74,20 +73,20 @@ export const AdaptiveSummary: React.FC<AdaptiveSummaryProps> = ({
             <TouchableOpacity
               onPress={onSecondary}
               accessibilityRole="button"
-              accessibilityLabel="Secondary action"
+              accessibilityLabel="Save as Note"
               style={styles.secondaryBtn}
             >
-              <Text style={styles.secondaryText}>Maybe later</Text>
+              <Text style={styles.secondaryText}>Save as Note</Text>
             </TouchableOpacity>
           )}
           {onPrimary && (
             <TouchableOpacity
               onPress={onPrimary}
               accessibilityRole="button"
-              accessibilityLabel="Primary action"
+              accessibilityLabel="Add Next Step"
               style={styles.primaryBtn}
             >
-              <Text style={styles.primaryText}>Let’s go</Text>
+              <Text style={styles.primaryText}>Add Next Step</Text>
             </TouchableOpacity>
           )}
         </View>

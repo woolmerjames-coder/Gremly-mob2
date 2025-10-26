@@ -9,6 +9,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { SPACE, COLORS } from './_tokens';
+import { MessageSquare } from '../../icons';
 
 export type ThreadCardProps = {
   title: string;
@@ -42,6 +43,9 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
           : { backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.06)' },
       ]}
     >
+      <View style={{ marginRight: 10 }}>
+        <MessageSquare color={isDark ? '#DDDDDD' : COLORS.Moss} size={16} />
+      </View>
       <Pressable style={{ flex: 1 }} onPress={onOpen} accessibilityRole="button">
         <Text
           style={[styles.title, isDark ? { color: '#EEEEEE' } : { color: '#111111' }]}

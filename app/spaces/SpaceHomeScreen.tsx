@@ -906,14 +906,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
+          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oCTA }}>
+            <NewChatCTA onPress={handleNewChat} />
+          </Animated.View>
+        )}
+
+        {isSpaceV22 && (
           <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oSummary }}>
             <AdaptiveSummaryV22
               mode="reflective"
               intent={intent}
               nextItem={nextItem ?? undefined}
               spaceName={space?.name}
-              onSecondary={() => console.log('[v22] summary later')}
-              onPrimary={() => console.log('[v22] summary now')}
+              onSecondary={handleSaveInsightAsNote}
+              onPrimary={handleAddInsightTodos}
             />
           </Animated.View>
         )}
@@ -925,12 +931,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onOpenPeople={() => setShowPeople(true)}
               onOpenTimeline={() => setShowTimeline(true)}
             />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oCTA }}>
-            <NewChatCTA onPress={handleNewChat} />
           </Animated.View>
         )}
 
@@ -993,28 +993,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </Animated.View>
         )}
 
-        {/* Collapsible search bar */}
-        {searchVisible && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-            <TextInput
-              placeholder="Search this space"
-              placeholderTextColor={T.colors.subtle}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              style={{
-                backgroundColor: lightTokens.colors.linenCream,
-                borderColor: T.colors.border,
-                borderWidth: 1,
-                borderRadius: 10,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                color: T.colors.text,
-              }}
-              accessibilityLabel="Search space"
-              testID="space-search"
-            />
-          </View>
-        )}
+        {/* Collapsible search bar (legacy) removed in favor of v22 Search overlay */}
 
         <View style={[styles.content, { padding: T.spacing[4] }]}>
           {/* Focus card */}
@@ -1047,46 +1026,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             />
           </View>
 
-          {/* Primary CTA */}
-          <View style={{ marginTop: 32 }}>
-            <ChatCTA onPress={handleNewChat} disabled={!!space.archived_at} />
-          </View>
+          {/* Primary CTA + What we discussed moved to v22 blocks above */}
 
-          {/* Optional: What we discussed */}
-          {spaceInsight && (
-            <View style={{ marginTop: T.spacing[3] }}>
-              <WhatWeDiscussedCard
-                summary={spaceInsight.summary}
-                onSaveAsNote={handleSaveInsightAsNote}
-                onAddTodos={handleAddInsightTodos}
-                lastUpdated={spaceInsight.summary_at}
-              />
-            </View>
-          )}
-
-          {/* Recent reflections (last 2 chats) */}
-          <View style={{ marginTop: 32, gap: 12 }}>
-            {chats.slice(0, 2).map((chat) => (
-              <TouchableOpacity
-                key={chat.id}
-                onPress={() => handleChatPress(chat.id)}
-                style={{
-                  backgroundColor: lightTokens.colors.linenCream,
-                  borderRadius: 10,
-                  padding: 12,
-                }}
-                accessibilityLabel={`Open chat ${chat.title}`}
-                accessibilityRole="button"
-              >
-                <Text style={{ color: T.colors.text, fontWeight: '600' }} numberOfLines={1}>
-                  {chat.title}
-                </Text>
-                <Text style={{ color: T.colors.subtle }} numberOfLines={1}>
-                  {aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {/* Recent chats list de-duplicated; see v22 section above */}
         </View>
       </ScrollView>
 
@@ -1121,11 +1063,28 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         <View style={{ position: 'absolute', right: 16, bottom: 24 }} pointerEvents="box-none">
           <NewPlusFAB
             onPress={() => {
-              if (overlay.state.visible) {
-                showSageToast();
-                return;
-              }
-              overlay.openCreate({ spaceId });
+              (async () => {
+                if (overlay.state.visible) {
+                  // Fallback: drop a quick unsorted capture into this space
+                  try {
+                    await repo.create({
+                      type: 'note',
+                      title: 'Quick capture',
+                      subtype: 'catchall',
+                      space_id: spaceId,
+                      ai_placed: true,
+                      origin: 'catchall',
+                    });
+                    showSageToast();
+                    // Optionally refresh lightweight aggregates
+                    await reload();
+                  } catch (e) {
+                    console.warn('[v22] quick capture failed', e);
+                  }
+                  return;
+                }
+                overlay.openCreate({ spaceId });
+              })();
             }}
           />
         </View>
@@ -1146,7 +1105,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           }}
         >
           <Text style={{ color: '#153326', fontWeight: '700' }}>
-            1 unsorted item waiting in this Space.
+            1 unsorted item waiting in {space?.name || 'this Space'}.
           </Text>
         </Animated.View>
       )}
