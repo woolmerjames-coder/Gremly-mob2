@@ -23,6 +23,7 @@ import {
   Image,
   TouchableOpacity,
 } from 'react-native';
+import { Search as SearchIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
@@ -43,6 +44,7 @@ import { maybeRefreshSummary } from '../../lib/cortex/summarize';
 import { createToastSummary, getActivityName } from '../../lib/chat/contextualSummary';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
+import { searchIndex } from '../../lib/chat/searchIndex';
 import { getEnv } from '../../lib/env';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { Placeholder } from '../../components/common/Placeholder';
@@ -53,6 +55,7 @@ import { InlineActionConfirmation } from '../../components/chat/InlineActionConf
 import { MultiIntentConfirmation } from '../../components/chat/MultiIntentConfirmation';
 import { EntryCard } from '../../components/chat/EntryCard';
 import { ChatActionBar } from '../../components/chat/ChatActionBar';
+import { MessageSearch } from '../../components/chat/MessageSearch';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -249,6 +252,8 @@ export default function ChatThreadScreen({ route }: Props) {
   const [activeSuggestions, setActiveSuggestions] = useState<string[]>([]);
   const [detectedIntent, setDetectedIntent] = useState<DetectedIntent | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string>('');
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   // Phase 11.7: Track last created item for encouragement messages
   const [lastCreatedItem, setLastCreatedItem] = useState<{
@@ -647,6 +652,28 @@ export default function ChatThreadScreen({ route }: Props) {
       console.log('[Chips] activeSuggestions cleared');
     }
   }, [activeSuggestions, detectedIntent]);
+
+  // Initialize search index
+  useEffect(() => {
+    searchIndex.initialize();
+  }, []);
+
+  // Index messages as they're added
+  useEffect(() => {
+    messages.forEach((msg) => {
+      // Only index user and assistant messages (exclude system, action, etc.)
+      if (msg.role !== 'user' && msg.role !== 'assistant') return;
+
+      searchIndex.addMessage({
+        id: msg.id,
+        content: msg.content,
+        role: msg.role,
+        timestamp: new Date(msg.created_at).getTime(),
+        type: msg.metadata_json?.entryType as 'habit' | 'note' | 'task' | 'person' | undefined,
+        metadata: msg.metadata_json,
+      });
+    });
+  }, [messages]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -1241,7 +1268,18 @@ export default function ChatThreadScreen({ route }: Props) {
                   <Text style={styles.backButtonText}>← Space</Text>
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Chat with Gremly</Text>
-                <Mascot size="md" />
+                <View style={styles.headerRight}>
+                  <TouchableOpacity
+                    onPress={() => setSearchVisible(true)}
+                    style={styles.searchButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Search messages"
+                    accessibilityRole="button"
+                  >
+                    <SearchIcon size={24} color="#2E5540" />
+                  </TouchableOpacity>
+                  <Mascot size="md" />
+                </View>
               </View>
             </View>
           )}
@@ -1349,7 +1387,13 @@ export default function ChatThreadScreen({ route }: Props) {
                   }
 
                   return (
-                    <View key={message.id} style={styles.messageContainer}>
+                    <View
+                      key={message.id}
+                      style={[
+                        styles.messageContainer,
+                        highlightedMessageId === message.id && styles.highlightedMessage,
+                      ]}
+                    >
                       <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
                       {messageConfirmations && messageConfirmations.texts.length > 0 && (
                         <View style={styles.confirmationsContainer}>
@@ -1455,6 +1499,27 @@ export default function ChatThreadScreen({ route }: Props) {
             }
           }}
         />
+
+        {/* Message Search Modal */}
+        <MessageSearch
+          visible={searchVisible}
+          onClose={() => setSearchVisible(false)}
+          onSelectMessage={(messageId) => {
+            // Find message index and scroll to it
+            const index = messages.findIndex((m) => m.id === messageId);
+            if (index >= 0) {
+              // Highlight the message briefly
+              setHighlightedMessageId(messageId);
+              setTimeout(() => setHighlightedMessageId(null), 2000);
+
+              // Scroll to show the message
+              scrollViewRef.current?.scrollTo({
+                y: index * 100, // Approximate message height
+                animated: true,
+              });
+            }
+          }}
+        />
       </SafeAreaView>
     </MascotProvider>
   );
@@ -1484,6 +1549,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: lightTokens.spacing[2],
+  },
+  searchButton: {
+    padding: lightTokens.spacing[2],
   },
   headerTitle: {
     fontSize: lightTokens.typography.size.lg,
@@ -1549,6 +1622,12 @@ const styles = StyleSheet.create({
   },
   messageContainer: {
     marginBottom: lightTokens.spacing[3],
+  },
+  highlightedMessage: {
+    backgroundColor: 'rgba(46, 85, 64, 0.1)', // Moss green with transparency
+    borderRadius: 8,
+    padding: 8,
+    marginHorizontal: -8,
   },
   confirmationsContainer: {
     marginTop: lightTokens.spacing[2],
