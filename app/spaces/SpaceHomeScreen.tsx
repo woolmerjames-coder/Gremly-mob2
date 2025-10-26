@@ -749,85 +749,23 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* Slide-down search overlay under header */}
             <SearchOverlayV33
               visible={searchVisible}
-              value={searchQuery}
-              onChange={setSearchQuery}
               onClose={() => setSearchVisible(false)}
-              active={searchActiveV33}
-              onSetActive={setSearchActiveV33}
+              spaceId={spaceId}
+              onOpenChat={(chatId) => {
+                setSearchVisible(false);
+                navigation.navigate('ChatThread', { spaceId, chatId });
+              }}
+              onOpenNote={(noteId) => {
+                setSearchVisible(false);
+                const note = items.find((it: any) => it.id === noteId);
+                if (note) overlay.openEdit({ record: note as any, spaceId });
+              }}
+              onOpenHabit={(habitId) => {
+                setSearchVisible(false);
+                const habit = items.find((it: any) => it.id === habitId);
+                if (habit) overlay.openEdit({ record: habit as any, spaceId });
+              }}
             />
-
-            {/* Search results (v33) */}
-            {searchVisible && searchQuery.trim().length > 0 && (
-              <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
-                {v33FilteredResults.chats.length + v33FilteredResults.items.length === 0 ? (
-                  <Text style={{ color: T.colors.subtle }}>
-                    {searchActiveV33 === 'chats'
-                      ? 'No conversations yet — want to ask Gremly something?'
-                      : searchActiveV33 === 'notes'
-                        ? 'Blank page, clear mind.'
-                        : 'All clear — nothing pressing in this Space.'}
-                  </Text>
-                ) : (
-                  <View style={{ gap: 8 }}>
-                    {searchActiveV33 === 'chats' &&
-                      v33FilteredResults.chats.map((c) => (
-                        <TouchableOpacity
-                          key={c.id}
-                          onPress={() => handleChatPress(c.id)}
-                          accessibilityRole="button"
-                        >
-                          <View
-                            style={{
-                              paddingVertical: 10,
-                              borderBottomWidth: StyleSheet.hairlineWidth,
-                              borderColor: T.colors.border,
-                            }}
-                          >
-                            <Text style={{ color: T.colors.text, fontWeight: '600' }}>
-                              {c.title || 'Chat'}
-                            </Text>
-                            {!!c.last_message_snippet && (
-                              <Text
-                                style={{ color: T.colors.subtle, marginTop: 2 }}
-                                numberOfLines={1}
-                              >
-                                {c.last_message_snippet}
-                              </Text>
-                            )}
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    {searchActiveV33 !== 'chats' &&
-                      v33FilteredResults.items.map((it) => (
-                        <TouchableOpacity
-                          key={it.id}
-                          onPress={() => overlay.openEdit({ record: it as any, spaceId })}
-                          accessibilityRole="button"
-                        >
-                          <View
-                            style={{
-                              paddingVertical: 10,
-                              borderBottomWidth: StyleSheet.hairlineWidth,
-                              borderColor: T.colors.border,
-                            }}
-                          >
-                            <Text style={{ color: T.colors.text, fontWeight: '600' }}>
-                              {(it as any).title || (it as any).name || 'Untitled'}
-                            </Text>
-                            <Text style={{ color: T.colors.subtle, marginTop: 2 }}>
-                              {it.type === 'habit'
-                                ? 'Habit'
-                                : it.type === 'todo'
-                                  ? 'To-do'
-                                  : 'Note'}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-              </View>
-            )}
 
             {/* Centered icon row */}
             <IconRowV33

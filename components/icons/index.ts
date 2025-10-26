@@ -24,4 +24,5 @@ export {
   X,
   MoreVertical,
   Pencil,
+  ChevronRight,
 } from 'lucide-react-native';
