@@ -7,11 +7,18 @@ import { Search as SearchIcon } from '../../icons';
 export type HeaderProps = {
   title: string;
   lastVisited?: string;
-  moodLine?: { tone: 'calm' | 'proud' | 'low'; text: string };
+  wittyLine?: string;
+  mood?: 'calm' | 'proud' | 'low' | 'neutral';
   onSearch: () => void;
 };
 
-export default function Header({ title, lastVisited, moodLine, onSearch }: HeaderProps) {
+export default function Header({
+  title,
+  lastVisited,
+  wittyLine,
+  mood = 'neutral',
+  onSearch,
+}: HeaderProps) {
   const insets = useSafeAreaInsets();
 
   // Debug: log what we receive
@@ -19,16 +26,17 @@ export default function Header({ title, lastVisited, moodLine, onSearch }: Heade
     console.log('[HeaderV33] title:', title, 'lastVisited:', lastVisited);
   }
 
-  const moodColor = (() => {
-    if (!moodLine) return 'rgba(34,34,34,0.6)';
-    switch (moodLine.tone) {
+  const wittyColor = (() => {
+    switch (mood) {
       case 'proud':
         return COLORS.Pear;
       case 'low':
-        return 'rgba(191,216,192,0.6)'; // Sage @60%
+        return `${COLORS.Sage}CC`; // Sage @80%
       case 'calm':
+        return `${COLORS.Moss}99`; // Moss @60%
+      case 'neutral':
       default:
-        return 'rgba(191,216,192,0.8)'; // Sage @80%
+        return 'rgba(34,34,34,0.7)'; // Text @70%
     }
   })();
 
@@ -44,10 +52,13 @@ export default function Header({ title, lastVisited, moodLine, onSearch }: Heade
               {lastVisited}
             </Text>
           )}
-          {!!moodLine && (
-            <Text style={[styles.mood, { color: moodColor }]} numberOfLines={1}>
-              {moodLine.text}
-            </Text>
+          {!!wittyLine && (
+            <>
+              <View style={styles.wittyDot} />
+              <Text style={[styles.witty, { color: wittyColor }]} numberOfLines={1}>
+                {wittyLine}
+              </Text>
+            </>
           )}
         </View>
         <View style={styles.actions}>
@@ -89,14 +100,36 @@ const styles = StyleSheet.create({
   },
   center: { flex: 1, alignItems: 'center' },
   title: {
-    color: COLORS.Deep, // Changed from Moss to Deep for better contrast on Sage background
-    fontSize: 20,
+    color: COLORS.Moss,
+    fontSize: 26,
     fontWeight: '700',
-    letterSpacing: 0.2,
-    lineHeight: 28,
+    letterSpacing: 0.3,
+    lineHeight: 32,
+    fontFamily: 'PlusJakartaSans-Bold',
   },
-  subline: { marginTop: 2, fontSize: 12, color: 'rgba(34,34,34,0.6)', lineHeight: 17 },
-  mood: { marginTop: 2, fontSize: 11, lineHeight: 16, letterSpacing: 0.2 },
+  subline: {
+    marginTop: 2,
+    fontSize: 12,
+    color: 'rgba(34,34,34,0.6)',
+    lineHeight: 17,
+    fontFamily: 'Inter-Regular',
+  },
+  wittyDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: COLORS.Moss,
+    marginTop: 6,
+    marginBottom: 2,
+    opacity: 0.4,
+  },
+  witty: {
+    marginTop: 2,
+    fontSize: 14,
+    lineHeight: 20,
+    letterSpacing: 0.2,
+    fontFamily: 'Inter-Regular',
+  },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',

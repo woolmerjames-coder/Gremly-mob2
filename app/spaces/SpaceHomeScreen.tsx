@@ -74,6 +74,7 @@ import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import Menu from '../../components/spaces/v33/Menu';
+import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -244,6 +245,33 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
     return { tone: 'calm' as const, text: 'Nothing urgent — breathe and reflect.' };
   }, [chats, items, timelineDays]);
+
+  // v33: Derive mood for witty line
+  const v33Mood: Mood = React.useMemo(() => {
+    const lastChatTs = chats.reduce((acc, c) => Math.max(acc, new Date(c.updated_at).getTime()), 0);
+    const lastItemTs = items.reduce((acc, it: any) => {
+      const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+      return Math.max(acc, ts);
+    }, 0);
+    const lastTs = Math.max(lastChatTs, lastItemTs);
+    const daysSince = lastTs ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
+
+    if (daysSince >= 7) return 'low';
+
+    const todayISO = formatISO(new Date(), { representation: 'date' });
+    const today = (timelineDays || []).find((d) => d.dateISO === todayISO);
+    const anyDone = (timelineDays || []).some((d) => (d.items || []).some((it: any) => !!it.done));
+
+    if (anyDone || (today && (today.items || []).length > 0)) return 'proud';
+
+    return 'neutral';
+  }, [chats, items, timelineDays]);
+
+  // v33: Compute daily witty line
+  const v33WittyLine = React.useMemo(() => {
+    const dailySeed = new Date().toISOString().slice(0, 10);
+    return getWittyLine(space?.name ?? 'Space', v33Mood, dailySeed);
+  }, [space?.name, v33Mood]);
 
   // Header mascot micro-states
   const [headerMascot, setHeaderMascot] = useState<'calm' | 'focused' | 'proud' | 'playful'>(
@@ -669,7 +697,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             <HeaderV33
               title={space?.name ?? 'Space'}
               lastVisited={buildLastVisitedLabel(items, chats)}
-              moodLine={headerMood}
+              wittyLine={v33WittyLine}
+              mood={v33Mood}
               onSearch={() => setSearchVisible((v) => !v)}
             />
 
