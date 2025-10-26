@@ -746,20 +746,40 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             <NewChatSectionV33 onPress={handleNewChat} />
           </View>
 
-          {/* Simple weekly goal preview using first habit for selected day */}
-          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-            {(() => {
-              const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-              const habitsToday = (day?.items || []).filter((it) => it.type === 'habit');
-              if (!habitsToday.length) return null;
-              const firstHabit = habitsToday[0];
-              const weeklyRow = (weekly?.habits || []).find((h) => h.id === firstHabit.id);
-              const weeklyDone = weeklyRow?.doneCount ?? 0;
-              const target = weeklyRow?.target ?? 3;
-              const title = `${firstHabit.title} ${target}×/week`;
-              return <GoalCardV33 title={title} done={weeklyDone} target={target} />;
-            })()}
-          </View>
+          {/* Stacked Goal Cards (max 3) */}
+          {(() => {
+            const wk = weekly?.habits || [];
+            if (!wk.length) return null;
+            const top3 = wk.slice(0, 3);
+            return (
+              <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 10 }}>
+                {top3.map((row) => {
+                  const rec = (items as any[]).find((r) => r.id === row.id);
+                  const title = rec?.title || rec?.name || 'Habit';
+                  const done = row.doneCount ?? 0;
+                  const target = row.target ?? 3;
+                  const state: 'idle' | 'active' | 'complete' =
+                    done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
+                  const subtitle = `${done}/${target} this week`;
+                  return (
+                    <GoalCardV33
+                      key={row.id}
+                      id={row.id}
+                      title={title}
+                      state={state}
+                      subtitle={subtitle}
+                      onOpen={() => {
+                        if (rec) overlay.openEdit({ record: rec, spaceId });
+                      }}
+                      onMenu={() => {
+                        if (rec) overlay.openEdit({ record: rec, spaceId });
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            );
+          })()}
 
           {/* TODO(v33): add IconRow, Threads, and overlays */}
         </ScrollView>

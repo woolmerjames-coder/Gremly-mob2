@@ -1,24 +1,74 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { Animated, Easing, StyleSheet, Text } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
+import { Pressable } from 'react-native';
 
-export default function Menu() {
+export type MenuItem = { key: string; label: string; danger?: boolean };
+
+type Props = {
+  items: MenuItem[];
+  onSelect: (key: string) => void;
+};
+
+export default function Menu({ items, onSelect }: Props) {
+  const y = useMemo(() => new Animated.Value(6), []);
+  const opacity = useMemo(() => new Animated.Value(0), []);
+  const scale = useMemo(() => new Animated.Value(0.96), []);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(y, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [y, opacity, scale]);
+
   return (
-    <View style={styles.menu} accessibilityLabel="Menu">
-      <Text style={styles.item}>Rename Space</Text>
-      <Text style={styles.item}>Edit Theme</Text>
-      <Text style={styles.item}>Archive</Text>
-    </View>
+    <Animated.View style={[styles.menu, { opacity, transform: [{ translateY: y }, { scale }] }]}>
+      {items.map((it) => (
+        <Pressable
+          key={it.key}
+          onPress={() => onSelect(it.key)}
+          style={({ hovered, pressed }: any) => [
+            styles.menuItem,
+            (hovered || pressed) && { backgroundColor: 'rgba(191,216,192,0.12)' },
+          ]}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.menuText, it.danger && styles.menuTextDanger]}>{it.label}</Text>
+        </Pressable>
+      ))}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   menu: {
+    minWidth: 160,
     backgroundColor: COLORS.Linen,
     borderRadius: RADII.card,
-    padding: SPACE.sm,
     borderWidth: 1,
-    borderColor: 'rgba(21,51,38,0.12)',
+    borderColor: COLORS.Sage,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 2,
+    overflow: 'hidden',
   },
-  item: { paddingVertical: 8, paddingHorizontal: 12, color: COLORS.Deep, fontWeight: '600' },
+  menuItem: {
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 10,
+  },
+  menuText: { color: COLORS.Deep, fontWeight: '600' },
+  menuTextDanger: { color: '#A91D1D' },
 });
