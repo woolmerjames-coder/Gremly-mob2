@@ -21,9 +21,11 @@ import {
   SafeAreaView,
   ToastAndroid,
   Image,
+  TouchableOpacity,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
@@ -227,6 +229,9 @@ function buildActionToastPayload(
 }
 
 export default function ChatThreadScreen({ route }: Props) {
+  // Navigation
+  const navigation = useNavigation();
+
   // Scroll ref for auto-scrolling to the latest message
   const scrollViewRef = useRef<import('react-native').ScrollView | null>(null);
 
@@ -305,6 +310,16 @@ export default function ChatThreadScreen({ route }: Props) {
     appendActionConfirmation,
     appendEntryCard,
   } = useChatMessages(chatId, spaceId);
+
+  // Back button handler
+  const handleBackPress = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      // Fallback: navigate to the space home if can't go back
+      (navigation as any).navigate('SpaceHome', { spaceId });
+    }
+  }, [navigation, spaceId]);
 
   // Phase 11.3: Inline action confirmation function (moved after useChatMessages)
   const maybeTriggerActionToast = useCallback(
@@ -1230,6 +1245,15 @@ export default function ChatThreadScreen({ route }: Props) {
           {shouldShowMascot() && (
             <View style={styles.header}>
               <View style={styles.headerContent}>
+                <TouchableOpacity
+                  onPress={handleBackPress}
+                  style={styles.backButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel="Go back to Space"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.backButtonText}>← Space</Text>
+                </TouchableOpacity>
                 <Text style={styles.headerTitle}>Chat with Gremly</Text>
                 <Mascot size="md" />
               </View>
@@ -1474,6 +1498,16 @@ const styles = StyleSheet.create({
     fontSize: lightTokens.typography.size.lg,
     fontWeight: '600',
     color: lightTokens.colors.charcoalInk,
+  },
+  backButton: {
+    paddingVertical: lightTokens.spacing[2],
+    paddingHorizontal: lightTokens.spacing[2],
+    marginRight: lightTokens.spacing[3],
+  },
+  backButtonText: {
+    fontSize: lightTokens.typography.size.md,
+    color: lightTokens.colors.mossGreen,
+    fontWeight: '500',
   },
   messages: {
     flex: 1,
