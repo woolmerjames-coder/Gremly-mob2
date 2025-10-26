@@ -1783,11 +1783,10 @@ export class SupabaseRepo implements IRepo {
   async listNotes(spaceId: string, opts?: { query?: string }): Promise<any[]> {
     const userId = this.ensureUserId();
     let query = supabase
-      .from('items')
+      .from('notes')
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
-      .in('type', ['note', 'journal'])
       .order('updated_at', { ascending: false });
 
     if (opts?.query) {
@@ -1801,10 +1800,10 @@ export class SupabaseRepo implements IRepo {
       id: row.id,
       user_id: row.owner_id,
       space_id: row.space_id,
-      type: row.type,
+      type: row.subtype || 'note',
       title: row.title || row.body?.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
       content: row.body || '',
-      date: row.due_date || null,
+      date: row.date || null,
       created_at: row.created_at,
       updated_at: row.updated_at,
     }));
@@ -1820,15 +1819,14 @@ export class SupabaseRepo implements IRepo {
   }): Promise<any> {
     const userId = this.ensureUserId();
     const { data, error } = await supabase
-      .from('items')
+      .from('notes')
       .insert({
         owner_id: userId,
         space_id: input.space_id,
-        type: input.type,
         subtype: input.type === 'journal' ? 'journal' : 'reference',
         title: input.title || input.content.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
         body: input.content,
-        due_date: input.date || null,
+        date: input.date || null,
       })
       .select()
       .single();
@@ -1837,10 +1835,10 @@ export class SupabaseRepo implements IRepo {
       id: data.id,
       user_id: data.owner_id,
       space_id: data.space_id,
-      type: data.type,
+      type: data.subtype || 'note',
       title: data.title,
       content: data.body || '',
-      date: data.due_date,
+      date: data.date,
       created_at: data.created_at,
       updated_at: data.updated_at,
     };
@@ -1854,10 +1852,10 @@ export class SupabaseRepo implements IRepo {
     const updates: any = {};
     if (patch.content !== undefined) updates.body = patch.content;
     if (patch.title !== undefined) updates.title = patch.title;
-    if (patch.date !== undefined) updates.due_date = patch.date;
+    if (patch.date !== undefined) updates.date = patch.date;
 
     const { error } = await supabase
-      .from('items')
+      .from('notes')
       .update(updates)
       .eq('id', id)
       .eq('owner_id', userId);
@@ -1866,7 +1864,7 @@ export class SupabaseRepo implements IRepo {
 
   async deleteNote(id: string): Promise<void> {
     const userId = this.ensureUserId();
-    const { error } = await supabase.from('items').delete().eq('id', id).eq('owner_id', userId);
+    const { error } = await supabase.from('notes').delete().eq('id', id).eq('owner_id', userId);
     if (error) throw new Error(`Failed to delete note: ${error.message}`);
   }
 
@@ -1879,7 +1877,7 @@ export class SupabaseRepo implements IRepo {
         {
           event: '*',
           schema: 'public',
-          table: 'items',
+          table: 'notes',
           filter: `owner_id=eq.${userId},space_id=eq.${spaceId}`,
         },
         callback,
