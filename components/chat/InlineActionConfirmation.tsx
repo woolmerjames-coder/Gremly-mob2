@@ -34,7 +34,7 @@ export function InlineActionConfirmation({
   const getTypeLabel = () => {
     switch (actionType) {
       case 'habit':
-        return 'HABIT';
+        return 'Lock in the habit?';
       case 'todo':
         return 'TASK';
       case 'note':
@@ -171,11 +171,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   typeLabel: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#2E5540', // Moss Green
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   title: {
     fontSize: 15,
