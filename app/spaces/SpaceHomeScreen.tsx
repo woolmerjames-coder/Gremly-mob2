@@ -774,18 +774,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         <CalendarOverlayV33
           visible={showCalendarV33}
           onClose={() => setShowCalendarV33(false)}
-          days={(() => {
-            const todayISO = formatISO(new Date(), { representation: 'date' });
-            return (timelineDays || []).map((d) => ({
-              dateISO: d.dateISO,
-              isActive: d.dateISO === todayISO,
-              hasItems: (d.items?.length ?? 0) > 0,
-            }));
-          })()}
+          spaceName={space?.name || 'Space'}
+          days={(timelineDays || []) as any}
           selectedISO={selectedDayISO}
           onSelectDate={(iso: string) => {
             setSelectedDayISO(iso);
-            setShowCalendarV33(false);
+          }}
+          onAddMilestone={() => {
+            overlay.openCreate({
+              spaceId,
+              conversionMeta: { initialTitle: 'Milestone' },
+            });
           }}
         />
       </View>
