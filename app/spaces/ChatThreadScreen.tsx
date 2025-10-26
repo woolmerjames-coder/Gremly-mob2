@@ -794,96 +794,27 @@ export default function ChatThreadScreen({ route }: Props) {
             )
             .catch((err) => console.error('[ChatThread] Failed to log event:', err));
 
-          // Normalize actions array for type safety
-          const actions = Array.isArray(response.actions) ? response.actions : [];
-
-          if (!toastShown && response.mode === 'auto' && actions.length > 0) {
-            // Execute actions in parallel
-            const confirmationTexts: string[] = [];
-
-            await Promise.all(
-              actions.map(async (action: CortexAction) => {
-                try {
-                  if (action.type === 'add.to.list') {
-                    const list = await repo.getOrCreateList(action.payload.listKey, {
-                      userId: currentUserId,
-                      spaceId: chat.space_id || null,
-                    });
-                    await repo.addListItem(list.id, action.payload.item);
-                    confirmationTexts.push(explainAddedToList(list.name, 'warm'));
-                  } else if (action.type === 'create.todo') {
-                    await repo.create({
-                      type: 'todo',
-                      name: action.payload.title,
-                      title: action.payload.title,
-                      due_date: action.payload.due ?? null,
-                      undefined_due: !action.payload.due,
-                      space_id: chat.space_id || null,
-                      ai_placed: true,
-                      why_string: response.explanation,
-                      origin: 'catchall',
-                    });
-                    confirmationTexts.push(explainCreated('todo', 'warm'));
-                  } else if (action.type === 'create.habit') {
-                    await repo.create({
-                      type: 'habit',
-                      name: action.payload.name,
-                      frequency:
-                        (action.payload.freq === 'custom' ? 'daily' : action.payload.freq) ||
-                        'daily',
-                      subtype: 'start_habit',
-                      space_id: chat.space_id || null,
-                      ai_placed: true,
-                      why_string: response.explanation,
-                      origin: 'catchall',
-                    });
-                    confirmationTexts.push(explainCreated('habit', 'warm'));
-                  } else if (action.type === 'create.note') {
-                    await repo.create({
-                      type: 'note',
-                      title: action.payload.text || trimmedText,
-                      body: action.payload.text,
-                      subtype:
-                        (action.payload.subtype as
-                          | 'journal'
-                          | 'list'
-                          | 'catchall'
-                          | 'idea'
-                          | 'reference') || 'catchall',
-                      space_id: chat.space_id || null,
-                      ai_placed: true,
-                      why_string: response.explanation,
-                      origin: 'catchall',
-                    });
-                    confirmationTexts.push(explainCreated('note', 'warm'));
-                  } else if (action.type === 'file.to.space' && action.payload.spaceId) {
-                    const spaces = await repo.listSpaces();
-                    const space = spaces.find((s) => s.id === action.payload.spaceId);
-                    if (space) {
-                      confirmationTexts.push(explainFiledToSpace(space.name, 'warm'));
-                    }
-                  }
-                } catch (err) {
-                  console.error('[ChatThread] Failed to execute action:', action, err);
-                }
-              }),
-            );
-
-            // Show confirmations for the latest message
-            if (confirmationTexts.length > 0 && messages.length > 0) {
-              const latestMessage = messages[messages.length - 1];
-              setConfirmations((prev) => [
-                ...prev.filter((c) => c.messageId !== latestMessage.id),
-                { messageId: latestMessage.id, texts: confirmationTexts },
-              ]);
-
-              // Phase 10.6: Celebration state when actions are successfully executed
-              mascot.celebrate();
-            }
-          }
+          // REMOVED: Automatic action creation without user confirmation (lines 800-883)
+          // CRITICAL BUG FIX: Actions should ONLY be created when user explicitly clicks "Confirm"
+          // in the InlineActionConfirmation component (Phase 11.3)
+          //
+          // The previous code automatically created actions when:
+          // - !toastShown && response.mode === 'auto' && actions.length > 0
+          //
+          // This bypassed user confirmation and created habits/todos/notes without permission.
+          // All action creation now goes through:
+          // 1. maybeTriggerActionToast() shows InlineActionConfirmation
+          // 2. User clicks "Confirm" button
+          // 3. InlineActionConfirmation calls repo.create()
+          // 4. EntryCard shows success (Phase 11.6)
+          //
+          // See: components/chat/InlineActionConfirmation.tsx for proper confirmation flow
 
           // Phase 10.6: Determine mascot state based on cortex response
           let shouldTriggerPlayful = false;
+
+          // Normalize actions array for type safety
+          const actions = Array.isArray(response.actions) ? response.actions : [];
 
           // Check if this is chit-chat/conversational content
           if (response.mode === 'keep' && actions.length === 0) {
