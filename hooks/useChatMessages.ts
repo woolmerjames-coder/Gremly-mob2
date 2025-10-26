@@ -178,6 +178,10 @@ export function useChatMessages(chatId: string, spaceId: string) {
     [chatId, spaceId, user?.id, messageRepo, chatRepo],
   );
 
+  const removeMessage = useCallback((messageId: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+  }, []);
+
   // Load messages on mount and when chatId changes
   useEffect(() => {
     refresh();
@@ -192,5 +196,6 @@ export function useChatMessages(chatId: string, spaceId: string) {
     appendAssistantMessage,
     appendActionConfirmation,
     appendEntryCard,
+    removeMessage,
   };
 }

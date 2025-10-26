@@ -316,6 +316,7 @@ export default function ChatThreadScreen({ route }: Props) {
     appendAssistantMessage,
     appendActionConfirmation,
     appendEntryCard,
+    removeMessage,
   } = useChatMessages(chatId, spaceId);
 
   // Back button handler
@@ -442,6 +443,10 @@ export default function ChatThreadScreen({ route }: Props) {
       const activityName =
         intent.kind === 'habit' ? getActivityName(userText, recentMessages) : undefined;
 
+      // Phase 11.3: Add inline action confirmation message
+      // Store the message ID so handlers can remove it
+      let toastMessageId: string | undefined;
+
       // Build action metadata with handlers
       const metadata: Record<string, any> = {
         actionType,
@@ -522,6 +527,11 @@ export default function ChatThreadScreen({ route }: Props) {
               )
               .catch(() => {});
           }
+          // Remove the toast message from UI
+          if (toastMessageId) {
+            console.log('[Toast] Removing toast message:', toastMessageId);
+            removeMessage(toastMessageId);
+          }
         },
         onEdit: () => {
           if (actionType) {
@@ -552,9 +562,9 @@ export default function ChatThreadScreen({ route }: Props) {
         },
       };
 
-      // Phase 11.3: Add inline action confirmation message
       try {
-        await appendActionConfirmation(userText, metadata);
+        const toastMessage = await appendActionConfirmation(userText, metadata);
+        toastMessageId = toastMessage?.id;
 
         if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
           console.log('[ChatToast] Inline action confirmation added:', {
@@ -590,7 +600,16 @@ export default function ChatThreadScreen({ route }: Props) {
         return false;
       }
     },
-    [spaceId, recordToastOutcome, repo, userId, appendActionConfirmation, overlayController],
+    [
+      spaceId,
+      recordToastOutcome,
+      repo,
+      userId,
+      appendActionConfirmation,
+      overlayController,
+      removeMessage,
+      messages,
+    ],
   );
 
   // Auto-scroll when messages change (e.g., new assistant/user messages)
@@ -1440,6 +1459,97 @@ export default function ChatThreadScreen({ route }: Props) {
           {pendingActionConfirmation &&
             (() => {
               const metadata = pendingActionConfirmation.metadata_json || {};
+              const actionType = metadata.actionType as
+                | 'habit'
+                | 'todo'
+                | 'note'
+                | 'person'
+                | undefined;
+              const toastActionType =
+                actionType === 'habit' || actionType === 'todo' || actionType === 'note'
+                  ? actionType
+                  : undefined;
+
+              // Recreate handlers for this toast (functions can't be serialized in DB)
+              const handleConfirm = async () => {
+                console.log('[Toast] Confirm clicked for:', metadata);
+                if (toastActionType) {
+                  recordToastOutcome(toastActionType, 'confirm');
+                  repo
+                    .writeEvent(
+                      'toast',
+                      {
+                        event: 'action',
+                        action: 'confirm',
+                        toastType: actionType,
+                        index: userMsgIndexRef.current,
+                      },
+                      { userId: userId || 'anonymous' },
+                    )
+                    .catch(() => {});
+                }
+                // Open overlay for confirmation
+                if (actionType === 'habit' || actionType === 'todo' || actionType === 'note') {
+                  overlayController.openCreate({
+                    type: actionType,
+                    spaceId: spaceId ?? undefined,
+                    conversionMeta: {
+                      initialTitle: pendingActionConfirmation.content,
+                    },
+                  });
+                }
+              };
+
+              const handleEdit = () => {
+                console.log('[Toast] Edit clicked');
+                if (toastActionType) {
+                  recordToastOutcome(toastActionType, 'edit');
+                  repo
+                    .writeEvent(
+                      'toast',
+                      {
+                        event: 'action',
+                        action: 'edit',
+                        toastType: actionType,
+                        index: userMsgIndexRef.current,
+                      },
+                      { userId: userId || 'anonymous' },
+                    )
+                    .catch(() => {});
+                }
+                // Open overlay for editing
+                if (actionType === 'habit' || actionType === 'todo' || actionType === 'note') {
+                  overlayController.openCreate({
+                    type: actionType,
+                    spaceId: spaceId ?? undefined,
+                    conversionMeta: {
+                      initialTitle: pendingActionConfirmation.content,
+                    },
+                  });
+                }
+              };
+
+              const handleCancel = () => {
+                console.log('[Toast] Cancel clicked');
+                if (toastActionType) {
+                  recordToastOutcome(toastActionType, 'cancel');
+                  repo
+                    .writeEvent(
+                      'toast',
+                      {
+                        event: 'action',
+                        action: 'cancel',
+                        toastType: actionType,
+                        index: userMsgIndexRef.current,
+                      },
+                      { userId: userId || 'anonymous' },
+                    )
+                    .catch(() => {});
+                }
+                // Remove the toast message from UI
+                console.log('[Toast] Removing toast message:', pendingActionConfirmation.id);
+                removeMessage(pendingActionConfirmation.id);
+              };
 
               // Phase 11.5: Check if this is a multi-intent confirmation
               if (metadata.alternativeIntents && metadata.alternativeIntents.length > 0) {
@@ -1471,7 +1581,7 @@ export default function ChatThreadScreen({ route }: Props) {
                         }
                       }}
                       onCreateMultiple={metadata.onCreateMultiple}
-                      onCancel={metadata.onCancel}
+                      onCancel={handleCancel}
                       testID={`multi-intent-${pendingActionConfirmation.id}`}
                     />
                   </View>
@@ -1494,9 +1604,9 @@ export default function ChatThreadScreen({ route }: Props) {
                   <InlineActionConfirmation
                     key={pendingActionConfirmation.id}
                     message={pendingActionConfirmation}
-                    onConfirm={metadata.onConfirm}
-                    onEdit={metadata.onEdit}
-                    onCancel={metadata.onCancel}
+                    onConfirm={handleConfirm}
+                    onEdit={handleEdit}
+                    onCancel={handleCancel}
                     testID={`inline-action-${pendingActionConfirmation.id}`}
                   />
                 </View>
@@ -1523,6 +1633,18 @@ export default function ChatThreadScreen({ route }: Props) {
                     ? 'Habit'
                     : 'Item';
             showChatConversionToast(`${itemType} created from chat ✨`);
+
+            // Remove the action confirmation toast after successful creation
+            const actionConfirmation = messages.find(
+              (msg) => msg.metadata_json?.type === 'action-confirmation',
+            );
+            if (actionConfirmation) {
+              console.log(
+                '[Toast] Removing action confirmation after save:',
+                actionConfirmation.id,
+              );
+              removeMessage(actionConfirmation.id);
+            }
 
             // Phase 11.7: Track last created item for encouragement messages
             setLastCreatedItem({
