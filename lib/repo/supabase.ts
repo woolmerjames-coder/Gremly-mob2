@@ -406,6 +406,19 @@ export class SupabaseRepo implements IRepo {
     return noteZ.parse(mapNoteFromDb(record));
   }
 
+  /**
+   * Convenience helper to add an item into the catch-all (unsorted) bucket for a Space.
+   * Forces ai_placed=true and origin='catchall'.
+   */
+  async addUnsorted(spaceId: string | null, input: CreateRecordInput): Promise<AppRecord> {
+    return this.create({
+      ...input,
+      space_id: spaceId ?? null,
+      ai_placed: true,
+      origin: 'catchall',
+    });
+  }
+
   async update({ id, patch }: UpdateRecordInput): Promise<AppRecord> {
     this.ensureUserId();
 
@@ -660,6 +673,77 @@ export class SupabaseRepo implements IRepo {
     }
 
     return results;
+  }
+
+  /**
+   * Search within a specific Space across items and chats.
+   */
+  async searchInSpace(
+    spaceId: string,
+    text: string,
+  ): Promise<{ items: AppRecord[]; chats: import('../types').SpaceChat[] }> {
+    const userId = this.ensureUserId();
+    const q = `%${text}%`;
+
+    // Search todos
+    const todosQ = supabase
+      .from('todos')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .or(`name.ilike.${q},body.ilike.${q}`);
+
+    // Search notes
+    const notesQ = supabase
+      .from('notes')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .or(`title.ilike.${q},body.ilike.${q}`);
+
+    // Search habits (name/title)
+    const habitsQ = supabase
+      .from('habits')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .or(`name.ilike.${q},title.ilike.${q}`);
+
+    // Search chats (title or last_message_snippet)
+    const chatsQ = supabase
+      .from('space_chats')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('space_id', spaceId)
+      .or(`title.ilike.${q},last_message_snippet.ilike.${q}`)
+      .order('pinned', { ascending: false })
+      .order('updated_at', { ascending: false });
+
+    const [todosRes, notesRes, habitsRes, chatsRes] = await Promise.all([
+      todosQ,
+      notesQ,
+      habitsQ,
+      chatsQ,
+    ]);
+
+    if (todosRes.error) logSupabaseError('searchInSpace.todos', todosRes.error);
+    if (notesRes.error) logSupabaseError('searchInSpace.notes', notesRes.error);
+    if (habitsRes.error) logSupabaseError('searchInSpace.habits', habitsRes.error);
+    if (chatsRes.error) logSupabaseError('searchInSpace.chats', chatsRes.error);
+
+    const todos = (todosRes.data ?? [])
+      .map(mapTodoFromDb)
+      .map((r: any) => ({ ...r, type: 'todo' }));
+    const notes = (notesRes.data ?? [])
+      .map(mapNoteFromDb)
+      .map((r: any) => ({ ...r, type: 'note' }));
+    const habits = (habitsRes.data ?? [])
+      .map(mapHabitFromDb)
+      .map((r: any) => ({ ...r, type: 'habit' }));
+    const items: AppRecord[] = [...todos, ...notes, ...habits] as any;
+    const chats = (chatsRes.data ?? []) as import('../types').SpaceChat[];
+
+    return { items, chats };
   }
 
   /**
