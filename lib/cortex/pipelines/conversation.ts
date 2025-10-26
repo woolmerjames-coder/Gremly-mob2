@@ -643,6 +643,22 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     };
   }
 
+  // Handle social/compliment intents - respond conversationally without creating actions
+  if (finalIntent.kind === 'social') {
+    console.log('[DEBUG][conversation] Social intent detected - responding conversationally');
+    // Don't create actions, just have a nice conversational response
+    // The AI worker will handle generating the appropriate response
+    normalized.mode = 'reply';
+    normalized.meta = {
+      ...normalized.meta,
+      detectedIntent: finalIntent,
+      intentRoutedAs: 'social',
+      intentKind: 'social',
+    };
+    // Let the AI worker generate a natural response
+    // Don't set replyText here - let it be generated
+  }
+
   // Phase 11.2: Context-aware habit reminder handling
   // When user specifies reminder times after discussing habits, don't create a TODO
   if (
@@ -784,7 +800,16 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   let intentHandled = false;
   let awaitingClarification = false;
 
-  if (finalIntent.kind === 'question' && meetsConfidence) {
+  // Handle social intents first - conversational, no actions
+  if (finalIntent.kind === 'social') {
+    intentHandled = true;
+    normalized.mode = 'reply';
+    normalized.meta = {
+      ...normalized.meta,
+      intentRoutedAs: 'social',
+      intentKind: 'social',
+    };
+  } else if (finalIntent.kind === 'question' && meetsConfidence) {
     normalized.mode = 'ask';
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
