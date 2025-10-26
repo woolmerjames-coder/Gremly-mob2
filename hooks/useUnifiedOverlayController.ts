@@ -15,6 +15,8 @@ interface ConversionMeta {
   // Phase 10.7B: Initial values for prefill
   initialTitle?: string;
   initialNote?: string;
+  // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
+  initialDueDate?: string | null;
 }
 
 interface OverlayState {

@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
-import { Search, Settings } from '../../icons';
+import { Search, Settings, Bot } from '../../icons';
 import SearchOverlay from './Overlays/SearchOverlay';
 
 export type HeaderTone = 'calm' | 'neutral' | 'proud' | 'low';
@@ -13,6 +13,7 @@ export type HeaderProps = {
   onSearch?: () => void;
   onSettings?: () => void;
   onBack?: () => void;
+  mascotState?: 'calm' | 'focused' | 'proud' | 'playful';
 };
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,8 +23,59 @@ export const Header: React.FC<HeaderProps> = ({
   onSearch,
   onSettings,
   onBack,
+  mascotState = 'calm',
 }) => {
   const [showSearch, setShowSearch] = React.useState(false);
+  // Mascot micro-animations
+  const mScale = React.useMemo(() => new Animated.Value(1), []);
+  const mRotate = React.useMemo(() => new Animated.Value(0), []);
+  const mTranslateY = React.useMemo(() => new Animated.Value(0), []);
+  React.useEffect(() => {
+    mScale.stopAnimation();
+    mRotate.stopAnimation();
+    mTranslateY.stopAnimation();
+    // reset
+    mScale.setValue(1);
+    mRotate.setValue(0);
+    mTranslateY.setValue(0);
+    if (mascotState === 'calm') {
+      // gentle breathing loop
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(mScale, {
+            toValue: 1.05,
+            duration: 1200,
+            easing: Easing.ease,
+            useNativeDriver: true,
+          }),
+          Animated.timing(mScale, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.ease,
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+    } else if (mascotState === 'focused') {
+      // quick head tilt
+      Animated.sequence([
+        Animated.timing(mRotate, { toValue: -8, duration: 150, useNativeDriver: true }),
+        Animated.timing(mRotate, { toValue: 0, duration: 150, useNativeDriver: true }),
+      ]).start();
+    } else if (mascotState === 'proud') {
+      // scale pulse
+      Animated.sequence([
+        Animated.timing(mScale, { toValue: 1.18, duration: 160, useNativeDriver: true }),
+        Animated.timing(mScale, { toValue: 1, duration: 180, useNativeDriver: true }),
+      ]).start();
+    } else if (mascotState === 'playful') {
+      // small peek (pop up then settle)
+      Animated.sequence([
+        Animated.timing(mTranslateY, { toValue: -3, duration: 160, useNativeDriver: true }),
+        Animated.timing(mTranslateY, { toValue: 0, duration: 220, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [mascotState, mScale, mRotate, mTranslateY]);
   const contextColor = getContextColor(contextLine?.tone);
   return (
     <View style={styles.wrap}>
@@ -50,6 +102,24 @@ export const Header: React.FC<HeaderProps> = ({
         </View>
 
         <View style={styles.actions}>
+          {/* Small Gremly avatar */}
+          <Animated.View
+            style={{
+              transform: [
+                { scale: mScale },
+                {
+                  rotate: mRotate.interpolate({
+                    inputRange: [-180, 180],
+                    outputRange: ['-180deg', '180deg'],
+                  }),
+                },
+                { translateY: mTranslateY },
+              ],
+            }}
+            accessibilityLabel={`Gremly avatar: ${mascotState}`}
+          >
+            <Bot color={COLORS.Linen} size={18} />
+          </Animated.View>
           <TouchableOpacity
             onPress={() => setShowSearch(true)}
             accessibilityRole="button"
@@ -87,9 +157,9 @@ function getContextColor(tone: HeaderTone | undefined): string {
     case 'neutral':
       return COLORS.Sage;
     case 'calm':
-      return '#F9F6F1CC'; // Linen @ 80%
+      return COLORS.Sage;
     case 'low':
-      return '#8AA08D'; // desaturated sage
+      return COLORS.Sage;
     default:
       return COLORS.Sage;
   }

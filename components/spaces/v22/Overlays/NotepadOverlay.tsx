@@ -10,7 +10,12 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { COLORS, SPACE } from '../_tokens';
-import { X as CloseIcon } from 'lucide-react-native';
+import {
+  X as CloseIcon,
+  FileText as NumbersIcon,
+  Square as CheckboxIcon,
+  NotebookText as JournalIcon,
+} from 'lucide-react-native';
 import { useRepo } from '../../../../providers/RepoProvider';
 import type { AppRecord } from '../../../../lib/types';
 
@@ -31,15 +36,22 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
   const [notes, setNotes] = React.useState<AppRecord[]>([]);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [text, setText] = React.useState('');
-  const [fmt, setFmt] = React.useState<'bullets' | 'checkboxes' | 'none'>('none');
+  const [fmt, setFmt] = React.useState<'bullets' | 'numbers' | 'checkboxes' | 'none'>('none');
   const [isJournal, setIsJournal] = React.useState<boolean>(false);
+  const emotionalPrompt = React.useMemo(
+    () =>
+      'How are you feeling today? What felt good? What challenged you? Anything you want to remember?',
+    [],
+  );
 
   const load = React.useCallback(async () => {
     try {
       const list = await repo.listByType('note', { spaceId });
-      setNotes(list);
-      if (list.length > 0 && !selectedId) {
-        const first = list[0] as any;
+      // Only user-authored notes (exclude AI/catchall/space_chat artifacts)
+      const userNotes = list.filter((n: any) => !n.ai_placed && n.origin !== 'space_chat');
+      setNotes(userNotes);
+      if (userNotes.length > 0 && !selectedId) {
+        const first = userNotes[0] as any;
         setSelectedId(first.id);
         setText(first.body || '');
         setFmt((first.fmt as any) || 'none');
@@ -62,7 +74,9 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
               space_id: spaceId,
               title: 'Intention for today',
               body: initialDraft,
-              subtype: 'note',
+              subtype: 'catchall',
+              origin: 'manual',
+              ai_placed: false,
             } as any)) as any;
             setSelectedId(created.id);
             setText(initialDraft);
@@ -89,8 +103,10 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
     if (!selectedId) return;
     try {
       const patch: any = { body: text };
-      if (fmt === 'bullets' || fmt === 'checkboxes') patch.fmt = fmt;
-      if (isJournal) patch.subtype = 'journal';
+      if (fmt === 'bullets' || fmt === 'numbers' || fmt === 'checkboxes') patch.fmt = fmt;
+      // Journal toggle saves with journal subtype; otherwise keep as user-authored catchall
+      patch.subtype = isJournal ? 'journal' : 'catchall';
+      patch.origin = 'manual';
       await repo.update({ id: selectedId, patch });
       await load();
     } catch {
@@ -98,10 +114,22 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
     }
   };
 
+  const toggleJournal = () => {
+    setIsJournal((prev) => {
+      const next = !prev;
+      if (next) {
+        // Add emotional prompt for journal if empty or whitespace-only
+        const trimmed = (text || '').trim();
+        if (!trimmed) setText(emotionalPrompt);
+      }
+      return next;
+    });
+  };
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={8} tint="dark" style={StyleSheet.absoluteFillObject} />
         <View style={styles.sheet}>
           <View style={styles.headerRow}>
             <Text style={styles.title}>Notepad</Text>
@@ -114,7 +142,7 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
             </TouchableOpacity>
           </View>
           <View style={{ height: 12 }} />
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
               <ScrollView style={{ maxHeight: 140 }}>
                 {notes.length === 0 ? (
@@ -147,23 +175,51 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
                 onPress={() => setFmt((prev) => (prev === 'bullets' ? 'none' : 'bullets'))}
                 style={styles.toggleChip}
                 accessibilityRole="button"
+                testID="formatting-bullets"
               >
                 <Text style={styles.toggleText}>{fmt === 'bullets' ? '• Bullets' : 'Bullets'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setFmt((prev) => (prev === 'numbers' ? 'none' : 'numbers'))}
+                style={styles.toggleChip}
+                accessibilityRole="button"
+                testID="formatting-numbers"
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <NumbersIcon color={COLORS.Linen} size={14} />
+                  <Text style={styles.toggleText}>
+                    {fmt === 'numbers' ? '1. Numbers' : 'Numbers'}
+                  </Text>
+                </View>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setFmt((prev) => (prev === 'checkboxes' ? 'none' : 'checkboxes'))}
                 style={styles.toggleChip}
                 accessibilityRole="button"
+                testID="formatting-checkboxes"
               >
-                <Text style={styles.toggleText}>
-                  {fmt === 'checkboxes' ? '☑︎ Check' : 'Checkboxes'}
-                </Text>
-              </TouchableOpacity>
-              {isJournal && (
-                <View style={[styles.toggleChip, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <Text style={styles.toggleText}>Journal</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <CheckboxIcon color={COLORS.Linen} size={14} />
+                  <Text style={styles.toggleText}>
+                    {fmt === 'checkboxes' ? '☑︎ Check' : 'Checkboxes'}
+                  </Text>
                 </View>
-              )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={toggleJournal}
+                style={[
+                  styles.toggleChip,
+                  isJournal && { backgroundColor: 'rgba(255,255,255,0.12)' },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle journal mode"
+                testID="journal-toggle"
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <JournalIcon color={COLORS.Linen} size={14} />
+                  <Text style={styles.toggleText}>{isJournal ? 'Journal on' : 'Journal'}</Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </View>
           <View style={{ height: 12 }} />
@@ -199,6 +255,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     padding: SPACE.lg,
     paddingBottom: SPACE.xl,
+    height: '80%',
   },
   headerRow: {
     flexDirection: 'row',

@@ -30,6 +30,7 @@ export const InsightsRow: React.FC<InsightsRowProps> = ({
         onPress={onOpenNotepad}
         accessibilityRole="button"
         accessibilityLabel="Open notepad"
+        testID="open-notepad"
         style={styles.btn}
         onPressIn={() => pulse(s1)}
       >

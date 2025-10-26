@@ -15,4 +15,5 @@ export {
   Brain,
   Users,
   StickyNote,
+  Bot,
 } from 'lucide-react-native';

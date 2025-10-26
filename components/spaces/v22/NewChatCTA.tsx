@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View, Animated, Easing } from 'react-native';
 import { COLORS, RADII } from './_tokens';
-import { MessageSquarePlus } from '../../icons';
+import { MessageSquarePlus, Bot } from '../../icons';
 
 type Props = {
   onPress: () => void;
@@ -9,7 +9,7 @@ type Props = {
 
 export const NewChatCTA: React.FC<Props> = ({ onPress }) => {
   const scale = React.useMemo(() => new Animated.Value(1), []);
-  // Tiny animated Gremly wave/blink (emoji-based, independent of mascot provider)
+  // Tiny animated Gremly wave tilt (icon-based)
   const wave = React.useMemo(() => new Animated.Value(0), []);
   React.useEffect(() => {
     const loop = Animated.loop(
@@ -65,9 +65,9 @@ export const NewChatCTA: React.FC<Props> = ({ onPress }) => {
         <Animated.View style={{ transform: [{ scale }] }}>
           <MessageSquarePlus color={COLORS.Moss} size={20} />
         </Animated.View>
-        <Animated.Text style={[styles.mascot, waveStyle]} accessibilityLabel="Gremly waving">
-          🐨
-        </Animated.Text>
+        <Animated.View style={[styles.mascot, waveStyle]} accessibilityLabel="Gremly waving">
+          <Bot color={COLORS.Moss} size={16} />
+        </Animated.View>
         <Text style={styles.label}>Talk to Gremly about this Space.</Text>
       </View>
     </Pressable>

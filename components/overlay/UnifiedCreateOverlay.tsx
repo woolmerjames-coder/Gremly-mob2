@@ -70,6 +70,8 @@ export type UnifiedCreateOverlayProps = {
     // Phase 10.7B: Initial values for prefill
     initialTitle?: string;
     initialNote?: string;
+    // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
+    initialDueDate?: string | null;
   };
   onClose: () => void;
   onSaved?: (result: { type: string; id: string }) => void;
@@ -430,7 +432,7 @@ export function UnifiedCreateOverlay({
   useEffect(() => {
     if (!visible || !conversionMeta) return;
 
-    const { initialTitle, initialNote } = conversionMeta;
+    const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
 
     if (initialTitle || initialNote) {
       // Prefill note fields if we have data
@@ -446,6 +448,19 @@ export function UnifiedCreateOverlay({
           hasTitle: !!initialTitle,
           hasNote: !!initialNote,
         });
+      }
+    }
+
+    // Prefill todo due date if provided
+    if (initialDueDate) {
+      try {
+        // Accept either yyyy-mm-dd or full ISO; normalize to yyyy-mm-dd for field
+        const dateOnly = initialDueDate.includes('T')
+          ? new Date(initialDueDate).toISOString().split('T')[0]
+          : initialDueDate;
+        setTodoDueDate(dateOnly);
+      } catch {
+        // ignore invalid dates
       }
     }
   }, [visible, conversionMeta]);

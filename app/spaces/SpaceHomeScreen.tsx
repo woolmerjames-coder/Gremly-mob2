@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   Animated,
+  Easing,
   Alert,
   RefreshControl,
   TouchableOpacity,
@@ -120,6 +121,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const oInsights = React.useMemo(() => new Animated.Value(0), []);
   const oCTA = React.useMemo(() => new Animated.Value(0), []);
   const oThreads = React.useMemo(() => new Animated.Value(0), []);
+  // Slide-up motion for v22 sections
+  const yWeek = React.useMemo(() => new Animated.Value(20), []);
+  const yDay = React.useMemo(() => new Animated.Value(20), []);
+  const ySummary = React.useMemo(() => new Animated.Value(20), []);
+  const yInsights = React.useMemo(() => new Animated.Value(20), []);
+  const yCTA = React.useMemo(() => new Animated.Value(20), []);
+  const yThreads = React.useMemo(() => new Animated.Value(20), []);
   // Focus card snooze state
   const [focusDismissed, setFocusDismissed] = useState<boolean>(false);
   // Feature flag: Space v22 header (strict equality as requested)
@@ -127,16 +135,69 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     if (!isSpaceV22) return;
-    const timings = [oWeek, oDay, oSummary, oInsights, oCTA, oThreads].map((v, i) =>
-      Animated.timing(v, {
-        toValue: 1,
-        duration: 180,
-        delay: i * 50, // 0.05s stagger
-        useNativeDriver: true,
-      }),
+    const ops = [oWeek, oDay, oSummary, oInsights, oCTA, oThreads];
+    const tys = [yWeek, yDay, ySummary, yInsights, yCTA, yThreads];
+    const groups = ops.map((op, i) =>
+      Animated.parallel([
+        Animated.timing(op, { toValue: 1, duration: 250, delay: i * 50, useNativeDriver: true }),
+        Animated.timing(tys[i], {
+          toValue: 0,
+          duration: 250,
+          delay: i * 50,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
     );
-    Animated.stagger(50, timings).start();
-  }, [isSpaceV22, oCTA, oDay, oInsights, oSummary, oThreads, oWeek]);
+    Animated.stagger(50, groups).start();
+  }, [
+    isSpaceV22,
+    oCTA,
+    oDay,
+    oInsights,
+    oSummary,
+    oThreads,
+    oWeek,
+    yCTA,
+    yDay,
+    yInsights,
+    ySummary,
+    yThreads,
+    yWeek,
+  ]);
+  // Header mood line heuristic
+  const headerMood = React.useMemo(() => {
+    const lastChatTs = chats.reduce((acc, c) => Math.max(acc, new Date(c.updated_at).getTime()), 0);
+    const lastItemTs = items.reduce((acc, it: any) => {
+      const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+      return Math.max(acc, ts);
+    }, 0);
+    const lastTs = Math.max(lastChatTs, lastItemTs);
+    const daysSince = lastTs ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
+    if (daysSince >= 7)
+      return { tone: 'low' as const, text: 'It’s been quiet — want to revisit your goals?' };
+    const todayISO = formatISO(new Date(), { representation: 'date' });
+    const today = (timelineDays || []).find((d) => d.dateISO === todayISO);
+    const anyDone = (timelineDays || []).some((d) => (d.items || []).some((it: any) => !!it.done));
+    if (anyDone || (today && (today.items || []).length > 0)) {
+      return { tone: 'proud' as const, text: 'Steady rhythm — keep the momentum.' };
+    }
+    return { tone: 'calm' as const, text: 'Nothing urgent — breathe and reflect.' };
+  }, [chats, items, timelineDays]);
+
+  // Header mascot micro-states
+  const [headerMascot, setHeaderMascot] = useState<'calm' | 'focused' | 'proud' | 'playful'>(
+    'calm',
+  );
+  useEffect(() => {
+    if (!isSpaceV22) return;
+    // playful peek on screen focus
+    if (isFocused) {
+      setHeaderMascot('playful');
+      const t = setTimeout(() => setHeaderMascot('calm'), 600);
+      return () => clearTimeout(t);
+    }
+  }, [isFocused, isSpaceV22]);
 
   // When selected day changes in v22, scroll DayPanel into view (place before any early return)
   useEffect(() => {
@@ -626,9 +687,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <HeaderV22
             title={space?.name ?? 'Space'}
             lastVisited={buildLastVisitedLabel(items, chats)}
+            contextLine={headerMood}
             onBack={() => navigation.goBack()}
             onSearch={handleSearchPress}
             onSettings={() => Alert.alert('Settings', 'Coming soon')}
+            mascotState={headerMascot}
           />
         ) : (
           <View
@@ -861,6 +924,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     await repo.completeHabit(id, new Date().toISOString());
                     // Micro feedback: short confetti + Undo snackbar
                     setShowConfetti(true);
+                    setHeaderMascot('proud');
+                    setTimeout(() => setHeaderMascot('calm'), 800);
                     showUndoSnackbar('Marked habit complete', async () => {
                       try {
                         await repo.undoCompletion(id);
@@ -888,6 +953,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   if (!t?.done) {
                     // Micro feedback: short confetti + Undo snackbar
                     setShowConfetti(true);
+                    setHeaderMascot('proud');
+                    setTimeout(() => setHeaderMascot('calm'), 800);
                     showUndoSnackbar('Marked to-do complete', async () => {
                       try {
                         await repo.undoCompletion(id);
@@ -906,13 +973,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oCTA }}>
+          <Animated.View
+            style={{
+              paddingHorizontal: 16,
+              marginTop: 24,
+              opacity: oCTA,
+              transform: [{ translateY: yCTA }],
+            }}
+          >
             <NewChatCTA onPress={handleNewChat} />
           </Animated.View>
         )}
 
         {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oSummary }}>
+          <Animated.View
+            style={{
+              paddingHorizontal: 16,
+              marginTop: 24,
+              opacity: oSummary,
+              transform: [{ translateY: ySummary }],
+            }}
+          >
             <AdaptiveSummaryV22
               mode="reflective"
               intent={intent}
@@ -925,7 +1006,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oInsights }}>
+          <Animated.View
+            style={{
+              paddingHorizontal: 16,
+              marginTop: 24,
+              opacity: oInsights,
+              transform: [{ translateY: yInsights }],
+            }}
+          >
             <InsightsRow
               onOpenNotepad={() => setShowNotepad(true)}
               onOpenPeople={() => setShowPeople(true)}
@@ -935,7 +1023,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oThreads }}>
+          <Animated.View
+            style={{
+              paddingHorizontal: 16,
+              marginTop: 24,
+              opacity: oThreads,
+              transform: [{ translateY: yThreads }],
+            }}
+          >
             <Text style={{ fontWeight: '700', fontSize: 16, color: T.colors.text }}>
               Recent chats
             </Text>

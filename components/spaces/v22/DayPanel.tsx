@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, useColorScheme } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
 
@@ -9,6 +9,7 @@ export type DayPanelProps = {
   dateISO: string;
   habits: HabitItem[];
   todos: TodoItem[];
+  onAddItem?: () => void;
   onToggleHabit?: (id: string) => void;
   onToggleTodo?: (id: string) => void;
 };
@@ -17,6 +18,7 @@ export const DayPanel: React.FC<DayPanelProps> = ({
   dateISO,
   habits,
   todos,
+  onAddItem,
   onToggleHabit,
   onToggleTodo,
 }) => {
@@ -27,35 +29,74 @@ export const DayPanel: React.FC<DayPanelProps> = ({
     return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
   }, [dateISO]);
 
+  // Expand/collapse animation on mount/update
+  const open = React.useMemo(() => new Animated.Value(0), []);
+  const [measuredHeight, setMeasuredHeight] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    Animated.timing(open, { toValue: 1, duration: 300, useNativeDriver: false }).start();
+  }, [open, dateISO, habits.length, todos.length]);
+
+  const heightStyle = measuredHeight
+    ? {
+        height: open.interpolate({ inputRange: [0, 1], outputRange: [0, measuredHeight] }),
+        opacity: open.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
+      }
+    : {};
+
   return (
-    <View
+    <Animated.View
       style={[
         styles.card,
         isDark
           ? { backgroundColor: 'rgba(255,255,255,0.06)', shadowOpacity: 0 }
           : { backgroundColor: COLORS.Linen },
+        heightStyle,
       ]}
     >
-      <Text style={[styles.headerText, isDark ? { color: COLORS.Linen } : { color: COLORS.Deep }]}>
-        {dateLabel}
-      </Text>
+      <View
+        onLayout={(e) => setMeasuredHeight(e.nativeEvent.layout.height)}
+        style={{ paddingBottom: 2 }}
+      >
+        <Text
+          style={[styles.headerText, isDark ? { color: COLORS.Linen } : { color: COLORS.Deep }]}
+        >
+          {dateLabel}
+        </Text>
 
-      {!!habits.length && (
-        <View style={{ marginTop: SPACE.sm }}>
-          {habits.map((h, idx) => (
-            <HabitRow key={h.id} item={h} delay={idx * 60} onToggle={onToggleHabit} />
-          ))}
-        </View>
-      )}
+        {habits.length > 0 && (
+          <View style={{ marginTop: SPACE.sm }}>
+            {habits.map((h, idx) => (
+              <HabitRow key={h.id} item={h} delay={idx * 60} onToggle={onToggleHabit} />
+            ))}
+          </View>
+        )}
 
-      {!!todos.length && (
-        <View style={{ marginTop: SPACE.md }}>
-          {todos.map((t) => (
-            <TodoRow key={t.id} item={t} onToggle={onToggleTodo} />
-          ))}
-        </View>
-      )}
-    </View>
+        {todos.length > 0 && (
+          <View style={{ marginTop: SPACE.md }}>
+            {todos.map((t) => (
+              <TodoRow key={t.id} item={t} onToggle={onToggleTodo} />
+            ))}
+          </View>
+        )}
+
+        {habits.length === 0 && todos.length === 0 && (
+          <Text style={[styles.empty, isDark ? { color: '#C8D5CE' } : { color: '#6D7B72' }]}>
+            Nothing urgent — breathe and reflect.
+          </Text>
+        )}
+
+        {onAddItem && (
+          <TouchableOpacity
+            onPress={onAddItem}
+            accessibilityRole="button"
+            accessibilityLabel="Add item"
+            style={styles.addBtn}
+          >
+            <Text style={styles.addText}>+ Add item</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </Animated.View>
   );
 };
 
@@ -189,6 +230,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  empty: {
+    marginTop: 6,
+    fontSize: 13.5,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -236,6 +281,18 @@ const styles = StyleSheet.create({
   todoTextDone: {
     color: '#6D7B72',
     textDecorationLine: 'line-through',
+  },
+  addBtn: {
+    alignSelf: 'flex-start',
+    marginTop: SPACE.md,
+    backgroundColor: COLORS.Sage,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  addText: {
+    color: COLORS.Moss,
+    fontWeight: '700',
   },
 });
 
