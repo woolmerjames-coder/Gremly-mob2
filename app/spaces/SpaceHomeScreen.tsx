@@ -64,6 +64,7 @@ import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
+import ThreadCardV33 from '../../components/spaces/v33/ThreadCard';
 // v33 goal components
 import GoalListV33 from '../../components/spaces/v33/GoalList';
 import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
@@ -814,7 +815,28 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           />
 
           <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-            <NewChatSectionV33 onPress={handleNewChat} />
+            {(() => {
+              // Calculate inactivity days for sparkle
+              const lastChatTs = chats.reduce(
+                (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
+                0,
+              );
+              const lastItemTs = items.reduce((acc, it: any) => {
+                const ts = new Date(it.updated_at || it.created_at || 0).getTime();
+                return Math.max(acc, ts);
+              }, 0);
+              const lastTs = Math.max(lastChatTs, lastItemTs);
+              const daysSince = lastTs
+                ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
+                : 999;
+              return (
+                <NewChatSectionV33
+                  spaceName={space?.name ?? 'this space'}
+                  inactiveDays={daysSince}
+                  onPress={handleNewChat}
+                />
+              );
+            })()}
           </View>
 
           {/* Goals: expandable GoalList with See All / Show Less */}
@@ -855,7 +877,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             );
           })()}
 
-          {/* TODO(v33): add IconRow, Threads, and overlays */}
+          {/* Recent Chats (last 3) */}
+          {(() => {
+            const list = chats.slice(0, 3);
+            if (list.length === 0) return null;
+            return (
+              <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 10 }}>
+                {list.map((c) => (
+                  <ThreadCardV33
+                    key={c.id}
+                    chat={c}
+                    onPress={(chatId) => navigation.navigate('ChatThread', { spaceId, chatId })}
+                  />
+                ))}
+              </View>
+            );
+          })()}
         </ScrollView>
 
         {/* Micro celebration overlay */}
