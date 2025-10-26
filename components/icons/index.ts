@@ -22,4 +22,6 @@ export {
   Save,
   Trash2,
   X,
+  MoreVertical,
+  Pencil,
 } from 'lucide-react-native';

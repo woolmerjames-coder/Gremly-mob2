@@ -1,18 +1,23 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated, TouchableOpacity } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { SpaceChat } from '../../../lib/types';
 import { COLORS, RADII, SPACE } from './_tokens';
 import { generateChatTitle } from '../../../lib/ai/chatTitle';
 import { format } from 'date-fns';
+import { MoreVertical, Pencil, Trash2 } from '../../icons';
+import Menu from './Menu';
 
 export type ThreadCardProps = {
   chat: SpaceChat;
   onPress: (chatId: string) => void;
+  onRename?: (chatId: string) => void;
+  onDelete?: (chatId: string) => void;
 };
 
-export default function ThreadCard({ chat, onPress }: ThreadCardProps) {
+export default function ThreadCard({ chat, onPress, onRename, onDelete }: ThreadCardProps) {
   const lift = useMemo(() => new Animated.Value(0), []);
+  const [showMenu, setShowMenu] = useState(false);
 
   const title = useMemo(() => {
     // Try AI generator based on last snippet and any existing title
@@ -69,6 +74,43 @@ export default function ThreadCard({ chat, onPress }: ThreadCardProps) {
             {dateLabel}
           </Text>
         )}
+        {(onRename || onDelete) && (
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                setShowMenu(!showMenu);
+              }}
+              style={styles.menuButton}
+              accessibilityRole="button"
+              accessibilityLabel="Chat options"
+            >
+              <MoreVertical size={20} color={COLORS.Moss} opacity={0.6} />
+            </TouchableOpacity>
+            {showMenu && (
+              <>
+                <TouchableOpacity
+                  style={StyleSheet.absoluteFill}
+                  onPress={() => setShowMenu(false)}
+                  activeOpacity={1}
+                />
+                <View style={styles.menuContainer}>
+                  <Menu
+                    items={[
+                      ...(onRename ? [{ key: 'rename', label: 'Rename Chat' }] : []),
+                      ...(onDelete ? [{ key: 'delete', label: 'Delete Chat', danger: true }] : []),
+                    ]}
+                    onSelect={(key) => {
+                      setShowMenu(false);
+                      if (key === 'rename' && onRename) onRename(chat.id);
+                      if (key === 'delete' && onDelete) onDelete(chat.id);
+                    }}
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        )}
       </Animated.View>
     </Pressable>
   );
@@ -101,4 +143,14 @@ const styles = StyleSheet.create({
   title: { color: COLORS.Deep, fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
   snippet: { color: 'rgba(26,51,40,0.7)', fontSize: 12, marginTop: 2, lineHeight: 17 },
   date: { color: 'rgba(26,51,40,0.6)', fontSize: 12, marginLeft: 8, lineHeight: 17 },
+  menuButton: {
+    padding: 4,
+    marginLeft: 4,
+  },
+  menuContainer: {
+    position: 'absolute',
+    right: 0,
+    top: 30,
+    zIndex: 10,
+  },
 });

@@ -74,6 +74,8 @@ import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOve
 import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
+import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
+import GoalPlaceholder from '../../components/spaces/v33/GoalPlaceholder';
 import Menu from '../../components/spaces/v33/Menu';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
 
@@ -147,6 +149,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showUnifiedAdd, setShowUnifiedAdd] = useState(false);
   // v33: goal menu (inline Menu component)
   const [goalMenuId, setGoalMenuId] = useState<string | null>(null);
+  // v33: rename chat modal state
+  const [renameChatModalOpen, setRenameChatModalOpen] = useState(false);
+  const [renameChatId, setRenameChatId] = useState<string | null>(null);
+  const [renameChatTitle, setRenameChatTitle] = useState('');
   const overlay = useUnifiedOverlayController();
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
   const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
@@ -536,6 +542,19 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   );
 
   const handleRenameChat = useCallback(
+    (chatId: string) => {
+      const chat = chats.find((c) => c.id === chatId);
+      if (chat) {
+        setRenameChatId(chatId);
+        setRenameChatTitle(chat.title || 'New Chat');
+        setRenameChatModalOpen(true);
+      }
+    },
+    [chats],
+  );
+
+  // v22 compatible wrapper for handleRenameChat (takes newTitle directly)
+  const handleRenameChatV22 = useCallback(
     async (chatId: string, newTitle: string) => {
       try {
         await spaceChatRepo.update(chatId, { title: newTitle });
@@ -546,6 +565,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       }
     },
     [spaceChatRepo, reload],
+  );
+
+  const handleRenameChatSubmit = useCallback(
+    async (newTitle: string) => {
+      if (!renameChatId) return;
+      try {
+        await spaceChatRepo.update(renameChatId, { title: newTitle });
+        await reload();
+      } catch (error) {
+        console.error('Failed to rename chat:', error);
+        Alert.alert('Error', 'Failed to rename chat');
+      }
+    },
+    [renameChatId, spaceChatRepo, reload],
   );
 
   // v33: Goal menu handled via Menu component (see inline render in v33 branch)
@@ -572,20 +605,29 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Hard delete handler
   const handleDeleteChat = useCallback(
-    async (chatId: string) => {
-      try {
-        const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-        if (backend === 'supabase' && spaceChatRepo instanceof SupabaseSpaceChatRepo) {
-          await spaceChatRepo.delete(chatId);
-        } else {
-          // Memory repo: mimic hard delete by archiving (existing behavior)
-          await spaceChatRepo.delete(chatId);
-        }
-        await reload();
-      } catch (error) {
-        console.error('Failed to delete chat:', error);
-        Alert.alert('Error', 'Failed to delete chat');
-      }
+    (chatId: string) => {
+      Alert.alert('Delete chat?', 'This will permanently remove the chat and all its messages.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+              if (backend === 'supabase' && spaceChatRepo instanceof SupabaseSpaceChatRepo) {
+                await spaceChatRepo.delete(chatId);
+              } else {
+                // Memory repo: mimic hard delete by archiving (existing behavior)
+                await spaceChatRepo.delete(chatId);
+              }
+              await reload();
+            } catch (error) {
+              console.error('Failed to delete chat:', error);
+              Alert.alert('Error', 'Failed to delete chat');
+            }
+          },
+        },
+      ]);
     },
     [spaceChatRepo, reload],
   );
@@ -801,25 +843,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* Goals: expandable GoalList with See All / Show Less */}
             {(() => {
               const wk = weekly?.habits || [];
-              if (!wk.length)
-                return (
-                  <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-                    <View
-                      style={{
-                        backgroundColor: '#F9F6F1',
-                        borderRadius: 10,
-                        padding: 16,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: 'rgba(46,85,64,0.2)',
-                      }}
-                    >
-                      <Text style={{ color: '#1A3328' }}>
-                        Your active goals will appear here once you set one up — try adding
-                        something new.
-                      </Text>
-                    </View>
-                  </View>
-                );
+              if (!wk.length) return <GoalPlaceholder />;
               const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
               const goals = wk.map((row) => {
                 const rec = byId.get(row.id);
@@ -984,6 +1008,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       key={c.id}
                       chat={c}
                       onPress={(chatId) => navigation.navigate('ChatThread', { spaceId, chatId })}
+                      onRename={handleRenameChat}
+                      onDelete={handleDeleteChat}
                     />
                   ))}
                 </View>
@@ -1086,6 +1112,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             }}
           />
         )}
+        {/* Rename Chat modal (v33) */}
+        <RenameChatModal
+          isOpen={renameChatModalOpen}
+          onClose={() => setRenameChatModalOpen(false)}
+          initialTitle={renameChatTitle}
+          onSubmit={handleRenameChatSubmit}
+        />
       </View>
     );
   }
@@ -1124,7 +1157,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     onPress={() => handleChatPress(chat.id)}
                     onPin={handlePinChat}
                     onUnpin={handleUnpinChat}
-                    onRename={handleRenameChat}
+                    onRename={handleRenameChatV22}
                     onArchive={handleArchiveChat}
                     onDelete={handleDeleteChat}
                     aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
