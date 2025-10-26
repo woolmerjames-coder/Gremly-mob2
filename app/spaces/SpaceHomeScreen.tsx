@@ -71,6 +71,7 @@ import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay
 import IconRowV33 from '../../components/spaces/v33/IconRow';
 import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
 import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
+import Menu from '../../components/spaces/v33/Menu';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -128,6 +129,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showNotepad, setShowNotepad] = useState(false);
   const [intentDraft, setIntentDraft] = useState<string | undefined>(undefined);
   const [showPeople, setShowPeople] = useState(false);
+  // v33: goal menu (inline Menu component)
+  const [goalMenuId, setGoalMenuId] = useState<string | null>(null);
   const overlay = useUnifiedOverlayController();
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
   const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
@@ -501,69 +504,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [spaceChatRepo, reload],
   );
 
-  // v33: Goal menu actions
-  const openGoalMenu = useCallback(
-    (id: string) => {
-      const rec = (items as any[]).find((r) => r.id === id);
-      if (!rec) return;
-      const paused = rec.type === 'habit' && !!rec.end_date;
-      Alert.alert('Goal', rec.title || rec.name || 'Goal', [
-        {
-          text: 'Edit',
-          onPress: () => {
-            setEditGoalRecord(rec);
-            setEditGoalVisible(true);
-          },
-        },
-        {
-          text: paused ? 'Resume' : 'Pause',
-          onPress: async () => {
-            try {
-              const patch: any = {};
-              if (rec.type === 'habit') {
-                patch.end_date = paused ? null : formatISO(new Date(), { representation: 'date' });
-              }
-              await repo.update({ id: rec.id, patch });
-              await reload();
-            } catch (e) {
-              console.warn('[v33] toggle active failed', e);
-            }
-          },
-        },
-        {
-          text: 'View Chat Context',
-          onPress: async () => {
-            try {
-              const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-              const chatRepo =
-                backend === 'supabase'
-                  ? new SupabaseSpaceChatRepo(userId || undefined)
-                  : new MemorySpaceChatRepo(userId || 'anonymous');
-              const chats = await chatRepo.list(spaceId).catch(() => []);
-              const chat = chats[0] || (await chatRepo.create(spaceId, { title: 'General' }));
-              navigation.navigate('ChatThread', { spaceId, chatId: chat.id } as any);
-            } catch (e) {
-              console.warn('[v33] view chat context failed', e);
-            }
-          },
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await repo.remove(rec.id);
-              await reload();
-            } catch (e) {
-              console.warn('[v33] delete goal failed', e);
-            }
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-    },
-    [items, navigation, reload, repo, spaceId, userId],
-  );
+  // v33: Goal menu handled via Menu component (see inline render in v33 branch)
 
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
@@ -849,9 +790,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               if (!wk.length)
                 return (
                   <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-                    <Text style={{ color: T.colors.subtle }}>
-                      All clear — nothing pressing in this Space.
-                    </Text>
+                    <View
+                      style={{
+                        backgroundColor: '#F9F6F1',
+                        borderRadius: 10,
+                        padding: 16,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: 'rgba(46,85,64,0.2)',
+                      }}
+                    >
+                      <Text style={{ color: '#1A3328' }}>
+                        Your active goals will appear here once you set one up — try adding
+                        something new.
+                      </Text>
+                    </View>
                   </View>
                 );
               const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
@@ -872,7 +824,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 } as const;
               });
               return (
-                <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+                <View style={{ paddingHorizontal: 16, marginTop: 16, position: 'relative' }}>
                   <GoalListV33
                     goals={goals as any}
                     topN={3}
@@ -882,8 +834,81 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       const rec = (items as any[]).find((r) => r.id === id);
                       if (rec) overlay.openEdit({ record: rec, spaceId });
                     }}
-                    onMenu={(id) => openGoalMenu(id)}
+                    onMenu={(id) => setGoalMenuId(id)}
                   />
+                  {goalMenuId && (
+                    <>
+                      <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        accessibilityRole="button"
+                        onPress={() => setGoalMenuId(null)}
+                      />
+                      <View style={{ position: 'absolute', right: 0, top: 0, zIndex: 10 }}>
+                        <Menu
+                          items={(() => {
+                            const rec = (items as any[]).find((r) => r.id === goalMenuId);
+                            const paused = rec?.type === 'habit' && !!rec?.end_date;
+                            return [
+                              { key: 'edit', label: 'Edit' },
+                              { key: 'toggle', label: paused ? 'Resume' : 'Pause' },
+                              { key: 'delete', label: 'Delete', danger: true },
+                              { key: 'chat', label: 'View Chat Context' },
+                            ];
+                          })()}
+                          onSelect={async (key: string) => {
+                            const rec = (items as any[]).find((r) => r.id === goalMenuId);
+                            if (!rec) {
+                              setGoalMenuId(null);
+                              return;
+                            }
+                            if (key === 'edit') {
+                              setEditGoalRecord(rec);
+                              setEditGoalVisible(true);
+                            } else if (key === 'toggle') {
+                              try {
+                                const paused = rec.type === 'habit' && !!rec.end_date;
+                                const patch: any = {};
+                                if (rec.type === 'habit') {
+                                  patch.end_date = paused
+                                    ? null
+                                    : formatISO(new Date(), { representation: 'date' });
+                                }
+                                await repo.update({ id: rec.id, patch });
+                                await reload();
+                              } catch (e) {
+                                console.warn('[v33] toggle active failed', e);
+                              }
+                            } else if (key === 'delete') {
+                              try {
+                                await repo.remove(rec.id);
+                                await reload();
+                              } catch (e) {
+                                console.warn('[v33] delete goal failed', e);
+                              }
+                            } else if (key === 'chat') {
+                              try {
+                                const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+                                const chatRepo =
+                                  backend === 'supabase'
+                                    ? new SupabaseSpaceChatRepo(userId || undefined)
+                                    : new MemorySpaceChatRepo(userId || 'anonymous');
+                                const list = await chatRepo.list(spaceId).catch(() => []);
+                                const chat =
+                                  list[0] || (await chatRepo.create(spaceId, { title: 'General' }));
+                                navigation.navigate('ChatThread', {
+                                  spaceId,
+                                  chatId: chat.id,
+                                } as any);
+                              } catch (e) {
+                                console.warn('[v33] view chat context (goals) failed', e);
+                              }
+                            }
+                            setGoalMenuId(null);
+                          }}
+                        />
+                      </View>
+                    </>
+                  )}
                 </View>
               );
             })()}
