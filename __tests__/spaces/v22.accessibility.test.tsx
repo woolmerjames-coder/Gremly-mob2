@@ -14,8 +14,8 @@ describe('v22 accessibility', () => {
     const { getByLabelText, getByText } = render(<NewChatCTA onPress={onPress} />);
 
     // Accessible via label and visible text
-    expect(getByLabelText('Start a chat with Gremly')).toBeTruthy();
-    expect(getByText('Start a chat with Gremly')).toBeTruthy();
+    expect(getByLabelText('Talk to Gremly about this Space')).toBeTruthy();
+    expect(getByText('Talk to Gremly about this Space.')).toBeTruthy();
   });
 
   it('InsightsRow exposes three buttons with labels', () => {
