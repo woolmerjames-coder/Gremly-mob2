@@ -1361,7 +1361,6 @@ export default function ChatThreadScreen({ route }: Props) {
                         onPress={() => {
                           // Navigate to habit in space
                           if (metadata.habitId) {
-                            // TODO: Navigate to habit detail or open edit overlay
                             console.log('[LockedHabit] Tapped, habitId:', metadata.habitId);
                             overlayController.openEdit({
                               record: { id: metadata.habitId, type: 'habit' } as any,
@@ -1378,6 +1377,76 @@ export default function ChatThreadScreen({ route }: Props) {
                             </Text>
                             <Text style={styles.lockedSubtext}>
                               Click this entry or find it in the Space to edit
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  }
+
+                  // Render locked todo confirmation
+                  if (
+                    message.role === 'assistant' &&
+                    (message.metadata_json as any)?.type === 'todo-locked'
+                  ) {
+                    const metadata = message.metadata_json || {};
+                    return (
+                      <Pressable
+                        key={message.id}
+                        style={styles.lockedTodo}
+                        onPress={() => {
+                          if (metadata.todoId) {
+                            console.log('[LockedTodo] Tapped, todoId:', metadata.todoId);
+                            overlayController.openEdit({
+                              record: { id: metadata.todoId, type: 'todo' } as any,
+                              spaceId: spaceId ?? undefined,
+                            });
+                          }
+                        }}
+                      >
+                        <View style={styles.lockedContent}>
+                          <Text style={styles.lockIcon}>✓</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.lockedTitle}>
+                              Task added
+                              {metadata.dueDate ? ` for ${metadata.dueDate}` : ''}
+                            </Text>
+                            <Text style={styles.lockedSubtext}>
+                              Click this entry or find it in the Space to edit
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  }
+
+                  // Render locked note confirmation
+                  if (
+                    message.role === 'assistant' &&
+                    (message.metadata_json as any)?.type === 'note-locked'
+                  ) {
+                    const metadata = message.metadata_json || {};
+                    const notePreview = metadata.noteContent?.substring(0, 50) || 'Note captured';
+                    return (
+                      <Pressable
+                        key={message.id}
+                        style={styles.lockedNote}
+                        onPress={() => {
+                          if (metadata.noteId) {
+                            console.log('[LockedNote] Tapped, noteId:', metadata.noteId);
+                            overlayController.openEdit({
+                              record: { id: metadata.noteId, type: 'note' } as any,
+                              spaceId: spaceId ?? undefined,
+                            });
+                          }
+                        }}
+                      >
+                        <View style={styles.lockedContent}>
+                          <Text style={styles.lockIcon}>📝</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.lockedTitle}>Note captured</Text>
+                            <Text style={styles.lockedSubtext} numberOfLines={1}>
+                              {notePreview}
                             </Text>
                           </View>
                         </View>
@@ -1709,7 +1778,24 @@ export default function ChatThreadScreen({ route }: Props) {
                 record &&
                 (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
               ) {
-                // For habits, add a locked confirmation message instead of entry card
+                // Helper function to get continuation message based on type
+                const getContinuationMessage = (
+                  type: 'habit' | 'todo' | 'note',
+                  itemName?: string,
+                ): string => {
+                  switch (type) {
+                    case 'habit':
+                      return `Great! Your ${itemName || 'habit'} is set. What else would you like to work on?`;
+                    case 'todo':
+                      return 'Task added to your list. Anything else you need to get done?';
+                    case 'note':
+                      return "Got it! Note saved. What's next?";
+                    default:
+                      return 'Done! What would you like to do next?';
+                  }
+                };
+
+                // Add locked confirmation message for all types
                 if (result.type === 'habit') {
                   const habitRecord = record as any;
                   await appendAssistantMessage('', {
@@ -1718,23 +1804,59 @@ export default function ChatThreadScreen({ route }: Props) {
                     frequency: habitRecord.frequency || 'regularly',
                     habitId: record.id,
                     locked: true,
+                    itemType: 'habit',
                   });
 
-                  // Add follow-up message after short delay to resume conversation
+                  // Add follow-up message after short delay
                   setTimeout(async () => {
                     try {
-                      const habitName = habitRecord.name || 'habit';
                       await appendAssistantMessage(
-                        `Great! Your ${habitName} is set. What else would you like to work on?`,
+                        getContinuationMessage('habit', habitRecord.name),
                       );
                       console.log('[Chat] Follow-up message added after habit creation');
                     } catch (err) {
                       console.error('[Chat] Failed to add follow-up message:', err);
                     }
                   }, 1500);
-                } else {
-                  // For todos and notes, add the regular entry card
-                  await appendEntryCard(record, result.type as 'note' | 'todo' | 'habit');
+                } else if (result.type === 'todo') {
+                  const todoRecord = record as any;
+                  await appendAssistantMessage('', {
+                    type: 'todo-locked',
+                    todoTitle: todoRecord.title || 'Task',
+                    dueDate: todoRecord.due_date || null,
+                    todoId: record.id,
+                    locked: true,
+                    itemType: 'todo',
+                  });
+
+                  // Add follow-up message after short delay
+                  setTimeout(async () => {
+                    try {
+                      await appendAssistantMessage(getContinuationMessage('todo'));
+                      console.log('[Chat] Follow-up message added after todo creation');
+                    } catch (err) {
+                      console.error('[Chat] Failed to add follow-up message:', err);
+                    }
+                  }, 1500);
+                } else if (result.type === 'note') {
+                  const noteRecord = record as any;
+                  await appendAssistantMessage('', {
+                    type: 'note-locked',
+                    noteContent: noteRecord.content || noteRecord.title || 'Note',
+                    noteId: record.id,
+                    locked: true,
+                    itemType: 'note',
+                  });
+
+                  // Add follow-up message after short delay
+                  setTimeout(async () => {
+                    try {
+                      await appendAssistantMessage(getContinuationMessage('note'));
+                      console.log('[Chat] Follow-up message added after note creation');
+                    } catch (err) {
+                      console.error('[Chat] Failed to add follow-up message:', err);
+                    }
+                  }, 1500);
                 }
               }
             } catch (err) {
@@ -1902,6 +2024,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5E9', // Light green background
     borderLeftWidth: 4,
     borderLeftColor: '#2E5540', // Moss Green
+    padding: 12,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 8,
+  },
+  lockedTodo: {
+    backgroundColor: '#E3F2FD', // Light blue background
+    borderLeftWidth: 4,
+    borderLeftColor: '#1976D2', // Blue
+    padding: 12,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 8,
+  },
+  lockedNote: {
+    backgroundColor: '#FFF9E6', // Light yellow background
+    borderLeftWidth: 4,
+    borderLeftColor: '#F9A825', // Amber
     padding: 12,
     marginVertical: 8,
     marginHorizontal: 16,
