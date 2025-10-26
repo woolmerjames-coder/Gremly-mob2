@@ -62,6 +62,10 @@ import WeeklyGoalCard from '../../components/spaces/v22/WeeklyGoalCard';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
+// v33 components (Space v3.3)
+import HeaderV33 from '../../components/spaces/v33/Header';
+import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
+import GoalCardV33 from '../../components/spaces/v33/GoalCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -282,6 +286,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Feature flag: Space v3 layout (robust parsing)
   const isSpaceV3 = (() => {
     const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
+    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+  })();
+  // Feature flag: Space v3.3 (v33)
+  const isSpaceV33 = (() => {
+    const raw = (process.env.EXPO_PUBLIC_SPACE_V33 ?? 'off').toString().trim().toLowerCase();
     return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
   })();
 
@@ -561,6 +570,56 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return (
       <View style={styles.error}>
         <Text style={styles.errorText}>Space not found</Text>
+      </View>
+    );
+  }
+
+  // New: Space v33 gated layout
+  if (isSpaceV33) {
+    return (
+      <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        >
+          <HeaderV33
+            title={space?.name ?? 'Space'}
+            subtitle={buildLastVisitedLabel(items, chats)}
+            onBack={() => navigation.goBack()}
+            onSearch={handleSearchPress}
+            onMenu={() => Alert.alert('Menu', 'Coming soon')}
+          />
+
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            <NewChatSectionV33 onPress={handleNewChat} />
+          </View>
+
+          {/* Simple weekly goal preview using first habit for selected day */}
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            {(() => {
+              const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
+              const habitsToday = (day?.items || []).filter((it) => it.type === 'habit');
+              if (!habitsToday.length) return null;
+              const firstHabit = habitsToday[0];
+              const weeklyRow = (weekly?.habits || []).find((h) => h.id === firstHabit.id);
+              const weeklyDone = weeklyRow?.doneCount ?? 0;
+              const target = weeklyRow?.target ?? 3;
+              const title = `${firstHabit.title} ${target}×/week`;
+              return <GoalCardV33 title={title} done={weeklyDone} target={target} />;
+            })()}
+          </View>
+
+          {/* TODO(v33): add IconRow, Threads, and overlays */}
+        </ScrollView>
+
+        {/* Micro celebration overlay */}
+        <ConfettiBurst
+          visible={showConfetti}
+          durationMs={350}
+          onComplete={() => setShowConfetti(false)}
+        />
       </View>
     );
   }
