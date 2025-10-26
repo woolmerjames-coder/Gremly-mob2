@@ -72,6 +72,7 @@ import IconRowV33 from '../../components/spaces/v33/IconRow';
 import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
 import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
+import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import Menu from '../../components/spaces/v33/Menu';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
@@ -139,6 +140,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showNotepad, setShowNotepad] = useState(false);
   const [intentDraft, setIntentDraft] = useState<string | undefined>(undefined);
   const [showPeople, setShowPeople] = useState(false);
+  // v33: Unified Add overlay state
+  const [showUnifiedAdd, setShowUnifiedAdd] = useState(false);
   // v33: goal menu (inline Menu component)
   const [goalMenuId, setGoalMenuId] = useState<string | null>(null);
   const overlay = useUnifiedOverlayController();
@@ -761,25 +764,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               }}
               onOpenNotepad={() => setShowNotepad(true)}
               onOpenCalendar={() => setShowCalendarV33(true)}
-              onAdd={() => {
-                if (overlay.state.visible) {
-                  (async () => {
-                    try {
-                      await repo.addUnsorted(spaceId, {
-                        type: 'note',
-                        title: 'Quick capture',
-                        subtype: 'catchall',
-                      });
-                      showSageToast();
-                      await reload();
-                    } catch (e) {
-                      console.warn('[v33] quick capture failed', e);
-                    }
-                  })();
-                  return;
-                }
-                overlay.openCreate({ spaceId });
-              }}
+              onAdd={() => setShowUnifiedAdd(true)}
             />
 
             <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
@@ -1051,6 +1036,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           spaceId={spaceId}
           isOpen={showNotepad}
           onClose={() => setShowNotepad(false)}
+        />
+        {/* Unified Add overlay (v33) - Space-locked create */}
+        <UnifiedAddOverlay
+          isOpen={showUnifiedAdd}
+          onClose={() => setShowUnifiedAdd(false)}
+          space={{ id: spaceId, name: space?.name || 'Space' }}
         />
         {/* Edit Goal modal (v33) */}
         {editGoalRecord && (
