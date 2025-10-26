@@ -93,11 +93,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
     return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
   })();
-  // Feature flag: Space v3.3 (v33)
-  const isSpaceV33 = (() => {
-    const raw = (process.env.EXPO_PUBLIC_SPACE_V33 ?? 'off').toString().trim().toLowerCase();
-    return raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
-  })();
+  // Feature flag: Space v3.3 (v33) - strict equality per spec
+  const isSpaceV33 = process.env.EXPO_PUBLIC_SPACE_V33 === 'on';
 
   // State
   const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
