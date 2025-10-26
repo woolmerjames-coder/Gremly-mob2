@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
+import { NavigationContainer } from '@react-navigation/native';
 import { ThemeProvider } from '../providers/ThemeProvider';
 import { AuthProvider } from '../providers/AuthProvider';
 import { RepoProvider } from '../providers/RepoProvider';
@@ -26,12 +27,14 @@ jest.mock('../app/spaces/ChatThreadScreen', () => {
 // Import after mock
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 
-// Test wrapper with all required providers
+// Test wrapper with app providers + NavigationContainer for navigation hooks
 const TestWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <RepoProvider>{children}</RepoProvider>
+        <RepoProvider>
+          <NavigationContainer>{children}</NavigationContainer>
+        </RepoProvider>
       </AuthProvider>
     </ThemeProvider>
   );

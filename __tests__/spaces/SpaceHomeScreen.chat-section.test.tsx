@@ -8,6 +8,7 @@ import { render, waitFor } from '@testing-library/react-native';
 import { ThemeProvider } from '../../providers/ThemeProvider';
 import { AuthProvider } from '../../providers/AuthProvider';
 import { RepoProvider } from '../../providers/RepoProvider';
+import { NavigationContainer } from '@react-navigation/native';
 import SpaceHomeScreen from '../../app/spaces/SpaceHomeScreen';
 
 // Mock environment variables
@@ -25,12 +26,14 @@ afterEach(() => {
   process.env = originalEnv;
 });
 
-// Test wrapper with all required providers
+// Test wrapper with all required providers including NavigationContainer
 const TestWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <RepoProvider>{children}</RepoProvider>
+        <RepoProvider>
+          <NavigationContainer>{children}</NavigationContainer>
+        </RepoProvider>
       </AuthProvider>
     </ThemeProvider>
   );

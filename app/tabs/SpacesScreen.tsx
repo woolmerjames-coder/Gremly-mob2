@@ -175,7 +175,18 @@ export default function SpacesScreen() {
                 key={space.id}
                 title={space.name}
                 subtitle={space.description}
-                onPress={() => navigation.navigate('SpaceDetail', { id: space.id })}
+                onPress={() => {
+                  const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                  const v3 = raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+                  if (v3) {
+                    navigation.navigate('SpaceHome', { spaceId: space.id });
+                  } else {
+                    navigation.navigate('SpaceDetail', { id: space.id });
+                  }
+                }}
                 testID={`space-item-${space.id}`}
               />
             ))}

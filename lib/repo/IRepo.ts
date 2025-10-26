@@ -106,6 +106,14 @@ export interface IRepo {
   listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
   listBySpace(spaceId: ID): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;
+  /**
+   * Search across items within a specific space and include space chats.
+   * Returns matching items (todos/notes/habits) and chats.
+   */
+  searchInSpace(
+    spaceId: ID,
+    text: string,
+  ): Promise<{ items: AppRecord[]; chats: import('../types').SpaceChat[] }>;
 
   // Hub helpers
   countUnsorted(): Promise<number>; // counts ai_placed = true across all types
@@ -120,6 +128,12 @@ export interface IRepo {
   completeHabit(id: ID, atIso: string): Promise<void>;
   completeTodo(id: ID, atIso: string): Promise<void>;
   undoCompletion(id: ID): Promise<void>;
+
+  /**
+   * Convenience helper to add an item marked as unsorted (catch-all inbox).
+   * Forces ai_placed=true and origin='catchall'. spaceId may be null for unassigned.
+   */
+  addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord>;
 
   // Space methods (Phase 5)
   listSpaces(): Promise<Space[]>;
@@ -280,4 +294,41 @@ export interface IRepo {
    * Returns updated defaults_json.
    */
   setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any>;
+
+  // Phase v3.3 - Notes/Journal methods
+  /**
+   * List notes for a space (notes + journals).
+   * Supports optional text search query.
+   */
+  listNotes(spaceId: string, opts?: { query?: string }): Promise<any[]>;
+
+  /**
+   * Create a note or journal entry.
+   */
+  createNote(input: {
+    space_id: string;
+    user_id: string;
+    type: 'note' | 'journal';
+    content: string;
+    date?: string | null;
+    title?: string;
+  }): Promise<any>;
+
+  /**
+   * Update a note or journal entry.
+   */
+  updateNote(
+    id: string,
+    patch: Partial<{ content: string; title: string; date: string | null }>,
+  ): Promise<void>;
+
+  /**
+   * Delete a note or journal entry.
+   */
+  deleteNote(id: string): Promise<void>;
+
+  /**
+   * Subscribe to realtime notes updates for a space.
+   */
+  subscribeToNotes?(spaceId: string, callback: (payload: any) => void): any;
 }

@@ -70,6 +70,8 @@ export type UnifiedCreateOverlayProps = {
     // Phase 10.7B: Initial values for prefill
     initialTitle?: string;
     initialNote?: string;
+    // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
+    initialDueDate?: string | null;
   };
   onClose: () => void;
   onSaved?: (result: { type: string; id: string }) => void;
@@ -133,6 +135,34 @@ export function UnifiedCreateOverlay({
   const [selectedType, setSelectedType] = useState<EntityType | null>(null);
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
+
+  // Helpers: normalize fields for repo insert schemas
+  const normalizeSpaceId = useCallback((val: string | null | undefined): string | null => {
+    if (typeof val === 'string' && val.trim().length > 0) return val;
+    return null;
+  }, []);
+
+  const normalizeDueDate = useCallback((val: string | null | undefined): string | null => {
+    if (!val) return null;
+    // Accept yyyy-mm-dd or full ISO; convert date-only to start-of-day ISO
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      try {
+        // Use UTC start-of-day for consistency
+        const iso = new Date(`${trimmed}T00:00:00.000Z`).toISOString();
+        return iso;
+      } catch {
+        return null;
+      }
+    }
+    // Fallback: if it's a valid date string, toISOString; else null
+    try {
+      return new Date(trimmed).toISOString();
+    } catch {
+      return null;
+    }
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false); // Single-flight submit guard
   const [thinking, setThinking] = useState(false); // Thinking state for 1s deliberate UX
@@ -430,7 +460,7 @@ export function UnifiedCreateOverlay({
   useEffect(() => {
     if (!visible || !conversionMeta) return;
 
-    const { initialTitle, initialNote } = conversionMeta;
+    const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
 
     if (initialTitle || initialNote) {
       // Prefill note fields if we have data
@@ -446,6 +476,19 @@ export function UnifiedCreateOverlay({
           hasTitle: !!initialTitle,
           hasNote: !!initialNote,
         });
+      }
+    }
+
+    // Prefill todo due date if provided
+    if (initialDueDate) {
+      try {
+        // Accept either yyyy-mm-dd or full ISO; normalize to yyyy-mm-dd for field
+        const dateOnly = initialDueDate.includes('T')
+          ? new Date(initialDueDate).toISOString().split('T')[0]
+          : initialDueDate;
+        setTodoDueDate(dateOnly);
+      } catch {
+        // ignore invalid dates
       }
     }
   }, [visible, conversionMeta]);
@@ -1111,12 +1154,17 @@ export function UnifiedCreateOverlay({
   };
 
   const buildCreateInput = (type: EntityType): CreateRecordInput => {
-    const baseInput = {
-      space_id: spaceId !== undefined ? spaceId : null,
+    // Only allow origin when it is a supported literal in insert schemas; otherwise omit
+    const rawOrigin = conversionMeta?.origin;
+    const originAllowed =
+      rawOrigin === 'catchall' || rawOrigin === 'space_chat' ? rawOrigin : undefined;
+
+    const baseInput: Partial<CreateRecordInput> & { origin?: 'catchall' | 'space_chat' } = {
+      space_id: normalizeSpaceId(spaceId),
       ai_placed: conversionMeta?.ai_placed ?? false,
-      origin: (conversionMeta?.origin ?? 'manual') as 'catchall' | 'space_chat' | 'manual',
+      ...(originAllowed ? { origin: originAllowed as 'catchall' | 'space_chat' } : {}),
       why_string: conversionMeta?.why_string ?? null,
-      source_message_id: conversionMeta?.source_message_id ?? null,
+      sourceMessageId: conversionMeta?.source_message_id ?? null,
     };
 
     switch (type) {
@@ -1137,12 +1185,13 @@ export function UnifiedCreateOverlay({
           tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
           buddy_id: habitDetails.buddyId || null,
           buddy_email: habitDetails.buddyEmail || null,
-          space_id:
+          space_id: normalizeSpaceId(
             habitDetails.spaceId !== undefined
               ? habitDetails.spaceId
               : spaceId !== undefined
                 ? spaceId
                 : null,
+          ),
           start_date: habitDetails.startDate || null,
           end_date: habitDetails.endDate || null,
 
@@ -1172,12 +1221,13 @@ export function UnifiedCreateOverlay({
           type: 'todo',
           name: todoName, // Phase 7+: name is required field
           title: todoName, // Backwards compatibility
-          due_date: todoDueDate || null,
+          // Normalize due date to full ISO string to satisfy schema datetime
+          due_date: normalizeDueDate(todoDueDate),
           due_time: todoDueTime || null,
           reminders: todoDetails.reminders || undefined,
           notes: todoDetails.notes || null,
           tags: todoDetails.tags || null,
-          space_id: todoDetails.spaceId || null, // Apply space from details if set
+          space_id: normalizeSpaceId(todoDetails.spaceId ?? baseInput.space_id ?? null), // Apply normalized space
         };
       case 'journal':
         return {
@@ -1192,7 +1242,7 @@ export function UnifiedCreateOverlay({
           fmt: journalDetails.formatting || null,
           reminders: journalDetails.reminders || undefined,
           tags: journalDetails.tags || null,
-          space_id: journalDetails.spaceId || null, // Apply space from details if set
+          space_id: normalizeSpaceId(journalDetails.spaceId ?? baseInput.space_id ?? null),
           journal_subtype: null, // AI-only, never set by front-end
         };
       case 'note':
@@ -1204,7 +1254,7 @@ export function UnifiedCreateOverlay({
           body: noteBody,
           fmt: noteDetails.formatting || null,
           tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
-          space_id: noteDetails.spaceId || null,
+          space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
           ai_placed: false,
         };
       default:

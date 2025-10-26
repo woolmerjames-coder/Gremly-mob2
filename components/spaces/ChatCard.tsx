@@ -25,9 +25,20 @@ interface ChatCardProps {
   onUnpin?: (chatId: string) => Promise<void>;
   onRename?: (chatId: string, newTitle: string) => Promise<void>;
   onArchive?: (chatId: string) => Promise<void>;
+  aiSummary?: string;
+  onDelete?: (chatId: string) => Promise<void> | void;
 }
 
-export function ChatCard({ chat, onPress, onPin, onUnpin, onRename, onArchive }: ChatCardProps) {
+export function ChatCard({
+  chat,
+  onPress,
+  onPin,
+  onUnpin,
+  onRename,
+  onArchive,
+  aiSummary,
+  onDelete,
+}: ChatCardProps) {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const showActionMenu = () => {
@@ -56,6 +67,36 @@ export function ChatCard({ chat, onPress, onPin, onUnpin, onRename, onArchive }:
         { text: 'Cancel', style: 'cancel' },
       ]);
     }
+  };
+
+  const confirmDelete = () => {
+    if (isProcessing) return;
+    Alert.alert('Delete chat?', 'This removes the thread. You can archive instead from the menu.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Archive',
+        onPress: async () => {
+          try {
+            setIsProcessing(true);
+            await onArchive?.(chat.id);
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+      },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setIsProcessing(true);
+            await onDelete?.(chat.id);
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+      },
+    ]);
   };
 
   const handleMenuAction = async (index: number) => {
@@ -114,7 +155,7 @@ export function ChatCard({ chat, onPress, onPin, onUnpin, onRename, onArchive }:
     <TouchableOpacity
       style={[styles.card, chat.pinned && styles.pinnedCard]}
       onPress={onPress}
-      onLongPress={showActionMenu}
+      onLongPress={confirmDelete}
       disabled={isProcessing}
       accessibilityLabel={`Chat: ${chat.title}`}
       accessibilityHint="Tap to open, long press for options"
@@ -127,12 +168,24 @@ export function ChatCard({ chat, onPress, onPin, onUnpin, onRename, onArchive }:
             {chat.title}
           </Text>
         </View>
-        <Text style={styles.timestamp}>{timeAgo}</Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.timestamp}>{`Last active ${timeAgo}`}</Text>
+          <TouchableOpacity
+            onPress={showActionMenu}
+            accessibilityLabel="Chat options"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            testID="chat-card-menu"
+          >
+            <Text style={styles.kebab}>⋯</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {chat.last_message_snippet && (
-        <Text style={styles.snippet} numberOfLines={2}>
-          {chat.last_message_snippet}
+      {(aiSummary || chat.last_message_snippet) && (
+        <Text style={[styles.snippet, styles.aiSummary]} numberOfLines={1}>
+          {(aiSummary || chat.last_message_snippet || '').replace(/\s+/g, ' ').slice(0, 80)}
+          {(aiSummary || chat.last_message_snippet || '').length > 80 ? '…' : ''}
         </Text>
       )}
     </TouchableOpacity>
@@ -142,16 +195,19 @@ export function ChatCard({ chat, onPress, onPin, onUnpin, onRename, onArchive }:
 const styles = StyleSheet.create({
   card: {
     backgroundColor: lightTokens.colors.surface,
-    borderRadius: lightTokens.radius[3],
+    borderRadius: lightTokens.radius[2],
     padding: lightTokens.spacing[4],
-    marginBottom: lightTokens.spacing[4],
-    minHeight: 44, // Phase 8 polish: Ensure minimum tap target
-    ...lightTokens.elevation.md,
+    marginBottom: 8,
+    minHeight: 44, // Ensure minimum tap target
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   } as ViewStyle,
   pinnedCard: {
-    backgroundColor: lightTokens.colors.accentMint,
-    borderWidth: 2,
-    borderColor: lightTokens.colors.primary,
+    borderWidth: 1,
+    borderColor: lightTokens.colors.sageMist,
   } as ViewStyle,
   header: {
     flexDirection: 'row',
@@ -179,9 +235,22 @@ const styles = StyleSheet.create({
     fontSize: lightTokens.typography.size.xs,
     color: lightTokens.colors.subtle,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: lightTokens.spacing[2],
+  },
+  kebab: {
+    fontSize: 20,
+    color: lightTokens.colors.subtle,
+    paddingLeft: lightTokens.spacing[1],
+  },
   snippet: {
     fontSize: lightTokens.typography.size.sm,
-    color: lightTokens.colors.subtle,
-    lineHeight: 20,
+    color: 'rgba(34,34,34,0.8)',
+    lineHeight: 18,
+  },
+  aiSummary: {
+    color: 'rgba(34,34,34,0.8)', // charcoalInk at 80%
   },
 });

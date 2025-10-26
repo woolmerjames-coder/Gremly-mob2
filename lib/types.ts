@@ -147,6 +147,19 @@ export interface Space {
 }
 
 /**
+ * SpaceMilestone - user-authored milestone/event for a space timeline
+ */
+export interface SpaceMilestone {
+  id: ID;
+  owner_id: ID;
+  space_id: ID;
+  title: string;
+  date: string; // ISO date (YYYY-MM-DD)
+  note?: string | null;
+  created_at: string; // ISO 8601
+}
+
+/**
  * SpaceChat - Chat/thread within a space for notes, discussion, or context
  * Phase 8+ Spaces v2 feature
  */

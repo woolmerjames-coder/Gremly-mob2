@@ -31,7 +31,9 @@ export function WhatWeDiscussedCard({
       </View>
 
       {/* Summary text */}
-      <Text style={styles.summary}>{summary}</Text>
+      <Text style={styles.summary} numberOfLines={4} ellipsizeMode="tail">
+        {summary}
+      </Text>
 
       {/* Bullets (if any) */}
       {bullets.length > 0 && (
@@ -48,13 +50,19 @@ export function WhatWeDiscussedCard({
       {/* Actions (gentle, non-pushy) */}
       <View style={styles.actions}>
         {onSaveAsNote && (
-          <TouchableOpacity style={styles.actionButton} onPress={onSaveAsNote}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.actionOutline]}
+            onPress={onSaveAsNote}
+          >
             <Text style={styles.actionIcon}>📝</Text>
             <Text style={styles.actionText}>Save as note</Text>
           </TouchableOpacity>
         )}
         {onAddTodos && (
-          <TouchableOpacity style={styles.actionButton} onPress={onAddTodos}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.actionOutline]}
+            onPress={onAddTodos}
+          >
             <Text style={styles.actionIcon}>✅</Text>
             <Text style={styles.actionText}>Add next step</Text>
           </TouchableOpacity>
@@ -79,11 +87,15 @@ export function WhatWeDiscussedCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: lightTokens.colors.accentPeri,
-    borderRadius: lightTokens.radius[3],
+    backgroundColor: lightTokens.colors.linenCream,
+    borderRadius: lightTokens.radius[2],
     padding: lightTokens.spacing[4],
     marginVertical: lightTokens.spacing[3],
-    ...lightTokens.elevation.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   } as ViewStyle,
   header: {
     flexDirection: 'row',
@@ -139,13 +151,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: lightTokens.colors.border,
   },
+  actionOutline: {
+    borderColor: lightTokens.colors.sageMist,
+  },
   actionIcon: {
     fontSize: 14,
     marginRight: lightTokens.spacing[1],
   },
   actionText: {
     fontSize: lightTokens.typography.size.sm,
-    color: lightTokens.colors.text,
+    color: lightTokens.colors.sageMist,
     fontWeight: '500',
   },
   timestamp: {

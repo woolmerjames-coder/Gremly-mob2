@@ -61,7 +61,7 @@ export default function RootNavigator() {
         component={SpaceHomeScreen}
         options={{
           title: 'Space',
-          headerShown: true,
+          headerShown: false, // v33 uses custom header
         }}
       />
       {/* Phase 8 Spaces v2: Chat Thread Screen */}

@@ -302,6 +302,15 @@ export class MemoryRepo implements IRepo {
     });
   }
 
+  async searchInSpace(
+    spaceId: ID,
+    text: string,
+  ): Promise<{ items: AppRecord[]; chats: import('../types').SpaceChat[] }> {
+    const items = (await this.search(text)).filter((r) => r.space_id === spaceId);
+    // MemoryRepo doesn't store space chats; return empty array for chats
+    return { items, chats: [] };
+  }
+
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
@@ -381,6 +390,16 @@ export class MemoryRepo implements IRepo {
     // Emit event for UI sync
     const { eventBus } = await import('../events');
     eventBus.emit('ItemUpdated', { id });
+  }
+
+  async addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord> {
+    // Force ai_placed and origin while preserving provided fields
+    return this.create({
+      ...input,
+      space_id: spaceId ?? null,
+      ai_placed: true,
+      origin: 'catchall',
+    });
   }
 
   // ==========================
@@ -836,6 +855,92 @@ export class MemoryRepo implements IRepo {
     const merged = { ...existing, ...patch };
     this.spaceDefaults.set(spaceId, merged);
     return merged;
+  }
+
+  // --------------------------------------------------------------------------
+  // Notes methods (IRepo interface)
+  // --------------------------------------------------------------------------
+  async listNotes(spaceId: string, opts?: { query?: string }): Promise<any[]> {
+    let filtered = this.data.filter(
+      (r): r is Note =>
+        r.type === 'note' && r.owner_id === this.currentUserId && r.space_id === spaceId,
+    );
+
+    if (opts?.query) {
+      const q = opts.query.toLowerCase();
+      filtered = filtered.filter(
+        (n) => n.title?.toLowerCase().includes(q) || n.body?.toLowerCase().includes(q),
+      );
+    }
+
+    // Sort by updated_at desc
+    filtered.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+    return filtered;
+  }
+
+  async createNote(input: {
+    space_id: string;
+    user_id: string;
+    type: 'note' | 'journal';
+    content: string;
+    date?: string | null;
+    title?: string;
+  }): Promise<any> {
+    const now = nowIso();
+    const lines = input.content.trim().split('\n');
+    const derivedTitle = lines[0]?.trim() || 'Untitled';
+
+    const note: Note = {
+      id: genId('note'),
+      type: 'note',
+      subtype: input.type === 'journal' ? 'journal' : 'catchall',
+      title: input.title || derivedTitle,
+      body: input.content,
+      ai_placed: false,
+      why_string: null,
+      origin: null,
+      created_at: now,
+      updated_at: now,
+      owner_id: input.user_id,
+      space_id: input.space_id,
+    };
+
+    this.data.push(note);
+    return note;
+  }
+
+  async updateNote(
+    id: string,
+    patch: Partial<{ content: string; title: string; date: string | null }>,
+  ): Promise<void> {
+    const idx = this.data.findIndex((r) => r.id === id && r.owner_id === this.currentUserId);
+    if (idx < 0) throw new Error('Note not found');
+
+    const note = this.data[idx] as Note;
+    const updated: Note = { ...note, updated_at: nowIso() };
+
+    if (patch.content !== undefined) {
+      updated.body = patch.content;
+      // Also update title from first line if no explicit title
+      if (!patch.title) {
+        const lines = patch.content.trim().split('\n');
+        updated.title = lines[0]?.trim() || 'Untitled';
+      }
+    }
+
+    if (patch.title !== undefined) {
+      updated.title = patch.title;
+    }
+
+    this.data[idx] = updated;
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    const idx = this.data.findIndex((r) => r.id === id && r.owner_id === this.currentUserId);
+    if (idx < 0) throw new Error('Note not found');
+
+    this.data.splice(idx, 1);
   }
 }
 

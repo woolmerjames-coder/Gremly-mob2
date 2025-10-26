@@ -72,6 +72,13 @@ export default function SpaceDetail() {
   }, [repo, id, spaceChatRepo]);
 
   useEffect(() => {
+    // Redirect to v3 SpaceHome when flag is enabled
+    const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on').toString().trim().toLowerCase();
+    const v3 = raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+    if (v3) {
+      navigation.replace('SpaceHome', { spaceId: id });
+      return; // don't load legacy content
+    }
     load();
   }, [load]);
 

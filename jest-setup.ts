@@ -194,3 +194,6 @@ jest.mock('react-native-safe-area-context', () => {
     useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
   };
 });
+
+// Note: If RN Animated internals cause issues, prefer local per-test mocks
+// over a global mock of NativeAnimatedHelper, as the module path can vary by RN version.
