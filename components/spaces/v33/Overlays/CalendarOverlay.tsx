@@ -17,7 +17,7 @@ import { useAuth } from '../../../../providers/AuthProvider';
 import { SupabaseSpaceMilestoneRepo } from '../../../../lib/repo/supabase';
 import Menu from '../../v33/Menu';
 
-export type TimelineDay = {
+interface TimelineDay {
   dateISO: string;
   items?: Array<{
     id: string;
@@ -27,7 +27,7 @@ export type TimelineDay = {
     subtype?: string | null;
     done?: boolean;
   }>;
-};
+}
 
 type Props = {
   visible: boolean;
