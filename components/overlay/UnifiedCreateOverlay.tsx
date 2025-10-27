@@ -132,7 +132,8 @@ export function UnifiedCreateOverlay({
   }, [visible, useUnifiedOverlay, aiDisabled, mode]);
 
   // State - with robust defaults
-  const [selectedType, setSelectedType] = useState<EntityType | null>(null);
+  // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
+  const [selectedType, setSelectedType] = useState<EntityType | null>(initialEntity?.type || null);
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
 
@@ -425,13 +426,19 @@ export function UnifiedCreateOverlay({
         mode,
         initialEntityType: initialEntity?.type,
         initialEntityId: initialEntity?.id,
+        currentSelectedType: selectedType,
         visible,
       });
     }
 
     if (mode === 'edit' && initialEntity && initialEntity.type) {
-      // Set type immediately so skeleton can render
-      setSelectedType(initialEntity.type);
+      // Type should already be set from useState initializer, but ensure it's set
+      if (selectedType !== initialEntity.type) {
+        setSelectedType(initialEntity.type);
+        if (__DEV__) {
+          console.log('[UnifiedOverlay] Correcting type for edit:', initialEntity.type);
+        }
+      }
       setAiMode(false); // No AI mode in edit
 
       if (__DEV__) {
@@ -447,14 +454,15 @@ export function UnifiedCreateOverlay({
     } else if (mode === 'create') {
       // Create mode - immediately ready
       setHydration('ready');
-      if (initialEntity?.type) {
+      // Type should already be set from useState initializer, but ensure it's set
+      if (initialEntity?.type && selectedType !== initialEntity.type) {
         setSelectedType(initialEntity.type);
         if (__DEV__) {
-          console.log('[UnifiedOverlay] Setting type for create:', initialEntity.type);
+          console.log('[UnifiedOverlay] Correcting type for create:', initialEntity.type);
         }
       }
     }
-  }, [visible, mode, initialEntity, loadEntity]);
+  }, [visible, mode, initialEntity, loadEntity, selectedType]);
 
   // Phase 10.7C: Prefill from conversionMeta
   useEffect(() => {

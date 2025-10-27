@@ -436,9 +436,21 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       // Use CORTEX smart threshold decision (meetsConfidence already computed with smart threshold)
+      const cortexMeetsConfidence = _meta?.meetsConfidence;
       const meetsConfidence =
-        _meta?.meetsConfidence ||
-        (typeof intent.confidence === 'number' && intent.confidence >= 0.85);
+        cortexMeetsConfidence !== undefined
+          ? cortexMeetsConfidence
+          : typeof intent.confidence === 'number' && intent.confidence >= 0.85;
+
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[ChatToast][threshold] decision', {
+          cortexMeetsConfidence,
+          localFallback: typeof intent.confidence === 'number' && intent.confidence >= 0.85,
+          finalMeetsConfidence: meetsConfidence,
+          confidence: intent.confidence,
+          metaKeys: _meta ? Object.keys(_meta) : [],
+        });
+      }
       const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
       const isActionable = actionableKinds.has(intent.kind);
       const actionType = INTENT_KIND_TO_ACTION[intent.kind] as
