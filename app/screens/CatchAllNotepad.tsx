@@ -867,7 +867,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [isSubmitting, mode, note, performSave]);
 
-  // Mind Drop: robust submit with debounce and guardrails
+  // Mind Drop: robust submit with retry + fallbacks
   const onSubmit = useCallback(async () => {
     const now = Date.now();
     if (isSubmitting) return;
@@ -877,25 +877,91 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const trimmed = note.trim();
     if (!trimmed) return;
 
-    try {
-      setIsSubmitting(true);
-      // performSave already encapsulates save pipeline and user feedback (toasts/alerts)
-      await performSave();
-      setRecentRefresh((v) => v + 1);
+    setIsSubmitting(true);
 
-      // TODO(P10): capture created IDs from performSave once available
-      // pendingUndo.current = { todos: [], notes: [], habits: [] };
-      // showMindDropSuccessToast({
-      //   todos: 0, notes: 0, habits: 0,
-      //   onUndo: () => {},
-      //   onView: () => {},
-      // });
-    } catch (e) {
-      // TODO(P10): surface a mild error toast
+    // We’ll attempt performSave() up to 2 times total.
+    let attempt = 0;
+    const maxAttempts = 2;
+    let finalResult: any = null;
+    let lastError: any = null;
+
+    try {
+      while (attempt < maxAttempts) {
+        attempt++;
+        try {
+          // Primary path: existing pipeline
+          // EXPECTED: returns { created: { todos: string[], notes: string[], habits: string[] } }
+          const r = await performSave();
+          finalResult = r;
+          break; // success
+        } catch (err: any) {
+          lastError = err;
+          if (attempt === 1) {
+            // First failure — show “retrying” toast and try again
+            showActionToast({
+              type: 'success',
+              content: 'Hmm… Let me try again…',
+            });
+            // loop to attempt #2
+          } else {
+            // Second failure — stop retrying
+            break;
+          }
+        }
+      }
+
+      if (!finalResult) {
+        // Primary pipeline failed twice. Decide fallback by error type.
+        if (isNetworkError(lastError)) {
+          // Offline-ish path — save locally and reassure
+          await saveToUnsortedTray(repo, trimmed);
+          setNote('');
+          showActionToast({
+            type: 'success',
+            content: 'Saved offline. No internet — but I saved it! Will organize when connected.',
+          });
+        } else {
+          // Non-network error: save to Unsorted Tray for manual follow-up
+          await saveToUnsortedTray(repo, trimmed);
+          setNote('');
+          showActionToast({
+            type: 'success',
+            content: 'Saved to Unsorted. We’ll organize it together!',
+          });
+        }
+        // Nothing created (no Undo set)
+        pendingUndo.current = { todos: [], notes: [], habits: [] };
+        // Refresh trust count & recent
+        await refreshOrganizedToday?.();
+        setRecentRefresh?.((v) => v + 1);
+        return;
+      }
+
+      // SUCCESS PATH — summarize created items
+      const createdTodos = finalResult?.created?.todos ?? [];
+      const createdNotes = finalResult?.created?.notes ?? [];
+      const createdHabits = finalResult?.created?.habits ?? [];
+
+      pendingUndo.current = {
+        todos: createdTodos,
+        notes: createdNotes,
+        habits: createdHabits,
+      };
+
+      setNote('');
+
+      showMindDropSuccessToast({
+        todos: createdTodos.length,
+        notes: createdNotes.length,
+        habits: createdHabits.length,
+      });
+
+      await refreshOrganizedToday?.();
+      setRecentRefresh?.((v) => v + 1);
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, note, performSave]);
+  }, [note, isSubmitting, performSave, repo, refreshOrganizedToday, showActionToast]);
 
   // Trust Builders messages
   const trustMessages = useMemo(() => {
