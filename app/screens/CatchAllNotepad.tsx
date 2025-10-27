@@ -132,6 +132,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
   const [placeholder, setPlaceholder] = useState<string>(PLACEHOLDERS[0]);
   const placeholderTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [phOpacity] = useState(() => new Animated.Value(1));
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -486,17 +487,34 @@ export default function CatchAllNotepad(): React.JSX.Element {
           {greeting}
         </Text>
       ) : null}
-      <Animated.View style={{ opacity: phOpacity }}>
-        <TextInput
-          testID="minddrop-input"
-          value={note}
-          onChangeText={setNote}
-          placeholder={placeholder}
-          placeholderTextColor="#6A7D76"
-          maxLength={2000}
-          style={styles.minddropInput}
-        />
-      </Animated.View>
+      <View
+        testID="minddrop-input-container"
+        accessible={false}
+        style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
+      >
+        <Animated.View style={{ opacity: phOpacity }}>
+          <TextInput
+            testID="minddrop-input"
+            value={note}
+            onChangeText={setNote}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            multiline
+            style={styles.input}
+            accessibilityLabel="Mind Drop input"
+            placeholder={placeholder}
+            placeholderTextColor="#6A7D76" // TODO(dark-mode): replace with theme token
+            maxLength={2000}
+          />
+        </Animated.View>
+      </View>
+      {/* Privacy badge + live character counter */}
+      <View style={styles.metaRow}>
+        <Text testID="minddrop-privacy" style={styles.metaText}>
+          🔒 Private & secure
+        </Text>
+        <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
+      </View>
       {process.env.JEST_WORKAROUND === '1' ? (
         <Pressable
           testID="minddrop-rotate-placeholder"
@@ -521,6 +539,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
         label="Submit"
         onPress={performSave}
         disabled={disabled}
+        disabledOpacity={0.6}
       />
       <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
         <Text>ℹ️</Text>
@@ -782,6 +801,31 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     color: '#0E3B3A',
   },
+  inputContainer: {
+    backgroundColor: '#F0F4F3', // TODO(dark-mode): use theme token
+    borderRadius: 16,
+    padding: 20,
+    minHeight: 200,
+    borderWidth: 0,
+    marginBottom: 16,
+  },
+  inputContainerFocused: {
+    borderWidth: 1,
+    borderColor: '#BFD8C0', // TODO(dark-mode): use theme token
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  input: {
+    color: '#2D3E3C', // TODO(dark-mode): use theme token
+    fontSize: 18,
+    lineHeight: 26,
+    fontFamily: 'Inter',
+    padding: 0,
+    textAlignVertical: 'top',
+  },
   tipContainer: {
     position: 'absolute',
     top: 6,
@@ -809,5 +853,16 @@ const styles = StyleSheet.create({
     height: 12,
     backgroundColor: '#FFFCF5',
     transform: [{ rotate: '45deg' }],
+  },
+  metaRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  metaText: {
+    color: '#6A7D76',
+    fontSize: 13,
+    fontFamily: 'Inter',
   },
 });

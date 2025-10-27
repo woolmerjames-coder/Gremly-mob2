@@ -40,6 +40,8 @@ export interface ButtonProps extends Omit<PressableProps, 'children' | 'disabled
   leftIcon?: React.ReactNode;
   /** Right icon */
   rightIcon?: React.ReactNode;
+  /** Opacity when disabled (defaults to 0.5) */
+  disabledOpacity?: number;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -55,6 +57,7 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
       isLoading = false,
       leftIcon,
       rightIcon,
+      disabledOpacity,
       onPressIn,
       onPressOut,
       onPress,
@@ -156,7 +159,7 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       gap: t.spacing[2],
-      opacity: disabled || isLoading ? 0.5 : 1,
+      opacity: disabled || isLoading ? (disabledOpacity ?? 0.5) : 1,
       ...(variantStyle.border && { borderWidth: 2, borderColor: variantStyle.border }),
       ...(fullWidth && { width: '100%' }),
     };

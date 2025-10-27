@@ -27,6 +27,7 @@ jest.mock('@/src/config/featureFlags', () => ({
 
 // Import after mocks
 import CatchAllNotepad, { PLACEHOLDERS } from '../CatchAllNotepad';
+import { Text } from 'react-native';
 
 // Utilities from the screen module (keys/placeholders)
 // We avoid deep imports; instead, re-derive the storage key to seed AsyncStorage deterministically
@@ -42,6 +43,12 @@ beforeEach(() => {
 });
 
 describe('CatchAllNotepad greeting and placeholder rotation', () => {
+  it('renders input container and input', () => {
+    render(<CatchAllNotepad />);
+    expect(screen.getByTestId('minddrop-input-container')).toBeTruthy();
+    expect(screen.getByTestId('minddrop-input')).toBeTruthy();
+  });
+
   it('renders a greeting on first open', async () => {
     render(<CatchAllNotepad />);
 
@@ -75,5 +82,53 @@ describe('CatchAllNotepad greeting and placeholder rotation', () => {
 
     fireEvent.press(rotator);
     expect(screen.getByPlaceholderText(PLACEHOLDERS[2])).toBeTruthy();
+  });
+
+  it('focus state does not crash on focus/blur', () => {
+    render(<CatchAllNotepad />);
+    const input = screen.getByTestId('minddrop-input');
+    // Fire focus and blur events; no assertion other than not throwing
+    fireEvent(input, 'focus');
+    fireEvent(input, 'blur');
+  });
+
+  it('shows a live character counter under the input', () => {
+    render(<CatchAllNotepad />);
+
+    const counter = screen.getByTestId('minddrop-counter');
+    expect(counter.props.children).toContain('0 / 2000');
+
+    const input = screen.getByTestId('minddrop-input');
+    fireEvent.changeText(input, 'Hello');
+    const counterAfter = screen.getByTestId('minddrop-counter');
+    expect(counterAfter.props.children).toContain('5 / 2000');
+  });
+
+  it('renders the privacy badge with expected copy', () => {
+    render(<CatchAllNotepad />);
+    const privacy = screen.getByTestId('minddrop-privacy');
+    const text = privacy.props.children?.toString() || '';
+    expect(text.toLowerCase()).toContain('private & secure');
+  });
+
+  it('disables submit when empty (opacity 0.6) and enables on non-empty (opacity 1)', () => {
+    render(<CatchAllNotepad />);
+
+    const submit = screen.getByTestId('minddrop-submit-button');
+    // Check style opacity ~0.6 on the first style object (animated style is empty due to reduced motion)
+    const styleArray = Array.isArray(submit.props.style)
+      ? submit.props.style
+      : [submit.props.style];
+    const baseStyle = styleArray[0] || {};
+    expect(baseStyle.opacity).toBe(0.6);
+
+    const input = screen.getByTestId('minddrop-input');
+    fireEvent.changeText(input, 'Hi');
+    const submitEnabled = screen.getByTestId('minddrop-submit-button');
+    const styleArrayEnabled = Array.isArray(submitEnabled.props.style)
+      ? submitEnabled.props.style
+      : [submitEnabled.props.style];
+    const baseStyleEnabled = styleArrayEnabled[0] || {};
+    expect(baseStyleEnabled.opacity).toBe(1);
   });
 });
