@@ -19,6 +19,16 @@ jest.mock('@/src/config/featureFlags', () => ({
   whenEnabled: (flag: boolean, on: () => any, off: () => any) => (flag ? on() : off()),
 }));
 
+// Mock navigation to avoid requiring a NavigationContainer
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    __esModule: true,
+    ...actual,
+    useNavigation: () => ({ setOptions: () => {} }),
+  };
+});
+
 // Import after mocks
 import CatchAllNotepad from '../CatchAllNotepad';
 

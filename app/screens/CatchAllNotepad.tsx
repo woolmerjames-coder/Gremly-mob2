@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,9 @@ import {
   ToastAndroid,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
@@ -65,7 +68,83 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
 
 const PLACEHOLDER_COLOR = '#B6A999';
 
+function InfoButton(): React.JSX.Element {
+  const [showTip, setShowTip] = useState(false);
+
+  useEffect(() => {
+    if (!showTip) return;
+    const t = setTimeout(() => setShowTip(false), 3000);
+    return () => clearTimeout(t);
+  }, [showTip]);
+
+  return (
+    <View style={{ position: 'relative' }}>
+      {/* Overlay to capture outside taps within header area */}
+      {showTip ? (
+        <Pressable
+          style={{ position: 'absolute', top: -16, bottom: -16, left: -24, right: -24 }}
+          onPress={() => setShowTip(false)}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+      ) : null}
+
+      <Pressable
+        testID="minddrop-info-button"
+        accessibilityRole="button"
+        accessibilityLabel="Info"
+        hitSlop={8}
+        onPress={() => setShowTip((v) => !v)}
+        style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+      >
+        <Text style={{ fontSize: 16 }}>ℹ️</Text>
+      </Pressable>
+
+      {showTip ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: 28,
+            right: 0,
+            maxWidth: 260,
+            backgroundColor: '#FFFCF5',
+            padding: 10,
+            borderRadius: 12,
+            shadowColor: '#000',
+            shadowOpacity: 0.08,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 3,
+            zIndex: 10,
+          }}
+        >
+          {/* Arrow */}
+          <View
+            style={{
+              position: 'absolute',
+              top: -5,
+              right: 12,
+              width: 10,
+              height: 10,
+              backgroundColor: '#FFFCF5',
+              transform: [{ rotate: '45deg' }],
+              shadowColor: '#000',
+              shadowOpacity: 0.06,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 3 },
+            }}
+          />
+          <Text style={{ fontSize: 13, lineHeight: 18, color: '#0E3B3A', fontFamily: 'Inter' }}>
+            Just type everything on your mind. I’ll organize it.
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export default function CatchAllNotepad(): React.JSX.Element {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { userId } = useAuth();
   const [mode, setMode] = useState<Mode>('free');
@@ -85,6 +164,14 @@ export default function CatchAllNotepad(): React.JSX.Element {
       }
     };
   }, []);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: 'Mind Drop',
+      headerShown: true,
+      headerRight: () => <InfoButton />,
+    });
+  }, [navigation]);
 
   const disabled = useMemo(() => !note.trim() || isSubmitting, [note, isSubmitting]);
 
