@@ -11,6 +11,7 @@ import {
   ToastAndroid,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -67,6 +68,28 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
 ];
 
 const PLACEHOLDER_COLOR = '#B6A999';
+
+// Mind Drop utilities and storage keys
+export function getGreeting(now: Date, lastOpenedAt?: number | null): string {
+  const h = now.getHours();
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+  if (lastOpenedAt && now.getTime() - lastOpenedAt >= threeDaysMs) {
+    return '👋 Welcome back! Ready to clear your mind?';
+  }
+  if (h >= 6 && h < 11) return "🌅 Morning! What's on your mind?";
+  if (h >= 11 && h < 17) return '☀️ Drop your thoughts here...';
+  if (h >= 17 && h < 21) return "🌙 How's your day going?";
+  return '✨ Capture those late-night thoughts...';
+}
+
+export const PLACEHOLDERS = [
+  'What’s on your mind?',
+  'Tasks, thoughts, worries, ideas...',
+  'Buy milk, call mom, that idea about...',
+  'Just type everything...',
+] as const;
+
+export const LAST_OPEN_KEY = 'minddrop:last_open_ts';
 
 function InfoButton({
   showTip,
