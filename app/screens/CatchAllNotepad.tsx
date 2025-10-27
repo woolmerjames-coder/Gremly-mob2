@@ -47,6 +47,60 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
+// Thin local fallback writer for unsorted mind drops
+// Writes a single note with labels [catchall, needs_review] and a pending flag when supported
+// Adapted to our repo layer shape (uses addUnsorted if available, else create)
+export async function saveToUnsortedTray(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  repo: any,
+  text: string,
+): Promise<string | undefined> {
+  if (!text?.trim()) return undefined;
+
+  // Base create payload for our repos
+  const baseInput = {
+    type: 'note' as const,
+    title: text,
+    body: text,
+    subtype: 'catchall' as const,
+    ai_placed: true,
+    origin: 'catchall' as const,
+    labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+  };
+
+  // If notes.create exists (future), prefer it; otherwise use addUnsorted/create
+  try {
+    if (repo?.notes?.create) {
+      const note = await repo.notes.create({
+        text,
+        labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+        // pending_sync is optional; if unsupported downstream, it will be ignored
+        pending_sync: true,
+      });
+      return note?.id;
+    }
+
+    if (typeof repo?.addUnsorted === 'function') {
+      const created = await repo.addUnsorted(null, baseInput);
+      return created?.id;
+    }
+
+    // Fallback to generic create
+    const inputAny: any = { ...baseInput };
+    // Hint for future reconciliation; safe to include if ignored by repo
+    inputAny.pending_sync = true;
+    const created = await repo.create(inputAny);
+    return created?.id;
+  } catch (err) {
+    // Swallow transient network errors; the caller may retry separately
+    if (!isNetworkError(err)) {
+      // eslint-disable-next-line no-console
+      console.warn('[saveToUnsortedTray] failed:', err);
+    }
+    return undefined;
+  }
+}
+
 type Mode = 'free' | 'guided';
 export type ListStyle = 'none' | 'bullets' | 'numbers' | 'checklist';
 
