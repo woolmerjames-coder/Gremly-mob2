@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { ThemeProvider } from '../providers/ThemeProvider';
 import { AuthProvider } from '../providers/AuthProvider';
 import { RepoProvider } from '../providers/RepoProvider';
+import { OverlayProvider } from '../contexts/OverlayContext';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 
 // Mock ChatThreadScreen to avoid environment check
@@ -33,7 +34,9 @@ const TestWrapper = ({ children }: { children: React.ReactNode }) => {
     <ThemeProvider>
       <AuthProvider>
         <RepoProvider>
-          <NavigationContainer>{children}</NavigationContainer>
+          <OverlayProvider>
+            <NavigationContainer>{children}</NavigationContainer>
+          </OverlayProvider>
         </RepoProvider>
       </AuthProvider>
     </ThemeProvider>
