@@ -415,10 +415,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
         onPress={performSave}
         disabled={disabled}
       />
-      <Pressable
-        testID="minddrop-info-button"
-        onPress={() => Alert.alert('Info', 'More features coming soon!')}
-      >
+      <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
         <Text>ℹ️</Text>
       </Pressable>
     </View>
@@ -446,7 +443,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
         {showTip ? (
           <>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
-            <View style={styles.tipContainer}>
+            <View style={styles.tipContainer} testID="minddrop-tip">
               <View style={styles.tipArrow} />
               <Text style={styles.tipText}>
                 Just type everything on your mind. I’ll organize it.
