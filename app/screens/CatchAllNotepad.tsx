@@ -120,7 +120,13 @@ function InfoButton({
   );
 }
 
-export default function CatchAllNotepad(): React.JSX.Element {
+export type CatchAllNotepadProps = {
+  trustCycleMs?: number;
+  trustRefreshMs?: number;
+};
+
+export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
+  const { trustCycleMs = 4000, trustRefreshMs = 60000 } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { userId } = useAuth();
@@ -236,6 +242,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
       const todos: any[] = (await (repo as any)?.todos?.list?.({ createdAfter: since })) ?? [];
       const habits: any[] = (await (repo as any)?.habits?.list?.({ createdAfter: since })) ?? [];
 
+      // no-op
+
       const count = [notes, todos, habits]
         .map((arr) =>
           Array.isArray(arr)
@@ -245,6 +253,9 @@ export default function CatchAllNotepad(): React.JSX.Element {
         .reduce((a, b) => a + b, 0);
 
       setOrganizedToday(count);
+      // TEMP: debug in tests
+      // eslint-disable-next-line no-console
+      console.error('[TrustBuilders] computed count', count);
     } catch (e) {
       // Silent fail — keep last known number
     }
@@ -282,23 +293,24 @@ export default function CatchAllNotepad(): React.JSX.Element {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      await refreshOrganizedToday();
-      // Cycle message every 4s
+      // Start cycling immediately to avoid blocking on initial refresh
       trustTimerRef.current = setInterval(() => {
         if (!mounted) return;
         setTrustIndex((prev) => (prev + 1) % 5);
-      }, 4000);
+      }, trustCycleMs);
+
+      await refreshOrganizedToday();
       // Refresh count every 60s
       trustRefreshRef.current = setInterval(() => {
         void refreshOrganizedToday();
-      }, 60000);
+      }, trustRefreshMs);
     })();
     return () => {
       mounted = false;
       if (trustTimerRef.current) clearInterval(trustTimerRef.current);
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
-  }, [refreshOrganizedToday]);
+  }, [refreshOrganizedToday, trustCycleMs, trustRefreshMs]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -752,7 +764,9 @@ export default function CatchAllNotepad(): React.JSX.Element {
       />
       {/* Trust Builders row */}
       <View style={styles.trustRow} testID="minddrop-trust">
-        <Text style={styles.trustText}>{trustMessages[trustIndex]}</Text>
+        <Text style={styles.trustText} testID="minddrop-trust-text">
+          {trustMessages[trustIndex]}
+        </Text>
       </View>
       <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
         <Text>ℹ️</Text>
