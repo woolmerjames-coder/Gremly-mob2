@@ -352,12 +352,25 @@ export default function ChatThreadScreen({ route }: Props) {
     );
     if (activityMatch) {
       const rawActivity = activityMatch[1].toLowerCase();
-      // Normalize: remove -ing suffix for consistency
-      const normalized = rawActivity
-        .replace(/ning$/, 'n') // running → run, planning → plan
-        .replace(/ging$/, 'g') // jogging → jog
-        .replace(/ting$/, 't') // meditating → meditat, writing → writ
-        .replace(/ing$/, ''); // walking → walk, reading → read
+
+      // Normalize: map -ing forms to base forms
+      const activityMap: Record<string, string> = {
+        running: 'run',
+        jogging: 'jog',
+        meditating: 'meditate',
+        meditation: 'meditate',
+        exercising: 'exercise',
+        walking: 'walk',
+        reading: 'read',
+        writing: 'write',
+        stretching: 'stretch',
+        swimming: 'swim',
+        biking: 'bike',
+        cycling: 'bike',
+        'working out': 'workout',
+      };
+
+      const normalized = activityMap[rawActivity] || rawActivity;
 
       setConversationContext((prev) => ({
         ...prev,
