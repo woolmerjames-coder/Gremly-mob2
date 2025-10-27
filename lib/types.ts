@@ -7,7 +7,7 @@ export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
 export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
-export type Frequency = 'daily' | 'weekly' | 'monthly';
+export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 
 /**

@@ -8,6 +8,7 @@
   "exclude": [
     "node_modules",
     "_archive/**/*",
+    "gremly-chat-system-review/**/*",
     "app/(dev)/**/*",
     "__tests__/pending/**/*",
     "supabase/functions/**/*"

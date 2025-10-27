@@ -19,6 +19,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
 import { ThemeProvider } from '../../providers/ThemeProvider';
 import { DsToggleProvider } from '../../providers/DsToggleProvider';
+import { OverlayProvider } from '../../contexts/OverlayContext';
 import type { IRepo } from '../../lib/repo/IRepo';
 import type { User } from '@supabase/supabase-js';
 import type { ICortexEngine } from '../../cortex/ICortexEngine';
@@ -354,7 +355,9 @@ function AllProviders({
             <Theme initialMode={theme}>
               <MockAuthProvider value={authValue}>
                 <MockRepoProvider value={mockRepo}>
-                  <MockCortexProvider value={mockCortex}>{content}</MockCortexProvider>
+                  <MockCortexProvider value={mockCortex}>
+                    <OverlayProvider>{content}</OverlayProvider>
+                  </MockCortexProvider>
                 </MockRepoProvider>
               </MockAuthProvider>
             </Theme>

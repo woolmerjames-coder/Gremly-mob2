@@ -601,6 +601,87 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     isMetaComment: intent.isMetaComment,
   });
 
+  // Phase 14: Context-aware intent enhancement
+  // Enhance intent detection using conversation context for vague references
+  const contextValid = ctx.conversationContext?.contextExpiry
+    ? ctx.conversationContext.contextExpiry > Date.now()
+    : false;
+
+  if (contextValid && ctx.conversationContext) {
+    const text = input.text?.toLowerCase() || '';
+
+    // Pattern 1: "set that up as a habit" / "make that a habit" / "create that habit"
+    if (text.match(/set.*up.*habit|make.*habit|create.*habit|save.*habit/i)) {
+      const hasActivity = !!ctx.conversationContext.lastActivity;
+      const hasFrequency = !!ctx.conversationContext.lastFrequency;
+
+      if (hasActivity || hasFrequency) {
+        console.log('[CORTEX][14] Context-enhanced intent: vague habit reference', {
+          originalIntent: intent.kind,
+          originalConfidence: intent.confidence,
+          contextActivity: ctx.conversationContext.lastActivity,
+          contextFrequency: ctx.conversationContext.lastFrequency,
+          contextExpiry: ctx.conversationContext.contextExpiry
+            ? new Date(ctx.conversationContext.contextExpiry).toISOString()
+            : 'none',
+        });
+
+        // Boost to habit intent with high confidence
+        intent.kind = 'habit';
+        intent.confidence = 0.95;
+        intent.title = ctx.conversationContext.lastActivity || intent.title || 'Habit';
+        (intent as any).contextEnhanced = true;
+        (intent as any).contextActivity = ctx.conversationContext.lastActivity;
+        (intent as any).contextFrequency = ctx.conversationContext.lastFrequency;
+      }
+    }
+
+    // Pattern 2: Frequency-only messages like "3 times a week" when activity was mentioned earlier
+    else if (
+      text.match(/(\d+)\s*(?:times?|x)\s*(?:a|per)?\s*(?:week|day)|daily|every\s*day/i) &&
+      ctx.conversationContext.lastActivity &&
+      !text.match(/\b(run|running|meditate|meditation|exercise|walk|read|write)\b/i)
+    ) {
+      console.log('[CORTEX][14] Context-enhanced intent: frequency for existing activity', {
+        originalIntent: intent.kind,
+        originalConfidence: intent.confidence,
+        contextActivity: ctx.conversationContext.lastActivity,
+        frequency: text,
+      });
+
+      // This is a frequency specification for the previously mentioned activity
+      intent.kind = 'habit';
+      intent.confidence = 0.95;
+      intent.title = ctx.conversationContext.lastActivity;
+      (intent as any).contextEnhanced = true;
+      (intent as any).contextActivity = ctx.conversationContext.lastActivity;
+      (intent as any).contextFrequency = text;
+    }
+
+    // Pattern 3: Affirmative responses after habit discussion
+    else if (
+      text.match(
+        /^(yes|yeah|yep|sure|ok|okay|let'?s do it|sounds good|perfect|alright|got it)$/i,
+      ) &&
+      ctx.conversationContext.lastActivity &&
+      (intent.kind === 'none' || intent.kind === 'social' || intent.kind === 'ambiguous')
+    ) {
+      console.log('[CORTEX][14] Context-enhanced intent: affirmation after habit', {
+        originalIntent: intent.kind,
+        contextActivity: ctx.conversationContext.lastActivity,
+        contextFrequency: ctx.conversationContext.lastFrequency,
+      });
+
+      // Treat affirmation as habit confirmation
+      intent.kind = 'habit';
+      intent.confidence = 0.9;
+      intent.title = ctx.conversationContext.lastActivity;
+      (intent as any).contextEnhanced = true;
+      (intent as any).contextActivity = ctx.conversationContext.lastActivity;
+      (intent as any).contextFrequency = ctx.conversationContext.lastFrequency;
+    }
+  }
+
   // Phase 11.6: Multi-intent detection for ambiguous inputs
   // Check if this could be interpreted as multiple types
   let finalIntent = intent;
@@ -641,6 +722,22 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
         isMetaComment: true,
       },
     };
+  }
+
+  // Handle social/compliment intents - respond conversationally without creating actions
+  if (finalIntent.kind === 'social') {
+    console.log('[DEBUG][conversation] Social intent detected - responding conversationally');
+    // Don't create actions, just have a nice conversational response
+    // The AI worker will handle generating the appropriate response
+    normalized.mode = 'reply';
+    normalized.meta = {
+      ...normalized.meta,
+      detectedIntent: finalIntent,
+      intentRoutedAs: 'social',
+      intentKind: 'social',
+    };
+    // Let the AI worker generate a natural response
+    // Don't set replyText here - let it be generated
   }
 
   // Phase 11.2: Context-aware habit reminder handling
@@ -713,6 +810,77 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     ? Number(minConfidenceEnv)
     : 0.9;
 
+  // Phase 14: Smart context-aware confidence thresholds
+  const getConfidenceThreshold = (
+    detectedIntent: DetectedIntent,
+    userInput: string,
+    convContext?: any,
+  ): number => {
+    const text = userInput.toLowerCase();
+
+    // PATTERN 0: Building mode = Lowest threshold (0.65) for follow-up messages
+    if (convContext?.buildingMode && convContext.buildingStartedAt) {
+      const buildingDuration = Date.now() - convContext.buildingStartedAt;
+      // Building mode active for up to 5 minutes
+      if (buildingDuration < 300000) {
+        if (__DEV__) {
+          console.log('[CORTEX][14] Smart threshold: building mode active → 0.65');
+        }
+        return 0.65;
+      }
+    }
+
+    // PATTERN 1: Explicit intent phrases = Lower threshold (0.75)
+    if (text.match(/^(i want to|let'?s|i need to|create a?|set up|add a?|make a?|start)/i)) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: explicit intent phrase → 0.75');
+      }
+      return 0.75;
+    }
+
+    // PATTERN 2: Complete habit info = Lower threshold (0.8)
+    if (
+      detectedIntent.kind === 'habit' &&
+      (detectedIntent as any).contextEnhanced &&
+      convContext?.lastActivity &&
+      convContext?.lastFrequency
+    ) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: complete habit context → 0.8');
+      }
+      return 0.8;
+    }
+
+    // PATTERN 3: Response to assistant question = Lower threshold (0.75)
+    const lastMessages = ctx.contextWindow?.slice(-2) || [];
+    const lastAssistantMessage = lastMessages.find((m) => m.role === 'assistant');
+    if (lastAssistantMessage?.text && /\?/.test(lastAssistantMessage.text)) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: response to question → 0.75');
+      }
+      return 0.75;
+    }
+
+    // PATTERN 4: Follow-up in same conversation = Lower threshold (0.8)
+    if (
+      convContext?.lastActivity &&
+      detectedIntent.kind === 'habit' &&
+      ctx.currentTurn &&
+      ctx.currentTurn > 2
+    ) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: habit follow-up → 0.8');
+      }
+      return 0.8;
+    }
+
+    // DEFAULT: Conservative (0.9)
+    return minIntentConfidence;
+  };
+
+  // Apply smart threshold
+  const smartThreshold = getConfidenceThreshold(finalIntent, userText, ctx.conversationContext);
+
   // Questions: reply-only ergonomics regardless of upstream output
   if (intent.kind === 'question') {
     // Ensure no chips for questions
@@ -747,7 +915,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     'idea',
   ]);
   const isCreationIntent = creationIntents.has(finalIntent.kind);
-  const meetsConfidence = finalIntent.confidence >= minIntentConfidence;
+  const meetsConfidence = finalIntent.confidence >= smartThreshold; // Phase 14: Use smart threshold
   const priorCooldown =
     typeof previousCooldowns[finalIntent.kind] === 'number'
       ? (previousCooldowns[finalIntent.kind] as number)
@@ -764,7 +932,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   normalized.meta = {
     ...normalized.meta,
     detectedIntent: finalIntent, // Phase 11.6: Use finalIntent which may include multi-intent data
-    intentConfidenceMin: minIntentConfidence,
+    intentConfidenceMin: smartThreshold, // Phase 14: Use smart threshold
     // Expose concise intent shape for consumers that prefer a flat contract
     intent: { kind: finalIntent.kind, confidence: finalIntent.confidence },
   };
@@ -784,7 +952,16 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   let intentHandled = false;
   let awaitingClarification = false;
 
-  if (finalIntent.kind === 'question' && meetsConfidence) {
+  // Handle social intents first - conversational, no actions
+  if (finalIntent.kind === 'social') {
+    intentHandled = true;
+    normalized.mode = 'reply';
+    normalized.meta = {
+      ...normalized.meta,
+      intentRoutedAs: 'social',
+      intentKind: 'social',
+    };
+  } else if (finalIntent.kind === 'question' && meetsConfidence) {
     normalized.mode = 'ask';
     if (!normalized.replyText || !normalized.replyText.trim()) {
       normalized.replyText = 'I can help you think through that.';
@@ -809,6 +986,27 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       intentRoutedAs: 'planning',
       intentKind: finalIntent.kind,
     };
+  } else if (
+    finalIntent.kind === 'habit' &&
+    finalIntent.confidence >= 0.7 &&
+    finalIntent.confidence < minIntentConfidence
+  ) {
+    // Special handling for affirmative habit responses (e.g., "Running sounds good")
+    // These should continue the conversation naturally even below the 0.9 threshold
+    console.log('[CORTEX][policy] affirmative_habit_response', {
+      kind: finalIntent.kind,
+      confidence: finalIntent.confidence,
+      text: userText.substring(0, 50),
+    });
+    normalized.mode = 'ask';
+    // Don't set replyText - let the worker generate a contextual follow-up question
+    normalized.meta = {
+      ...normalized.meta,
+      intentRoutedAs: 'habit',
+      intentKind: 'habit',
+      isAffirmativeResponse: true,
+    };
+    intentHandled = true;
   } else if (isCreationIntent && meetsConfidence && !intentCoolingDown) {
     const topicKey = finalIntent.kind;
     const needsClarification =

@@ -1,10 +1,11 @@
 /**
  * MultiIntentConfirmation - Phase 11.5
  * Handles disambiguation when multiple intent interpretations are valid
+ * CRITICAL FIX: Use Pressable for better touch handling
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { SpaceChatMessage } from '../../lib/types';
 import type { AlternativeIntent, IntentKind } from '../../lib/cortex/intents/types';
 import { getIntentLabel, getMultiLabel } from '../../lib/cortex/intents/multiIntentDetector';
@@ -52,7 +53,7 @@ export function MultiIntentConfirmation({
   };
 
   return (
-    <View style={styles.container} testID={testID}>
+    <View style={styles.container} testID={testID} pointerEvents="box-none">
       <Text style={styles.questionText}>I can interpret this in multiple ways:</Text>
 
       <Text style={styles.contentText} numberOfLines={2}>
@@ -60,40 +61,51 @@ export function MultiIntentConfirmation({
       </Text>
 
       {/* Primary interpretation */}
-      <TouchableOpacity
-        style={[styles.option, styles.primaryOption]}
+      <Pressable
+        style={({ pressed }) => [
+          styles.option,
+          styles.primaryOption,
+          pressed && styles.optionPressed,
+        ]}
         onPress={handleSelectPrimary}
         testID={`${testID}-primary`}
+        hitSlop={10}
       >
         <View style={styles.optionHeader}>
           <Text style={styles.optionLabel}>{getIntentLabel(primaryKind)}</Text>
           <Text style={styles.primaryBadge}>SUGGESTED</Text>
         </View>
         <Text style={styles.confidence}>{Math.round(primaryConfidence * 100)}% match</Text>
-      </TouchableOpacity>
+      </Pressable>
 
       {/* Alternative interpretations */}
       {alternatives.map((alt, index) => (
-        <TouchableOpacity
+        <Pressable
           key={alt.kind}
-          style={styles.option}
+          style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
           onPress={() => handleSelectAlternative(alt.kind)}
           testID={`${testID}-alt-${index}`}
+          hitSlop={10}
         >
           <View style={styles.optionHeader}>
             <Text style={styles.optionLabel}>{getIntentLabel(alt.kind)}</Text>
           </View>
           <Text style={styles.rationale}>{alt.rationale}</Text>
           <Text style={styles.confidence}>{Math.round(alt.confidence * 100)}% match</Text>
-        </TouchableOpacity>
+        </Pressable>
       ))}
 
       {/* Multi-create option if appropriate */}
       {isMultiIntent && onCreateMultiple && (
-        <TouchableOpacity
-          style={[styles.option, styles.multiOption]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.option,
+            styles.multiOption,
+            pressed && styles.optionPressed,
+          ]}
           onPress={handleCreateMultiple}
           testID={`${testID}-multi`}
+          hitSlop={10}
         >
           <View style={styles.optionHeader}>
             <Text style={styles.multiLabel}>
@@ -106,17 +118,18 @@ export function MultiIntentConfirmation({
             </Text>
           </View>
           <Text style={styles.multiHint}>Creates multiple related items</Text>
-        </TouchableOpacity>
+        </Pressable>
       )}
 
       {/* Cancel option */}
-      <TouchableOpacity
-        style={styles.cancelOption}
+      <Pressable
+        style={({ pressed }) => [styles.cancelOption, pressed && styles.optionPressed]}
         onPress={handleCancel}
         testID={`${testID}-cancel`}
+        hitSlop={10}
       >
         <Text style={styles.cancelText}>Skip for now</Text>
-      </TouchableOpacity>
+      </Pressable>
     </View>
   );
 }
@@ -134,7 +147,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 5, // Increased elevation for Android
+    zIndex: 1000, // High z-index
   },
   questionText: {
     fontSize: 14,
@@ -156,6 +170,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+    minHeight: 44, // Better touch target
+  },
+  optionPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   primaryOption: {
     borderColor: '#2E5540',

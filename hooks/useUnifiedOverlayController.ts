@@ -107,17 +107,21 @@ export function useUnifiedOverlayController() {
       entityType = 'note';
     }
 
-    isOpeningRef.current = true;
-    setState({
+    const newState = {
       visible: true,
-      mode: 'edit',
+      mode: 'edit' as const,
       initialEntity: {
         type: entityType,
         id: record.id,
         subtype,
       },
       initialSpaceId: spaceId,
-    });
+    };
+
+    console.log('[OverlayController] openEdit called with state:', newState);
+
+    isOpeningRef.current = true;
+    setState(newState);
 
     // Reset debounce flag after 600ms
     if (debounceTimerRef.current) {

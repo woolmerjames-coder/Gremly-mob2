@@ -94,6 +94,17 @@ export function UnifiedCreateOverlay({
   onClose,
   onSaved,
 }: UnifiedCreateOverlayProps) {
+  // Debug: Log when props change
+  useEffect(() => {
+    console.log('[UnifiedOverlay] Props changed:', {
+      visible,
+      mode,
+      initialEntityType: initialEntity?.type,
+      initialEntityId: initialEntity?.id,
+      initialSpaceId,
+    });
+  }, [visible, mode, initialEntity?.type, initialEntity?.id, initialSpaceId]);
+
   const insets = useSafeAreaInsets();
   const repo = useRepo();
   const cortex = useCortex();
@@ -132,9 +143,29 @@ export function UnifiedCreateOverlay({
   }, [visible, useUnifiedOverlay, aiDisabled, mode]);
 
   // State - with robust defaults
-  const [selectedType, setSelectedType] = useState<EntityType | null>(null);
+  // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
+  const [selectedType, setSelectedType] = useState<EntityType | null>(initialEntity?.type || null);
+
+  // Synchronously update selectedType when initialEntity changes (e.g., overlay reopened)
+  // This runs during render, before the DOM updates
+  if (visible && initialEntity?.type && selectedType !== initialEntity.type) {
+    setSelectedType(initialEntity.type);
+    if (__DEV__) {
+      console.log('[UnifiedOverlay] Sync type update during render:', initialEntity.type);
+    }
+  }
+
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
-  const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
+  const [spaceId, setSpaceId] = useState<string | null | undefined>(initialSpaceId);
+
+  // Update spaceId when initialSpaceId prop changes
+  // CRITICAL: Overlay is persistent, so we need to update state when opened with new spaceId
+  if (visible && initialSpaceId !== undefined && spaceId !== initialSpaceId) {
+    setSpaceId(initialSpaceId);
+    if (__DEV__) {
+      console.log('[UnifiedOverlay] Sync spaceId update during render:', initialSpaceId);
+    }
+  }
 
   // Helpers: normalize fields for repo insert schemas
   const normalizeSpaceId = useCallback((val: string | null | undefined): string | null => {
@@ -425,13 +456,19 @@ export function UnifiedCreateOverlay({
         mode,
         initialEntityType: initialEntity?.type,
         initialEntityId: initialEntity?.id,
+        currentSelectedType: selectedType,
         visible,
       });
     }
 
     if (mode === 'edit' && initialEntity && initialEntity.type) {
-      // Set type immediately so skeleton can render
-      setSelectedType(initialEntity.type);
+      // Type should already be set from useState initializer, but ensure it's set
+      if (selectedType !== initialEntity.type) {
+        setSelectedType(initialEntity.type);
+        if (__DEV__) {
+          console.log('[UnifiedOverlay] Correcting type for edit:', initialEntity.type);
+        }
+      }
       setAiMode(false); // No AI mode in edit
 
       if (__DEV__) {
@@ -447,14 +484,24 @@ export function UnifiedCreateOverlay({
     } else if (mode === 'create') {
       // Create mode - immediately ready
       setHydration('ready');
-      if (initialEntity?.type) {
+      // Type should already be set from useState initializer, but ensure it's set
+      if (initialEntity?.type && selectedType !== initialEntity.type) {
         setSelectedType(initialEntity.type);
         if (__DEV__) {
-          console.log('[UnifiedOverlay] Setting type for create:', initialEntity.type);
+          console.log('[UnifiedOverlay] Correcting type for create:', initialEntity.type);
         }
       }
+      // Animate fields in when type is auto-selected
+      if (initialEntity?.type) {
+        fadeAnim.setValue(0);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
     }
-  }, [visible, mode, initialEntity, loadEntity]);
+  }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim]);
 
   // Phase 10.7C: Prefill from conversionMeta
   useEffect(() => {
@@ -463,9 +510,18 @@ export function UnifiedCreateOverlay({
     const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
 
     if (initialTitle || initialNote) {
-      // Prefill note fields if we have data
+      // Prefill based on selected type
       if (initialTitle) {
-        setNoteTitle(initialTitle);
+        // Set the appropriate name field based on type
+        if (selectedType === 'habit') {
+          setHabitName(initialTitle);
+        } else if (selectedType === 'todo') {
+          setTodoName(initialTitle);
+        } else if (selectedType === 'note' || selectedType === 'journal') {
+          setNoteTitle(initialTitle);
+        } else if (selectedType === 'person') {
+          setPersonName(initialTitle);
+        }
       }
       if (initialNote) {
         setNoteBody(initialNote);
@@ -475,6 +531,7 @@ export function UnifiedCreateOverlay({
         console.log('[CORTEX][10.7C] overlay_prefill_applied:', {
           hasTitle: !!initialTitle,
           hasNote: !!initialNote,
+          selectedType,
         });
       }
     }
@@ -491,7 +548,7 @@ export function UnifiedCreateOverlay({
         // ignore invalid dates
       }
     }
-  }, [visible, conversionMeta]);
+  }, [visible, conversionMeta, selectedType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1172,12 +1229,18 @@ export function UnifiedCreateOverlay({
         const isStartHabit = habitSubtype === 'start_habit';
         const isBreakHabit = habitSubtype === 'break_habit';
 
+        console.log('[Overlay] Building habit input:', {
+          overlaySpaceId: spaceId,
+          habitDetailsSpaceId: habitDetails.spaceId,
+          baseInputSpaceId: baseInput.space_id,
+        });
+
         return {
           ...baseInput,
           type: 'habit',
           title: habitName,
           frequency: habitFrequency,
-          subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
+          // Note: subtype removed - habits table doesn't have this column
 
           // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
@@ -1269,9 +1332,9 @@ export function UnifiedCreateOverlay({
         const isBreakHabit = habitSubtype === 'break_habit';
 
         return {
-          title: habitName,
+          name: habitName,
           frequency: habitFrequency,
-          subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
+          // Note: subtype and title removed - habits table doesn't have these columns
 
           // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
@@ -1555,6 +1618,16 @@ export function UnifiedCreateOverlay({
                 // Render fields only when ready (or in create mode which is always ready)
                 const canRenderFields =
                   mode === 'create' || (mode === 'edit' && hydration === 'ready');
+
+                if (__DEV__) {
+                  console.log('[UnifiedOverlay] Render guard check:', {
+                    mode,
+                    hydration,
+                    selectedType,
+                    canRenderFields,
+                    aiMode,
+                  });
+                }
 
                 if (!canRenderFields) {
                   return null;

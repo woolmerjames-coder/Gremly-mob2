@@ -227,6 +227,51 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 15: COMPLETE HABIT STATEMENTS
+  // User provides activity AND frequency in one statement
+  // E.g., "I want to run 3 times a week" - should trigger toast immediately
+  // High priority to catch before partial habit patterns
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 15,
+    name: 'habit_complete_statement',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Pattern 1: "I want to [activity] N times a week"
+      const wantToFrequency =
+        /\b(i want to|i'd like to|i wanna)\s+(run|walk|exercise|meditate|read|write|practice|work\s*out|journal|yoga|stretch|cycle|swim|jog)\s+(\d+|once|twice)\s+times?\s+(a|per)\s+week/i;
+
+      // Pattern 2: "I'll [activity] daily/every day"
+      const dailyCommitment =
+        /\b(i'?ll|i will)\s+(run|walk|exercise|meditate|read|write|practice|work\s*out|journal|yoga|stretch|cycle|swim|jog)\s+(daily|every\s+day|each\s+day|every\s+morning|every\s+evening)/i;
+
+      // Pattern 3: "Let me [activity] Nx a week"
+      const shorthandFrequency =
+        /\b(let me|let's|i'll)\s+(run|walk|exercise|meditate|read|write|practice|work\s*out|journal)\s+(\d+)x\s*(a|per)?\s*week/i;
+
+      // Pattern 4: "[activity] N times a week" (more casual)
+      const casualFrequency =
+        /^(run|walk|exercise|meditate|read|write|practice|work\s*out|journal|yoga|stretch)\s+(\d+|once|twice)\s+times?\s+(a|per)\s+week/i;
+
+      return (
+        wantToFrequency.test(normalized) ||
+        dailyCommitment.test(normalized) ||
+        shorthandFrequency.test(normalized) ||
+        casualFrequency.test(normalized)
+      );
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.95,
+      flags: {
+        requiresAction: true,
+        isCommand: false, // Not an explicit command, but complete enough to act on
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 17: ACTION-ORIENTED REMINDERS
   // "Remember to [action]" should be todo, not note
   // Must come BEFORE generic "remember" → note rule (priority 18)
@@ -439,11 +484,108 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 35-39: SOCIAL/COMPLIMENT PATTERNS
+  // Compliments, gratitude, social interactions - not actions
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 35,
+    name: 'social_compliment',
+    test: (text) => {
+      const patterns = [
+        /\byou'?re (amazing|awesome|great|wonderful|the best|incredible|fantastic|brilliant|lovely|kind)\b/i,
+        /\b(thank you|thanks|appreciate|grateful to you|love you|love this|love it)\b/i,
+        /\byou (rock|rule|kill it|nailed it)\b/i,
+        /\bthat'?s (amazing|awesome|great|wonderful|perfect|brilliant)\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'social',
+      confidence: 0.95,
+      flags: {
+        isMetaComment: true,
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 36: AFFIRMATIVE ACTIVITY RESPONSES
+  // Context-aware responses that continue habit discussion
+  // E.g., "Running sounds good", "I'll run", "Let me exercise"
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 36,
+    name: 'affirmative_activity',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Activity-specific affirmatives like "Running sounds good"
+      const activityAffirmative =
+        /\b(running|walking|swimming|yoga|meditation|exercise|exercising|gym|workout|working out|jogging|cycling|hiking|stretching)\s+(sounds\s+(good|great|perfect|nice)|is\s+(good|great|perfect)|works)\b/i;
+
+      // Commitment phrases with activities
+      const commitmentActivity =
+        /\b(i'll|let's|let me|i will|i can)\s+(run|walk|swim|exercise|meditate|workout|jog|cycle|hike|stretch)\b/i;
+
+      // Simple affirmatives (only in conversational context)
+      const simpleAffirmative =
+        /^(sounds?\s+(good|great|perfect|nice|cool)|that('s|\s+is)\s+(good|great|perfect)|works\s+for\s+me|okay|ok|sure|yeah|yep|yes|alright|got it)$/i;
+
+      return (
+        activityAffirmative.test(normalized) ||
+        commitmentActivity.test(normalized) ||
+        simpleAffirmative.test(normalized)
+      );
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.7,
+      flags: {
+        requiresAction: false, // Don't create immediately - this is conversational
+        suppressChips: false, // Keep chips to offer next steps
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 40-49: HABIT PATTERNS
   // Strong indicators of recurring behavior
   // ═══════════════════════════════════════════════════════════════
   {
     priority: 40,
+    name: 'habit_want_to',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Patterns like "I want to run", "I'd like to exercise", "I wanna meditate"
+      const wantToPatterns = [
+        /\b(i want to|i'd like to|i wanna|let's|i'm going to|i'll)\s+(\w+)/i,
+        /\bstart (running|walking|exercising|working out|meditating|reading|writing|jogging|yoga|stretching)/i,
+        /\b(run|walk|exercise|workout|meditate|read|write|jog|stretch)\s+(daily|every|regularly|more|often)/i,
+      ];
+
+      // Also catch simple activity statements with frequency hints
+      const simpleActivity =
+        /^(run|running|exercise|exercising|meditate|meditation|walk|walking)$/i;
+      const hasFrequency = /\b(daily|every|regularly|\d+\s*times)/i.test(normalized);
+
+      return (
+        wantToPatterns.some((p) => p.test(normalized)) ||
+        (simpleActivity.test(normalized) && hasFrequency)
+      );
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.85,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
+  {
+    priority: 41,
     name: 'habit_frequency',
     test: (text) => {
       const frequencyPatterns = [
@@ -464,7 +606,7 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   {
-    priority: 41,
+    priority: 42,
     name: 'habit_start',
     test: (text) => {
       const startPatterns = [

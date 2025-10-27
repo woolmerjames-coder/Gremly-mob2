@@ -330,6 +330,38 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
   );
   const nextItem = useMemo(() => computeNextItem(items), [items, computeNextItem]);
 
+  // Helper: Calculate weekly target from habit frequency
+  const calculateWeeklyTarget = useCallback((habit: any): number => {
+    const freq = habit.frequency;
+    const freqValue = habit.frequency_value;
+
+    // If frequency_value has explicit target (n_per_period with period=week)
+    if (freqValue && typeof freqValue === 'object') {
+      if (freqValue.kind === 'n_per_period' && freqValue.period === 'week') {
+        return freqValue.n || 1;
+      }
+      if (freqValue.kind === 'custom_days' && Array.isArray(freqValue.days)) {
+        return freqValue.days.length;
+      }
+    }
+
+    // Fallback: parse simple frequency string
+    if (typeof freq === 'string') {
+      // "daily" → 7 times/week
+      if (freq === 'daily') return 7;
+      // "weekly" → 1 time/week
+      if (freq === 'weekly') return 1;
+      // "monthly" → ~0.25 times/week (round to 1 for UI)
+      if (freq === 'monthly') return 1;
+      // Parse "3× this week" pattern from custom freq strings
+      const match = freq.match(/(\d+)\s*[×x]/i);
+      if (match) return parseInt(match[1], 10);
+    }
+
+    // Default fallback
+    return 3;
+  }, []);
+
   // Weekly aggregation (Mon–Sun) using timeline days
   const weekly = useMemo(() => {
     const start = startOfWeek(new Date());
@@ -358,10 +390,11 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
         if (flags[i]) streak++;
         else break;
       }
-      out.push({ id: h.id, title: h.title || h.name, doneCount, target: 3, dayStreak: streak });
+      const target = calculateWeeklyTarget(h);
+      out.push({ id: h.id, title: h.title || h.name, doneCount, target, dayStreak: streak });
     }
     return { weekStartISO: weekISO, habits: out };
-  }, [items, timelineDays]);
+  }, [items, timelineDays, calculateWeeklyTarget]);
 
   return {
     space,

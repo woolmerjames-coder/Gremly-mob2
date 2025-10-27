@@ -2,10 +2,11 @@
  * InlineActionConfirmation - Phase 11.3 / Phase 11.4
  * Renders action confirmations inline with chat messages instead of overlay toast
  * Updated: Clean styling with brand colors, no emojis
+ * CRITICAL FIX: Use Pressable for better touch handling and proper z-index
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { SpaceChatMessage } from '../../lib/types';
 
 type ActionType = 'habit' | 'todo' | 'note';
@@ -30,71 +31,119 @@ export function InlineActionConfirmation({
   // Phase 11.7+: Use contextual summary if available, otherwise fall back to content
   const displayText = metadata.summary || message.content || 'New item';
 
-  const getTypeLabel = () => {
-    switch (actionType) {
+  const getToastHeader = (type: ActionType): string => {
+    switch (type) {
       case 'habit':
-        return 'HABIT';
+        return 'Lock in the habit?';
       case 'todo':
-        return 'TASK';
+        return 'Add this task?';
       case 'note':
-        return 'NOTE';
+        return 'Save this note?';
       default:
-        return 'ITEM';
+        return 'Create this?';
     }
   };
 
   const handleConfirmPress = async () => {
+    console.log('[InlineActionConfirmation] Confirm button pressed');
+    console.log('[InlineActionConfirmation] onConfirm handler:', typeof onConfirm);
     if (onConfirm) {
-      await onConfirm();
+      try {
+        console.log('[InlineActionConfirmation] Calling onConfirm...');
+        await onConfirm();
+        console.log('[InlineActionConfirmation] onConfirm completed successfully');
+      } catch (error) {
+        console.error('[InlineActionConfirmation] onConfirm failed:', error);
+      }
+    } else {
+      console.warn('[InlineActionConfirmation] No onConfirm handler provided!');
     }
   };
 
   const handleEditPress = () => {
+    console.log('[InlineActionConfirmation] Edit button pressed');
+    console.log('[InlineActionConfirmation] onEdit handler:', typeof onEdit);
     if (onEdit) {
       onEdit();
+    } else {
+      console.warn('[InlineActionConfirmation] No onEdit handler provided!');
     }
   };
 
   const handleCancelPress = () => {
+    console.log('[InlineActionConfirmation] Cancel button pressed');
+    console.log('[InlineActionConfirmation] onCancel handler:', typeof onCancel);
     if (onCancel) {
       onCancel();
+    } else {
+      console.warn('[InlineActionConfirmation] No onCancel handler provided!');
     }
   };
 
   return (
-    <View style={styles.container} testID={testID}>
+    <View style={styles.container} testID={testID} pointerEvents="box-none">
       <View style={styles.header}>
-        <Text style={styles.typeLabel}>{getTypeLabel()}</Text>
+        <Text style={styles.typeLabel}>{getToastHeader(actionType)}</Text>
       </View>
 
       <Text style={styles.title} numberOfLines={2}>
         {displayText}
       </Text>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.confirmButton]}
-          onPress={handleConfirmPress}
+      <View style={styles.buttonContainer} pointerEvents="box-none">
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            styles.confirmButton,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={() => {
+            console.log('[Button] Confirm press detected');
+            handleConfirmPress();
+          }}
+          onPressIn={() => console.log('[Button] Confirm press in')}
+          onPressOut={() => console.log('[Button] Confirm press out')}
           testID={`${testID}-confirm`}
+          hitSlop={10}
         >
           <Text style={[styles.buttonText, styles.confirmText]}>Confirm</Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
-          style={[styles.button, styles.editButton]}
-          onPress={handleEditPress}
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            styles.editButton,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={() => {
+            console.log('[Button] Edit press detected');
+            handleEditPress();
+          }}
+          onPressIn={() => console.log('[Button] Edit press in')}
+          onPressOut={() => console.log('[Button] Edit press out')}
           testID={`${testID}-edit`}
+          hitSlop={10}
         >
           <Text style={[styles.buttonText, styles.editText]}>Edit</Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
-          style={[styles.button, styles.cancelButton]}
-          onPress={handleCancelPress}
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            styles.cancelButton,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={() => {
+            console.log('[Button] Cancel press detected');
+            handleCancelPress();
+          }}
+          onPressIn={() => console.log('[Button] Cancel press in')}
+          onPressOut={() => console.log('[Button] Cancel press out')}
           testID={`${testID}-cancel`}
+          hitSlop={10}
         >
           <Text style={[styles.buttonText, styles.cancelText]}>Cancel</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </View>
   );
@@ -113,7 +162,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 5, // Increased elevation for Android
+    zIndex: 1000, // High z-index to ensure it's above other elements
   },
   header: {
     flexDirection: 'row',
@@ -121,11 +171,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   typeLabel: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#2E5540', // Moss Green
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   title: {
     fontSize: 15,
@@ -141,11 +190,16 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 44, // Increased for better touch target (Apple HIG guideline)
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  buttonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   confirmButton: {
     backgroundColor: '#2E5540', // Moss Green - primary action

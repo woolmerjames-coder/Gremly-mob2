@@ -230,9 +230,9 @@ export class SupabaseRepo implements IRepo {
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
-      if (!input.subtype) throw new Error('Habit requires subtype');
+      // NOTE: subtype removed - column doesn't exist in habits table
 
-      // Database schema truth: habits table has BOTH 'name' AND 'title' columns (both required)
+      // Database schema truth: habits table has 'name' column (NOT 'title')
       const habitName = input.name ?? input.title ?? 'Untitled';
 
       // Build minimal payload with Insert schema validation
@@ -240,10 +240,10 @@ export class SupabaseRepo implements IRepo {
       payload = habitInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: habitName, // Required - database column
-          title: habitName, // Required - database column (habits have both)
+          name: habitName, // Required - database column (habits use 'name', NOT 'title')
+          // title: REMOVED - column doesn't exist in habits table
           frequency: input.frequency,
-          subtype: input.subtype,
+          // subtype: REMOVED - column doesn't exist in database
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,

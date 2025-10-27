@@ -111,12 +111,17 @@ export function useChatMessages(chatId: string, spaceId: string) {
       try {
         setError(null);
 
+        // CRITICAL FIX: Use 'system' role instead of 'action-confirmation'
+        // The metadata.type stores the actual message type
         const input: SpaceChatMessageInsert = {
           chat_id: chatId,
           space_id: spaceId,
-          role: 'action-confirmation',
+          role: 'system', // Valid database role
           content: content.trim(),
-          metadata_json: metadata,
+          metadata_json: {
+            ...metadata,
+            type: 'action-confirmation', // Message type in metadata
+          },
         };
 
         const newMessage = await messageRepo.append(input);
@@ -146,12 +151,14 @@ export function useChatMessages(chatId: string, spaceId: string) {
         const entryName =
           entryType === 'person' ? entry.name : entry.title || entry.name || 'Untitled';
 
+        // CRITICAL FIX: Use 'system' role instead of 'entry-card'
         const input: SpaceChatMessageInsert = {
           chat_id: chatId,
           space_id: spaceId,
-          role: 'entry-card',
+          role: 'system', // Valid database role
           content: `${entryType}: ${entryName}`,
           metadata_json: {
+            type: 'entry-card', // Message type in metadata
             entry,
             entryType,
             entryId: entry.id,
@@ -171,6 +178,10 @@ export function useChatMessages(chatId: string, spaceId: string) {
     [chatId, spaceId, user?.id, messageRepo, chatRepo],
   );
 
+  const removeMessage = useCallback((messageId: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+  }, []);
+
   // Load messages on mount and when chatId changes
   useEffect(() => {
     refresh();
@@ -185,5 +196,6 @@ export function useChatMessages(chatId: string, spaceId: string) {
     appendAssistantMessage,
     appendActionConfirmation,
     appendEntryCard,
+    removeMessage,
   };
 }

@@ -55,6 +55,7 @@ import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
 import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -157,7 +158,23 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [renameChatModalOpen, setRenameChatModalOpen] = useState(false);
   const [renameChatId, setRenameChatId] = useState<string | null>(null);
   const [renameChatTitle, setRenameChatTitle] = useState('');
-  const overlay = useUnifiedOverlayController();
+  const overlay = useGlobalOverlay();
+
+  // Debug: Log overlay state changes
+  useEffect(() => {
+    console.log('[SpaceHome] Overlay state changed:', {
+      visible: overlay.state.visible,
+      mode: overlay.state.mode,
+      initialEntityType: overlay.state.initialEntity?.type,
+      initialEntityId: overlay.state.initialEntity?.id,
+    });
+  }, [
+    overlay.state.visible,
+    overlay.state.mode,
+    overlay.state.initialEntity?.type,
+    overlay.state.initialEntity?.id,
+  ]);
+
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
   const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
   // Undo snackbar (Sage bg)
@@ -827,8 +844,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     persistKey={`goalList:expanded:${spaceId}`}
                     totalCountLabel={(n) => `See All Goals (${n})`}
                     onOpen={(id) => {
+                      console.log('[SpaceHome] Goal clicked:', id);
                       const rec = (items as any[]).find((r) => r.id === id);
-                      if (rec) overlay.openEdit({ record: rec, spaceId });
+                      console.log('[SpaceHome] Found record:', rec ? rec.type : 'NOT FOUND');
+                      if (rec && chats && chats.length > 0) {
+                        // Navigate to the most recent chat thread where user can edit via overlay
+                        const mostRecentChat = chats[0];
+                        console.log('[SpaceHome] Navigating to chat thread:', mostRecentChat.id);
+                        navigation.navigate('ChatThread', {
+                          spaceId,
+                          chatId: mostRecentChat.id,
+                        });
+                        // Then open the overlay from there (ChatThread has its own overlay controller)
+                        // Note: We can't directly open the overlay here due to multiple controller instances
+                      }
                     }}
                     onMenu={() => {}}
                   />
