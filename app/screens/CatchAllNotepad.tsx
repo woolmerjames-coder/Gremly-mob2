@@ -150,7 +150,7 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
   { key: 'checklist', label: 'Checklist', testID: 'ca-toolbar-list-checklist' },
 ];
 
-const PLACEHOLDER_COLOR = '#B6A999';
+// Removed legacy hex placeholder color; placeholderTextColor now uses themed c.mutedText
 
 // Mind Drop utilities and storage keys
 export function getGreeting(now: Date, lastOpenedAt?: number | null): string {
@@ -228,6 +228,7 @@ const RecentDrops: React.FC<{
   const navigation = useNavigation();
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
+  const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
   const [open, setOpen] = React.useState(!!initiallyOpen);
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<RecentDrop[]>([]);
@@ -304,49 +305,38 @@ const RecentDrops: React.FC<{
         accessibilityLabel="Toggle recent drops"
         accessibilityState={{ expanded: open }}
       >
-        <Text style={[styles.recentHeaderText, { color: c.moss }]}>
-          {open ? 'Recent drops ↑' : 'Recent drops ↓'}
-        </Text>
+        <Text style={styles.recentHeaderText}>{open ? 'Recent drops ↑' : 'Recent drops ↓'}</Text>
       </Pressable>
 
       {open ? (
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
-            <Text style={[styles.recentEmpty, { color: c.mutedText }]}>Loading…</Text>
+            <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 ? (
-            <Text style={[styles.recentEmpty, { color: c.mutedText }]}>No recent drops yet.</Text>
+            <Text style={styles.recentEmpty}>No recent drops yet.</Text>
           ) : (
             items.map((item) => (
-              <View
-                key={item.id}
-                testID={`minddrop-recent-${item.id}`}
-                style={[styles.recentCard, { backgroundColor: c.sageTint }]}
-              >
-                <Text
-                  numberOfLines={2}
-                  style={[styles.recentText, { color: themeMode === 'dark' ? c.text : '#2D3E3C' }]}
-                >
+              <View key={item.id} testID={`minddrop-recent-${item.id}`} style={styles.recentCard}>
+                <Text numberOfLines={2} style={styles.recentText}>
                   {item.text || '—'}
                 </Text>
                 <View style={styles.recentMetaRow}>
-                  <Text style={[styles.recentTime, { color: c.mutedText }]}>
-                    {relativeTime(item.created_at)}
-                  </Text>
+                  <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
                   <View style={styles.recentActions}>
                     <Pressable
                       onPress={() => handleEdit(item.id)}
                       hitSlop={8}
                       accessibilityRole="button"
                     >
-                      <Text style={[styles.recentAction, { color: c.moss }]}>Edit</Text>
+                      <Text style={styles.recentAction}>Edit</Text>
                     </Pressable>
-                    <Text style={[styles.recentDot, { color: c.mutedText }]}>•</Text>
+                    <Text style={styles.recentDot}>•</Text>
                     <Pressable
                       onPress={() => handleDelete(item.id)}
                       hitSlop={8}
                       accessibilityRole="button"
                     >
-                      <Text style={[styles.recentActionDelete, { color: c.danger }]}>Delete</Text>
+                      <Text style={styles.recentActionDelete}>Delete</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -378,8 +368,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
   const { c, mode: themeMode } = useTheme();
+  const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
   const reduceMotion = useReducedMotion();
-  const [mode, setMode] = useState<Mode>('free');
+  const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -514,13 +505,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const disabled = useMemo(() => !note.trim() || isSubmitting, [note, isSubmitting]);
 
   const modeDescription = useMemo(() => {
-    return mode === 'free'
+    return uiMode === 'free'
       ? 'Just a calm notepad. You can format with bullets, numbers, or checkboxes.'
       : 'Talk it out with Gremly — I’ll suggest structure and help file it.';
-  }, [mode]);
+  }, [uiMode]);
 
   const handleModeSelect = useCallback((next: Mode) => {
-    setMode(next);
+    setUiMode(next);
   }, []);
 
   const handleToolbarSelect = useCallback((next: ListStyle) => {
@@ -664,7 +655,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const currentUserId = userId || 'anonymous';
 
       // Phase 10.3: Call Cortex SDK for guided mode
-      if (mode === 'guided') {
+      if (uiMode === 'guided') {
         try {
           const ctx: CortexContext = {
             lane: 'catchall',
@@ -891,7 +882,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       resetState();
       return { created: { todos: [], notes: [], habits: [] } };
     }
-  }, [note, repo, resetState, mode, userId]);
+  }, [note, repo, resetState, uiMode, userId]);
 
   const handleChangeText = useCallback(
     (value: string) => {
@@ -912,7 +903,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
 
     setIsSubmitting(true);
-    const needsDelay = mode === 'guided';
+    const needsDelay = uiMode === 'guided';
 
     if (needsDelay) {
       if (timerRef.current) {
@@ -927,7 +918,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } else {
       void performSave();
     }
-  }, [isSubmitting, mode, note, performSave]);
+  }, [isSubmitting, uiMode, note, performSave]);
 
   // Mind Drop: robust submit with retry + fallbacks
   const onSubmit = useCallback(async () => {
@@ -1130,7 +1121,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         <Text
           ref={greetingRef}
           testID="minddrop-greeting"
-          style={[styles.greeting, { color: c.moss }]}
+          style={styles.greeting}
           accessibilityRole="header"
         >
           {greeting}
@@ -1139,11 +1130,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <View
         testID="minddrop-input-container"
         accessible={false}
-        style={[
-          styles.inputContainer,
-          isFocused && styles.inputContainerFocused,
-          { backgroundColor: c.sageTint, borderColor: isFocused ? c.sage : 'transparent' },
-        ]}
+        style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
       >
         <Animated.View style={{ opacity: phOpacity }}>
           <TextInput
@@ -1153,7 +1140,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             multiline
-            style={[styles.input, { color: themeMode === 'dark' ? c.text : '#2D3E3C' }]}
+            style={styles.input}
             accessibilityLabel="Mind Drop input"
             accessibilityHint="Type anything on your mind"
             placeholder={placeholder}
@@ -1164,13 +1151,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       </View>
       {/* Privacy badge + live character counter */}
       <View style={styles.metaRow}>
-        <Text testID="minddrop-privacy" style={[styles.metaText, { color: c.mutedText }]}>
+        <Text testID="minddrop-privacy" style={styles.metaText}>
           🔒 Private & secure
         </Text>
-        <Text
-          testID="minddrop-counter"
-          style={[styles.metaText, { color: c.mutedText }]}
-        >{`${note.length} / 2000`}</Text>
+        <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
       </View>
       {process.env.JEST_WORKAROUND === '1' ? (
         <Pressable
@@ -1196,7 +1180,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <Button
         testID="minddrop-submit-button"
         label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
-        leftIcon={isSubmitting ? <ActivityIndicator size="small" color="#F9F6F1" /> : undefined}
+        leftIcon={isSubmitting ? <ActivityIndicator size="small" color={c.bg} /> : undefined}
         onPress={disabled ? undefined : onSubmit}
         disabled={disabled}
         disabledOpacity={0.6}
@@ -1206,7 +1190,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       />
       {/* Trust Builders row */}
       <View style={styles.trustRow} testID="minddrop-trust">
-        <Text style={[styles.trustText, { color: c.mutedText }]} testID="minddrop-trust-text">
+        <Text style={styles.trustText} testID="minddrop-trust-text">
           {trustMessages[trustIndex]}
         </Text>
       </View>
@@ -1229,7 +1213,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: c.bg }]} testID="minddrop-screen">
+    <View style={styles.root} testID="minddrop-screen">
       {/* Tooltip overlay just under the header */}
       <View
         pointerEvents={showTip ? 'auto' : 'none'}
@@ -1238,9 +1222,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {showTip ? (
           <>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
-            <View style={[styles.tipContainer, { backgroundColor: c.bg }]} testID="minddrop-tip">
-              <View style={[styles.tipArrow, { backgroundColor: c.bg }]} />
-              <Text style={[styles.tipText, { color: c.moss }]}>
+            <View style={styles.tipContainer} testID="minddrop-tip">
+              <View style={styles.tipArrow} />
+              <Text style={styles.tipText}>
                 Just type everything on your mind. I’ll organize it.
               </Text>
             </View>
@@ -1256,379 +1240,167 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  greeting: {
-    fontSize: 16,
-    marginBottom: 12,
-    fontFamily: 'Inter',
-  },
-  content: {
-    flexGrow: 1,
-    paddingBottom: 32,
-    backgroundColor: '#FFFCF5',
-  },
-  pageWrapper: {
-    flex: 1,
-  },
-  headerBackground: {
-    position: 'relative',
-    padding: 20,
-    borderRadius: 24,
-    backgroundColor: '#FFFCF5',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  headerGradientTop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 140,
-    backgroundColor: '#EAF6F3',
-    opacity: 0.9,
-  },
-  headerGlow: {
-    position: 'absolute',
-    bottom: -60,
-    left: -40,
-    right: -40,
-    height: 160,
-    backgroundColor: '#BFE3DD',
-    opacity: 0.35,
-  },
-  headerContent: {
-    position: 'relative',
-  },
-  modeButtonsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  modeButton: {
-    flex: 1,
-    borderRadius: 26,
-    paddingVertical: 12,
-    marginHorizontal: 6,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  modeButtonActive: {
-    backgroundColor: '#BFE3DD',
-  },
-  modeButtonInactive: {
-    backgroundColor: '#EAF6F3',
-  },
-  modeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modeButtonTextActive: {
-    color: '#0E3B3A',
-  },
-  modeButtonTextInactive: {
-    color: '#276C69',
-  },
-  modeDescription: {
-    marginTop: 16,
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#276C69',
-  },
-  thinkingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: '#EAF6F3',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  thinkingText: {
-    marginLeft: 10,
-    color: '#276C69',
-    fontWeight: '500',
-  },
-  inputWrapper: {
-    minHeight: 240,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#EEE4D1',
-    backgroundColor: '#FFFCF5',
-    padding: 18,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  textInput: {
-    flex: 1,
-    fontSize: 18,
-    lineHeight: 26,
-    color: '#0E3B3A',
-  },
-  toolbar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#EEE4D1',
-    backgroundColor: '#FFFCF5',
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-    marginBottom: 24,
-  },
-  toolbarButton: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  toolbarButtonActive: {
-    backgroundColor: '#BFE3DD',
-  },
-  toolbarButtonInactive: {
-    backgroundColor: 'transparent',
-  },
-  toolbarButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  toolbarButtonTextActive: {
-    color: '#0E3B3A',
-  },
-  toolbarButtonTextInactive: {
-    color: '#276C69',
-  },
-  submitButtonWrapper: {
-    borderRadius: 28,
-    backgroundColor: '#FFFCF5',
-    paddingVertical: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
-  },
-  confirmationsContainer: {
-    marginBottom: 16,
-  },
-  suggestionsContainer: {
-    marginBottom: 16,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: '#EAF6F3',
-  },
-  suggestionsLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#276C69',
-    marginBottom: 8,
-  },
-  suggestionChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  suggestionChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#FFFCF5',
-    borderWidth: 1,
-    borderColor: '#BFE3DD',
-  },
-  suggestionText: {
-    fontSize: 13,
-    color: '#0E3B3A',
-    fontWeight: '500',
-  },
-  minddropInput: {
-    minHeight: 100,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#EEE4D1',
-    backgroundColor: '#FFFCF5',
-    padding: 18,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-    fontSize: 18,
-    lineHeight: 26,
-    color: '#0E3B3A',
-  },
-  inputContainer: {
-    backgroundColor: '#F0F4F3', // TODO(dark-mode): use theme token
-    borderRadius: 16,
-    padding: 20,
-    minHeight: 200,
-    borderWidth: 0,
-    marginBottom: 16,
-  },
-  inputContainerFocused: {
-    borderWidth: 1,
-    borderColor: '#BFD8C0', // TODO(dark-mode): use theme token
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  input: {
-    color: '#2D3E3C', // TODO(dark-mode): use theme token
-    fontSize: 18,
-    lineHeight: 26,
-    fontFamily: 'Inter',
-    padding: 0,
-    textAlignVertical: 'top',
-  },
-  tipContainer: {
-    position: 'absolute',
-    top: 6,
-    right: 8,
-    maxWidth: 260,
-    backgroundColor: '#FFFCF5',
-    padding: 10,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  tipText: {
-    color: '#2E5540',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  tipArrow: {
-    position: 'absolute',
-    bottom: -6,
-    right: 18,
-    width: 12,
-    height: 12,
-    backgroundColor: '#FFFCF5',
-    transform: [{ rotate: '45deg' }],
-  },
-  metaRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  metaText: {
-    color: '#6A7D76',
-    fontSize: 13,
-    fontFamily: 'Inter',
-  },
-  trustRow: {
-    marginTop: 8,
-    minHeight: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  trustText: {
-    fontSize: 13,
-    color: '#6A7D76',
-    textAlign: 'center',
-  },
-  submitInnerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  // Recent Drops styles
-  recentRoot: {
-    marginTop: 12,
-  },
-  recentHeader: {
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  recentHeaderText: {
-    color: '#2E5540', // Moss Green
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  recentList: {
-    marginTop: 6,
-    gap: 8,
-  },
-  recentCard: {
-    backgroundColor: '#F0F4F3', // Sage Mist tint
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  recentText: {
-    color: '#2D3E3C',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  recentMetaRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  recentTime: {
-    color: '#6A7D76',
-    fontSize: 12,
-  },
-  recentActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  recentAction: {
-    color: '#2E5540',
-    fontSize: 13,
-    textDecorationLine: 'underline',
-  },
-  recentActionDelete: {
-    color: '#9E3B3B', // muted red for delete
-    fontSize: 13,
-    textDecorationLine: 'underline',
-  },
-  recentDot: {
-    color: '#6A7D76',
-    marginHorizontal: 6,
-  },
-  recentEmpty: {
-    color: '#6A7D76',
-    fontSize: 13,
-    textAlign: 'center',
-    paddingVertical: 10,
-  },
-});
+export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: c.bg,
+      padding: 16,
+    },
+
+    greeting: {
+      color: c.moss,
+      fontSize: 16,
+      marginBottom: 12,
+    },
+
+    inputContainer: {
+      backgroundColor: c.sageTint,
+      borderRadius: 16,
+      padding: 20,
+      minHeight: 200,
+    },
+    inputContainerFocused: {
+      borderWidth: 1,
+      borderColor: c.sage,
+      shadowColor: c.cardShadow,
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 1,
+    },
+    input: {
+      color: c.text,
+      fontSize: 18,
+      lineHeight: 26,
+      padding: 0,
+      textAlignVertical: 'top',
+    },
+
+    tipContainer: {
+      position: 'absolute',
+      top: 6,
+      right: 8,
+      maxWidth: 260,
+      backgroundColor: c.bg,
+      padding: 10,
+      borderRadius: 12,
+      shadowColor: c.cardShadow,
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 6,
+    },
+    tipText: {
+      color: c.moss,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    tipArrow: {
+      position: 'absolute',
+      bottom: -6,
+      right: 18,
+      width: 12,
+      height: 12,
+      backgroundColor: c.bg,
+      transform: [{ rotate: '45deg' }],
+    },
+
+    metaRow: {
+      marginTop: 8,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    metaText: {
+      color: c.mutedText,
+      fontSize: 13,
+    },
+
+    submitButton: {
+      marginTop: 16,
+      height: 56,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.moss,
+    },
+    submitLabel: {
+      color: c.bg,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    submitInnerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+    },
+
+    trustRow: {
+      marginTop: 8,
+      alignItems: 'center',
+      minHeight: 20,
+    },
+    trustText: {
+      color: c.mutedText,
+      fontSize: 13,
+      textAlign: 'center',
+    },
+
+    recentRoot: { marginTop: 12 },
+    recentHeader: {
+      paddingVertical: 8,
+      alignItems: 'center',
+    },
+    recentHeaderText: {
+      color: c.moss,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    recentList: { marginTop: 6, gap: 8 },
+    recentCard: {
+      backgroundColor: c.sageTint,
+      borderRadius: 12,
+      padding: 12,
+      shadowColor: c.cardShadow,
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 1,
+    },
+    recentText: {
+      color: c.text,
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    recentMetaRow: {
+      marginTop: 8,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    recentTime: {
+      color: c.mutedText,
+      fontSize: 12,
+    },
+    recentActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    recentAction: {
+      color: c.moss,
+      fontSize: 13,
+      textDecorationLine: 'underline',
+    },
+    recentActionDelete: {
+      color: c.danger,
+      fontSize: 13,
+      textDecorationLine: 'underline',
+    },
+    recentDot: { color: c.mutedText, marginHorizontal: 6 },
+    recentEmpty: {
+      color: c.mutedText,
+      fontSize: 13,
+      textAlign: 'center',
+      paddingVertical: 10,
+    },
+  });
+}

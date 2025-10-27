@@ -36,8 +36,8 @@ describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
     expect(catchAllSource).toContain('explainAddedToList');
     expect(catchAllSource).toContain('explainCreated');
 
-    // Verify guided mode integration
-    expect(catchAllSource).toContain("mode === 'guided'");
+    // Verify guided mode integration (uiMode is the local capture mode)
+    expect(catchAllSource).toContain("uiMode === 'guided'");
     expect(catchAllSource).toContain('cortexRoute({ text:');
 
     // Verify action execution
