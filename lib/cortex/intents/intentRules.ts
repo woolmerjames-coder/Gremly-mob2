@@ -465,6 +465,45 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 36: AFFIRMATIVE ACTIVITY RESPONSES
+  // Context-aware responses that continue habit discussion
+  // E.g., "Running sounds good", "I'll run", "Let me exercise"
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 36,
+    name: 'affirmative_activity',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Activity-specific affirmatives like "Running sounds good"
+      const activityAffirmative =
+        /\b(running|walking|swimming|yoga|meditation|exercise|exercising|gym|workout|working out|jogging|cycling|hiking|stretching)\s+(sounds\s+(good|great|perfect|nice)|is\s+(good|great|perfect)|works)\b/i;
+
+      // Commitment phrases with activities
+      const commitmentActivity =
+        /\b(i'll|let's|let me|i will|i can)\s+(run|walk|swim|exercise|meditate|workout|jog|cycle|hike|stretch)\b/i;
+
+      // Simple affirmatives (only in conversational context)
+      const simpleAffirmative =
+        /^(sounds?\s+(good|great|perfect|nice|cool)|that('s|\s+is)\s+(good|great|perfect)|works\s+for\s+me|okay|ok|sure|yeah|yep|yes|alright|got it)$/i;
+
+      return (
+        activityAffirmative.test(normalized) ||
+        commitmentActivity.test(normalized) ||
+        simpleAffirmative.test(normalized)
+      );
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.7,
+      flags: {
+        requiresAction: false, // Don't create immediately - this is conversational
+        suppressChips: false, // Keep chips to offer next steps
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 40-49: HABIT PATTERNS
   // Strong indicators of recurring behavior
   // ═══════════════════════════════════════════════════════════════

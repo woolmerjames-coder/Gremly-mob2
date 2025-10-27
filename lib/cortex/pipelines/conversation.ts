@@ -834,6 +834,27 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
       intentRoutedAs: 'planning',
       intentKind: finalIntent.kind,
     };
+  } else if (
+    finalIntent.kind === 'habit' &&
+    finalIntent.confidence >= 0.7 &&
+    finalIntent.confidence < minIntentConfidence
+  ) {
+    // Special handling for affirmative habit responses (e.g., "Running sounds good")
+    // These should continue the conversation naturally even below the 0.9 threshold
+    console.log('[CORTEX][policy] affirmative_habit_response', {
+      kind: finalIntent.kind,
+      confidence: finalIntent.confidence,
+      text: userText.substring(0, 50),
+    });
+    normalized.mode = 'ask';
+    // Don't set replyText - let the worker generate a contextual follow-up question
+    normalized.meta = {
+      ...normalized.meta,
+      intentRoutedAs: 'habit',
+      intentKind: 'habit',
+      isAffirmativeResponse: true,
+    };
+    intentHandled = true;
   } else if (isCreationIntent && meetsConfidence && !intentCoolingDown) {
     const topicKey = finalIntent.kind;
     const needsClarification =
