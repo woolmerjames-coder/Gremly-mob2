@@ -601,6 +601,87 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     isMetaComment: intent.isMetaComment,
   });
 
+  // Phase 14: Context-aware intent enhancement
+  // Enhance intent detection using conversation context for vague references
+  const contextValid = ctx.conversationContext?.contextExpiry
+    ? ctx.conversationContext.contextExpiry > Date.now()
+    : false;
+
+  if (contextValid && ctx.conversationContext) {
+    const text = input.text?.toLowerCase() || '';
+
+    // Pattern 1: "set that up as a habit" / "make that a habit" / "create that habit"
+    if (text.match(/set.*up.*habit|make.*habit|create.*habit|save.*habit/i)) {
+      const hasActivity = !!ctx.conversationContext.lastActivity;
+      const hasFrequency = !!ctx.conversationContext.lastFrequency;
+
+      if (hasActivity || hasFrequency) {
+        console.log('[CORTEX][14] Context-enhanced intent: vague habit reference', {
+          originalIntent: intent.kind,
+          originalConfidence: intent.confidence,
+          contextActivity: ctx.conversationContext.lastActivity,
+          contextFrequency: ctx.conversationContext.lastFrequency,
+          contextExpiry: ctx.conversationContext.contextExpiry
+            ? new Date(ctx.conversationContext.contextExpiry).toISOString()
+            : 'none',
+        });
+
+        // Boost to habit intent with high confidence
+        intent.kind = 'habit';
+        intent.confidence = 0.95;
+        intent.title = ctx.conversationContext.lastActivity || intent.title || 'Habit';
+        (intent as any).contextEnhanced = true;
+        (intent as any).contextActivity = ctx.conversationContext.lastActivity;
+        (intent as any).contextFrequency = ctx.conversationContext.lastFrequency;
+      }
+    }
+
+    // Pattern 2: Frequency-only messages like "3 times a week" when activity was mentioned earlier
+    else if (
+      text.match(/(\d+)\s*(?:times?|x)\s*(?:a|per)?\s*(?:week|day)|daily|every\s*day/i) &&
+      ctx.conversationContext.lastActivity &&
+      !text.match(/\b(run|running|meditate|meditation|exercise|walk|read|write)\b/i)
+    ) {
+      console.log('[CORTEX][14] Context-enhanced intent: frequency for existing activity', {
+        originalIntent: intent.kind,
+        originalConfidence: intent.confidence,
+        contextActivity: ctx.conversationContext.lastActivity,
+        frequency: text,
+      });
+
+      // This is a frequency specification for the previously mentioned activity
+      intent.kind = 'habit';
+      intent.confidence = 0.95;
+      intent.title = ctx.conversationContext.lastActivity;
+      (intent as any).contextEnhanced = true;
+      (intent as any).contextActivity = ctx.conversationContext.lastActivity;
+      (intent as any).contextFrequency = text;
+    }
+
+    // Pattern 3: Affirmative responses after habit discussion
+    else if (
+      text.match(
+        /^(yes|yeah|yep|sure|ok|okay|let'?s do it|sounds good|perfect|alright|got it)$/i,
+      ) &&
+      ctx.conversationContext.lastActivity &&
+      (intent.kind === 'none' || intent.kind === 'social' || intent.kind === 'ambiguous')
+    ) {
+      console.log('[CORTEX][14] Context-enhanced intent: affirmation after habit', {
+        originalIntent: intent.kind,
+        contextActivity: ctx.conversationContext.lastActivity,
+        contextFrequency: ctx.conversationContext.lastFrequency,
+      });
+
+      // Treat affirmation as habit confirmation
+      intent.kind = 'habit';
+      intent.confidence = 0.9;
+      intent.title = ctx.conversationContext.lastActivity;
+      (intent as any).contextEnhanced = true;
+      (intent as any).contextActivity = ctx.conversationContext.lastActivity;
+      (intent as any).contextFrequency = ctx.conversationContext.lastFrequency;
+    }
+  }
+
   // Phase 11.6: Multi-intent detection for ambiguous inputs
   // Check if this could be interpreted as multiple types
   let finalIntent = intent;

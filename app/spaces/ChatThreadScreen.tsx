@@ -877,6 +877,13 @@ export default function ChatThreadScreen({ route }: Props) {
             chatId: chat.id || null, // Phase 10.7E: For context building
             repo, // Phase 10.7E: For fetching messages
             recentAssistantKind: lastAssistantResponseRef.current?.kind ?? null,
+            // Phase 14: Pass conversation context for intent enhancement
+            conversationContext: {
+              lastActivity: conversationContext.lastActivity,
+              lastFrequency: conversationContext.lastFrequency,
+              lastDuration: conversationContext.lastDuration,
+              contextExpiry: conversationContext.contextExpiry,
+            },
           };
 
           // Dev-only lane logging
