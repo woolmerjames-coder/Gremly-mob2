@@ -53,33 +53,77 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
-// Isolated TextInput component to prevent parent re-renders from disrupting focus
-const IsolatedTextInput = React.memo<{
+type MindDropInputProps = {
   value: string;
   onChangeText: (text: string) => void;
-  onFocus: () => void;
-  onBlur: () => void;
   placeholder: string;
   placeholderTextColor: string;
+  containerStyle: any;
+  focusedStyle: any;
   inputStyle: any;
-}>(({ value, onChangeText, onFocus, onBlur, placeholder, placeholderTextColor, inputStyle }) => {
-  return (
-    <TextInput
-      testID="minddrop-input"
-      value={value}
-      onChangeText={onChangeText}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      multiline
-      style={inputStyle}
-      accessibilityLabel="Mind Drop input"
-      accessibilityHint="Type anything on your mind"
-      placeholder={placeholder}
-      placeholderTextColor={placeholderTextColor}
-      maxLength={2000}
-    />
-  );
-});
+  onFocusChange?: (focused: boolean) => void;
+};
+
+const MindDropInput = React.memo<MindDropInputProps>(
+  ({
+    value,
+    onChangeText,
+    placeholder,
+    placeholderTextColor,
+    containerStyle,
+    focusedStyle,
+    inputStyle,
+    onFocusChange,
+  }) => {
+    const inputRef = React.useRef<TextInput>(null);
+    const [focused, setFocused] = React.useState(false);
+
+    const handleFocus = React.useCallback(() => {
+      setFocused(true);
+      onFocusChange?.(true);
+    }, [onFocusChange]);
+
+    const handleBlur = React.useCallback(() => {
+      setFocused(false);
+      onFocusChange?.(false);
+    }, [onFocusChange]);
+
+    // Ensure the TextInput keeps focus if parent re-renders while typing
+    React.useEffect(() => {
+      if (focused) {
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+      }
+    }, [focused]);
+
+    return (
+      <View
+        testID="minddrop-input-container"
+        accessible={false}
+        style={[containerStyle, focused && focusedStyle]}
+      >
+        <TextInput
+          ref={inputRef}
+          testID="minddrop-input"
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          multiline
+          style={inputStyle}
+          accessibilityLabel="Mind Drop input"
+          accessibilityHint="Type anything on your mind"
+          placeholder={placeholder}
+          placeholderTextColor={placeholderTextColor}
+          maxLength={2000}
+        />
+      </View>
+    );
+  },
+);
+
+MindDropInput.displayName = 'MindDropInput';
 
 // Centralized copy for consistent toasts/messages
 const COPY = {
@@ -415,11 +459,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [greeting, setGreeting] = useState<string>('');
   const greetingRef = useRef<any>(null);
   const [placeholder] = useState('Buy milk, call mom, that idea about...');
-  const [isFocused, setIsFocused] = useState(false);
-
-  // Stable focus handlers to prevent re-creating the TextInput
-  const handleFocus = useCallback(() => setIsFocused(true), []);
-  const handleBlur = useCallback(() => setIsFocused(false), []);
+  const inputFocusRef = useRef(false);
+  const handleInputFocusChange = useCallback((focused: boolean) => {
+    inputFocusRef.current = focused;
+  }, []);
 
   // Mind Drop P4: submit lifecycle & guardrails
   const pendingUndo = useRef<{ todos: string[]; notes: string[]; habits: string[] }>({
@@ -559,7 +602,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       await refreshOrganizedToday();
       // Refresh count every 60s, but skip if user is typing to prevent TextInput disruption
       trustRefreshRef.current = setInterval(() => {
-        if (!isFocused) {
+        if (!inputFocusRef.current) {
           void refreshOrganizedToday();
         }
       }, trustRefreshMs);
@@ -568,7 +611,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       mounted = false;
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
-  }, [refreshOrganizedToday, trustRefreshMs, isFocused]);
+  }, [refreshOrganizedToday, trustRefreshMs]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -1141,21 +1184,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             {greeting}
           </Text>
         ) : null}
-        <View
-          testID="minddrop-input-container"
-          accessible={false}
-          style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
-        >
-          <IsolatedTextInput
-            value={note}
-            onChangeText={setNote}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            placeholder={placeholder}
-            placeholderTextColor={c.mutedText}
-            inputStyle={styles.input}
-          />
-        </View>
+        <MindDropInput
+          value={note}
+          onChangeText={handleChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={c.mutedText}
+          containerStyle={styles.inputContainer}
+          focusedStyle={styles.inputContainerFocused}
+          inputStyle={styles.input}
+          onFocusChange={handleInputFocusChange}
+        />
         {/* Privacy badge + live character counter */}
         <View style={styles.metaRow}>
           <Text testID="minddrop-privacy" style={styles.metaText}>
@@ -1192,11 +1230,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       greeting,
       greetingRef,
       styles,
-      isFocused,
       note,
-      setNote,
-      handleFocus,
-      handleBlur,
+      handleChangeText,
+      handleInputFocusChange,
       placeholder,
       c.mutedText,
       c.bg,
