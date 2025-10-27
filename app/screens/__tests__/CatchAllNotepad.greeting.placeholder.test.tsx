@@ -126,4 +126,13 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
     const baseStyleEnabled = styleArrayEnabled[0] || {};
     expect(baseStyleEnabled.opacity).toBe(1);
   });
+
+  it('displays static trust line with privacy message when no items organized', () => {
+    render(<CatchAllNotepad />);
+
+    const trustText = screen.getByTestId('minddrop-trust-text');
+    const text = trustText.props.children?.toString() || '';
+    // Should show privacy message when organizedToday is 0
+    expect(text).toBe('Your thoughts are private & secure with Gremly.');
+  });
 });
