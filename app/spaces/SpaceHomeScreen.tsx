@@ -828,8 +828,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     persistKey={`goalList:expanded:${spaceId}`}
                     totalCountLabel={(n) => `See All Goals (${n})`}
                     onOpen={(id) => {
+                      console.log('[SpaceHome] Goal clicked:', id);
                       const rec = (items as any[]).find((r) => r.id === id);
-                      if (rec) overlay.openEdit({ record: rec, spaceId });
+                      console.log('[SpaceHome] Found record:', rec ? rec.type : 'NOT FOUND');
+                      if (rec) {
+                        console.log('[SpaceHome] Opening overlay for edit');
+                        overlay.openEdit({ record: rec, spaceId });
+                      }
                     }}
                     onMenu={() => {}}
                   />
@@ -1689,7 +1694,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         onClose={overlay.close}
         onSave={async () => {
           // Refresh space data after save
-          await loadSpaceData();
+          await reload();
+          await reloadTimeline();
         }}
       />
     </View>
