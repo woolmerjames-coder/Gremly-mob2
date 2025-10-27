@@ -47,18 +47,26 @@ describe('CatchAllNotepad header + tooltip', () => {
     jest.useRealTimers();
   });
 
-  it('renders the screen and exposes the info button', () => {
+  it('renders the screen and exposes the info button in header', () => {
     const { getByTestId } = render(<CatchAllNotepad />);
 
     expect(getByTestId('minddrop-screen')).toBeTruthy();
-    expect(getByTestId('minddrop-info-button')).toBeTruthy();
+    // Info button is now in headerRight, not in main content
+    expect(latestOptions?.headerRight).toBeDefined();
   });
 
   it('sets the header title to "Mind Drop" (headerRight wired)', () => {
     const screen = render(<CatchAllNotepad />);
     // Title set via setOptions
     expect(latestOptions?.title).toBe('Mind Drop');
-    // At minimum, info button exists in the screen tree
-    expect(screen.getByTestId('minddrop-info-button')).toBeTruthy();
+    // Info button is in headerRight
+    expect(latestOptions?.headerRight).toBeDefined();
+
+    // Render the headerRight component to verify it contains the info button
+    const HeaderRight = latestOptions?.headerRight;
+    if (HeaderRight) {
+      const { getByTestId } = render(<HeaderRight />);
+      expect(getByTestId('minddrop-info-button')).toBeTruthy();
+    }
   });
 });

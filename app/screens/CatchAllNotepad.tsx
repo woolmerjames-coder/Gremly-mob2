@@ -353,14 +353,13 @@ const RecentDrops: React.FC<{
 export const RecentDropsTestable = RecentDrops;
 
 export type CatchAllNotepadProps = {
-  trustCycleMs?: number;
   trustRefreshMs?: number;
   // Optional P8: allow parent to pass network status if a hook exists elsewhere
   networkIsOnline?: boolean;
 };
 
 export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
-  const { trustCycleMs = 4000, trustRefreshMs = 60000, networkIsOnline } = props;
+  const { trustRefreshMs = 60000, networkIsOnline } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { userId } = useAuth();
@@ -391,10 +390,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     habits: [],
   });
   const lastSubmitAt = useRef<number>(0);
-  // Trust Builders: organized today count and cycling messages
+  // Trust Builders: organized today count
   const [organizedToday, setOrganizedToday] = useState<number>(0);
-  const [trustIndex, setTrustIndex] = useState(0);
-  const trustTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
 
@@ -512,16 +509,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setSuggestions([]);
   }, []);
 
-  // Trust Builders: start timers and initial refresh
+  // Trust Builders: start timer and initial refresh
   useEffect(() => {
     let mounted = true;
     (async () => {
-      // Start cycling immediately to avoid blocking on initial refresh
-      trustTimerRef.current = setInterval(() => {
-        if (!mounted) return;
-        setTrustIndex((prev) => (prev + 1) % 5);
-      }, trustCycleMs);
-
       await refreshOrganizedToday();
       // Refresh count every 60s
       trustRefreshRef.current = setInterval(() => {
@@ -530,10 +521,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     })();
     return () => {
       mounted = false;
-      if (trustTimerRef.current) clearInterval(trustTimerRef.current);
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
-  }, [refreshOrganizedToday, trustCycleMs, trustRefreshMs]);
+  }, [refreshOrganizedToday, trustRefreshMs]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -1084,18 +1074,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     networkIsOnline,
   ]);
 
-  // Trust Builders messages
-  const trustMessages = useMemo(() => {
-    const countLine = `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`;
-    return [
-      'No formatting needed — I’ll organize everything.',
-      countLine,
-      'Most people drop 3–5 thoughts at once.',
-      'Voice input coming soon!',
-      'Your mind’s safe here.',
-    ];
-  }, [organizedToday]);
-
+  // Trust Builders static message
+  const trustLine =
+    organizedToday > 0
+      ? `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`
+      : 'Your thoughts are private & secure with Gremly.';
   const legacyUI = (
     <View>
       {/* Greeting above the input */}
@@ -1150,14 +1133,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       {/* Trust Builders row */}
       <View style={styles.trustRow} testID="minddrop-trust">
         <Text style={styles.trustText} testID="minddrop-trust-text">
-          {trustMessages[trustIndex]}
+          {trustLine}
         </Text>
       </View>
       {/* Recent Drops section */}
       <RecentDrops refreshSignal={recentRefresh} onEdited={() => {}} onDeleted={() => {}} />
-      <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
-        <Text>ℹ️</Text>
-      </Pressable>
     </View>
   );
 
