@@ -369,7 +369,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
-  const { c, mode: themeMode } = useTheme();
+  const themeResult = useTheme();
+  const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
+  const themeMode = themeResult.mode;
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
   const reduceMotion = useReducedMotion();
   const [uiMode, setUiMode] = useState<Mode>('free');
