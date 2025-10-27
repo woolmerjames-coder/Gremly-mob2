@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run colocated Mind Drop greeting/placeholder tests",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"test",
+				"--",
+				"app/screens/__tests__/CatchAllNotepad.greeting.placeholder.test.tsx",
+				"-u"
+			]
+		}
+	]
+}

@@ -497,6 +497,25 @@ export default function CatchAllNotepad(): React.JSX.Element {
           style={styles.minddropInput}
         />
       </Animated.View>
+      {process.env.JEST_WORKAROUND === '1' ? (
+        <Pressable
+          testID="minddrop-rotate-placeholder"
+          onPress={() => {
+            // Mimic the interval-driven rotation for tests
+            Animated.sequence([
+              Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+              Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
+            ]).start();
+            setPlaceholderIndex((prev) => {
+              const next = (prev + 1) % PLACEHOLDERS.length;
+              setPlaceholder(PLACEHOLDERS[next]);
+              return next;
+            });
+          }}
+        >
+          <Text variant="subtle">test-rotate</Text>
+        </Pressable>
+      ) : null}
       <Button
         testID="minddrop-submit-button"
         label="Submit"
