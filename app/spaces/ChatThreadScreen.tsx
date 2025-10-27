@@ -1859,6 +1859,35 @@ export default function ChatThreadScreen({ route }: Props) {
                 }
               };
 
+              // Extract core action/name from conversational text
+              const extractActionName = (text: string, type: 'habit' | 'todo' | 'note'): string => {
+                if (type === 'habit') {
+                  // Remove common habit prefixes and suffixes
+                  const cleaned = text
+                    .replace(
+                      /^(i want to|i need to|i should|let's|i'm going to|i'd like to)\s+/i,
+                      '',
+                    )
+                    .replace(/\s+(every (day|morning|evening|night|week|month))/gi, '')
+                    .replace(/\s+(daily|weekly|monthly)/gi, '')
+                    .replace(/\s+(in the (morning|evening|afternoon))/gi, '')
+                    .replace(/\s+habit$/i, '')
+                    .trim();
+
+                  // Capitalize first letter
+                  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                } else if (type === 'todo') {
+                  // Remove todo prefixes
+                  const cleaned = text
+                    .replace(/^(i need to|i should|i have to|todo:|task:)\s+/i, '')
+                    .trim();
+                  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                } else {
+                  // For notes, just capitalize
+                  return text.trim().charAt(0).toUpperCase() + text.trim().slice(1);
+                }
+              };
+
               const handleEdit = () => {
                 console.log('[Toast] Edit clicked');
                 if (toastActionType) {
@@ -1878,11 +1907,22 @@ export default function ChatThreadScreen({ route }: Props) {
                 }
                 // Open overlay for editing
                 if (actionType === 'habit' || actionType === 'todo' || actionType === 'note') {
+                  const rawTitle = pendingActionConfirmation.content;
+                  const cleanedTitle = extractActionName(rawTitle, actionType);
+
+                  if (__DEV__) {
+                    console.log('[Toast] Extracted name:', {
+                      raw: rawTitle,
+                      cleaned: cleanedTitle,
+                      type: actionType,
+                    });
+                  }
+
                   overlayController.openCreate({
                     type: actionType,
                     spaceId: spaceId ?? undefined,
                     conversionMeta: {
-                      initialTitle: pendingActionConfirmation.content,
+                      initialTitle: cleanedTitle,
                     },
                   });
                 }
