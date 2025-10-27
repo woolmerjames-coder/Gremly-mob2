@@ -481,7 +481,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
       {greeting ? (
         <Text
           testID="minddrop-greeting"
-          style={{ fontSize: 16, color: '#2E5540', marginBottom: 12 }}
+          style={{ fontSize: 16, color: '#2E5540', marginBottom: 12, fontFamily: 'Inter' }}
         >
           {greeting}
         </Text>
