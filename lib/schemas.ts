@@ -39,18 +39,9 @@ export const habitSubtypeZ = z.union([
   z.literal('routine'),
 ]) as z.ZodType<HabitSubtype>;
 
-// Accept both lowercase (correct) and capitalized (legacy data) frequencies
-// Transform to lowercase to ensure consistency
-export const frequencyZ = z
-  .union([
-    z.literal('daily'),
-    z.literal('weekly'),
-    z.literal('monthly'),
-    z.literal('Daily'),
-    z.literal('Weekly'),
-    z.literal('Monthly'),
-  ])
-  .transform((val) => val.toLowerCase() as Frequency) as z.ZodType<Frequency>;
+// Phase 14: Accept any string for frequency to support custom frequencies like "3x/week"
+// Legacy frequencies (daily/weekly/monthly) are preserved, but now accepts any format
+export const frequencyZ = z.string().min(1) as z.ZodType<Frequency>;
 
 // ==========================
 // ROW SCHEMAS (from database)
