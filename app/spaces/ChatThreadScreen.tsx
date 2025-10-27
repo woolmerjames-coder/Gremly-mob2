@@ -1619,7 +1619,7 @@ export default function ChatThreadScreen({ route }: Props) {
                         'daily') as any,
                       subtype: 'start_habit',
                       space_id: spaceId,
-                      origin: 'space_chat',
+                      origin: 'catchall',
                     };
                     created = await repo.create(habitData);
                     console.log('[Toast] Habit created directly:', created.id);
@@ -1630,7 +1630,7 @@ export default function ChatThreadScreen({ route }: Props) {
                       title: pendingActionConfirmation.content,
                       due_date: null,
                       space_id: spaceId,
-                      origin: 'space_chat',
+                      origin: 'catchall',
                     };
                     created = await repo.create(todoData);
                     console.log('[Toast] Todo created directly:', created.id);
@@ -1641,7 +1641,7 @@ export default function ChatThreadScreen({ route }: Props) {
                       body: pendingActionConfirmation.content,
                       subtype: 'idea',
                       space_id: spaceId,
-                      origin: 'space_chat',
+                      origin: 'catchall',
                     };
                     created = await repo.create(noteData);
                     console.log('[Toast] Note created directly:', created.id);
