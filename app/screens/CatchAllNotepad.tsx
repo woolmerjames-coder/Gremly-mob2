@@ -1164,23 +1164,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   return (
     <View style={styles.root} testID="minddrop-screen">
-      {/* Tooltip overlay just under the header */}
-      <View
-        pointerEvents={showTip ? 'auto' : 'none'}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
-      >
-        {showTip ? (
-          <>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
-            <View style={styles.tipContainer} testID="minddrop-tip">
-              <View style={styles.tipArrow} />
-              <Text style={styles.tipText}>
-                Just type everything on your mind. I’ll organize it.
-              </Text>
-            </View>
-          </>
-        ) : null}
-      </View>
+      {/* Tooltip overlay just under the header - only render when visible to avoid input blocking */}
+      {showTip ? (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
+          <View style={styles.tipContainer} testID="minddrop-tip">
+            <View style={styles.tipArrow} />
+            <Text style={styles.tipText}>Just type everything on your mind. I'll organize it.</Text>
+          </View>
+        </View>
+      ) : null}
 
       {/* Inline Action Toast overlay */}
       {ActionToast}
