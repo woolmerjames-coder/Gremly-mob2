@@ -471,8 +471,17 @@ export function UnifiedCreateOverlay({
           console.log('[UnifiedOverlay] Correcting type for create:', initialEntity.type);
         }
       }
+      // Animate fields in when type is auto-selected
+      if (initialEntity?.type) {
+        fadeAnim.setValue(0);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
     }
-  }, [visible, mode, initialEntity, loadEntity, selectedType]);
+  }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim]);
 
   // Phase 10.7C: Prefill from conversionMeta
   useEffect(() => {
@@ -1573,6 +1582,16 @@ export function UnifiedCreateOverlay({
                 // Render fields only when ready (or in create mode which is always ready)
                 const canRenderFields =
                   mode === 'create' || (mode === 'edit' && hydration === 'ready');
+
+                if (__DEV__) {
+                  console.log('[UnifiedOverlay] Render guard check:', {
+                    mode,
+                    hydration,
+                    selectedType,
+                    canRenderFields,
+                    aiMode,
+                  });
+                }
 
                 if (!canRenderFields) {
                   return null;
