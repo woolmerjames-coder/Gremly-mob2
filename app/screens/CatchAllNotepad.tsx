@@ -921,8 +921,27 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Primary path: existing pipeline
           // EXPECTED: returns { created: { todos: string[], notes: string[], habits: string[] } }
           const r = await performSave();
-          finalResult = r;
-          break; // success
+
+          // Treat an "empty create" result as a failure to trigger retry/fallback.
+          const createdTodos = r?.created?.todos?.length ?? 0;
+          const createdNotes = r?.created?.notes?.length ?? 0;
+          const createdHabits = r?.created?.habits?.length ?? 0;
+          const totalCreated = createdTodos + createdNotes + createdHabits;
+
+          if (totalCreated > 0) {
+            finalResult = r;
+            break; // success
+          }
+
+          // No items created -> mark as failure and possibly retry
+          lastError = new Error('EmptySave');
+          if (attempt === 1) {
+            showActionToast({ type: 'success', content: COPY.retrying });
+            // loop to attempt #2
+          } else {
+            // Second failure — stop retrying
+            break;
+          }
         } catch (err: any) {
           lastError = err;
           if (attempt === 1) {
