@@ -55,6 +55,7 @@ import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
 import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import UnifiedCreateOverlay from '../../components/overlay/UnifiedCreateOverlay';
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -1677,6 +1678,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </Animated.View>
       )}
+
+      {/* Unified Overlay for creating/editing habits, todos, notes, people */}
+      <UnifiedCreateOverlay
+        visible={overlay.state.visible}
+        mode={overlay.state.mode}
+        initialEntity={overlay.state.initialEntity}
+        initialSpaceId={overlay.state.initialSpaceId}
+        conversionMeta={overlay.state.conversionMeta}
+        onClose={overlay.close}
+        onSave={async () => {
+          // Refresh space data after save
+          await loadSpaceData();
+        }}
+      />
     </View>
   );
 }
