@@ -53,6 +53,34 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
+// Isolated TextInput component to prevent parent re-renders from disrupting focus
+const IsolatedTextInput = React.memo<{
+  value: string;
+  onChangeText: (text: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  placeholder: string;
+  placeholderTextColor: string;
+  inputStyle: any;
+}>(({ value, onChangeText, onFocus, onBlur, placeholder, placeholderTextColor, inputStyle }) => {
+  return (
+    <TextInput
+      testID="minddrop-input"
+      value={value}
+      onChangeText={onChangeText}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      multiline
+      style={inputStyle}
+      accessibilityLabel="Mind Drop input"
+      accessibilityHint="Type anything on your mind"
+      placeholder={placeholder}
+      placeholderTextColor={placeholderTextColor}
+      maxLength={2000}
+    />
+  );
+});
+
 // Centralized copy for consistent toasts/messages
 const COPY = {
   retrying: 'Let me try again…',
@@ -1118,19 +1146,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           accessible={false}
           style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
         >
-          <TextInput
-            testID="minddrop-input"
+          <IsolatedTextInput
             value={note}
             onChangeText={setNote}
             onFocus={handleFocus}
             onBlur={handleBlur}
-            multiline
-            style={styles.input}
-            accessibilityLabel="Mind Drop input"
-            accessibilityHint="Type anything on your mind"
             placeholder={placeholder}
             placeholderTextColor={c.mutedText}
-            maxLength={2000}
+            inputStyle={styles.input}
           />
         </View>
         {/* Privacy badge + live character counter */}
