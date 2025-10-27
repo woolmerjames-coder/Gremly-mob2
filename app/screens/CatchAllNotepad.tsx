@@ -125,6 +125,11 @@ export default function CatchAllNotepad(): React.JSX.Element {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showTip, setShowTip] = useState(false);
+  // Mind Drop: greeting + rotating placeholders
+  const [greeting, setGreeting] = useState<string>('');
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [placeholder, setPlaceholder] = useState<string>(PLACEHOLDERS[0]);
+  const placeholderTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -141,6 +146,47 @@ export default function CatchAllNotepad(): React.JSX.Element {
     const t = setTimeout(() => setShowTip(false), 3000);
     return () => clearTimeout(t);
   }, [showTip]);
+
+  // On mount: load last open ts, compute greeting, start placeholder cycling, save new last open ts
+  useEffect(() => {
+    let isMounted = true;
+
+    (async () => {
+      let lastOpenedAt: number | null = null;
+      try {
+        const raw = await AsyncStorage.getItem(LAST_OPEN_KEY);
+        if (raw) lastOpenedAt = Number(raw);
+      } catch (e) {
+        void e; // ignore read error
+      }
+
+      if (isMounted) {
+        const now = new Date();
+        setGreeting(getGreeting(now, lastOpenedAt));
+      }
+
+      // Start cycling placeholders every 3s
+      placeholderTimer.current = setInterval(() => {
+        setPlaceholderIndex((prev) => {
+          const next = (prev + 1) % PLACEHOLDERS.length;
+          setPlaceholder(PLACEHOLDERS[next]);
+          return next;
+        });
+      }, 3000);
+
+      // Save "last open" now
+      try {
+        await AsyncStorage.setItem(LAST_OPEN_KEY, String(Date.now()));
+      } catch (e) {
+        void e; // ignore write error
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+      if (placeholderTimer.current) clearInterval(placeholderTimer.current);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     navigation.setOptions({
