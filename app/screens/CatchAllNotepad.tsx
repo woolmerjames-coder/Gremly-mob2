@@ -31,6 +31,7 @@ import {
 } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { MIND_DROP_V2 } from '@/src/config/featureFlags';
+import { useActionToast } from '../../src/hooks/useActionToast';
 
 export const THINKING_DURATION = 1200;
 
@@ -117,6 +118,9 @@ export default function CatchAllNotepad(): React.JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { userId } = useAuth();
+  const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
+    bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
+  });
   const [mode, setMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
@@ -133,6 +137,13 @@ export default function CatchAllNotepad(): React.JSX.Element {
   const placeholderTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [phOpacity] = useState(() => new Animated.Value(1));
   const [isFocused, setIsFocused] = useState(false);
+  // Mind Drop P4: submit lifecycle & guardrails
+  const pendingUndo = useRef<{ todos: string[]; notes: string[]; habits: string[] }>({
+    todos: [],
+    notes: [],
+    habits: [],
+  });
+  const lastSubmitAt = useRef<number>(0);
 
   useEffect(() => {
     return () => {
@@ -232,6 +243,62 @@ export default function CatchAllNotepad(): React.JSX.Element {
     setSuggestions([]);
   }, []);
 
+  // Undo last created items (todos/notes/habits)
+  const handleUndoCreated = useCallback(async () => {
+    const snapshot = pendingUndo.current;
+    if (
+      !snapshot ||
+      (!snapshot.todos.length && !snapshot.notes.length && !snapshot.habits.length)
+    ) {
+      showActionToast({ type: 'success', content: 'Nothing to undo' });
+      return;
+    }
+
+    try {
+      // Delete items; if relationships exist, adjust order accordingly
+      await Promise.all([
+        ...snapshot.todos.map((id) => repo.remove(id)),
+        ...snapshot.habits.map((id) => repo.remove(id)),
+        ...snapshot.notes.map((id) => repo.remove(id)),
+      ]);
+
+      // Clear snapshot to avoid repeat undo
+      pendingUndo.current = { todos: [], notes: [], habits: [] };
+
+      showActionToast({ type: 'success', content: '✅ Undo complete — Mind Drop reverted' });
+    } catch (e) {
+      Alert.alert('Undo failed', 'Could not revert items. You can edit from Recent.');
+    }
+  }, [repo, showActionToast]);
+
+  // Navigate to Hub → Recent (fallback toast if route missing)
+  const handleViewDetails = useCallback(() => {
+    try {
+      // Navigate to Hub tab; pass filter for future use if supported
+      (navigation as any).navigate('Tabs', { screen: 'Hub', params: { filter: 'recent' } });
+    } catch (err) {
+      showActionToast({
+        type: 'success',
+        content: 'ℹ️ Open Hub → Recent to see new items',
+      });
+    }
+  }, [navigation, showActionToast]);
+
+  // Shared success toast helper for Mind Drop
+  const showMindDropSuccessToast = useCallback(
+    (args: { todos?: number; notes?: number; habits?: number }) => {
+      const { todos = 0, notes = 0, habits = 0 } = args || {};
+      const parts: string[] = [];
+      if (todos) parts.push(`${todos} todo${todos === 1 ? '' : 's'}`);
+      if (habits) parts.push(`${habits} habit${habits === 1 ? '' : 's'}`);
+      if (notes) parts.push(`${notes} note${notes === 1 ? '' : 's'}`);
+      const summary = parts.length ? parts.join(', ') : 'Saved';
+      const label = parts.length ? `✅ Saved ${summary}` : '✅ Saved';
+      showActionToast({ type: 'success', content: label });
+    },
+    [showActionToast],
+  );
+
   const performSave = useCallback(async () => {
     try {
       const trimmed = note.trim();
@@ -282,6 +349,12 @@ export default function CatchAllNotepad(): React.JSX.Element {
           if (response.mode === 'auto' && response.actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
+            const counts = { todos: 0, notes: 0, habits: 0 };
+            const createdIds = {
+              todos: [] as string[],
+              notes: [] as string[],
+              habits: [] as string[],
+            };
 
             await Promise.all(
               response.actions.map(async (action: CortexAction) => {
@@ -294,7 +367,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
                     await repo.addListItem(list.id, action.payload.item);
                     confirmationTexts.push(explainAddedToList(list.name, 'warm'));
                   } else if (action.type === 'create.todo') {
-                    await repo.create({
+                    const rec = await repo.create({
                       type: 'todo',
                       name: action.payload.title,
                       title: action.payload.title,
@@ -306,8 +379,10 @@ export default function CatchAllNotepad(): React.JSX.Element {
                       origin: 'catchall',
                     });
                     confirmationTexts.push(explainCreated('todo', 'warm'));
+                    counts.todos += 1;
+                    createdIds.todos.push(rec.id);
                   } else if (action.type === 'create.habit') {
-                    await repo.create({
+                    const rec = await repo.create({
                       type: 'habit',
                       name: action.payload.name,
                       frequency:
@@ -320,8 +395,10 @@ export default function CatchAllNotepad(): React.JSX.Element {
                       origin: 'catchall',
                     });
                     confirmationTexts.push(explainCreated('habit', 'warm'));
+                    counts.habits += 1;
+                    createdIds.habits.push(rec.id);
                   } else if (action.type === 'create.note') {
-                    await repo.create({
+                    const rec = await repo.create({
                       type: 'note',
                       title: action.payload.text || trimmed,
                       body: action.payload.text,
@@ -332,6 +409,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
                       origin: 'catchall',
                     });
                     confirmationTexts.push(explainCreated('note', 'warm'));
+                    counts.notes += 1;
+                    createdIds.notes.push(rec.id);
                   }
                   // file.to.space and attach.reminder not yet implemented
                 } catch (err) {
@@ -343,6 +422,12 @@ export default function CatchAllNotepad(): React.JSX.Element {
             // Show confirmations
             setConfirmations(confirmationTexts);
 
+            // Unified success toast summarizing created items
+            showMindDropSuccessToast(counts);
+
+            // Snapshot for undo
+            pendingUndo.current = createdIds;
+
             // Clear form after brief delay to show confirmations
             setTimeout(() => {
               resetState();
@@ -353,7 +438,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
             const suggestionHints = response.suggestions
               ? ` Suggestions: ${response.suggestions.join(', ')}`
               : '';
-            await repo.create({
+            const rec = await repo.create({
               type: 'note',
               title: trimmed || 'Quick note',
               body: trimmed,
@@ -374,9 +459,11 @@ export default function CatchAllNotepad(): React.JSX.Element {
               setSuggestions(response.suggestions);
             }
 
-            if (Platform.OS === 'android') {
-              ToastAndroid.show('Saved for later.', ToastAndroid.SHORT);
-            }
+            // Unified success toast for single note capture
+            showMindDropSuccessToast({ notes: 1 });
+
+            // Snapshot for undo (single note)
+            pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
 
             // Clear form after showing suggestions
             setTimeout(() => {
@@ -386,7 +473,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
         } catch (error) {
           // Cortex failed - fall back to safe save
           console.error('[CatchAllNotepad] Cortex decision failed:', error);
-          await repo.create({
+          const rec = await repo.create({
             type: 'note',
             title: trimmed || 'Quick note',
             body: trimmed,
@@ -401,15 +488,16 @@ export default function CatchAllNotepad(): React.JSX.Element {
               alsoShowIn: ['Hub:Catch-All'],
             },
           });
+          // Unified success toast fallback
+          showMindDropSuccessToast({ notes: 1 });
 
-          if (Platform.OS === 'android') {
-            ToastAndroid.show('Saved for later.', ToastAndroid.SHORT);
-          }
+          // Snapshot for undo
+          pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
           resetState();
         }
       } else {
         // Free mode - simple save without AI
-        await repo.create({
+        const rec = await repo.create({
           type: 'note',
           title: trimmed || 'Quick note',
           body: trimmed,
@@ -424,13 +512,11 @@ export default function CatchAllNotepad(): React.JSX.Element {
             alsoShowIn: ['Hub:Catch-All'],
           },
         });
+        // Unified success toast for free mode
+        showMindDropSuccessToast({ notes: 1 });
 
-        console.log('Captured to Catch-All.');
-        if (Platform.OS === 'android') {
-          ToastAndroid.show('Captured to Catch-All.', ToastAndroid.SHORT);
-        } else {
-          Alert.alert('Captured to Catch-All.');
-        }
+        // Snapshot for undo
+        pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
         resetState();
       }
     } catch (error) {
@@ -475,6 +561,35 @@ export default function CatchAllNotepad(): React.JSX.Element {
       void performSave();
     }
   }, [isSubmitting, mode, note, performSave]);
+
+  // Mind Drop: robust submit with debounce and guardrails
+  const onSubmit = useCallback(async () => {
+    const now = Date.now();
+    if (isSubmitting) return;
+    if (now - lastSubmitAt.current < 600) return; // debounce 600ms
+    lastSubmitAt.current = now;
+
+    const trimmed = note.trim();
+    if (!trimmed) return;
+
+    try {
+      setIsSubmitting(true);
+      // performSave already encapsulates save pipeline and user feedback (toasts/alerts)
+      await performSave();
+
+      // TODO(P10): capture created IDs from performSave once available
+      // pendingUndo.current = { todos: [], notes: [], habits: [] };
+      // showMindDropSuccessToast({
+      //   todos: 0, notes: 0, habits: 0,
+      //   onUndo: () => {},
+      //   onView: () => {},
+      // });
+    } catch (e) {
+      // TODO(P10): surface a mild error toast
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, note, performSave]);
 
   const legacyUI = (
     <View>
@@ -536,8 +651,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
       ) : null}
       <Button
         testID="minddrop-submit-button"
-        label="Submit"
-        onPress={performSave}
+        label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
+        onPress={disabled ? undefined : onSubmit}
         disabled={disabled}
         disabledOpacity={0.6}
       />
@@ -576,6 +691,9 @@ export default function CatchAllNotepad(): React.JSX.Element {
           </>
         ) : null}
       </View>
+
+      {/* Inline Action Toast overlay */}
+      {ActionToast}
 
       {content}
     </View>
