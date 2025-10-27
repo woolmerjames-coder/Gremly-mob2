@@ -32,6 +32,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
+import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
@@ -1602,15 +1603,96 @@ export default function ChatThreadScreen({ route }: Props) {
                     )
                     .catch(() => {});
                 }
-                // Open overlay for confirmation
-                if (actionType === 'habit' || actionType === 'todo' || actionType === 'note') {
-                  overlayController.openCreate({
-                    type: actionType,
-                    spaceId: spaceId ?? undefined,
-                    conversionMeta: {
-                      initialTitle: pendingActionConfirmation.content,
-                    },
-                  });
+
+                // Create the item directly (don't open overlay for confirmation)
+                if (!actionType || !spaceId) return;
+
+                try {
+                  let created: any = null;
+
+                  // Create based on type using repo.create() with CreateRecordInput
+                  if (actionType === 'habit') {
+                    const habitData: CreateRecordInput = {
+                      type: 'habit',
+                      name: metadata.activityName || pendingActionConfirmation.content,
+                      frequency: (metadata.summary?.split(' - ')[1]?.toLowerCase() ||
+                        'daily') as any,
+                      subtype: 'start_habit',
+                      space_id: spaceId,
+                      origin: 'space_chat',
+                    };
+                    created = await repo.create(habitData);
+                    console.log('[Toast] Habit created directly:', created.id);
+                  } else if (actionType === 'todo') {
+                    const todoData: CreateRecordInput = {
+                      type: 'todo',
+                      name: pendingActionConfirmation.content,
+                      title: pendingActionConfirmation.content,
+                      due_date: null,
+                      space_id: spaceId,
+                      origin: 'space_chat',
+                    };
+                    created = await repo.create(todoData);
+                    console.log('[Toast] Todo created directly:', created.id);
+                  } else if (actionType === 'note') {
+                    const noteData: CreateRecordInput = {
+                      type: 'note',
+                      title: pendingActionConfirmation.content.slice(0, 100),
+                      body: pendingActionConfirmation.content,
+                      subtype: 'idea',
+                      space_id: spaceId,
+                      origin: 'space_chat',
+                    };
+                    created = await repo.create(noteData);
+                    console.log('[Toast] Note created directly:', created.id);
+                  }
+
+                  if (created) {
+                    // Remove the toast message
+                    removeMessage(pendingActionConfirmation.id);
+
+                    // Add locked confirmation message
+                    await appendAssistantMessage('', {
+                      type: `${actionType}-locked`,
+                      [`${actionType}Name`]:
+                        actionType === 'habit'
+                          ? (created as any).name
+                          : actionType === 'todo'
+                            ? (created as any).title
+                            : 'Item',
+                      frequency: actionType === 'habit' ? (created as any).frequency : undefined,
+                      dueDate: actionType === 'todo' ? (created as any).due_date : undefined,
+                      noteContent: actionType === 'note' ? (created as any).content : undefined,
+                      [`${actionType}Id`]: created.id,
+                      locked: true,
+                      itemType: actionType,
+                    });
+
+                    // Add follow-up message after short delay
+                    setTimeout(async () => {
+                      try {
+                        const itemName =
+                          actionType === 'habit'
+                            ? (created as any).name || 'habit'
+                            : actionType === 'todo'
+                              ? 'task'
+                              : 'note';
+                        const continuationMessage =
+                          actionType === 'habit'
+                            ? `Great! Your ${itemName} is set. What else would you like to work on?`
+                            : actionType === 'todo'
+                              ? 'Task added to your list. Anything else you need to get done?'
+                              : "Got it! Note saved. What's next?";
+                        await appendAssistantMessage(continuationMessage);
+                        console.log('[Chat] Follow-up message added after direct creation');
+                      } catch (err) {
+                        console.error('[Chat] Failed to add follow-up message:', err);
+                      }
+                    }, 1500);
+                  }
+                } catch (error) {
+                  console.error(`[Toast] Failed to create ${actionType}:`, error);
+                  // TODO: Show error message to user
                 }
               };
 
