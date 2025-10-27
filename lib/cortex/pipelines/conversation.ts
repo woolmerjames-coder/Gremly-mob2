@@ -810,6 +810,77 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     ? Number(minConfidenceEnv)
     : 0.9;
 
+  // Phase 14: Smart context-aware confidence thresholds
+  const getConfidenceThreshold = (
+    detectedIntent: DetectedIntent,
+    userInput: string,
+    convContext?: any,
+  ): number => {
+    const text = userInput.toLowerCase();
+
+    // PATTERN 0: Building mode = Lowest threshold (0.65) for follow-up messages
+    if (convContext?.buildingMode && convContext.buildingStartedAt) {
+      const buildingDuration = Date.now() - convContext.buildingStartedAt;
+      // Building mode active for up to 5 minutes
+      if (buildingDuration < 300000) {
+        if (__DEV__) {
+          console.log('[CORTEX][14] Smart threshold: building mode active → 0.65');
+        }
+        return 0.65;
+      }
+    }
+
+    // PATTERN 1: Explicit intent phrases = Lower threshold (0.75)
+    if (text.match(/^(i want to|let'?s|i need to|create a?|set up|add a?|make a?|start)/i)) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: explicit intent phrase → 0.75');
+      }
+      return 0.75;
+    }
+
+    // PATTERN 2: Complete habit info = Lower threshold (0.8)
+    if (
+      detectedIntent.kind === 'habit' &&
+      (detectedIntent as any).contextEnhanced &&
+      convContext?.lastActivity &&
+      convContext?.lastFrequency
+    ) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: complete habit context → 0.8');
+      }
+      return 0.8;
+    }
+
+    // PATTERN 3: Response to assistant question = Lower threshold (0.75)
+    const lastMessages = ctx.contextWindow?.slice(-2) || [];
+    const lastAssistantMessage = lastMessages.find((m) => m.role === 'assistant');
+    if (lastAssistantMessage?.text && /\?/.test(lastAssistantMessage.text)) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: response to question → 0.75');
+      }
+      return 0.75;
+    }
+
+    // PATTERN 4: Follow-up in same conversation = Lower threshold (0.8)
+    if (
+      convContext?.lastActivity &&
+      detectedIntent.kind === 'habit' &&
+      ctx.currentTurn &&
+      ctx.currentTurn > 2
+    ) {
+      if (__DEV__) {
+        console.log('[CORTEX][14] Smart threshold: habit follow-up → 0.8');
+      }
+      return 0.8;
+    }
+
+    // DEFAULT: Conservative (0.9)
+    return minIntentConfidence;
+  };
+
+  // Apply smart threshold
+  const smartThreshold = getConfidenceThreshold(finalIntent, userText, ctx.conversationContext);
+
   // Questions: reply-only ergonomics regardless of upstream output
   if (intent.kind === 'question') {
     // Ensure no chips for questions
@@ -844,7 +915,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
     'idea',
   ]);
   const isCreationIntent = creationIntents.has(finalIntent.kind);
-  const meetsConfidence = finalIntent.confidence >= minIntentConfidence;
+  const meetsConfidence = finalIntent.confidence >= smartThreshold; // Phase 14: Use smart threshold
   const priorCooldown =
     typeof previousCooldowns[finalIntent.kind] === 'number'
       ? (previousCooldowns[finalIntent.kind] as number)
@@ -861,7 +932,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   normalized.meta = {
     ...normalized.meta,
     detectedIntent: finalIntent, // Phase 11.6: Use finalIntent which may include multi-intent data
-    intentConfidenceMin: minIntentConfidence,
+    intentConfidenceMin: smartThreshold, // Phase 14: Use smart threshold
     // Expose concise intent shape for consumers that prefer a flat contract
     intent: { kind: finalIntent.kind, confidence: finalIntent.confidence },
   };

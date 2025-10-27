@@ -33,5 +33,7 @@ export interface CortexContextBase {
     lastFrequency?: string | null;
     lastDuration?: string | null;
     contextExpiry?: number;
+    buildingMode?: 'habit' | 'todo' | 'note' | null;
+    buildingStartedAt?: number;
   };
 }

@@ -277,6 +277,15 @@ export default function ChatThreadScreen({ route }: Props) {
     contextExpiry: 0,
   });
 
+  // Phase 14: Track if we're actively building a habit/todo/note (enables lower thresholds)
+  const [buildingMode, setBuildingMode] = useState<{
+    type: 'habit' | 'todo' | 'note' | null;
+    startedAt: number;
+  }>({
+    type: null,
+    startedAt: 0,
+  });
+
   // Chat-level message index and toast history for cooldowns
   const userMsgIndexRef = React.useRef(0);
   type ToastOutcome = 'confirm' | 'cancel' | 'edit' | 'auto-dismiss';
@@ -646,6 +655,20 @@ export default function ChatThreadScreen({ route }: Props) {
           });
         }
 
+        // Phase 14: Enter building mode when toast is shown
+        if (
+          actionType &&
+          (actionType === 'habit' || actionType === 'todo' || actionType === 'note')
+        ) {
+          setBuildingMode({
+            type: actionType,
+            startedAt: Date.now(),
+          });
+          if (__DEV__) {
+            console.log('[BuildingMode] Entered:', actionType);
+          }
+        }
+
         // Analytics: toast shown (repo event)
         if (actionType) {
           repo
@@ -896,6 +919,9 @@ export default function ChatThreadScreen({ route }: Props) {
               lastFrequency: conversationContext.lastFrequency,
               lastDuration: conversationContext.lastDuration,
               contextExpiry: conversationContext.contextExpiry,
+              // Include building mode for smart thresholds
+              buildingMode: buildingMode.type,
+              buildingStartedAt: buildingMode.startedAt,
             },
           };
 
@@ -1765,6 +1791,12 @@ export default function ChatThreadScreen({ route }: Props) {
                     // Remove the toast message
                     removeMessage(pendingActionConfirmation.id);
 
+                    // Phase 14: Exit building mode after successful creation
+                    setBuildingMode({ type: null, startedAt: 0 });
+                    if (__DEV__) {
+                      console.log('[BuildingMode] Exited: item created');
+                    }
+
                     // Add locked confirmation message
                     await appendAssistantMessage('', {
                       type: `${actionType}-locked`,
@@ -1856,6 +1888,13 @@ export default function ChatThreadScreen({ route }: Props) {
                     )
                     .catch(() => {});
                 }
+
+                // Phase 14: Exit building mode on cancellation
+                setBuildingMode({ type: null, startedAt: 0 });
+                if (__DEV__) {
+                  console.log('[BuildingMode] Exited: cancelled');
+                }
+
                 // Remove the toast message from UI
                 console.log('[Toast] Removing toast message:', pendingActionConfirmation.id);
                 removeMessage(pendingActionConfirmation.id);
