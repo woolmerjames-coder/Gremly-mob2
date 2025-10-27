@@ -400,7 +400,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
   }, [isSubmitting, mode, note, performSave]);
 
   const renderLegacyUI = () => (
-    <View testID="minddrop-screen">
+    <View>
       <TextInput
         testID="minddrop-input"
         value={note}
@@ -437,7 +437,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1 }} testID="minddrop-screen">
       {/* Tooltip overlay just under the header */}
       <View
         pointerEvents={showTip ? 'auto' : 'none'}
