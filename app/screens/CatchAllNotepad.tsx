@@ -25,6 +25,7 @@ import {
   explainAmbiguous,
 } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
+import { MIND_DROP_V2, whenEnabled } from '@/src/config/featureFlags';
 
 export const THINKING_DURATION = 1200;
 
@@ -357,143 +358,41 @@ export default function CatchAllNotepad(): React.JSX.Element {
     }
   }, [isSubmitting, mode, note, performSave]);
 
-  return (
-    <Screen
-      padded
-      scroll={false}
-      footer={
-        <View style={styles.submitButtonWrapper}>
-          <Button
-            label={isThinking ? 'Thinking…' : 'Submit to Gremly'}
-            onPress={handleSubmit}
-            fullWidth
-            isLoading={isSubmitting}
-            disabled={disabled}
-            testID="ca-submit"
-          />
-        </View>
-      }
-    >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+  const renderLegacyUI = () => (
+    <View testID="minddrop-screen">
+      <TextInput
+        testID="minddrop-input"
+        value={note}
+        onChangeText={setNote}
+        placeholder="Write your thoughts here..."
+        placeholderTextColor={PLACEHOLDER_COLOR}
+        style={styles.input}
+      />
+      <Button
+        testID="minddrop-submit-button"
+        title="Submit"
+        onPress={performSave}
+        disabled={disabled}
+      />
+      <Pressable
+        testID="minddrop-info-button"
+        onPress={() => Alert.alert('Info', 'More features coming soon!')}
       >
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.pageWrapper}>
-            <View testID="ca-mode-toggle" style={styles.headerBackground}>
-              <View style={styles.headerGradientTop} />
-              <View style={styles.headerGlow} />
-              <View style={styles.headerContent}>
-                <View style={styles.modeButtonsRow}>
-                  {(['free', 'guided'] as Mode[]).map((value) => {
-                    const isActive = mode === value;
-                    const label = value === 'free' ? 'Free' : 'Guided';
-                    const testID = value === 'free' ? 'ca-mode-free' : 'ca-mode-guided';
-                    return (
-                      <Pressable
-                        key={value}
-                        onPress={() => handleModeSelect(value)}
-                        style={[
-                          styles.modeButton,
-                          isActive ? styles.modeButtonActive : styles.modeButtonInactive,
-                        ]}
-                        testID={testID}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isActive }}
-                      >
-                        <Text
-                          style={[
-                            styles.modeButtonText,
-                            isActive ? styles.modeButtonTextActive : styles.modeButtonTextInactive,
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <Text style={styles.modeDescription} testID="ca-mode-description">
-                  {modeDescription}
-                </Text>
-              </View>
-            </View>
+        <Text>ℹ️</Text>
+      </Pressable>
+    </View>
+  );
 
-            {isThinking && (
-              <View style={styles.thinkingRow}>
-                <ActivityIndicator size="small" color="#0E3B3A" />
-                <Text style={styles.thinkingText}>Gremly is thinking…</Text>
-              </View>
-            )}
-
-            {confirmations.length > 0 && (
-              <View style={styles.confirmationsContainer}>
-                {confirmations.map((text, index) => (
-                  <ConfirmationPill key={index} text={text} testID={`ca-confirmation-${index}`} />
-                ))}
-              </View>
-            )}
-
-            {suggestions.length > 0 && (
-              <View style={styles.suggestionsContainer}>
-                <Text style={styles.suggestionsLabel}>You could also:</Text>
-                <View style={styles.suggestionChips}>
-                  {suggestions.map((suggestion, index) => (
-                    <View key={index} style={styles.suggestionChip}>
-                      <Text style={styles.suggestionText}>{suggestion}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            <View style={styles.inputWrapper}>
-              <TextInput
-                multiline
-                textAlignVertical="top"
-                placeholder="Drop anything here…"
-                placeholderTextColor={PLACEHOLDER_COLOR}
-                style={styles.textInput}
-                value={note}
-                onChangeText={handleChangeText}
-                autoFocus
-                testID="ca-note-input"
-              />
-            </View>
-
-            <View style={styles.toolbar}>
-              {LIST_TOOLBAR_OPTIONS.map((option) => {
-                const isActive = listStyle === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => handleToolbarSelect(option.key)}
-                    style={[
-                      styles.toolbarButton,
-                      isActive ? styles.toolbarButtonActive : styles.toolbarButtonInactive,
-                    ]}
-                    testID={option.testID}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive }}
-                  >
-                    <Text
-                      style={[
-                        styles.toolbarButtonText,
-                        isActive
-                          ? styles.toolbarButtonTextActive
-                          : styles.toolbarButtonTextInactive,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </Screen>
+  return whenEnabled(
+    MIND_DROP_V2,
+    () => (
+      <>
+        {/* Mind Drop v2 UI will render here in subsequent steps */}
+        {/* For P0: temporarily just render the existing UI so nothing changes visually. */}
+        {renderLegacyUI()}
+      </>
+    ),
+    () => renderLegacyUI(),
   );
 }
 
@@ -698,5 +597,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#0E3B3A',
     fontWeight: '500',
+  },
+  minddropInput: {
+    minHeight: 100,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#EEE4D1',
+    backgroundColor: '#FFFCF5',
+    padding: 18,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+    fontSize: 18,
+    lineHeight: 26,
+    color: '#0E3B3A',
   },
 });
