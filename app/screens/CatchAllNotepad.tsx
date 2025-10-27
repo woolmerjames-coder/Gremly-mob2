@@ -349,6 +349,9 @@ const RecentDrops: React.FC<{
   );
 };
 
+// Memoize RecentDrops to avoid re-rendering when parent state (greeting, trust, tips) changes
+const RecentDropsMemo = React.memo(RecentDrops);
+
 // Named export for tests to import the isolated component
 export const RecentDropsTestable = RecentDrops;
 
@@ -394,6 +397,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [organizedToday, setOrganizedToday] = useState<number>(0);
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
+
+  // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
+  const noopCallback = useCallback(() => {}, []);
 
   useEffect(() => {
     return () => {
@@ -481,6 +487,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [repo]);
 
+  // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(() => !note.trim() || isSubmitting, [note, isSubmitting]);
 
   const modeDescription = useMemo(() => {
@@ -1137,7 +1144,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Text>
       </View>
       {/* Recent Drops section */}
-      <RecentDrops refreshSignal={recentRefresh} onEdited={() => {}} onDeleted={() => {}} />
+      <RecentDropsMemo
+        refreshSignal={recentRefresh}
+        onEdited={noopCallback}
+        onDeleted={noopCallback}
+      />
     </View>
   );
 
