@@ -78,7 +78,7 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.getByTestId('minddrop-recent-list')).toBeTruthy();
   });
 
-  test.skip('Shows up to 3 items from repo.notes.list with subtype catchall', async () => {
+  test('Shows up to 3 items from repo.notes.list with subtype catchall', async () => {
     const now = new Date();
     const items = [
       makeNote('n1', 'one', new Date(now.getTime() - 0)),
