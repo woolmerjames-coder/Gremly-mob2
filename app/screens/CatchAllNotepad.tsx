@@ -35,6 +35,18 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 
 export const THINKING_DURATION = 1200;
 
+// Discriminating common errors without coupling too tightly:
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isNetworkError = (err: any) =>
+  !!(
+    err &&
+    (String((err as { message?: string }).message || err).includes('Network') ||
+      String((err as { name?: string }).name || '').includes('TypeError'))
+  );
+
+const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
+const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
+
 type Mode = 'free' | 'guided';
 export type ListStyle = 'none' | 'bullets' | 'numbers' | 'checklist';
 
