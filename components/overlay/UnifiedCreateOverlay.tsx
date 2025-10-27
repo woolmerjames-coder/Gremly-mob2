@@ -94,6 +94,17 @@ export function UnifiedCreateOverlay({
   onClose,
   onSaved,
 }: UnifiedCreateOverlayProps) {
+  // Debug: Log when props change
+  useEffect(() => {
+    console.log('[UnifiedOverlay] Props changed:', {
+      visible,
+      mode,
+      initialEntityType: initialEntity?.type,
+      initialEntityId: initialEntity?.id,
+      initialSpaceId,
+    });
+  }, [visible, mode, initialEntity?.type, initialEntity?.id, initialSpaceId]);
+
   const insets = useSafeAreaInsets();
   const repo = useRepo();
   const cortex = useCortex();

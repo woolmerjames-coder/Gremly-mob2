@@ -159,6 +159,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [renameChatId, setRenameChatId] = useState<string | null>(null);
   const [renameChatTitle, setRenameChatTitle] = useState('');
   const overlay = useUnifiedOverlayController();
+
+  // Debug: Log overlay state changes
+  useEffect(() => {
+    console.log('[SpaceHome] Overlay state changed:', {
+      visible: overlay.state.visible,
+      mode: overlay.state.mode,
+      initialEntityType: overlay.state.initialEntity?.type,
+      initialEntityId: overlay.state.initialEntity?.id,
+    });
+  }, [
+    overlay.state.visible,
+    overlay.state.mode,
+    overlay.state.initialEntity?.type,
+    overlay.state.initialEntity?.id,
+  ]);
+
   const [showUnsortedToast, setShowUnsortedToast] = useState(false);
   const unsortedOpacity = React.useMemo(() => new Animated.Value(0), []);
   // Undo snackbar (Sage bg)
