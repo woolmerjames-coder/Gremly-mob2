@@ -42,6 +42,9 @@ type ActionToastMetadata = {
   onEdit?: () => void;
   onCompleted?: (recordId?: string) => void;
   onAutoDismiss?: () => void;
+  // Optional quick actions for success toasts
+  onUndo?: () => void;
+  onViewDetails?: () => void;
   conversionMeta?: {
     initialTitle?: string;
     initialNote?: string;
@@ -539,6 +542,38 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
           </View>
         ) : payload.type === 'success' ? (
           <View style={styles.buttonRow}>
+            {payload.metadata?.onUndo ? (
+              <TouchableOpacity
+                testID="toast-undo"
+                style={styles.button}
+                onPress={() => {
+                  try {
+                    payload.metadata?.onUndo?.();
+                  } finally {
+                    hideToast();
+                  }
+                }}
+              >
+                <Text style={styles.buttonText}>↩️ Undo</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {payload.metadata?.onViewDetails ? (
+              <TouchableOpacity
+                testID="toast-view-details"
+                style={styles.button}
+                onPress={() => {
+                  try {
+                    payload.metadata?.onViewDetails?.();
+                  } finally {
+                    hideToast();
+                  }
+                }}
+              >
+                <Text style={styles.buttonText}>🔎 View Details</Text>
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity style={[styles.button, styles.confirmButton]} onPress={hideToast}>
               <Text style={[styles.buttonText, styles.confirmText]}>👍 Got it</Text>
             </TouchableOpacity>

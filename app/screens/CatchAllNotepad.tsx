@@ -289,22 +289,31 @@ export default function CatchAllNotepad(): React.JSX.Element {
     (args: { todos?: number; notes?: number; habits?: number }) => {
       const { todos = 0, notes = 0, habits = 0 } = args || {};
       const parts: string[] = [];
-      if (todos) parts.push(`${todos} todo${todos === 1 ? '' : 's'}`);
-      if (habits) parts.push(`${habits} habit${habits === 1 ? '' : 's'}`);
-      if (notes) parts.push(`${notes} note${notes === 1 ? '' : 's'}`);
-      const summary = parts.length ? parts.join(', ') : 'Saved';
-      const label = parts.length ? `✅ Saved ${summary}` : '✅ Saved';
-      showActionToast({ type: 'success', content: label });
+      if (todos) parts.push(`${todos} ${todos === 1 ? 'task' : 'tasks'}`);
+      if (notes) parts.push(`${notes} ${notes === 1 ? 'note' : 'notes'}`);
+      if (habits) parts.push(`${habits} ${habits === 1 ? 'habit' : 'habits'}`);
+      const body = parts.length ? parts.join(', ') : 'items';
+      const label = `✅ Organized into ${body}`;
+      showActionToast({
+        type: 'success',
+        content: label,
+        metadata: {
+          onUndo: handleUndoCreated,
+          onViewDetails: handleViewDetails,
+        },
+      });
     },
-    [showActionToast],
+    [showActionToast, handleUndoCreated, handleViewDetails],
   );
 
-  const performSave = useCallback(async () => {
+  type SaveResult = { created: { todos: string[]; notes: string[]; habits: string[] } };
+
+  const performSave = useCallback(async (): Promise<SaveResult> => {
     try {
       const trimmed = note.trim();
       if (!trimmed) {
         resetState();
-        return;
+        return { created: { todos: [], notes: [], habits: [] } };
       }
 
       const currentUserId = userId || 'anonymous';
@@ -432,6 +441,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
             setTimeout(() => {
               resetState();
             }, 2000);
+
+            return { created: createdIds };
           } else {
             // Mode is 'ask' or 'keep' - save to catch-all with suggestions
             // Note: Using labels/views for filtering, metadata in why_string
@@ -469,6 +480,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
             setTimeout(() => {
               resetState();
             }, 3000);
+
+            return { created: { todos: [], habits: [], notes: [rec.id] } };
           }
         } catch (error) {
           // Cortex failed - fall back to safe save
@@ -494,6 +507,8 @@ export default function CatchAllNotepad(): React.JSX.Element {
           // Snapshot for undo
           pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
           resetState();
+
+          return { created: { todos: [], habits: [], notes: [rec.id] } };
         }
       } else {
         // Free mode - simple save without AI
@@ -518,11 +533,14 @@ export default function CatchAllNotepad(): React.JSX.Element {
         // Snapshot for undo
         pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
         resetState();
+
+        return { created: { todos: [], habits: [], notes: [rec.id] } };
       }
     } catch (error) {
       console.error('[CatchAllNotepad] Failed to capture note', error);
       Alert.alert('Something went wrong', 'Please try again in a moment.');
       resetState();
+      return { created: { todos: [], notes: [], habits: [] } };
     }
   }, [note, repo, resetState, mode, userId]);
 
@@ -652,9 +670,12 @@ export default function CatchAllNotepad(): React.JSX.Element {
       <Button
         testID="minddrop-submit-button"
         label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
+        leftIcon={isSubmitting ? <ActivityIndicator size="small" color="#F9F6F1" /> : undefined}
         onPress={disabled ? undefined : onSubmit}
         disabled={disabled}
         disabledOpacity={0.6}
+        accessibilityRole="button"
+        accessibilityState={{ busy: isSubmitting, disabled }}
       />
       <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
         <Text>ℹ️</Text>
@@ -982,5 +1003,11 @@ const styles = StyleSheet.create({
     color: '#6A7D76',
     fontSize: 13,
     fontFamily: 'Inter',
+  },
+  submitInnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
 });
