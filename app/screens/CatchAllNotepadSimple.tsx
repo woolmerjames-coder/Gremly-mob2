@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   ActivityIndicator,
+  AccessibilityInfo,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,6 +18,11 @@ import { Button } from '../../design-system/Button';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../src/theme/useTheme';
+import { useActionToast } from '../../src/hooks/useActionToast';
+import { cortexRoute } from '../../lib/cortex/router';
+import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
+import { shouldUseHaptics } from '../../config/featureFlags';
+import { haptics } from '../../lib/haptics';
 
 const CATCHALL_LABEL = 'catchall';
 const UNSORTED_LABEL = 'needs_review';
@@ -26,6 +32,9 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
   const repo = useRepo();
   const { userId } = useAuth();
   const { c, mode } = useTheme();
+  const { showToast: showActionToast } = useActionToast({
+    bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
+  });
 
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,35 +45,182 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
 
     setIsSubmitting(true);
     try {
-      // Create the note
-      const baseInput = {
-        type: 'note' as const,
-        title: note.trim(),
-        body: note.trim(),
-        subtype: 'catchall' as const,
-        ai_placed: true,
-        origin: 'catchall' as const,
-        labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+      const trimmed = note.trim();
+      const currentUserId = userId || 'anonymous';
+
+      // Call Cortex SDK for AI routing
+      const ctx: CortexContext = {
+        lane: 'catchall',
+        userId: currentUserId,
+        activeSpaceId: null,
+        uiSurface: 'overlay',
       };
 
-      if (typeof (repo as any)?.addUnsorted === 'function') {
-        await (repo as any).addUnsorted(null, baseInput);
-      } else if (typeof (repo as any)?.create === 'function') {
-        await (repo as any).create(baseInput);
+      const response = await cortexRoute({ text: trimmed }, ctx);
+
+      // Log event (non-blocking)
+      (repo as any)
+        .writeEvent?.(
+          'cortex_decision',
+          {
+            source: 'catchall',
+            text: trimmed,
+            actions: response.actions,
+            confidence: response.confidence,
+            mode: response.mode,
+          },
+          { userId: currentUserId },
+        )
+        .catch((err: any) => console.error('[CatchAllNotepad] Failed to log event:', err));
+
+      if (response.mode === 'auto' && response.actions.length > 0) {
+        // Execute actions in parallel
+        const counts = { todos: 0, notes: 0, habits: 0 };
+
+        await Promise.all(
+          response.actions.map(async (action: CortexAction) => {
+            try {
+              if (action.type === 'add.to.list') {
+                const list = await (repo as any).getOrCreateList(action.payload.listKey, {
+                  userId: currentUserId,
+                  spaceId: action.payload.spaceId ?? null,
+                });
+                await (repo as any).addListItem(list.id, action.payload.item);
+              } else if (action.type === 'create.todo') {
+                await (repo as any).create({
+                  type: 'todo',
+                  name: action.payload.title,
+                  title: action.payload.title,
+                  due_date: action.payload.due ?? null,
+                  undefined_due: !action.payload.due,
+                  space_id: action.payload.spaceId ?? null,
+                  ai_placed: true,
+                  why_string: response.explanation,
+                  origin: 'catchall',
+                });
+                counts.todos += 1;
+              } else if (action.type === 'create.habit') {
+                await (repo as any).create({
+                  type: 'habit',
+                  name: action.payload.name,
+                  frequency:
+                    (action.payload.freq === 'custom' ? 'daily' : action.payload.freq) || 'daily',
+                  subtype: 'start_habit',
+                  space_id: action.payload.spaceId ?? null,
+                  ai_placed: true,
+                  why_string: response.explanation,
+                  origin: 'catchall',
+                });
+                counts.habits += 1;
+              } else if (action.type === 'create.note') {
+                await (repo as any).create({
+                  type: 'note',
+                  title: action.payload.text || trimmed,
+                  body: action.payload.text,
+                  subtype: (action.payload.subtype as any) || 'note',
+                  space_id: action.payload.spaceId ?? null,
+                  ai_placed: true,
+                  why_string: response.explanation,
+                  origin: 'catchall',
+                });
+                counts.notes += 1;
+              }
+            } catch (err) {
+              console.error('[CatchAllNotepad] Failed to execute action:', action, err);
+            }
+          }),
+        );
+
+        // Show success toast
+        const parts: string[] = [];
+        if (counts.todos) parts.push(`${counts.todos} ${counts.todos === 1 ? 'task' : 'tasks'}`);
+        if (counts.notes) parts.push(`${counts.notes} ${counts.notes === 1 ? 'note' : 'notes'}`);
+        if (counts.habits)
+          parts.push(`${counts.habits} ${counts.habits === 1 ? 'habit' : 'habits'}`);
+        const body = parts.length ? parts.join(', ') : 'items';
+        const label = `✅ Organized into ${body}`;
+
+        showActionToast({
+          type: 'success',
+          content: label,
+        });
+
+        // Haptic feedback
+        try {
+          if (shouldUseHaptics()) void haptics.submitSuccess();
+        } catch (e) {
+          void e;
+        }
+
+        // Announce for accessibility
+        try {
+          AccessibilityInfo.announceForAccessibility?.('Mind Drop organized successfully.');
+        } catch (e) {
+          void e;
+        }
+
+        // Clear input
+        setNote('');
+      } else {
+        // Mode is 'ask' or 'keep' - save to unsorted
+        await (repo as any).create({
+          type: 'note',
+          title: trimmed || 'Quick note',
+          body: trimmed,
+          subtype: 'catchall',
+          origin: 'catchall',
+          ai_placed: false,
+          space_id: null,
+          why_string: response.explanation,
+          canonicalType: 'note',
+          labels: [CATCHALL_LABEL, ...(response.mode === 'ask' ? [UNSORTED_LABEL] : [])],
+          views: {
+            alsoShowIn: ['Hub:Catch-All'],
+          },
+        });
+
+        showActionToast({
+          type: 'success',
+          content: '✅ Saved to your inbox',
+        });
+
+        setNote('');
       }
-
-      // Success - clear input
-      setNote('');
-
-      // Optional: navigate or show success feedback
-      // navigation.goBack();
     } catch (error) {
       console.error('Failed to save:', error);
-      // Keep the text so user can retry
+
+      // Fallback: save directly
+      try {
+        await (repo as any).create({
+          type: 'note',
+          title: note.trim() || 'Quick note',
+          body: note.trim(),
+          subtype: 'catchall',
+          origin: 'catchall',
+          ai_placed: false,
+          space_id: null,
+          why_string: 'Saved from Mind Drop',
+          canonicalType: 'note',
+          labels: [CATCHALL_LABEL],
+          views: {
+            alsoShowIn: ['Hub:Catch-All'],
+          },
+        });
+
+        showActionToast({
+          type: 'success',
+          content: '✅ Saved',
+        });
+
+        setNote('');
+      } catch (fallbackError) {
+        console.error('Fallback save failed:', fallbackError);
+        // Keep the text so user can retry
+      }
     } finally {
       setIsSubmitting(false);
     }
-  }, [note, isSubmitting, repo]);
+  }, [note, isSubmitting, repo, userId, showActionToast]);
 
   const disabled = !note.trim() || isSubmitting;
 
