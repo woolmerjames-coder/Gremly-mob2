@@ -435,7 +435,10 @@ export default function ChatThreadScreen({ route }: Props) {
         return false;
       }
 
-      const meetsConfidence = typeof intent.confidence === 'number' && intent.confidence >= 0.9;
+      // Use CORTEX smart threshold decision (meetsConfidence already computed with smart threshold)
+      const meetsConfidence =
+        _meta?.meetsConfidence ||
+        (typeof intent.confidence === 'number' && intent.confidence >= 0.85);
       const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
       const isActionable = actionableKinds.has(intent.kind);
       const actionType = INTENT_KIND_TO_ACTION[intent.kind] as
@@ -471,6 +474,8 @@ export default function ChatThreadScreen({ route }: Props) {
           isActionable,
           spaceId,
           userTextPreview: userText.substring(0, 80),
+          cortexDecision: _meta?.meetsConfidence || false,
+          usingSmartThreshold: _meta?.meetsConfidence !== undefined,
         });
       }
 
