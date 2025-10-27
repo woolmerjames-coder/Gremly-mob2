@@ -237,7 +237,7 @@ const RecentDrops: React.FC<{
         .filter(
           (n) =>
             n?.subtype === 'catchall' ||
-            (Array.isArray(n?.labels) && n.labels.includes('catchall')),
+            (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL)),
         )
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, 3)
@@ -754,7 +754,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               space_id: null,
               why_string: `${response.explanation}${suggestionHints}`,
               canonicalType: 'note',
-              labels: ['catchall', ...(response.mode === 'ask' ? ['needs_review'] : [])],
+              labels: [CATCHALL_LABEL, ...(response.mode === 'ask' ? [UNSORTED_LABEL] : [])],
               views: {
                 alsoShowIn: ['Hub:Catch-All'],
               },
@@ -792,7 +792,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             space_id: null,
             why_string: 'Saved from Catch-All Notepad',
             canonicalType: 'note',
-            labels: ['catchall'],
+            labels: [CATCHALL_LABEL],
             views: {
               alsoShowIn: ['Hub:Catch-All'],
             },
@@ -819,7 +819,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           space_id: null,
           why_string: 'Saved from Catch-All Notepad',
           canonicalType: 'note',
-          labels: ['catchall'],
+          labels: [CATCHALL_LABEL],
           views: {
             alsoShowIn: ['Hub:Catch-All'],
           },
