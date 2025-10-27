@@ -159,7 +159,7 @@ export const habitInsertSchema = z.object({
   name: z.string().min(1), // Required - database column (habits have both name and title)
   title: z.string().min(1), // Required - database column (habits have both name and title)
   frequency: z.string().min(1),
-  subtype: habitSubtypeZ, // Required
+  subtype: habitSubtypeZ.optional(), // OPTIONAL - column may not exist in all database versions
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),

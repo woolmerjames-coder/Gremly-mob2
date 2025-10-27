@@ -1617,7 +1617,7 @@ export default function ChatThreadScreen({ route }: Props) {
                       name: metadata.activityName || pendingActionConfirmation.content,
                       frequency: (metadata.summary?.split(' - ')[1]?.toLowerCase() ||
                         'daily') as any,
-                      subtype: 'start_habit',
+                      // subtype removed - column doesn't exist in habits table
                       space_id: spaceId,
                       origin: 'catchall',
                     };

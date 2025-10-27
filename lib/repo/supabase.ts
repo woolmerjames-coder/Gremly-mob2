@@ -230,7 +230,7 @@ export class SupabaseRepo implements IRepo {
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
-      if (!input.subtype) throw new Error('Habit requires subtype');
+      // NOTE: subtype removed - column doesn't exist in habits table
 
       // Database schema truth: habits table has BOTH 'name' AND 'title' columns (both required)
       const habitName = input.name ?? input.title ?? 'Untitled';
@@ -243,7 +243,7 @@ export class SupabaseRepo implements IRepo {
           name: habitName, // Required - database column
           title: habitName, // Required - database column (habits have both)
           frequency: input.frequency,
-          subtype: input.subtype,
+          // subtype: REMOVED - column doesn't exist in database
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
