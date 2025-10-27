@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Animated,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -29,7 +30,7 @@ import {
   explainAmbiguous,
 } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
-import { MIND_DROP_V2, whenEnabled } from '@/src/config/featureFlags';
+import { MIND_DROP_V2 } from '@/src/config/featureFlags';
 
 export const THINKING_DURATION = 1200;
 
@@ -130,6 +131,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [placeholder, setPlaceholder] = useState<string>(PLACEHOLDERS[0]);
   const placeholderTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [phOpacity] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     return () => {
@@ -138,7 +140,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
         timerRef.current = null;
       }
     };
-  }, []);
+  }, [phOpacity]);
 
   // Auto-hide tooltip after 3 seconds
   useEffect(() => {
@@ -167,6 +169,11 @@ export default function CatchAllNotepad(): React.JSX.Element {
 
       // Start cycling placeholders every 3s
       placeholderTimer.current = setInterval(() => {
+        // Smooth fade for placeholder change
+        Animated.sequence([
+          Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+          Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
+        ]).start();
         setPlaceholderIndex((prev) => {
           const next = (prev + 1) % PLACEHOLDERS.length;
           setPlaceholder(PLACEHOLDERS[next]);
@@ -468,16 +475,28 @@ export default function CatchAllNotepad(): React.JSX.Element {
     }
   }, [isSubmitting, mode, note, performSave]);
 
-  const renderLegacyUI = () => (
+  const legacyUI = (
     <View>
-      <TextInput
-        testID="minddrop-input"
-        value={note}
-        onChangeText={setNote}
-        placeholder="Write your thoughts here..."
-        placeholderTextColor={PLACEHOLDER_COLOR}
-        style={styles.minddropInput}
-      />
+      {/* Greeting above the input */}
+      {greeting ? (
+        <Text
+          testID="minddrop-greeting"
+          style={{ fontSize: 16, color: '#2E5540', marginBottom: 12 }}
+        >
+          {greeting}
+        </Text>
+      ) : null}
+      <Animated.View style={{ opacity: phOpacity }}>
+        <TextInput
+          testID="minddrop-input"
+          value={note}
+          onChangeText={setNote}
+          placeholder={placeholder}
+          placeholderTextColor="#6A7D76"
+          maxLength={2000}
+          style={styles.minddropInput}
+        />
+      </Animated.View>
       <Button
         testID="minddrop-submit-button"
         label="Submit"
@@ -490,16 +509,14 @@ export default function CatchAllNotepad(): React.JSX.Element {
     </View>
   );
 
-  const content = whenEnabled(
-    MIND_DROP_V2,
-    () => (
-      <>
-        {/* Mind Drop v2 UI will render here in subsequent steps */}
-        {/* For P0: temporarily just render the existing UI so nothing changes visually. */}
-        {renderLegacyUI()}
-      </>
-    ),
-    () => renderLegacyUI(),
+  const content = MIND_DROP_V2 ? (
+    <>
+      {/* Mind Drop v2 UI will render here in subsequent steps */}
+      {/* For P0: temporarily just render the existing UI so nothing changes visually. */}
+      {legacyUI}
+    </>
+  ) : (
+    legacyUI
   );
 
   return (
