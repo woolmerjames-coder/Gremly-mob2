@@ -93,6 +93,12 @@ export const PLACEHOLDERS = [
 
 export const LAST_OPEN_KEY = 'minddrop:last_open_ts';
 
+// Trust Builders helpers
+function startOfTodayLocal() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+}
+
 function InfoButton({
   showTip,
   setShowTip,
@@ -144,6 +150,11 @@ export default function CatchAllNotepad(): React.JSX.Element {
     habits: [],
   });
   const lastSubmitAt = useRef<number>(0);
+  // Trust Builders: organized today count and cycling messages
+  const [organizedToday, setOrganizedToday] = useState<number>(0);
+  const [trustIndex, setTrustIndex] = useState(0);
+  const trustTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -215,6 +226,30 @@ export default function CatchAllNotepad(): React.JSX.Element {
     });
   }, [navigation, showTip]);
 
+  // Trust Builders: loader for today's organized count
+  const refreshOrganizedToday = useCallback(async () => {
+    try {
+      const since = startOfTodayLocal().toISOString();
+
+      // Attempt to use repo APIs if available; otherwise, fall back to filtering
+      const notes: any[] = (await (repo as any)?.notes?.list?.({ createdAfter: since })) ?? [];
+      const todos: any[] = (await (repo as any)?.todos?.list?.({ createdAfter: since })) ?? [];
+      const habits: any[] = (await (repo as any)?.habits?.list?.({ createdAfter: since })) ?? [];
+
+      const count = [notes, todos, habits]
+        .map((arr) =>
+          Array.isArray(arr)
+            ? arr.filter((i) => new Date(i.created_at) >= new Date(since)).length
+            : 0,
+        )
+        .reduce((a, b) => a + b, 0);
+
+      setOrganizedToday(count);
+    } catch (e) {
+      // Silent fail — keep last known number
+    }
+  }, [repo]);
+
   const disabled = useMemo(() => !note.trim() || isSubmitting, [note, isSubmitting]);
 
   const modeDescription = useMemo(() => {
@@ -242,6 +277,28 @@ export default function CatchAllNotepad(): React.JSX.Element {
     setConfirmations([]);
     setSuggestions([]);
   }, []);
+
+  // Trust Builders: start timers and initial refresh
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      await refreshOrganizedToday();
+      // Cycle message every 4s
+      trustTimerRef.current = setInterval(() => {
+        if (!mounted) return;
+        setTrustIndex((prev) => (prev + 1) % 5);
+      }, 4000);
+      // Refresh count every 60s
+      trustRefreshRef.current = setInterval(() => {
+        void refreshOrganizedToday();
+      }, 60000);
+    })();
+    return () => {
+      mounted = false;
+      if (trustTimerRef.current) clearInterval(trustTimerRef.current);
+      if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
+    };
+  }, [refreshOrganizedToday]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -433,6 +490,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
 
             // Unified success toast summarizing created items
             showMindDropSuccessToast(counts);
+            await refreshOrganizedToday();
 
             // Snapshot for undo
             pendingUndo.current = createdIds;
@@ -472,6 +530,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
 
             // Unified success toast for single note capture
             showMindDropSuccessToast({ notes: 1 });
+            await refreshOrganizedToday();
 
             // Snapshot for undo (single note)
             pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
@@ -503,6 +562,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
           });
           // Unified success toast fallback
           showMindDropSuccessToast({ notes: 1 });
+          await refreshOrganizedToday();
 
           // Snapshot for undo
           pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
@@ -529,6 +589,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
         });
         // Unified success toast for free mode
         showMindDropSuccessToast({ notes: 1 });
+        await refreshOrganizedToday();
 
         // Snapshot for undo
         pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
@@ -609,6 +670,18 @@ export default function CatchAllNotepad(): React.JSX.Element {
     }
   }, [isSubmitting, note, performSave]);
 
+  // Trust Builders messages
+  const trustMessages = useMemo(() => {
+    const countLine = `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`;
+    return [
+      'No formatting needed — I’ll organize everything.',
+      countLine,
+      'Most people drop 3–5 thoughts at once.',
+      'Voice input coming soon!',
+      'Your mind’s safe here.',
+    ];
+  }, [organizedToday]);
+
   const legacyUI = (
     <View>
       {/* Greeting above the input */}
@@ -677,6 +750,10 @@ export default function CatchAllNotepad(): React.JSX.Element {
         accessibilityRole="button"
         accessibilityState={{ busy: isSubmitting, disabled }}
       />
+      {/* Trust Builders row */}
+      <View style={styles.trustRow} testID="minddrop-trust">
+        <Text style={styles.trustText}>{trustMessages[trustIndex]}</Text>
+      </View>
       <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
         <Text>ℹ️</Text>
       </Pressable>
@@ -1003,6 +1080,17 @@ const styles = StyleSheet.create({
     color: '#6A7D76',
     fontSize: 13,
     fontFamily: 'Inter',
+  },
+  trustRow: {
+    marginTop: 8,
+    minHeight: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trustText: {
+    fontSize: 13,
+    color: '#6A7D76',
+    textAlign: 'center',
   },
   submitInnerRow: {
     flexDirection: 'row',
