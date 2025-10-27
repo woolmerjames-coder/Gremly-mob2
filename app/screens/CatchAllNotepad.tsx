@@ -13,6 +13,8 @@ import {
   View,
   AccessibilityInfo,
   findNodeHandle,
+  NativeSyntheticEvent,
+  TextInputContentSizeChangeEventData,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -40,6 +42,8 @@ import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
 
 export const THINKING_DURATION = 1200;
+const INPUT_LINE_HEIGHT = 26;
+const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,6 +66,9 @@ type MindDropInputProps = {
   focusedStyle: any;
   inputStyle: any;
   onFocusChange?: (focused: boolean) => void;
+  autoFocus?: boolean;
+  onContentSizeChange?: (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => void;
+  scrollEnabled?: boolean;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -74,9 +81,13 @@ const MindDropInput = React.memo<MindDropInputProps>(
     focusedStyle,
     inputStyle,
     onFocusChange,
+    autoFocus = false,
+    onContentSizeChange,
+    scrollEnabled = false,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
+    const hasAutoFocusedRef = React.useRef(false);
 
     const handleFocus = React.useCallback(() => {
       setFocused(true);
@@ -97,11 +108,28 @@ const MindDropInput = React.memo<MindDropInputProps>(
       }
     }, [focused]);
 
+    // Restore the historical behavior where the input grabs focus as soon as the screen mounts
+    React.useEffect(() => {
+      if (!autoFocus || hasAutoFocusedRef.current) {
+        return;
+      }
+
+      hasAutoFocusedRef.current = true;
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }, [autoFocus]);
+
     return (
-      <View
+      <Pressable
         testID="minddrop-input-container"
         accessible={false}
         style={[containerStyle, focused && focusedStyle]}
+        onPress={() => {
+          requestAnimationFrame(() => {
+            inputRef.current?.focus();
+          });
+        }}
       >
         <TextInput
           ref={inputRef}
@@ -117,8 +145,11 @@ const MindDropInput = React.memo<MindDropInputProps>(
           placeholder={placeholder}
           placeholderTextColor={placeholderTextColor}
           maxLength={2000}
+          autoFocus={autoFocus}
+          onContentSizeChange={onContentSizeChange}
+          scrollEnabled={scrollEnabled}
         />
-      </View>
+      </Pressable>
     );
   },
 );
@@ -449,6 +480,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
+  const [inputHeight, setInputHeight] = useState<number>(140);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [confirmations, setConfirmations] = useState<string[]>([]);
@@ -463,6 +495,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
   }, []);
+
+  const handleInputContentSizeChange = useCallback(
+    (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
+      const nextHeight = Math.min(event.nativeEvent.contentSize.height, MAX_INPUT_HEIGHT);
+      setInputHeight((prev) => (Math.abs(prev - nextHeight) < 0.5 ? prev : nextHeight));
+    },
+    [setInputHeight],
+  );
 
   // Mind Drop P4: submit lifecycle & guardrails
   const pendingUndo = useRef<{ todos: string[]; notes: string[]; habits: string[] }>({
@@ -1191,8 +1231,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           placeholderTextColor={c.mutedText}
           containerStyle={styles.inputContainer}
           focusedStyle={styles.inputContainerFocused}
-          inputStyle={styles.input}
+          inputStyle={[styles.input, { height: inputHeight }]}
           onFocusChange={handleInputFocusChange}
+          autoFocus
+          onContentSizeChange={handleInputContentSizeChange}
+          scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
         />
         {/* Privacy badge + live character counter */}
         <View style={styles.metaRow}>
@@ -1233,6 +1276,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       note,
       handleChangeText,
       handleInputFocusChange,
+      handleInputContentSizeChange,
       placeholder,
       c.mutedText,
       c.bg,
@@ -1242,6 +1286,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       trustLine,
       recentRefresh,
       noopCallback,
+      inputHeight,
     ],
   );
 
@@ -1294,7 +1339,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: c.sageTint,
       borderRadius: 16,
       padding: 20,
-      minHeight: 200,
+      minHeight: 240,
     },
     inputContainerFocused: {
       borderWidth: 1,
