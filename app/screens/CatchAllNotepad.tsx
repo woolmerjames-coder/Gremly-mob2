@@ -32,7 +32,7 @@ import {
   explainAmbiguous,
 } from '../../lib/cortex/explain';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
-import { MIND_DROP_V2 } from '@/src/config/featureFlags';
+import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
