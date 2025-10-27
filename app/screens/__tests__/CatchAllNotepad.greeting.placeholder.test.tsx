@@ -26,8 +26,11 @@ jest.mock('@/src/config/featureFlags', () => ({
 }));
 
 // Import after mocks
-import CatchAllNotepad, { PLACEHOLDERS } from '../CatchAllNotepad';
+import CatchAllNotepad from '../CatchAllNotepad';
 import { Text } from 'react-native';
+
+// Static placeholder text used in the component
+const STATIC_PLACEHOLDER = 'Buy milk, call mom, that idea about...';
 
 // Utilities from the screen module (keys/placeholders)
 // We avoid deep imports; instead, re-derive the storage key to seed AsyncStorage deterministically
@@ -42,7 +45,7 @@ beforeEach(() => {
   AsyncStorage.clear();
 });
 
-describe('CatchAllNotepad greeting and placeholder rotation', () => {
+describe('CatchAllNotepad greeting and static placeholder', () => {
   it('renders input container and input', () => {
     render(<CatchAllNotepad />);
     expect(screen.getByTestId('minddrop-input-container')).toBeTruthy();
@@ -69,19 +72,11 @@ describe('CatchAllNotepad greeting and placeholder rotation', () => {
     expect(text).toContain('welcome');
   });
 
-  it('rotates placeholder text deterministically via test-only control', () => {
+  it('displays static placeholder text', () => {
     render(<CatchAllNotepad />);
 
-    // Initial placeholder is the first entry
-    expect(screen.getByPlaceholderText(PLACEHOLDERS[0])).toBeTruthy();
-
-    // Tap the test-only rotator button (enabled via JEST_WORKAROUND)
-    const rotator = screen.getByTestId('minddrop-rotate-placeholder');
-    fireEvent.press(rotator);
-    expect(screen.getByPlaceholderText(PLACEHOLDERS[1])).toBeTruthy();
-
-    fireEvent.press(rotator);
-    expect(screen.getByPlaceholderText(PLACEHOLDERS[2])).toBeTruthy();
+    // Verify the static placeholder is displayed
+    expect(screen.getByPlaceholderText(STATIC_PLACEHOLDER)).toBeTruthy();
   });
 
   it('focus state does not crash on focus/blur', () => {

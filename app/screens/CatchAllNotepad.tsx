@@ -379,13 +379,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showTip, setShowTip] = useState(false);
-  // Mind Drop: greeting + rotating placeholders
+  // Mind Drop: greeting + static placeholder
   const [greeting, setGreeting] = useState<string>('');
   const greetingRef = useRef<any>(null);
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
-  const [placeholder, setPlaceholder] = useState<string>(PLACEHOLDERS[0]);
-  const placeholderTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [phOpacity] = useState(() => new Animated.Value(1));
+  const [placeholder] = useState('Buy milk, call mom, that idea about...');
   const [isFocused, setIsFocused] = useState(false);
   // Mind Drop P4: submit lifecycle & guardrails
   const pendingUndo = useRef<{ todos: string[]; notes: string[]; habits: string[] }>({
@@ -408,7 +405,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         timerRef.current = null;
       }
     };
-  }, [phOpacity]);
+  }, []);
 
   // Auto-hide tooltip after 3 seconds
   useEffect(() => {
@@ -417,7 +414,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(t);
   }, [showTip]);
 
-  // On mount: load last open ts, compute greeting, start placeholder cycling, save new last open ts
+  // On mount: load last open ts, compute greeting, save new last open ts
   useEffect(() => {
     let isMounted = true;
 
@@ -435,22 +432,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setGreeting(getGreeting(now, lastOpenedAt));
       }
 
-      // Start cycling placeholders every 3s
-      placeholderTimer.current = setInterval(() => {
-        // Smooth fade for placeholder change (respect reduced motion)
-        if (!reduceMotion) {
-          Animated.sequence([
-            Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-            Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
-          ]).start();
-        }
-        setPlaceholderIndex((prev) => {
-          const next = (prev + 1) % PLACEHOLDERS.length;
-          setPlaceholder(PLACEHOLDERS[next]);
-          return next;
-        });
-      }, 3000);
-
       // Save "last open" now
       try {
         await AsyncStorage.setItem(LAST_OPEN_KEY, String(Date.now()));
@@ -461,9 +442,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return () => {
       isMounted = false;
-      if (placeholderTimer.current) clearInterval(placeholderTimer.current);
     };
-  }, [reduceMotion]);
+  }, []);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -494,9 +474,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         .reduce((a, b) => a + b, 0);
 
       setOrganizedToday(count);
-      // TEMP: debug in tests
-      // eslint-disable-next-line no-console
-      console.error('[TrustBuilders] computed count', count);
+      // Optional debug for tests/dev; avoid error overlay in RN
+      if (__DEV__ && process.env.JEST_WORKAROUND === '1') {
+        // eslint-disable-next-line no-console
+        console.debug('[TrustBuilders] computed count', count);
+      }
     } catch (e) {
       // Silent fail — keep last known number
     }
@@ -1132,22 +1114,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         accessible={false}
         style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
       >
-        <Animated.View style={{ opacity: phOpacity }}>
-          <TextInput
-            testID="minddrop-input"
-            value={note}
-            onChangeText={setNote}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            multiline
-            style={styles.input}
-            accessibilityLabel="Mind Drop input"
-            accessibilityHint="Type anything on your mind"
-            placeholder={placeholder}
-            placeholderTextColor={c.mutedText}
-            maxLength={2000}
-          />
-        </Animated.View>
+        <TextInput
+          testID="minddrop-input"
+          value={note}
+          onChangeText={setNote}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          multiline
+          style={styles.input}
+          accessibilityLabel="Mind Drop input"
+          accessibilityHint="Type anything on your mind"
+          placeholder={placeholder}
+          placeholderTextColor={c.mutedText}
+          maxLength={2000}
+        />
       </View>
       {/* Privacy badge + live character counter */}
       <View style={styles.metaRow}>
@@ -1156,27 +1136,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Text>
         <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
       </View>
-      {process.env.JEST_WORKAROUND === '1' ? (
-        <Pressable
-          testID="minddrop-rotate-placeholder"
-          onPress={() => {
-            // Mimic the interval-driven rotation for tests
-            if (!reduceMotion) {
-              Animated.sequence([
-                Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-                Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
-              ]).start();
-            }
-            setPlaceholderIndex((prev) => {
-              const next = (prev + 1) % PLACEHOLDERS.length;
-              setPlaceholder(PLACEHOLDERS[next]);
-              return next;
-            });
-          }}
-        >
-          <Text variant="subtle">test-rotate</Text>
-        </Pressable>
-      ) : null}
       <Button
         testID="minddrop-submit-button"
         label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}

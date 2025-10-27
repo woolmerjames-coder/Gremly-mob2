@@ -19,21 +19,26 @@
  * The `MIND_DROP_V2` flag gates the new "Mind Drop v2" UI. Set it to `true` to enable v2 features.
  */
 
-/**
- * Parses a string value as a boolean.
- * - "true" or "1" (case-insensitive) => true
- * - Any other value => false
- */
-const parseBoolean = (value: string | undefined): boolean => {
-  return value?.toLowerCase() === 'true' || value === '1';
-};
+// Normalizes various environment representations to boolean.
+// ON/TRUE/1  => true
+// OFF/FALSE/0 => false
+// Missing => true (default-on for fast iteration)
+function toBool(v?: string): boolean {
+  if (!v) return true;
+  const s = String(v).trim().toLowerCase();
+  return s === 'on' || s === 'true' || s === '1';
+}
 
 /**
  * Feature flag for "Mind Drop v2".
  * - Enabled if `EXPO_PUBLIC_MIND_DROP_V2` is "true" or "1".
  * - Defaults to `true` if the flag is undefined.
  */
-export const MIND_DROP_V2: boolean = parseBoolean(process.env.EXPO_PUBLIC_MIND_DROP_V2) ?? true;
+/**
+ * JSDoc: Set EXPO_PUBLIC_MIND_DROP_V2=ON to enable, OFF to disable.
+ * Default: enabled when unset.
+ */
+export const MIND_DROP_V2: boolean = toBool(process.env.EXPO_PUBLIC_MIND_DROP_V2 as any);
 
 /**
  * Centralized feature flags object.
