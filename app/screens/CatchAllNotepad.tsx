@@ -388,6 +388,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const greetingRef = useRef<any>(null);
   const [placeholder] = useState('Buy milk, call mom, that idea about...');
   const [isFocused, setIsFocused] = useState(false);
+
+  // Stable focus handlers to prevent re-creating the TextInput
+  const handleFocus = useCallback(() => setIsFocused(true), []);
+  const handleBlur = useCallback(() => setIsFocused(false), []);
+
   // Mind Drop P4: submit lifecycle & guardrails
   const pendingUndo = useRef<{ todos: string[]; notes: string[]; habits: string[] }>({
     todos: [],
@@ -1086,75 +1091,99 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     networkIsOnline,
   ]);
 
-  // Trust Builders static message
-  const trustLine =
-    organizedToday > 0
-      ? `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`
-      : 'Your thoughts are private & secure with Gremly.';
-  const legacyUI = (
-    <View>
-      {/* Greeting above the input */}
-      {greeting ? (
-        <Text
-          ref={greetingRef}
-          testID="minddrop-greeting"
-          style={styles.greeting}
-          accessibilityRole="header"
+  // Trust Builders static message - memoized to prevent re-renders
+  const trustLine = React.useMemo(
+    () =>
+      organizedToday > 0
+        ? `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`
+        : 'Your thoughts are private & secure with Gremly.',
+    [organizedToday],
+  );
+  const legacyUI = React.useMemo(
+    () => (
+      <View>
+        {/* Greeting above the input */}
+        {greeting ? (
+          <Text
+            ref={greetingRef}
+            testID="minddrop-greeting"
+            style={styles.greeting}
+            accessibilityRole="header"
+          >
+            {greeting}
+          </Text>
+        ) : null}
+        <View
+          testID="minddrop-input-container"
+          accessible={false}
+          style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
         >
-          {greeting}
-        </Text>
-      ) : null}
-      <View
-        testID="minddrop-input-container"
-        accessible={false}
-        style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
-      >
-        <TextInput
-          testID="minddrop-input"
-          value={note}
-          onChangeText={setNote}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          multiline
-          style={styles.input}
-          accessibilityLabel="Mind Drop input"
-          accessibilityHint="Type anything on your mind"
-          placeholder={placeholder}
-          placeholderTextColor={c.mutedText}
-          maxLength={2000}
+          <TextInput
+            testID="minddrop-input"
+            value={note}
+            onChangeText={setNote}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            multiline
+            style={styles.input}
+            accessibilityLabel="Mind Drop input"
+            accessibilityHint="Type anything on your mind"
+            placeholder={placeholder}
+            placeholderTextColor={c.mutedText}
+            maxLength={2000}
+          />
+        </View>
+        {/* Privacy badge + live character counter */}
+        <View style={styles.metaRow}>
+          <Text testID="minddrop-privacy" style={styles.metaText}>
+            🔒 Private & secure
+          </Text>
+          <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
+        </View>
+        <Button
+          testID="minddrop-submit-button"
+          label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
+          leftIcon={isSubmitting ? <ActivityIndicator size="small" color={c.bg} /> : undefined}
+          onPress={disabled ? undefined : onSubmit}
+          disabled={disabled}
+          disabledOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
+          accessibilityState={{ busy: isSubmitting, disabled }}
+        />
+        {/* Trust Builders row */}
+        <View style={styles.trustRow} testID="minddrop-trust">
+          <Text style={styles.trustText} testID="minddrop-trust-text">
+            {trustLine}
+          </Text>
+        </View>
+        {/* Recent Drops section */}
+        <RecentDropsMemo
+          refreshSignal={recentRefresh}
+          onEdited={noopCallback}
+          onDeleted={noopCallback}
         />
       </View>
-      {/* Privacy badge + live character counter */}
-      <View style={styles.metaRow}>
-        <Text testID="minddrop-privacy" style={styles.metaText}>
-          🔒 Private & secure
-        </Text>
-        <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
-      </View>
-      <Button
-        testID="minddrop-submit-button"
-        label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
-        leftIcon={isSubmitting ? <ActivityIndicator size="small" color={c.bg} /> : undefined}
-        onPress={disabled ? undefined : onSubmit}
-        disabled={disabled}
-        disabledOpacity={0.6}
-        accessibilityRole="button"
-        accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
-        accessibilityState={{ busy: isSubmitting, disabled }}
-      />
-      {/* Trust Builders row */}
-      <View style={styles.trustRow} testID="minddrop-trust">
-        <Text style={styles.trustText} testID="minddrop-trust-text">
-          {trustLine}
-        </Text>
-      </View>
-      {/* Recent Drops section */}
-      <RecentDropsMemo
-        refreshSignal={recentRefresh}
-        onEdited={noopCallback}
-        onDeleted={noopCallback}
-      />
-    </View>
+    ),
+    [
+      greeting,
+      greetingRef,
+      styles,
+      isFocused,
+      note,
+      setNote,
+      handleFocus,
+      handleBlur,
+      placeholder,
+      c.mutedText,
+      c.bg,
+      isSubmitting,
+      disabled,
+      onSubmit,
+      trustLine,
+      recentRefresh,
+      noopCallback,
+    ],
   );
 
   const content = MIND_DROP_V2 ? (
