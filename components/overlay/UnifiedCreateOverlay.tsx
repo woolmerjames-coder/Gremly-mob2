@@ -134,6 +134,16 @@ export function UnifiedCreateOverlay({
   // State - with robust defaults
   // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
   const [selectedType, setSelectedType] = useState<EntityType | null>(initialEntity?.type || null);
+
+  // Synchronously update selectedType when initialEntity changes (e.g., overlay reopened)
+  // This runs during render, before the DOM updates
+  if (visible && initialEntity?.type && selectedType !== initialEntity.type) {
+    setSelectedType(initialEntity.type);
+    if (__DEV__) {
+      console.log('[UnifiedOverlay] Sync type update during render:', initialEntity.type);
+    }
+  }
+
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
 
