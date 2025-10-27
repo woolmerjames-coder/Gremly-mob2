@@ -490,9 +490,18 @@ export function UnifiedCreateOverlay({
     const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
 
     if (initialTitle || initialNote) {
-      // Prefill note fields if we have data
+      // Prefill based on selected type
       if (initialTitle) {
-        setNoteTitle(initialTitle);
+        // Set the appropriate name field based on type
+        if (selectedType === 'habit') {
+          setHabitName(initialTitle);
+        } else if (selectedType === 'todo') {
+          setTodoName(initialTitle);
+        } else if (selectedType === 'note' || selectedType === 'journal') {
+          setNoteTitle(initialTitle);
+        } else if (selectedType === 'person') {
+          setPersonName(initialTitle);
+        }
       }
       if (initialNote) {
         setNoteBody(initialNote);
@@ -502,6 +511,7 @@ export function UnifiedCreateOverlay({
         console.log('[CORTEX][10.7C] overlay_prefill_applied:', {
           hasTitle: !!initialTitle,
           hasNote: !!initialNote,
+          selectedType,
         });
       }
     }
@@ -518,7 +528,7 @@ export function UnifiedCreateOverlay({
         // ignore invalid dates
       }
     }
-  }, [visible, conversionMeta]);
+  }, [visible, conversionMeta, selectedType]);
 
   useEffect(() => {
     let cancelled = false;
