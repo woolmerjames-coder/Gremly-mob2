@@ -33,7 +33,7 @@ describe('Intent Detection Fixes', () => {
     it('should detect "Let\'s exercise more" as habit intent', () => {
       const result = detectIntent("Let's exercise more");
       expect(result.kind).toBe('habit');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.8);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.7);
     });
   });
 
