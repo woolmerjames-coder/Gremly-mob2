@@ -11,6 +11,8 @@ import {
   TextInput,
   ToastAndroid,
   View,
+  AccessibilityInfo,
+  findNodeHandle,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -32,6 +34,10 @@ import {
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { MIND_DROP_V2 } from '@/src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
+import { useTheme } from '../../src/theme/useTheme';
+import { useReducedMotion } from '../../src/hooks/useReducedMotion';
+import { shouldUseHaptics } from '../../config/featureFlags';
+import { haptics } from '../../lib/haptics';
 
 export const THINKING_DURATION = 1200;
 
@@ -186,6 +192,7 @@ function InfoButton({
       testID="minddrop-info-button"
       accessibilityRole="button"
       accessibilityLabel="Info"
+      accessibilityHint="Learn how Mind Drop works"
       hitSlop={8}
       onPress={() => setShowTip(!showTip)}
       style={{ paddingHorizontal: 8, paddingVertical: 6 }}
@@ -220,6 +227,7 @@ const RecentDrops: React.FC<{
 }> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = false, eagerLoad = false }) => {
   const navigation = useNavigation();
   const repo = useRepo() as any;
+  const { c, mode: themeMode } = useTheme();
   const [open, setOpen] = React.useState(!!initiallyOpen);
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<RecentDrop[]>([]);
@@ -294,39 +302,51 @@ const RecentDrops: React.FC<{
         style={styles.recentHeader}
         accessibilityRole="button"
         accessibilityLabel="Toggle recent drops"
+        accessibilityState={{ expanded: open }}
       >
-        <Text style={styles.recentHeaderText}>{open ? 'Recent drops ↑' : 'Recent drops ↓'}</Text>
+        <Text style={[styles.recentHeaderText, { color: c.moss }]}>
+          {open ? 'Recent drops ↑' : 'Recent drops ↓'}
+        </Text>
       </Pressable>
 
       {open ? (
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
-            <Text style={styles.recentEmpty}>Loading…</Text>
+            <Text style={[styles.recentEmpty, { color: c.mutedText }]}>Loading…</Text>
           ) : items.length === 0 ? (
-            <Text style={styles.recentEmpty}>No recent drops yet.</Text>
+            <Text style={[styles.recentEmpty, { color: c.mutedText }]}>No recent drops yet.</Text>
           ) : (
             items.map((item) => (
-              <View key={item.id} testID={`minddrop-recent-${item.id}`} style={styles.recentCard}>
-                <Text numberOfLines={2} style={styles.recentText}>
+              <View
+                key={item.id}
+                testID={`minddrop-recent-${item.id}`}
+                style={[styles.recentCard, { backgroundColor: c.sageTint }]}
+              >
+                <Text
+                  numberOfLines={2}
+                  style={[styles.recentText, { color: themeMode === 'dark' ? c.text : '#2D3E3C' }]}
+                >
                   {item.text || '—'}
                 </Text>
                 <View style={styles.recentMetaRow}>
-                  <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                  <Text style={[styles.recentTime, { color: c.mutedText }]}>
+                    {relativeTime(item.created_at)}
+                  </Text>
                   <View style={styles.recentActions}>
                     <Pressable
                       onPress={() => handleEdit(item.id)}
                       hitSlop={8}
                       accessibilityRole="button"
                     >
-                      <Text style={styles.recentAction}>Edit</Text>
+                      <Text style={[styles.recentAction, { color: c.moss }]}>Edit</Text>
                     </Pressable>
-                    <Text style={styles.recentDot}>•</Text>
+                    <Text style={[styles.recentDot, { color: c.mutedText }]}>•</Text>
                     <Pressable
                       onPress={() => handleDelete(item.id)}
                       hitSlop={8}
                       accessibilityRole="button"
                     >
-                      <Text style={styles.recentActionDelete}>Delete</Text>
+                      <Text style={[styles.recentActionDelete, { color: c.danger }]}>Delete</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -357,6 +377,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
+  const { c, mode: themeMode } = useTheme();
+  const reduceMotion = useReducedMotion();
   const [mode, setMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
@@ -368,6 +390,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showTip, setShowTip] = useState(false);
   // Mind Drop: greeting + rotating placeholders
   const [greeting, setGreeting] = useState<string>('');
+  const greetingRef = useRef<any>(null);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [placeholder, setPlaceholder] = useState<string>(PLACEHOLDERS[0]);
   const placeholderTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -423,11 +446,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // Start cycling placeholders every 3s
       placeholderTimer.current = setInterval(() => {
-        // Smooth fade for placeholder change
-        Animated.sequence([
-          Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-          Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
-        ]).start();
+        // Smooth fade for placeholder change (respect reduced motion)
+        if (!reduceMotion) {
+          Animated.sequence([
+            Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+            Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
+          ]).start();
+        }
         setPlaceholderIndex((prev) => {
           const next = (prev + 1) % PLACEHOLDERS.length;
           setPlaceholder(PLACEHOLDERS[next]);
@@ -447,7 +472,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       isMounted = false;
       if (placeholderTimer.current) clearInterval(placeholderTimer.current);
     };
-  }, []);
+  }, [reduceMotion]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -578,6 +603,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [navigation, showActionToast]);
 
+  // A11y: set focus to the greeting after successful actions
+  const focusGreetingForA11y = useCallback(() => {
+    try {
+      const node = findNodeHandle(greetingRef.current);
+      if (node) {
+        // Optional API depending on platform
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (AccessibilityInfo as any).setAccessibilityFocus?.(node);
+      }
+    } catch (e) {
+      void e;
+    }
+  }, []);
+
   // Shared success toast helper for Mind Drop
   const showMindDropSuccessToast = useCallback(
     (args: { todos?: number; notes?: number; habits?: number }) => {
@@ -596,6 +635,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           onViewDetails: handleViewDetails,
         },
       });
+      // Optional haptic confirmation
+      try {
+        if (shouldUseHaptics()) void haptics.submitSuccess();
+      } catch (e) {
+        void e;
+      }
+      // Announce for accessibility
+      try {
+        AccessibilityInfo.announceForAccessibility?.('Mind Drop organized successfully.');
+      } catch (e) {
+        void e;
+      }
     },
     [showActionToast, handleUndoCreated, handleViewDetails],
   );
@@ -899,9 +950,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           type: 'success',
           content: COPY.savedOfflineMsg,
         });
+        // Optional haptic warning
+        try {
+          if (shouldUseHaptics()) void haptics.warning();
+        } catch (e) {
+          void e;
+        }
+        try {
+          AccessibilityInfo.announceForAccessibility?.(
+            'Saved offline. Will organize when connected.',
+          );
+        } catch (e) {
+          void e;
+        }
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         await refreshOrganizedToday?.();
         setRecentRefresh?.((v) => v + 1);
+        // A11y focus target after clearing input
+        focusGreetingForA11y();
       } finally {
         setIsSubmitting(false);
       }
@@ -968,6 +1034,19 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             type: 'success',
             content: COPY.savedOfflineMsg,
           });
+          // Optional haptic warning
+          try {
+            if (shouldUseHaptics()) void haptics.warning();
+          } catch (e) {
+            void e;
+          }
+          try {
+            AccessibilityInfo.announceForAccessibility?.(
+              'Saved offline. Will organize when connected.',
+            );
+          } catch (e) {
+            void e;
+          }
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
           await saveToUnsortedTray(repo, trimmed);
@@ -976,6 +1055,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             type: 'success',
             content: COPY.savedUnsortedMsg,
           });
+          // Optional haptic warning
+          try {
+            if (shouldUseHaptics()) void haptics.warning();
+          } catch (e) {
+            void e;
+          }
+          try {
+            AccessibilityInfo.announceForAccessibility?.('Saved to Unsorted Tray.');
+          } catch (e) {
+            void e;
+          }
         }
         // Nothing created (no Undo set)
         pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -1006,6 +1096,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       await refreshOrganizedToday?.();
       setRecentRefresh?.((v) => v + 1);
+      // A11y focus target after clearing input
+      focusGreetingForA11y();
     } finally {
       setIsSubmitting(false);
     }
@@ -1036,8 +1128,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       {/* Greeting above the input */}
       {greeting ? (
         <Text
+          ref={greetingRef}
           testID="minddrop-greeting"
-          style={{ fontSize: 16, color: '#2E5540', marginBottom: 12, fontFamily: 'Inter' }}
+          style={[styles.greeting, { color: c.moss }]}
+          accessibilityRole="header"
         >
           {greeting}
         </Text>
@@ -1045,7 +1139,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <View
         testID="minddrop-input-container"
         accessible={false}
-        style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}
+        style={[
+          styles.inputContainer,
+          isFocused && styles.inputContainerFocused,
+          { backgroundColor: c.sageTint, borderColor: isFocused ? c.sage : 'transparent' },
+        ]}
       >
         <Animated.View style={{ opacity: phOpacity }}>
           <TextInput
@@ -1055,30 +1153,36 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             multiline
-            style={styles.input}
+            style={[styles.input, { color: themeMode === 'dark' ? c.text : '#2D3E3C' }]}
             accessibilityLabel="Mind Drop input"
+            accessibilityHint="Type anything on your mind"
             placeholder={placeholder}
-            placeholderTextColor="#6A7D76" // TODO(dark-mode): replace with theme token
+            placeholderTextColor={c.mutedText}
             maxLength={2000}
           />
         </Animated.View>
       </View>
       {/* Privacy badge + live character counter */}
       <View style={styles.metaRow}>
-        <Text testID="minddrop-privacy" style={styles.metaText}>
+        <Text testID="minddrop-privacy" style={[styles.metaText, { color: c.mutedText }]}>
           🔒 Private & secure
         </Text>
-        <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
+        <Text
+          testID="minddrop-counter"
+          style={[styles.metaText, { color: c.mutedText }]}
+        >{`${note.length} / 2000`}</Text>
       </View>
       {process.env.JEST_WORKAROUND === '1' ? (
         <Pressable
           testID="minddrop-rotate-placeholder"
           onPress={() => {
             // Mimic the interval-driven rotation for tests
-            Animated.sequence([
-              Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-              Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
-            ]).start();
+            if (!reduceMotion) {
+              Animated.sequence([
+                Animated.timing(phOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+                Animated.timing(phOpacity, { toValue: 1, duration: 160, useNativeDriver: true }),
+              ]).start();
+            }
             setPlaceholderIndex((prev) => {
               const next = (prev + 1) % PLACEHOLDERS.length;
               setPlaceholder(PLACEHOLDERS[next]);
@@ -1097,11 +1201,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         disabled={disabled}
         disabledOpacity={0.6}
         accessibilityRole="button"
+        accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
         accessibilityState={{ busy: isSubmitting, disabled }}
       />
       {/* Trust Builders row */}
       <View style={styles.trustRow} testID="minddrop-trust">
-        <Text style={styles.trustText} testID="minddrop-trust-text">
+        <Text style={[styles.trustText, { color: c.mutedText }]} testID="minddrop-trust-text">
           {trustMessages[trustIndex]}
         </Text>
       </View>
@@ -1124,7 +1229,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <View style={{ flex: 1 }} testID="minddrop-screen">
+    <View style={[styles.root, { backgroundColor: c.bg }]} testID="minddrop-screen">
       {/* Tooltip overlay just under the header */}
       <View
         pointerEvents={showTip ? 'auto' : 'none'}
@@ -1133,9 +1238,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {showTip ? (
           <>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
-            <View style={styles.tipContainer} testID="minddrop-tip">
-              <View style={styles.tipArrow} />
-              <Text style={styles.tipText}>
+            <View style={[styles.tipContainer, { backgroundColor: c.bg }]} testID="minddrop-tip">
+              <View style={[styles.tipArrow, { backgroundColor: c.bg }]} />
+              <Text style={[styles.tipText, { color: c.moss }]}>
                 Just type everything on your mind. I’ll organize it.
               </Text>
             </View>
@@ -1152,6 +1257,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  greeting: {
+    fontSize: 16,
+    marginBottom: 12,
+    fontFamily: 'Inter',
+  },
   content: {
     flexGrow: 1,
     paddingBottom: 32,
