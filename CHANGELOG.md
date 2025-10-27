@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Mind Drop: Trust Builders row beneath the CTA
+  - Cycles helpful messages every 4s
+  - Includes a real “organized today” count sourced from repo lists
+  - Count refreshes immediately after submit and on a 60s heartbeat
+
+### Testing
+
+- Deterministic Trust Builders tests
+  - Added testID (`minddrop-trust-text`) for stable text reads
+  - Introduced optional props on `CatchAllNotepad` to control timers in tests (`trustCycleMs`, `trustRefreshMs`)
+  - Tests use real timers with tiny intervals and assert list refresh post-submit
+
 ## [v0.3.0] — 2025-10-15
 
 ### Added
