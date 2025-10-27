@@ -319,7 +319,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const mascot = useMascotController();
 
   // Overlay controller for conversion
-  const overlayController = useGlobalOverlay();
+  const overlayController = useUnifiedOverlayController();
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
