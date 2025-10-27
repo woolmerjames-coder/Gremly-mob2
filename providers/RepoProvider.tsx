@@ -3,6 +3,7 @@ import type { IRepo } from '../lib/repo/IRepo';
 import { MemoryRepo } from '../lib/repo/memory';
 import { SupabaseRepo } from '../lib/repo/supabase';
 import { useAuth } from './AuthProvider';
+import { augmentRepoWithListAdapters } from '../lib/repo/adapters/listAdapters';
 
 /**
  * Repository provider that switches between MemoryRepo and SupabaseRepo
@@ -33,14 +34,14 @@ export const RepoProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       if (__DEV__) {
         console.log('[RepoProvider] ✅ Using SupabaseRepo');
       }
-      return supabaseRepo;
+      return augmentRepoWithListAdapters(supabaseRepo);
     }
 
     // Default to memory repo
     if (__DEV__) {
       console.log('[RepoProvider] ✅ Using MemoryRepo');
     }
-    return new MemoryRepo(userId || 'anonymous');
+    return augmentRepoWithListAdapters(new MemoryRepo(userId || 'anonymous'));
   }, [backend, userId]);
 
   return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>;
