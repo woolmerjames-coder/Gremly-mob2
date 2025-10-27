@@ -264,6 +264,19 @@ export default function ChatThreadScreen({ route }: Props) {
     timestamp: number;
   } | null>(null);
 
+  // Phase 14: Track conversation context for cross-message memory
+  const [conversationContext, setConversationContext] = useState<{
+    lastActivity: string | null; // "running", "meditation", etc.
+    lastFrequency: string | null; // "3 times a week", "daily", etc.
+    lastDuration: string | null; // "30 minutes", etc.
+    contextExpiry: number; // Timestamp when context expires
+  }>({
+    lastActivity: null,
+    lastFrequency: null,
+    lastDuration: null,
+    contextExpiry: 0,
+  });
+
   // Chat-level message index and toast history for cooldowns
   const userMsgIndexRef = React.useRef(0);
   type ToastOutcome = 'confirm' | 'cancel' | 'edit' | 'auto-dismiss';
@@ -330,6 +343,51 @@ export default function ChatThreadScreen({ route }: Props) {
       (navigation as any).navigate('SpaceHome', { spaceId });
     }
   }, [navigation, spaceId]);
+
+  // Phase 14: Update conversation context from user messages
+  const updateContext = useCallback((text: string) => {
+    // Activity detection - common activities
+    const activityMatch = text.match(
+      /\b(run|running|jog|jogging|meditate|meditation|meditating|exercise|exercising|walk|walking|read|reading|write|writing|stretch|stretching|yoga|swim|swimming|bike|biking|cycling|gym|workout|working out)\b/i,
+    );
+    if (activityMatch) {
+      const rawActivity = activityMatch[1].toLowerCase();
+      // Normalize: remove -ing suffix for consistency
+      const normalized = rawActivity
+        .replace(/ning$/, 'n') // running → run, planning → plan
+        .replace(/ging$/, 'g') // jogging → jog
+        .replace(/ting$/, 't') // meditating → meditat, writing → writ
+        .replace(/ing$/, ''); // walking → walk, reading → read
+
+      setConversationContext((prev) => ({
+        ...prev,
+        lastActivity: normalized,
+        contextExpiry: Date.now() + 300000, // Context valid for 5 minutes
+      }));
+    }
+
+    // Frequency detection
+    const freqMatch = text.match(
+      /(\d+)\s*(?:times?|x)\s*(?:a|per)?\s*(?:week|day)|daily|every\s*day|every\s*week|weekdays?|weekends?/i,
+    );
+    if (freqMatch) {
+      setConversationContext((prev) => ({
+        ...prev,
+        lastFrequency: freqMatch[0],
+        contextExpiry: Date.now() + 300000,
+      }));
+    }
+
+    // Duration detection
+    const durationMatch = text.match(/(\d+)\s*(?:minutes?|mins?|hours?|hrs?)/i);
+    if (durationMatch) {
+      setConversationContext((prev) => ({
+        ...prev,
+        lastDuration: durationMatch[0],
+        contextExpiry: Date.now() + 300000,
+      }));
+    }
+  }, []);
 
   // Phase 11.3: Inline action confirmation function (moved after useChatMessages)
   const maybeTriggerActionToast = useCallback(
@@ -744,6 +802,9 @@ export default function ChatThreadScreen({ route }: Props) {
         // 1. Send user message via hook
         await sendUserMessage(trimmedText);
 
+        // Phase 14: Update conversation context from user message
+        updateContext(trimmedText);
+
         // Phase 10.6: Emit user message sent event
         emitChatEvent({
           type: 'user_message_sent',
@@ -1110,6 +1171,7 @@ export default function ChatThreadScreen({ route }: Props) {
       mascot,
       maybeTriggerActionToast,
       hideActionToast,
+      updateContext,
     ],
   );
 
@@ -1612,11 +1674,43 @@ export default function ChatThreadScreen({ route }: Props) {
 
                   // Create based on type using repo.create() with CreateRecordInput
                   if (actionType === 'habit') {
+                    // Phase 14: Use conversation context if available
+                    const contextValid = conversationContext.contextExpiry > Date.now();
+
+                    let activityName = metadata.activityName || pendingActionConfirmation.content;
+                    let frequency = (metadata.summary?.split(' - ')[1]?.toLowerCase() ||
+                      'daily') as any;
+
+                    if (contextValid) {
+                      // Use remembered context from previous messages
+                      if (conversationContext.lastActivity) {
+                        activityName = conversationContext.lastActivity;
+                      }
+                      if (conversationContext.lastFrequency) {
+                        const rawFreq = conversationContext.lastFrequency;
+                        // Normalize frequency format
+                        if (rawFreq.includes('3') && rawFreq.includes('week')) {
+                          frequency = '3x/week';
+                        } else if (rawFreq.includes('daily') || rawFreq.includes('every day')) {
+                          frequency = 'daily';
+                        } else if (rawFreq.match(/(\d+)\s*x/i)) {
+                          const match = rawFreq.match(/(\d+)/);
+                          if (match) frequency = `${match[1]}x/week`;
+                        } else {
+                          frequency = rawFreq.toLowerCase();
+                        }
+                      }
+                      console.log('[Toast] Using conversation context:', {
+                        activity: activityName,
+                        frequency,
+                        contextExpiry: new Date(conversationContext.contextExpiry).toISOString(),
+                      });
+                    }
+
                     const habitData: CreateRecordInput = {
                       type: 'habit',
-                      name: metadata.activityName || pendingActionConfirmation.content,
-                      frequency: (metadata.summary?.split(' - ')[1]?.toLowerCase() ||
-                        'daily') as any,
+                      name: activityName,
+                      frequency: frequency,
                       // subtype removed - column doesn't exist in habits table
                       space_id: spaceId,
                       origin: 'catchall',
