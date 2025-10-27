@@ -156,8 +156,8 @@ export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
 
 export const habitInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
-  name: z.string().min(1), // Required - database column (habits have both name and title)
-  title: z.string().min(1), // Required - database column (habits have both name and title)
+  name: z.string().min(1), // Required - database column (habits use 'name', NOT 'title')
+  // title: REMOVED - column doesn't exist in habits table
   frequency: z.string().min(1),
   subtype: habitSubtypeZ.optional(), // OPTIONAL - column may not exist in all database versions
   ai_placed: z.boolean().default(false),
