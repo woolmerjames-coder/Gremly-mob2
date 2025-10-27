@@ -74,6 +74,7 @@ import type { OverlayKind } from './chat/openUnifiedFromChat';
 import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
 
@@ -318,7 +319,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const mascot = useMascotController();
 
   // Overlay controller for conversion
-  const overlayController = useUnifiedOverlayController();
+  const overlayController = useGlobalOverlay();
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,

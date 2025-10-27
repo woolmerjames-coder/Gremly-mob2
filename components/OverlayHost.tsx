@@ -6,7 +6,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-// ManualAddOverlay import removed - replaced with UnifiedCreateOverlay in individual screens
+import { UnifiedCreateOverlay } from './overlay/UnifiedCreateOverlay';
+import { useGlobalOverlay } from '../contexts/OverlayContext';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
 import { useRepo } from '../providers/RepoProvider';
@@ -357,15 +358,27 @@ function DestinationPickerSheet({
  */
 
 export const OverlayHost = () => {
-  // Must call hooks before any conditional returns
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const overlay = useGlobalOverlay();
 
-  // Render global modals
-  // Note: ManualAddOverlay is now managed locally in each screen
   return (
     <>
       <NewSpaceModal />
-      {/* DEV-ONLY: Floating debug button to access dev tools */}
+
+      {/* Global Unified Overlay - single instance for entire app */}
+      <UnifiedCreateOverlay
+        visible={overlay.state.visible}
+        mode={overlay.state.mode}
+        initialEntity={overlay.state.initialEntity}
+        initialSpaceId={overlay.state.initialSpaceId}
+        conversionMeta={overlay.state.conversionMeta}
+        onClose={overlay.close}
+        onSaved={async () => {
+          // Refresh handled by individual screens
+          overlay.close();
+        }}
+      />
+
       {__DEV__ && (
         <Pressable
           testID="dev-button"

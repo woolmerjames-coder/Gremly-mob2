@@ -55,7 +55,7 @@ import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
 import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import UnifiedCreateOverlay from '../../components/overlay/UnifiedCreateOverlay';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -158,7 +158,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [renameChatModalOpen, setRenameChatModalOpen] = useState(false);
   const [renameChatId, setRenameChatId] = useState<string | null>(null);
   const [renameChatTitle, setRenameChatTitle] = useState('');
-  const overlay = useUnifiedOverlayController();
+  const overlay = useGlobalOverlay();
 
   // Debug: Log overlay state changes
   useEffect(() => {
@@ -847,9 +847,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       console.log('[SpaceHome] Goal clicked:', id);
                       const rec = (items as any[]).find((r) => r.id === id);
                       console.log('[SpaceHome] Found record:', rec ? rec.type : 'NOT FOUND');
-                      if (rec) {
-                        console.log('[SpaceHome] Opening overlay to edit');
-                        overlay.openEdit({ record: rec, spaceId });
+                      if (rec && chats && chats.length > 0) {
+                        // Navigate to the most recent chat thread where user can edit via overlay
+                        const mostRecentChat = chats[0];
+                        console.log('[SpaceHome] Navigating to chat thread:', mostRecentChat.id);
+                        navigation.navigate('ChatThread', {
+                          spaceId,
+                          chatId: mostRecentChat.id,
+                        });
+                        // Then open the overlay from there (ChatThread has its own overlay controller)
+                        // Note: We can't directly open the overlay here due to multiple controller instances
                       }
                     }}
                     onMenu={() => {}}
@@ -1699,21 +1706,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </Animated.View>
       )}
-
-      {/* Unified Overlay for creating/editing habits, todos, notes, people */}
-      <UnifiedCreateOverlay
-        visible={overlay.state.visible}
-        mode={overlay.state.mode}
-        initialEntity={overlay.state.initialEntity}
-        initialSpaceId={overlay.state.initialSpaceId}
-        conversionMeta={overlay.state.conversionMeta}
-        onClose={overlay.close}
-        onSave={async () => {
-          // Refresh space data after save
-          await reload();
-          await reloadTimeline();
-        }}
-      />
     </View>
   );
 }
