@@ -120,6 +120,135 @@ function InfoButton({
   );
 }
 
+// Recent Drops helpers and component (colocated for now)
+type RecentDrop = { id: string; text: string; created_at: string };
+
+const relativeTime = (iso: string) => {
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
+  const days = Math.floor(h / 24);
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+};
+
+const RecentDrops: React.FC<{
+  onEdited?: () => void;
+  onDeleted?: () => void;
+  refreshSignal?: number; // bump to force reload after submit
+}> = ({ onEdited, onDeleted, refreshSignal }) => {
+  const navigation = useNavigation();
+  const repo = useRepo() as any;
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [items, setItems] = React.useState<RecentDrop[]>([]);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch latest 3 catch-all notes (fallback filter in JS)
+      const all = (await repo?.notes?.list?.({ limit: 10, order: 'desc' })) ?? [];
+      const drops = (Array.isArray(all) ? all : [])
+        .filter(
+          (n) =>
+            n?.subtype === 'catchall' ||
+            (Array.isArray(n?.labels) && n.labels.includes('catchall')),
+        )
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 3)
+        .map((n) => ({
+          id: n.id,
+          text: n.body || n.title || n.text || n.content || '',
+          created_at: n.created_at,
+        }));
+      setItems(drops);
+    } catch (e) {
+      // no-op
+    } finally {
+      setLoading(false);
+    }
+  }, [repo]);
+
+  useEffect(() => {
+    void load();
+  }, [load, refreshSignal]);
+
+  const handleEdit = (id: string) => {
+    try {
+      (navigation as any).navigate('NoteDetail', { id });
+      onEdited?.();
+    } catch {
+      // TODO: implement inline edit sheet
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await (repo?.remove?.(id) ?? repo?.notes?.delete?.(id));
+      await load();
+      onDeleted?.();
+    } catch {
+      // Optional: handle error UI
+    }
+  };
+
+  return (
+    <View style={styles.recentRoot}>
+      <Pressable
+        testID="minddrop-recent-toggle"
+        onPress={() => setOpen((v) => !v)}
+        style={styles.recentHeader}
+        accessibilityRole="button"
+        accessibilityLabel="Toggle recent drops"
+      >
+        <Text style={styles.recentHeaderText}>{open ? 'Recent drops ↑' : 'Recent drops ↓'}</Text>
+      </Pressable>
+
+      {open ? (
+        <View testID="minddrop-recent-list" style={styles.recentList}>
+          {loading ? (
+            <Text style={styles.recentEmpty}>Loading…</Text>
+          ) : items.length === 0 ? (
+            <Text style={styles.recentEmpty}>No recent drops yet.</Text>
+          ) : (
+            items.map((item) => (
+              <View key={item.id} testID={`minddrop-recent-${item.id}`} style={styles.recentCard}>
+                <Text numberOfLines={2} style={styles.recentText}>
+                  {item.text || '—'}
+                </Text>
+                <View style={styles.recentMetaRow}>
+                  <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                  <View style={styles.recentActions}>
+                    <Pressable
+                      onPress={() => handleEdit(item.id)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.recentAction}>Edit</Text>
+                    </Pressable>
+                    <Text style={styles.recentDot}>•</Text>
+                    <Pressable
+                      onPress={() => handleDelete(item.id)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.recentActionDelete}>Delete</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+};
+
 export type CatchAllNotepadProps = {
   trustCycleMs?: number;
   trustRefreshMs?: number;
@@ -161,6 +290,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [trustIndex, setTrustIndex] = useState(0);
   const trustTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [recentRefresh, setRecentRefresh] = useState(0);
 
   useEffect(() => {
     return () => {
@@ -667,6 +797,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       setIsSubmitting(true);
       // performSave already encapsulates save pipeline and user feedback (toasts/alerts)
       await performSave();
+      setRecentRefresh((v) => v + 1);
 
       // TODO(P10): capture created IDs from performSave once available
       // pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -768,6 +899,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           {trustMessages[trustIndex]}
         </Text>
       </View>
+      {/* Recent Drops section */}
+      <RecentDrops refreshSignal={recentRefresh} onEdited={() => {}} onDeleted={() => {}} />
       <Pressable testID="minddrop-info-button" onPress={() => setShowTip((v) => !v)}>
         <Text>ℹ️</Text>
       </Pressable>
@@ -1111,5 +1244,72 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+  },
+  // Recent Drops styles
+  recentRoot: {
+    marginTop: 12,
+  },
+  recentHeader: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  recentHeaderText: {
+    color: '#2E5540', // Moss Green
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  recentList: {
+    marginTop: 6,
+    gap: 8,
+  },
+  recentCard: {
+    backgroundColor: '#F0F4F3', // Sage Mist tint
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  recentText: {
+    color: '#2D3E3C',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  recentMetaRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  recentTime: {
+    color: '#6A7D76',
+    fontSize: 12,
+  },
+  recentActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  recentAction: {
+    color: '#2E5540',
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
+  recentActionDelete: {
+    color: '#9E3B3B', // muted red for delete
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
+  recentDot: {
+    color: '#6A7D76',
+    marginHorizontal: 6,
+  },
+  recentEmpty: {
+    color: '#6A7D76',
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 10,
   },
 });

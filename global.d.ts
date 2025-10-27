@@ -8,3 +8,6 @@ declare module '@/src/config/featureFlags' {
   export const flags: { MIND_DROP_V2: boolean };
   export const whenEnabled: <T>(flag: boolean, on: () => T, off: () => T) => T;
 }
+
+// Jest tests import react-test-renderer for act; provide a minimal module shim for TS
+declare module 'react-test-renderer';
