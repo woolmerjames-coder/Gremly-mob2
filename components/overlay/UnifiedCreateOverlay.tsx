@@ -1229,7 +1229,7 @@ export function UnifiedCreateOverlay({
           type: 'habit',
           title: habitName,
           frequency: habitFrequency,
-          subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
+          // Note: subtype removed - habits table doesn't have this column
 
           // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
@@ -1323,7 +1323,7 @@ export function UnifiedCreateOverlay({
         return {
           title: habitName,
           frequency: habitFrequency,
-          subtype: habitSubtype ? (habitSubtype as HabitSubtype) : undefined,
+          // Note: subtype removed - habits table doesn't have this column
 
           // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
