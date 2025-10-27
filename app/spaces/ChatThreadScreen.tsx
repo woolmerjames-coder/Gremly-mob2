@@ -1348,105 +1348,112 @@ export default function ChatThreadScreen({ route }: Props) {
                     (c) => c.messageId === message.id,
                   );
 
-                  // Render locked habit confirmation
-                  if (
-                    message.role === 'assistant' &&
-                    (message.metadata_json as any)?.type === 'habit-locked'
-                  ) {
-                    const metadata = message.metadata_json || {};
-                    return (
-                      <Pressable
-                        key={message.id}
-                        style={styles.lockedHabit}
-                        onPress={() => {
-                          // Navigate to habit in space
-                          if (metadata.habitId) {
-                            console.log('[LockedHabit] Tapped, habitId:', metadata.habitId);
-                            overlayController.openEdit({
-                              record: { id: metadata.habitId, type: 'habit' } as any,
-                              spaceId: spaceId ?? undefined,
-                            });
-                          }
-                        }}
-                      >
-                        <View style={styles.lockedContent}>
-                          <Text style={styles.lockIcon}>🔒</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.lockedTitle}>
-                              Habit locked in for {metadata.frequency}
-                            </Text>
-                            <Text style={styles.lockedSubtext}>
-                              Click this entry or find it in the Space to edit
-                            </Text>
-                          </View>
-                        </View>
-                      </Pressable>
-                    );
-                  }
+                  // Helper function to get icon for each type
+                  const getIconForType = (type: string): string => {
+                    switch (type) {
+                      case 'habit':
+                        return '🔒';
+                      case 'todo':
+                        return '✓';
+                      case 'note':
+                        return '📝';
+                      case 'person':
+                        return '👤';
+                      default:
+                        return '📌';
+                    }
+                  };
 
-                  // Render locked todo confirmation
-                  if (
-                    message.role === 'assistant' &&
-                    (message.metadata_json as any)?.type === 'todo-locked'
-                  ) {
-                    const metadata = message.metadata_json || {};
-                    return (
-                      <Pressable
-                        key={message.id}
-                        style={styles.lockedTodo}
-                        onPress={() => {
-                          if (metadata.todoId) {
-                            console.log('[LockedTodo] Tapped, todoId:', metadata.todoId);
-                            overlayController.openEdit({
-                              record: { id: metadata.todoId, type: 'todo' } as any,
-                              spaceId: spaceId ?? undefined,
-                            });
-                          }
-                        }}
-                      >
-                        <View style={styles.lockedContent}>
-                          <Text style={styles.lockIcon}>✓</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.lockedTitle}>
-                              Task added
-                              {metadata.dueDate ? ` for ${metadata.dueDate}` : ''}
-                            </Text>
-                            <Text style={styles.lockedSubtext}>
-                              Click this entry or find it in the Space to edit
-                            </Text>
-                          </View>
-                        </View>
-                      </Pressable>
-                    );
-                  }
+                  // Helper function to get title for each locked type
+                  const getLockedTitle = (metadata: any): string => {
+                    const itemType = metadata.itemType;
+                    switch (itemType) {
+                      case 'habit':
+                        return `Habit locked in for ${metadata.frequency}`;
+                      case 'todo':
+                        return `Task added${metadata.dueDate ? ` for ${metadata.dueDate}` : ''}`;
+                      case 'note':
+                        return 'Note captured';
+                      case 'person':
+                        return `${metadata.personName} added to connections`;
+                      default:
+                        return 'Item created';
+                    }
+                  };
 
-                  // Render locked note confirmation
+                  // Helper function to get subtext for each locked type
+                  const getLockedSubtext = (metadata: any): string => {
+                    const itemType = metadata.itemType;
+                    if (itemType === 'note' && metadata.noteContent) {
+                      return metadata.noteContent.substring(0, 50);
+                    }
+                    return 'Click this entry or find it in the Space to edit';
+                  };
+
+                  // Helper function to get item ID based on type
+                  const getItemId = (metadata: any): string | undefined => {
+                    const itemType = metadata.itemType;
+                    switch (itemType) {
+                      case 'habit':
+                        return metadata.habitId;
+                      case 'todo':
+                        return metadata.todoId;
+                      case 'note':
+                        return metadata.noteId;
+                      case 'person':
+                        return metadata.personId;
+                      default:
+                        return undefined;
+                    }
+                  };
+
+                  // Unified renderer for all locked confirmation types
                   if (
                     message.role === 'assistant' &&
-                    (message.metadata_json as any)?.type === 'note-locked'
+                    (message.metadata_json as any)?.type?.includes('-locked')
                   ) {
                     const metadata = message.metadata_json || {};
-                    const notePreview = metadata.noteContent?.substring(0, 50) || 'Note captured';
+                    const itemType = metadata.itemType;
+                    const itemId = getItemId(metadata);
+                    const icon = getIconForType(itemType);
+                    const title = getLockedTitle(metadata);
+                    const subtext = getLockedSubtext(metadata);
+
+                    // Determine which style to use based on itemType
+                    const lockedStyle =
+                      itemType === 'habit'
+                        ? styles.lockedHabit
+                        : itemType === 'todo'
+                          ? styles.lockedTodo
+                          : itemType === 'note'
+                            ? styles.lockedNote
+                            : itemType === 'person'
+                              ? styles.lockedPerson
+                              : styles.lockedHabit; // fallback
+
                     return (
                       <Pressable
                         key={message.id}
-                        style={styles.lockedNote}
+                        style={lockedStyle}
                         onPress={() => {
-                          if (metadata.noteId) {
-                            console.log('[LockedNote] Tapped, noteId:', metadata.noteId);
+                          if (itemId && itemType) {
+                            console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
                             overlayController.openEdit({
-                              record: { id: metadata.noteId, type: 'note' } as any,
+                              record: { id: itemId, type: itemType } as any,
                               spaceId: spaceId ?? undefined,
                             });
                           }
                         }}
                       >
                         <View style={styles.lockedContent}>
-                          <Text style={styles.lockIcon}>📝</Text>
+                          <Text style={styles.lockIcon}>{icon}</Text>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.lockedTitle}>Note captured</Text>
-                            <Text style={styles.lockedSubtext} numberOfLines={1}>
-                              {notePreview}
+                            <Text style={styles.lockedTitle}>{title}</Text>
+                            <Text
+                              style={styles.lockedSubtext}
+                              numberOfLines={itemType === 'note' ? 1 : undefined}
+                            >
+                              {subtext}
                             </Text>
                           </View>
                         </View>
@@ -2042,6 +2049,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF9E6', // Light yellow background
     borderLeftWidth: 4,
     borderLeftColor: '#F9A825', // Amber
+    padding: 12,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 8,
+  },
+  lockedPerson: {
+    backgroundColor: '#F3E5F5', // Light purple background
+    borderLeftWidth: 4,
+    borderLeftColor: '#7B1FA2', // Purple
     padding: 12,
     marginVertical: 8,
     marginHorizontal: 16,
