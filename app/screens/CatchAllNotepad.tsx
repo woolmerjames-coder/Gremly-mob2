@@ -336,10 +336,12 @@ export const RecentDropsTestable = RecentDrops;
 export type CatchAllNotepadProps = {
   trustCycleMs?: number;
   trustRefreshMs?: number;
+  // Optional P8: allow parent to pass network status if a hook exists elsewhere
+  networkIsOnline?: boolean;
 };
 
 export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
-  const { trustCycleMs = 4000, trustRefreshMs = 60000 } = props;
+  const { trustCycleMs = 4000, trustRefreshMs = 60000, networkIsOnline } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { userId } = useAuth();
@@ -879,6 +881,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     setIsSubmitting(true);
 
+    // Optional short-circuit if network state is provided and offline
+    if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
+      try {
+        await saveToUnsortedTray(repo, trimmed);
+        setNote('');
+        showActionToast({
+          type: 'success',
+          content: 'Saved offline. No internet — but I saved it! Will organize when connected.',
+        });
+        pendingUndo.current = { todos: [], notes: [], habits: [] };
+        await refreshOrganizedToday?.();
+        setRecentRefresh?.((v) => v + 1);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     // We’ll attempt performSave() up to 2 times total.
     let attempt = 0;
     const maxAttempts = 2;
@@ -961,7 +981,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } finally {
       setIsSubmitting(false);
     }
-  }, [note, isSubmitting, performSave, repo, refreshOrganizedToday, showActionToast]);
+  }, [
+    note,
+    isSubmitting,
+    performSave,
+    repo,
+    refreshOrganizedToday,
+    showActionToast,
+    networkIsOnline,
+  ]);
 
   // Trust Builders messages
   const trustMessages = useMemo(() => {
