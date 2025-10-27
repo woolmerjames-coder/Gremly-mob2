@@ -227,6 +227,51 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 15: COMPLETE HABIT STATEMENTS
+  // User provides activity AND frequency in one statement
+  // E.g., "I want to run 3 times a week" - should trigger toast immediately
+  // High priority to catch before partial habit patterns
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 15,
+    name: 'habit_complete_statement',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Pattern 1: "I want to [activity] N times a week"
+      const wantToFrequency =
+        /\b(i want to|i'd like to|i wanna)\s+(run|walk|exercise|meditate|read|write|practice|work\s*out|journal|yoga|stretch|cycle|swim|jog)\s+(\d+|once|twice)\s+times?\s+(a|per)\s+week/i;
+
+      // Pattern 2: "I'll [activity] daily/every day"
+      const dailyCommitment =
+        /\b(i'?ll|i will)\s+(run|walk|exercise|meditate|read|write|practice|work\s*out|journal|yoga|stretch|cycle|swim|jog)\s+(daily|every\s+day|each\s+day|every\s+morning|every\s+evening)/i;
+
+      // Pattern 3: "Let me [activity] Nx a week"
+      const shorthandFrequency =
+        /\b(let me|let's|i'll)\s+(run|walk|exercise|meditate|read|write|practice|work\s*out|journal)\s+(\d+)x\s*(a|per)?\s*week/i;
+
+      // Pattern 4: "[activity] N times a week" (more casual)
+      const casualFrequency =
+        /^(run|walk|exercise|meditate|read|write|practice|work\s*out|journal|yoga|stretch)\s+(\d+|once|twice)\s+times?\s+(a|per)\s+week/i;
+
+      return (
+        wantToFrequency.test(normalized) ||
+        dailyCommitment.test(normalized) ||
+        shorthandFrequency.test(normalized) ||
+        casualFrequency.test(normalized)
+      );
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.95,
+      flags: {
+        requiresAction: true,
+        isCommand: false, // Not an explicit command, but complete enough to act on
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 17: ACTION-ORIENTED REMINDERS
   // "Remember to [action]" should be todo, not note
   // Must come BEFORE generic "remember" → note rule (priority 18)
