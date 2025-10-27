@@ -68,78 +68,24 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
 
 const PLACEHOLDER_COLOR = '#B6A999';
 
-function InfoButton(): React.JSX.Element {
-  const [showTip, setShowTip] = useState(false);
-
-  useEffect(() => {
-    if (!showTip) return;
-    const t = setTimeout(() => setShowTip(false), 3000);
-    return () => clearTimeout(t);
-  }, [showTip]);
-
+function InfoButton({
+  showTip,
+  setShowTip,
+}: {
+  showTip: boolean;
+  setShowTip: React.Dispatch<React.SetStateAction<boolean>>;
+}): React.JSX.Element {
   return (
-    <View style={{ position: 'relative' }}>
-      {/* Overlay to capture outside taps within header area */}
-      {showTip ? (
-        <Pressable
-          style={{ position: 'absolute', top: -16, bottom: -16, left: -24, right: -24 }}
-          onPress={() => setShowTip(false)}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
-      ) : null}
-
-      <Pressable
-        testID="minddrop-info-button"
-        accessibilityRole="button"
-        accessibilityLabel="Info"
-        hitSlop={8}
-        onPress={() => setShowTip((v) => !v)}
-        style={{ paddingHorizontal: 8, paddingVertical: 6 }}
-      >
-        <Text style={{ fontSize: 16 }}>ℹ️</Text>
-      </Pressable>
-
-      {showTip ? (
-        <View
-          style={{
-            position: 'absolute',
-            top: 28,
-            right: 0,
-            maxWidth: 260,
-            backgroundColor: '#FFFCF5',
-            padding: 10,
-            borderRadius: 12,
-            shadowColor: '#000',
-            shadowOpacity: 0.08,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 3,
-            zIndex: 10,
-          }}
-        >
-          {/* Arrow */}
-          <View
-            style={{
-              position: 'absolute',
-              top: -5,
-              right: 12,
-              width: 10,
-              height: 10,
-              backgroundColor: '#FFFCF5',
-              transform: [{ rotate: '45deg' }],
-              shadowColor: '#000',
-              shadowOpacity: 0.06,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 3 },
-            }}
-          />
-          <Text style={{ fontSize: 13, lineHeight: 18, color: '#0E3B3A', fontFamily: 'Inter' }}>
-            Just type everything on your mind. I’ll organize it.
-          </Text>
-        </View>
-      ) : null}
-    </View>
+    <Pressable
+      testID="minddrop-info-button"
+      accessibilityRole="button"
+      accessibilityLabel="Info"
+      hitSlop={8}
+      onPress={() => setShowTip(!showTip)}
+      style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+    >
+      <Text style={{ fontSize: 16 }}>ℹ️</Text>
+    </Pressable>
   );
 }
 
@@ -155,6 +101,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showTip, setShowTip] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -165,13 +112,20 @@ export default function CatchAllNotepad(): React.JSX.Element {
     };
   }, []);
 
+  // Auto-hide tooltip after 3 seconds
+  useEffect(() => {
+    if (!showTip) return;
+    const t = setTimeout(() => setShowTip(false), 3000);
+    return () => clearTimeout(t);
+  }, [showTip]);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       title: 'Mind Drop',
       headerShown: true,
-      headerRight: () => <InfoButton />,
+      headerRight: () => <InfoButton showTip={showTip} setShowTip={setShowTip} />,
     });
-  }, [navigation]);
+  }, [navigation, showTip]);
 
   const disabled = useMemo(() => !note.trim() || isSubmitting, [note, isSubmitting]);
 
@@ -453,11 +407,11 @@ export default function CatchAllNotepad(): React.JSX.Element {
         onChangeText={setNote}
         placeholder="Write your thoughts here..."
         placeholderTextColor={PLACEHOLDER_COLOR}
-        style={styles.input}
+        style={styles.minddropInput}
       />
       <Button
         testID="minddrop-submit-button"
-        title="Submit"
+        label="Submit"
         onPress={performSave}
         disabled={disabled}
       />
@@ -470,7 +424,7 @@ export default function CatchAllNotepad(): React.JSX.Element {
     </View>
   );
 
-  return whenEnabled(
+  const content = whenEnabled(
     MIND_DROP_V2,
     () => (
       <>
@@ -480,6 +434,30 @@ export default function CatchAllNotepad(): React.JSX.Element {
       </>
     ),
     () => renderLegacyUI(),
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Tooltip overlay just under the header */}
+      <View
+        pointerEvents={showTip ? 'auto' : 'none'}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
+      >
+        {showTip ? (
+          <>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
+            <View style={styles.tipContainer}>
+              <View style={styles.tipArrow} />
+              <Text style={styles.tipText}>
+                Just type everything on your mind. I’ll organize it.
+              </Text>
+            </View>
+          </>
+        ) : null}
+      </View>
+
+      {content}
+    </View>
   );
 }
 
@@ -701,5 +679,33 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 26,
     color: '#0E3B3A',
+  },
+  tipContainer: {
+    position: 'absolute',
+    top: 6,
+    right: 8,
+    maxWidth: 260,
+    backgroundColor: '#FFFCF5',
+    padding: 10,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  tipText: {
+    color: '#2E5540',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  tipArrow: {
+    position: 'absolute',
+    bottom: -6,
+    right: 18,
+    width: 12,
+    height: 12,
+    backgroundColor: '#FFFCF5',
+    transform: [{ rotate: '45deg' }],
   },
 });
