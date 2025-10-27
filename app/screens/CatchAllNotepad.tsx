@@ -47,6 +47,15 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
+// Centralized copy for consistent toasts/messages
+const COPY = {
+  retrying: 'Let me try again…',
+  savedOfflineTitle: 'Saved offline',
+  savedOfflineMsg: 'No internet — but I saved it! Will organize when connected.',
+  savedUnsortedTitle: 'Saved to Unsorted',
+  savedUnsortedMsg: 'Saved to your Unsorted Tray — we’ll organize it together!',
+};
+
 // Thin local fallback writer for unsorted mind drops
 // Writes a single note with labels [catchall, needs_review] and a pending flag when supported
 // Adapted to our repo layer shape (uses addUnsorted if available, else create)
@@ -888,7 +897,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setNote('');
         showActionToast({
           type: 'success',
-          content: 'Saved offline. No internet — but I saved it! Will organize when connected.',
+          content: COPY.savedOfflineMsg,
         });
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         await refreshOrganizedToday?.();
@@ -920,7 +929,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // First failure — show “retrying” toast and try again
             showActionToast({
               type: 'success',
-              content: 'Hmm… Let me try again…',
+              content: COPY.retrying,
             });
             // loop to attempt #2
           } else {
@@ -938,7 +947,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setNote('');
           showActionToast({
             type: 'success',
-            content: 'Saved offline. No internet — but I saved it! Will organize when connected.',
+            content: COPY.savedOfflineMsg,
           });
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
@@ -946,7 +955,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setNote('');
           showActionToast({
             type: 'success',
-            content: 'Saved to Unsorted. We’ll organize it together!',
+            content: COPY.savedUnsortedMsg,
           });
         }
         // Nothing created (no Undo set)
