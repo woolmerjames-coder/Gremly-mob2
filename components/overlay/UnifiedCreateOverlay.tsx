@@ -145,7 +145,16 @@ export function UnifiedCreateOverlay({
   }
 
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
-  const [spaceId] = useState<string | null | undefined>(initialSpaceId); // TODO: Add space selector UI
+  const [spaceId, setSpaceId] = useState<string | null | undefined>(initialSpaceId);
+
+  // Update spaceId when initialSpaceId prop changes
+  // CRITICAL: Overlay is persistent, so we need to update state when opened with new spaceId
+  if (visible && initialSpaceId !== undefined && spaceId !== initialSpaceId) {
+    setSpaceId(initialSpaceId);
+    if (__DEV__) {
+      console.log('[UnifiedOverlay] Sync spaceId update during render:', initialSpaceId);
+    }
+  }
 
   // Helpers: normalize fields for repo insert schemas
   const normalizeSpaceId = useCallback((val: string | null | undefined): string | null => {
@@ -1208,6 +1217,12 @@ export function UnifiedCreateOverlay({
       case 'habit': {
         const isStartHabit = habitSubtype === 'start_habit';
         const isBreakHabit = habitSubtype === 'break_habit';
+
+        console.log('[Overlay] Building habit input:', {
+          overlaySpaceId: spaceId,
+          habitDetailsSpaceId: habitDetails.spaceId,
+          baseInputSpaceId: baseInput.space_id,
+        });
 
         return {
           ...baseInput,
