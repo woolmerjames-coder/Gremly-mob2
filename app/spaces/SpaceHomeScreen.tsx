@@ -832,10 +832,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       const rec = (items as any[]).find((r) => r.id === id);
                       console.log('[SpaceHome] Found record:', rec ? rec.type : 'NOT FOUND');
                       if (rec) {
-                        console.log('[SpaceHome] Navigating to Tabs/Hub');
-                        // Navigate back to Tabs, then to Hub tab
-                        // The user can then find and edit the habit in the Hub
-                        navigation.navigate('Tabs', { screen: 'Hub' } as any);
+                        console.log('[SpaceHome] Opening overlay to edit');
+                        overlay.openEdit({ record: rec, spaceId });
                       }
                     }}
                     onMenu={() => {}}

@@ -1321,9 +1321,9 @@ export function UnifiedCreateOverlay({
         const isBreakHabit = habitSubtype === 'break_habit';
 
         return {
-          title: habitName,
+          name: habitName,
           frequency: habitFrequency,
-          // Note: subtype removed - habits table doesn't have this column
+          // Note: subtype and title removed - habits table doesn't have these columns
 
           // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
