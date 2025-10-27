@@ -476,7 +476,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         )
         .reduce((a, b) => a + b, 0);
 
-      setOrganizedToday(count);
+      // Only update state if count actually changed to prevent unnecessary re-renders
+      setOrganizedToday((prev) => (prev === count ? prev : count));
       // Optional debug for tests/dev; avoid error overlay in RN
       if (__DEV__ && process.env.JEST_WORKAROUND === '1') {
         // eslint-disable-next-line no-console
@@ -521,16 +522,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     let mounted = true;
     (async () => {
       await refreshOrganizedToday();
-      // Refresh count every 60s
+      // Refresh count every 60s, but skip if user is typing to prevent TextInput disruption
       trustRefreshRef.current = setInterval(() => {
-        void refreshOrganizedToday();
+        if (!isFocused) {
+          void refreshOrganizedToday();
+        }
       }, trustRefreshMs);
     })();
     return () => {
       mounted = false;
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
-  }, [refreshOrganizedToday, trustRefreshMs]);
+  }, [refreshOrganizedToday, trustRefreshMs, isFocused]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
