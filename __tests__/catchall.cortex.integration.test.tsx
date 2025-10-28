@@ -1,111 +1,58 @@
 /**
- * Phase 10.3: Catch-All Notepad + Cortex SDK Integration Test
- * Lightweight test with mocked repo and Cortex - no network/DB
+ * Catch-All Notepad integration smoke tests
  *
- * NOTE: These are shallow integration tests verifying the wiring
- * between CatchAllNotepad and the Cortex SDK. They test that:
- * 1. cortexDecide is called only in guided mode
- * 2. Repo methods are called based on Cortex response mode
- * 3. Low confidence saves to catch-all with suggestions
- *
- * Given the complexity of full component rendering with all providers,
- * these tests focus on verifying that the critical integration points exist.
+ * These assertions exercise the source file directly to make sure
+ * the Mind Drop screen keeps calling into the Cortex engine in the way
+ * our runtime expects. They intentionally avoid rendering to keep the
+ * signal high and execution time low.
  */
 
-import * as cortexDecideModule from '../lib/cortex/cortexDecide';
-
-describe('Catch-All + Cortex Integration (Phase 10.3)', () => {
-  it('should have cortexDecide integration in CatchAllNotepad', () => {
-    // This is a smoke test that verifies the integration exists
-    // The actual component behavior is tested in runtime
-    expect(cortexDecideModule.cortexDecide).toBeDefined();
-    expect(typeof cortexDecideModule.cortexDecide).toBe('function');
-  });
-
-  it('should export required Cortex types', () => {
-    // Verify that the types needed for integration exist
+describe('Catch-All + Cortex Integration', () => {
+  const loadSource = () => {
     const fs = require('fs');
     const path = require('path');
-
     const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
-    const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
+    return fs.readFileSync(catchAllPath, 'utf-8');
+  };
 
-    // Verify imports - now using cortexRoute instead of cortexDecide
-    expect(catchAllSource).toContain("import { cortexRoute } from '../../lib/cortex/router'");
-    expect(catchAllSource).toContain('import type { CortexContext, CortexAction }');
-    expect(catchAllSource).toContain('explainAddedToList');
-    expect(catchAllSource).toContain('explainCreated');
+  it('should invoke the Cortex engine classify path', () => {
+    const catchAllSource = loadSource();
 
-    // Verify guided mode integration (uiMode is the local capture mode)
-    expect(catchAllSource).toContain("uiMode === 'guided'");
-    expect(catchAllSource).toContain('cortexRoute({ text:');
-
-    // Verify action execution
-    expect(catchAllSource).toContain("action.type === 'add.to.list'");
-    expect(catchAllSource).toContain('getOrCreateList');
-    expect(catchAllSource).toContain('addListItem');
-
-    // Verify event logging
-    expect(catchAllSource).toContain('writeEvent');
-    expect(catchAllSource).toContain("'cortex_decision'");
-
-    // Verify fail-safe behavior
-    expect(catchAllSource).toContain('catch');
-
-    // Verify confirmations and suggestions
-    expect(catchAllSource).toContain('confirmations');
-    expect(catchAllSource).toContain('suggestions');
+    expect(catchAllSource).toContain(
+      "import { createCortexEngine } from '../../cortex/createEngine'",
+    );
+    expect(catchAllSource).toContain('const engine = createCortexEngine()');
+    expect(catchAllSource).toContain('.classify({ text: trimmed, spaceId: null })');
   });
 
-  it('should integrate cortexDecide with correct context shape', () => {
-    // Verify the context structure expected by cortexDecide
-    const fs = require('fs');
-    const path = require('path');
+  it('should map classification types to repo payloads', () => {
+    const catchAllSource = loadSource();
 
-    const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
-    const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-
-    // Check that CortexContext is constructed properly
-    expect(catchAllSource).toContain('userId:');
-    expect(catchAllSource).toContain('uiSurface:');
-    expect(catchAllSource).toContain("'catchall'");
+    expect(catchAllSource).toContain("classifyOut?.type === 'todo'");
+    expect(catchAllSource).toContain("classifyOut?.type === 'habit'");
+    expect(catchAllSource).toContain("subtype: 'catchall'");
   });
 
-  it('should handle all CortexAction types', () => {
-    const fs = require('fs');
-    const path = require('path');
+  it('should log Catch-All decisions with intent metadata', () => {
+    const catchAllSource = loadSource();
 
-    const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
-    const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-
-    // Verify all action types are handled
-    expect(catchAllSource).toContain("'add.to.list'");
-    expect(catchAllSource).toContain("'create.todo'");
-    expect(catchAllSource).toContain("'create.habit'");
-    expect(catchAllSource).toContain("'create.note'");
+    expect(catchAllSource).toContain('logCatchallDecision');
+    expect(catchAllSource).toContain('probableIntent');
+    expect(catchAllSource).toContain('mode: decisionMode');
   });
 
-  it('should set ai_placed=true for auto mode actions', () => {
-    const fs = require('fs');
-    const path = require('path');
+  it('should set ai_placed flags based on payload type', () => {
+    const catchAllSource = loadSource();
 
-    const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
-    const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-
-    // Verify ai_placed flag is set
     expect(catchAllSource).toContain('ai_placed: true');
-    expect(catchAllSource).toContain('why_string');
+    expect(catchAllSource).toContain('ai_placed: false');
   });
 
-  it('should handle keep/ask modes by saving to catch-all', () => {
-    const fs = require('fs');
-    const path = require('path');
+  it('should record trace checkpoints around classify and payload', () => {
+    const catchAllSource = loadSource();
 
-    const catchAllPath = path.join(__dirname, '../app/screens/CatchAllNotepad.tsx');
-    const catchAllSource = fs.readFileSync(catchAllPath, 'utf-8');
-
-    // Verify mode checking
-    expect(catchAllSource).toContain("mode === 'auto'");
-    expect(catchAllSource).toContain('ai_placed: false');
+    expect(catchAllSource).toContain("step(trace, 'classify:start'");
+    expect(catchAllSource).toContain("step(trace, 'classify:result'");
+    expect(catchAllSource).toContain("step(trace, 'payload:final'");
   });
 });

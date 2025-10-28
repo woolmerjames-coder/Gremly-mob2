@@ -2,13 +2,6 @@ import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { heuristicEngine } from './heuristicEngine';
 import { OpenAiEngine } from './openAiEngine';
 
-const BOOL_TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
-const parseBoolean = (value: string | undefined, fallback = false): boolean => {
-  if (typeof value !== 'string') return fallback;
-  return BOOL_TRUE_VALUES.has(value.trim().toLowerCase());
-};
-
 const parseInteger = (value: string | undefined, fallback: number): number => {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -97,23 +90,37 @@ class ManagedCortexEngine implements ICortexEngine {
 }
 
 export const createCortexEngine = (): ICortexEngine => {
-  const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
+  const DEBUG =
+    String(process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false').toLowerCase() === 'true' ||
+    String(process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? '').toLowerCase() === 'on';
   const engineFlag = (process.env.EXPO_PUBLIC_CORTEX_ENGINE ?? 'HEURISTIC').toUpperCase();
   const classifyFlag = process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL ?? 'false';
   const hasKey = !!process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  const hasProxy = !!process.env.EXPO_PUBLIC_CORTEX_URL;
+  const hasBackend = hasKey || hasProxy;
   const model = process.env.EXPO_PUBLIC_CORTEX_MODEL ?? 'gpt-4o-mini';
 
   if (DEBUG) {
-    console.log('[createCortexEngine] choose:', { engineFlag, classifyFlag, hasKey, model });
+    console.log('[createCortexEngine] choose:', {
+      engineFlag,
+      classifyFlag,
+      hasKey,
+      hasProxy,
+      hasBackend,
+      model,
+    });
   }
 
-  const classifyCatchall = parseBoolean(classifyFlag, false);
+  const classifyCatchall = (() => {
+    const v = String(classifyFlag).toLowerCase();
+    return v === 'true' || v === 'on' || v === '1';
+  })();
   if (!classifyCatchall) {
     if (DEBUG) console.log('[createCortexEngine] classification disabled by flag');
     return new DisabledCortexEngine();
   }
 
-  if (engineFlag === 'LLM' && hasKey) {
+  if (engineFlag === 'LLM' && hasBackend) {
     const timeoutMs = parseInteger(process.env.EXPO_PUBLIC_CORTEX_TIMEOUT_MS, 2500);
     const rateWindow = parseInteger(process.env.EXPO_PUBLIC_CORTEX_RATE_WINDOW_S, 60);
     const rateMax = parseInteger(process.env.EXPO_PUBLIC_CORTEX_RATE_MAX, 5);
@@ -122,7 +129,7 @@ export const createCortexEngine = (): ICortexEngine => {
     if (DEBUG) console.log('[createCortexEngine] using OpenAI engine with rate limiter');
 
     const primary = new OpenAiEngine({
-      apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY!,
+      apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY || 'proxy',
       model,
       timeoutMs,
       baseUrl,
@@ -133,7 +140,12 @@ export const createCortexEngine = (): ICortexEngine => {
   }
 
   if (DEBUG || engineFlag === 'LLM') {
-    console.warn('[createCortexEngine] Using Heuristic engine.', { engineFlag, hasKey });
+    console.warn('[createCortexEngine] Using Heuristic engine.', {
+      engineFlag,
+      hasKey,
+      hasProxy,
+      hasBackend,
+    });
   }
   return heuristicEngine;
 };

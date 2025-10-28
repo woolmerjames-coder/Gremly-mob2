@@ -31,14 +31,7 @@ import { Button } from '../../design-system/Button';
 import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
-import { cortexRoute } from '../../lib/cortex/router';
-import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
-import {
-  explainAddedToList,
-  explainCreated,
-  explainFiledToSpace,
-  explainAmbiguous,
-} from '../../lib/cortex/explain';
+import { createCortexEngine } from '../../cortex/createEngine';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
@@ -46,11 +39,9 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
-import { decideGating } from '../../lib/cortex/policy/gating';
-import { detectSignals } from '../../lib/cortex/policy/signals';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
-import { parseDue } from '../../lib/cortex/entities/datetime';
-import { buildMindDropAskChips } from '../../lib/cortex/policy/chips';
+import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
+import type { CreateRecordInput } from '../../lib/repo/IRepo';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -754,7 +745,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     (args: { todos?: number; notes?: number; habits?: number }) => {
       const { todos = 0, notes = 0, habits = 0 } = args || {};
       const parts: string[] = [];
-      if (todos) parts.push(`${todos} ${todos === 1 ? 'task' : 'tasks'}`);
+      if (todos) parts.push(`${todos} ${todos === 1 ? 'todo' : 'todos'}`);
       if (notes) parts.push(`${notes} ${notes === 1 ? 'note' : 'notes'}`);
       if (habits) parts.push(`${habits} ${habits === 1 ? 'habit' : 'habits'}`);
       const body = parts.length ? parts.join(', ') : 'items';
@@ -786,343 +777,68 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   type SaveResult = { created: { todos: string[]; notes: string[]; habits: string[] } };
 
   const performSave = useCallback(async (): Promise<SaveResult> => {
+    const trimmed = note.trim();
+    const trace = startCatchallTrace('minddrop');
+    step(trace, 'submit', { length: trimmed.length });
+
     try {
-      const trimmed = note.trim();
       if (!trimmed) {
         resetState();
+        end(trace, 'empty', { length: 0 });
         return { created: { todos: [], notes: [], habits: [] } };
       }
 
       const currentUserId = userId || 'anonymous';
+      const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
+      const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
 
-      // Phase 10.3: Call Cortex SDK for guided mode
-      if (uiMode === 'guided') {
-        const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
-        const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
-        let probableIntent: 'todo' | 'habit' | 'note' | 'ambiguous' = 'ambiguous';
-        let policyMode: 'auto' | 'ask' | 'keep' | 'unsorted' = 'unsorted';
-        let decisionOutcomeLabel: 'auto_create' | 'ask_chip' | 'keep_note' | 'unsorted' =
-          'unsorted';
-        let responseConfidence = 0;
+      step(trace, 'classify:start', { excerpt: trimmed.slice(0, 120) });
+      let classifyOut: any = null;
+      try {
+        const engine = createCortexEngine();
+        classifyOut = await engine.classify({ text: trimmed, spaceId: null });
+        step(trace, 'classify:result', classifyOut);
+      } catch (err) {
+        console.warn('[MindDrop][Classify] error', String(err));
+        step(trace, 'classify:error', { error: String(err) });
+      }
 
-        try {
-          const ctx: CortexContext = {
-            lane: 'catchall',
-            userId: currentUserId,
-            activeSpaceId: null,
-            uiSurface: 'overlay',
-          };
+      const createdIds = {
+        todos: [] as string[],
+        notes: [] as string[],
+        habits: [] as string[],
+      };
+      const counts = { todos: 0, notes: 0, habits: 0 };
 
-          // Dev-only lane logging
-          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log(
-              '[CORTEX] lane=%s space=%s msg=%s',
-              ctx.lane,
-              ctx.spaceId ?? '-',
-              ctx.messageId ?? '-',
-            );
-          }
+      let payload: CreateRecordInput;
+      if (classifyOut?.type === 'todo') {
+        payload = {
+          type: 'todo',
+          title: trimmed,
+          name: trimmed,
+          due_date: null,
+          undefined_due: true,
+          space_id: null,
+          ai_placed: true,
+          why_string: classifyOut?.whyString || 'Auto-classified as a task',
+          origin: 'catchall',
+        };
+      } else if (classifyOut?.type === 'habit') {
+        const freqRaw = typeof classifyOut?.frequency === 'string' ? classifyOut.frequency : null;
+        const frequency: 'daily' | 'weekly' | 'monthly' =
+          freqRaw === 'weekly' ? 'weekly' : freqRaw === 'monthly' ? 'monthly' : 'daily';
 
-          const response = await cortexRoute({ text: trimmed }, ctx);
-
-          const actions = Array.isArray(response?.actions) ? response.actions : [];
-
-          // Phase 1: unified gating policy (guided mode)
-          probableIntent = actions.some((a: any) => a?.type === 'create.habit')
-            ? 'habit'
-            : actions.some((a: any) => a?.type === 'create.todo')
-              ? 'todo'
-              : actions.some((a: any) => a?.type === 'create.note')
-                ? 'note'
-                : 'ambiguous';
-
-          const { hasActionSignal, hasTimeSignal } = detectSignals(trimmed);
-
-          responseConfidence =
-            typeof response?.confidence === 'number' && Number.isFinite(response.confidence)
-              ? response.confidence
-              : 0;
-
-          const policyDecision = decideGating({
-            intent: probableIntent,
-            confidence: responseConfidence,
-            isCommand: !!(response as any)?.isCommand,
-            isMetaComment: !!(response as any)?.isMetaComment,
-            hasActionSignal,
-            hasTimeSignal,
-          });
-
-          policyMode = policyDecision.mode;
-          const decisionOutcome = mapDecisionOutcome(policyDecision.mode);
-          decisionOutcomeLabel = decisionOutcome;
-
-          let askChips: ReturnType<typeof buildMindDropAskChips> = [];
-          if (policyDecision.mode === 'ask') {
-            askChips = buildMindDropAskChips({
-              userText: trimmed,
-              intent: probableIntent,
-            });
-            if (askChips.length > 0) {
-              setSuggestions(askChips.map((chip) => chip.label));
-            }
-          }
-
-          // Optional debug to compare original vs policy
-          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log('[MindDrop][Policy] compare', {
-              originalMode: response?.mode,
-              policyMode: policyDecision.mode,
-              probableIntent,
-              confidence: responseConfidence,
-              hasActionSignal,
-              hasTimeSignal,
-            });
-          }
-
-          // Log event (non-blocking)
-          repo
-            .writeEvent(
-              'cortex_decision',
-              {
-                source: 'catchall',
-                text: trimmed,
-                actions: response.actions,
-                confidence: response.confidence,
-                mode: response.mode,
-              },
-              { userId: currentUserId },
-            )
-            .catch((err) => console.error('[CatchAllNotepad] Failed to log event:', err));
-
-          if (policyDecision.mode === 'auto' && actions.length > 0) {
-            // Execute actions in parallel
-            const confirmationTexts: string[] = [];
-            const counts = { todos: 0, notes: 0, habits: 0 };
-            const createdIds = {
-              todos: [] as string[],
-              notes: [] as string[],
-              habits: [] as string[],
-            };
-
-            await Promise.all(
-              actions.map(async (action: CortexAction) => {
-                try {
-                  if (action.type === 'add.to.list') {
-                    const list = await repo.getOrCreateList(action.payload.listKey, {
-                      userId: currentUserId,
-                      spaceId: action.payload.spaceId ?? null,
-                    });
-                    await repo.addListItem(list.id, action.payload.item);
-                    confirmationTexts.push(explainAddedToList(list.name, 'warm'));
-                  } else if (action.type === 'create.todo') {
-                    // Prefer LLM due when present; otherwise deterministically parse from user text
-                    let due = action.payload.due ?? null;
-                    let undefinedDue = !due;
-
-                    if (!due) {
-                      const parsed = parseDue(trimmed);
-                      if (parsed.iso && parsed.confidence >= 0.9) {
-                        due = parsed.iso;
-                        undefinedDue = false;
-                      }
-                    }
-
-                    const rec = await repo.create({
-                      type: 'todo',
-                      name: action.payload.title,
-                      title: action.payload.title,
-                      due_date: due,
-                      undefined_due: undefinedDue,
-                      space_id: action.payload.spaceId ?? null,
-                      ai_placed: true,
-                      // Preserve your existing explanation, append small hint about due parsing
-                      why_string: [response.explanation, due ? '(due auto-parsed)' : '(no due)']
-                        .filter(Boolean)
-                        .join(' '),
-                      origin: 'catchall',
-                    });
-                    confirmationTexts.push(explainCreated('todo', 'warm'));
-                    counts.todos += 1;
-                    createdIds.todos.push(rec.id);
-                  } else if (action.type === 'create.habit') {
-                    const rec = await repo.create({
-                      type: 'habit',
-                      name: action.payload.name,
-                      frequency:
-                        (action.payload.freq === 'custom' ? 'daily' : action.payload.freq) ||
-                        'daily',
-                      subtype: 'start_habit',
-                      space_id: action.payload.spaceId ?? null,
-                      ai_placed: true,
-                      why_string: response.explanation,
-                      origin: 'catchall',
-                    });
-                    confirmationTexts.push(explainCreated('habit', 'warm'));
-                    counts.habits += 1;
-                    createdIds.habits.push(rec.id);
-                  } else if (action.type === 'create.note') {
-                    const rec = await repo.create({
-                      type: 'note',
-                      title: action.payload.text || trimmed,
-                      body: action.payload.text,
-                      subtype: (action.payload.subtype as any) || 'note',
-                      space_id: action.payload.spaceId ?? null,
-                      ai_placed: true,
-                      why_string: response.explanation,
-                      origin: 'catchall',
-                    });
-                    confirmationTexts.push(explainCreated('note', 'warm'));
-                    counts.notes += 1;
-                    createdIds.notes.push(rec.id);
-                  }
-                  // file.to.space and attach.reminder not yet implemented
-                } catch (err) {
-                  console.error('[CatchAllNotepad] Failed to execute action:', action, err);
-                }
-              }),
-            );
-
-            // Show confirmations
-            setConfirmations(confirmationTexts);
-
-            // Unified success toast summarizing created items
-            showMindDropSuccessToast(counts);
-            await refreshOrganizedToday();
-
-            // Snapshot for undo
-            pendingUndo.current = createdIds;
-
-            // Clear form after brief delay to show confirmations
-            setTimeout(() => {
-              resetState();
-            }, 2000);
-
-            void logCatchallDecision({
-              userId: currentUserId,
-              text: trimmed,
-              surface: 'catchall',
-              engine: engineMode,
-              modelVersion,
-              intent: probableIntent,
-              confidence: responseConfidence,
-              mode: policyDecision.mode,
-              decision: decisionOutcome,
-              createdTodos: counts.todos,
-              createdNotes: counts.notes,
-              createdHabits: counts.habits,
-            });
-
-            return { created: createdIds };
-          } else {
-            // Mode is 'ask' or 'keep' - save to catch-all with suggestions
-            // Note: Using labels/views for filtering, metadata in why_string
-            const suggestionHints = response.suggestions
-              ? ` Suggestions: ${response.suggestions.join(', ')}`
-              : '';
-            const rec = await repo.create({
-              type: 'note',
-              title: trimmed || 'Quick note',
-              body: trimmed,
-              subtype: 'catchall',
-              origin: 'catchall',
-              ai_placed: false,
-              space_id: null,
-              why_string: `${response.explanation}${suggestionHints}`,
-              canonicalType: 'note',
-              labels: [CATCHALL_LABEL, ...(policyDecision.mode === 'ask' ? [UNSORTED_LABEL] : [])],
-              views: {
-                alsoShowIn: ['Hub:Catch-All'],
-              },
-            });
-
-            // Show suggestions as chips
-            if (policyDecision.mode === 'ask') {
-              if (
-                askChips.length === 0 &&
-                response.suggestions &&
-                response.suggestions.length > 0
-              ) {
-                setSuggestions(response.suggestions);
-              }
-            } else if (response.suggestions && response.suggestions.length > 0) {
-              setSuggestions(response.suggestions);
-            }
-
-            // Unified success toast for single note capture
-            showMindDropSuccessToast({ notes: 1 });
-            await refreshOrganizedToday();
-
-            // Snapshot for undo (single note)
-            pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
-
-            // Clear form after showing suggestions
-            setTimeout(() => {
-              resetState();
-            }, 3000);
-
-            void logCatchallDecision({
-              userId: currentUserId,
-              text: trimmed,
-              surface: 'catchall',
-              engine: engineMode,
-              modelVersion,
-              intent: probableIntent,
-              confidence: responseConfidence,
-              mode: policyDecision.mode,
-              decision: decisionOutcome,
-              createdTodos: 0,
-              createdNotes: 1,
-              createdHabits: 0,
-            });
-
-            return { created: { todos: [], habits: [], notes: [rec.id] } };
-          }
-        } catch (error) {
-          // Cortex failed - fall back to safe save
-          console.error('[CatchAllNotepad] Cortex decision failed:', error);
-          const rec = await repo.create({
-            type: 'note',
-            title: trimmed || 'Quick note',
-            body: trimmed,
-            subtype: 'catchall',
-            origin: 'catchall',
-            ai_placed: false,
-            space_id: null,
-            why_string: 'Saved from Catch-All Notepad',
-            canonicalType: 'note',
-            labels: [CATCHALL_LABEL],
-            views: {
-              alsoShowIn: ['Hub:Catch-All'],
-            },
-          });
-          // Unified success toast fallback
-          showMindDropSuccessToast({ notes: 1 });
-          await refreshOrganizedToday();
-
-          // Snapshot for undo
-          pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
-          resetState();
-
-          void logCatchallDecision({
-            userId: currentUserId,
-            text: trimmed,
-            surface: 'catchall',
-            engine: engineMode,
-            modelVersion,
-            intent: probableIntent,
-            confidence: responseConfidence,
-            mode: policyMode,
-            decision: decisionOutcomeLabel,
-            createdTodos: 0,
-            createdNotes: 1,
-            createdHabits: 0,
-          });
-
-          return { created: { todos: [], habits: [], notes: [rec.id] } };
-        }
+        payload = {
+          type: 'habit',
+          name: trimmed,
+          frequency,
+          space_id: null,
+          ai_placed: true,
+          why_string: classifyOut?.whyString || 'Auto-classified as a habit',
+          origin: 'catchall',
+        };
       } else {
-        // Free mode - simple save without AI
-        const rec = await repo.create({
+        payload = {
           type: 'note',
           title: trimmed || 'Quick note',
           body: trimmed,
@@ -1130,30 +846,83 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           origin: 'catchall',
           ai_placed: false,
           space_id: null,
-          why_string: 'Saved from Catch-All Notepad',
+          why_string: classifyOut?.whyString || 'Saved from Catch-All Notepad',
           canonicalType: 'note',
           labels: [CATCHALL_LABEL],
           views: {
             alsoShowIn: ['Hub:Catch-All'],
           },
-        });
-        // Unified success toast for free mode
-        showMindDropSuccessToast({ notes: 1 });
-        await refreshOrganizedToday();
-
-        // Snapshot for undo
-        pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
-        resetState();
-
-        return { created: { todos: [], habits: [], notes: [rec.id] } };
+        };
       }
+
+      step(trace, 'payload:final', payload);
+      const rec = await repo.create(payload);
+
+      if (payload.type === 'todo') {
+        counts.todos = 1;
+        createdIds.todos.push(rec.id);
+      } else if (payload.type === 'habit') {
+        counts.habits = 1;
+        createdIds.habits.push(rec.id);
+      } else {
+        counts.notes = 1;
+        createdIds.notes.push(rec.id);
+      }
+
+      showMindDropSuccessToast(counts);
+      await refreshOrganizedToday();
+      pendingUndo.current = createdIds;
+      resetState();
+      setRecentRefresh?.((v) => v + 1);
+      focusGreetingForA11y();
+
+      const probableIntent =
+        payload.type === 'todo' ? 'todo' : payload.type === 'habit' ? 'habit' : 'note';
+      const decisionMode = payload.type === 'note' ? 'keep' : 'auto';
+      const decisionOutcome = payload.type === 'note' ? 'unsorted' : 'auto_create';
+
+      void logCatchallDecision({
+        userId: currentUserId,
+        text: trimmed,
+        surface: 'catchall',
+        engine: engineMode,
+        modelVersion,
+        intent: probableIntent,
+        confidence:
+          typeof classifyOut?.confidence === 'number' && Number.isFinite(classifyOut.confidence)
+            ? classifyOut.confidence
+            : 0,
+        mode: decisionMode,
+        decision: decisionOutcome,
+        createdTodos: counts.todos,
+        createdNotes: counts.notes,
+        createdHabits: counts.habits,
+      });
+
+      end(trace, 'saved', {
+        id: rec?.id,
+        type: payload.type,
+        subtype: (payload as any)?.subtype,
+      });
+
+      return { created: createdIds };
     } catch (error) {
       console.error('[CatchAllNotepad] Failed to capture note', error);
       Alert.alert('Something went wrong', 'Please try again in a moment.');
       resetState();
+      end(trace, 'error', { message: String(error) });
       return { created: { todos: [], notes: [], habits: [] } };
     }
-  }, [note, repo, resetState, uiMode, userId]);
+  }, [
+    note,
+    repo,
+    resetState,
+    userId,
+    showMindDropSuccessToast,
+    refreshOrganizedToday,
+    setRecentRefresh,
+    focusGreetingForA11y,
+  ]);
 
   const handleChangeText = useCallback(
     (value: string) => {

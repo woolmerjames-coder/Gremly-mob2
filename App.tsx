@@ -26,6 +26,13 @@ export default function App() {
   const scheme = useColorScheme();
 
   useEffect(() => {
+    console.log('[ENV][summary]', {
+      engine: process.env.EXPO_PUBLIC_CORTEX_ENGINE,
+      classify: process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL,
+      cortexUrl: (process.env.EXPO_PUBLIC_CORTEX_URL ?? '').slice(0, 40) + '…',
+      debug: process.env.EXPO_PUBLIC_DEBUG_CORTEX,
+    });
+
     // Print env config in dev
     if (__DEV__) {
       console.log('[CORTEX] env', {

@@ -1,5 +1,5 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
-import { callChat, type ChatMessage } from '../lib/cortex/CortexClient';
+import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
 
 interface OpenAiEngineConfig {
   apiKey: string; // Kept for backward compatibility but no longer used
@@ -17,7 +17,57 @@ interface RawClassification {
   undefinedDue?: boolean;
 }
 
-const SYSTEM_PROMPT = `You are Gremly, an assistant that classifies short note snippets.
+function normalizeCategoryToType(value: any): 'todo' | 'habit' | 'note' {
+  const raw = String(value ?? '').toLowerCase();
+  const norm = raw.replace(/[^a-z]/g, '');
+  if (
+    norm === 'todo' ||
+    norm === 'task' ||
+    norm === 'action' ||
+    norm === 'reminder' ||
+    norm === 'appointment' ||
+    norm === 'schedule' ||
+    norm === 'event'
+  ) {
+    return 'todo';
+  }
+  if (norm === 'habit' || norm === 'routine') return 'habit';
+  return 'note';
+}
+
+function normalizeExternal(raw: any): RawClassification {
+  const out: RawClassification = { ...raw };
+
+  const incomingType = raw?.type ?? raw?.category;
+  out.type = normalizeCategoryToType(incomingType);
+
+  const st = String(raw?.subtype ?? '').toLowerCase();
+  if (st === 'appointment' && out.type !== 'habit') {
+    out.type = 'todo';
+    out.subtype = 'catchall';
+  }
+
+  const f = String(raw?.frequency ?? '').toLowerCase();
+  if (out.type === 'habit') {
+    out.frequency = f === 'weekly' ? 'weekly' : f === 'monthly' ? 'monthly' : 'daily';
+  }
+
+  if (typeof raw?.undefinedDue === 'string') {
+    out.undefinedDue = false;
+  } else if (typeof raw?.undefinedDue === 'boolean') {
+    out.undefinedDue = raw.undefinedDue;
+  } else if (out.type === 'todo') {
+    out.undefinedDue = true;
+  }
+
+  if (typeof out.whyString !== 'string' || !out.whyString.trim()) {
+    out.whyString = 'Auto-classified by LLM';
+  }
+
+  return out;
+}
+
+const SYSTEM_PROMPT = `You are Gremly, an assistant that classifies short inputs. Classify this input.
 Output strict JSON with the keys: type, subtype, aiPlaced, whyString, frequency, undefinedDue.
 - type must be one of: "habit", "todo", "note".
 - For type "habit", frequency must be "daily", "weekly", or "monthly".
@@ -79,6 +129,19 @@ function readMessageContent(content: unknown): string | null {
   return null;
 }
 
+function extractFirstJson(text: string): any | null {
+  if (!text) return null;
+  const fencedMatch = text.match(/```json([\s\S]*?)```/i);
+  const fenced = fencedMatch ? fencedMatch[1] : text;
+  const objMatch = fenced.match(/\{[\s\S]*\}/);
+  if (!objMatch) return null;
+  try {
+    return JSON.parse(objMatch[0]);
+  } catch {
+    return null;
+  }
+}
+
 export class OpenAiEngine implements ICortexEngine {
   private readonly model: string;
   private readonly timeoutMs: number;
@@ -90,17 +153,42 @@ export class OpenAiEngine implements ICortexEngine {
   }
 
   async classify({ text }: CortexInput): Promise<CortexOutput> {
-    const DEBUG = (process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false') === 'true';
-    const logPayload: CortexInput = { text };
-    if (DEBUG) console.log('[CORTEX][LLM] classify input:', logPayload);
+    const DEBUG =
+      String(process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? 'false').toLowerCase() === 'true' ||
+      String(process.env.EXPO_PUBLIC_DEBUG_CORTEX ?? '').toLowerCase() === 'on';
+
+    if (DEBUG) console.log('[CORTEX][LLM] classify input:', { textLen: (text || '').length });
+
+    try {
+      const classifyRes = await callClassify({
+        text,
+        model: this.model,
+        timeoutMs: this.timeoutMs,
+      });
+      if (classifyRes.ok) {
+        const c = classifyRes.classification;
+        if (DEBUG) console.log('[CORTEX][LLM] classify route raw category:', c.category);
+
+        const normalized = normalizeExternal({
+          category: c.category,
+          whyString: `Proxy classify: ${c.category} (${Math.round((c.confidence ?? 0) * 100)}%)`,
+        });
+
+        const out = normaliseToCortexOutput(normalized);
+        if (DEBUG) console.log('[CORTEX][LLM] classify route mapped:', out);
+        return out;
+      }
+      if (DEBUG) console.warn('[CORTEX][LLM] classify route failed:', classifyRes.error);
+    } catch (err) {
+      if (DEBUG) console.warn('[CORTEX][LLM] classify route exception:', String(err));
+    }
 
     try {
       if (DEBUG) console.log('[CORTEX][LLM] model:', this.model);
 
-      // Use secure proxy via CortexClient
       const messages: ChatMessage[] = [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Classify this note: ${text}` },
+        { role: 'user', content: `Classify this input: ${text}` },
       ];
 
       const response = await callChat(messages, {
@@ -108,35 +196,40 @@ export class OpenAiEngine implements ICortexEngine {
         temperature: 0,
         maxTokens: 400,
       });
-      if (!response.ok) {
-        throw new Error(response.error || 'Cortex proxy request failed');
-      }
+      if (!response.ok) throw new Error(response.error || 'Cortex proxy request failed');
 
       const data: any = response.data;
+      const keys = data && typeof data === 'object' ? Object.keys(data) : [];
+      if (DEBUG) console.log('[CORTEX][LLM] raw keys:', keys);
 
-      if (DEBUG) console.log('[CORTEX][LLM] raw:', JSON.stringify(data).slice(0, 300));
-      const choice = data?.choices?.[0];
-      const message = choice?.message;
-      const content = readMessageContent(message?.content);
-      if (!content) {
-        throw new Error('OpenAI response missing content');
+      const contentFromChat = readMessageContent(data?.choices?.[0]?.message?.content);
+      const content = contentFromChat ?? (typeof data?.content === 'string' ? data.content : null);
+
+      if (DEBUG) console.log('[CORTEX][LLM] content preview:', (content || '').slice(0, 200));
+      if (!content) throw new Error('LLM response missing content');
+
+      const parsed = extractFirstJson(content);
+      if (!parsed) {
+        console.warn(
+          '[OpenAiEngine] Unable to parse classification JSON. Falling back to default.',
+          (content || '').slice(0, 160),
+        );
+        return normaliseToCortexOutput({
+          type: 'note',
+          subtype: 'catchall',
+          aiPlaced: false,
+          whyString: 'Saved from Catch-All Notepad',
+          undefinedDue: true,
+        });
       }
 
-      let parsed: RawClassification;
-      try {
-        parsed = JSON.parse(content) as RawClassification;
-      } catch (error) {
-        if (__DEV__) {
-          console.warn('[OpenAiEngine] Failed to parse JSON payload', error, content);
-        }
-        throw new Error('OpenAI response was not valid JSON');
-      }
-
-      const result = normaliseToCortexOutput(parsed);
-      if (DEBUG) console.log('[CORTEX][LLM] parsed:', result);
+      const normalized = normalizeExternal(parsed);
+      const result = normaliseToCortexOutput(normalized);
+      if (DEBUG)
+        console.log('[CORTEX][Normalized]', { parsedKeys: Object.keys(parsed || {}), result });
       return result;
     } catch (error) {
-      if (DEBUG) console.error('[CORTEX][LLM] error:', error);
+      if (DEBUG) console.error('[CORTEX][LLM] error:', String(error));
       throw error;
     }
   }
