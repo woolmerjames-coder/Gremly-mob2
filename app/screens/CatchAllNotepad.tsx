@@ -46,6 +46,8 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
+import { decideGating } from '../../lib/cortex/policy/gating';
+import { detectSignals } from '../../lib/cortex/policy/signals';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -799,6 +801,45 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           const response = await cortexRoute({ text: trimmed }, ctx);
 
+          const actions = Array.isArray(response?.actions) ? response.actions : [];
+
+          // Phase 1: unified gating policy (guided mode)
+          const probableIntent: 'todo' | 'habit' | 'note' | 'ambiguous' = actions.some(
+            (a: any) => a?.type === 'create.habit',
+          )
+            ? 'habit'
+            : actions.some((a: any) => a?.type === 'create.todo')
+              ? 'todo'
+              : actions.some((a: any) => a?.type === 'create.note')
+                ? 'note'
+                : 'ambiguous';
+
+          const { hasActionSignal, hasTimeSignal } = detectSignals(trimmed);
+
+          const policyDecision = decideGating({
+            intent: probableIntent,
+            confidence:
+              typeof response?.confidence === 'number' && Number.isFinite(response.confidence)
+                ? response.confidence
+                : 0,
+            isCommand: !!(response as any)?.isCommand,
+            isMetaComment: !!(response as any)?.isMetaComment,
+            hasActionSignal,
+            hasTimeSignal,
+          });
+
+          // Optional debug to compare original vs policy
+          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[MindDrop][Policy] compare', {
+              originalMode: response?.mode,
+              policyMode: policyDecision.mode,
+              probableIntent,
+              confidence: response?.confidence ?? 0,
+              hasActionSignal,
+              hasTimeSignal,
+            });
+          }
+
           // Log event (non-blocking)
           repo
             .writeEvent(
@@ -814,7 +855,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             )
             .catch((err) => console.error('[CatchAllNotepad] Failed to log event:', err));
 
-          if (response.mode === 'auto' && response.actions.length > 0) {
+          if (policyDecision.mode === 'auto' && actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
             const counts = { todos: 0, notes: 0, habits: 0 };
@@ -825,7 +866,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
 
             await Promise.all(
-              response.actions.map(async (action: CortexAction) => {
+              actions.map(async (action: CortexAction) => {
                 try {
                   if (action.type === 'add.to.list') {
                     const list = await repo.getOrCreateList(action.payload.listKey, {
@@ -919,7 +960,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               space_id: null,
               why_string: `${response.explanation}${suggestionHints}`,
               canonicalType: 'note',
-              labels: [CATCHALL_LABEL, ...(response.mode === 'ask' ? [UNSORTED_LABEL] : [])],
+              labels: [CATCHALL_LABEL, ...(policyDecision.mode === 'ask' ? [UNSORTED_LABEL] : [])],
               views: {
                 alsoShowIn: ['Hub:Catch-All'],
               },
