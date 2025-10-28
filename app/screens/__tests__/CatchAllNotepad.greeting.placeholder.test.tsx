@@ -20,6 +20,11 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock navigation elements (useHeaderHeight)
+jest.mock('@react-navigation/elements', () => ({
+  useHeaderHeight: () => 100, // Mock header height
+}));
+
 // Force feature flag ON
 jest.mock('@/src/config/featureFlags', () => ({
   MIND_DROP_V2: true,

@@ -19,6 +19,11 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock navigation elements (useHeaderHeight)
+jest.mock('@react-navigation/elements', () => ({
+  useHeaderHeight: () => 100, // Mock header height
+}));
+
 // Mock Auth
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({ userId: 'user-1' }),
@@ -86,10 +91,12 @@ describe('Mind Drop Trust Builders', () => {
     setTodayCounts(0, 0, 0);
     render(<CatchAllNotepad />);
 
-    const row = screen.getByTestId('minddrop-trust');
+    // Wait for the trust row to appear
+    const row = await screen.findByTestId('minddrop-trust');
     expect(row).toBeTruthy();
 
-    const trustText = screen.getByTestId('minddrop-trust-text');
+    // Wait for the text element and assert its value
+    const trustText = await screen.findByTestId('minddrop-trust-text');
     expect(trustText.props.children).toBe('Your thoughts are private & secure with Gremly.');
   });
 

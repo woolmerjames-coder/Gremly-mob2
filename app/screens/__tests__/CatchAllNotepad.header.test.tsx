@@ -46,6 +46,11 @@ jest.mock('../../../lib/haptics', () => ({
   },
 }));
 
+// Mock navigation elements (useHeaderHeight)
+jest.mock('@react-navigation/elements', () => ({
+  useHeaderHeight: () => 100, // Mock header height
+}));
+
 jest.mock(
   '../../design-system/Button',
   () => {

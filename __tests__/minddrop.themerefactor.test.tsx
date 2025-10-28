@@ -29,6 +29,11 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock navigation elements (useHeaderHeight)
+jest.mock('@react-navigation/elements', () => ({
+  useHeaderHeight: () => 100, // Mock header height
+}));
+
 import CatchAllNotepad, { makeStyles } from '../app/screens/CatchAllNotepad';
 import { colors } from '../src/theme/tokens';
 
