@@ -3,7 +3,11 @@ module.exports = {
   preset: 'react-native',
   testEnvironment: 'jsdom',
   testMatch: ['**/__tests__/**/*.test.(ts|tsx|js)'],
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/__tests__/pending/'],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/__tests__/pending/',
+    '<rootDir>/artifacts/',
+  ],
   transform: {
     '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
   },
