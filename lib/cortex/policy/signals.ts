@@ -8,8 +8,6 @@ const ACTION_PATTERNS: RegExp[] = [
   /\b(finish|complete|submit|send|ship|pay|renew|cancel|review)\b/i,
   /\b(remind me|remember to)\b/i,
   /\b(need to|have to|must|should|ought to|gotta|gonna)\b/i,
-  // Simple imperative hint: starts with a verb-like word (very loose) while avoiding common determiners/pronouns
-  /^(?!\b(the|this|that|there|here|it|i|we|you|they|he|she|my|our|their|note|notes)\b)[a-z]{3,}\b/i,
 ];
 
 const DOW =
