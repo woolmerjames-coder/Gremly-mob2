@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Modal,
   Animated,
   ScrollView,
   StyleSheet,
@@ -479,7 +480,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [confirmations, setConfirmations] = useState<string[]>([]);
-  const [, setInfoOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mind Drop: greeting + static placeholder
@@ -554,6 +555,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
+  const handleInfoOpen = useCallback(() => setInfoOpen(true), []);
+  const handleInfoClose = useCallback(() => setInfoOpen(false), []);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       title: copy.title,
@@ -571,7 +575,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityRole="button"
             testID="minddrop-info-header"
             style={styles.headerInfoBtn}
-            onPress={() => setInfoOpen(true)}
+            onPress={handleInfoOpen}
             hitSlop={12}
           >
             <Icon name="Info" size="sm" color={c.mutedText} />
@@ -579,7 +583,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </View>
       ),
     });
-  }, [navigation, styles, c.mutedText]);
+  }, [navigation, styles, c.mutedText, handleInfoOpen]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -700,6 +704,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       });
     }
   }, [navigation, showActionToast]);
+
+  const handleInfoViewRecent = useCallback(() => {
+    handleInfoClose();
+    handleViewDetails();
+  }, [handleInfoClose, handleViewDetails]);
 
   // A11y: set focus to the greeting after successful actions
   const focusGreetingForA11y = useCallback(() => {
@@ -1313,6 +1322,55 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       {/* Inline Action Toast overlay */}
       {ActionToast}
 
+      <Modal
+        transparent
+        animationType="fade"
+        visible={infoOpen}
+        onRequestClose={handleInfoClose}
+        statusBarTranslucent
+      >
+        <Pressable
+          style={styles.infoBackdrop}
+          onPress={handleInfoClose}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss Mind Drop info"
+        >
+          <Pressable
+            style={styles.infoSheetContainer}
+            onPress={() => {}}
+            accessibilityLabel="About Mind Drop"
+          >
+            <View style={styles.infoSheet} testID="minddrop-info-sheet">
+              <Text style={styles.infoTitle}>About Mind Drop</Text>
+              <Text style={styles.infoBody}>
+                Mind Drop is a calming place to empty your mind. I privately sort what you share
+                into tasks, notes, or habits so you can keep moving.
+              </Text>
+              <Text style={styles.infoHeading}>Need to revisit something?</Text>
+              <Text style={styles.infoBody}>
+                Recent drops stay close by. Open them to edit, move, or undo anything I organized
+                for you.
+              </Text>
+              <View style={styles.infoActions}>
+                <Button
+                  testID="minddrop-info-open-recent"
+                  label="View recent drops"
+                  onPress={handleInfoViewRecent}
+                  fullWidth
+                />
+                <Pressable
+                  testID="minddrop-info-close"
+                  onPress={handleInfoClose}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.infoClose}>Close</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {content}
     </View>
   );
@@ -1429,10 +1487,16 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.mutedText,
     },
     infoActions: {
-      flexDirection: 'row',
-      gap: 12,
       marginTop: 16,
-      justifyContent: 'flex-end',
+      gap: 12,
+      width: '100%',
+      alignItems: 'stretch',
+    },
+    infoClose: {
+      color: c.mutedText,
+      fontFamily: 'Inter-Regular',
+      fontSize: 14,
+      textAlign: 'center',
     },
 
     submitButtonWrapper: {
