@@ -1,4 +1,4 @@
-import { decideGating, THRESHOLDS } from '../../lib/cortex/policy/gating';
+import { decideGating, THRESHOLDS } from '../../../lib/cortex/policy/gating';
 
 describe('gating policy', () => {
   test('meta-comment -> unsorted', () => {

@@ -7,7 +7,6 @@ export function hashString(input: string): string {
   for (let i = 0; i < s.length; i++) {
     hash = (hash * 33) ^ s.charCodeAt(i);
   }
-  // to unsigned 32-bit hex
   return (hash >>> 0).toString(16);
 }
 
@@ -39,13 +38,11 @@ export async function logCatchallDecision(d: DecisionLog): Promise<void> {
     if (!url) return;
 
     const ts = d.ts ?? new Date().toISOString();
-    const user_id_hash = hashString(d.userId ?? '');
-    const text_hash = hashString(d.text ?? '');
 
     const payload = {
       ts,
-      user_id_hash,
-      text_hash,
+      user_id_hash: hashString(d.userId ?? ''),
+      text_hash: hashString(d.text ?? ''),
       surface: d.surface,
       engine: d.engine,
       model_version: d.modelVersion ?? '',

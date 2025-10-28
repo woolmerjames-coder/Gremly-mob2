@@ -795,6 +795,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // Phase 10.3: Call Cortex SDK for guided mode
       if (uiMode === 'guided') {
+        const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
+        const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+        let probableIntent: 'todo' | 'habit' | 'note' | 'ambiguous' = 'ambiguous';
+        let policyMode: 'auto' | 'ask' | 'keep' | 'unsorted' = 'unsorted';
+        let decisionOutcomeLabel: 'auto_create' | 'ask_chip' | 'keep_note' | 'unsorted' =
+          'unsorted';
+        let responseConfidence = 0;
+
         try {
           const ctx: CortexContext = {
             lane: 'catchall',
@@ -818,9 +826,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const actions = Array.isArray(response?.actions) ? response.actions : [];
 
           // Phase 1: unified gating policy (guided mode)
-          const probableIntent: 'todo' | 'habit' | 'note' | 'ambiguous' = actions.some(
-            (a: any) => a?.type === 'create.habit',
-          )
+          probableIntent = actions.some((a: any) => a?.type === 'create.habit')
             ? 'habit'
             : actions.some((a: any) => a?.type === 'create.todo')
               ? 'todo'
@@ -830,22 +836,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           const { hasActionSignal, hasTimeSignal } = detectSignals(trimmed);
 
+          responseConfidence =
+            typeof response?.confidence === 'number' && Number.isFinite(response.confidence)
+              ? response.confidence
+              : 0;
+
           const policyDecision = decideGating({
             intent: probableIntent,
-            confidence:
-              typeof response?.confidence === 'number' && Number.isFinite(response.confidence)
-                ? response.confidence
-                : 0,
+            confidence: responseConfidence,
             isCommand: !!(response as any)?.isCommand,
             isMetaComment: !!(response as any)?.isMetaComment,
             hasActionSignal,
             hasTimeSignal,
           });
 
-          const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' =
-            uiMode === 'guided' ? 'LLM' : 'DISABLED';
-          const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+          policyMode = policyDecision.mode;
           const decisionOutcome = mapDecisionOutcome(policyDecision.mode);
+          decisionOutcomeLabel = decisionOutcome;
 
           // Optional debug to compare original vs policy
           if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
@@ -853,7 +860,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               originalMode: response?.mode,
               policyMode: policyDecision.mode,
               probableIntent,
-              confidence: response?.confidence ?? 0,
+              confidence: responseConfidence,
               hasActionSignal,
               hasTimeSignal,
             });
@@ -969,7 +976,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               engine: engineMode,
               modelVersion,
               intent: probableIntent,
-              confidence: Number(response?.confidence || 0),
+              confidence: responseConfidence,
               mode: policyDecision.mode,
               decision: decisionOutcome,
               createdTodos: counts.todos,
@@ -1024,7 +1031,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               engine: engineMode,
               modelVersion,
               intent: probableIntent,
-              confidence: Number(response?.confidence || 0),
+              confidence: responseConfidence,
               mode: policyDecision.mode,
               decision: decisionOutcome,
               createdTodos: 0,
@@ -1059,6 +1066,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Snapshot for undo
           pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
           resetState();
+
+          void logCatchallDecision({
+            userId: currentUserId,
+            text: trimmed,
+            surface: 'catchall',
+            engine: engineMode,
+            modelVersion,
+            intent: probableIntent,
+            confidence: responseConfidence,
+            mode: policyMode,
+            decision: decisionOutcomeLabel,
+            createdTodos: 0,
+            createdNotes: 1,
+            createdHabits: 0,
+          });
 
           return { created: { todos: [], habits: [], notes: [rec.id] } };
         }

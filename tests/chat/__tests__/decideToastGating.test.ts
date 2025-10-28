@@ -1,4 +1,4 @@
-import { decideChatToastGating } from '../../lib/chat/decideToastGating';
+import { decideChatToastGating } from '../../../lib/chat/decideToastGating';
 
 describe('decideChatToastGating', () => {
   test('high-confidence todo -> auto', () => {
