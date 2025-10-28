@@ -52,7 +52,7 @@ describe('buildMindDropAskChips', () => {
     });
 
     expect(chips.find((chip) => chip.type === 'create.note')).toMatchObject({
-      label: 'Save as Note',
+      label: 'Save as note',
       payload: { subtype: 'journal' },
     });
   });
@@ -118,7 +118,7 @@ describe('Mid-confidence chip regression guards', () => {
     });
     const labels = chips.map((c) => c.label);
     expect(labels).toContain('Create todo');
-    expect(labels).toContain('Save as Note');
+    expect(labels).toContain('Save as note');
   });
 
   it('offers weekly habit when cadence present', () => {
@@ -132,7 +132,7 @@ describe('Mid-confidence chip regression guards', () => {
     );
     expect(hasWeeklyHabit).toBe(true);
     const labels = chips.map((c) => c.label);
-    expect(labels).not.toContain('Save as Note');
+    expect(labels).toContain('Save as note');
     expect(labels).not.toContain('Save as list');
   });
 
@@ -156,7 +156,7 @@ describe('Mid-confidence chips policy (polish)', () => {
     });
     const labels = chips.map((c) => c.label);
     expect(labels).toContain('Create todo');
-    expect(labels).toContain('Save as Note');
+    expect(labels).toContain('Save as note');
   });
 
   it('Run 3 times a week → Create habit only (no note chip)', () => {
@@ -167,7 +167,7 @@ describe('Mid-confidence chips policy (polish)', () => {
     });
     const labels = chips.map((c) => c.label);
     expect(labels).toContain('Create habit');
-    expect(labels).not.toContain('Save as Note');
+    expect(labels).toContain('Save as note');
     expect(labels).not.toContain('Save as list');
   });
 

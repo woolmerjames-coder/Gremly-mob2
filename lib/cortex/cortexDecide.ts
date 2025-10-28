@@ -354,7 +354,17 @@ export async function cortexDecide(
       }
     }
 
+    const candidateActions = normalized.actions;
+
     const probable: 'todo' | 'habit' | 'note' | 'unknown' = (() => {
+      const firstAction = candidateActions[0];
+      if (firstAction) {
+        if (firstAction.type === 'create.todo') return 'todo';
+        if (firstAction.type === 'create.habit') return 'habit';
+        if (firstAction.type === 'create.note') return 'note';
+        if (firstAction.type === 'add.to.list') return 'note';
+      }
+
       const engineType =
         typeof (engineOutput as any)?.type === 'string' ? (engineOutput as any).type : null;
       if (engineType === 'todo' || engineType === 'habit' || engineType === 'note') {
@@ -366,7 +376,18 @@ export async function cortexDecide(
       return 'unknown';
     })();
 
-    const confidence = normalized.confidence;
+    const engineConfidence =
+      typeof normalized.confidence === 'number' && !Number.isNaN(normalized.confidence)
+        ? normalized.confidence
+        : 0;
+    const detectorConfidence =
+      typeof detected?.confidence === 'number' && !Number.isNaN(detected.confidence)
+        ? detected.confidence
+        : 0;
+    const combinedConfidenceRaw = Math.max(engineConfidence, detectorConfidence);
+    const confidence = Number.isFinite(combinedConfidenceRaw)
+      ? Math.max(0, Math.min(1, combinedConfidenceRaw))
+      : 0;
     const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
 
     const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
@@ -376,11 +397,12 @@ export async function cortexDecide(
     const habitAutoFloor = Number.isFinite(habitAutoFloorEnv) ? habitAutoFloorEnv : 0.9;
 
     const hasDate = hasExplicitDateOrTime(userText);
+    const habitByText = looksHabitText(userText);
     const preferHabitAuto =
-      probable === 'habit' && hasConfidence && confidence >= habitAutoFloor && !hasDate;
+      (probable === 'habit' || habitByText) && !hasDate && confidence >= habitAutoFloor;
 
     const shouldAuto =
-      normalized.actions.length > 0 && (confidence > autoThreshold || preferHabitAuto);
+      candidateActions.length > 0 && (confidence > autoThreshold || preferHabitAuto);
 
     let mode: DecisionMode = 'keep';
 
@@ -396,14 +418,25 @@ export async function cortexDecide(
       normalizedCtx.uiSurface === 'overlay' &&
       hasConfidence &&
       confidence <= autoThreshold &&
-      normalized.actions.some((action) => action.type === 'add.to.list');
+      candidateActions.some((action) => action.type === 'add.to.list');
 
     if (mode === 'auto' && listActionLowRisk) {
       mode = 'ask';
     }
 
-    if (normalized.actions.length === 0) {
+    if (candidateActions.length === 0) {
       mode = 'ask';
+    }
+
+    if (mode === 'auto' || mode === 'ask') {
+      console.log('[cortexDecide][confidence]', {
+        detectorConfidence,
+        engineConfidence,
+        combinedConfidence: confidence,
+        probable,
+        preferHabitAuto,
+        mode,
+      });
     }
 
     // Phase 10.4: Choose tone based on priority: userPrefsTone > spaceDefaults.tone > env.optimistic > 'calm'
@@ -414,11 +447,6 @@ export async function cortexDecide(
 
     // Generate explanation based on mode and actions
     // Favor canonical exploration copy when engine failed/timed-out and no actions were produced
-    const explanation =
-      (engineFailed || !engineOutput) && normalized.actions.length === 0
-        ? "Let's explore that a bit more."
-        : generateExplanation(normalized.actions, mode, tone, normalizedCtx);
-
     const inMidConfidenceBand =
       hasConfidence && confidence >= midLower && confidence < autoThreshold;
 
@@ -436,14 +464,26 @@ export async function cortexDecide(
       suggestions =
         chipSuggestions.length > 0
           ? chipSuggestions
-          : generateSuggestions(normalized.actions, normalizedCtx);
-    } else if (mode === 'keep') {
-      suggestions = generateSuggestions(normalized.actions, normalizedCtx);
+          : generateSuggestions(candidateActions, normalizedCtx);
     }
+
+    const suggestionLabels =
+      mode === 'ask'
+        ? chipSuggestions.length > 0
+          ? chipSuggestions.map((chip) => chip.label)
+          : suggestions.filter((suggestion): suggestion is string => typeof suggestion === 'string')
+        : undefined;
+
+    const explanation =
+      mode === 'ask'
+        ? explainAmbiguous(tone, suggestionLabels)
+        : (engineFailed || !engineOutput) && candidateActions.length === 0
+          ? "Let's explore that a bit more."
+          : generateExplanation(candidateActions, mode, tone, normalizedCtx);
 
     const result: CortexResponse = {
       ...safeResult,
-      actions: normalized.actions,
+      actions: mode === 'auto' ? candidateActions : [],
       explanation,
       suggestions,
       confidence,
@@ -453,6 +493,7 @@ export async function cortexDecide(
         showedChip:
           (chipSuggestions.length > 0 || inMidConfidenceBand) &&
           suggestions.some((suggestion) => typeof suggestion !== 'string'),
+        candidateActions,
       },
     };
 
@@ -496,6 +537,14 @@ function hasExplicitDateOrTime(text: string): boolean {
     /\b(on\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+\d{1,2}\b/.test(t) ||
     /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(t) ||
     /\b(at\s*)?\d{1,2}(:\d{2})?\s*(am|pm)\b/.test(t)
+  );
+}
+
+function looksHabitText(text: string): boolean {
+  const t = (text || '').toLowerCase();
+  return (
+    /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b/.test(t) ||
+    /\b\d+\s+times?\s+(a|per)\s+(day|week|month)\b/.test(t)
   );
 }
 

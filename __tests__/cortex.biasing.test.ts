@@ -62,11 +62,19 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
       const result = await cortexDecide({ text: 'review code' }, ctx);
 
       // Should bias toward todo (first in allowedTypes)
-      expect(result.actions).toHaveLength(1);
-      expect(result.actions[0].type).toBe('create.todo');
-      if (result.actions[0].type === 'create.todo') {
-        expect(result.actions[0].payload.title).toContain('review');
+      expect(result.mode).toBe('ask');
+      expect(result.actions).toHaveLength(0);
+
+      const candidate = (result.meta?.candidateActions ?? []) as any[];
+      expect(candidate).toHaveLength(1);
+      expect(candidate[0].type).toBe('create.todo');
+      if (candidate[0].type === 'create.todo') {
+        expect(candidate[0].payload.title).toContain('review');
       }
+
+      expect(result.suggestions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'create.todo' })]),
+      );
     });
 
     it('should bias toward habit when allowedTypes has habit first', async () => {
@@ -88,8 +96,15 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const result = await cortexDecide({ text: 'exercise daily' }, ctx);
 
-      expect(result.actions).toHaveLength(1);
-      expect(result.actions[0].type).toBe('create.habit');
+      expect(result.mode).toBe('keep');
+      expect(result.actions).toHaveLength(0);
+
+      const candidate = (result.meta?.candidateActions ?? []) as any[];
+      expect(candidate).toHaveLength(1);
+      expect(candidate[0].type).toBe('create.habit');
+
+      const suggestions = result.suggestions ?? [];
+      expect(Array.isArray(suggestions)).toBe(true);
     });
 
     it('should not bias high-confidence classifications', async () => {
@@ -140,10 +155,14 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const result = await cortexDecide({ text: 'add socks' }, ctx);
 
-      expect(result.actions).toHaveLength(1);
-      expect(result.actions[0].type).toBe('add.to.list');
-      if (result.actions[0].type === 'add.to.list') {
-        expect(result.actions[0].payload.listKey).toBe('packing'); // First preferred key
+      expect(result.mode).toBe('ask');
+      expect(result.actions).toHaveLength(0);
+
+      const candidate = (result.meta?.candidateActions ?? []) as any[];
+      expect(candidate).toHaveLength(1);
+      expect(candidate[0].type).toBe('add.to.list');
+      if (candidate[0].type === 'add.to.list') {
+        expect(candidate[0].payload.listKey).toBe('packing');
       }
     });
 
@@ -167,11 +186,14 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const result = await cortexDecide({ text: 'buy milk' }, ctx);
 
-      expect(result.actions).toHaveLength(1);
-      expect(result.actions[0].type).toBe('add.to.list');
-      // Should fall back to heuristic: "buy" → shopping
-      if (result.actions[0].type === 'add.to.list') {
-        expect(result.actions[0].payload.listKey).toBe('shopping');
+      expect(result.mode).toBe('ask');
+      expect(result.actions).toHaveLength(0);
+
+      const candidate = (result.meta?.candidateActions ?? []) as any[];
+      expect(candidate).toHaveLength(1);
+      expect(candidate[0].type).toBe('add.to.list');
+      if (candidate[0].type === 'add.to.list') {
+        expect(candidate[0].payload.listKey).toBe('shopping');
       }
     });
   });
@@ -266,13 +288,8 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       // Should use warm tone (user pref) not direct (space default)
       // Phase 11.7+: warm tone returns one of varied responses
-      const warmHabitResponses = [
-        'On it 🎯',
-        "Nice work — that's one less thing buzzing around your brain.",
-        'Habit locked in',
-      ];
-      expect(warmHabitResponses).toContain(result.explanation);
-      expect(result.explanation).not.toBe('Set.'); // Not direct tone
+      expect(result.mode).toBe('ask');
+      expect(result.explanation).toBe('A few options here:');
     });
   });
 
