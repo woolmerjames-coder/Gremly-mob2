@@ -125,6 +125,7 @@ export const makeMockUser = (overrides: Partial<User> = {}): User =>
  * Creates a mock repository with default implementations
  */
 export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
+  console.log('[TEST] Initializing mock repository with overrides:', overrides);
   const defaultEmptyArray = jest.fn().mockResolvedValue([]);
   const defaultNull = jest.fn().mockResolvedValue(null);
   const defaultVoid = jest.fn().mockResolvedValue(undefined);
@@ -256,10 +257,14 @@ const MockAuthProvider: React.FC<PropsWithChildren<{ value: AuthContextValue }>>
   value,
 }) => <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 
-// Mock Repo Provider
-const MockRepoProvider: React.FC<PropsWithChildren<{ value: IRepo }>> = ({ children, value }) => (
-  <RepoContext.Provider value={value}>{children}</RepoContext.Provider>
-);
+// Ensure the MockRepoProvider is properly initialized
+const MockRepoProvider: React.FC<PropsWithChildren<{ value: IRepo }>> = ({ children, value }) => {
+  if (!value) {
+    console.warn('[TEST] MockRepoProvider received an undefined value. Defaulting to MemoryRepo.');
+    value = makeMockRepo();
+  }
+  return <RepoContext.Provider value={value}>{children}</RepoContext.Provider>;
+};
 
 // Mock Cortex Provider
 const MockCortexProvider: React.FC<PropsWithChildren<{ value: ICortexEngine }>> = ({
@@ -317,12 +322,13 @@ function AllProviders({
   repo?: Partial<IRepo>;
   theme?: 'light' | 'dark';
 }>) {
-  // Create mock instances
+  // Log the repo overrides for debugging
+  console.log('[TEST] Repo overrides:', repoOverrides);
+
   const mockUser = userOverride === null ? null : makeMockUser(userOverride);
   const mockRepo = makeMockRepo(repoOverrides);
   const mockCortex = makeMockCortex();
 
-  // Create auth context value
   const authValue: AuthContextValue = {
     user: mockUser,
     userId: mockUser?.id || null,

@@ -41,10 +41,7 @@ export default function RootNavigator() {
       <Stack.Screen
         name="CatchAllNotepad"
         component={CatchAllNotepad}
-        options={{
-          title: 'Catch-All',
-          headerShown: true,
-        }}
+        options={{ headerShown: true }}
       />
       {/* Phase 8: Person Detail Screen */}
       <Stack.Screen

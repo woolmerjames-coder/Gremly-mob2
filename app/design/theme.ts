@@ -59,42 +59,42 @@ export const shadow = {
 
 export const textStyles = {
   header: {
-    fontFamily: 'PlusJakartaSans',
+    fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '700' as const,
     fontSize: 20,
     lineHeight: 28,
     color: colors.deepTeal,
   },
   title: {
-    fontFamily: 'PlusJakartaSans',
+    fontFamily: 'Inter-Medium',
     fontWeight: '600' as const,
     fontSize: 18,
     lineHeight: 24,
     color: colors.deepTeal,
   },
   label: {
-    fontFamily: 'PlusJakartaSans',
+    fontFamily: 'Inter-Medium',
     fontWeight: '600' as const,
     fontSize: 14,
     lineHeight: 20,
     color: colors.deepTeal,
   },
   body: {
-    fontFamily: 'PlusJakartaSans',
+    fontFamily: 'Inter-Regular',
     fontWeight: '400' as const,
     fontSize: 16,
     lineHeight: 24,
     color: colors.charcoal,
   },
   bodySmall: {
-    fontFamily: 'PlusJakartaSans',
+    fontFamily: 'Inter-Regular',
     fontWeight: '400' as const,
     fontSize: 14,
     lineHeight: 20,
     color: colors.charcoal,
   },
   caption: {
-    fontFamily: 'PlusJakartaSans',
+    fontFamily: 'Inter-Regular',
     fontWeight: '400' as const,
     fontSize: 12,
     lineHeight: 16,

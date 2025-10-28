@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     color: COLORS.Linen,
     fontSize: 21,
     fontWeight: '700',
-    fontFamily: 'PlusJakartaSans-Bold',
+    fontFamily: 'Inter-Bold',
   },
   subline: {
     marginTop: 2,

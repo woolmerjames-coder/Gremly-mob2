@@ -33,9 +33,9 @@ export const lightTokens = {
   radius: [0, 6, 12, 16, 20] as const,
   typography: {
     fontFamily: {
-      regular: 'System',
-      medium: 'System',
-      bold: 'System',
+      regular: 'Inter-Regular',
+      medium: 'Inter-Medium',
+      bold: 'PlusJakartaSans-Bold',
     },
     size: {
       xs: 12,

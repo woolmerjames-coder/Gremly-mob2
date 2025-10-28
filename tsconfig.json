@@ -11,6 +11,10 @@
     "gremly-chat-system-review/**/*",
     "app/(dev)/**/*",
     "__tests__/pending/**/*",
-    "supabase/functions/**/*"
+    "supabase/functions/**/*",
+    // Exclude generated bundles - they contain copied code with broken imports
+    // relative to their location. These are distribution artifacts, not source.
+    "artifacts/**/*",
+    "scripts/**/*"
   ]
 }

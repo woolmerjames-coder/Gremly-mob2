@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
     lineHeight: 22,
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Medium',
     marginBottom: 2,
   },
   subtitle: {

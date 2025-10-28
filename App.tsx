@@ -19,8 +19,10 @@ import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
 import { runCortexProxyDiag } from './lib/cortex/diag';
 import { env } from './lib/env';
+import { useBrandFonts } from './app/theme/fonts';
 
 export default function App() {
+  const { fontsLoaded, fontsError } = useBrandFonts();
   const scheme = useColorScheme();
 
   useEffect(() => {
@@ -62,6 +64,10 @@ export default function App() {
       subscription.remove();
     };
   }, []);
+
+  if (!fontsLoaded && !fontsError) {
+    return null;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

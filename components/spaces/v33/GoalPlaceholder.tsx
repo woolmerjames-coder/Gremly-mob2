@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
   sampleTitle: {
     color: COLORS.Deep,
     fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Medium',
     fontSize: 15,
     letterSpacing: 0.2,
     lineHeight: 20,

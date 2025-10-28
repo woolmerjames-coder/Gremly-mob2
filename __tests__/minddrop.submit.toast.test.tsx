@@ -1,0 +1,160 @@
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+
+// Force feature flag ON
+jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
+
+// Mock navigation
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    ...actual,
+    useNavigation: () => ({
+      setOptions: jest.fn(),
+      navigate: mockNavigate,
+      canGoBack: () => true,
+      goBack: jest.fn(),
+    }),
+  };
+});
+
+// Mock navigation elements (useHeaderHeight)
+jest.mock('@react-navigation/elements', () => ({
+  useHeaderHeight: () => 100, // Mock header height
+}));
+
+// Mock Auth
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({ userId: 'user-1' }),
+}));
+
+// Mock Cortex route to auto-create multiple items
+jest.mock('../lib/cortex/router', () => ({
+  cortexRoute: jest.fn(async () => ({
+    mode: 'auto',
+    actions: [
+      { type: 'create.todo', payload: { title: 'Buy milk', due: null, spaceId: null } },
+      { type: 'create.todo', payload: { title: 'Call mom', due: null, spaceId: null } },
+      { type: 'create.note', payload: { text: 'Journal', subtype: 'note', spaceId: null } },
+      { type: 'create.habit', payload: { name: 'Run', freq: 'daily', spaceId: null } },
+    ],
+    confidence: 0.99,
+    suggestions: [],
+    explanation: 'auto',
+  })),
+}));
+
+// Mock Repo
+const mockCreate = jest.fn();
+const mockRemove = jest.fn();
+const mockWriteEvent = jest.fn();
+
+jest.mock('../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    create: mockCreate,
+    remove: mockRemove,
+    writeEvent: mockWriteEvent,
+    getOrCreateList: jest.fn(async (key: string) => ({ id: key, name: key })),
+    addListItem: jest.fn(),
+    listByType: jest.fn(),
+    listSpaces: jest.fn(),
+    listTags: jest.fn(),
+    listLinkedTags: jest.fn(),
+    listPeople: jest.fn(),
+    listLinkedPeople: jest.fn(),
+  }),
+}));
+
+// Component under test
+import CatchAllNotepad from '../app/screens/CatchAllNotepad';
+
+beforeEach(() => {
+  jest.useRealTimers();
+  jest.clearAllMocks();
+  // Configure createMock to return IDs based on the type and call count
+  let todoCount = 0;
+  mockCreate.mockImplementation(async (input: any) => {
+    if (input.type === 'todo') {
+      todoCount += 1;
+      return { id: todoCount === 1 ? 't1' : 't2', type: 'todo' };
+    }
+    if (input.type === 'note') {
+      return { id: 'n1', type: 'note' };
+    }
+    if (input.type === 'habit') {
+      return { id: 'h1', type: 'habit' };
+    }
+    return { id: 'x', type: input.type };
+  });
+});
+
+describe('Mind Drop submit -> toast + actions', () => {
+  it('Undo path: disables CTA while submitting, shows spinner label, restores after; double-press debounced; Undo deletes created ids', async () => {
+    render(<CatchAllNotepad />);
+
+    // Type text
+    const input = screen.getByTestId('minddrop-input');
+    fireEvent.changeText(input, 'buy milk; start running again');
+
+    // Submit
+    const submit = screen.getByTestId('minddrop-submit-button');
+    fireEvent.press(submit);
+
+    // While submitting, label should be "✓ Organizing..."
+    expect(screen.getByText('✓ Organizing...')).toBeTruthy();
+
+    // Double press within 600ms should be ignored
+    fireEvent.press(submit);
+
+    // Wait for label to restore and toast to appear
+    await waitFor(() => {
+      expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+    });
+
+    // Toast should mention Organized into with counts
+    const toastSummary = await screen.findByText(/Organized into/i);
+    expect(toastSummary).toBeTruthy();
+
+    // Press Undo -> should call remove for all created ids
+    const undoBtn = screen.getByText('↩️ Undo');
+    fireEvent.press(undoBtn);
+
+    await waitFor(() => {
+      expect(mockRemove).toHaveBeenCalledTimes(1);
+    });
+    const removedIds = mockRemove.mock.calls.map((c) => c[0]).sort();
+    expect(removedIds).toEqual(['n1']);
+
+    // Debounce: ensure create total calls reflect a single submit per press cluster
+    // One cluster (double press): 1 create
+    expect(mockCreate.mock.calls.length).toBe(1);
+  });
+
+  it('View Details path: shows success toast with actions and navigates on View Details', async () => {
+    render(<CatchAllNotepad />);
+
+    const input = screen.getByTestId('minddrop-input');
+    fireEvent.changeText(input, 'check out details');
+
+    const submit = screen.getByTestId('minddrop-submit-button');
+    fireEvent.press(submit);
+
+    await waitFor(() => {
+      expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+    });
+
+    await screen.findByText(/Organized into/i);
+    const viewBtn = screen.getByText('🔎 View Details');
+    fireEvent.press(viewBtn);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalled();
+    });
+    const navArgs = mockNavigate.mock.calls[0];
+    expect(navArgs[0]).toBe('Tabs');
+    expect(navArgs[1]).toEqual(
+      expect.objectContaining({ screen: 'Hub', params: { filter: 'recent' } }),
+    );
+  });
+});

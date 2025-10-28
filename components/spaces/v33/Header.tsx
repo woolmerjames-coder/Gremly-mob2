@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
     lineHeight: 34,
-    fontFamily: 'PlusJakartaSans-Bold',
+    fontFamily: 'Inter-Bold',
   },
   subline: {
     marginTop: 4,

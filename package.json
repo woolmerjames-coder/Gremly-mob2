@@ -18,7 +18,9 @@
     "test": "jest",
     "test:ci": "jest --ci",
     "test:watch": "jest --watch",
+    "test:minddrop": "jest app/screens/__tests__/CatchAllNotepad.flag.enabled.test.tsx app/screens/__tests__/CatchAllNotepad.flag.disabled.test.tsx",
     "ci": "npm run lint && npm run typecheck && npm run test:ci && npm run check:repo && npm run check:schema",
+    "ci:preflight": "bash scripts/ci-preflight.sh",
     "check:repo": "node scripts/check-direct-supabase.js",
     "check:schema": "node scripts/check-schema.mjs",
     "db:types": "bash scripts/gen_db_types.sh",
@@ -27,6 +29,8 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@expo-google-fonts/inter": "0.4.2",
+    "@expo-google-fonts/plus-jakarta-sans": "0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-masked-view/masked-view": "0.3.2",
     "@react-navigation/bottom-tabs": "7.4.9",
@@ -36,6 +40,7 @@
     "date-fns": "4.1.0",
     "expo": "~54.0.13",
     "expo-blur": "15.0.7",
+    "expo-font": "14.0.9",
     "expo-haptics": "15.0.7",
     "expo-status-bar": "~3.0.8",
     "lottie-react-native": "7.3.4",

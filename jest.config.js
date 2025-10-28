@@ -3,7 +3,11 @@ module.exports = {
   preset: 'react-native',
   testEnvironment: 'jsdom',
   testMatch: ['**/__tests__/**/*.test.(ts|tsx|js)'],
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/__tests__/pending/'],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/__tests__/pending/',
+    '<rootDir>/artifacts/',
+  ],
   transform: {
     '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
   },
@@ -18,6 +22,7 @@ module.exports = {
   moduleNameMapper: {
     '\\.(png|jpg|jpeg|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.js',
     '^.+\\.(css|scss)$': 'identity-obj-proxy',
+    '^@/(.*)$': '<rootDir>/$1',
   },
   globals: {
     __DEV__: true,
