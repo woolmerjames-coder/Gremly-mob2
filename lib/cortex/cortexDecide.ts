@@ -176,6 +176,7 @@ export async function cortexDecide(
   };
 
   const autoThreshold = Number(process.env.INTENT_MIN_CONFIDENCE ?? 0.85);
+  const askThreshold = 0.5;
   const midLower = 0.55; // offer chips for mid confidence
   const midUpper = Math.max(0.0, Math.min(0.99, autoThreshold - 0.01));
 
@@ -374,7 +375,23 @@ export async function cortexDecide(
 
     // Determine mode based on confidence
     const confidence = normalized.confidence;
+    const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
     let mode = decideMode(confidence);
+
+    if (mode === 'auto' && hasConfidence && confidence <= autoThreshold) {
+      mode = confidence >= askThreshold ? 'ask' : 'keep';
+    }
+
+    const listActionLowRisk =
+      normalizedCtx.uiSurface === 'overlay' &&
+      hasConfidence &&
+      confidence <= autoThreshold &&
+      normalized.actions.some((action) => action.type === 'add.to.list');
+
+    if (mode === 'auto' && listActionLowRisk) {
+      mode = confidence >= askThreshold ? 'ask' : 'keep';
+    }
+
     // Ensure safe UX: when no actions and low confidence, prefer 'ask' over 'keep'
     if (mode === 'keep' && normalized.actions.length === 0) {
       mode = 'ask';
@@ -393,23 +410,26 @@ export async function cortexDecide(
         ? "Let's explore that a bit more."
         : generateExplanation(normalized.actions, mode, tone, normalizedCtx);
 
-    // Generate suggestions for ASK/KEEP modes
-    let suggestions: CortexSuggestion[] =
-      mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : [];
+    const inMidConfidenceBand = hasConfidence && confidence >= midLower && confidence <= midUpper;
 
-    const inMidConfidenceBand = confidence >= midLower && confidence <= midUpper;
-    if (inMidConfidenceBand) {
-      mode = 'ask';
-      const chips = buildMindDropAskChips({
-        text: userText,
-        probable,
-        confidence: confidence ?? 0,
-      });
-      const chipSuggestions = chips.map((c) => ({ ...c }));
+    const shouldOfferChips =
+      mode === 'ask' && normalizedCtx.uiSurface === 'overlay' && hasConfidence;
+
+    const chipSuggestions = shouldOfferChips
+      ? buildMindDropAskChips({
+          text: userText,
+          probable,
+          confidence: confidence ?? 0,
+        }).map((c) => ({ ...c }))
+      : [];
+
+    // Generate suggestions for ASK/KEEP modes
+    let suggestions: CortexSuggestion[] = [];
+    if (mode !== 'auto') {
       if (chipSuggestions.length > 0) {
         suggestions = chipSuggestions;
-        safeResult.mode = 'ask';
-        safeResult.suggestions = chipSuggestions;
+      } else {
+        suggestions = generateSuggestions(normalized.actions, normalizedCtx);
       }
     }
 
@@ -423,7 +443,8 @@ export async function cortexDecide(
       meta: {
         intent: { kind: detected.kind, confidence: detected.confidence },
         showedChip:
-          inMidConfidenceBand && suggestions.some((suggestion) => typeof suggestion !== 'string'),
+          (chipSuggestions.length > 0 || inMidConfidenceBand) &&
+          suggestions.some((suggestion) => typeof suggestion !== 'string'),
       },
     };
 

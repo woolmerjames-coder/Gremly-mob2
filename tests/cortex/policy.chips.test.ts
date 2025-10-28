@@ -108,3 +108,38 @@ describe('Mid-confidence chips policy', () => {
     }
   });
 });
+
+describe('Mid-confidence chip regression guards', () => {
+  it('offers todo + journal when no list cues present', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Plan something for the team',
+      probable: 'unknown',
+      confidence: 0.6,
+    });
+    const labels = chips.map((c) => c.label);
+    expect(labels).toContain('Create todo');
+    expect(labels).toEqual(expect.arrayContaining(['Save as journal']));
+  });
+
+  it('offers weekly habit when cadence present', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Run 3 times a week',
+      probable: 'habit',
+      confidence: 0.7,
+    });
+    const hasWeeklyHabit = chips.some(
+      (c) => c.type === 'create.habit' && (c as any).payload.freq === 'weekly',
+    );
+    expect(hasWeeklyHabit).toBe(true);
+  });
+
+  it('offers list when list-like phrasing present', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Ideas for weekend trip',
+      probable: 'unknown',
+      confidence: 0.65,
+    });
+    const labels = chips.map((c) => c.label);
+    expect(labels).toContain('Save as list');
+  });
+});

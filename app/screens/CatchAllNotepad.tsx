@@ -1196,13 +1196,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const record = await repo.create({
               type: 'todo',
               name: suggestion.payload.name,
-              title: suggestion.payload.name,
-              due_date: null,
-              undefined_due: suggestion.payload.undefined_due,
-              space_id: null,
+              undefined_due: !!suggestion.payload.undefined_due,
               ai_placed: true,
               why_string: 'Chosen via chip',
               origin: 'catchall',
+              views: {},
             });
             counts.todos = 1;
             createdIds.todos.push(record.id);
@@ -1212,10 +1210,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             type: 'habit',
             name: suggestion.payload.name,
             frequency: suggestion.payload.freq,
-            space_id: null,
             ai_placed: true,
             why_string: 'Chosen via chip',
             origin: 'catchall',
+            views: {},
           });
           counts.habits = 1;
           createdIds.habits.push(record.id);
@@ -1226,12 +1224,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             body: suggestion.payload.body,
             subtype: suggestion.payload.subtype,
             origin: 'catchall',
-            ai_placed: true,
+            ai_placed: (suggestion.payload.subtype as string) !== 'catchall',
             space_id: null,
             why_string: 'Chosen via chip',
             canonicalType: 'note',
             labels: [CATCHALL_LABEL],
-            views: { alsoShowIn: ['Hub:Catch-All'] },
+            views: suggestion.payload.subtype === 'list' ? { alsoShowIn: ['Hub:Catch-All'] } : {},
           });
           counts.notes = 1;
           createdIds.notes.push(record.id);
@@ -1270,6 +1268,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         Alert.alert('Something went wrong', 'Please try again in a moment.');
       } finally {
         setIsSubmitting(false);
+        setSuggestions([]);
       }
     },
     [

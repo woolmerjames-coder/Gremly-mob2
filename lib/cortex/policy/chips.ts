@@ -17,13 +17,11 @@ export type BuildChipsInput = {
   confidence: number;
 };
 
-const DEFAULTS = {
-  labels: {
-    todo: 'Create todo',
-    habit: 'Create habit',
-    list: 'Save as list',
-    journal: 'Save as journal',
-  },
+const LABELS = {
+  todo: 'Create todo',
+  habit: 'Create habit',
+  list: 'Save as list',
+  journal: 'Save as journal',
 } as const;
 
 export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] {
@@ -35,7 +33,7 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   if (input.probable === 'todo' || input.probable === 'unknown') {
     chips.push({
       type: 'create.todo',
-      label: DEFAULTS.labels.todo,
+      label: LABELS.todo,
       payload: { name: t, undefined_due: true },
     });
   }
@@ -54,7 +52,7 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
 
     chips.push({
       type: 'create.habit',
-      label: DEFAULTS.labels.habit,
+      label: LABELS.habit,
       payload: { name: t, freq },
     });
   }
@@ -67,13 +65,13 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   if (looksList) {
     chips.push({
       type: 'create.note',
-      label: DEFAULTS.labels.list,
+      label: LABELS.list,
       payload: { title: t, body: t, subtype: 'list' },
     });
   } else {
     chips.push({
       type: 'create.note',
-      label: DEFAULTS.labels.journal,
+      label: LABELS.journal,
       payload: { title: t, body: t, subtype: 'journal' },
     });
   }
