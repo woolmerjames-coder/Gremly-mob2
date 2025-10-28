@@ -1,10 +1,18 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
-// Mock provider hooks using the exact relative paths used by the screen
 jest.mock('../../../providers/RepoProvider', () => ({
   __esModule: true,
-  useRepo: () => ({}) as any,
+  useRepo: () => ({
+    notes: { list: jest.fn(() => Promise.resolve([])) },
+    todos: { list: jest.fn(() => Promise.resolve([])) },
+    habits: { list: jest.fn(() => Promise.resolve([])) },
+    remove: jest.fn(),
+    getOrCreateList: jest.fn(),
+    addListItem: jest.fn(),
+    create: jest.fn(),
+    writeEvent: jest.fn(() => Promise.resolve()),
+  }),
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
@@ -12,15 +20,65 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ userId: 'test-user' }),
 }));
 
-// Force feature flag ON for these tests
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn(() => Promise.resolve(null)),
+    setItem: jest.fn(() => Promise.resolve()),
+  },
+}));
+
 jest.mock('@/src/config/featureFlags', () => ({
   __esModule: true,
   MIND_DROP_V2: true,
   whenEnabled: (flag: boolean, on: () => any, off: () => any) => (flag ? on() : off()),
 }));
 
-// Capture latest navigation options from setOptions
-let latestOptions: any = undefined;
+jest.mock('../../../config/featureFlags', () => ({
+  __esModule: true,
+  shouldUseHaptics: () => false,
+}));
+
+jest.mock('../../../lib/haptics', () => ({
+  haptics: {
+    submitSuccess: jest.fn(),
+    warning: jest.fn(),
+  },
+}));
+
+jest.mock(
+  '../../design-system/Button',
+  () => {
+    const React = require('react');
+    const { Pressable, Text } = require('react-native');
+    return {
+      __esModule: true,
+      Button: ({ label, onPress, testID }: any) => (
+        <Pressable testID={testID} onPress={onPress} accessibilityRole="button">
+          <Text>{label}</Text>
+        </Pressable>
+      ),
+    };
+  },
+  { virtual: true },
+);
+
+jest.mock('../../../lib/cortex/router', () => ({
+  cortexRoute: jest.fn(() =>
+    Promise.resolve({ actions: [], mode: 'keep', suggestions: [], explanation: '', confidence: 0 }),
+  ),
+}));
+
+jest.mock('../../../src/hooks/useActionToast', () => ({
+  __esModule: true,
+  useActionToast: () => ({
+    showToast: jest.fn(),
+    Toast: null,
+  }),
+}));
+
+const mockNavigate = jest.fn();
+let latestOptions: any;
 
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
@@ -28,45 +86,75 @@ jest.mock('@react-navigation/native', () => {
     __esModule: true,
     ...actual,
     useNavigation: () => ({
-      setOptions: (opts: any) => {
-        latestOptions = opts;
+      setOptions: (options: any) => {
+        latestOptions = options;
       },
+      navigate: mockNavigate,
     }),
   };
 });
 
 import CatchAllNotepad from '../CatchAllNotepad';
 
-describe('CatchAllNotepad header + tooltip', () => {
+const renderHeader = () => {
+  if (!latestOptions?.headerTitle) {
+    throw new Error('headerTitle not initialized');
+  }
+  const Header = latestOptions.headerTitle();
+  return render(<>{Header}</>);
+};
+
+const triggerPress = (node: any) => {
+  let current: any = node;
+  while (current) {
+    if (typeof current.props.onPress === 'function') {
+      act(() => {
+        current?.props.onPress?.({} as any);
+      });
+      return;
+    }
+    current = current.parent as any;
+  }
+  throw new Error('Press handler not found');
+};
+
+describe('CatchAllNotepad header + info sheet', () => {
   beforeEach(() => {
     latestOptions = undefined;
-    jest.useFakeTimers();
+    mockNavigate.mockClear();
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
+  it('renders header title and subtitle from copy', () => {
+    render(<CatchAllNotepad />);
+    expect(latestOptions?.headerTitle).toBeDefined();
+
+    const { getByText } = renderHeader();
+    expect(getByText('Mind Drop — Drop it. I’ll sort it.')).toBeTruthy();
+    expect(getByText('Private & secure. Gremly organizes as you go.')).toBeTruthy();
   });
 
-  it('renders the screen and exposes the info button in header', () => {
-    const { getByTestId } = render(<CatchAllNotepad />);
-
-    expect(getByTestId('minddrop-screen')).toBeTruthy();
-    // Info button is now in headerRight, not in main content
-    expect(latestOptions?.headerRight).toBeDefined();
-  });
-
-  it('sets the header title to "Mind Drop" (headerRight wired)', () => {
+  it('opens info sheet when header icon is pressed', () => {
     const screen = render(<CatchAllNotepad />);
-    // Title set via setOptions
-    expect(latestOptions?.title).toBe('Mind Drop');
-    // Info button is in headerRight
-    expect(latestOptions?.headerRight).toBeDefined();
+    const header = renderHeader();
 
-    // Render the headerRight component to verify it contains the info button
-    const HeaderRight = latestOptions?.headerRight;
-    if (HeaderRight) {
-      const { getByTestId } = render(<HeaderRight />);
-      expect(getByTestId('minddrop-info-button')).toBeTruthy();
-    }
+    expect(screen.queryByTestId('minddrop-info-sheet')).toBeNull();
+    fireEvent.press(header.getByTestId('minddrop-info-header'));
+    expect(screen.getByTestId('minddrop-info-sheet')).toBeTruthy();
+  });
+
+  it('invokes navigate when selecting View Recent Drops', async () => {
+    const screen = render(<CatchAllNotepad />);
+    const header = renderHeader();
+
+    fireEvent.press(header.getByTestId('minddrop-info-header'));
+    const openRecent = screen.getByTestId('minddrop-info-open-recent');
+    triggerPress(openRecent);
+
+    await waitFor(() => expect(screen.queryByTestId('minddrop-info-sheet')).toBeNull());
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    expect(mockNavigate).toHaveBeenCalledWith('Tabs', {
+      screen: 'Hub',
+      params: { filter: 'recent' },
+    });
   });
 });
