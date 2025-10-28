@@ -26,47 +26,50 @@ export const Text = React.forwardRef<RNText, TextProps>(
   ({ children, style, variant = 'body', numberOfLines, testID, ...rest }, ref) => {
     const t = useTokens();
 
+    const { fontFamily, size, lineHeight } = t.typography;
+    const { text, subtle } = t.colors;
+
     const getVariantStyle = (v: Variant): TextStyle => {
       switch (v) {
         case 'label':
           return {
-            fontFamily: 'Inter-Medium',
-            fontSize: t.typography.size.sm,
-            lineHeight: t.typography.size.sm * t.typography.lineHeight.snug,
+            fontFamily: fontFamily.medium,
+            fontSize: size.sm,
+            lineHeight: size.sm * lineHeight.snug,
             fontWeight: '500',
-            color: t.colors.text,
+            color: text,
           };
         case 'body':
           return {
-            fontFamily: 'Inter-Regular',
-            fontSize: t.typography.size.md,
-            lineHeight: t.typography.size.md * t.typography.lineHeight.normal,
+            fontFamily: fontFamily.regular,
+            fontSize: size.md,
+            lineHeight: size.md * lineHeight.normal,
             fontWeight: '400',
-            color: t.colors.text,
+            color: text,
           };
         case 'title':
           return {
-            fontFamily: 'Inter-Medium',
-            fontSize: t.typography.size.lg,
-            lineHeight: t.typography.size.lg * t.typography.lineHeight.snug,
+            fontFamily: fontFamily.bold,
+            fontSize: size.lg,
+            lineHeight: size.lg * lineHeight.snug,
             fontWeight: '600',
-            color: t.colors.text,
+            color: text,
           };
         case 'display':
           return {
-            fontFamily: 'Inter-Bold',
-            fontSize: t.typography.size['2xl'],
-            lineHeight: t.typography.size['2xl'] * t.typography.lineHeight.tight,
+            fontFamily: fontFamily.bold,
+            fontSize: size['2xl'],
+            lineHeight: size['2xl'] * lineHeight.tight,
             fontWeight: '700',
-            color: t.colors.text,
+            color: text,
           };
         case 'subtle':
           return {
-            fontFamily: 'Inter-Regular',
-            fontSize: t.typography.size.sm,
-            lineHeight: t.typography.size.sm * t.typography.lineHeight.normal,
+            fontFamily: fontFamily.regular,
+            fontSize: size.sm,
+            lineHeight: size.sm * lineHeight.normal,
             fontWeight: '400',
-            color: t.colors.subtle,
+            color: subtle,
           };
       }
     };

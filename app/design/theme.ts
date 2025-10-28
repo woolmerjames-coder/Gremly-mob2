@@ -59,7 +59,7 @@ export const shadow = {
 
 export const textStyles = {
   header: {
-    fontFamily: 'Inter-Bold',
+    fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '700' as const,
     fontSize: 20,
     lineHeight: 28,

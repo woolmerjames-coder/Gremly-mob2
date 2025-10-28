@@ -1422,6 +1422,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.moss,
       fontSize: 16,
       marginBottom: 12,
+      fontFamily: 'Inter-Regular',
     },
 
     inputContainer: {
@@ -1451,6 +1452,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       lineHeight: 26,
       padding: 0,
       textAlignVertical: 'top',
+      fontFamily: 'Inter-Regular',
     },
     inputHud: {
       position: 'absolute',
@@ -1463,6 +1465,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     inputHudText: {
       color: c.mutedText,
       fontSize: 12,
+      fontFamily: 'Inter-Regular',
     },
 
     infoBackdrop: {
@@ -1484,7 +1487,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 16,
     },
     infoTitle: {
-      fontFamily: 'Inter-Bold',
+      fontFamily: 'PlusJakartaSans-Bold',
       fontSize: 18,
       color: c.text,
       marginBottom: 8,
@@ -1553,6 +1556,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.mutedText,
       fontSize: 13,
       textAlign: 'center',
+      fontFamily: 'Inter-Regular',
     },
 
     recentRoot: { marginTop: 12 },
@@ -1564,6 +1568,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.moss,
       fontSize: 16,
       fontWeight: '600',
+      fontFamily: 'Inter-Medium',
     },
     recentList: { marginTop: 6, gap: 8 },
     recentCard: {
@@ -1580,6 +1585,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.text,
       fontSize: 14,
       lineHeight: 20,
+      fontFamily: 'Inter-Regular',
     },
     recentMetaRow: {
       marginTop: 8,
@@ -1590,23 +1596,27 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentTime: {
       color: c.mutedText,
       fontSize: 12,
+      fontFamily: 'Inter-Regular',
     },
     recentActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     recentAction: {
       color: c.moss,
       fontSize: 13,
       textDecorationLine: 'underline',
+      fontFamily: 'Inter-Medium',
     },
     recentActionDelete: {
       color: c.danger,
       fontSize: 13,
       textDecorationLine: 'underline',
+      fontFamily: 'Inter-Medium',
     },
     recentDot: { color: c.mutedText, marginHorizontal: 6 },
     recentEmpty: {
       color: c.mutedText,
       fontSize: 13,
       textAlign: 'center',
+      fontFamily: 'Inter-Regular',
       paddingVertical: 10,
     },
   });
