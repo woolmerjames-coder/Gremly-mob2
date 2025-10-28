@@ -45,7 +45,7 @@ const readCortexUrl = (): string => {
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
 };
 
-async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
+async function postJSON<T>(body: any, options?: { raw?: boolean }): Promise<CortexClientResult<T>> {
   // Single-flight dedupe: reject if already in-flight
   if (inFlight) {
     log('BUSY', 'Request already in-flight');
@@ -136,6 +136,11 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
       data = { passthrough: text };
     }
 
+    if (options?.raw) {
+      log('RAW_MODE', 'Returning un-normalized payload');
+      return { ok: true, data };
+    }
+
     // Normalize multiple response shapes
     function normalize(
       d: any,
@@ -197,6 +202,8 @@ async function postJSON<T>(body: any): Promise<CortexClientResult<T>> {
       hasModel: !!norm.model,
       hasUsage: !!norm.usage,
     });
+    if (__DEV__)
+      console.log('[CORTEX][Client] content preview', String(norm.content || '').slice(0, 200));
     return {
       ok: true,
       data: {
@@ -232,17 +239,23 @@ export async function callChat(
     lane?: string;
   },
 ) {
-  return postJSON({
-    type: 'chat',
-    model: opts?.model ?? env.cortex.model,
-    messages,
-    temperature: opts?.temperature ?? 0.2,
-    max_tokens: opts?.maxTokens ?? 400,
-    spaceId: opts?.spaceId ?? undefined,
-    space_id: opts?.spaceId ?? undefined, // duplicate for worker/backward compat
-    chatId: opts?.chatId ?? undefined,
-    lane: opts?.lane ?? undefined,
-  });
+  const defaultModel = opts?.model ?? safeGetEnv?.('EXPO_PUBLIC_CORTEX_MODEL') ?? env.cortex.model;
+
+  return postJSON(
+    {
+      type: 'chat',
+      model: defaultModel,
+      messages,
+      temperature: 0,
+      max_tokens: opts?.maxTokens ?? 400,
+      response_format: { type: 'json_object' },
+      spaceId: opts?.spaceId ?? undefined,
+      space_id: opts?.spaceId ?? undefined, // duplicate for worker/backward compat
+      chatId: opts?.chatId ?? undefined,
+      lane: opts?.lane ?? undefined,
+    },
+    { raw: true },
+  );
 }
 
 export async function callComplete(

@@ -232,7 +232,7 @@ export async function cortexDecide(
         if (response.ok && (response.data as any)?.content) {
           const content = String((response.data as any).content).trim();
           if (content) {
-            return {
+            const replyResult: CortexResponse = {
               ...safeResult,
               actions: [],
               mode: 'reply',
@@ -245,6 +245,13 @@ export async function cortexDecide(
                 isMetaComment,
               },
             };
+            console.log('[cortexDecide][final]', {
+              mode: replyResult.mode,
+              confidence: replyResult.confidence,
+              actions: replyResult.actions.map((a) => a.type),
+              explanationLen: (replyResult.explanation || '').length,
+            });
+            return replyResult;
           }
         }
       } catch (e) {
@@ -252,7 +259,7 @@ export async function cortexDecide(
       }
 
       // Fallback: return default clarification response
-      return {
+      const fallbackReply: CortexResponse = {
         ...safeResult,
         actions: [],
         mode: 'reply',
@@ -265,6 +272,13 @@ export async function cortexDecide(
           isMetaComment,
         },
       };
+      console.log('[cortexDecide][final]', {
+        mode: fallbackReply.mode,
+        confidence: fallbackReply.confidence,
+        actions: fallbackReply.actions.map((a) => a.type),
+        explanationLen: (fallbackReply.explanation || '').length,
+      });
+      return fallbackReply;
     }
 
     // If classification is disabled, skip engine and map from high-confidence intent
@@ -370,6 +384,12 @@ export async function cortexDecide(
       meta: { intent: { kind: detected.kind, confidence: detected.confidence } },
     };
 
+    console.log('[cortexDecide][final]', {
+      mode: result.mode,
+      confidence: result.confidence,
+      actions: result.actions.map((a) => a.type),
+      explanationLen: (result.explanation || '').length,
+    });
     return result;
   } catch (error) {
     // Never throw - return safe fallback
@@ -377,13 +397,20 @@ export async function cortexDecide(
       console.error('[cortexDecide] Error:', error);
     }
 
-    return {
+    const fallback: CortexResponse = {
       ...safeResult,
       actions: [],
       mode: 'ask',
       explanation: "Let's explore that a bit more.",
       confidence: 0,
     };
+    console.log('[cortexDecide][final]', {
+      mode: fallback.mode,
+      confidence: fallback.confidence,
+      actions: fallback.actions.map((a) => a.type),
+      explanationLen: (fallback.explanation || '').length,
+    });
+    return fallback;
   }
 }
 
