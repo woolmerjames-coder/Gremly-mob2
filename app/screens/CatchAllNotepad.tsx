@@ -168,6 +168,11 @@ const MindDropInput = React.memo<MindDropInputProps>(
 
 MindDropInput.displayName = 'MindDropInput';
 
+const copy = {
+  title: 'Mind Drop — Drop it. I’ll sort it.',
+  subtitle: 'Private & secure. Gremly organizes as you go.',
+} as const;
+
 // Centralized copy for consistent toasts/messages
 const COPY = {
   retrying: 'Let me try again…',
@@ -580,11 +585,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: 'Mind Drop',
+      title: copy.title,
       headerShown: true,
+      headerTitle: () => (
+        <View style={styles.headerTitleWrapper}>
+          <Text style={styles.headerTitleText}>{copy.title}</Text>
+          <Text style={styles.headerSubtitleText}>{copy.subtitle}</Text>
+        </View>
+      ),
       headerRight: () => <InfoButton showTip={showTip} setShowTip={setShowTip} />,
     });
-  }, [navigation, showTip]);
+  }, [navigation, showTip, styles]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -619,7 +630,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [repo]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
-  const disabled = useMemo(() => !note.trim() || isSubmitting, [note, isSubmitting]);
+  const disabled = useMemo(() => note.trim().length === 0 || isSubmitting, [note, isSubmitting]);
 
   const modeDescription = useMemo(() => {
     return uiMode === 'free'
@@ -1252,17 +1263,19 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           hudTextStyle={styles.inputHudText}
           characterCount={note.length}
         />
-        <Button
-          testID="minddrop-submit-button"
-          label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
-          leftIcon={isSubmitting ? <ActivityIndicator size="small" color={c.bg} /> : undefined}
-          onPress={disabled ? undefined : onSubmit}
-          disabled={disabled}
-          disabledOpacity={0.6}
-          accessibilityRole="button"
-          accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
-          accessibilityState={{ busy: isSubmitting, disabled }}
-        />
+        <View style={styles.submitButtonWrapper}>
+          <Button
+            testID="minddrop-submit-button"
+            label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
+            leftIcon={isSubmitting ? <ActivityIndicator size="small" color={c.bg} /> : undefined}
+            onPress={onSubmit}
+            disabled={disabled}
+            disabledOpacity={0.4}
+            accessibilityRole="button"
+            accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
+            accessibilityState={{ busy: isSubmitting, disabled }}
+          />
+        </View>
         {/* Trust Builders row */}
         <View style={styles.trustRow} testID="minddrop-trust">
           <Text style={styles.trustText} testID="minddrop-trust-text">
@@ -1335,6 +1348,22 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flex: 1,
       backgroundColor: c.bg,
       padding: 16,
+    },
+
+    headerTitleWrapper: {
+      alignItems: 'flex-start',
+    },
+    headerTitleText: {
+      color: c.text,
+      fontSize: 18,
+      fontWeight: '600',
+      lineHeight: 22,
+    },
+    headerSubtitleText: {
+      color: c.mutedText,
+      fontSize: 12,
+      lineHeight: 16,
+      marginTop: 2,
     },
 
     greeting: {
@@ -1413,6 +1442,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       transform: [{ rotate: '45deg' }],
     },
 
+    submitButtonWrapper: {
+      marginTop: 24,
+    },
     submitButton: {
       marginTop: 16,
       height: 56,
