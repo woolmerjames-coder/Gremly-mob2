@@ -50,6 +50,7 @@ import { decideGating } from '../../lib/cortex/policy/gating';
 import { detectSignals } from '../../lib/cortex/policy/signals';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { parseDue } from '../../lib/cortex/entities/datetime';
+import { buildMindDropAskChips } from '../../lib/cortex/policy/chips';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -855,6 +856,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const decisionOutcome = mapDecisionOutcome(policyDecision.mode);
           decisionOutcomeLabel = decisionOutcome;
 
+          let askChips: ReturnType<typeof buildMindDropAskChips> = [];
+          if (policyDecision.mode === 'ask') {
+            askChips = buildMindDropAskChips({
+              userText: trimmed,
+              intent: probableIntent,
+            });
+            if (askChips.length > 0) {
+              setSuggestions(askChips.map((chip) => chip.label));
+            }
+          }
+
           // Optional debug to compare original vs policy
           if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
             console.log('[MindDrop][Policy] compare', {
@@ -1024,7 +1036,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             });
 
             // Show suggestions as chips
-            if (response.suggestions && response.suggestions.length > 0) {
+            if (policyDecision.mode === 'ask') {
+              if (
+                askChips.length === 0 &&
+                response.suggestions &&
+                response.suggestions.length > 0
+              ) {
+                setSuggestions(response.suggestions);
+              }
+            } else if (response.suggestions && response.suggestions.length > 0) {
               setSuggestions(response.suggestions);
             }
 
