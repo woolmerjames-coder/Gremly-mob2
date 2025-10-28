@@ -11,7 +11,6 @@ import {
   TextInput,
   ToastAndroid,
   View,
-  Modal,
   AccessibilityInfo,
   findNodeHandle,
   GestureResponderEvent,
@@ -25,7 +24,6 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
-import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { cortexRoute } from '../../lib/cortex/router';
@@ -172,8 +170,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
 MindDropInput.displayName = 'MindDropInput';
 
 const copy = {
-  title: 'Mind Drop — Drop it. I’ll sort it.',
-  subtitle: 'Private & secure. Gremly organizes as you go.',
+  title: 'Mind Drop',
 } as const;
 
 // Centralized copy for consistent toasts/messages
@@ -484,7 +481,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
   // Mind Drop: greeting + static placeholder
   const [greeting, setGreeting] = useState<string>('');
   const greetingRef = useRef<any>(null);
@@ -562,27 +558,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       title: copy.title,
       headerShown: true,
       headerTitle: () => (
-        <View style={styles.headerRow} testID="minddrop-header">
-          <View style={styles.headerTextCol}>
-            <Text style={styles.headerTitle} accessibilityRole="header">
-              {copy.title}
-            </Text>
-            <Text style={styles.headerSubtitle}>{copy.subtitle}</Text>
-          </View>
-          <Pressable
-            accessibilityLabel="About Mind Drop"
-            accessibilityRole="button"
-            testID="minddrop-info-header"
-            style={styles.headerInfoBtn}
-            onPress={() => setInfoOpen(true)}
-            hitSlop={8}
-          >
-            <Icon name="Info" size="sm" color={c.mutedText} />
-          </Pressable>
-        </View>
+        <Text style={styles.headerTitle} accessibilityRole="header">
+          {copy.title}
+        </Text>
       ),
     });
-  }, [c.mutedText, navigation, styles]);
+  }, [navigation, styles]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -703,11 +684,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       });
     }
   }, [navigation, showActionToast]);
-
-  const handleInfoOpenRecent = useCallback(() => {
-    setInfoOpen(false);
-    handleViewDetails();
-  }, [handleViewDetails]);
 
   // A11y: set focus to the greeting after successful actions
   const focusGreetingForA11y = useCallback(() => {
@@ -1314,59 +1290,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <>
-      <Modal
-        visible={infoOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setInfoOpen(false)}
-      >
-        <Pressable style={styles.infoBackdrop} onPress={() => setInfoOpen(false)}>
-          <Pressable
-            style={styles.infoSheetContainer}
-            testID="minddrop-info-sheet"
-            onPress={(event: GestureResponderEvent) => event.stopPropagation()}
-          >
-            <View style={styles.infoSheet}>
-              <Text style={styles.infoTitle}>About Mind Drop</Text>
-              <Text style={styles.infoBody}>
-                Mind Drop is your calm portal for capturing thoughts fast. Drop anything—ideas,
-                tasks, notes—and Gremly’s Cortex organizes them into the right places.
-              </Text>
-              <Text style={styles.infoHeading}>What happens after a drop?</Text>
-              <Text style={styles.infoBody}>
-                Your text is parsed and routed. You’ll see a confirmation, and the result appears in
-                Recent Drops. From there, open details to edit or move items.
-              </Text>
-              <Text style={styles.infoHeading}>Privacy</Text>
-              <Text style={styles.infoBody}>
-                Your thoughts are private & secure. You control what’s shared and where it goes.
-              </Text>
-              <View style={styles.infoActions}>
-                <Button
-                  variant="secondary"
-                  onPress={handleInfoOpenRecent}
-                  testID="minddrop-info-open-recent"
-                  label="View Recent Drops"
-                />
-                <Button
-                  onPress={() => setInfoOpen(false)}
-                  testID="minddrop-info-close"
-                  label="Close"
-                />
-              </View>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+    <View style={styles.root} testID="minddrop-screen">
+      {/* Inline Action Toast overlay */}
+      {ActionToast}
 
-      <View style={styles.root} testID="minddrop-screen">
-        {/* Inline Action Toast overlay */}
-        {ActionToast}
-
-        {content}
-      </View>
-    </>
+      {content}
+    </View>
   );
 }
 
@@ -1378,31 +1307,14 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 16,
     },
 
-    headerRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      marginBottom: 12,
-    },
-    headerTextCol: {
-      flexShrink: 1,
-      paddingRight: 12,
-    },
     headerTitle: {
-      color: c.text,
+      color: c.moss,
       fontFamily: 'Inter-Bold',
-      fontSize: 24,
-      lineHeight: 30,
-    },
-    headerSubtitle: {
-      color: c.mutedText,
-      fontFamily: 'Inter-Regular',
-      fontSize: 14,
-      marginTop: 4,
-    },
-    headerInfoBtn: {
-      padding: 8,
-      borderRadius: 9999,
+      fontSize: 30,
+      lineHeight: 36,
+      textAlign: 'left',
+      marginTop: 16,
+      marginBottom: 12,
     },
 
     greeting: {
