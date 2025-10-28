@@ -19,6 +19,8 @@ import {
   TextInputContentSizeChangeEventData,
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -469,12 +471,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
+  const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const themeResult = useTheme();
   const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
   const themeMode = themeResult.mode;
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
   const gradientStopColor = themeMode === 'dark' ? c.sage : c.sageTint;
-  const gradientStopOpacity = themeMode === 'dark' ? 0.2 : 0.12;
+  const gradientStopOpacity = themeMode === 'dark' ? 0.26 : 0.3;
   const reduceMotion = useReducedMotion();
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
@@ -1321,7 +1325,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <View style={styles.root} testID="minddrop-screen">
+    <View
+      style={[
+        styles.root,
+        {
+          paddingTop: headerHeight + 12,
+          paddingBottom: 16 + insets.bottom,
+        },
+      ]}
+      testID="minddrop-screen"
+    >
       {/* Inline Action Toast overlay */}
       <Svg pointerEvents="none" style={styles.gradientBackground}>
         <Defs>

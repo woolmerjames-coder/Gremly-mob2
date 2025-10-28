@@ -1,0 +1,553 @@
+=== Files Modified in Last 7 Days (Chat/Cortex Related) ===
+
+b04be92 - fix(chat): add functional back button to chat screen header (11 minutes ago)
+app/spaces/ChatThreadScreen.tsx
+
+5355be9 - feat(chat): replace empty state with peeking Gremly mascot (17 minutes ago)
+app/spaces/ChatThreadScreen.tsx
+
+c17831f - polish(space v3.4): non-overlapping header, minimalist goal rows, clearer section contrast, chat list with dividers (62 minutes ago)
+components/spaces/v33/GoalList.tsx
+components/spaces/v33/GoalPlaceholder.tsx
+components/spaces/v33/GoalRow.tsx
+components/spaces/v33/Menu.tsx
+components/spaces/v33/NewChatSection.tsx
+components/spaces/v33/Overlays/CalendarOverlay.tsx
+components/spaces/v33/ThreadCard.tsx
+
+4e00b09 - fix(space v3.4): single mascot instance, goals tint wraps icon row, add Search as 4th icon wired to overlay (76 minutes ago)
+components/spaces/v33/GoalSection.tsx
+components/spaces/v33/Header.tsx
+components/spaces/v33/IconRow.tsx
+components/spaces/v33/Mascot.tsx
+
+d3a1aaf - feat(space v3.3): polished search overlay — glass bar, chips, debounce, scoped results, proper motion (3 hours ago)
+components/spaces/v33/Overlays/SearchOverlay.tsx
+
+4661575 - feat(space v3.3): chat kebab menu (rename/delete) + visual goals placeholder (auto-hides when real goals exist) (3 hours ago)
+components/spaces/v33/GoalPlaceholder.tsx
+components/spaces/v33/Overlays/RenameChatModal.tsx
+components/spaces/v33/ThreadCard.tsx
+
+d4693c2 - fix(space v3.3): correct notes badge count (notes+journals+lists, hide on 0) and move/style Chat CTA below goals (3 hours ago)
+components/spaces/v33/NewChatSection.tsx
+
+42ac90b - feat(space v3.3): dynamic witty header line under title (theme-aware, daily-stable) (3 hours ago)
+components/spaces/v33/Header.tsx
+
+7f85f93 - feat(space v3.3): top + opens Unified Add overlay with locked space context (3 hours ago)
+components/spaces/v33/Overlays/UnifiedAddOverlay.tsx
+
+9ee1152 - feat(space v3.3): Notepad/Journal overlay with toolbar, autosave, and saved list (4 hours ago)
+components/spaces/v33/Header.tsx
+components/spaces/v33/Overlays/NotepadOverlay.tsx
+
+114fa5e - style(space v3.3): Sage-first color hierarchy, soft shadows, calm motion, type tuning (4 hours ago)
+components/spaces/v33/GoalCard.tsx
+components/spaces/v33/GoalList.tsx
+components/spaces/v33/Header.tsx
+components/spaces/v33/Menu.tsx
+components/spaces/v33/NewChatSection.tsx
+components/spaces/v33/Overlays/EditGoalModal.tsx
+components/spaces/v33/Overlays/SearchOverlay.tsx
+components/spaces/v33/ThreadCard.tsx
+
+1e34e59 - feat(space v3.3): chat CTA (secondary) + recent chats list with AI titles (5 hours ago)
+components/spaces/v33/NewChatSection.tsx
+components/spaces/v33/ThreadCard.tsx
+
+b81ad14 - feat(space v3.3): kebab menus on goals with edit/pause/delete/view chat (5 hours ago)
+components/spaces/v33/Overlays/EditGoalModal.tsx
+
+b89fab6 - feat(space v3.3): stacked goals with See All/Show Less + placeholder; sort by recency→pinned→created (5 hours ago)
+components/spaces/v33/GoalList.tsx
+
+6289da9 - fix(space v3.3): centered icon row (18–20px, equal spacing) + idle pulse; remove FAB (5 hours ago)
+components/spaces/v33/IconRow.tsx
+
+99f33e3 - feat(v33): Sage header polish — reduced padding, subtle shadow, aligned search overlay height (5 hours ago)
+components/spaces/v33/Header.tsx
+
+283b0a0 - fix(v33): CalendarOverlay parse errors on device (remove export type, minor cleanup) (5 hours ago)
+components/spaces/v33/Overlays/CalendarOverlay.tsx
+
+eea93bc - feat(space v3.3): global kebab menus for todos & milestones (5 hours ago)
+components/spaces/v33/Overlays/CalendarOverlay.tsx
+
+e2df17b - feat(space v3.3): milestones CRUD + calendar overlay integration (5 hours ago)
+components/spaces/v33/Overlays/CalendarOverlay.tsx
+
+97d9739 - feat(space v3.3): New Chat section + AI chat titles + recent chats (5 hours ago)
+components/spaces/v33/NewChatSection.tsx
+components/spaces/v33/ThreadCard.tsx
+
+c719604 - feat(space v3.3): goal edit modal + menu actions (5 hours ago)
+components/spaces/v33/GoalCard.tsx
+components/spaces/v33/Overlays/EditGoalModal.tsx
+
+fe8fe61 - feat(space v3.3): stacked goal cards with kebab menus (6 hours ago)
+components/spaces/v33/GoalCard.tsx
+components/spaces/v33/Menu.tsx
+
+0bd1bc6 - feat(space v3.3): Calendar overlay (timeline + milestones) (6 hours ago)
+components/spaces/v33/Overlays/CalendarOverlay.tsx
+
+3270f86 - feat(space v3.3): wire search overlay to repo with filters + add CalendarOverlayV33 and integrate (6 hours ago)
+components/spaces/v33/Overlays/CalendarOverlay.tsx
+
+705f2c9 - feat(space v3.3): centered icon row + remove FAB (7 hours ago)
+components/spaces/v33/IconRow.tsx
+
+26a193e - feat(space v3.3): Sage header with mood line + slide-down search overlay (7 hours ago)
+components/spaces/v33/Header.tsx
+components/spaces/v33/Overlays/SearchOverlay.tsx
+
+9d5febd - feat(space v3.3): Sage-first tokens + motion presets (7 hours ago)
+components/spaces/v33/Header.tsx
+
+fe22bd4 - chore(space v3.3): branch + env flag + implementation plan (7 hours ago)
+components/spaces/v33/GoalCard.tsx
+components/spaces/v33/Header.tsx
+components/spaces/v33/IconRow.tsx
+components/spaces/v33/KebabMenu.tsx
+components/spaces/v33/Menu.tsx
+components/spaces/v33/NewChatSection.tsx
+
+66e7eff - fix(lint): resolve no-empty errors in SpaceHomeScreen; feat(search): wire v22 Search overlay to repo.searchInSpace with debounced results (19 hours ago)
+components/spaces/v22/Header.tsx
+components/spaces/v22/Overlays/SearchOverlay.tsx
+
+52ce47e - style(space v2.2): mood line, mascot micro-states, calm motion, icon/radius consistency (20 hours ago)
+components/spaces/v22/DayPanel.tsx
+components/spaces/v22/Header.tsx
+components/spaces/v22/InsightsRow.tsx
+components/spaces/v22/NewChatCTA.tsx
+components/spaces/v22/NewPlusFAB.tsx
+components/spaces/v22/Overlays/NotepadOverlay.tsx
+
+dc59b5b - feat(space v2.2): chat-first layout + adaptive discussion card; remove duplicates (20 hours ago)
+components/spaces/v22/AdaptiveSummary.tsx
+components/spaces/v22/NewChatCTA.tsx
+components/spaces/v22/ThreadCard.tsx
+
+ef2f83f - feat(space v2.2): Search overlay with filters (20 hours ago)
+components/spaces/v22/Header.tsx
+components/spaces/v22/Overlays/SearchOverlay.tsx
+
+d8ce440 - feat(space v2.2): unified Timeline overlay + milestones (20 hours ago)
+components/spaces/v22/Overlays/TimelineOverlay.tsx
+
+0914a81 - feat(space v2.2): WeeklyGoalCard with Pear progress + confetti on log (21 hours ago)
+components/spaces/v22/WeeklyGoalCard.tsx
+
+058710d - feat(space v2.2): dynamic FocusTodayCard with snooze + scroll-to-today (21 hours ago)
+components/spaces/v22/FocusTodayCard.tsx
+components/spaces/v22/Overlays/NotepadOverlay.tsx
+
+81cc7c7 - chore: silence lints in v22 polish (AdaptiveSummary, SpaceHome) (21 hours ago)
+components/spaces/v22/AdaptiveSummary.tsx
+
+0b3b233 - style(space v2.3): warmth + micro-motion polish to reduce clinical tone (21 hours ago)
+components/spaces/v22/AdaptiveSummary.tsx
+components/spaces/v22/Header.tsx
+components/spaces/v22/InsightsRow.tsx
+components/spaces/v22/NewChatCTA.tsx
+components/spaces/v22/ThreadCard.tsx
+components/spaces/v22/WeekStrip.tsx
+
+e5ab919 - feat(space): micro-feedback + guilt-free copy (22 hours ago)
+components/spaces/v22/DayPanel.tsx
+
+289a291 - feat(space): threads list wired; archive/delete; new chat scoped to space (22 hours ago)
+components/spaces/v22/ThreadCard.tsx
+
+ca5e543 - feat(space): basic overlays for Notepad, People, Timeline (22 hours ago)
+components/spaces/v22/Overlays/NotepadOverlay.tsx
+components/spaces/v22/Overlays/PeopleOverlay.tsx
+components/spaces/v22/Overlays/TimelineOverlay.tsx
+
+09ea2d0 - feat(space): intent inference + adaptive summary copy (non-robotic) (22 hours ago)
+components/spaces/v22/AdaptiveSummary.tsx
+
+e610bdd - style(space v2.2): spacing rhythm, dark mode polish, emoji purge (22 hours ago)
+components/spaces/v22/AdaptiveSummary.tsx
+components/spaces/v22/DayPanel.tsx
+components/spaces/v22/ThreadCard.tsx
+components/spaces/v22/WeekStrip.tsx
+
+a9ca6d1 - feat(space v2.2): Compact thread cards (UI) (22 hours ago)
+components/spaces/v22/ThreadCard.tsx
+
+3d1c41e - feat(space v2.2): New Chat CTA + Floating Plus wired to Unified Add (22 hours ago)
+components/spaces/v22/NewChatCTA.tsx
+components/spaces/v22/NewPlusFAB.tsx
+
+e9df899 - feat(space v2.2): Insights row + notepad/people overlays (UI scaffolds) (22 hours ago)
+components/spaces/v22/InsightsRow.tsx
+components/spaces/v22/Overlays/NotepadOverlay.tsx
+components/spaces/v22/Overlays/PeopleOverlay.tsx
+
+581df2b - feat(space v2.2): Adaptive summary card (UI, modes) (23 hours ago)
+components/spaces/v22/AdaptiveSummary.tsx
+
+4f1f14a - feat(space v2.2): Day panel (habits + todos) UI (23 hours ago)
+components/spaces/v22/DayPanel.tsx
+
+157a1ad - feat(space v2.2): Week strip + timeline overlay (UI scaffold) (23 hours ago)
+components/spaces/v22/Overlays/TimelineOverlay.tsx
+components/spaces/v22/WeekStrip.tsx
+
+761e753 - feat(space v2.2): Moss header with tiny last-visited + context line (23 hours ago)
+components/spaces/v22/Header.tsx
+
+fcfbbf8 - feat(space v2.2): tokens + icon set (23 hours ago)
+components/spaces/v4/CalendarStrip.tsx
+components/spaces/v4/ChatCTA.tsx
+components/spaces/v4/FocusCard.tsx
+components/spaces/v4/QuickStatsRow.tsx
+
+6294799 - feat(space 6.5): brand-aligned polish — single header, concise summary, primary New Chat CTA, lighter pills, calmer cards, compact metrics (2 days ago)
+components/spaces/v3/LastTimeCard.tsx
+components/spaces/v3/NewChatCTA.tsx
+components/spaces/v3/OverviewHeader.tsx
+components/spaces/v3/ProgressSnapshot.tsx
+components/spaces/v3/SpaceSummaryCard.tsx
+components/spaces/v3/TabbedSection.tsx
+
+02b0384 - feat(space): search+filters polish and micro-celebrations per brand v4.3\n\n- Search bar toggled from header; sticky until closed\n- Filter pills + synced tabs (incl. All) and simple semantic search\n- Summary pulse on return; confetti burst on habit/todo completion (2 days ago)
+components/spaces/v3/TabbedSection.tsx
+
+753301b - feat(space-ui): v3 components (OverviewHeader, LastTimeCard, SpaceSummaryCard, ProgressSnapshot, TabbedSection) (2 days ago)
+components/spaces/v3/LastTimeCard.tsx
+components/spaces/v3/OverviewHeader.tsx
+components/spaces/v3/ProgressSnapshot.tsx
+components/spaces/v3/SpaceSummaryCard.tsx
+components/spaces/v3/TabbedSection.tsx
+
+4c73831 - fix(cortex): standardize engine failure fallback to 'Let's explore' message (2 days ago)
+lib/cortex/pipelines/conversation.ts
+
+9fcf5d7 - fix(pipeline): properly suppress smalltalk acknowledgments (2 days ago)
+lib/cortex/pipelines/conversation.ts
+
+270329d - fix(types): add defensive checks for possibly undefined arrays (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+5da2322 - fix(pipeline): add exploration fallback for low-confidence decisions (2 days ago)
+lib/cortex/pipelines/conversation.ts
+
+cdb9d35 - fix(intents): comprehensive test compatibility with centralized system (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+3c71e44 - fix(intents): prevent planning rule from overriding idea detection (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+a55f811 - docs(intents): establish centralized classification system as single source of truth (2 days ago)
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/intentRules.ts
+
+4e01344 - fix(intents): distinguish action reminders from information capture (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+23b22c0 - fix(cortex): resolve command intent detection test failures (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+1adf089 - feat(phase-11.7): implement Gremly brand voice and context-aware summaries (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/persona/prompt.ts
+lib/cortex/persona/refine.ts
+lib/cortex/pipelines/conversation.ts
+
+43753fc - fix: replace dynamic import with static import for summarize module (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+4b1350f - feat: implement calm action bar (Phase 11.7) (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+17597c8 - fix: Integrate multi-intent detection into cortex pipeline (Phase 11.6) (2 days ago)
+lib/cortex/pipelines/conversation.ts
+
+1192412 - feat: Add entry cards to chat thread (Phase 11.6) (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+5cb2163 - feat: Implement multi-intent detection and disambiguation (Phase 11.5) (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/multiIntentDetector.ts
+lib/cortex/intents/types.ts
+
+e8c7149 - feat: Move ActionToast inline with chat messages (Phase 11.3) (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+19e32e5 - feat: Add context-aware habit reminder handling (2 days ago)
+lib/cortex/intents/intentRules.ts
+lib/cortex/intents/types.ts
+lib/cortex/pipelines/conversation.ts
+
+bc55020 - Add natural conversation gathering without question overload (2 days ago)
+lib/cortex/persona/prompt.ts
+lib/cortex/pipelines/conversation.ts
+
+e40dff5 - Disable curiosity question template system (2 days ago)
+lib/cortex/pipelines/conversation.ts
+
+e870e88 - Fix toast positioning and premature habit display (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+816745d - Fix meta-comment detection for 'doesn't make sense' (CRITICAL) (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+efb6353 - Implement Harmonic Glass visual design system for chat (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+32f8668 - Add ambiguous reflection/advice-seeking detection (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+c2c7f3e - Fix reflection classification with high-priority rule (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+e69ddaf - Fix intent classification: question vs todo distinction (2 days ago)
+lib/cortex/intents/intentRules.ts
+
+145e697 - Refactor detectIntent to use centralized intentRules (2 days ago)
+lib/cortex/intents/detectIntent.ts
+
+9d254c8 - Create centralized intent classification rules system (2 days ago)
+lib/cortex/intents/intentRules.ts
+lib/cortex/intents/types.ts
+
+bc26214 - Add comprehensive debug logging for meta-comment flow (2 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/types.ts
+lib/cortex/pipelines/conversation.ts
+
+d16858e - Fix meta-comment handling in conversation pipeline (2 days ago)
+lib/cortex/pipelines/conversation.ts
+
+b1932bc - CRITICAL FIX: Prevent todos from user complaints & meta-questions (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+f1bd229 - chat: success toast extraction – normalize date/time (Mon 2pm), colon-preferred note titles (Restaurant: Pujol), strip filler prefixes; toast: success summaries concise; pipeline: preserve routing meta on cooldown exploration; intents: refine "remember to" bias (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+7dfcb05 - chat: disambiguation toast for near-tie todo vs note; intents: add 'ambiguous' with options/confidences and heuristics; toast: support disambiguation buttons (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/types.ts
+
+e149923 - persona: add capability awareness (can create habits, to-dos, notes); affirm when asked and guide phrasing (3 days ago)
+lib/cortex/persona/prompt.ts
+
+cf9b582 - tests(intent): add explicit action intent tests; detection: support 'set up' variants for habit/reminder verb-object and set-reminder special case (3 days ago)
+lib/cortex/intents/detectIntent.ts
+
+e6acf0b - intent: treat explicit action requests as actionable even when phrased as questions (create/log/set/add/make/track/start + habit/reminder/todo/note; 'remind me' -> todo); move combo check before question; exclude reminders from note; confidence 0.95 + isCommand true (3 days ago)
+lib/cortex/intents/detectIntent.ts
+
+3e17fea - chat: show Action Toast for high-confidence actionable intents (todo/habit/note) in Space Chat; add local detectIntent fallback when meta intent missing; add detailed debug logs in ChatThreadScreen, useActionToast, and conversation pipeline; simplify flow by bypassing clarification for toast gating (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+af4fb5e - cortexDecide: remove hardcoded exploration short-circuit; add intent fast-path and high-confidence mapping; generate contextual answers for questions; preserve canonical exploration fallback on engine failure; prefer ask over keep with no actions; include meta.intent. (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+8bb87ce - cortex(conversation): treat exploration explanation as generic; suppress in chat and attempt worker reply. Add defensive test that ensures worker path triggers on exploration-only responses. (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+2744c49 - feat(chat): add ChatThinkingIndicator (pulsing dots + optional mascot) with fade transitions; integrate into Space Chat thinking placeholder (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+2821f7b - feat(chat): add Persistent Action Bar above composer on Spaces Chat; opens Unified Overlay with spaceId; golden + icon and subtle press animation (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+bf3e25b - tests(cortex): align exploration fallback expectations and defensive chat behavior; full cortex suite green (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+9e3d8a6 - fix: remove catch-all loop in cortex conversation (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+c00c083 - Merge origin/main into fix/chat-context-history-10_7E (3 days ago)
+a552117 - feat: integrate action toast into chat flow (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+74d757d - feat: add curiosity-first routing for space chat (3 days ago)
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+77af130 - Enhance chat context metadata and summary refresh (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/context/memory.ts
+lib/cortex/pipelines/conversation.ts
+
+8772055 - fix(space-chat): propagate spaceId through chat context (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+35781fa - Merge pull request #28 from woolmerjames-coder/fix/chat-context-history-10_7E (3 days ago)
+e5a9974 - fix(policy): enforce answer-first for all first-time intents (3 days ago)
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+8034131 - Merge pull request #27 from woolmerjames-coder/feat/10.7B-conversation-refinement (3 days ago)
+0f81c67 - feat(P1): stable context assembly, planning-curiosity gating, resilient summary refresh (3 days ago)
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+0d8c1a5 - feat(cortex): Wire spaceChatMessages.list + Harden memory.ts (Phase 10.7E) (3 days ago)
+lib/cortex/context/memory.ts
+lib/cortex/pipelines/conversation.ts
+
+71bf5fd - feat(cortex): Phase 10.10 - Friendly greeting variants and 'how are you' responses (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+820817d - feat(10.10): correct overlay prefill to use current user message text (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+0a63b95 - feat(10.10): add explicit command verb detection for immediate overlay actions (3 days ago)
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/types.ts
+lib/cortex/pipelines/conversation.ts
+
+6c8357d - feat(10.7E): implement database-backed context building for space chat (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/context/memory.ts
+lib/cortex/pipelines/conversation.ts
+
+861c1c8 - chore(P0): fix router fallback, enforce spaceId, raise thresholds, correct overlay prefill (3 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+6d96359 - merge: resolve new conflicts with main - use type guard functions (3 days ago)
+393133c - merge: resolve conflicts with main and fix async test handling (3 days ago)
+1bafa83 - merge: resolve conflicts with main - keep feat/10.8 changes for intent detection, context assembly, and test structure (3 days ago)
+c3d5e51 - context: limit to last 10 turns; tests: relax persona check; fix TypingDots lint (avoid ref.current in render) (3 days ago)
+lib/cortex/context/assemble.ts
+
+c184733 - cortex(chat): 10.8 align with 10.7B — defer smalltalk to fallback, always set detectedIntent, enforce question handling, turn-based chip cooldown; fix overlay prefill test mocks; detectIntent: idea-first phrases + question threshold (3 days ago)
+lib/cortex/intents/detectIntent.ts
+lib/cortex/pipelines/conversation.ts
+
+9f37922 - cortex(chat): preserve mode in ack scenarios; stop forcing ask for space_chat; keep replyText/explanation undefined when absent; small-talk tests green (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+e25bd02 - context: assemble last 10 turns and deterministic system prompt; summary: keep most-recent content within 1400 chars; fix tests/conversation/context.test.ts expectations (3 days ago)
+lib/cortex/context/assemble.ts
+lib/cortex/context/summary.ts
+
+1225644 - test(smalltalk): mock cortexDecide before importing pipeline; pipeline: remove early smalltalk return to use fallback path with lane metadata (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+ded3376 - fix(intent-detection): treat 'what if' and 'maybe we could' as ideas (>=0.8), raise question confidence to 0.75 to satisfy tests (3 days ago)
+lib/cortex/intents/detectIntent.ts
+
+cdeae8c - fix(pipeline): align policy tests — non-empty question reply, turn-based cooldown, and smalltalk gating (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+faa88a1 - fix(pipeline): detect questions reliably, set meta.detectedIntent early, and avoid misclassifying short actionable inputs as smalltalk; preserve meta on worker fallback (3 days ago)
+lib/cortex/pipelines/conversation.ts
+
+9c6b982 - fix(types): Resolve TypeScript errors in ChatThreadScreen and tests (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+3211107 - fix: TypeScript errors in ChatThreadScreen and Cortex types (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+e59431c - fix(types): Resolve TypeScript errors in ChatThreadScreen and tests (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+2b54f9d - feat(10.8): Hook Space Insight summary into conversation flow (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+cc1f624 - feat(10.7D): Update ChatThreadScreen with debounce, validation, and prefill fixes (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+9f1e9c8 - feat(10.7D): Integrate conversation pipeline with cooldown and context (4 days ago)
+lib/cortex/pipelines/conversation.ts
+
+50cdfae - feat(10.7D): Add foundational types, helpers, and detection (partial) (4 days ago)
+lib/cortex/context/memory.ts
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/types.ts
+lib/cortex/persona/prompt.ts
+
+7abc788 - feat(10.7C): Conversational quality, memory depth, curiosity phase, overlay prefill fix (4 days ago)
+lib/cortex/context/assemble.ts
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/types.ts
+lib/cortex/persona/prompt.ts
+lib/cortex/pipelines/conversation.ts
+
+d6521ae - feat(chat): 10.7B context persistence (running summary + window), answer-first policy, softened chips, persona prompt, note prefill fix (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/context/assemble.ts
+lib/cortex/context/recall.ts
+lib/cortex/context/summary.ts
+lib/cortex/intents/detectIntent.ts
+lib/cortex/persona/prompt.ts
+lib/cortex/pipelines/conversation.ts
+
+8cb668d - feat(chat): thread real spaceId, add minimal reply nudges, enhance chip debugging (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+ffdcb53 - feat(chat): add intent detection + smart suggestion chips (habits, todos, notes, reflections) (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/intents/detectIntent.ts
+lib/cortex/intents/types.ts
+lib/cortex/pipelines/conversation.ts
+
+993103c - feat: implement Phase 10.6 Mascot & Emotion Layer with event-driven architecture (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+18d93af - feat(chat): improve worker timeout handling and retry strategy (4 days ago)
+lib/cortex/pipelines/conversation.ts
+
+f24aead - fix(chat): render worker content as reply when choices absent; tighten small-talk guard (4 days ago)
+lib/cortex/pipelines/conversation.ts
+
+3bcfc5f - feat(chat): small-talk fallback for Space Chat (no auto-sort; replyText when empty) (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+f397622 - feat(chat): explicit conversion via Unified Overlay (prefill space_id; origin=space_chat; ai_placed=false) (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+354c92a - feat(chat): enforce Space Chat rules (no auto-sort, suppress catch-all copy, suggestions-only) (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+lib/cortex/pipelines/conversation.ts
+
+2b6de5d - chore(cortex): split pipelines (classification/conversation) and route calls — parity only (4 days ago)
+lib/cortex/pipelines/classification.ts
+lib/cortex/pipelines/conversation.ts
+lib/cortex/pipelines/index.ts
+
+b67f9ad - chore(cortex): add lane-based router and tests (no behavior change) (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+213c71d - chore(cortex): introduce Lane type and thread lane through Cortex context (no behavior change) (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+d36ba43 - feat(mascot): integrate mascot in ChatThreadScreen with haptics (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+06264c2 - feat(chat): add feature flag gate and navigation improvements (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+409d15f - feat(chat): wire ChatThreadScreen to persistence (4 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+bf43b3a - 10.3: Wire Spaces Chat and Catch-All to Cortex SDK; add optimistic confirmations and event logging (5 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+98101cf - chore(phase-8): final polish + QA for Relationships & Spaces v2 (7 days ago)
+app/spaces/ChatThreadScreen.tsx
+
+d5e116e - feat(phase-8): Spaces v2 UI - SpaceHome and ChatThread screens with components (7 days ago)
+app/spaces/ChatThreadScreen.tsx
