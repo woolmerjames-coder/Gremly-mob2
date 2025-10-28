@@ -182,6 +182,35 @@ const copy = {
   title: 'Mind Drop',
 } as const;
 
+function formatList(parts: string[]): string {
+  if (parts.length <= 1) return parts.join('');
+  if (parts.length === 2) return `${parts[0]} or ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
+}
+
+function buildChipsPrompt(suggestions: UISuggestion[]): string | null {
+  const SHOW =
+    String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
+  if (!SHOW || !suggestions?.length) return null;
+
+  const parts: string[] = [];
+  const hasTodo = suggestions.some((s) => s.type === 'create.todo');
+  const hasHabit = suggestions.some((s) => s.type === 'create.habit');
+  const note = suggestions.find((s) => s.type === 'create.note') as
+    | Extract<UISuggestion, { type: 'create.note' }>
+    | undefined;
+
+  if (hasTodo) parts.push('create a todo');
+  if (hasHabit) parts.push('create a habit');
+  if (note) {
+    const isList = note.payload.subtype === 'list';
+    parts.push(isList ? 'save as a list' : 'save as a note');
+  }
+
+  if (!parts.length) return null;
+  return `Shall I ${formatList(parts)}?`;
+}
+
 // Centralized copy for consistent toasts/messages
 const COPY = {
   retrying: 'Let me try again…',
@@ -1552,8 +1581,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         : 'Your thoughts are private & secure with Gremly.',
     [organizedToday],
   );
-  const legacyUI = React.useMemo(
-    () => (
+  const legacyUI = React.useMemo(() => {
+    const prompt = buildChipsPrompt(suggestions);
+
+    return (
       <View>
         {/* Greeting above the input */}
         {greeting ? (
@@ -1583,7 +1614,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           characterCount={note.length}
         />
         {suggestions.length > 0 ? (
-          <MidConfidenceChips suggestions={suggestions} onPick={handlePickSuggestion} />
+          <MidConfidenceChips
+            suggestions={suggestions}
+            onPick={handlePickSuggestion}
+            prompt={prompt ?? undefined}
+          />
         ) : null}
         <View style={styles.submitButtonWrapper}>
           <Button
@@ -1614,29 +1649,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           onDeleted={noopCallback}
         />
       </View>
-    ),
-    [
-      greeting,
-      greetingRef,
-      styles,
-      note,
-      handleChangeText,
-      handleInputFocusChange,
-      handleInputContentSizeChange,
-      placeholder,
-      c.mutedText,
-      c.bg,
-      isSubmitting,
-      disabled,
-      onSubmit,
-      suggestions,
-      handlePickSuggestion,
-      trustLine,
-      recentRefresh,
-      noopCallback,
-      inputHeight,
-    ],
-  );
+    );
+  }, [
+    greeting,
+    greetingRef,
+    styles,
+    note,
+    handleChangeText,
+    handleInputFocusChange,
+    handleInputContentSizeChange,
+    placeholder,
+    c.mutedText,
+    c.bg,
+    isSubmitting,
+    disabled,
+    onSubmit,
+    suggestions,
+    handlePickSuggestion,
+    trustLine,
+    recentRefresh,
+    noopCallback,
+    inputHeight,
+  ]);
 
   const content = MIND_DROP_V2 ? (
     <>

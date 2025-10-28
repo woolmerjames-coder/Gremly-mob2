@@ -441,14 +441,9 @@ export async function cortexDecide(
       suggestions = generateSuggestions(normalized.actions, normalizedCtx);
     }
 
-    if (mode === 'ask') {
-      safeResult.actions = [];
-    }
-    safeResult.mode = mode;
-
     const result: CortexResponse = {
       ...safeResult,
-      actions: mode === 'auto' || mode === 'keep' ? normalized.actions : [],
+      actions: normalized.actions,
       explanation,
       suggestions,
       confidence,

@@ -25,6 +25,7 @@ const PALETTE = {
   habitFg: '#1F7A3D',
   noteBg: '#F4EFEA',
   noteFg: '#5C3B24',
+  promptFg: '#4A4A4A',
 };
 
 function stylesForType(type: UISuggestion['type']) {
@@ -42,38 +43,50 @@ function stylesForType(type: UISuggestion['type']) {
 export function MidConfidenceChips({
   suggestions,
   onPick,
+  prompt,
 }: {
   suggestions: UISuggestion[];
   onPick: (s: UISuggestion) => void;
+  prompt?: string;
 }) {
   if (!suggestions?.length) return null;
 
   return (
-    <View style={styles.row}>
-      {suggestions.map((s, idx) => {
-        const c = stylesForType(s.type);
-        return (
-          <Pressable
-            key={`${s.type}-${idx}`}
-            onPress={() => onPick(s)}
-            style={({ pressed }) => [
-              styles.chip,
-              { backgroundColor: c.bg, borderColor: c.fg },
-              pressed && styles.pressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={s.label}
-          >
-            <Text style={[styles.chipText, { color: c.fg }]}>{s.label}</Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.wrapper}>
+      {prompt ? (
+        <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={prompt}>
+          {prompt}
+        </Text>
+      ) : null}
+
+      <View style={styles.row}>
+        {suggestions.map((s, idx) => {
+          const c = stylesForType(s.type);
+          return (
+            <Pressable
+              key={`${s.type}-${idx}`}
+              onPress={() => onPick(s)}
+              style={({ pressed }) => [
+                styles.chip,
+                { backgroundColor: c.bg, borderColor: c.fg },
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={s.label}
+            >
+              <Text style={[styles.chipText, { color: c.fg }]}>{s.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 8 },
+  wrapper: { gap: 6, paddingTop: 8 },
+  prompt: { fontSize: 14, fontWeight: '600', color: PALETTE.promptFg, marginBottom: 2 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
