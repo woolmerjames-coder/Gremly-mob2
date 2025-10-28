@@ -72,7 +72,6 @@ describe('Mind Drop P10 Polish', () => {
 
   test('Token application (dark scheme) renders without errors', () => {
     const spyScheme = jest.spyOn(RN, 'useColorScheme');
-    // @ts-expect-error: override hook return for test
     spyScheme.mockReturnValue('dark');
 
     render(<CatchAllNotepad />);

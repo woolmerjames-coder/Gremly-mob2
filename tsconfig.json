@@ -11,6 +11,7 @@
     "gremly-chat-system-review/**/*",
     "app/(dev)/**/*",
     "__tests__/pending/**/*",
-    "supabase/functions/**/*"
+    "supabase/functions/**/*",
+    "artifacts/**/*"
   ]
 }
