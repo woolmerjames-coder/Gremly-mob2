@@ -23,6 +23,11 @@ import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
+import {
+  ORGANIZED_TOAST_PREFIX,
+  organizedToastContent,
+  type OrganizedKind,
+} from '../../lib/ui/toast/copy';
 
 const CATCHALL_LABEL = 'catchall';
 const UNSORTED_LABEL = 'needs_review';
@@ -132,13 +137,23 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
         );
 
         // Show success toast
-        const parts: string[] = [];
-        if (counts.todos) parts.push(`${counts.todos} ${counts.todos === 1 ? 'todo' : 'todos'}`);
-        if (counts.notes) parts.push(`${counts.notes} ${counts.notes === 1 ? 'note' : 'notes'}`);
-        if (counts.habits)
-          parts.push(`${counts.habits} ${counts.habits === 1 ? 'habit' : 'habits'}`);
-        const body = parts.length ? parts.join(', ') : 'items';
-        const label = `✅ Organized into ${body}`;
+        const segments: Array<{ kind: OrganizedKind; count: number }> = [];
+        if (counts.todos) segments.push({ kind: 'todo', count: counts.todos });
+        if (counts.notes) segments.push({ kind: 'note', count: counts.notes });
+        if (counts.habits) segments.push({ kind: 'habit', count: counts.habits });
+
+        let label: string;
+        if (segments.length === 0) {
+          label = `${ORGANIZED_TOAST_PREFIX}items`;
+        } else if (segments.length === 1) {
+          const seg = segments[0];
+          label = organizedToastContent(seg.kind, seg.count);
+        } else {
+          const parts = segments.map((seg) =>
+            organizedToastContent(seg.kind, seg.count).replace(ORGANIZED_TOAST_PREFIX, ''),
+          );
+          label = `${ORGANIZED_TOAST_PREFIX}${parts.join(', ')}`;
+        }
 
         showActionToast({
           type: 'success',

@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { organizedToastContent } from '../lib/ui/toast/copy';
 
 // Force feature flag ON
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
@@ -23,6 +24,29 @@ jest.mock('@react-navigation/native', () => {
 jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100, // Mock header height
 }));
+
+const mockDecideWithContext = jest.fn().mockResolvedValue({
+  mode: 'auto',
+  actions: [
+    {
+      type: 'create.todo',
+      payload: { title: 'Book dentist appointment', due: null, spaceId: null },
+    },
+  ],
+  confidence: 0.95,
+  suggestions: [],
+  explanation: 'On it 🎯',
+});
+
+jest.mock('../providers/CortexProvider', () => {
+  const actual = jest.requireActual('../providers/CortexProvider');
+  return {
+    ...actual,
+    useCortex: () => ({
+      decideWithContext: mockDecideWithContext,
+    }),
+  };
+});
 
 // Mock Auth
 jest.mock('../providers/AuthProvider', () => ({
@@ -112,9 +136,14 @@ describe('Mind Drop submit -> toast + actions', () => {
       expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
     });
 
-    // Toast should mention Organized into with counts
-    const toastSummary = await screen.findByText(/Organized into/i);
+    const expectedToast = organizedToastContent('note', 1);
+    const toastSummary = await screen.findByText(expectedToast);
     expect(toastSummary).toBeTruthy();
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalled();
+    });
+    expect(mockCreate.mock.calls.map((c) => c[0].type)).toEqual(['note']);
 
     // Press Undo -> should call remove for all created ids
     const undoBtn = screen.getByText('↩️ Undo');
@@ -143,8 +172,8 @@ describe('Mind Drop submit -> toast + actions', () => {
     await waitFor(() => {
       expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
     });
-
-    await screen.findByText(/Organized into/i);
+    const expectedToast = organizedToastContent('note', 1);
+    await screen.findByText(expectedToast);
     const viewBtn = screen.getByText('🔎 View Details');
     fireEvent.press(viewBtn);
 

@@ -45,6 +45,11 @@ import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
+import {
+  ORGANIZED_TOAST_PREFIX,
+  organizedToastContent,
+  type OrganizedKind,
+} from '../../lib/ui/toast/copy';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -748,12 +753,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const showMindDropSuccessToast = useCallback(
     (args: { todos?: number; notes?: number; habits?: number }) => {
       const { todos = 0, notes = 0, habits = 0 } = args || {};
-      const parts: string[] = [];
-      if (todos) parts.push(`${todos} ${todos === 1 ? 'todo' : 'todos'}`);
-      if (notes) parts.push(`${notes} ${notes === 1 ? 'note' : 'notes'}`);
-      if (habits) parts.push(`${habits} ${habits === 1 ? 'habit' : 'habits'}`);
-      const body = parts.length ? parts.join(', ') : 'items';
-      const label = `✅ Organized into ${body}`;
+      const segments: Array<{ kind: OrganizedKind; count: number }> = [];
+      if (todos) segments.push({ kind: 'todo', count: todos });
+      if (notes) segments.push({ kind: 'note', count: notes });
+      if (habits) segments.push({ kind: 'habit', count: habits });
+
+      let label: string;
+      if (segments.length === 0) {
+        label = `${ORGANIZED_TOAST_PREFIX}items`;
+      } else if (segments.length === 1) {
+        const seg = segments[0];
+        label = organizedToastContent(seg.kind, seg.count);
+      } else {
+        const parts = segments.map((seg) =>
+          organizedToastContent(seg.kind, seg.count).replace(ORGANIZED_TOAST_PREFIX, ''),
+        );
+        label = `${ORGANIZED_TOAST_PREFIX}${parts.join(', ')}`;
+      }
+
       showActionToast({
         type: 'success',
         content: label,
@@ -891,6 +908,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: subtype !== 'catchall',
                   space_id: action.payload.spaceId ?? null,
                   why_string: decision.explanation || 'Organized via Mind Drop',
+                  canonicalType: 'note',
+                  labels: [CATCHALL_LABEL],
+                  views: { alsoShowIn: ['Hub:Catch-All'] },
+                },
+              });
+            } else if (action.type === 'add.to.list') {
+              const itemText = action.payload.item?.trim() || trimmed;
+              const title = trimmed || itemText || 'Quick list';
+
+              mapped.push({
+                bucket: 'notes',
+                payload: {
+                  type: 'note',
+                  title,
+                  body: trimmed || itemText,
+                  subtype: 'list',
+                  origin: 'catchall',
+                  ai_placed: true,
+                  space_id: action.payload.spaceId ?? null,
+                  why_string: decision.explanation || 'Ideas/list capture',
                   canonicalType: 'note',
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },

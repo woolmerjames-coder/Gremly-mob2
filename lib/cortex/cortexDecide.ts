@@ -175,8 +175,6 @@ export async function cortexDecide(
     meta: {},
   };
 
-  const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
-  const autoThreshold = Number.isFinite(autoThresholdEnv) ? autoThresholdEnv : 0.85;
   const midLower = 0.55; // offer chips for mid confidence
 
   try {
@@ -370,11 +368,25 @@ export async function cortexDecide(
 
     const confidence = normalized.confidence;
     const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
+
+    const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
+    const autoThreshold = Number.isFinite(autoThresholdEnv) ? autoThresholdEnv : 0.85;
+
+    const habitAutoFloorEnv = parseFloat(String(process.env.INTENT_HABIT_AUTO_FLOOR ?? '0.90'));
+    const habitAutoFloor = Number.isFinite(habitAutoFloorEnv) ? habitAutoFloorEnv : 0.9;
+
+    const hasDate = hasExplicitDateOrTime(userText);
+    const preferHabitAuto =
+      probable === 'habit' && hasConfidence && confidence >= habitAutoFloor && !hasDate;
+
+    const shouldAuto =
+      normalized.actions.length > 0 && (confidence > autoThreshold || preferHabitAuto);
+
     let mode: DecisionMode = 'keep';
 
     if (!hasConfidence || confidence < 0) {
       mode = 'keep';
-    } else if (confidence > autoThreshold && normalized.actions.length > 0) {
+    } else if (shouldAuto) {
       mode = 'auto';
     } else if (confidence >= midLower) {
       mode = 'ask';
@@ -429,9 +441,14 @@ export async function cortexDecide(
       suggestions = generateSuggestions(normalized.actions, normalizedCtx);
     }
 
+    if (mode === 'ask') {
+      safeResult.actions = [];
+    }
+    safeResult.mode = mode;
+
     const result: CortexResponse = {
       ...safeResult,
-      actions: normalized.actions,
+      actions: mode === 'auto' || mode === 'keep' ? normalized.actions : [],
       explanation,
       suggestions,
       confidence,
@@ -472,6 +489,19 @@ export async function cortexDecide(
     });
     return fallback;
   }
+}
+
+function hasExplicitDateOrTime(text: string): boolean {
+  const t = (text || '').toLowerCase();
+  return (
+    /\btoday\b|\btomorrow\b|\btonight\b/.test(t) ||
+    /\bnext\s+(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(
+      t,
+    ) ||
+    /\b(on\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+\d{1,2}\b/.test(t) ||
+    /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(t) ||
+    /\b(at\s*)?\d{1,2}(:\d{2})?\s*(am|pm)\b/.test(t)
+  );
 }
 
 /**
