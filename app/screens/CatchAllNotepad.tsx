@@ -24,6 +24,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
+import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { cortexRoute } from '../../lib/cortex/router';
@@ -479,6 +480,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [confirmations, setConfirmations] = useState<string[]>([]);
+  const [, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mind Drop: greeting + static placeholder
@@ -557,13 +559,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     navigation.setOptions({
       title: copy.title,
       headerShown: true,
+      headerTransparent: true,
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: 'transparent' },
       headerTitle: () => (
-        <Text style={styles.headerTitle} accessibilityRole="header">
-          {copy.title}
-        </Text>
+        <View style={styles.headerRow} testID="minddrop-header">
+          <Text style={styles.headerTitle} accessibilityRole="header">
+            {copy.title}
+          </Text>
+          <Pressable
+            accessibilityLabel="About Mind Drop"
+            accessibilityRole="button"
+            testID="minddrop-info-header"
+            style={styles.headerInfoBtn}
+            onPress={() => setInfoOpen(true)}
+            hitSlop={12}
+          >
+            <Icon name="Info" size="sm" color={c.mutedText} />
+          </Pressable>
+        </View>
       ),
     });
-  }, [navigation, styles]);
+  }, [navigation, styles, c.mutedText]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -1307,14 +1324,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 16,
     },
 
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 8,
+      marginBottom: 8,
+    },
     headerTitle: {
       color: c.moss,
-      fontFamily: 'Inter-Bold',
-      fontSize: 30,
-      lineHeight: 36,
-      textAlign: 'left',
-      marginTop: 16,
-      marginBottom: 12,
+      fontFamily: 'PlusJakartaSans-Bold',
+      fontSize: 28,
+      lineHeight: 34,
+    },
+    headerInfoBtn: {
+      padding: 8,
+      borderRadius: 9999,
+      backgroundColor: 'transparent',
     },
 
     greeting: {
