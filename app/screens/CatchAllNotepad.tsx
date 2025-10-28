@@ -46,6 +46,11 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
+import { decideGating } from '../../lib/cortex/policy/gating';
+import { detectSignals } from '../../lib/cortex/policy/signals';
+import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
+import { parseDue } from '../../lib/cortex/entities/datetime';
+import { buildMindDropAskChips } from '../../lib/cortex/policy/chips';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -274,6 +279,19 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
   { key: 'numbers', label: 'Numbers', testID: 'ca-toolbar-list-numbers' },
   { key: 'checklist', label: 'Checklist', testID: 'ca-toolbar-list-checklist' },
 ];
+
+function mapDecisionOutcome(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
+  switch (mode) {
+    case 'auto':
+      return 'auto_create' as const;
+    case 'ask':
+      return 'ask_chip' as const;
+    case 'keep':
+      return 'keep_note' as const;
+    default:
+      return 'unsorted' as const;
+  }
+}
 
 // Removed legacy hex placeholder color; placeholderTextColor now uses themed c.mutedText
 
@@ -779,6 +797,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // Phase 10.3: Call Cortex SDK for guided mode
       if (uiMode === 'guided') {
+        const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
+        const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+        let probableIntent: 'todo' | 'habit' | 'note' | 'ambiguous' = 'ambiguous';
+        let policyMode: 'auto' | 'ask' | 'keep' | 'unsorted' = 'unsorted';
+        let decisionOutcomeLabel: 'auto_create' | 'ask_chip' | 'keep_note' | 'unsorted' =
+          'unsorted';
+        let responseConfidence = 0;
+
         try {
           const ctx: CortexContext = {
             lane: 'catchall',
@@ -799,6 +825,60 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           const response = await cortexRoute({ text: trimmed }, ctx);
 
+          const actions = Array.isArray(response?.actions) ? response.actions : [];
+
+          // Phase 1: unified gating policy (guided mode)
+          probableIntent = actions.some((a: any) => a?.type === 'create.habit')
+            ? 'habit'
+            : actions.some((a: any) => a?.type === 'create.todo')
+              ? 'todo'
+              : actions.some((a: any) => a?.type === 'create.note')
+                ? 'note'
+                : 'ambiguous';
+
+          const { hasActionSignal, hasTimeSignal } = detectSignals(trimmed);
+
+          responseConfidence =
+            typeof response?.confidence === 'number' && Number.isFinite(response.confidence)
+              ? response.confidence
+              : 0;
+
+          const policyDecision = decideGating({
+            intent: probableIntent,
+            confidence: responseConfidence,
+            isCommand: !!(response as any)?.isCommand,
+            isMetaComment: !!(response as any)?.isMetaComment,
+            hasActionSignal,
+            hasTimeSignal,
+          });
+
+          policyMode = policyDecision.mode;
+          const decisionOutcome = mapDecisionOutcome(policyDecision.mode);
+          decisionOutcomeLabel = decisionOutcome;
+
+          let askChips: ReturnType<typeof buildMindDropAskChips> = [];
+          if (policyDecision.mode === 'ask') {
+            askChips = buildMindDropAskChips({
+              userText: trimmed,
+              intent: probableIntent,
+            });
+            if (askChips.length > 0) {
+              setSuggestions(askChips.map((chip) => chip.label));
+            }
+          }
+
+          // Optional debug to compare original vs policy
+          if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+            console.log('[MindDrop][Policy] compare', {
+              originalMode: response?.mode,
+              policyMode: policyDecision.mode,
+              probableIntent,
+              confidence: responseConfidence,
+              hasActionSignal,
+              hasTimeSignal,
+            });
+          }
+
           // Log event (non-blocking)
           repo
             .writeEvent(
@@ -814,7 +894,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             )
             .catch((err) => console.error('[CatchAllNotepad] Failed to log event:', err));
 
-          if (response.mode === 'auto' && response.actions.length > 0) {
+          if (policyDecision.mode === 'auto' && actions.length > 0) {
             // Execute actions in parallel
             const confirmationTexts: string[] = [];
             const counts = { todos: 0, notes: 0, habits: 0 };
@@ -825,7 +905,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
 
             await Promise.all(
-              response.actions.map(async (action: CortexAction) => {
+              actions.map(async (action: CortexAction) => {
                 try {
                   if (action.type === 'add.to.list') {
                     const list = await repo.getOrCreateList(action.payload.listKey, {
@@ -835,15 +915,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     await repo.addListItem(list.id, action.payload.item);
                     confirmationTexts.push(explainAddedToList(list.name, 'warm'));
                   } else if (action.type === 'create.todo') {
+                    // Prefer LLM due when present; otherwise deterministically parse from user text
+                    let due = action.payload.due ?? null;
+                    let undefinedDue = !due;
+
+                    if (!due) {
+                      const parsed = parseDue(trimmed);
+                      if (parsed.iso && parsed.confidence >= 0.9) {
+                        due = parsed.iso;
+                        undefinedDue = false;
+                      }
+                    }
+
                     const rec = await repo.create({
                       type: 'todo',
                       name: action.payload.title,
                       title: action.payload.title,
-                      due_date: action.payload.due ?? null,
-                      undefined_due: !action.payload.due,
+                      due_date: due,
+                      undefined_due: undefinedDue,
                       space_id: action.payload.spaceId ?? null,
                       ai_placed: true,
-                      why_string: response.explanation,
+                      // Preserve your existing explanation, append small hint about due parsing
+                      why_string: [response.explanation, due ? '(due auto-parsed)' : '(no due)']
+                        .filter(Boolean)
+                        .join(' '),
                       origin: 'catchall',
                     });
                     confirmationTexts.push(explainCreated('todo', 'warm'));
@@ -902,6 +997,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               resetState();
             }, 2000);
 
+            void logCatchallDecision({
+              userId: currentUserId,
+              text: trimmed,
+              surface: 'catchall',
+              engine: engineMode,
+              modelVersion,
+              intent: probableIntent,
+              confidence: responseConfidence,
+              mode: policyDecision.mode,
+              decision: decisionOutcome,
+              createdTodos: counts.todos,
+              createdNotes: counts.notes,
+              createdHabits: counts.habits,
+            });
+
             return { created: createdIds };
           } else {
             // Mode is 'ask' or 'keep' - save to catch-all with suggestions
@@ -919,14 +1029,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               space_id: null,
               why_string: `${response.explanation}${suggestionHints}`,
               canonicalType: 'note',
-              labels: [CATCHALL_LABEL, ...(response.mode === 'ask' ? [UNSORTED_LABEL] : [])],
+              labels: [CATCHALL_LABEL, ...(policyDecision.mode === 'ask' ? [UNSORTED_LABEL] : [])],
               views: {
                 alsoShowIn: ['Hub:Catch-All'],
               },
             });
 
             // Show suggestions as chips
-            if (response.suggestions && response.suggestions.length > 0) {
+            if (policyDecision.mode === 'ask') {
+              if (
+                askChips.length === 0 &&
+                response.suggestions &&
+                response.suggestions.length > 0
+              ) {
+                setSuggestions(response.suggestions);
+              }
+            } else if (response.suggestions && response.suggestions.length > 0) {
               setSuggestions(response.suggestions);
             }
 
@@ -941,6 +1059,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             setTimeout(() => {
               resetState();
             }, 3000);
+
+            void logCatchallDecision({
+              userId: currentUserId,
+              text: trimmed,
+              surface: 'catchall',
+              engine: engineMode,
+              modelVersion,
+              intent: probableIntent,
+              confidence: responseConfidence,
+              mode: policyDecision.mode,
+              decision: decisionOutcome,
+              createdTodos: 0,
+              createdNotes: 1,
+              createdHabits: 0,
+            });
 
             return { created: { todos: [], habits: [], notes: [rec.id] } };
           }
@@ -969,6 +1102,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Snapshot for undo
           pendingUndo.current = { todos: [], habits: [], notes: [rec.id] };
           resetState();
+
+          void logCatchallDecision({
+            userId: currentUserId,
+            text: trimmed,
+            surface: 'catchall',
+            engine: engineMode,
+            modelVersion,
+            intent: probableIntent,
+            confidence: responseConfidence,
+            mode: policyMode,
+            decision: decisionOutcomeLabel,
+            createdTodos: 0,
+            createdNotes: 1,
+            createdHabits: 0,
+          });
 
           return { created: { todos: [], habits: [], notes: [rec.id] } };
         }

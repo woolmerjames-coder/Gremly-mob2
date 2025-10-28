@@ -44,6 +44,8 @@ import { detectMultipleIntents } from '../../lib/cortex/intents/multiIntentDetec
 import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../lib/cortex/explain';
 import { maybeRefreshSummary } from '../../lib/cortex/summarize';
 import { createToastSummary, getActivityName } from '../../lib/chat/contextualSummary';
+import { decideChatToastGating, type ChatIntentInfo } from '../../lib/chat/decideToastGating';
+import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
 import { searchIndex } from '../../lib/chat/searchIndex';
@@ -72,6 +74,7 @@ import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
 import type { OverlayKind } from './chat/openUnifiedFromChat';
 import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
+import { computeDuePrefill } from './chat/duePrefill';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -114,10 +117,6 @@ const INTENT_KIND_TO_ACTION: Partial<Record<DetectedIntent['kind'], ActionToastI
   idea: 'note',
 };
 
-// Smart gating helpers
-const TRIGGER_WORDS_RE = /\b(save|create|add|make|set|remind|log|start)\b/i;
-const SOFT_SKIP_RE = /\b(just thinking|maybe|not sure)\b/i;
-
 function cleanFragment(fragment: string | null | undefined): string | null {
   if (!fragment) return null;
   return fragment.replace(/[.,!?]+$/g, '').trim();
@@ -147,6 +146,37 @@ function mapCadenceToFrequency(cadence?: string) {
   return 'daily' as const;
 }
 
+function mapDetectedKindToPolicyKind(kind: DetectedIntent['kind']): ChatIntentInfo['kind'] {
+  switch (kind) {
+    case 'todo':
+    case 'habit':
+    case 'note':
+    case 'reflection':
+    case 'idea':
+    case 'question':
+    case 'ambiguous':
+    case 'none':
+      return kind;
+    case 'habit_reminder':
+      return 'habit';
+    default:
+      return 'ambiguous';
+  }
+}
+
+function mapPolicyDecision(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
+  switch (mode) {
+    case 'auto':
+      return 'auto_create' as const;
+    case 'ask':
+      return 'ask_chip' as const;
+    case 'keep':
+      return 'keep_note' as const;
+    default:
+      return 'unsorted' as const;
+  }
+}
+
 function buildActionToastPayload(
   intent: DetectedIntent | null,
   userText: string,
@@ -171,13 +201,24 @@ function buildActionToastPayload(
 
   if (type === 'todo') {
     const title = intent.title?.trim() || extractTodoTitle(trimmedUserText) || 'Untitled';
-    const { dueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    const duePrefill = computeDuePrefill(trimmedUserText);
+    const { dueDate: heuristicDueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    const dueDate = duePrefill.dueDate ?? heuristicDueDate ?? null;
+
+    if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log(
+        '[ChatPrefill][Due] confidence=%s due=%s',
+        duePrefill.confidence,
+        duePrefill.dueDate || '-',
+      );
+    }
+
     return {
       type,
       content: title,
       metadata: {
         ...commonMetadata,
-        dueDate: dueDate ?? null,
+        dueDate,
         dueTime: dueTime ?? null,
         onConfirm: handlers?.onConfirm as any,
         onCancel: handlers?.onCancel,
@@ -185,6 +226,7 @@ function buildActionToastPayload(
         onAutoDismiss: handlers?.onAutoDismiss,
         conversionMeta: {
           initialTitle: title,
+          initialDueDate: dueDate,
         },
       },
     };
@@ -422,109 +464,108 @@ export default function ChatThreadScreen({ route }: Props) {
       // Phase 11.3: Add inline action confirmation messages instead of overlay toast
       if (!intent) return false;
 
-      console.log('[DEBUG][Toast] maybeTriggerActionToast called:', {
-        text: userText.substring(0, 50),
-        intentKind: intent.kind,
-        confidence: intent.confidence,
-        suppressChips: intent.suppressChips,
-        isMetaComment: intent.isMetaComment,
-      });
+      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+        console.log('[DEBUG][Toast] maybeTriggerActionToast called:', {
+          text: userText.substring(0, 50),
+          intentKind: intent.kind,
+          confidence: intent.confidence,
+          suppressChips: intent.suppressChips,
+          isMetaComment: intent.isMetaComment,
+        });
+      }
 
-      // CRITICAL: Block for meta-comments
-      if (intent.isMetaComment || intent.suppressChips) {
-        console.log('[DEBUG][Toast] Blocking - meta-comment or suppressChips detected');
+      if (intent.isMetaComment) {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[DEBUG][Toast] Blocking - meta-comment detected');
+        }
         return false;
       }
 
-      // Use CORTEX smart threshold decision (meetsConfidence already computed with smart threshold)
-      const cortexMeetsConfidence = _meta?.meetsConfidence;
-      const meetsConfidence =
-        cortexMeetsConfidence !== undefined
-          ? cortexMeetsConfidence
-          : typeof intent.confidence === 'number' && intent.confidence >= 0.85;
+      if (intent.suppressChips) {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[DEBUG][Toast] Blocking - suppressChips flag set');
+        }
+        return false;
+      }
+
+      const policyDecision = decideChatToastGating(userText, {
+        kind: mapDetectedKindToPolicyKind(intent.kind),
+        confidence: typeof intent.confidence === 'number' ? intent.confidence : 0,
+        isCommand: !!intent.isCommand,
+        isMetaComment: !!intent.isMetaComment,
+      });
+
+      const originalMode =
+        typeof _meta?.mode === 'string'
+          ? _meta.mode
+          : typeof _meta?.policyMode === 'string'
+            ? _meta.policyMode
+            : null;
+
+      const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
+      const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+      const decisionLabel = mapPolicyDecision(policyDecision.mode);
+
+      void logCatchallDecision({
+        userId: userId || 'anonymous',
+        text: userText,
+        surface: 'space_chat',
+        engine: engineMode,
+        modelVersion,
+        intent: mapDetectedKindToPolicyKind(intent.kind),
+        confidence: typeof intent.confidence === 'number' ? intent.confidence : 0,
+        mode: policyDecision.mode,
+        decision: decisionLabel,
+        createdTodos: 0,
+        createdNotes: 0,
+        createdHabits: 0,
+      });
 
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[ChatToast][threshold] decision', {
-          cortexMeetsConfidence,
-          localFallback: typeof intent.confidence === 'number' && intent.confidence >= 0.85,
-          finalMeetsConfidence: meetsConfidence,
-          confidence: intent.confidence,
-          metaKeys: _meta ? Object.keys(_meta) : [],
+        console.log('[Chat][Policy] toast gating', {
+          originalMode,
+          policyMode: policyDecision.mode,
+          kind: intent.kind,
+          conf: intent.confidence,
         });
       }
-      const actionableKinds = new Set<DetectedIntent['kind']>(['todo', 'note', 'habit']);
-      const isActionable = actionableKinds.has(intent.kind);
+
+      if (policyDecision.mode !== 'auto') {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[ChatToast][gate] skip_toast', {
+            reason: policyDecision.reason,
+            policyMode: policyDecision.mode,
+          });
+        }
+        return false;
+      }
+
       const actionType = INTENT_KIND_TO_ACTION[intent.kind] as
         | 'todo'
         | 'note'
         | 'habit'
         | undefined;
 
-      // Smart gating between 0.7-0.89 with trigger words, and soft skip phrases
-      const conf = typeof intent.confidence === 'number' ? intent.confidence : 0;
-      const hasTrigger = TRIGGER_WORDS_RE.test(userText);
-      const isSoftSkip = SOFT_SKIP_RE.test(userText);
-
-      // SPECIAL GATE: Habits require higher confidence or very explicit phrases
-      if (intent.kind === 'habit' && conf < 0.9) {
-        const isVeryExplicit = /every (day|morning|evening|night)/i.test(userText);
-        if (!isVeryExplicit) {
-          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log('[ChatToast] Habit detected but confidence too low:', {
-              confidence: conf,
-              text: userText.substring(0, 80),
-            });
-          }
-          return false;
-        }
-      }
-
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[ChatToast][gate] intent', {
-          kind: intent.kind,
-          confidence: intent.confidence,
-          meetsConfidence,
-          isActionable,
-          spaceId,
-          userTextPreview: userText.substring(0, 80),
-          cortexDecision: _meta?.meetsConfidence || false,
-          usingSmartThreshold: _meta?.meetsConfidence !== undefined,
-        });
-      }
-
-      let allowed = false;
-      if (meetsConfidence && isActionable) {
-        allowed = true;
-      } else if (isActionable && !isSoftSkip && conf >= 0.7 && conf < 0.9 && hasTrigger) {
-        allowed = true;
-      }
-
-      // Cooldowns: block if same type shown within last 2 user messages; if canceled, block for 5
-      if (allowed && actionType) {
-        const history = toastHistoryRef.current[actionType] || [];
-        const idx = userMsgIndexRef.current;
-        const recentSame = history.some((h) => h.index >= idx - 2);
-        const recentCancel = history.some((h) => h.outcome === 'cancel' && h.index >= idx - 5);
-        if (recentSame || recentCancel) {
-          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log('[ChatToast][gate] cooldown_block', {
-              actionType,
-              recentSame,
-              recentCancel,
-            });
-          }
-          allowed = false;
-        }
-      }
-
-      if (!allowed) {
+      if (!actionType) {
         if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
           console.log('[ChatToast][gate] skip_toast', {
-            reason: !isActionable
-              ? 'non_actionable_intent'
-              : isSoftSkip
-                ? 'soft_skip'
-                : 'threshold_not_met',
+            reason: 'non_actionable_intent',
+            intentKind: intent.kind,
+          });
+        }
+        return false;
+      }
+
+      const history = toastHistoryRef.current[actionType] || [];
+      const idx = userMsgIndexRef.current;
+      const recentSame = history.some((h) => h.index >= idx - 2);
+      const recentCancel = history.some((h) => h.outcome === 'cancel' && h.index >= idx - 5);
+      if (recentSame || recentCancel) {
+        if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log('[ChatToast][gate] cooldown_block', {
+            actionType,
+            recentSame,
+            recentCancel,
           });
         }
         return false;
@@ -554,6 +595,9 @@ export default function ChatThreadScreen({ route }: Props) {
         aiPlaced: true,
         spaceId: spaceId ?? null,
         confidence: intent.confidence,
+        policyMode: policyDecision.mode,
+        policyReason: policyDecision.reason,
+        policyVersion: policyDecision.policyVersion,
         // Phase 11.7+: Context-aware summary and activity name
         summary: contextualSummary,
         activityName,
@@ -697,6 +741,9 @@ export default function ChatThreadScreen({ route }: Props) {
                 toastType: actionType,
                 confidence: intent.confidence,
                 index: userMsgIndexRef.current,
+                policyMode: policyDecision.mode,
+                policyReason: policyDecision.reason,
+                policyVersion: policyDecision.policyVersion,
               },
               { userId: userId || 'anonymous' },
             )
@@ -1275,7 +1322,7 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       // Phase 10.10: Use utility functions for proper prefill mapping
-      let initial: { title?: string; note?: string };
+      let initial: { title?: string; note?: string; dueDate?: string | null };
 
       if (kind === 'note') {
         // For notes: smart title + full text in note field
@@ -1284,9 +1331,20 @@ export default function ChatThreadScreen({ route }: Props) {
           note: userText,
         };
       } else if (kind === 'todo') {
-        // For todos: extract imperative title
+        // For todos: extract imperative title and high-confidence due date
+        const title = extractTodoTitle(userText);
+        const due = computeDuePrefill(userText);
+        if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log(
+            '[ChatPrefill][Due] confidence=%s due=%s',
+            due.confidence,
+            due.dueDate || '-',
+          );
+        }
+
         initial = {
-          title: extractTodoTitle(userText),
+          title,
+          ...(due.dueDate ? { dueDate: due.dueDate } : {}),
         };
       } else if (kind === 'habit') {
         // For habits: parse habit with cadence
