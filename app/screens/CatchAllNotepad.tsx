@@ -69,6 +69,9 @@ type MindDropInputProps = {
   autoFocus?: boolean;
   onContentSizeChange?: (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => void;
   scrollEnabled?: boolean;
+  hudContainerStyle: any;
+  hudTextStyle: any;
+  characterCount: number;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -84,6 +87,9 @@ const MindDropInput = React.memo<MindDropInputProps>(
     autoFocus = false,
     onContentSizeChange,
     scrollEnabled = false,
+    hudContainerStyle,
+    hudTextStyle,
+    characterCount,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -149,6 +155,12 @@ const MindDropInput = React.memo<MindDropInputProps>(
           onContentSizeChange={onContentSizeChange}
           scrollEnabled={scrollEnabled}
         />
+        <View style={hudContainerStyle} pointerEvents="none">
+          <Text testID="minddrop-privacy" style={hudTextStyle}>
+            🔒 Private & secure
+          </Text>
+          <Text testID="minddrop-counter" style={hudTextStyle}>{`${characterCount} / 2000`}</Text>
+        </View>
       </Pressable>
     );
   },
@@ -1231,19 +1243,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           placeholderTextColor={c.mutedText}
           containerStyle={styles.inputContainer}
           focusedStyle={styles.inputContainerFocused}
-          inputStyle={[styles.input, { height: inputHeight }]}
+          inputStyle={[styles.input, { height: inputHeight, paddingRight: 72, paddingBottom: 28 }]}
           onFocusChange={handleInputFocusChange}
           autoFocus
           onContentSizeChange={handleInputContentSizeChange}
           scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
+          hudContainerStyle={styles.inputHud}
+          hudTextStyle={styles.inputHudText}
+          characterCount={note.length}
         />
-        {/* Privacy badge + live character counter */}
-        <View style={styles.metaRow}>
-          <Text testID="minddrop-privacy" style={styles.metaText}>
-            🔒 Private & secure
-          </Text>
-          <Text testID="minddrop-counter" style={styles.metaText}>{`${note.length} / 2000`}</Text>
-        </View>
         <Button
           testID="minddrop-submit-button"
           label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
@@ -1363,6 +1371,18 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 0,
       textAlignVertical: 'top',
     },
+    inputHud: {
+      position: 'absolute',
+      right: 10,
+      bottom: 8,
+      flexDirection: 'row',
+      gap: 12,
+      opacity: 0.7,
+    },
+    inputHudText: {
+      color: c.mutedText,
+      fontSize: 12,
+    },
 
     tipContainer: {
       position: 'absolute',
@@ -1391,17 +1411,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       height: 12,
       backgroundColor: c.bg,
       transform: [{ rotate: '45deg' }],
-    },
-
-    metaRow: {
-      marginTop: 8,
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    metaText: {
-      color: c.mutedText,
-      fontSize: 13,
     },
 
     submitButton: {
