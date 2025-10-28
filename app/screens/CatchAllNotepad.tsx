@@ -11,8 +11,10 @@ import {
   TextInput,
   ToastAndroid,
   View,
+  Modal,
   AccessibilityInfo,
   findNodeHandle,
+  GestureResponderEvent,
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
 } from 'react-native';
@@ -524,13 +526,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
-  // Auto-hide tooltip after 3 seconds
-  useEffect(() => {
-    if (!infoOpen) return;
-    const t = setTimeout(() => setInfoOpen(false), 3000);
-    return () => clearTimeout(t);
-  }, [infoOpen]);
-
   // On mount: load last open ts, compute greeting, save new last open ts
   useEffect(() => {
     let isMounted = true;
@@ -587,7 +582,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </View>
       ),
     });
-  }, [c.mutedText, navigation, setInfoOpen, styles]);
+  }, [c.mutedText, navigation, styles]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -708,6 +703,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       });
     }
   }, [navigation, showActionToast]);
+
+  const handleInfoOpenRecent = useCallback(() => {
+    setInfoOpen(false);
+    handleViewDetails();
+  }, [handleViewDetails]);
 
   // A11y: set focus to the greeting after successful actions
   const focusGreetingForA11y = useCallback(() => {
@@ -1314,23 +1314,59 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <View style={styles.root} testID="minddrop-screen">
-      {/* Tooltip overlay just under the header - only render when visible to avoid input blocking */}
-      {infoOpen ? (
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setInfoOpen(false)} />
-          <View style={styles.tipContainer} testID="minddrop-tip">
-            <View style={styles.tipArrow} />
-            <Text style={styles.tipText}>Just type everything on your mind. I'll organize it.</Text>
-          </View>
-        </View>
-      ) : null}
+    <>
+      <Modal
+        visible={infoOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setInfoOpen(false)}
+      >
+        <Pressable style={styles.infoBackdrop} onPress={() => setInfoOpen(false)}>
+          <Pressable
+            style={styles.infoSheetContainer}
+            testID="minddrop-info-sheet"
+            onPress={(event: GestureResponderEvent) => event.stopPropagation()}
+          >
+            <View style={styles.infoSheet}>
+              <Text style={styles.infoTitle}>About Mind Drop</Text>
+              <Text style={styles.infoBody}>
+                Mind Drop is your calm portal for capturing thoughts fast. Drop anything—ideas,
+                tasks, notes—and Gremly’s Cortex organizes them into the right places.
+              </Text>
+              <Text style={styles.infoHeading}>What happens after a drop?</Text>
+              <Text style={styles.infoBody}>
+                Your text is parsed and routed. You’ll see a confirmation, and the result appears in
+                Recent Drops. From there, open details to edit or move items.
+              </Text>
+              <Text style={styles.infoHeading}>Privacy</Text>
+              <Text style={styles.infoBody}>
+                Your thoughts are private & secure. You control what’s shared and where it goes.
+              </Text>
+              <View style={styles.infoActions}>
+                <Button
+                  variant="secondary"
+                  onPress={handleInfoOpenRecent}
+                  testID="minddrop-info-open-recent"
+                  label="View Recent Drops"
+                />
+                <Button
+                  onPress={() => setInfoOpen(false)}
+                  testID="minddrop-info-close"
+                  label="Close"
+                />
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
-      {/* Inline Action Toast overlay */}
-      {ActionToast}
+      <View style={styles.root} testID="minddrop-screen">
+        {/* Inline Action Toast overlay */}
+        {ActionToast}
 
-      {content}
-    </View>
+        {content}
+      </View>
+    </>
   );
 }
 
@@ -1416,33 +1452,47 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontSize: 12,
     },
 
-    tipContainer: {
-      position: 'absolute',
-      top: 6,
-      right: 8,
-      maxWidth: 260,
-      backgroundColor: c.bg,
-      padding: 10,
-      borderRadius: 12,
-      shadowColor: c.cardShadow,
-      shadowOpacity: 0.12,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 6,
+    infoBackdrop: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      paddingHorizontal: 16,
+      paddingBottom: 24,
     },
-    tipText: {
-      color: c.moss,
-      fontSize: 13,
-      lineHeight: 18,
-    },
-    tipArrow: {
-      position: 'absolute',
-      bottom: -6,
-      right: 18,
-      width: 12,
-      height: 12,
+    infoSheetContainer: {
       backgroundColor: c.bg,
-      transform: [{ rotate: '45deg' }],
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingBottom: 24,
+      paddingTop: 12,
+      width: '100%',
+    },
+    infoSheet: {
+      padding: 16,
+    },
+    infoTitle: {
+      fontFamily: 'PlusJakartaSans-Bold',
+      fontSize: 18,
+      color: c.text,
+      marginBottom: 8,
+    },
+    infoHeading: {
+      fontFamily: 'PlusJakartaSans-SemiBold',
+      fontSize: 14,
+      color: c.text,
+      marginTop: 14,
+      marginBottom: 4,
+    },
+    infoBody: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 14,
+      color: c.mutedText,
+    },
+    infoActions: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 16,
+      justifyContent: 'flex-end',
     },
 
     submitButtonWrapper: {
