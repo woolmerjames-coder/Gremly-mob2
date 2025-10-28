@@ -104,6 +104,11 @@ function normalizeExternal(raw: unknown): RawClassification {
   return result;
 }
 
+function clamp01(n: unknown): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+}
+
 const SYSTEM_PROMPT = `
 You are Gremly's classifier. Output ONLY a single JSON object, nothing else. Do not greet or explain.
 Schema:
@@ -228,11 +233,12 @@ export class OpenAiEngine implements ICortexEngine {
           whyString: `Proxy classify: ${c.category} (${Math.round((c.confidence ?? 0) * 100)}%)`,
         });
 
-        let out = normaliseToCortexOutput(normalized);
+        let out = normaliseToCortexOutput(normalized) as any;
         if (isNonActionIdeasNote(text) && out.type === 'todo') {
           if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
           out = { type: 'note', subtype: 'list', aiPlaced: true, whyString: 'Ideas/list capture' };
         }
+        out.confidence = clamp01(c?.confidence ?? 0);
         if (DEBUG) console.log('[CORTEX][LLM] classify route mapped:', out);
         return out;
       }

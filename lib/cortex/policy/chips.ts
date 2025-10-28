@@ -20,14 +20,18 @@ export type BuildChipsInput = {
 const LABELS = {
   todo: 'Create todo',
   habit: 'Create habit',
-  note: 'Save as Note',
+  note: 'Save as note',
   list: 'Save as list',
 } as const;
 
+const ALWAYS_NOTE_FALLBACK =
+  String(process.env.EXPO_PUBLIC_MINDDROP_ALWAYS_NOTE_FALLBACK ?? 'on').toLowerCase() !== 'off';
+
 function looksHabitText(t: string): boolean {
   const lc = t.toLowerCase();
-  return /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b|\btimes?\s+a\s+week\b/.test(
-    lc,
+  return (
+    /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b/.test(lc) ||
+    /\b\d+\s+times?\s+(a|per)\s+(day|week|month)\b/.test(lc)
   );
 }
 
@@ -40,7 +44,22 @@ function looksListText(t: string): boolean {
 
 function looksActionish(t: string): boolean {
   const lc = t.toLowerCase();
-  return /\bplan|organize|schedule|book|set up|prepare|arrange|follow\s*up\b/.test(lc);
+  return /\b(plan|organize|schedule|book|set up|prepare|arrange|follow\s*up|message|email|text|dm|ping|reach out|contact)\b/.test(
+    lc,
+  );
+}
+
+function hasExplicitDateOrTime(t: string): boolean {
+  const lc = t.toLowerCase();
+  return (
+    /\btoday\b|\btomorrow\b|\btonight\b/.test(lc) ||
+    /\bnext\s+(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(
+      lc,
+    ) ||
+    /\b(on\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+\d{1,2}\b/.test(lc) ||
+    /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(lc) ||
+    /\b(at\s*)?\d{1,2}(:\d{2})?\s*(am|pm)\b/.test(lc)
+  );
 }
 
 export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] {
@@ -49,11 +68,12 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
 
   const chips: ChipSuggestion[] = [];
 
-  const isHabit = input.probable === 'habit' || looksHabitText(t);
+  const isHabitText = looksHabitText(t);
   const isListLike = looksListText(t);
-  const isActionish = looksActionish(t);
+  const isAction = looksActionish(t);
+  const hasDate = hasExplicitDateOrTime(t);
 
-  if (input.probable === 'todo' || input.probable === 'unknown' || isActionish) {
+  if (input.probable === 'todo' || input.probable === 'unknown' || isAction) {
     chips.push({
       type: 'create.todo',
       label: LABELS.todo,
@@ -61,7 +81,7 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     });
   }
 
-  if (isHabit) {
+  if ((input.probable === 'habit' || isHabitText) && !hasDate) {
     const lc = t.toLowerCase();
     const freq: 'daily' | 'weekly' | 'monthly' = /\bmonthly\b/.test(lc)
       ? 'monthly'
@@ -75,12 +95,20 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     });
   }
 
-  if (!isHabit && (isListLike || input.probable === 'note' || isActionish)) {
+  if (isListLike || input.probable === 'note') {
     const subtype: 'list' | 'journal' = isListLike ? 'list' : 'journal';
     chips.push({
       type: 'create.note',
       label: subtype === 'list' ? LABELS.list : LABELS.note,
       payload: { title: t, body: t, subtype },
+    });
+  }
+
+  if (ALWAYS_NOTE_FALLBACK && !chips.some((chip) => chip.type === 'create.note')) {
+    chips.push({
+      type: 'create.note',
+      label: LABELS.note,
+      payload: { title: t, body: t, subtype: 'journal' },
     });
   }
 

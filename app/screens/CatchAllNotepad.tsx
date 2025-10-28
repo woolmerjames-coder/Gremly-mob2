@@ -178,33 +178,11 @@ const copy = {
   title: 'Mind Drop',
 } as const;
 
-function formatList(parts: string[]): string {
-  if (parts.length <= 1) return parts.join('');
-  if (parts.length === 2) return `${parts[0]} or ${parts[1]}`;
-  return `${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
-}
+const SHOW_SUPPORTIVE =
+  String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
 
-function buildChipsPrompt(suggestions: UISuggestion[]): string | null {
-  const SHOW =
-    String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
-  if (!SHOW || !suggestions?.length) return null;
-
-  const parts: string[] = [];
-  const hasTodo = suggestions.some((s) => s.type === 'create.todo');
-  const hasHabit = suggestions.some((s) => s.type === 'create.habit');
-  const note = suggestions.find((s) => s.type === 'create.note') as
-    | Extract<UISuggestion, { type: 'create.note' }>
-    | undefined;
-
-  if (hasTodo) parts.push('create a todo');
-  if (hasHabit) parts.push('create a habit');
-  if (note) {
-    const isList = note.payload.subtype === 'list';
-    parts.push(isList ? 'save as a list' : 'save as a note');
-  }
-
-  if (!parts.length) return null;
-  return `Shall I ${formatList(parts)}?`;
+function buildSupportiveText(): string | null {
+  return SHOW_SUPPORTIVE ? 'Not sure? Save as a note…' : null;
 }
 
 // Centralized copy for consistent toasts/messages
@@ -1540,7 +1518,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [organizedToday],
   );
   const legacyUI = React.useMemo(() => {
-    const prompt = buildChipsPrompt(suggestions);
+    const supportingText = suggestions.length > 0 ? buildSupportiveText() : null;
 
     return (
       <View>
@@ -1575,7 +1553,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           <MidConfidenceChips
             suggestions={suggestions}
             onPick={handlePickSuggestion}
-            prompt={prompt ?? undefined}
+            supportingText={supportingText ?? undefined}
           />
         ) : null}
         <View style={styles.submitButtonWrapper}>
