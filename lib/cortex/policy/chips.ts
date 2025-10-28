@@ -20,9 +20,28 @@ export type BuildChipsInput = {
 const LABELS = {
   todo: 'Create todo',
   habit: 'Create habit',
+  note: 'Save as Note',
   list: 'Save as list',
-  journal: 'Save as journal',
 } as const;
+
+function looksHabitText(t: string): boolean {
+  const lc = t.toLowerCase();
+  return /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b|\btimes?\s+a\s+week\b/.test(
+    lc,
+  );
+}
+
+function looksListText(t: string): boolean {
+  const lc = t.toLowerCase();
+  return /\bideas?\b|\bbrainstorm\b|\bwish\s*list\b|\bpacking\s*list\b|\bitinerary\b|\blist\b/.test(
+    lc,
+  );
+}
+
+function looksActionish(t: string): boolean {
+  const lc = t.toLowerCase();
+  return /\bplan|organize|schedule|book|set up|prepare|arrange|follow\s*up\b/.test(lc);
+}
 
 export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] {
   const t = input.text.trim();
@@ -30,7 +49,11 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
 
   const chips: ChipSuggestion[] = [];
 
-  if (input.probable === 'todo' || input.probable === 'unknown') {
+  const isHabit = input.probable === 'habit' || looksHabitText(t);
+  const isListLike = looksListText(t);
+  const isActionish = looksActionish(t);
+
+  if (input.probable === 'todo' || input.probable === 'unknown' || isActionish) {
     chips.push({
       type: 'create.todo',
       label: LABELS.todo,
@@ -38,18 +61,13 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     });
   }
 
-  const cadence = t.toLowerCase();
-  const looksHabit =
-    /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b|\btimes?\s+a\s+week\b/.test(
-      cadence,
-    );
-  if (input.probable === 'habit' || looksHabit) {
-    const freq: 'daily' | 'weekly' | 'monthly' = /\bmonthly\b/.test(cadence)
+  if (isHabit) {
+    const lc = t.toLowerCase();
+    const freq: 'daily' | 'weekly' | 'monthly' = /\bmonthly\b/.test(lc)
       ? 'monthly'
-      : /\bweekly\b|times?\s+a\s+week/.test(cadence)
+      : /\bweekly\b|times?\s+a\s+week/.test(lc)
         ? 'weekly'
         : 'daily';
-
     chips.push({
       type: 'create.habit',
       label: LABELS.habit,
@@ -57,22 +75,12 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     });
   }
 
-  const lower = cadence;
-  const looksList =
-    /\bideas?\b|\bbrainstorm\b|\bwish\s*list\b|\bpacking\s*list\b|\bitinerary\b|\blist\b/.test(
-      lower,
-    );
-  if (looksList) {
+  if (!isHabit && (isListLike || input.probable === 'note' || isActionish)) {
+    const subtype: 'list' | 'journal' = isListLike ? 'list' : 'journal';
     chips.push({
       type: 'create.note',
-      label: LABELS.list,
-      payload: { title: t, body: t, subtype: 'list' },
-    });
-  } else {
-    chips.push({
-      type: 'create.note',
-      label: LABELS.journal,
-      payload: { title: t, body: t, subtype: 'journal' },
+      label: subtype === 'list' ? LABELS.list : LABELS.note,
+      payload: { title: t, body: t, subtype },
     });
   }
 

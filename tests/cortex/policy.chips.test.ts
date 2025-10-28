@@ -52,7 +52,7 @@ describe('buildMindDropAskChips', () => {
     });
 
     expect(chips.find((chip) => chip.type === 'create.note')).toMatchObject({
-      label: 'Save as journal',
+      label: 'Save as Note',
       payload: { subtype: 'journal' },
     });
   });
@@ -118,7 +118,7 @@ describe('Mid-confidence chip regression guards', () => {
     });
     const labels = chips.map((c) => c.label);
     expect(labels).toContain('Create todo');
-    expect(labels).toEqual(expect.arrayContaining(['Save as journal']));
+    expect(labels).toContain('Save as Note');
   });
 
   it('offers weekly habit when cadence present', () => {
@@ -131,6 +131,9 @@ describe('Mid-confidence chip regression guards', () => {
       (c) => c.type === 'create.habit' && (c as any).payload.freq === 'weekly',
     );
     expect(hasWeeklyHabit).toBe(true);
+    const labels = chips.map((c) => c.label);
+    expect(labels).not.toContain('Save as Note');
+    expect(labels).not.toContain('Save as list');
   });
 
   it('offers list when list-like phrasing present', () => {
@@ -138,6 +141,41 @@ describe('Mid-confidence chip regression guards', () => {
       text: 'Ideas for weekend trip',
       probable: 'unknown',
       confidence: 0.65,
+    });
+    const labels = chips.map((c) => c.label);
+    expect(labels).toContain('Save as list');
+  });
+});
+
+describe('Mid-confidence chips policy (polish)', () => {
+  it('Plan something for the team → includes Create todo and Save as Note', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Plan something for the team',
+      probable: 'unknown',
+      confidence: 0.7,
+    });
+    const labels = chips.map((c) => c.label);
+    expect(labels).toContain('Create todo');
+    expect(labels).toContain('Save as Note');
+  });
+
+  it('Run 3 times a week → Create habit only (no note chip)', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Run 3 times a week',
+      probable: 'habit',
+      confidence: 0.7,
+    });
+    const labels = chips.map((c) => c.label);
+    expect(labels).toContain('Create habit');
+    expect(labels).not.toContain('Save as Note');
+    expect(labels).not.toContain('Save as list');
+  });
+
+  it('Ideas for weekend trip → includes Save as list', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Ideas for weekend trip',
+      probable: 'unknown',
+      confidence: 0.6,
     });
     const labels = chips.map((c) => c.label);
     expect(labels).toContain('Save as list');

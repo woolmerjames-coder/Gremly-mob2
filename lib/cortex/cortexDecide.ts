@@ -10,7 +10,7 @@
 
 import { createCortexEngine } from '../../cortex/createEngine';
 import type { CortexInput } from '../../cortex/ICortexEngine';
-import { decideMode, type DecisionMode } from './thresholds';
+import { type DecisionMode } from './thresholds';
 import { buildMindDropAskChips, type ChipSuggestion } from '../cortex/policy/chips';
 import {
   explainFiledToSpace,
@@ -175,10 +175,9 @@ export async function cortexDecide(
     meta: {},
   };
 
-  const autoThreshold = Number(process.env.INTENT_MIN_CONFIDENCE ?? 0.85);
-  const askThreshold = 0.5;
+  const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
+  const autoThreshold = Number.isFinite(autoThresholdEnv) ? autoThresholdEnv : 0.85;
   const midLower = 0.55; // offer chips for mid confidence
-  const midUpper = Math.max(0.0, Math.min(0.99, autoThreshold - 0.01));
 
   try {
     // Apply default lane if not specified (backward compatibility)
@@ -358,28 +357,27 @@ export async function cortexDecide(
     }
 
     const probable: 'todo' | 'habit' | 'note' | 'unknown' = (() => {
-      if (detected.kind === 'todo' || detected.kind === 'habit' || detected.kind === 'note') {
-        return detected.kind;
-      }
-
       const engineType =
-        typeof (engineOutput as any)?.type === 'string'
-          ? ((engineOutput as any).type as string)
-          : null;
+        typeof (engineOutput as any)?.type === 'string' ? (engineOutput as any).type : null;
       if (engineType === 'todo' || engineType === 'habit' || engineType === 'note') {
         return engineType;
       }
-
+      if (detected.kind === 'habit') return 'habit';
+      if (detected.kind === 'todo') return 'todo';
+      if (detected.kind === 'note') return 'note';
       return 'unknown';
     })();
 
-    // Determine mode based on confidence
     const confidence = normalized.confidence;
     const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
-    let mode = decideMode(confidence);
+    let mode: DecisionMode = 'keep';
 
-    if (mode === 'auto' && hasConfidence && confidence <= autoThreshold) {
-      mode = confidence >= askThreshold ? 'ask' : 'keep';
+    if (!hasConfidence || confidence < 0) {
+      mode = 'keep';
+    } else if (confidence > autoThreshold && normalized.actions.length > 0) {
+      mode = 'auto';
+    } else if (confidence >= midLower) {
+      mode = 'ask';
     }
 
     const listActionLowRisk =
@@ -389,11 +387,10 @@ export async function cortexDecide(
       normalized.actions.some((action) => action.type === 'add.to.list');
 
     if (mode === 'auto' && listActionLowRisk) {
-      mode = confidence >= askThreshold ? 'ask' : 'keep';
+      mode = 'ask';
     }
 
-    // Ensure safe UX: when no actions and low confidence, prefer 'ask' over 'keep'
-    if (mode === 'keep' && normalized.actions.length === 0) {
+    if (normalized.actions.length === 0) {
       mode = 'ask';
     }
 
@@ -410,27 +407,26 @@ export async function cortexDecide(
         ? "Let's explore that a bit more."
         : generateExplanation(normalized.actions, mode, tone, normalizedCtx);
 
-    const inMidConfidenceBand = hasConfidence && confidence >= midLower && confidence <= midUpper;
+    const inMidConfidenceBand =
+      hasConfidence && confidence >= midLower && confidence < autoThreshold;
 
-    const shouldOfferChips =
-      mode === 'ask' && normalizedCtx.uiSurface === 'overlay' && hasConfidence;
+    const chipSuggestions =
+      mode === 'ask'
+        ? buildMindDropAskChips({
+            text: userText,
+            probable,
+            confidence: hasConfidence ? confidence : 0,
+          }).map((c) => ({ ...c }))
+        : [];
 
-    const chipSuggestions = shouldOfferChips
-      ? buildMindDropAskChips({
-          text: userText,
-          probable,
-          confidence: confidence ?? 0,
-        }).map((c) => ({ ...c }))
-      : [];
-
-    // Generate suggestions for ASK/KEEP modes
     let suggestions: CortexSuggestion[] = [];
-    if (mode !== 'auto') {
-      if (chipSuggestions.length > 0) {
-        suggestions = chipSuggestions;
-      } else {
-        suggestions = generateSuggestions(normalized.actions, normalizedCtx);
-      }
+    if (mode === 'ask') {
+      suggestions =
+        chipSuggestions.length > 0
+          ? chipSuggestions
+          : generateSuggestions(normalized.actions, normalizedCtx);
+    } else if (mode === 'keep') {
+      suggestions = generateSuggestions(normalized.actions, normalizedCtx);
     }
 
     const result: CortexResponse = {

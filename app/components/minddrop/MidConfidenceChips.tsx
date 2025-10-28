@@ -18,6 +18,27 @@ export type UISuggestion =
       payload: { title: string; body: string; subtype: 'list' | 'journal' };
     };
 
+const PALETTE = {
+  todoBg: '#E6F0FF',
+  todoFg: '#0A3A8B',
+  habitBg: '#EAF7ED',
+  habitFg: '#1F7A3D',
+  noteBg: '#F4EFEA',
+  noteFg: '#5C3B24',
+};
+
+function stylesForType(type: UISuggestion['type']) {
+  switch (type) {
+    case 'create.todo':
+      return { bg: PALETTE.todoBg, fg: PALETTE.todoFg };
+    case 'create.habit':
+      return { bg: PALETTE.habitBg, fg: PALETTE.habitFg };
+    case 'create.note':
+    default:
+      return { bg: PALETTE.noteBg, fg: PALETTE.noteFg };
+  }
+}
+
 export function MidConfidenceChips({
   suggestions,
   onPick,
@@ -29,22 +50,36 @@ export function MidConfidenceChips({
 
   return (
     <View style={styles.row}>
-      {suggestions.map((s, idx) => (
-        <Pressable
-          key={idx}
-          onPress={() => onPick(s)}
-          style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
-        >
-          <Text style={styles.chipText}>{s.label}</Text>
-        </Pressable>
-      ))}
+      {suggestions.map((s, idx) => {
+        const c = stylesForType(s.type);
+        return (
+          <Pressable
+            key={`${s.type}-${idx}`}
+            onPress={() => onPick(s)}
+            style={({ pressed }) => [
+              styles.chip,
+              { backgroundColor: c.bg, borderColor: c.fg },
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={s.label}
+          >
+            <Text style={[styles.chipText, { color: c.fg }]}>{s.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#EEE', borderRadius: 16 },
-  chipText: { fontSize: 14, color: '#222' },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  chipText: { fontSize: 14, fontWeight: '500' },
   pressed: { opacity: 0.7 },
 });
