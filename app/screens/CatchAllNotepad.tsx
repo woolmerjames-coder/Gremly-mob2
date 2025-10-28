@@ -49,6 +49,7 @@ import { haptics } from '../../lib/haptics';
 import { decideGating } from '../../lib/cortex/policy/gating';
 import { detectSignals } from '../../lib/cortex/policy/signals';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
+import { parseDue } from '../../lib/cortex/entities/datetime';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -902,15 +903,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     await repo.addListItem(list.id, action.payload.item);
                     confirmationTexts.push(explainAddedToList(list.name, 'warm'));
                   } else if (action.type === 'create.todo') {
+                    // Prefer LLM due when present; otherwise deterministically parse from user text
+                    let due = action.payload.due ?? null;
+                    let undefinedDue = !due;
+
+                    if (!due) {
+                      const parsed = parseDue(trimmed);
+                      if (parsed.iso && parsed.confidence >= 0.9) {
+                        due = parsed.iso;
+                        undefinedDue = false;
+                      }
+                    }
+
                     const rec = await repo.create({
                       type: 'todo',
                       name: action.payload.title,
                       title: action.payload.title,
-                      due_date: action.payload.due ?? null,
-                      undefined_due: !action.payload.due,
+                      due_date: due,
+                      undefined_due: undefinedDue,
                       space_id: action.payload.spaceId ?? null,
                       ai_placed: true,
-                      why_string: response.explanation,
+                      // Preserve your existing explanation, append small hint about due parsing
+                      why_string: [response.explanation, due ? '(due auto-parsed)' : '(no due)']
+                        .filter(Boolean)
+                        .join(' '),
                       origin: 'catchall',
                     });
                     confirmationTexts.push(explainCreated('todo', 'warm'));
