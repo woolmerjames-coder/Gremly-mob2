@@ -1390,7 +1390,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     headerTitle: {
       color: c.text,
-      fontFamily: 'PlusJakartaSans-Bold',
+      fontFamily: 'Inter-Bold',
       fontSize: 24,
       lineHeight: 30,
     },
@@ -1471,13 +1471,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 16,
     },
     infoTitle: {
-      fontFamily: 'PlusJakartaSans-Bold',
+      fontFamily: 'Inter-Bold',
       fontSize: 18,
       color: c.text,
       marginBottom: 8,
     },
     infoHeading: {
-      fontFamily: 'PlusJakartaSans-SemiBold',
+      fontFamily: 'Inter-Medium',
       fontSize: 14,
       color: c.text,
       marginTop: 14,

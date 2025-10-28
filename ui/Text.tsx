@@ -30,6 +30,7 @@ export const Text = React.forwardRef<RNText, TextProps>(
       switch (v) {
         case 'label':
           return {
+            fontFamily: 'Inter-Medium',
             fontSize: t.typography.size.sm,
             lineHeight: t.typography.size.sm * t.typography.lineHeight.snug,
             fontWeight: '500',
@@ -37,6 +38,7 @@ export const Text = React.forwardRef<RNText, TextProps>(
           };
         case 'body':
           return {
+            fontFamily: 'Inter-Regular',
             fontSize: t.typography.size.md,
             lineHeight: t.typography.size.md * t.typography.lineHeight.normal,
             fontWeight: '400',
@@ -44,6 +46,7 @@ export const Text = React.forwardRef<RNText, TextProps>(
           };
         case 'title':
           return {
+            fontFamily: 'Inter-Medium',
             fontSize: t.typography.size.lg,
             lineHeight: t.typography.size.lg * t.typography.lineHeight.snug,
             fontWeight: '600',
@@ -51,6 +54,7 @@ export const Text = React.forwardRef<RNText, TextProps>(
           };
         case 'display':
           return {
+            fontFamily: 'Inter-Bold',
             fontSize: t.typography.size['2xl'],
             lineHeight: t.typography.size['2xl'] * t.typography.lineHeight.tight,
             fontWeight: '700',
@@ -58,6 +62,7 @@ export const Text = React.forwardRef<RNText, TextProps>(
           };
         case 'subtle':
           return {
+            fontFamily: 'Inter-Regular',
             fontSize: t.typography.size.sm,
             lineHeight: t.typography.size.sm * t.typography.lineHeight.normal,
             fontWeight: '400',
