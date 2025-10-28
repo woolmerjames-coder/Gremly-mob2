@@ -18,6 +18,7 @@ import {
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
 } from 'react-native';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -472,6 +473,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
   const themeMode = themeResult.mode;
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
+  const gradientStopColor = themeMode === 'dark' ? c.sage : c.sageTint;
+  const gradientStopOpacity = themeMode === 'dark' ? 0.2 : 0.12;
   const reduceMotion = useReducedMotion();
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
@@ -1320,6 +1323,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   return (
     <View style={styles.root} testID="minddrop-screen">
       {/* Inline Action Toast overlay */}
+      <Svg pointerEvents="none" style={styles.gradientBackground}>
+        <Defs>
+          <SvgLinearGradient id="mindDropGradient" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor={c.bg} stopOpacity={1} />
+            <Stop offset="100%" stopColor={gradientStopColor} stopOpacity={gradientStopOpacity} />
+          </SvgLinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
+      </Svg>
       {ActionToast}
 
       <Modal
@@ -1382,6 +1394,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flex: 1,
       backgroundColor: c.bg,
       padding: 16,
+    },
+    gradientBackground: {
+      ...StyleSheet.absoluteFillObject,
     },
 
     headerRow: {
