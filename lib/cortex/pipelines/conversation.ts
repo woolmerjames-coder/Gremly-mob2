@@ -1209,9 +1209,16 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   const hasActions = Array.isArray(normalized.actions) && normalized.actions.length > 0;
   const hasSuggestions =
     Array.isArray(normalized.suggestions) &&
-    normalized.suggestions.some((suggestion) =>
-      typeof suggestion === 'string' ? suggestion.trim().length > 0 : false,
-    );
+    normalized.suggestions.some((suggestion) => {
+      if (typeof suggestion === 'string') {
+        return suggestion.trim().length > 0;
+      }
+      if (suggestion && typeof suggestion === 'object') {
+        const label = (suggestion as any).label;
+        return typeof label === 'string' && label.trim().length > 0;
+      }
+      return false;
+    });
   const hasExplanation =
     typeof normalized.explanation === 'string' && normalized.explanation.trim().length > 0;
   const hasReply =

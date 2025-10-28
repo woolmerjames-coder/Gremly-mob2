@@ -1,42 +1,88 @@
-import { parseDue } from '../entities/datetime';
-import { detectSignals } from './signals';
-import type { IntentKind } from './gating';
+export type ChipSuggestion =
+  | { type: 'create.todo'; label: string; payload: { name: string; undefined_due: boolean } }
+  | {
+      type: 'create.habit';
+      label: string;
+      payload: { name: string; freq: 'daily' | 'weekly' | 'monthly' };
+    }
+  | {
+      type: 'create.note';
+      label: string;
+      payload: { title: string; body: string; subtype: 'list' | 'journal' };
+    };
 
-export type ChipKind = 'set_due_date' | 'add_todo' | 'save_note';
+export type BuildChipsInput = {
+  text: string;
+  probable: 'todo' | 'habit' | 'note' | 'unknown';
+  confidence: number;
+};
 
-export interface MindDropChip {
-  kind: ChipKind;
-  label: string;
-  // Optional data to drive the follow-up action
-  payload?: { dueDate?: string };
-}
+const DEFAULTS = {
+  labels: {
+    todo: 'Create todo',
+    habit: 'Create habit',
+    list: 'Save as list',
+    journal: 'Save as journal',
+  },
+} as const;
 
-export interface ChipInput {
-  userText: string;
-  intent: IntentKind | 'ambiguous';
-}
+export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] {
+  const t = input.text.trim();
+  if (!t) return [];
 
-export function buildMindDropAskChips(input: ChipInput): MindDropChip[] {
-  const chips: MindDropChip[] = [];
-  const { userText, intent } = input;
-  const { hasActionSignal } = detectSignals(userText);
+  const chips: ChipSuggestion[] = [];
 
-  // Due-date chip for medium confidence (0.70–0.89): suggest, don't auto-apply
-  const parsed = parseDue(userText);
-  if (parsed.iso && parsed.confidence >= 0.7 && parsed.confidence < 0.9) {
+  if (input.probable === 'todo' || input.probable === 'unknown') {
     chips.push({
-      kind: 'set_due_date',
-      label: `Set due date to ${new Date(parsed.iso).toLocaleDateString()}`,
-      payload: { dueDate: parsed.iso },
+      type: 'create.todo',
+      label: DEFAULTS.labels.todo,
+      payload: { name: t, undefined_due: true },
     });
   }
 
-  // Intent-driven helper chips
-  if (intent === 'todo' || hasActionSignal) {
-    chips.push({ kind: 'add_todo', label: 'Add as task' });
-  } else {
-    chips.push({ kind: 'save_note', label: 'Save as note' });
+  const cadence = t.toLowerCase();
+  const looksHabit =
+    /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b|\btimes?\s+a\s+week\b/.test(
+      cadence,
+    );
+  if (input.probable === 'habit' || looksHabit) {
+    const freq: 'daily' | 'weekly' | 'monthly' = /\bmonthly\b/.test(cadence)
+      ? 'monthly'
+      : /\bweekly\b|times?\s+a\s+week/.test(cadence)
+        ? 'weekly'
+        : 'daily';
+
+    chips.push({
+      type: 'create.habit',
+      label: DEFAULTS.labels.habit,
+      payload: { name: t, freq },
+    });
   }
 
-  return chips;
+  const lower = cadence;
+  const looksList =
+    /\bideas?\b|\bbrainstorm\b|\bwish\s*list\b|\bpacking\s*list\b|\bitinerary\b|\blist\b/.test(
+      lower,
+    );
+  if (looksList) {
+    chips.push({
+      type: 'create.note',
+      label: DEFAULTS.labels.list,
+      payload: { title: t, body: t, subtype: 'list' },
+    });
+  } else {
+    chips.push({
+      type: 'create.note',
+      label: DEFAULTS.labels.journal,
+      payload: { title: t, body: t, subtype: 'journal' },
+    });
+  }
+
+  const seen = new Set<string>();
+  return chips.filter((chip) => {
+    const key = `${chip.type}:${chip.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

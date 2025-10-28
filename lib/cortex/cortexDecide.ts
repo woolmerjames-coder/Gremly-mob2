@@ -11,6 +11,7 @@
 import { createCortexEngine } from '../../cortex/createEngine';
 import type { CortexInput } from '../../cortex/ICortexEngine';
 import { decideMode, type DecisionMode } from './thresholds';
+import { buildMindDropAskChips, type ChipSuggestion } from '../cortex/policy/chips';
 import {
   explainFiledToSpace,
   explainAddedToList,
@@ -89,6 +90,8 @@ export type CortexAction =
       payload: { itemId: string; when: string; rule?: string };
     };
 
+export type CortexSuggestion = string | ChipSuggestion;
+
 /**
  * Response from cortexDecide containing normalized actions and metadata
  */
@@ -100,7 +103,7 @@ export interface CortexResponse {
   /** Small-talk reply text (for chat surfaces when no actions/explanations) */
   replyText?: string;
   /** Alternative suggestions (for ASK/KEEP modes) */
-  suggestions?: string[];
+  suggestions?: CortexSuggestion[];
   /** Confidence score from engine (0-1) */
   confidence?: number;
   /** Decision mode based on confidence threshold */
@@ -171,6 +174,10 @@ export async function cortexDecide(
     mode: 'ask',
     meta: {},
   };
+
+  const autoThreshold = Number(process.env.INTENT_MIN_CONFIDENCE ?? 0.85);
+  const midLower = 0.55; // offer chips for mid confidence
+  const midUpper = Math.max(0.0, Math.min(0.99, autoThreshold - 0.01));
 
   try {
     // Apply default lane if not specified (backward compatibility)
@@ -349,6 +356,22 @@ export async function cortexDecide(
       }
     }
 
+    const probable: 'todo' | 'habit' | 'note' | 'unknown' = (() => {
+      if (detected.kind === 'todo' || detected.kind === 'habit' || detected.kind === 'note') {
+        return detected.kind;
+      }
+
+      const engineType =
+        typeof (engineOutput as any)?.type === 'string'
+          ? ((engineOutput as any).type as string)
+          : null;
+      if (engineType === 'todo' || engineType === 'habit' || engineType === 'note') {
+        return engineType;
+      }
+
+      return 'unknown';
+    })();
+
     // Determine mode based on confidence
     const confidence = normalized.confidence;
     let mode = decideMode(confidence);
@@ -371,8 +394,24 @@ export async function cortexDecide(
         : generateExplanation(normalized.actions, mode, tone, normalizedCtx);
 
     // Generate suggestions for ASK/KEEP modes
-    const suggestions =
+    let suggestions: CortexSuggestion[] =
       mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : [];
+
+    const inMidConfidenceBand = confidence >= midLower && confidence <= midUpper;
+    if (inMidConfidenceBand) {
+      mode = 'ask';
+      const chips = buildMindDropAskChips({
+        text: userText,
+        probable,
+        confidence: confidence ?? 0,
+      });
+      const chipSuggestions = chips.map((c) => ({ ...c }));
+      if (chipSuggestions.length > 0) {
+        suggestions = chipSuggestions;
+        safeResult.mode = 'ask';
+        safeResult.suggestions = chipSuggestions;
+      }
+    }
 
     const result: CortexResponse = {
       ...safeResult,
@@ -381,7 +420,11 @@ export async function cortexDecide(
       suggestions,
       confidence,
       mode,
-      meta: { intent: { kind: detected.kind, confidence: detected.confidence } },
+      meta: {
+        intent: { kind: detected.kind, confidence: detected.confidence },
+        showedChip:
+          inMidConfidenceBand && suggestions.some((suggestion) => typeof suggestion !== 'string'),
+      },
     };
 
     console.log('[cortexDecide][final]', {
@@ -621,8 +664,8 @@ function generateExplanation(
  * Generate alternative suggestions for ASK/KEEP modes
  * @internal
  */
-function generateSuggestions(actions: CortexAction[], ctx: CortexContext): string[] {
-  const suggestions: string[] = [];
+function generateSuggestions(actions: CortexAction[], ctx: CortexContext): CortexSuggestion[] {
+  const suggestions: CortexSuggestion[] = [];
 
   if (actions.length === 0) {
     suggestions.push('Save as note?');

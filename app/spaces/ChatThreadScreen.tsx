@@ -1116,7 +1116,15 @@ export default function ChatThreadScreen({ route }: Props) {
               response.suggestions &&
               response.suggestions.length > 0
             ) {
-              setActiveSuggestions(response.suggestions);
+              const suggestionLabels = response.suggestions
+                .map((suggestion) =>
+                  typeof suggestion === 'string' ? suggestion : suggestion?.label,
+                )
+                .filter(
+                  (label): label is string => typeof label === 'string' && label.trim().length > 0,
+                );
+
+              setActiveSuggestions(suggestionLabels);
 
               // Store detected intent from meta if available
               if (responseDetectedIntent) {

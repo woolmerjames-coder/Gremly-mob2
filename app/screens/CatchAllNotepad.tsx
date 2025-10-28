@@ -30,9 +30,11 @@ import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
+import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { createCortexEngine } from '../../cortex/createEngine';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
+import { MidConfidenceChips, type UISuggestion } from '../components/minddrop/MidConfidenceChips';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -42,6 +44,7 @@ import { haptics } from '../../lib/haptics';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
+import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -476,7 +479,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { trustRefreshMs = 60000, networkIsOnline } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
-  const { userId } = useAuth();
+  const { decideWithContext } = useCortex();
+  const { user, userId } = useAuth();
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
@@ -497,7 +501,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [isThinking, setIsThinking] = useState(false);
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mind Drop: greeting + static placeholder
   const [greeting, setGreeting] = useState<string>('');
@@ -774,7 +778,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [showActionToast, handleUndoCreated, handleViewDetails],
   );
 
-  type SaveResult = { created: { todos: string[]; notes: string[]; habits: string[] } };
+  type SaveResult = {
+    created: { todos: string[]; notes: string[]; habits: string[] };
+    suggestions?: UISuggestion[];
+    decisionMode?: CortexResponse['mode'];
+    decisionConfidence?: number;
+  };
 
   const performSave = useCallback(async (): Promise<SaveResult> => {
     const trimmed = note.trim();
@@ -788,9 +797,208 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return { created: { todos: [], notes: [], habits: [] } };
       }
 
-      const currentUserId = userId || 'anonymous';
+      const currentUserId = user?.id ?? userId ?? 'anonymous';
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+
+      setSuggestions([]);
+
+      let decision: CortexResponse | null = null;
+      try {
+        const ctx: CortexContext = {
+          userId: currentUserId,
+          activeSpaceId: null,
+          uiSurface: 'overlay',
+          lane: 'catchall',
+        };
+        decision = await decideWithContext({ text: trimmed }, ctx);
+        step(trace, 'decide:result', {
+          mode: decision.mode,
+          confidence: decision.confidence,
+          actions: Array.isArray(decision.actions) ? decision.actions.map((a) => a.type) : [],
+          suggestions: Array.isArray(decision.suggestions) ? decision.suggestions.length : 0,
+        });
+      } catch (err) {
+        console.warn('[MindDrop][Decide] error', String(err));
+        step(trace, 'decide:error', { error: String(err) });
+      }
+
+      if (decision) {
+        const actions = Array.isArray(decision.actions) ? (decision.actions as CortexAction[]) : [];
+        const chipSuggestions = Array.isArray(decision.suggestions)
+          ? (decision.suggestions as unknown[]).filter(
+              (s): s is UISuggestion =>
+                !!s && typeof s === 'object' && 'type' in s && 'label' in s && 'payload' in s,
+            )
+          : [];
+
+        if (decision.mode === 'auto' && actions.length > 0) {
+          const mapped: Array<{
+            bucket: 'todos' | 'notes' | 'habits';
+            payload: CreateRecordInput;
+          }> = [];
+          let unsupported = false;
+
+          for (const action of actions) {
+            if (action.type === 'create.todo') {
+              const title = action.payload.title?.trim() || trimmed;
+              const due = action.payload.due ?? null;
+              mapped.push({
+                bucket: 'todos',
+                payload: {
+                  type: 'todo',
+                  title,
+                  name: title,
+                  due_date: due,
+                  undefined_due: !due,
+                  space_id: action.payload.spaceId ?? null,
+                  ai_placed: true,
+                  why_string: decision.explanation || 'Organized via Mind Drop',
+                  origin: 'catchall',
+                },
+              });
+            } else if (action.type === 'create.habit') {
+              const name = action.payload.name?.trim() || trimmed;
+              const freqRaw = action.payload.freq;
+              const frequency: 'daily' | 'weekly' | 'monthly' =
+                freqRaw === 'weekly' ? 'weekly' : 'daily';
+
+              mapped.push({
+                bucket: 'habits',
+                payload: {
+                  type: 'habit',
+                  name,
+                  frequency,
+                  space_id: action.payload.spaceId ?? null,
+                  ai_placed: true,
+                  why_string: decision.explanation || 'Organized via Mind Drop',
+                  origin: 'catchall',
+                },
+              });
+            } else if (action.type === 'create.note') {
+              const text = action.payload.text?.trim() || trimmed;
+              const rawSubtype = action.payload.subtype;
+              const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
+
+              mapped.push({
+                bucket: 'notes',
+                payload: {
+                  type: 'note',
+                  title: text || 'Quick note',
+                  body: text,
+                  subtype,
+                  origin: 'catchall',
+                  ai_placed: subtype !== 'catchall',
+                  space_id: action.payload.spaceId ?? null,
+                  why_string: decision.explanation || 'Organized via Mind Drop',
+                  canonicalType: 'note',
+                  labels: [CATCHALL_LABEL],
+                  views: { alsoShowIn: ['Hub:Catch-All'] },
+                },
+              });
+            } else {
+              unsupported = true;
+              break;
+            }
+          }
+
+          if (!unsupported && mapped.length > 0) {
+            const createdIds = {
+              todos: [] as string[],
+              notes: [] as string[],
+              habits: [] as string[],
+            };
+            const counts = { todos: 0, notes: 0, habits: 0 };
+
+            try {
+              for (const entry of mapped) {
+                const record = await repo.create(entry.payload);
+                if (entry.bucket === 'todos') {
+                  counts.todos += 1;
+                  createdIds.todos.push(record.id);
+                } else if (entry.bucket === 'habits') {
+                  counts.habits += 1;
+                  createdIds.habits.push(record.id);
+                } else {
+                  counts.notes += 1;
+                  createdIds.notes.push(record.id);
+                }
+              }
+
+              showMindDropSuccessToast(counts);
+              await refreshOrganizedToday();
+              pendingUndo.current = createdIds;
+              resetState();
+              setRecentRefresh?.((v) => v + 1);
+              focusGreetingForA11y();
+
+              const firstAction = actions[0];
+              const probableIntent =
+                firstAction?.type === 'create.todo'
+                  ? 'todo'
+                  : firstAction?.type === 'create.habit'
+                    ? 'habit'
+                    : 'note';
+
+              void logCatchallDecision({
+                userId: currentUserId,
+                text: trimmed,
+                surface: 'catchall',
+                engine: engineMode,
+                modelVersion,
+                intent: probableIntent,
+                confidence: decision.confidence ?? 0,
+                mode: decision.mode,
+                decision: mapDecisionOutcome(decision.mode),
+                createdTodos: counts.todos,
+                createdNotes: counts.notes,
+                createdHabits: counts.habits,
+              });
+
+              end(trace, 'saved', {
+                ids: createdIds,
+                mode: decision.mode,
+              });
+
+              return {
+                created: createdIds,
+                decisionMode: decision.mode,
+                decisionConfidence: decision.confidence,
+              };
+            } catch (err) {
+              console.warn('[MindDrop][Decide] action execution failed, falling back', err);
+            }
+          }
+        }
+
+        if (decision.mode === 'ask' && chipSuggestions.length > 0) {
+          setSuggestions(chipSuggestions);
+          pendingUndo.current = { todos: [], notes: [], habits: [] };
+
+          void logCatchallDecision({
+            userId: currentUserId,
+            text: trimmed,
+            surface: 'catchall',
+            engine: engineMode,
+            modelVersion,
+            intent: decision.meta?.intent?.kind ?? 'ambiguous',
+            confidence: decision.confidence ?? 0,
+            mode: decision.mode,
+            decision: mapDecisionOutcome('ask'),
+            createdTodos: 0,
+            createdNotes: 0,
+            createdHabits: 0,
+          });
+
+          step(trace, 'decide:chips', { count: chipSuggestions.length });
+          return {
+            created: { todos: [], notes: [], habits: [] },
+            suggestions: chipSuggestions,
+            decisionMode: decision.mode,
+            decisionConfidence: decision.confidence,
+          };
+        }
+      }
 
       step(trace, 'classify:start', { excerpt: trimmed.slice(0, 120) });
       let classifyOut: any = null;
@@ -924,7 +1132,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         subtype: (payload as any)?.subtype,
       });
 
-      return { created: createdIds };
+      return {
+        created: createdIds,
+        decisionMode,
+        decisionConfidence:
+          typeof classifyOut?.confidence === 'number' ? classifyOut.confidence : undefined,
+      };
     } catch (error) {
       console.error('[CatchAllNotepad] Failed to capture note', error);
       Alert.alert('Something went wrong', 'Please try again in a moment.');
@@ -936,12 +1149,141 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     note,
     repo,
     resetState,
+    user,
     userId,
+    decideWithContext,
     showMindDropSuccessToast,
     refreshOrganizedToday,
     setRecentRefresh,
     focusGreetingForA11y,
   ]);
+
+  const handlePickSuggestion = useCallback(
+    async (suggestion: UISuggestion) => {
+      const trimmed = note.trim();
+
+      try {
+        setIsSubmitting(true);
+
+        const createdIds = {
+          todos: [] as string[],
+          notes: [] as string[],
+          habits: [] as string[],
+        };
+        const counts = { todos: 0, notes: 0, habits: 0 };
+
+        if (suggestion.type === 'create.todo') {
+          const rawTodoText = suggestion.payload.name?.trim() || trimmed;
+          const ideasPattern = /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i;
+
+          if (ideasPattern.test(rawTodoText)) {
+            const record = await repo.create({
+              type: 'note',
+              title: rawTodoText || 'Quick note',
+              body: rawTodoText,
+              subtype: 'list',
+              origin: 'catchall',
+              ai_placed: true,
+              space_id: null,
+              why_string: 'Chosen via chip (ideas/list safety)',
+              canonicalType: 'note',
+              labels: [CATCHALL_LABEL],
+              views: { alsoShowIn: ['Hub:Catch-All'] },
+            });
+            counts.notes = 1;
+            createdIds.notes.push(record.id);
+          } else {
+            const record = await repo.create({
+              type: 'todo',
+              name: suggestion.payload.name,
+              title: suggestion.payload.name,
+              due_date: null,
+              undefined_due: suggestion.payload.undefined_due,
+              space_id: null,
+              ai_placed: true,
+              why_string: 'Chosen via chip',
+              origin: 'catchall',
+            });
+            counts.todos = 1;
+            createdIds.todos.push(record.id);
+          }
+        } else if (suggestion.type === 'create.habit') {
+          const record = await repo.create({
+            type: 'habit',
+            name: suggestion.payload.name,
+            frequency: suggestion.payload.freq,
+            space_id: null,
+            ai_placed: true,
+            why_string: 'Chosen via chip',
+            origin: 'catchall',
+          });
+          counts.habits = 1;
+          createdIds.habits.push(record.id);
+        } else {
+          const record = await repo.create({
+            type: 'note',
+            title: suggestion.payload.title,
+            body: suggestion.payload.body,
+            subtype: suggestion.payload.subtype,
+            origin: 'catchall',
+            ai_placed: true,
+            space_id: null,
+            why_string: 'Chosen via chip',
+            canonicalType: 'note',
+            labels: [CATCHALL_LABEL],
+            views: { alsoShowIn: ['Hub:Catch-All'] },
+          });
+          counts.notes = 1;
+          createdIds.notes.push(record.id);
+        }
+
+        showMindDropSuccessToast(counts);
+        await refreshOrganizedToday();
+        pendingUndo.current = createdIds;
+        resetState();
+        setRecentRefresh?.((v) => v + 1);
+        focusGreetingForA11y();
+
+        if (trimmed) {
+          void logCatchallDecision({
+            userId: user?.id ?? userId ?? 'anonymous',
+            text: trimmed,
+            surface: 'catchall',
+            engine: 'LLM',
+            modelVersion: process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini',
+            intent:
+              suggestion.type === 'create.todo'
+                ? 'todo'
+                : suggestion.type === 'create.habit'
+                  ? 'habit'
+                  : 'note',
+            confidence: 0,
+            mode: 'auto',
+            decision: 'auto_create',
+            createdTodos: counts.todos,
+            createdNotes: counts.notes,
+            createdHabits: counts.habits,
+          });
+        }
+      } catch (error) {
+        console.error('[CatchAllNotepad] Failed to apply suggestion', error);
+        Alert.alert('Something went wrong', 'Please try again in a moment.');
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [
+      note,
+      repo,
+      resetState,
+      refreshOrganizedToday,
+      setRecentRefresh,
+      focusGreetingForA11y,
+      showMindDropSuccessToast,
+      user,
+      userId,
+    ],
+  );
 
   const handleChangeText = useCallback(
     (value: string) => {
@@ -1044,7 +1386,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const createdHabits = r?.created?.habits?.length ?? 0;
           const totalCreated = createdTodos + createdNotes + createdHabits;
 
-          if (totalCreated > 0) {
+          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0) {
             finalResult = r;
             break; // success
           }
@@ -1126,6 +1468,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
 
       // SUCCESS PATH — summarize created items
+      if ((finalResult?.suggestions?.length ?? 0) > 0) {
+        pendingUndo.current = { todos: [], notes: [], habits: [] };
+        return;
+      }
+
       const createdTodos = finalResult?.created?.todos ?? [];
       const createdNotes = finalResult?.created?.notes ?? [];
       const createdHabits = finalResult?.created?.habits ?? [];
@@ -1199,6 +1546,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           hudTextStyle={styles.inputHudText}
           characterCount={note.length}
         />
+        {suggestions.length > 0 ? (
+          <MidConfidenceChips suggestions={suggestions} onPick={handlePickSuggestion} />
+        ) : null}
         <View style={styles.submitButtonWrapper}>
           <Button
             testID="minddrop-submit-button"
@@ -1243,6 +1593,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       isSubmitting,
       disabled,
       onSubmit,
+      suggestions,
+      handlePickSuggestion,
       trustLine,
       recentRefresh,
       noopCallback,
