@@ -3,9 +3,16 @@
  * Helper functions to extract smart titles and structured data from user messages
  */
 
+import { parseDue } from '../../../lib/cortex/entities/datetime';
+
 export interface HabitPrefill {
   name: string;
   cadence?: string;
+}
+
+export interface TodoPrefill {
+  title: string;
+  dueDate?: string;
 }
 
 /**
@@ -27,7 +34,7 @@ export function smartTitle(userText: string): string {
  * Extract a todo title from user text
  * Converts to imperative form
  */
-export function extractTodoTitle(userText: string): string {
+export function extractTodoTitle(userText: string): TodoPrefill {
   const trimmed = userText.trim();
 
   // Remove command verbs at start
@@ -43,7 +50,12 @@ export function extractTodoTitle(userText: string): string {
   // Remove leading "to" if present (e.g., "to call John" → "call John")
   const withoutTo = imperative.replace(/^to\s+/i, '').trim();
 
-  return withoutTo || imperative || withoutCommands || trimmed;
+  const title = withoutTo || imperative || withoutCommands || trimmed;
+
+  const parsedDue = parseDue(userText);
+  const dueDate = parsedDue.confidence >= 0.9 ? parsedDue.iso : undefined;
+
+  return { title, dueDate };
 }
 
 /**

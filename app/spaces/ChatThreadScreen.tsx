@@ -199,8 +199,10 @@ function buildActionToastPayload(
   };
 
   if (type === 'todo') {
-    const title = intent.title?.trim() || extractTodoTitle(trimmedUserText) || 'Untitled';
-    const { dueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    const todoPrefill = extractTodoTitle(trimmedUserText);
+    const title = intent.title?.trim() || todoPrefill.title || 'Untitled';
+    const { dueDate: derivedDueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    const dueDate = todoPrefill.dueDate ?? derivedDueDate;
     return {
       type,
       content: title,
@@ -1309,7 +1311,7 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       // Phase 10.10: Use utility functions for proper prefill mapping
-      let initial: { title?: string; note?: string };
+      let initial: { title?: string; note?: string; dueDate?: string | null };
 
       if (kind === 'note') {
         // For notes: smart title + full text in note field
@@ -1318,9 +1320,11 @@ export default function ChatThreadScreen({ route }: Props) {
           note: userText,
         };
       } else if (kind === 'todo') {
-        // For todos: extract imperative title
+        // For todos: extract imperative title + due date
+        const todoPrefill = extractTodoTitle(userText);
         initial = {
-          title: extractTodoTitle(userText),
+          title: todoPrefill.title,
+          dueDate: todoPrefill.dueDate ?? null,
         };
       } else if (kind === 'habit') {
         // For habits: parse habit with cadence

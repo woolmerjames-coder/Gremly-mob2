@@ -42,35 +42,52 @@ describe('Overlay Prefill Utilities', () => {
 
   describe('extractTodoTitle', () => {
     it('removes command verb "Add"', () => {
-      expect(extractTodoTitle('Add buy milk')).toBe('buy milk');
+      expect(extractTodoTitle('Add buy milk')).toMatchObject({
+        title: 'buy milk',
+        dueDate: undefined,
+      });
     });
 
     it('removes command verb "Create" with "a todo"', () => {
-      expect(extractTodoTitle('Create a todo to call John')).toBe('call John');
+      expect(extractTodoTitle('Create a todo to call John')).toMatchObject({ title: 'call John' });
     });
 
     it('converts "I need to" to imperative', () => {
-      expect(extractTodoTitle('I need to finish the report')).toBe('finish the report');
+      expect(extractTodoTitle('I need to finish the report')).toMatchObject({
+        title: 'finish the report',
+      });
     });
 
     it('converts "I have to" to imperative', () => {
-      expect(extractTodoTitle('I have to buy shoes')).toBe('buy shoes');
+      expect(extractTodoTitle('I have to buy shoes')).toMatchObject({ title: 'buy shoes' });
     });
 
     it('converts "I should" to imperative', () => {
-      expect(extractTodoTitle('I should clean the garage')).toBe('clean the garage');
+      expect(extractTodoTitle('I should clean the garage')).toMatchObject({
+        title: 'clean the garage',
+      });
     });
 
     it('handles direct imperative form', () => {
-      expect(extractTodoTitle('Buy flowers tomorrow')).toBe('Buy flowers tomorrow');
+      expect(extractTodoTitle('Buy flowers tomorrow')).toMatchObject({
+        title: 'Buy flowers tomorrow',
+      });
     });
 
     it('removes "Send a todo:" prefix', () => {
-      expect(extractTodoTitle('Send a todo: review document')).toBe('review document');
+      expect(extractTodoTitle('Send a todo: review document')).toMatchObject({
+        title: 'review document',
+      });
     });
 
     it('handles empty text', () => {
-      expect(extractTodoTitle('')).toBe('');
+      expect(extractTodoTitle('')).toMatchObject({ title: '' });
+    });
+
+    it('detects high-confidence due dates', () => {
+      const result = extractTodoTitle('Submit report by 2025-11-03');
+      expect(result.title).toBe('Submit report by 2025-11-03');
+      expect(result.dueDate?.startsWith('2025-11-03')).toBe(true);
     });
   });
 
@@ -157,11 +174,10 @@ describe('Overlay Prefill Utilities', () => {
   describe('Integration: Todo prefill', () => {
     it('creates imperative title', () => {
       const userText = 'I need to buy milk and eggs';
-      const prefill = {
-        title: extractTodoTitle(userText),
-      };
+      const prefill = extractTodoTitle(userText);
 
       expect(prefill.title).toBe('buy milk and eggs');
+      expect(prefill.dueDate).toBeUndefined();
     });
   });
 
