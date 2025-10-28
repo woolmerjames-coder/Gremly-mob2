@@ -19,6 +19,11 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock navigation elements (useHeaderHeight)
+jest.mock('@react-navigation/elements', () => ({
+  useHeaderHeight: () => 100, // Mock header height
+}));
+
 // Mock Auth
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({ userId: 'user-1' }),
@@ -73,9 +78,11 @@ describe('RecentDrops in Mind Drop', () => {
 
   test('Toggle open/closed reveals the list container', async () => {
     render(<CatchAllNotepad />);
-    const toggle = screen.getByTestId('minddrop-recent-toggle');
+    // Wait for the toggle to appear before interacting (prevents race)
+    const toggle = await screen.findByTestId('minddrop-recent-toggle');
     fireEvent.press(toggle);
-    expect(screen.getByTestId('minddrop-recent-list')).toBeTruthy();
+    // Wait for the list to be rendered after toggling open
+    await waitFor(() => expect(screen.getByTestId('minddrop-recent-list')).toBeTruthy());
   });
 
   test('Shows up to 3 items from repo.notes.list with subtype catchall', async () => {
