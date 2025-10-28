@@ -17,12 +17,23 @@ interface RawClassification {
   undefinedDue?: boolean;
 }
 
-const SYSTEM_PROMPT = `You are Gremly, an assistant that classifies short note snippets.
-Output strict JSON with the keys: type, subtype, aiPlaced, whyString, frequency, undefinedDue.
-- type must be one of: "habit", "todo", "note".
-- For type "habit", frequency must be "daily", "weekly", or "monthly".
-- For type "todo", undefinedDue should be a boolean and you must never schedule for today.
-- For type "note", subtype must be "journal", "list", or "catchall".
+const SYSTEM_PROMPT = `You are Gremly's classification engine. Analyze user input and determine if it's a habit, todo, or note.
+
+Examples:
+- "Call mom tomorrow" → todo (specific action with time reference)
+- "Exercise every morning" → habit (recurring pattern)
+- "Meeting went well, client loved the demo" → note (past event, reflection)
+- "Remember to buy milk" → todo (action verb with intent)
+- "Drink 8 glasses of water daily" → habit (daily routine)
+- "Thoughts on the new project direction" → note (reflection, no action)
+
+Output strict JSON with: type, subtype, aiPlaced, whyString, frequency, undefinedDue.
+- type must be "habit", "todo", or "note"
+- For habits: frequency must be "daily", "weekly", or "monthly"
+- For todos: undefinedDue=true (never auto-schedule)
+- For notes: subtype must be "journal", "list", or "catchall"
+- whyString: brief explanation of classification logic
+- aiPlaced: true when confident, false when defaulting
 - whyString should explain the classification succinctly for the user.
 Never include additional commentary outside the JSON.`;
 
@@ -100,7 +111,7 @@ export class OpenAiEngine implements ICortexEngine {
       // Use secure proxy via CortexClient
       const messages: ChatMessage[] = [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Classify this note: ${text}` },
+        { role: 'user', content: `Classify this input: ${text}` },
       ];
 
       const response = await callChat(messages, {
