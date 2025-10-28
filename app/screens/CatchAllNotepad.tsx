@@ -23,6 +23,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
+import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { cortexRoute } from '../../lib/cortex/router';
@@ -300,28 +301,6 @@ function startOfTodayLocal() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 }
 
-function InfoButton({
-  showTip,
-  setShowTip,
-}: {
-  showTip: boolean;
-  setShowTip: React.Dispatch<React.SetStateAction<boolean>>;
-}): React.JSX.Element {
-  return (
-    <Pressable
-      testID="minddrop-info-button"
-      accessibilityRole="button"
-      accessibilityLabel="Info"
-      accessibilityHint="Learn how Mind Drop works"
-      hitSlop={8}
-      onPress={() => setShowTip(!showTip)}
-      style={{ paddingHorizontal: 8, paddingVertical: 6 }}
-    >
-      <Text style={{ fontSize: 16 }}>ℹ️</Text>
-    </Pressable>
-  );
-}
-
 // Recent Drops helpers and component (colocated for now)
 type RecentDrop = { id: string; text: string; created_at: string };
 
@@ -503,7 +482,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showTip, setShowTip] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   // Mind Drop: greeting + static placeholder
   const [greeting, setGreeting] = useState<string>('');
   const greetingRef = useRef<any>(null);
@@ -547,10 +526,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Auto-hide tooltip after 3 seconds
   useEffect(() => {
-    if (!showTip) return;
-    const t = setTimeout(() => setShowTip(false), 3000);
+    if (!infoOpen) return;
+    const t = setTimeout(() => setInfoOpen(false), 3000);
     return () => clearTimeout(t);
-  }, [showTip]);
+  }, [infoOpen]);
 
   // On mount: load last open ts, compute greeting, save new last open ts
   useEffect(() => {
@@ -588,14 +567,27 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       title: copy.title,
       headerShown: true,
       headerTitle: () => (
-        <View style={styles.headerTitleWrapper}>
-          <Text style={styles.headerTitleText}>{copy.title}</Text>
-          <Text style={styles.headerSubtitleText}>{copy.subtitle}</Text>
+        <View style={styles.headerRow} testID="minddrop-header">
+          <View style={styles.headerTextCol}>
+            <Text style={styles.headerTitle} accessibilityRole="header">
+              {copy.title}
+            </Text>
+            <Text style={styles.headerSubtitle}>{copy.subtitle}</Text>
+          </View>
+          <Pressable
+            accessibilityLabel="About Mind Drop"
+            accessibilityRole="button"
+            testID="minddrop-info-header"
+            style={styles.headerInfoBtn}
+            onPress={() => setInfoOpen(true)}
+            hitSlop={8}
+          >
+            <Icon name="Info" size="sm" color={c.mutedText} />
+          </Pressable>
         </View>
       ),
-      headerRight: () => <InfoButton showTip={showTip} setShowTip={setShowTip} />,
     });
-  }, [navigation, showTip, styles]);
+  }, [c.mutedText, navigation, setInfoOpen, styles]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -1324,9 +1316,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   return (
     <View style={styles.root} testID="minddrop-screen">
       {/* Tooltip overlay just under the header - only render when visible to avoid input blocking */}
-      {showTip ? (
+      {infoOpen ? (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowTip(false)} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setInfoOpen(false)} />
           <View style={styles.tipContainer} testID="minddrop-tip">
             <View style={styles.tipArrow} />
             <Text style={styles.tipText}>Just type everything on your mind. I'll organize it.</Text>
@@ -1350,20 +1342,31 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 16,
     },
 
-    headerTitleWrapper: {
+    headerRow: {
+      flexDirection: 'row',
       alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      marginBottom: 12,
     },
-    headerTitleText: {
+    headerTextCol: {
+      flexShrink: 1,
+      paddingRight: 12,
+    },
+    headerTitle: {
       color: c.text,
-      fontSize: 18,
-      fontWeight: '600',
-      lineHeight: 22,
+      fontFamily: 'PlusJakartaSans-Bold',
+      fontSize: 24,
+      lineHeight: 30,
     },
-    headerSubtitleText: {
+    headerSubtitle: {
       color: c.mutedText,
-      fontSize: 12,
-      lineHeight: 16,
-      marginTop: 2,
+      fontFamily: 'Inter-Regular',
+      fontSize: 14,
+      marginTop: 4,
+    },
+    headerInfoBtn: {
+      padding: 8,
+      borderRadius: 9999,
     },
 
     greeting: {
