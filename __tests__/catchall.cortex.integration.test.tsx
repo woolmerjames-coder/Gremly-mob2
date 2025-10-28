@@ -45,7 +45,7 @@ describe('Catch-All + Cortex Integration', () => {
     const catchAllSource = loadSource();
 
     expect(catchAllSource).toContain('ai_placed: true');
-    expect(catchAllSource).toContain('ai_placed: false');
+    expect(catchAllSource).toMatch(/ai_placed:\s*classifyOut\?\./);
   });
 
   it('should record trace checkpoints around classify and payload', () => {

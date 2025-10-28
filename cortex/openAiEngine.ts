@@ -19,22 +19,53 @@ interface RawClassification {
 
 type ExternalClassification = Partial<RawClassification> & { category?: unknown };
 
+const TODO_KEYWORDS = new Set([
+  'todo',
+  'task',
+  'action',
+  'reminder',
+  'appointment',
+  'schedule',
+  'event',
+  'followup',
+]);
+
+const HABIT_KEYWORDS = new Set(['habit', 'routine', 'practice']);
+
+const NOTE_KEYWORDS = new Set([
+  'note',
+  'notes',
+  'list',
+  'ideas',
+  'idea',
+  'brainstorm',
+  'wishlist',
+  'packinglist',
+  'itinerary',
+]);
+
 function normalizeCategoryToType(value: unknown): 'todo' | 'habit' | 'note' {
   const raw = (typeof value === 'string' ? value : String(value ?? '')).toLowerCase();
   const norm = raw.replace(/[^a-z]/g, '');
-  if (
-    norm === 'todo' ||
-    norm === 'task' ||
-    norm === 'action' ||
-    norm === 'reminder' ||
-    norm === 'appointment' ||
-    norm === 'schedule' ||
-    norm === 'event'
-  ) {
-    return 'todo';
-  }
-  if (norm === 'habit' || norm === 'routine') return 'habit';
+  if (TODO_KEYWORDS.has(norm)) return 'todo';
+  if (HABIT_KEYWORDS.has(norm)) return 'habit';
+  if (NOTE_KEYWORDS.has(norm)) return 'note';
   return 'note';
+}
+
+function isNonActionIdeasNote(text: string): boolean {
+  const t = (text || '').toLowerCase().trim();
+  return (
+    /\bideas?\b/.test(t) ||
+    /\bbrainstorm\b/.test(t) ||
+    /\bwish\s*list\b/.test(t) ||
+    /\bwishlist\b/.test(t) ||
+    /\bpacking\s*list\b/.test(t) ||
+    (/\blist\b/.test(t) && !/\bchecklist\b/.test(t)) ||
+    /\bitinerary\b/.test(t) ||
+    (/\bplan\b/.test(t) &&
+      !/(?:\bplan a call|\bplan to call|\bplan to email|\bplan to book)/.test(t))
+  );
 }
 
 function normalizeExternal(raw: unknown): RawClassification {
@@ -73,14 +104,31 @@ function normalizeExternal(raw: unknown): RawClassification {
   return result;
 }
 
-const SYSTEM_PROMPT = `You are Gremly, an assistant that classifies short inputs. Classify this input.
-Output strict JSON with the keys: type, subtype, aiPlaced, whyString, frequency, undefinedDue.
-- type must be one of: "habit", "todo", "note".
-- For type "habit", frequency must be "daily", "weekly", or "monthly".
-- For type "todo", undefinedDue should be a boolean and you must never schedule for today.
-- For type "note", subtype must be "journal", "list", or "catchall".
-- whyString should explain the classification succinctly for the user.
-Never include additional commentary outside the JSON.`;
+const SYSTEM_PROMPT = `
+You are Gremly's classifier. Output ONLY a single JSON object, nothing else. Do not greet or explain.
+Schema:
+{
+  "type": "habit|todo|note",
+  "subtype": "journal|list|catchall",
+  "aiPlaced": boolean,
+  "whyString": string,
+  "frequency": "daily|weekly|monthly",
+  "undefinedDue": boolean
+}
+
+Rules:
+- Never include any text outside the single JSON object (no greetings, no code fences).
+- Map synonyms to our schema:
+  - todo: "todo","to-do","to do","task","action","reminder","appointment","schedule","event","followup","follow-up"
+  - habit: "habit","routine","practice"
+  - note: "note","journal","thought","idea","list"
+- If "appointment" or "schedule" is implied, treat as todo (subtype => "catchall").
+- For type="habit", frequency must be one of: "daily","weekly","monthly" (default "daily" if unclear).
+- For type="todo", set "undefinedDue": true unless an explicit non-today due date is provided elsewhere (you must NOT schedule for today).
+- For type="note", subtype must be "journal","list", or "catchall" (default "catchall").
+- Always provide a concise "whyString".
+- aiPlaced=true for "todo" and "habit"; aiPlaced=false for "note" when subtype="catchall".
+`;
 
 function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
   const aiPlaced =
@@ -180,7 +228,11 @@ export class OpenAiEngine implements ICortexEngine {
           whyString: `Proxy classify: ${c.category} (${Math.round((c.confidence ?? 0) * 100)}%)`,
         });
 
-        const out = normaliseToCortexOutput(normalized);
+        let out = normaliseToCortexOutput(normalized);
+        if (isNonActionIdeasNote(text) && out.type === 'todo') {
+          if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
+          out = { type: 'note', subtype: 'list', aiPlaced: true, whyString: 'Ideas/list capture' };
+        }
         if (DEBUG) console.log('[CORTEX][LLM] classify route mapped:', out);
         return out;
       }
@@ -192,8 +244,62 @@ export class OpenAiEngine implements ICortexEngine {
     try {
       if (DEBUG) console.log('[CORTEX][LLM] model:', this.model);
 
+      const fewShots: ChatMessage[] = [
+        // Todo with date-ish language (we still return undefinedDue: true; real date parsing is downstream)
+        {
+          role: 'user',
+          content: 'Book dentist appointment tomorrow',
+        },
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            type: 'todo',
+            subtype: 'catchall',
+            aiPlaced: true,
+            whyString: 'Detected actionable appointment request.',
+            frequency: 'daily', // ignored for todo
+            undefinedDue: true,
+          }),
+        },
+
+        // Habit signal
+        {
+          role: 'user',
+          content: 'Run 3 times a week',
+        },
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            type: 'habit',
+            subtype: 'catchall',
+            aiPlaced: true,
+            whyString: 'Detected recurring activity.',
+            frequency: 'weekly',
+            undefinedDue: true,
+          }),
+        },
+
+        // Note catchall
+        {
+          role: 'user',
+          content: 'Ideas for weekend trip',
+        },
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            type: 'note',
+            subtype: 'list',
+            aiPlaced: true,
+            whyString: 'Non-actionable list capture.',
+            frequency: 'daily',
+            undefinedDue: true,
+          }),
+        },
+      ];
+
       const messages: ChatMessage[] = [
         { role: 'system', content: SYSTEM_PROMPT },
+        ...fewShots,
         { role: 'user', content: `Classify this input: ${text}` },
       ];
 
@@ -244,9 +350,22 @@ export class OpenAiEngine implements ICortexEngine {
 
       const normalized = normalizeExternal(parsed);
       const result = normaliseToCortexOutput(normalized);
+      let finalResult = result;
+      if (isNonActionIdeasNote(text) && result.type === 'todo') {
+        if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
+        finalResult = {
+          type: 'note',
+          subtype: 'list',
+          aiPlaced: true,
+          whyString: 'Ideas/list capture',
+        };
+      }
       if (DEBUG)
-        console.log('[CORTEX][Normalized]', { parsedKeys: Object.keys(parsed || {}), result });
-      return result;
+        console.log('[CORTEX][Normalized]', {
+          parsedKeys: Object.keys(parsed || {}),
+          result: finalResult,
+        });
+      return finalResult;
     } catch (error) {
       if (DEBUG) console.error('[CORTEX][LLM] error:', String(error));
       throw error;

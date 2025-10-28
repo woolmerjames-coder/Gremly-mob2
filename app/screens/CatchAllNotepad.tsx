@@ -810,6 +810,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       };
       const counts = { todos: 0, notes: 0, habits: 0 };
 
+      const looksLikeIdeas =
+        /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i.test(trimmed);
+      if (looksLikeIdeas && classifyOut?.type === 'todo') {
+        classifyOut = {
+          type: 'note',
+          subtype: 'list',
+          aiPlaced: true,
+          whyString: 'Ideas/list capture',
+        };
+      }
+
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
         payload = {
@@ -842,9 +853,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           type: 'note',
           title: trimmed || 'Quick note',
           body: trimmed,
-          subtype: 'catchall',
+          subtype:
+            classifyOut?.type === 'note' &&
+            (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
+              ? classifyOut.subtype
+              : 'catchall',
           origin: 'catchall',
-          ai_placed: false,
+          ai_placed:
+            classifyOut?.type === 'note' &&
+            (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
+              ? (classifyOut?.aiPlaced ?? true)
+              : false,
           space_id: null,
           why_string: classifyOut?.whyString || 'Saved from Catch-All Notepad',
           canonicalType: 'note',
