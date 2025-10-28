@@ -74,6 +74,7 @@ import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
 import type { OverlayKind } from './chat/openUnifiedFromChat';
 import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
+import { computeDuePrefill } from './chat/duePrefill';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -200,13 +201,24 @@ function buildActionToastPayload(
 
   if (type === 'todo') {
     const title = intent.title?.trim() || extractTodoTitle(trimmedUserText) || 'Untitled';
-    const { dueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    const duePrefill = computeDuePrefill(trimmedUserText);
+    const { dueDate: heuristicDueDate, dueTime } = deriveTodoDetails(trimmedUserText);
+    const dueDate = duePrefill.dueDate ?? heuristicDueDate ?? null;
+
+    if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+      console.log(
+        '[ChatPrefill][Due] confidence=%s due=%s',
+        duePrefill.confidence,
+        duePrefill.dueDate || '-',
+      );
+    }
+
     return {
       type,
       content: title,
       metadata: {
         ...commonMetadata,
-        dueDate: dueDate ?? null,
+        dueDate,
         dueTime: dueTime ?? null,
         onConfirm: handlers?.onConfirm as any,
         onCancel: handlers?.onCancel,
@@ -214,6 +226,7 @@ function buildActionToastPayload(
         onAutoDismiss: handlers?.onAutoDismiss,
         conversionMeta: {
           initialTitle: title,
+          initialDueDate: dueDate,
         },
       },
     };
@@ -1309,7 +1322,7 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       // Phase 10.10: Use utility functions for proper prefill mapping
-      let initial: { title?: string; note?: string };
+      let initial: { title?: string; note?: string; dueDate?: string | null };
 
       if (kind === 'note') {
         // For notes: smart title + full text in note field
@@ -1318,9 +1331,20 @@ export default function ChatThreadScreen({ route }: Props) {
           note: userText,
         };
       } else if (kind === 'todo') {
-        // For todos: extract imperative title
+        // For todos: extract imperative title and high-confidence due date
+        const title = extractTodoTitle(userText);
+        const due = computeDuePrefill(userText);
+        if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+          console.log(
+            '[ChatPrefill][Due] confidence=%s due=%s',
+            due.confidence,
+            due.dueDate || '-',
+          );
+        }
+
         initial = {
-          title: extractTodoTitle(userText),
+          title,
+          ...(due.dueDate ? { dueDate: due.dueDate } : {}),
         };
       } else if (kind === 'habit') {
         // For habits: parse habit with cadence

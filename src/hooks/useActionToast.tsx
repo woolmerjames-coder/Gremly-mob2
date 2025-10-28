@@ -48,6 +48,7 @@ type ActionToastMetadata = {
   conversionMeta?: {
     initialTitle?: string;
     initialNote?: string;
+    initialDueDate?: string | null;
   };
   // Disambiguation support
   disambiguationOptions?: {
