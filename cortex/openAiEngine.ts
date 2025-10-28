@@ -17,8 +17,10 @@ interface RawClassification {
   undefinedDue?: boolean;
 }
 
-function normalizeCategoryToType(value: any): 'todo' | 'habit' | 'note' {
-  const raw = String(value ?? '').toLowerCase();
+type ExternalClassification = Partial<RawClassification> & { category?: unknown };
+
+function normalizeCategoryToType(value: unknown): 'todo' | 'habit' | 'note' {
+  const raw = (typeof value === 'string' ? value : String(value ?? '')).toLowerCase();
   const norm = raw.replace(/[^a-z]/g, '');
   if (
     norm === 'todo' ||
@@ -35,36 +37,40 @@ function normalizeCategoryToType(value: any): 'todo' | 'habit' | 'note' {
   return 'note';
 }
 
-function normalizeExternal(raw: any): RawClassification {
-  const out: RawClassification = { ...raw };
+function normalizeExternal(raw: unknown): RawClassification {
+  const source: ExternalClassification =
+    raw && typeof raw === 'object' ? (raw as ExternalClassification) : {};
 
-  const incomingType = raw?.type ?? raw?.category;
-  out.type = normalizeCategoryToType(incomingType);
+  const result: RawClassification = { ...source };
 
-  const st = String(raw?.subtype ?? '').toLowerCase();
-  if (st === 'appointment' && out.type !== 'habit') {
-    out.type = 'todo';
-    out.subtype = 'catchall';
+  const incomingType = source.type ?? source.category;
+  result.type = normalizeCategoryToType(incomingType);
+
+  const st = typeof source.subtype === 'string' ? source.subtype.toLowerCase() : '';
+  if (st === 'appointment' && result.type !== 'habit') {
+    result.type = 'todo';
+    result.subtype = 'catchall';
   }
 
-  const f = String(raw?.frequency ?? '').toLowerCase();
-  if (out.type === 'habit') {
-    out.frequency = f === 'weekly' ? 'weekly' : f === 'monthly' ? 'monthly' : 'daily';
+  const frequencyRaw = typeof source.frequency === 'string' ? source.frequency.toLowerCase() : '';
+  if (result.type === 'habit') {
+    result.frequency =
+      frequencyRaw === 'weekly' ? 'weekly' : frequencyRaw === 'monthly' ? 'monthly' : 'daily';
   }
 
-  if (typeof raw?.undefinedDue === 'string') {
-    out.undefinedDue = false;
-  } else if (typeof raw?.undefinedDue === 'boolean') {
-    out.undefinedDue = raw.undefinedDue;
-  } else if (out.type === 'todo') {
-    out.undefinedDue = true;
+  if (typeof source.undefinedDue === 'string') {
+    result.undefinedDue = false;
+  } else if (typeof source.undefinedDue === 'boolean') {
+    result.undefinedDue = source.undefinedDue;
+  } else if (result.type === 'todo') {
+    result.undefinedDue = true;
   }
 
-  if (typeof out.whyString !== 'string' || !out.whyString.trim()) {
-    out.whyString = 'Auto-classified by LLM';
+  if (typeof result.whyString !== 'string' || !result.whyString.trim()) {
+    result.whyString = 'Auto-classified by LLM';
   }
 
-  return out;
+  return result;
 }
 
 const SYSTEM_PROMPT = `You are Gremly, an assistant that classifies short inputs. Classify this input.
@@ -129,7 +135,7 @@ function readMessageContent(content: unknown): string | null {
   return null;
 }
 
-function extractFirstJson(text: string): any | null {
+function extractFirstJson(text: string): unknown | null {
   if (!text) return null;
   const fencedMatch = text.match(/```json([\s\S]*?)```/i);
   const fenced = fencedMatch ? fencedMatch[1] : text;
@@ -198,12 +204,25 @@ export class OpenAiEngine implements ICortexEngine {
       });
       if (!response.ok) throw new Error(response.error || 'Cortex proxy request failed');
 
-      const data: any = response.data;
-      const keys = data && typeof data === 'object' ? Object.keys(data) : [];
+      const rawData = response.data as unknown;
+      const data = (rawData && typeof rawData === 'object' ? rawData : {}) as Record<
+        string,
+        unknown
+      >;
+      const keys = Object.keys(data);
       if (DEBUG) console.log('[CORTEX][LLM] raw keys:', keys);
 
-      const contentFromChat = readMessageContent(data?.choices?.[0]?.message?.content);
-      const content = contentFromChat ?? (typeof data?.content === 'string' ? data.content : null);
+      const choicesRaw = (data as { choices?: unknown }).choices;
+      const choices = Array.isArray(choicesRaw) ? choicesRaw : [];
+      const firstChoice = (choices[0] ?? {}) as {
+        message?: { content?: unknown };
+        text?: unknown;
+      };
+
+      const contentFromChat = readMessageContent(firstChoice.message?.content);
+      const fallbackText = typeof firstChoice.text === 'string' ? firstChoice.text : null;
+      const content =
+        contentFromChat ?? (typeof data.content === 'string' ? data.content : null) ?? fallbackText;
 
       if (DEBUG) console.log('[CORTEX][LLM] content preview:', (content || '').slice(0, 200));
       if (!content) throw new Error('LLM response missing content');
