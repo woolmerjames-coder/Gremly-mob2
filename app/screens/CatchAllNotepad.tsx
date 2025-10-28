@@ -48,6 +48,7 @@ import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
 import { decideGating } from '../../lib/cortex/policy/gating';
 import { detectSignals } from '../../lib/cortex/policy/signals';
+import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -276,6 +277,19 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
   { key: 'numbers', label: 'Numbers', testID: 'ca-toolbar-list-numbers' },
   { key: 'checklist', label: 'Checklist', testID: 'ca-toolbar-list-checklist' },
 ];
+
+function mapDecisionOutcome(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
+  switch (mode) {
+    case 'auto':
+      return 'auto_create' as const;
+    case 'ask':
+      return 'ask_chip' as const;
+    case 'keep':
+      return 'keep_note' as const;
+    default:
+      return 'unsorted' as const;
+  }
+}
 
 // Removed legacy hex placeholder color; placeholderTextColor now uses themed c.mutedText
 
@@ -828,6 +842,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             hasTimeSignal,
           });
 
+          const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' =
+            uiMode === 'guided' ? 'LLM' : 'DISABLED';
+          const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+          const decisionOutcome = mapDecisionOutcome(policyDecision.mode);
+
           // Optional debug to compare original vs policy
           if (process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
             console.log('[MindDrop][Policy] compare', {
@@ -943,6 +962,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               resetState();
             }, 2000);
 
+            void logCatchallDecision({
+              userId: currentUserId,
+              text: trimmed,
+              surface: 'catchall',
+              engine: engineMode,
+              modelVersion,
+              intent: probableIntent,
+              confidence: Number(response?.confidence || 0),
+              mode: policyDecision.mode,
+              decision: decisionOutcome,
+              createdTodos: counts.todos,
+              createdNotes: counts.notes,
+              createdHabits: counts.habits,
+            });
+
             return { created: createdIds };
           } else {
             // Mode is 'ask' or 'keep' - save to catch-all with suggestions
@@ -982,6 +1016,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             setTimeout(() => {
               resetState();
             }, 3000);
+
+            void logCatchallDecision({
+              userId: currentUserId,
+              text: trimmed,
+              surface: 'catchall',
+              engine: engineMode,
+              modelVersion,
+              intent: probableIntent,
+              confidence: Number(response?.confidence || 0),
+              mode: policyDecision.mode,
+              decision: decisionOutcome,
+              createdTodos: 0,
+              createdNotes: 1,
+              createdHabits: 0,
+            });
 
             return { created: { todos: [], habits: [], notes: [rec.id] } };
           }

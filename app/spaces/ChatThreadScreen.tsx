@@ -45,6 +45,7 @@ import { explainAddedToList, explainCreated, explainFiledToSpace } from '../../l
 import { maybeRefreshSummary } from '../../lib/cortex/summarize';
 import { createToastSummary, getActivityName } from '../../lib/chat/contextualSummary';
 import { decideChatToastGating, type ChatIntentInfo } from '../../lib/chat/decideToastGating';
+import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
 import { searchIndex } from '../../lib/chat/searchIndex';
@@ -159,6 +160,19 @@ function mapDetectedKindToPolicyKind(kind: DetectedIntent['kind']): ChatIntentIn
       return 'habit';
     default:
       return 'ambiguous';
+  }
+}
+
+function mapPolicyDecision(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
+  switch (mode) {
+    case 'auto':
+      return 'auto_create' as const;
+    case 'ask':
+      return 'ask_chip' as const;
+    case 'keep':
+      return 'keep_note' as const;
+    default:
+      return 'unsorted' as const;
   }
 }
 
@@ -474,6 +488,25 @@ export default function ChatThreadScreen({ route }: Props) {
           : typeof _meta?.policyMode === 'string'
             ? _meta.policyMode
             : null;
+
+      const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
+      const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+      const decisionLabel = mapPolicyDecision(policyDecision.mode);
+
+      void logCatchallDecision({
+        userId: userId || 'anonymous',
+        text: userText,
+        surface: 'space_chat',
+        engine: engineMode,
+        modelVersion,
+        intent: mapDetectedKindToPolicyKind(intent.kind),
+        confidence: typeof intent.confidence === 'number' ? intent.confidence : 0,
+        mode: policyDecision.mode,
+        decision: decisionLabel,
+        createdTodos: 0,
+        createdNotes: 0,
+        createdHabits: 0,
+      });
 
       if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
         console.log('[Chat][Policy] toast gating', {
