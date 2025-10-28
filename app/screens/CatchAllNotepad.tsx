@@ -282,7 +282,6 @@ export function getGreeting(now: Date, lastOpenedAt?: number | null): string {
   }
   if (h >= 6 && h < 11) return "🌅 Morning! What's on your mind?";
   if (h >= 11 && h < 17) return '☀️ Drop your thoughts here...';
-  if (h >= 17 && h < 21) return "🌙 How's your day going?";
   return '✨ Capture those late-night thoughts...';
 }
 
@@ -486,7 +485,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Mind Drop: greeting + static placeholder
   const [greeting, setGreeting] = useState<string>('');
   const greetingRef = useRef<any>(null);
-  const [placeholder] = useState('Buy milk, call mom, that idea about...');
+  const [placeholder] = useState('How’s your day going?');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
@@ -1261,6 +1260,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityState={{ busy: isSubmitting, disabled }}
           />
         </View>
+        <Text ref={greetingRef} style={styles.helperLine}>
+          Drop it. I’ll sort it.
+        </Text>
         {/* Trust Builders row */}
         <View style={styles.trustRow} testID="minddrop-trust">
           <Text style={styles.trustText} testID="minddrop-trust-text">
@@ -1435,6 +1437,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     submitButtonWrapper: {
       marginTop: 24,
+    },
+    helperLine: {
+      marginTop: 6,
+      textAlign: 'center',
+      color: c.mutedText,
+      fontFamily: 'Inter-Regular',
+      fontSize: 13,
     },
     submitButton: {
       marginTop: 16,
