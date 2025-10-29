@@ -128,9 +128,8 @@ describe('Mind Drop submit -> toast + actions', () => {
     // While submitting, label should be "✓ Organizing..."
     expect(screen.getByText('✓ Organizing...')).toBeTruthy();
 
-    // Second press immediately to ensure the debounce path is exercised
-    fireEvent.press(submit);
-
+  // Second press immediately to ensure the debounce path is exercised
+  fireEvent.press(submit);
     // Wait for label to restore and toast to appear
     await waitFor(() => {
       expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
