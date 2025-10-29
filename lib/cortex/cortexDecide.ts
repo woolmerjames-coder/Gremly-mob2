@@ -384,7 +384,10 @@ export async function cortexDecide(
       typeof detected?.confidence === 'number' && !Number.isNaN(detected.confidence)
         ? detected.confidence
         : 0;
-    const combinedConfidenceRaw = Math.max(engineConfidence, detectorConfidence);
+    const combinedConfidenceRaw =
+      candidateActions.length > 0 && Number.isFinite(engineConfidence)
+        ? engineConfidence
+        : Math.max(engineConfidence, detectorConfidence);
     const confidence = Number.isFinite(combinedConfidenceRaw)
       ? Math.max(0, Math.min(1, combinedConfidenceRaw))
       : 0;
@@ -474,12 +477,14 @@ export async function cortexDecide(
           : suggestions.filter((suggestion): suggestion is string => typeof suggestion === 'string')
         : undefined;
 
-    const explanation =
-      mode === 'ask'
+    const shouldUseExploreFallback =
+      (engineFailed || !engineOutput) && candidateActions.length === 0;
+
+    const explanation = shouldUseExploreFallback
+      ? "Let's explore that a bit more."
+      : mode === 'ask'
         ? explainAmbiguous(tone, suggestionLabels)
-        : (engineFailed || !engineOutput) && candidateActions.length === 0
-          ? "Let's explore that a bit more."
-          : generateExplanation(candidateActions, mode, tone, normalizedCtx);
+        : generateExplanation(candidateActions, mode, tone, normalizedCtx);
 
     const result: CortexResponse = {
       ...safeResult,

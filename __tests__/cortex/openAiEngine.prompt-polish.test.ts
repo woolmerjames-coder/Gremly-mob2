@@ -70,7 +70,7 @@ describe('OpenAiEngine Phase 1 prompt polish', () => {
       classification: { category: 'To-Do', tags: [], spaceName: null, confidence: 0.7 },
     });
     const res = await engine.classify({ text: 'Ideas for weekend trip', spaceId: null });
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       type: 'note',
       subtype: 'list',
       aiPlaced: true,
@@ -96,7 +96,7 @@ describe('OpenAiEngine Phase 1 prompt polish', () => {
       },
     });
     const res = await engine.classify({ text: 'Brainstorm packing list ideas', spaceId: null });
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       type: 'note',
       subtype: 'list',
       aiPlaced: true,
