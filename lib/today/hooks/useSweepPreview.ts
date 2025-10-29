@@ -27,8 +27,9 @@ export function useSweepPreview(thresholdHourLocal = 17): SweepPreviewState {
 
   const available = useMemo(() => {
     const h = new Date().getHours();
-    const flag = env.feature.sweep?.eveningV1 ?? env.feature.today.sweepPreview;
-    return flag && h >= thresholdHourLocal;
+    const sweepEnabled =
+      Boolean(env.feature.today.sweepPreview) || Boolean(env.feature.sweep?.eveningV1);
+    return sweepEnabled && h >= thresholdHourLocal;
   }, [thresholdHourLocal]);
 
   const load = useCallback(async () => {
