@@ -43,19 +43,19 @@ function stylesForType(type: UISuggestion['type']) {
 export function MidConfidenceChips({
   suggestions,
   onPick,
-  supportingText,
+  prompt,
 }: {
   suggestions: UISuggestion[];
   onPick: (s: UISuggestion) => void;
-  supportingText?: string;
+  prompt?: string;
 }) {
   if (!suggestions?.length) return null;
 
   return (
     <View style={styles.wrapper}>
-      {supportingText ? (
-        <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={supportingText}>
-          {supportingText}
+      {prompt ? (
+        <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={prompt}>
+          {prompt}
         </Text>
       ) : null}
 

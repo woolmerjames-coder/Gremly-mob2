@@ -178,11 +178,11 @@ const copy = {
   title: 'Mind Drop',
 } as const;
 
-const SHOW_SUPPORTIVE =
-  String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
-
-function buildSupportiveText(): string | null {
-  return SHOW_SUPPORTIVE ? 'Not sure? Save as a note…' : null;
+function buildChipsPrompt(suggestions: UISuggestion[]): string | null {
+  const SHOW =
+    String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
+  if (!SHOW || !suggestions?.length) return null;
+  return 'Not sure? Save as a note…';
 }
 
 // Centralized copy for consistent toasts/messages
@@ -492,6 +492,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
+  const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const themeResult = useTheme();
@@ -701,7 +702,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       !snapshot ||
       (!snapshot.todos.length && !snapshot.notes.length && !snapshot.habits.length)
     ) {
-      showActionToast({ type: 'success', content: 'Nothing to undo' });
+      if (TOASTS_ON) {
+        showActionToast({ type: 'success', content: 'Nothing to undo' });
+      }
       return;
     }
 
@@ -716,11 +719,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Clear snapshot to avoid repeat undo
       pendingUndo.current = { todos: [], notes: [], habits: [] };
 
-      showActionToast({ type: 'success', content: '✅ Undo complete — Mind Drop reverted' });
+      if (TOASTS_ON) {
+        showActionToast({ type: 'success', content: '✅ Undo complete — Mind Drop reverted' });
+      }
     } catch (e) {
       Alert.alert('Undo failed', 'Could not revert items. You can edit from Recent.');
     }
-  }, [repo, showActionToast]);
+  }, [repo, showActionToast, TOASTS_ON]);
 
   // Navigate to Hub → Recent (fallback toast if route missing)
   const handleViewDetails = useCallback(() => {
@@ -728,12 +733,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Navigate to Hub tab; pass filter for future use if supported
       (navigation as any).navigate('Tabs', { screen: 'Hub', params: { filter: 'recent' } });
     } catch (err) {
-      showActionToast({
-        type: 'success',
-        content: 'ℹ️ Open Hub → Recent to see new items',
-      });
+      if (TOASTS_ON) {
+        showActionToast({
+          type: 'success',
+          content: 'ℹ️ Open Hub → Recent to see new items',
+        });
+      }
     }
-  }, [navigation, showActionToast]);
+  }, [navigation, showActionToast, TOASTS_ON]);
 
   const handleInfoViewRecent = useCallback(() => {
     handleInfoClose();
@@ -757,6 +764,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Shared success toast helper for Mind Drop
   const showMindDropSuccessToast = useCallback(
     (args: { todos?: number; notes?: number; habits?: number }) => {
+      if (!TOASTS_ON) {
+        try {
+          if (shouldUseHaptics()) void haptics.submitSuccess();
+        } catch (e) {
+          void e;
+        }
+        try {
+          AccessibilityInfo.announceForAccessibility?.('Mind Drop organized successfully.');
+        } catch (e) {
+          void e;
+        }
+        return;
+      }
+
       const label = organizedToastSummary(args ?? {});
       showActionToast({
         type: 'success',
@@ -778,7 +799,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         void e;
       }
     },
-    [showActionToast, handleUndoCreated, handleViewDetails],
+    [TOASTS_ON, showActionToast, handleUndoCreated, handleViewDetails],
   );
 
   type SaveResult = {
@@ -1334,10 +1355,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
         await saveToUnsortedTray(repo, trimmed);
         resetState();
-        showActionToast({
-          type: 'success',
-          content: COPY.savedOfflineMsg,
-        });
+        if (TOASTS_ON) {
+          showActionToast({
+            type: 'success',
+            content: COPY.savedOfflineMsg,
+          });
+        }
         // Optional haptic warning
         try {
           if (shouldUseHaptics()) void haptics.warning();
@@ -1386,7 +1409,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // No items created -> mark as failure and possibly retry
           lastError = new Error('EmptySave');
           if (attempt === 1) {
-            showActionToast({ type: 'success', content: COPY.retrying });
+            if (TOASTS_ON) {
+              showActionToast({ type: 'success', content: COPY.retrying });
+            }
             // loop to attempt #2
           } else {
             // Second failure — stop retrying
@@ -1396,10 +1421,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           lastError = err;
           if (attempt === 1) {
             // First failure — show “retrying” toast and try again
-            showActionToast({
-              type: 'success',
-              content: COPY.retrying,
-            });
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: COPY.retrying,
+              });
+            }
             // loop to attempt #2
           } else {
             // Second failure — stop retrying
@@ -1414,10 +1441,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Offline-ish path — save locally and reassure
           await saveToUnsortedTray(repo, trimmed);
           resetState();
-          showActionToast({
-            type: 'success',
-            content: COPY.savedOfflineMsg,
-          });
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedOfflineMsg,
+            });
+          }
           // Optional haptic warning
           try {
             if (shouldUseHaptics()) void haptics.warning();
@@ -1435,10 +1464,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Non-network error: save to Unsorted Tray for manual follow-up
           await saveToUnsortedTray(repo, trimmed);
           resetState();
-          showActionToast({
-            type: 'success',
-            content: COPY.savedUnsortedMsg,
-          });
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedUnsortedMsg,
+            });
+          }
           // Optional haptic warning
           try {
             if (shouldUseHaptics()) void haptics.warning();
@@ -1508,6 +1539,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     resetState,
     focusGreetingForA11y,
     setRecentRefresh,
+    TOASTS_ON,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -1541,7 +1573,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [organizedToday],
   );
   const legacyUI = React.useMemo(() => {
-    const supportingText = suggestions.length > 0 ? buildSupportiveText() : null;
+    const prompt = buildChipsPrompt(suggestions);
 
     return (
       <View>
@@ -1576,7 +1608,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           <MidConfidenceChips
             suggestions={suggestions}
             onPick={handlePickSuggestion}
-            supportingText={supportingText ?? undefined}
+            prompt={prompt ?? undefined}
           />
         ) : null}
         <View style={styles.submitButtonWrapper}>
@@ -1606,6 +1638,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           refreshSignal={recentRefresh}
           onEdited={noopCallback}
           onDeleted={noopCallback}
+          initiallyOpen={true}
         />
       </View>
     );
