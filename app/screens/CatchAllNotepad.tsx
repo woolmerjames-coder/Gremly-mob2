@@ -2,11 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffe
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   Modal,
-  Animated,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -17,15 +15,13 @@ import {
   GestureResponderEvent,
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
+  Image,
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHeaderHeight } from '@react-navigation/elements';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { Icon } from '../../design-system/Icon';
@@ -48,15 +44,17 @@ import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
-import LottieView from 'lottie-react-native';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
 const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
 
 const MOSS = '#2E5540';
-const DEEP_FOREST = '#1A3328';
+const LINEN_CREAM = '#F9F6F1';
+const SAGE_MIST = '#BFD8C0';
 const GOLDEN_PEAR = '#E0C47A';
+const TOGGLE_BLUE = '#9CA6E0';
+import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -309,26 +307,12 @@ function mapDecisionOutcome(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
 
 // Removed legacy hex placeholder color; placeholderTextColor now uses themed c.mutedText
 
-// Mind Drop utilities and storage keys
-export function getGreeting(now: Date, lastOpenedAt?: number | null): string {
-  const h = now.getHours();
-  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-  if (lastOpenedAt && now.getTime() - lastOpenedAt >= threeDaysMs) {
-    return '👋 Welcome back! Ready to clear your mind?';
-  }
-  if (h >= 6 && h < 11) return "🌅 Morning! What's on your mind?";
-  if (h >= 11 && h < 17) return '☀️ Drop your thoughts here...';
-  return '✨ Capture those late-night thoughts...';
-}
-
 export const PLACEHOLDERS = [
   'What’s on your mind?',
   'Tasks, thoughts, worries, ideas...',
   'Buy milk, call mom, that idea about...',
   'Just type everything...',
 ] as const;
-
-export const LAST_OPEN_KEY = 'minddrop:last_open_ts';
 
 // Trust Builders helpers
 function startOfTodayLocal() {
@@ -495,104 +479,104 @@ const RecentDrops: React.FC<{
 
   return (
     <View style={styles.recentRoot}>
-      <Pressable
-        testID="minddrop-recent-toggle"
-        onPress={() => setOpen((v) => !v)}
-        style={styles.recentHeader}
-        accessibilityRole="button"
-        accessibilityLabel="Toggle recent drops"
-        accessibilityState={{ expanded: open }}
-      >
-        <Text style={styles.recentHeaderText}>{open ? 'Recent drops ↑' : 'Recent drops ↓'}</Text>
-      </Pressable>
+      <View style={styles.recentHeaderRow}>
+        <Pressable
+          testID="minddrop-recent-toggle"
+          onPress={() => setOpen((v) => !v)}
+          style={styles.recentHeaderBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle recent drops"
+          accessibilityState={{ expanded: open }}
+        >
+          <Text style={styles.recentHeaderText}>Recent drops {open ? '↑' : '↓'}</Text>
+        </Pressable>
+
+        <View style={styles.recentHeaderRight}>
+          <Pressable onPress={() => setShowOlder(false)} accessibilityRole="button">
+            <Text style={[styles.recentToggle, !showOlder && styles.recentToggleActive]}>
+              Today
+            </Text>
+          </Pressable>
+          <Text style={styles.recentDot}>•</Text>
+          <Pressable onPress={() => setShowOlder(true)} accessibilityRole="button">
+            <Text style={[styles.recentToggle, showOlder && styles.recentToggleActive]}>
+              Show older
+            </Text>
+          </Pressable>
+        </View>
+      </View>
 
       {open ? (
-        <>
-          <View style={styles.recentFilterRow}>
-            <Pressable onPress={() => setShowOlder(false)} accessibilityRole="button">
-              <Text style={[styles.recentFilter, !showOlder && styles.recentFilterActive]}>
-                Today
-              </Text>
-            </Pressable>
-            <Text style={styles.recentDot}>•</Text>
-            <Pressable onPress={() => setShowOlder(true)} accessibilityRole="button">
-              <Text style={[styles.recentFilter, showOlder && styles.recentFilterActive]}>
-                Show older
-              </Text>
-            </Pressable>
-          </View>
-
-          <View testID="minddrop-recent-list" style={styles.recentListScrollable}>
-            {loading ? (
-              <Text style={styles.recentEmpty}>Loading…</Text>
-            ) : items.length === 0 ? (
-              <Text style={styles.recentEmpty}>
-                {showOlder ? 'No drops yet.' : 'No drops yet today.'}
-              </Text>
-            ) : (
-              <ScrollView
-                contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
-                showsVerticalScrollIndicator
-              >
-                {items.map((item) => (
+        <View testID="minddrop-recent-list" style={styles.recentList}>
+          {loading ? (
+            <Text style={styles.recentEmpty}>Loading…</Text>
+          ) : items.length === 0 ? (
+            <Text style={styles.recentEmpty}>
+              {showOlder ? 'No drops yet.' : 'No drops yet today.'}
+            </Text>
+          ) : (
+            <ScrollView
+              contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+              showsVerticalScrollIndicator
+            >
+              {items.map((item) => (
+                <View
+                  key={`${item.kind}:${item.id}`}
+                  testID={`minddrop-recent-${item.kind}-${item.id}`}
+                  style={styles.recentCard}
+                >
                   <View
-                    key={`${item.kind}:${item.id}`}
-                    testID={`minddrop-recent-${item.kind}-${item.id}`}
-                    style={styles.recentCard}
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                    }}
                   >
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        gap: 8,
-                      }}
-                    >
-                      <Text numberOfLines={2} style={styles.recentText}>
-                        {item.text || '—'}
+                    <Text numberOfLines={2} style={styles.recentText}>
+                      {item.text || '—'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
+                        {item.kind}
                       </Text>
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
-                          {item.kind}
-                        </Text>
-                        {item.kind === 'note' && item.unsorted ? (
-                          <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
-                        ) : null}
-                      </View>
-                    </View>
-
-                    <View style={styles.recentMetaRow}>
-                      <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                      <View style={styles.recentActions}>
-                        <Pressable
-                          onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                        >
-                          <Text style={styles.recentAction}>Edit</Text>
-                        </Pressable>
-                        <Text style={styles.recentDot}>•</Text>
-                        <Pressable
-                          onPress={() => handleDelete(item.id, item.kind)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                        >
-                          <Text style={styles.recentActionDelete}>Delete</Text>
-                        </Pressable>
-                      </View>
+                      {item.kind === 'note' && item.unsorted ? (
+                        <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
+                      ) : null}
                     </View>
                   </View>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        </>
+
+                  <View style={styles.recentMetaRow}>
+                    <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                    <View style={styles.recentActions}>
+                      <Pressable
+                        onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentAction}>Edit</Text>
+                      </Pressable>
+                      <Text style={styles.recentDot}>•</Text>
+                      <Pressable
+                        onPress={() => handleDelete(item.id, item.kind)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentActionDelete}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
       ) : null}
     </View>
   );
 };
 
-// Memoize RecentDrops to avoid re-rendering when parent state (greeting, trust, tips) changes
+// Memoize RecentDrops to avoid re-rendering when parent state (subtitle, trust, tips) changes
 const RecentDropsMemo = React.memo(RecentDrops);
 
 // Named export for tests to import the isolated component
@@ -615,7 +599,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   });
   const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
   const themeResult = useTheme();
   const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
   const themeMode = themeResult.mode;
@@ -630,19 +613,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
+  // Auto-dismiss chips after 5s if untouched (Unsorted entry is already saved in ask mode)
   useEffect(() => {
     if (!suggestions?.length) return;
     const t = setTimeout(() => setSuggestions([]), 5000);
     return () => clearTimeout(t);
   }, [suggestions]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Mind Drop: greeting + static placeholder
-  const [greeting, setGreeting] = useState<string>('');
+  // Mind Drop: subtitle + static placeholder
   const greetingRef = useRef<any>(null);
+  const subtitle = '✶ Capture those late-night thoughts…';
   const [placeholder] = useState('Drop your thoughts here…');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
+  }, []);
+
+  const handleSuggestionsDismiss = useCallback(() => {
+    setSuggestions([]);
   }, []);
 
   const handleInputContentSizeChange = useCallback(
@@ -679,66 +667,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
-  // On mount: load last open ts, compute greeting, save new last open ts
-  useEffect(() => {
-    let isMounted = true;
-
-    (async () => {
-      let lastOpenedAt: number | null = null;
-      try {
-        const raw = await AsyncStorage.getItem(LAST_OPEN_KEY);
-        if (raw) lastOpenedAt = Number(raw);
-      } catch (e) {
-        void e; // ignore read error
-      }
-
-      if (isMounted) {
-        const now = new Date();
-        setGreeting(getGreeting(now, lastOpenedAt));
-      }
-
-      // Save "last open" now
-      try {
-        await AsyncStorage.setItem(LAST_OPEN_KEY, String(Date.now()));
-      } catch (e) {
-        void e; // ignore write error
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  // Subtitle is static for consistent welcome tone
 
   const handleInfoOpen = useCallback(() => setInfoOpen(true), []);
   const handleInfoClose = useCallback(() => setInfoOpen(false), []);
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      (navigation as any).navigate('Tabs');
+    }
+  }, [navigation]);
 
   useLayoutEffect(() => {
-    navigation.setOptions({
-      title: copy.title,
-      headerShown: true,
-      headerTransparent: true,
-      headerShadowVisible: false,
-      headerStyle: { backgroundColor: 'transparent' },
-      headerTitle: () => (
-        <View style={styles.headerRow} testID="minddrop-header">
-          <Text style={styles.headerTitle} accessibilityRole="header">
-            {copy.title}
-          </Text>
-          <Pressable
-            accessibilityLabel="About Mind Drop"
-            accessibilityRole="button"
-            testID="minddrop-info-header"
-            style={styles.headerInfoBtn}
-            onPress={handleInfoOpen}
-            hitSlop={12}
-          >
-            <Icon name="Info" size="sm" color={c.mutedText} />
-          </Pressable>
-        </View>
-      ),
-    });
-  }, [navigation, styles, c.mutedText, handleInfoOpen]);
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -774,8 +717,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   useEffect(() => {
     const unsub = addOverlaySavedListener(() => {
-      void refreshOrganizedToday();
-      setRecentRefresh((v) => v + 1);
+      void refreshOrganizedToday?.();
+      setRecentRefresh?.((v) => v + 1);
     });
     return unsub;
   }, [refreshOrganizedToday]);
@@ -826,14 +769,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
   }, [refreshOrganizedToday, trustRefreshMs]);
-
-  useEffect(() => {
-    const unsubscribe = addOverlaySavedListener(() => {
-      void refreshOrganizedToday();
-      setRecentRefresh((v) => v + 1);
-    });
-    return unsubscribe;
-  }, [refreshOrganizedToday, setRecentRefresh]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -1704,51 +1639,81 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [isSubmitting, uiMode, note, onSubmit]);
 
-  // Trust Builders static message - memoized to prevent re-renders
-  const trustLine = React.useMemo(
-    () =>
-      organizedToday > 0
-        ? `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`
-        : 'Your thoughts are private & secure with Gremly.',
-    [organizedToday],
-  );
   const legacyUI = React.useMemo(() => {
     const prompt = buildChipsPrompt(suggestions);
 
     return (
       <View>
-        {/* Greeting above the input */}
-        {greeting ? (
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow} testID="minddrop-header">
+            <View style={styles.headerLeftGroup}>
+              <Pressable
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                onPress={handleBack}
+                hitSlop={12}
+                style={styles.headerBackBtn}
+              >
+                <Text style={styles.headerBackText}>{'<'}</Text>
+              </Pressable>
+              <Text style={styles.headerTitle} accessibilityRole="header" numberOfLines={1}>
+                {copy.title}
+              </Text>
+              <Pressable
+                accessibilityLabel="About Mind Drop"
+                accessibilityRole="button"
+                testID="minddrop-info-header"
+                style={styles.headerInfoBtn}
+                onPress={handleInfoOpen}
+                hitSlop={12}
+              >
+                <Icon name="Info" size="sm" color={c.moss} />
+              </Pressable>
+            </View>
+          </View>
+          {/* Subtitle above the input */}
           <Text
             ref={greetingRef}
-            testID="minddrop-greeting"
-            style={styles.greeting}
+            testID="minddrop-subtitle"
+            style={styles.subtitle}
             accessibilityRole="header"
           >
-            {greeting}
+            {subtitle}
           </Text>
-        ) : null}
-        <MindDropInput
-          value={note}
-          onChangeText={handleChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={c.mutedText}
-          containerStyle={styles.inputContainer}
-          focusedStyle={styles.inputContainerFocused}
-          inputStyle={[styles.input, { height: inputHeight, paddingRight: 72, paddingBottom: 28 }]}
-          onFocusChange={handleInputFocusChange}
-          autoFocus
-          onContentSizeChange={handleInputContentSizeChange}
-          scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
-          hudContainerStyle={styles.inputHud}
-          hudTextStyle={styles.inputHudText}
-          characterCount={note.length}
-        />
+          <Image
+            source={GREMLY_TOP}
+            style={styles.headerMascot}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+        <View style={styles.inputBlock}>
+          <MindDropInput
+            value={note}
+            onChangeText={handleChangeText}
+            placeholder={placeholder}
+            placeholderTextColor={c.mutedText}
+            containerStyle={styles.inputContainer}
+            focusedStyle={styles.inputContainerFocused}
+            inputStyle={[
+              styles.input,
+              { height: inputHeight, paddingRight: 72, paddingBottom: 28 },
+            ]}
+            onFocusChange={handleInputFocusChange}
+            autoFocus
+            onContentSizeChange={handleInputContentSizeChange}
+            scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
+            hudContainerStyle={styles.inputHud}
+            hudTextStyle={styles.inputHudText}
+            characterCount={note.length}
+          />
+        </View>
         {suggestions.length > 0 ? (
           <MidConfidenceChips
             suggestions={suggestions}
             onPick={handlePickSuggestion}
             prompt={prompt ?? undefined}
+            onAutoDismiss={handleSuggestionsDismiss}
           />
         ) : null}
         <View style={styles.submitButtonWrapper}>
@@ -1764,13 +1729,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityState={{ busy: isSubmitting, disabled }}
           />
         </View>
-        <Text ref={greetingRef} style={styles.helperLine}>
-          Drop it. I’ll sort it.
-        </Text>
-        {/* Trust Builders row */}
         <View style={styles.trustRow} testID="minddrop-trust">
-          <Text style={styles.trustText} testID="minddrop-trust-text">
-            {trustLine}
+          <Text style={styles.trustStyled} testID="minddrop-trust-text">
+            <Text style={styles.trustNumber}>{organizedToday}</Text>
+            <Text style={styles.trustSuffix}>
+              {organizedToday === 1 ? ' thought organized today' : ' thoughts organized today'}
+            </Text>
           </Text>
         </View>
         {/* Recent Drops section */}
@@ -1783,7 +1747,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       </View>
     );
   }, [
-    greeting,
     greetingRef,
     styles,
     note,
@@ -1792,16 +1755,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleInputContentSizeChange,
     placeholder,
     c.mutedText,
+    c.moss,
     c.bg,
     isSubmitting,
     disabled,
     onSubmit,
     suggestions,
     handlePickSuggestion,
-    trustLine,
+    handleSuggestionsDismiss,
+    organizedToday,
+    subtitle,
     recentRefresh,
     noopCallback,
     inputHeight,
+    handleBack,
+    handleInfoOpen,
   ]);
 
   const content = MIND_DROP_V2 ? (
@@ -1815,54 +1783,19 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <View
-      style={[
-        styles.root,
-        {
-          paddingTop: headerHeight + 24,
-          paddingBottom: 16 + insets.bottom,
-        },
-      ]}
-      testID="minddrop-screen"
-    >
+    <View style={styles.root} testID="minddrop-screen">
       {/* Inline Action Toast overlay */}
       <Svg pointerEvents="none" style={styles.gradientBackground}>
         <Defs>
           <SvgLinearGradient id="mindDropGradient" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={MOSS} stopOpacity={1} />
-            <Stop offset="100%" stopColor={DEEP_FOREST} stopOpacity={1} />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="vignetteFade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor="#000" stopOpacity="0" />
-            <Stop offset="100%" stopColor="#000" stopOpacity="0.18" />
+            <Stop offset="0%" stopColor={LINEN_CREAM} stopOpacity={1} />
+            <Stop offset="20%" stopColor={SAGE_MIST} stopOpacity={1} />
+            <Stop offset="100%" stopColor={MOSS} stopOpacity={1} />
           </SvgLinearGradient>
         </Defs>
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#vignetteFade)" />
       </Svg>
       {ActionToast}
-
-      {String(process.env.EXPO_PUBLIC_MINDDROP_MASCOT ?? 'on').toLowerCase() !== 'off' ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: headerHeight + 4,
-            right: 12,
-            width: 56,
-            height: 56,
-            opacity: 0.9,
-          }}
-        >
-          <LottieView
-            autoPlay
-            loop
-            speed={0.6}
-            source={require('../../assets/lottie/minddropgremly.lottie')}
-            style={{ width: '100%', height: '100%' }}
-          />
-        </View>
-      ) : null}
 
       <Modal
         transparent
@@ -1913,7 +1846,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Pressable>
       </Modal>
 
-      {content}
+      <View
+        style={[
+          styles.contentWrapper,
+          {
+            paddingTop: insets.top + 12,
+            paddingBottom: 16 + insets.bottom,
+          },
+        ]}
+      >
+        {content}
+      </View>
     </View>
   );
 }
@@ -1922,46 +1865,85 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
   return StyleSheet.create({
     root: {
       flex: 1,
-      backgroundColor: c.bg,
-      padding: 16,
+      backgroundColor: 'transparent',
+    },
+    contentWrapper: {
+      flex: 1,
+      paddingHorizontal: 16,
     },
     gradientBackground: {
       ...StyleSheet.absoluteFillObject,
     },
 
+    headerContainer: {
+      position: 'relative',
+      paddingRight: 84,
+      marginBottom: 12,
+    },
+
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: 8,
-      marginBottom: 8,
+      justifyContent: 'flex-start',
+      marginBottom: 2,
+    },
+    headerLeftGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
     },
     headerTitle: {
       color: c.moss,
       fontFamily: 'PlusJakartaSans-Bold',
-      fontSize: 28,
+      fontSize: 32,
       lineHeight: 34,
+      flexShrink: 1,
+    },
+    headerBackBtn: {
+      padding: 6,
+      marginRight: 12,
+    },
+    headerBackText: {
+      color: c.moss,
+      fontSize: 24,
+      fontFamily: 'PlusJakartaSans-Bold',
+      lineHeight: 28,
     },
     headerInfoBtn: {
       padding: 8,
+      marginLeft: 8,
       borderRadius: 9999,
       backgroundColor: 'transparent',
     },
-
-    greeting: {
-      color: c.moss,
-      fontSize: 16,
-      marginBottom: 12,
-      fontFamily: 'Inter-Regular',
+    headerMascot: {
+      position: 'absolute',
+      width: 72,
+      height: 92,
+      right: -2,
+      bottom: -16,
     },
 
+    subtitle: {
+      color: c.moss,
+      fontSize: 14,
+      marginTop: -2,
+      marginBottom: 6,
+      fontFamily: 'Inter-Medium',
+      textShadowColor: '#00000033',
+      textShadowRadius: 2,
+      textShadowOffset: { width: 0, height: 1 },
+    },
+
+    inputBlock: {
+      position: 'relative',
+    },
     inputContainer: {
-      backgroundColor: '#FFFFFF',
+      backgroundColor: LINEN_CREAM,
       borderRadius: 16,
       padding: 20,
       minHeight: 240,
-      borderWidth: 1.5,
-      borderColor: c.sage ?? '#BFD8C0',
+      borderWidth: 1,
+      borderColor: SAGE_MIST,
       shadowColor: c.cardShadow,
       shadowOpacity: 0.06,
       shadowRadius: 8,
@@ -1969,9 +1951,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       elevation: 2,
     },
     inputContainerFocused: {
-      borderColor: c.sage ?? '#BFD8C0',
-      shadowColor: '#E0C47A',
-      shadowOpacity: 0.12,
+      borderColor: SAGE_MIST,
+      shadowColor: SAGE_MIST,
+      shadowOpacity: 0.18,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
       elevation: 6,
@@ -2050,13 +2032,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     submitButtonWrapper: {
       marginTop: 24,
     },
-    helperLine: {
-      marginTop: 6,
-      textAlign: 'center',
-      color: c.mutedText,
-      fontFamily: 'Inter-Regular',
-      fontSize: 13,
-    },
     submitButton: {
       marginTop: 16,
       height: 56,
@@ -2082,45 +2057,44 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       alignItems: 'center',
       minHeight: 20,
     },
-    trustText: {
-      color: c.mutedText,
-      fontSize: 13,
+    trustStyled: {
       textAlign: 'center',
+    },
+    trustNumber: {
+      color: GOLDEN_PEAR,
+      fontFamily: 'Inter-SemiBold',
+    },
+    trustSuffix: {
+      color: SAGE_MIST,
       fontFamily: 'Inter-Regular',
     },
 
-    recentRoot: { marginTop: 12 },
-    recentHeader: {
-      paddingVertical: 8,
+    recentRoot: { marginTop: 8 },
+    recentHeaderRow: {
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    recentHeaderBtn: {
+      paddingVertical: 8,
     },
     recentHeaderText: {
-      color: c.moss,
+      color: SAGE_MIST,
       fontSize: 16,
       fontWeight: '600',
       fontFamily: 'Inter-Medium',
     },
-    recentList: { marginTop: 6, gap: 8 },
-    recentListScrollable: {
-      marginTop: 6,
-      maxHeight: 280,
-    },
-    recentFilterRow: {
-      marginTop: 6,
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      gap: 8,
-    },
-    recentFilter: {
+    recentHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    recentToggle: {
+      color: TOGGLE_BLUE,
       fontSize: 12,
-      textTransform: 'uppercase',
-      color: c.mutedText,
       fontFamily: 'Inter-Medium',
+      textDecorationLine: 'underline',
     },
-    recentFilterActive: {
-      color: c.moss,
+    recentToggleActive: {
+      textDecorationLine: 'none',
     },
+    recentList: { marginTop: 6, gap: 8 },
     recentCard: {
       backgroundColor: c.sageTint,
       borderRadius: 12,
@@ -2138,7 +2112,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       gap: 8,
     },
     recentText: {
-      color: c.text,
+      color: '#222222',
       fontSize: 14,
       lineHeight: 20,
       fontFamily: 'Inter-Regular',
@@ -2176,23 +2150,24 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       justifyContent: 'space-between',
       alignItems: 'center',
     },
-    recentTime: {
-      color: c.mutedText,
-      fontSize: 12,
-      fontFamily: 'Inter-Regular',
+    recentActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
     },
-    recentActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     recentAction: {
       color: c.moss,
       fontSize: 13,
       textDecorationLine: 'underline',
       fontFamily: 'Inter-Medium',
+      lineHeight: 18,
     },
     recentActionDelete: {
       color: c.danger,
       fontSize: 13,
       textDecorationLine: 'underline',
       fontFamily: 'Inter-Medium',
+      lineHeight: 18,
     },
     recentDot: { color: c.mutedText, marginHorizontal: 6 },
     recentEmpty: {
@@ -2201,6 +2176,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
       paddingVertical: 10,
+    },
+    recentTime: {
+      color: c.mutedText,
+      fontSize: 12,
+      fontFamily: 'Inter-Regular',
     },
   });
 }

@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
+import { haptics } from '../../../lib/haptics';
 
 export type UISuggestion =
   | {
@@ -44,15 +45,39 @@ export function MidConfidenceChips({
   suggestions,
   onPick,
   prompt,
+  onAutoDismiss,
+  autoDismissMs = 5000,
 }: {
   suggestions: UISuggestion[];
   onPick: (s: UISuggestion) => void;
   prompt?: string;
+  onAutoDismiss?: () => void;
+  autoDismissMs?: number;
 }) {
-  if (!suggestions?.length) return null;
+  const limited = useMemo(() => suggestions?.slice(0, 3) ?? [], [suggestions]);
+  const fade = useMemo(() => new Animated.Value(0), []);
+
+  useEffect(() => {
+    fade.setValue(0);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [fade, suggestions]);
+
+  useEffect(() => {
+    if (!autoDismissMs || !limited.length) return;
+    const t = setTimeout(() => {
+      onAutoDismiss?.();
+    }, autoDismissMs);
+    return () => clearTimeout(t);
+  }, [autoDismissMs, limited.length, onAutoDismiss, suggestions]);
+
+  if (!limited.length) return null;
 
   return (
-    <View style={styles.wrapper}>
+    <Animated.View style={[styles.wrapper, { opacity: fade }]}>
       {prompt ? (
         <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={prompt}>
           {prompt}
@@ -60,12 +85,21 @@ export function MidConfidenceChips({
       ) : null}
 
       <View style={styles.row}>
-        {suggestions.map((s, idx) => {
+        {limited.map((s, idx) => {
           const c = stylesForType(s.type);
           return (
             <Pressable
               key={`${s.type}-${idx}`}
-              onPress={() => onPick(s)}
+              onPress={() => {
+                try {
+                  if (typeof haptics?.light === 'function') {
+                    haptics.light();
+                  }
+                } catch {
+                  // no-op for environments without haptics
+                }
+                onPick(s);
+              }}
               style={({ pressed }) => [
                 styles.chip,
                 { backgroundColor: c.bg, borderColor: c.fg },
@@ -79,7 +113,7 @@ export function MidConfidenceChips({
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

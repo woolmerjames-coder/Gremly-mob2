@@ -10,11 +10,11 @@ config.transformer = {
   babelTransformerPath: require.resolve('react-native-svg-transformer'),
 };
 
-// Keep SVG in source extensions and allow .lottie assets to bundle via Metro
+// Add .lottie to assetExts and keep svg in sourceExts
 config.resolver = {
   ...config.resolver,
-  assetExts: [...config.resolver.assetExts.filter((ext) => ext !== 'svg'), 'lottie'],
-  sourceExts: [...config.resolver.sourceExts, 'svg'],
+  assetExts: [...new Set([...config.resolver.assetExts.filter((ext) => ext !== 'svg'), 'lottie'])],
+  sourceExts: [...new Set([...config.resolver.sourceExts, 'svg'])],
 };
 
 module.exports = config;
