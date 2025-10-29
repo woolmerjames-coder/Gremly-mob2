@@ -54,6 +54,10 @@ export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
 const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
 
+const MOSS = '#2E5540';
+const DEEP_FOREST = '#1A3328';
+const GOLDEN_PEAR = '#E0C47A';
+
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isNetworkError = (err: any) =>
@@ -165,9 +169,14 @@ const MindDropInput = React.memo<MindDropInputProps>(
           scrollEnabled={scrollEnabled}
         />
         <View style={hudContainerStyle} pointerEvents="none">
-          <Text testID="minddrop-privacy" style={hudTextStyle}>
-            Private & secure
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ marginRight: 6 }}>
+              <Icon name="Lock" size="xs" color={GOLDEN_PEAR} strokeWidth={1.75} />
+            </View>
+            <Text testID="minddrop-privacy" style={hudTextStyle}>
+              Private & secure
+            </Text>
+          </View>
           <Text testID="minddrop-counter" style={hudTextStyle}>{`${characterCount} / 2000`}</Text>
         </View>
       </Pressable>
@@ -611,8 +620,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
   const themeMode = themeResult.mode;
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
-  const gradientStopColor = themeMode === 'dark' ? c.sage : c.sageTint;
-  const gradientStopOpacity = themeMode === 'dark' ? 0.26 : 0.3;
   const reduceMotion = useReducedMotion();
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
@@ -1822,11 +1829,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <Svg pointerEvents="none" style={styles.gradientBackground}>
         <Defs>
           <SvgLinearGradient id="mindDropGradient" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={c.bg} stopOpacity={1} />
-            <Stop offset="100%" stopColor={gradientStopColor} stopOpacity={gradientStopOpacity} />
+            <Stop offset="0%" stopColor={MOSS} stopOpacity={1} />
+            <Stop offset="100%" stopColor={DEEP_FOREST} stopOpacity={1} />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="vignetteFade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#000" stopOpacity="0" />
+            <Stop offset="100%" stopColor="#000" stopOpacity="0.18" />
           </SvgLinearGradient>
         </Defs>
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#vignetteFade)" />
       </Svg>
       {ActionToast}
 
