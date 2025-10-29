@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Screen, Box, Text, Button } from '../../ui';
 import FocusCard from '../../components/today/v3/FocusCard';
 import TaskHabitStack from '../../components/today/v3/TaskHabitStack';
 import DropZoneCard from '../../components/today/v3/DropZoneCard';
 import SweepPreviewFooter from '../../components/today/v3/SweepPreviewFooter';
+import FocusPickerModal from '../../components/today/v3/FocusPickerModal';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 
 export default function TodayV3View() {
   const overlay = useUnifiedOverlayController();
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const handleViewFocus = (entryId: string | null, entryType: 'todo' | 'habit' | 'note' | null) => {
     if (!entryId || !entryType) return;
@@ -29,7 +31,7 @@ export default function TodayV3View() {
         {/* Focus card */}
         <FocusCard
           onView={handleViewFocus}
-          onChange={() => overlay.openCreate()}
+          onChange={() => setPickerOpen(true)}
           onClear={() => {}}
         />
 
@@ -51,7 +53,7 @@ export default function TodayV3View() {
         />
       </Box>
 
-      {/* Overlay lives at top-level; TodayScreen already renders the overlay, so no duplicate here */}
+      <FocusPickerModal visible={pickerOpen} onClose={() => setPickerOpen(false)} />
     </Screen>
   );
 }
