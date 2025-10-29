@@ -45,13 +45,11 @@ export function MidConfidenceChips({
   suggestions,
   onPick,
   prompt,
-  onAutoDismiss,
-  autoDismissMs = 5000,
+  autoDismissMs = 12000,
 }: {
   suggestions: UISuggestion[];
   onPick: (s: UISuggestion) => void;
   prompt?: string;
-  onAutoDismiss?: () => void;
   autoDismissMs?: number;
 }) {
   const limited = useMemo(() => suggestions?.slice(0, 3) ?? [], [suggestions]);
@@ -68,11 +66,17 @@ export function MidConfidenceChips({
 
   useEffect(() => {
     if (!autoDismissMs || !limited.length) return;
-    const t = setTimeout(() => {
-      onAutoDismiss?.();
-    }, autoDismissMs);
-    return () => clearTimeout(t);
-  }, [autoDismissMs, limited.length, onAutoDismiss, suggestions]);
+
+    const pulseDelay = Math.max(0, autoDismissMs - 800);
+    const timeout = setTimeout(() => {
+      Animated.sequence([
+        Animated.timing(fade, { toValue: 0.8, duration: 120, useNativeDriver: true }),
+        Animated.timing(fade, { toValue: 1, duration: 120, useNativeDriver: true }),
+      ]).start();
+    }, pulseDelay);
+
+    return () => clearTimeout(timeout);
+  }, [autoDismissMs, fade, limited.length, suggestions]);
 
   if (!limited.length) return null;
 

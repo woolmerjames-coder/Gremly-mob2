@@ -44,6 +44,7 @@ import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -54,7 +55,9 @@ const LINEN_CREAM = '#F9F6F1';
 const SAGE_MIST = '#BFD8C0';
 const GOLDEN_PEAR = '#E0C47A';
 const TOGGLE_BLUE = '#9CA6E0';
-import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
+const CHIPS_AUTO_DISMISS_MS =
+  Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
+  12000;
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -613,12 +616,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
-  // Auto-dismiss chips after 5s if untouched (Unsorted entry is already saved in ask mode)
+  // Auto-dismiss chips after configured interval so parent owns lifecycle
   useEffect(() => {
     if (!suggestions?.length) return;
-    const t = setTimeout(() => setSuggestions([]), 5000);
-    return () => clearTimeout(t);
-  }, [suggestions]);
+    const timeout = setTimeout(() => setSuggestions([]), CHIPS_AUTO_DISMISS_MS);
+    return () => clearTimeout(timeout);
+  }, [suggestions, CHIPS_AUTO_DISMISS_MS]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mind Drop: subtitle + static placeholder
   const greetingRef = useRef<any>(null);
@@ -627,10 +630,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
-  }, []);
-
-  const handleSuggestionsDismiss = useCallback(() => {
-    setSuggestions([]);
   }, []);
 
   const handleInputContentSizeChange = useCallback(
@@ -1713,7 +1712,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             suggestions={suggestions}
             onPick={handlePickSuggestion}
             prompt={prompt ?? undefined}
-            onAutoDismiss={handleSuggestionsDismiss}
+            autoDismissMs={CHIPS_AUTO_DISMISS_MS}
           />
         ) : null}
         <View style={styles.submitButtonWrapper}>
@@ -1762,7 +1761,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     onSubmit,
     suggestions,
     handlePickSuggestion,
-    handleSuggestionsDismiss,
     organizedToday,
     subtitle,
     recentRefresh,

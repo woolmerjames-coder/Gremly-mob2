@@ -33,7 +33,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
-import type { AppRecord, Frequency, HabitSubtype } from '../../lib/types';
+import type { AppRecord, Frequency, HabitSubtype, NoteSubtype } from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
@@ -51,8 +51,28 @@ import { getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../
 import { emitChatEvent } from '../../app/lib/chat/events';
 import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
 
-type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
+type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
+
+type TypeFamily = 'habit' | 'todo' | 'note' | 'person';
+
+const ENTITY_FAMILY: Record<EntityType, TypeFamily> = {
+  habit: 'habit',
+  todo: 'todo',
+  journal: 'note',
+  note: 'note',
+  person: 'person',
+  unsorted: 'note',
+};
+
+const FRIENDLY_TYPE_LABEL: Record<EntityType, string> = {
+  habit: 'Habit',
+  todo: 'To-Do',
+  journal: 'Journal',
+  note: 'Note',
+  person: 'Person',
+  unsorted: 'Unsorted',
+};
 
 export type UnifiedCreateOverlayProps = {
   visible: boolean;
@@ -78,13 +98,19 @@ export type UnifiedCreateOverlayProps = {
   onSaved?: (result: OverlaySavedPayload) => void;
 };
 
-const TYPE_OPTIONS: { value: string; label: string; iconName: string }[] = [
+const TYPE_OPTIONS: Array<{ value: EntityType; label: string; iconName: string }> = [
   { value: 'habit', label: 'Habit', iconName: 'Activity' },
   { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
   { value: 'journal', label: 'Journal', iconName: 'BookOpen' },
   { value: 'note', label: 'Note', iconName: 'FileText' },
   { value: 'person', label: 'Person', iconName: 'User' },
+  { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
 ];
+
+const CATCHALL_LABEL = 'catchall';
+const UNSORTED_LABEL = 'needs_review';
+const ALLOW_TYPE_CHANGE =
+  String(process.env.EXPO_PUBLIC_UNIFIED_OVERLAY_ALLOW_TYPE_CHANGE ?? 'on').toLowerCase() !== 'off';
 
 export function UnifiedCreateOverlay({
   visible,
@@ -111,6 +137,9 @@ export function UnifiedCreateOverlay({
   const cortex = useCortex();
   const { theme } = useTheme();
   const { userId } = useAuth();
+  const originalTypeRef = useRef<EntityType | null>(null);
+  const originalEntityRef = useRef<AppRecord | null>(null);
+  const lastLoadedIdRef = useRef<string | null>(null);
 
   // Feature flag checks
   const useUnifiedOverlay =
@@ -146,10 +175,17 @@ export function UnifiedCreateOverlay({
   // State - with robust defaults
   // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
   const [selectedType, setSelectedType] = useState<EntityType | null>(initialEntity?.type || null);
+  const hasSyncedInitialTypeRef = useRef(false);
 
   // Synchronously update selectedType when initialEntity changes (e.g., overlay reopened)
   // This runs during render, before the DOM updates
-  if (visible && initialEntity?.type && selectedType !== initialEntity.type) {
+  if (
+    visible &&
+    initialEntity?.type &&
+    !hasSyncedInitialTypeRef.current &&
+    selectedType !== initialEntity.type
+  ) {
+    hasSyncedInitialTypeRef.current = true;
     setSelectedType(initialEntity.type);
     if (__DEV__) {
       console.log('[UnifiedOverlay] Sync type update during render:', initialEntity.type);
@@ -158,6 +194,14 @@ export function UnifiedCreateOverlay({
 
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId, setSpaceId] = useState<string | null | undefined>(initialSpaceId);
+
+  useEffect(() => {
+    if (mode === 'edit' && initialEntity?.type) {
+      originalTypeRef.current = initialEntity.type as EntityType;
+    } else {
+      originalTypeRef.current = null;
+    }
+  }, [mode, initialEntity?.type]);
 
   // Update spaceId when initialSpaceId prop changes
   // CRITICAL: Overlay is persistent, so we need to update state when opened with new spaceId
@@ -265,7 +309,7 @@ export function UnifiedCreateOverlay({
   // Phase 8: Tags and People linking state
   const getItemType = (): ItemType | null => {
     if (!selectedType) return null;
-    if (selectedType === 'journal') return 'note'; // journal is a note subtype
+    if (selectedType === 'journal' || selectedType === 'unsorted') return 'note'; // note family
     if (selectedType === 'person') return null; // persons don't support tags/people linking yet
     return selectedType as ItemType;
   };
@@ -339,6 +383,7 @@ export function UnifiedCreateOverlay({
         }
         return { isValid: true, hint: null };
       case 'note':
+      case 'unsorted':
         if (!noteBody.trim()) {
           return { isValid: false, hint: 'Body required' };
         }
@@ -354,6 +399,7 @@ export function UnifiedCreateOverlay({
   };
 
   const validation = getValidationState();
+  const typePillsDisabled = mode === 'edit' ? !ALLOW_TYPE_CHANGE : false;
 
   // Helper to show success toast cross-platform
   const showToast = (message: string) => {
@@ -386,6 +432,7 @@ export function UnifiedCreateOverlay({
             setHydration('error');
             return;
           }
+          originalEntityRef.current = null;
           const formData = mapPersonToForm(person);
           setPersonName(formData.name);
           setPersonDetails(formData.details);
@@ -395,6 +442,7 @@ export function UnifiedCreateOverlay({
             setHydration('error');
             return;
           }
+          originalEntityRef.current = entity;
 
           // Map based on entity type
           switch (entity.type) {
@@ -449,6 +497,9 @@ export function UnifiedCreateOverlay({
     if (!visible) {
       // Reset hydration when overlay closes
       setHydration('idle');
+      originalEntityRef.current = null;
+      lastLoadedIdRef.current = null;
+      hasSyncedInitialTypeRef.current = false;
       return;
     }
 
@@ -463,8 +514,8 @@ export function UnifiedCreateOverlay({
     }
 
     if (mode === 'edit' && initialEntity && initialEntity.type) {
-      // Type should already be set from useState initializer, but ensure it's set
-      if (selectedType !== initialEntity.type) {
+      // Only enforce the initial type while hydrating; once ready, respect user changes
+      if (hydration !== 'ready' && selectedType !== initialEntity.type) {
         setSelectedType(initialEntity.type);
         if (__DEV__) {
           console.log('[UnifiedOverlay] Correcting type for edit:', initialEntity.type);
@@ -478,7 +529,13 @@ export function UnifiedCreateOverlay({
 
       // Load entity data
       if (initialEntity.id) {
-        loadEntity(initialEntity.id, initialEntity.type);
+        const needsLoad = initialEntity.id !== lastLoadedIdRef.current || hydration === 'idle';
+
+        if (needsLoad) {
+          hasSyncedInitialTypeRef.current = false;
+          lastLoadedIdRef.current = initialEntity.id;
+          loadEntity(initialEntity.id, initialEntity.type);
+        }
       } else {
         setHydration('ready'); // No ID means ready immediately
       }
@@ -486,7 +543,8 @@ export function UnifiedCreateOverlay({
       // Create mode - immediately ready
       setHydration('ready');
       // Type should already be set from useState initializer, but ensure it's set
-      if (initialEntity?.type && selectedType !== initialEntity.type) {
+      if (initialEntity?.type && hydration !== 'ready' && !hasSyncedInitialTypeRef.current) {
+        hasSyncedInitialTypeRef.current = true;
         setSelectedType(initialEntity.type);
         if (__DEV__) {
           console.log('[UnifiedOverlay] Correcting type for create:', initialEntity.type);
@@ -502,7 +560,7 @@ export function UnifiedCreateOverlay({
         }).start();
       }
     }
-  }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim]);
+  }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim, hydration]);
 
   // Phase 10.7C: Prefill from conversionMeta
   useEffect(() => {
@@ -518,7 +576,11 @@ export function UnifiedCreateOverlay({
           setHabitName(initialTitle);
         } else if (selectedType === 'todo') {
           setTodoName(initialTitle);
-        } else if (selectedType === 'note' || selectedType === 'journal') {
+        } else if (
+          selectedType === 'note' ||
+          selectedType === 'journal' ||
+          selectedType === 'unsorted'
+        ) {
           setNoteTitle(initialTitle);
         } else if (selectedType === 'person') {
           setPersonName(initialTitle);
@@ -638,6 +700,9 @@ export function UnifiedCreateOverlay({
       spaceId: null,
       tags: [],
     });
+    originalEntityRef.current = null;
+    originalTypeRef.current = null;
+    lastLoadedIdRef.current = null;
   };
 
   const handleClose = () => {
@@ -673,6 +738,9 @@ export function UnifiedCreateOverlay({
   };
 
   const handleTypeSelect = (type: EntityType) => {
+    if (mode === 'edit' && !ALLOW_TYPE_CHANGE) {
+      return;
+    }
     setSelectedType(type);
     setAiMode(false); // Exit AI mode when selecting a type
     // Fade in fields
@@ -1124,6 +1192,75 @@ export function UnifiedCreateOverlay({
           return;
         }
 
+        const originalType = originalTypeRef.current ?? (initialEntity.type as EntityType | null);
+        const originalFamily = originalType
+          ? ENTITY_FAMILY[originalType]
+          : ENTITY_FAMILY[selectedType];
+        const targetFamily = ENTITY_FAMILY[selectedType];
+
+        if (originalType && originalType !== selectedType && originalFamily !== targetFamily) {
+          const existing = originalEntityRef.current ?? (await repo.getById(initialEntity.id));
+
+          if (!existing) {
+            throw new Error('Original entity not available for conversion');
+          }
+
+          const existingOrigin = (existing as any)?.origin;
+          const normalizedOrigin =
+            existingOrigin === 'catchall' || existingOrigin === 'space_chat'
+              ? existingOrigin
+              : undefined;
+          const defaultSpaceId = (existing as any)?.space_id ?? null;
+
+          const convertedInput = buildCreateInput(selectedType, {
+            includeConversionMeta: false,
+            whyString: `Converted from ${FRIENDLY_TYPE_LABEL[originalType]}`,
+            origin: normalizedOrigin,
+            defaultSpaceId,
+          });
+
+          const created = await repo.create(convertedInput);
+
+          if (usePhase8Features && created.id && getItemType()) {
+            const itemType = getItemType()!;
+
+            for (const tagId of phase8Links.pendingTagIds) {
+              try {
+                await (repo as any).linkTag({ itemId: created.id, tagId, itemType });
+              } catch (error) {
+                console.error('[Phase8] Failed to link pending tag during conversion:', error);
+              }
+            }
+
+            for (const person of phase8Links.pendingPeople) {
+              try {
+                await (repo as any).linkPerson({
+                  itemId: created.id,
+                  itemType,
+                  personName: person.personName,
+                  personEmail: person.personEmail,
+                });
+              } catch (error) {
+                console.error('[Phase8] Failed to link pending person during conversion:', error);
+              }
+            }
+          }
+
+          try {
+            await repo.remove(initialEntity.id);
+          } catch (removeError) {
+            console.warn(
+              '[UnifiedCreateOverlay] Failed to remove original during conversion:',
+              removeError,
+            );
+          }
+
+          handleSaved({ type: selectedType, id: created.id });
+          showToast(`Converted to ${FRIENDLY_TYPE_LABEL[selectedType]}.`);
+          handleClose();
+          return;
+        }
+
         // Other types use standard update
         const patch = buildUpdatePatch(selectedType);
         const input: UpdateRecordInput = {
@@ -1211,18 +1348,65 @@ export function UnifiedCreateOverlay({
     }
   };
 
-  const buildCreateInput = (type: EntityType): CreateRecordInput => {
-    // Only allow origin when it is a supported literal in insert schemas; otherwise omit
-    const rawOrigin = conversionMeta?.origin;
-    const originAllowed =
-      rawOrigin === 'catchall' || rawOrigin === 'space_chat' ? rawOrigin : undefined;
+  const buildCreateInput = (
+    type: EntityType,
+    options: {
+      includeConversionMeta?: boolean;
+      whyString?: string | null;
+      origin?: 'catchall' | 'space_chat';
+      defaultSpaceId?: string | null;
+    } = {},
+  ): CreateRecordInput => {
+    const includeMeta = options.includeConversionMeta ?? true;
+    const rawOrigin = includeMeta ? conversionMeta?.origin : undefined;
+    const baseOrigin =
+      options.origin ??
+      (includeMeta && (rawOrigin === 'catchall' || rawOrigin === 'space_chat')
+        ? rawOrigin
+        : undefined);
+    const baseSpaceId = normalizeSpaceId(options.defaultSpaceId ?? spaceId);
+    const baseWhy =
+      options.whyString !== undefined
+        ? options.whyString
+        : includeMeta
+          ? (conversionMeta?.why_string ?? null)
+          : 'Edited via Unified Overlay';
+    const baseAiPlaced = includeMeta ? (conversionMeta?.ai_placed ?? false) : false;
+    const baseSourceMessageId = includeMeta ? (conversionMeta?.source_message_id ?? null) : null;
 
     const baseInput: Partial<CreateRecordInput> & { origin?: 'catchall' | 'space_chat' } = {
-      space_id: normalizeSpaceId(spaceId),
-      ai_placed: conversionMeta?.ai_placed ?? false,
-      ...(originAllowed ? { origin: originAllowed as 'catchall' | 'space_chat' } : {}),
-      why_string: conversionMeta?.why_string ?? null,
-      sourceMessageId: conversionMeta?.source_message_id ?? null,
+      space_id: baseSpaceId,
+      ai_placed: baseAiPlaced,
+      why_string: baseWhy,
+      sourceMessageId: baseSourceMessageId,
+      ...(baseOrigin ? { origin: baseOrigin } : {}),
+    };
+
+    const resolveNoteTitle = (): string => {
+      const trimmedTitle = (noteTitle || '').trim();
+      if (trimmedTitle.length > 0) {
+        return trimmedTitle;
+      }
+
+      const trimmedBody = (noteBody || '').trim();
+      if (trimmedBody.length > 0) {
+        const firstLine = trimmedBody.split(/\r?\n/)[0] ?? trimmedBody;
+        return firstLine.slice(0, 120) || 'Untitled note';
+      }
+
+      return 'Untitled note';
+    };
+
+    const resolveNoteSubtype = (): NoteSubtype => {
+      if (mode === 'edit' && originalTypeRef.current === 'note') {
+        const existingSubtype = (originalEntityRef.current as any)?.subtype as
+          | NoteSubtype
+          | undefined;
+        if (existingSubtype && existingSubtype !== 'catchall') {
+          return existingSubtype;
+        }
+      }
+      return 'idea';
     };
 
     switch (type) {
@@ -1313,13 +1497,29 @@ export function UnifiedCreateOverlay({
         return {
           ...baseInput,
           type: 'note',
-          subtype: null, // AI decides subtype (idea/list/reference), never set by front-end
-          title: noteTitle || undefined,
+          subtype: resolveNoteSubtype(),
+          title: resolveNoteTitle(),
           body: noteBody,
           fmt: noteDetails.formatting || null,
           tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
           space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
           ai_placed: false,
+        };
+      case 'unsorted':
+        return {
+          ...baseInput,
+          type: 'note',
+          subtype: 'catchall',
+          title: resolveNoteTitle(),
+          body: noteBody,
+          fmt: noteDetails.formatting || null,
+          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
+          ai_placed: false,
+          canonicalType: 'note',
+          labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+          origin: 'catchall',
+          views: { alsoShowIn: ['Hub:Catch-All'] },
         };
       default:
         throw new Error('Unknown type');
@@ -1371,11 +1571,18 @@ export function UnifiedCreateOverlay({
         return {
           title: todoName,
           due_date: todoDueDate || null,
-        };
+        } as Partial<AppRecord>;
       case 'journal':
         return {
           body: journalEntry,
-        };
+          subtype: 'journal',
+          date: journalDate || null,
+          mood: journalMood || null,
+          fmt: journalDetails.formatting || null,
+          reminders: journalDetails.reminders || undefined,
+          tags: journalDetails.tags || null,
+          space_id: journalDetails.spaceId || null,
+        } as Partial<AppRecord>;
       case 'note':
         return {
           title: noteTitle || undefined,
@@ -1383,7 +1590,21 @@ export function UnifiedCreateOverlay({
           fmt: noteDetails.formatting || null,
           tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
           space_id: noteDetails.spaceId || null,
-        };
+          subtype: null,
+          labels: [],
+        } as Partial<AppRecord>;
+      case 'unsorted':
+        return {
+          title: noteTitle || undefined,
+          body: noteBody,
+          fmt: noteDetails.formatting || null,
+          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          space_id: noteDetails.spaceId || null,
+          subtype: 'catchall',
+          labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+          canonicalType: 'note',
+          views: { alsoShowIn: ['Hub:Catch-All'] },
+        } as Partial<AppRecord>;
       default:
         return {};
     }
@@ -1461,17 +1682,31 @@ export function UnifiedCreateOverlay({
                   const iconColor = isSelected
                     ? theme.colors.deepTeal.DEFAULT
                     : theme.colors.text.secondary;
+                  const originalType = originalTypeRef.current;
+                  const disallowPersonConversion =
+                    mode === 'edit' &&
+                    !!originalType &&
+                    ((originalType === 'person' && opt.value !== 'person') ||
+                      (opt.value === 'person' && originalType !== 'person'));
+                  const disabled = typePillsDisabled || disallowPersonConversion;
 
                   return (
                     <Chip
                       key={opt.value}
                       label={opt.label}
                       selected={isSelected}
-                      onPress={() => handleTypeSelect(opt.value as any)}
+                      onPress={() => handleTypeSelect(opt.value)}
                       testID={`type-pill-${opt.value}`}
-                      disabled={false} // Allow type switching in both create and edit modes
-                      style={{ ...styles.typeChip, ...chipStyle }}
-                      textStyle={chipTextStyle}
+                      disabled={disabled}
+                      style={{
+                        ...styles.typeChip,
+                        ...chipStyle,
+                        ...(disabled ? styles.typeChipDisabled : {}),
+                      }}
+                      textStyle={{
+                        ...chipTextStyle,
+                        ...(disabled ? styles.typeChipTextDisabled : {}),
+                      }}
                       leadingIcon={<Icon name={opt.iconName as any} size="xs" color={iconColor} />}
                     />
                   );
@@ -1697,7 +1932,7 @@ export function UnifiedCreateOverlay({
                         disabled={false}
                       />
                     )}
-                    {selectedType === 'note' && (
+                    {(selectedType === 'note' || selectedType === 'unsorted') && (
                       <NoteFields
                         title={noteTitle}
                         onTitleChange={setNoteTitle}
@@ -1864,6 +2099,12 @@ const styles = StyleSheet.create({
   },
   typeChip: {
     minWidth: 90,
+  },
+  typeChipDisabled: {
+    opacity: 0.6,
+  },
+  typeChipTextDisabled: {
+    opacity: 0.6,
   },
   aiButton: {
     backgroundColor: '#F9FAFB',
