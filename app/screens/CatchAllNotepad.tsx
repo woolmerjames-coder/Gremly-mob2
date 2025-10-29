@@ -325,7 +325,13 @@ function startOfTodayLocal() {
 }
 
 // Recent Drops helpers and component (colocated for now)
-type RecentDrop = { id: string; text: string; created_at: string };
+type UnifiedDrop = {
+  id: string;
+  kind: 'note' | 'todo' | 'habit';
+  text: string;
+  created_at: string;
+  unsorted?: boolean;
+};
 
 const relativeTime = (iso: string) => {
   const d = new Date(iso);
@@ -353,37 +359,78 @@ const RecentDrops: React.FC<{
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
   const [open, setOpen] = React.useState(!!initiallyOpen);
   const [loading, setLoading] = React.useState(false);
-  const [items, setItems] = React.useState<RecentDrop[]>([]);
+  const [items, setItems] = React.useState<UnifiedDrop[]>([]);
 
   const load = React.useCallback(async () => {
-    // In tests, we avoid showing a persistent loading state to reduce flakiness
     const isTest = process.env.JEST_WORKAROUND === '1';
-    if (!isTest) {
-      setLoading(true);
-    }
+    if (!isTest) setLoading(true);
     try {
-      // Fetch latest 3 catch-all notes (fallback filter in JS)
-      const all = (await repo?.notes?.list?.({ limit: 10, order: 'desc' })) ?? [];
-      const drops = (Array.isArray(all) ? all : [])
+      const [notes, todos, habits] = await Promise.all([
+        (async () => {
+          try {
+            return (await repo?.notes?.list?.({ limit: 20, order: 'desc' })) ?? [];
+          } catch {
+            return [];
+          }
+        })(),
+        (async () => {
+          try {
+            return (await repo?.todos?.list?.({ limit: 20, order: 'desc' })) ?? [];
+          } catch {
+            return [];
+          }
+        })(),
+        (async () => {
+          try {
+            return (await repo?.habits?.list?.({ limit: 20, order: 'desc' })) ?? [];
+          } catch {
+            return [];
+          }
+        })(),
+      ]);
+
+      const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
           (n) =>
-            n?.subtype === 'catchall' ||
+            n?.origin === 'catchall' ||
             (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL)),
         )
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 3)
         .map((n) => ({
           id: n.id,
+          kind: 'note' as const,
           text: n.body || n.title || n.text || n.content || '',
           created_at: n.created_at,
+          unsorted: Array.isArray(n?.labels) && n.labels.includes(UNSORTED_LABEL),
         }));
-      setItems(drops);
-    } catch (e) {
+
+      const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
+        .filter((t) => t?.origin === 'catchall')
+        .map((t) => ({
+          id: t.id,
+          kind: 'todo' as const,
+          text: t.name || t.title || '',
+          created_at: t.created_at,
+        }));
+
+      const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
+        .filter((h) => h?.origin === 'catchall')
+        .map((h) => ({
+          id: h.id,
+          kind: 'habit' as const,
+          text: h.name || '',
+          created_at: h.created_at,
+        }));
+
+      const unified = [...noteDrops, ...todoDrops, ...habitDrops]
+        .filter((i) => i.text && i.created_at)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5);
+
+      setItems(unified);
+    } catch {
       // no-op
     } finally {
-      if (!isTest) {
-        setLoading(false);
-      }
+      if (!isTest) setLoading(false);
     }
   }, [repo]);
 
@@ -398,24 +445,36 @@ const RecentDrops: React.FC<{
     }
   }, [eagerLoad, load]);
 
-  const handleEdit = (id: string) => {
-    try {
-      (navigation as any).navigate('NoteDetail', { id });
-      onEdited?.();
-    } catch {
-      // TODO: implement inline edit sheet
-    }
-  };
+  const handleEdit = React.useCallback(
+    (id: string, kind: UnifiedDrop['kind']) => {
+      try {
+        if (kind === 'note') {
+          (navigation as any).navigate('NoteDetail', { id });
+        } else if (kind === 'todo') {
+          (navigation as any).navigate('TodoDetail', { id });
+        } else if (kind === 'habit') {
+          (navigation as any).navigate('HabitDetail', { id });
+        }
+        onEdited?.();
+      } catch {
+        // TODO: implement inline edit sheet
+      }
+    },
+    [navigation, onEdited],
+  );
 
-  const handleDelete = async (id: string) => {
-    try {
-      await (repo?.remove?.(id) ?? repo?.notes?.delete?.(id));
-      await load();
-      onDeleted?.();
-    } catch {
-      // Optional: handle error UI
-    }
-  };
+  const handleDelete = React.useCallback(
+    async (id: string, kind: UnifiedDrop['kind']) => {
+      try {
+        await (repo?.remove?.(id) ?? repo?.[`${kind}s`]?.delete?.(id));
+        await load();
+        onDeleted?.();
+      } catch {
+        // Optional: handle error UI
+      }
+    },
+    [load, onDeleted, repo],
+  );
 
   return (
     <View style={styles.recentRoot}>
@@ -437,33 +496,54 @@ const RecentDrops: React.FC<{
           ) : items.length === 0 ? (
             <Text style={styles.recentEmpty}>No recent drops yet.</Text>
           ) : (
-            items.map((item) => (
-              <View key={item.id} testID={`minddrop-recent-${item.id}`} style={styles.recentCard}>
-                <Text numberOfLines={2} style={styles.recentText}>
-                  {item.text || '—'}
-                </Text>
-                <View style={styles.recentMetaRow}>
-                  <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                  <View style={styles.recentActions}>
-                    <Pressable
-                      onPress={() => handleEdit(item.id)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.recentAction}>Edit</Text>
-                    </Pressable>
-                    <Text style={styles.recentDot}>•</Text>
-                    <Pressable
-                      onPress={() => handleDelete(item.id)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.recentActionDelete}>Delete</Text>
-                    </Pressable>
+            items.map((item) => {
+              const kindBadgeStyle =
+                item.kind === 'note'
+                  ? styles.badge_note
+                  : item.kind === 'todo'
+                    ? styles.badge_todo
+                    : styles.badge_habit;
+
+              return (
+                <View
+                  key={`${item.kind}:${item.id}`}
+                  testID={`minddrop-recent-${item.kind}-${item.id}`}
+                  style={styles.recentCard}
+                >
+                  <View style={styles.recentCardHeader}>
+                    <Text numberOfLines={2} style={styles.recentText}>
+                      {item.text || '—'}
+                    </Text>
+                    <View style={styles.recentBadgeRow}>
+                      <Text style={[styles.recentBadge, kindBadgeStyle]}>{item.kind}</Text>
+                      {item.kind === 'note' && item.unsorted ? (
+                        <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <View style={styles.recentMetaRow}>
+                    <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                    <View style={styles.recentActions}>
+                      <Pressable
+                        onPress={() => handleEdit(item.id, item.kind)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentAction}>Edit</Text>
+                      </Pressable>
+                      <Text style={styles.recentDot}>•</Text>
+                      <Pressable
+                        onPress={() => handleDelete(item.id, item.kind)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentActionDelete}>Delete</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
       ) : null}
@@ -1944,11 +2024,44 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       shadowOffset: { width: 0, height: 2 },
       elevation: 1,
     },
+    recentCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 8,
+    },
     recentText: {
       color: c.text,
       fontSize: 14,
       lineHeight: 20,
       fontFamily: 'Inter-Regular',
+    },
+    recentBadgeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    recentBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 10,
+      fontSize: 11,
+      overflow: 'hidden',
+      color: c.text,
+      backgroundColor: c.sageTint,
+      fontFamily: 'Inter-Medium',
+    },
+    badge_note: {
+      backgroundColor: c.sageTint,
+    },
+    badge_todo: {
+      backgroundColor: '#E6F0FF',
+    },
+    badge_habit: {
+      backgroundColor: '#EAF7ED',
+    },
+    badge_unsorted: {
+      backgroundColor: '#FFF4CC',
     },
     recentMetaRow: {
       marginTop: 8,
