@@ -208,5 +208,24 @@ jest.mock('./hooks/useOverlayController', () => {
   };
 });
 
+// Provide a no-op global overlay context in tests so callers don't need the provider
+jest.mock('./contexts/OverlayContext', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const React = require('react');
+  const contextValue = {
+    state: { visible: false, mode: 'create', initialEntity: undefined, initialSpaceId: undefined },
+    openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    close: jest.fn(),
+  };
+
+  return {
+    __esModule: true,
+    OverlayProvider: ({ children }: { children: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+    useGlobalOverlay: () => contextValue,
+  };
+});
+
 // Note: If RN Animated internals cause issues, prefer local per-test mocks
 // over a global mock of NativeAnimatedHelper, as the module path can vary by RN version.

@@ -46,7 +46,7 @@ import { organizedToastSummary } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
-import { useOverlayController } from '../../hooks/useOverlayController';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 
 export const THINKING_DURATION = 1200;
@@ -355,7 +355,7 @@ const RecentDrops: React.FC<{
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
 }> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
-  const overlayController = useOverlayController();
+  const overlay = useGlobalOverlay();
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
@@ -466,7 +466,7 @@ const RecentDrops: React.FC<{
   }, [eagerLoad, load]);
 
   const handleEdit = (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
-    overlayController.openEdit({
+    overlay.openEdit({
       record: { id, type: kind } as any,
       spaceId: null,
     });
