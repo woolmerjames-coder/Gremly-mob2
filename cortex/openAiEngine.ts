@@ -110,7 +110,17 @@ function clamp01(n: unknown): number {
 }
 
 const SYSTEM_PROMPT = `
-You are Gremly's classifier. Output ONLY a single JSON object, nothing else. Do not greet or explain.
+You are Gremly's classification engine. Output ONLY a single JSON object, nothing else. Do not greet or explain.
+Analyze the user's text and decide if it should be a habit, todo, or note for the Mind Drop system.
+
+Examples:
+- "Call mom tomorrow" → todo (specific action with time reference)
+- "Exercise every morning" → habit (recurring pattern)
+- "Meeting went well, client loved the demo" → note (past event, reflection)
+- "Remember to buy milk" → todo (action verb with intent)
+- "Drink 8 glasses of water daily" → habit (daily routine)
+- "Thoughts on the new project direction" → note (reflection, no action)
+
 Schema:
 {
   "type": "habit|todo|note",
@@ -131,7 +141,7 @@ Rules:
 - For type="habit", frequency must be one of: "daily","weekly","monthly" (default "daily" if unclear).
 - For type="todo", set "undefinedDue": true unless an explicit non-today due date is provided elsewhere (you must NOT schedule for today).
 - For type="note", subtype must be "journal","list", or "catchall" (default "catchall").
-- Always provide a concise "whyString".
+- Always provide a concise "whyString" that explains the classification logic.
 - aiPlaced=true for "todo" and "habit"; aiPlaced=false for "note" when subtype="catchall".
 `;
 
