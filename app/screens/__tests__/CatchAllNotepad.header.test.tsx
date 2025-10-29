@@ -83,7 +83,7 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
 }));
 
 const mockNavigate = jest.fn();
-let latestOptions: any;
+const mockGoBack = jest.fn();
 
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
@@ -91,72 +91,46 @@ jest.mock('@react-navigation/native', () => {
     __esModule: true,
     ...actual,
     useNavigation: () => ({
-      setOptions: (options: any) => {
-        latestOptions = options;
-      },
+      setOptions: jest.fn(),
       navigate: mockNavigate,
+      canGoBack: () => false,
+      goBack: mockGoBack,
     }),
   };
 });
 
 import CatchAllNotepad from '../CatchAllNotepad';
 
-const renderHeader = () => {
-  if (!latestOptions?.headerTitle) {
-    throw new Error('headerTitle not initialized');
-  }
-  const Header = latestOptions.headerTitle();
-  return render(<>{Header}</>);
-};
-
-const triggerPress = (node: any) => {
-  let current: any = node;
-  while (current) {
-    if (typeof current.props.onPress === 'function') {
-      act(() => {
-        current?.props.onPress?.({} as any);
-      });
-      return;
-    }
-    current = current.parent as any;
-  }
-  throw new Error('Press handler not found');
-};
-
 describe('CatchAllNotepad header + info sheet', () => {
   beforeEach(() => {
-    latestOptions = undefined;
     mockNavigate.mockClear();
+    mockGoBack.mockClear();
   });
 
   it('renders header title and subtitle from copy', () => {
-    render(<CatchAllNotepad />);
-    expect(latestOptions?.headerTitle).toBeDefined();
-
-    const { getByText } = renderHeader();
-    // Check for "Mind Drop" title (be resilient to subtitle changes)
-    expect(getByText('Mind Drop')).toBeTruthy();
+    const screen = render(<CatchAllNotepad />);
+    expect(screen.getByTestId('minddrop-header')).toBeTruthy();
+    expect(screen.getByText('Mind Drop')).toBeTruthy();
+    expect(screen.getByTestId('minddrop-subtitle')).toBeTruthy();
   });
 
   it('opens info sheet when header icon is pressed', () => {
     const screen = render(<CatchAllNotepad />);
-    const header = renderHeader();
-
     expect(screen.queryByTestId('minddrop-info-sheet')).toBeNull();
-    fireEvent.press(header.getByTestId('minddrop-info-header'));
+    fireEvent.press(screen.getByTestId('minddrop-info-header'));
     expect(screen.getByTestId('minddrop-info-sheet')).toBeTruthy();
   });
 
   it('invokes navigate when selecting View Recent Drops', async () => {
     const screen = render(<CatchAllNotepad />);
-    const header = renderHeader();
 
-    fireEvent.press(header.getByTestId('minddrop-info-header'));
+    fireEvent.press(screen.getByTestId('minddrop-info-header'));
     const openRecent = screen.getByTestId('minddrop-info-open-recent');
-    triggerPress(openRecent);
 
-    await waitFor(() => expect(screen.queryByTestId('minddrop-info-sheet')).toBeNull());
+    fireEvent.press(openRecent);
+
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('minddrop-info-sheet')).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('Tabs', {
       screen: 'Hub',
       params: { filter: 'recent' },
