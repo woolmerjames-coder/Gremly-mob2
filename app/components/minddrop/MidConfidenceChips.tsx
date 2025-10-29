@@ -6,7 +6,12 @@ export type UISuggestion =
   | {
       type: 'create.todo';
       label: string;
-      payload: { name: string; undefined_due: boolean };
+      payload: {
+        name: string;
+        undefined_due: boolean;
+        due?: string | null;
+        due_date?: string | null;
+      };
     }
   | {
       type: 'create.habit';

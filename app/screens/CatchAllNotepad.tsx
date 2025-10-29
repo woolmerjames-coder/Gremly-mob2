@@ -44,6 +44,7 @@ import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 
 export const THINKING_DURATION = 1200;
@@ -58,6 +59,11 @@ const TOGGLE_BLUE = '#9CA6E0';
 const CHIPS_AUTO_DISMISS_MS =
   Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
   12000;
+
+const DUE_STRIP =
+  String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
+const DUE_CONFIDENCE_FLOOR =
+  Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -899,6 +905,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
 
+      const parsed = parseDue(trimmed);
+      const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
+      const cleanedCandidate =
+        hasConfidentDue && DUE_STRIP ? (parsed?.textWithoutWhen ?? trimmed) : trimmed;
+      const cleanedText = cleanedCandidate.trim() ? cleanedCandidate.trim() : trimmed;
+      const parsedDueIso = hasConfidentDue && parsed ? parsed.iso : null;
+
       setSuggestions([]);
 
       let decision: CortexResponse | null = null;
@@ -939,14 +952,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           for (const action of actions) {
             if (action.type === 'create.todo') {
-              const title = action.payload.title?.trim() || trimmed;
-              const due = action.payload.due ?? null;
+              const rawTitle =
+                action.payload.title?.trim() || cleanedText || trimmed || 'Quick task';
+              const due = action.payload.due ?? parsedDueIso ?? null;
               mapped.push({
                 bucket: 'todos',
                 payload: {
                   type: 'todo',
-                  title,
-                  name: title,
+                  title: rawTitle,
+                  name: rawTitle,
                   due_date: due,
                   undefined_due: !due,
                   space_id: action.payload.spaceId ?? null,
@@ -956,7 +970,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'create.habit') {
-              const name = action.payload.name?.trim() || trimmed;
+              const name = action.payload.name?.trim() || cleanedText || trimmed;
               const freqRaw = action.payload.freq;
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
@@ -974,7 +988,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'create.note') {
-              const text = action.payload.text?.trim() || trimmed;
+              const text = action.payload.text?.trim() || cleanedText || trimmed;
               const rawSubtype = action.payload.subtype;
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
 
@@ -995,15 +1009,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'add.to.list') {
-              const itemText = action.payload.item?.trim() || trimmed;
-              const title = trimmed || itemText || 'Quick list';
+              const itemText = action.payload.item?.trim() || cleanedText || trimmed;
+              const title = cleanedText || itemText || trimmed || 'Quick list';
 
               mapped.push({
                 bucket: 'notes',
                 payload: {
                   type: 'note',
                   title,
-                  body: trimmed || itemText,
+                  body: cleanedText || itemText,
                   subtype: 'list',
                   origin: 'catchall',
                   ai_placed: true,
@@ -1092,7 +1106,25 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
           }
 
-          setSuggestions(chipSuggestions);
+          const enrichedChips = chipSuggestions.map((s) => {
+            if (s.type === 'create.todo') {
+              const name = s.payload?.name?.trim() || cleanedText || trimmed;
+              const due = s.payload?.due ?? s.payload?.due_date ?? parsedDueIso ?? null;
+              return {
+                ...s,
+                payload: {
+                  ...s.payload,
+                  name,
+                  due,
+                  due_date: due,
+                  undefined_due: !due,
+                },
+              } as UISuggestion;
+            }
+            return s;
+          });
+
+          setSuggestions(enrichedChips);
           setNote('');
           setRecentRefresh?.((v) => v + 1);
           pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -1153,12 +1185,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
+        const title = cleanedText || trimmed;
+        const due = parsedDueIso ?? null;
         payload = {
           type: 'todo',
-          title: trimmed,
-          name: trimmed,
-          due_date: null,
-          undefined_due: true,
+          title,
+          name: title,
+          due_date: due,
+          undefined_due: !due,
           space_id: null,
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
@@ -1171,7 +1205,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         payload = {
           type: 'habit',
-          name: trimmed,
+          name: cleanedText || trimmed,
           frequency,
           space_id: null,
           ai_placed: true,
@@ -1181,8 +1215,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } else {
         payload = {
           type: 'note',
-          title: trimmed || 'Quick note',
-          body: trimmed,
+          title: cleanedText || trimmed || 'Quick note',
+          body: cleanedText || trimmed,
           subtype:
             classifyOut?.type === 'note' &&
             (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
@@ -1306,10 +1340,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             counts.notes = 1;
             createdIds.notes.push(record.id);
           } else {
+            const due = suggestion.payload.due ?? suggestion.payload.due_date ?? null;
             const record = await repo.create({
               type: 'todo',
-              name: suggestion.payload.name,
-              undefined_due: !!suggestion.payload.undefined_due,
+              title: rawTodoText,
+              name: rawTodoText,
+              due_date: due,
+              undefined_due: !due,
               ai_placed: true,
               why_string: 'Chosen via chip',
               origin: 'catchall',
