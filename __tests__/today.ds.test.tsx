@@ -9,6 +9,23 @@ import React from 'react';
 import { act, fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
 
+jest.mock('../lib/env', () => {
+  const actual = jest.requireActual('../lib/env');
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      feature: {
+        ...actual.env.feature,
+        today: {
+          ...actual.env.feature?.today,
+          v3: false,
+        },
+      },
+    },
+  };
+});
+
 // Ensure reduced motion is active in tests to prevent animation timers
 process.env.JEST_REDUCED_MOTION = '1';
 const ORIGINAL_JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT;
