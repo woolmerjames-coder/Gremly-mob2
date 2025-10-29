@@ -16,6 +16,7 @@ export default function TaskHabitStack({ onLongPress }: Props) {
   const { items, completed, remaining, loading, error, reload } = useTodayEntries();
 
   const ordered = useMemo(() => {
+    const list = Array.isArray(items) ? items : [];
     // Simple sort: overdue > nearDue > carry_forward > habits > todos
     const score = (e: TodayMergedEntry) => {
       if (e.type === 'todo') {
@@ -23,7 +24,7 @@ export default function TaskHabitStack({ onLongPress }: Props) {
       }
       return 5; // habits after urgent tasks
     };
-    return [...items].sort((a, b) => score(b) - score(a));
+    return [...list].sort((a, b) => score(b) - score(a));
   }, [items]);
 
   const handleHabitComplete = async (id: string) => {
