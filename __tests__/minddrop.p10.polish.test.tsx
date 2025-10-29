@@ -36,6 +36,18 @@ const mockCreate = jest.fn();
 const mockRemove = jest.fn();
 const mockWriteEvent = jest.fn();
 const mockNotesList = jest.fn();
+const mockDecideWithContext = jest.fn().mockResolvedValue({
+  mode: 'auto',
+  actions: [
+    {
+      type: 'create.note',
+      payload: { text: 'Polish note', subtype: 'note', spaceId: null },
+    },
+  ],
+  confidence: 0.9,
+  suggestions: [],
+  explanation: 'Auto polish note',
+});
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
@@ -46,12 +58,23 @@ jest.mock('../providers/RepoProvider', () => ({
   }),
 }));
 
+jest.mock('../providers/CortexProvider', () => {
+  const actual = jest.requireActual('../providers/CortexProvider');
+  return {
+    ...actual,
+    useCortex: () => ({
+      decideWithContext: mockDecideWithContext,
+    }),
+  };
+});
+
 // Component under test
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 beforeEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
+  mockDecideWithContext.mockClear();
 });
 
 describe('Mind Drop P10 Polish', () => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { organizedToastContent } from '../lib/ui/toast/copy';
 
 // Force feature flag ON
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
@@ -33,6 +34,18 @@ const mockCreate = jest.fn();
 const mockNotesCreate = jest.fn();
 const mockNotesList = jest.fn(async () => []);
 const mockWriteEvent = jest.fn();
+const mockDecideWithContext = jest.fn().mockResolvedValue({
+  mode: 'auto',
+  actions: [
+    {
+      type: 'create.note',
+      payload: { text: 'Auto note', subtype: 'note', spaceId: null },
+    },
+  ],
+  confidence: 0.9,
+  suggestions: [],
+  explanation: 'Auto note',
+});
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
@@ -42,11 +55,22 @@ jest.mock('../providers/RepoProvider', () => ({
   }),
 }));
 
+jest.mock('../providers/CortexProvider', () => {
+  const actual = jest.requireActual('../providers/CortexProvider');
+  return {
+    ...actual,
+    useCortex: () => ({
+      decideWithContext: mockDecideWithContext,
+    }),
+  };
+});
+
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 beforeEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
+  mockDecideWithContext.mockClear();
 });
 
 function typeAndSubmit(text: string, options: { offline?: boolean } = {}) {
@@ -73,11 +97,10 @@ describe('Mind Drop — Error & Offline UX', () => {
 
     typeAndSubmit('retry me once');
 
-    // Final success toast appears (intermediate retry message may be too brief to observe in tests)
-    await screen.findByText(/Organized into/i);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
 
-    // Ensure two create attempts occurred
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+    const expectedToast = organizedToastContent('note', 1);
+    await screen.findByText(expectedToast);
   });
 
   test('Fallback to Unsorted when both attempts fail (non-network); shows Unsorted message and saves with labels', async () => {
@@ -91,13 +114,11 @@ describe('Mind Drop — Error & Offline UX', () => {
 
     typeAndSubmit('route me to unsorted');
 
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockNotesCreate).toHaveBeenCalledTimes(1));
+
     // Expect Unsorted Tray message
     await screen.findByText(/Saved to your Unsorted Tray/i);
-
-    // Ensure two performSave attempts failed via generic create
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    // Fallback should go through notes.create once
-    expect(mockNotesCreate).toHaveBeenCalledTimes(1);
     // Verify notes.create received labels including catchall + needs_review
     const [fallbackPayload] = mockNotesCreate.mock.calls[0];
     expect(fallbackPayload.labels).toEqual(expect.arrayContaining(['catchall', 'needs_review']));

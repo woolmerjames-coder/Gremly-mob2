@@ -10,7 +10,8 @@
 
 import { createCortexEngine } from '../../cortex/createEngine';
 import type { CortexInput } from '../../cortex/ICortexEngine';
-import { decideMode, type DecisionMode } from './thresholds';
+import { type DecisionMode } from './thresholds';
+import { buildMindDropAskChips, type ChipSuggestion } from '../cortex/policy/chips';
 import {
   explainFiledToSpace,
   explainAddedToList,
@@ -89,6 +90,8 @@ export type CortexAction =
       payload: { itemId: string; when: string; rule?: string };
     };
 
+export type CortexSuggestion = string | ChipSuggestion;
+
 /**
  * Response from cortexDecide containing normalized actions and metadata
  */
@@ -100,7 +103,7 @@ export interface CortexResponse {
   /** Small-talk reply text (for chat surfaces when no actions/explanations) */
   replyText?: string;
   /** Alternative suggestions (for ASK/KEEP modes) */
-  suggestions?: string[];
+  suggestions?: CortexSuggestion[];
   /** Confidence score from engine (0-1) */
   confidence?: number;
   /** Decision mode based on confidence threshold */
@@ -171,6 +174,8 @@ export async function cortexDecide(
     mode: 'ask',
     meta: {},
   };
+
+  const midLower = 0.55; // offer chips for mid confidence
 
   try {
     // Apply default lane if not specified (backward compatibility)
@@ -349,11 +354,55 @@ export async function cortexDecide(
       }
     }
 
-    // Determine mode based on confidence
+    const probable: 'todo' | 'habit' | 'note' | 'unknown' = (() => {
+      const engineType =
+        typeof (engineOutput as any)?.type === 'string' ? (engineOutput as any).type : null;
+      if (engineType === 'todo' || engineType === 'habit' || engineType === 'note') {
+        return engineType;
+      }
+      if (detected.kind === 'habit') return 'habit';
+      if (detected.kind === 'todo') return 'todo';
+      if (detected.kind === 'note') return 'note';
+      return 'unknown';
+    })();
+
     const confidence = normalized.confidence;
-    let mode = decideMode(confidence);
-    // Ensure safe UX: when no actions and low confidence, prefer 'ask' over 'keep'
-    if (mode === 'keep' && normalized.actions.length === 0) {
+    const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
+
+    const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
+    const autoThreshold = Number.isFinite(autoThresholdEnv) ? autoThresholdEnv : 0.85;
+
+    const habitAutoFloorEnv = parseFloat(String(process.env.INTENT_HABIT_AUTO_FLOOR ?? '0.90'));
+    const habitAutoFloor = Number.isFinite(habitAutoFloorEnv) ? habitAutoFloorEnv : 0.9;
+
+    const hasDate = hasExplicitDateOrTime(userText);
+    const preferHabitAuto =
+      probable === 'habit' && hasConfidence && confidence >= habitAutoFloor && !hasDate;
+
+    const shouldAuto =
+      normalized.actions.length > 0 && (confidence > autoThreshold || preferHabitAuto);
+
+    let mode: DecisionMode = 'keep';
+
+    if (!hasConfidence || confidence < 0) {
+      mode = 'keep';
+    } else if (shouldAuto) {
+      mode = 'auto';
+    } else if (confidence >= midLower) {
+      mode = 'ask';
+    }
+
+    const listActionLowRisk =
+      normalizedCtx.uiSurface === 'overlay' &&
+      hasConfidence &&
+      confidence <= autoThreshold &&
+      normalized.actions.some((action) => action.type === 'add.to.list');
+
+    if (mode === 'auto' && listActionLowRisk) {
+      mode = 'ask';
+    }
+
+    if (normalized.actions.length === 0) {
       mode = 'ask';
     }
 
@@ -370,9 +419,27 @@ export async function cortexDecide(
         ? "Let's explore that a bit more."
         : generateExplanation(normalized.actions, mode, tone, normalizedCtx);
 
-    // Generate suggestions for ASK/KEEP modes
-    const suggestions =
-      mode !== 'auto' ? generateSuggestions(normalized.actions, normalizedCtx) : [];
+    const inMidConfidenceBand =
+      hasConfidence && confidence >= midLower && confidence < autoThreshold;
+
+    const chipSuggestions =
+      mode === 'ask'
+        ? buildMindDropAskChips({
+            text: userText,
+            probable,
+            confidence: hasConfidence ? confidence : 0,
+          }).map((c) => ({ ...c }))
+        : [];
+
+    let suggestions: CortexSuggestion[] = [];
+    if (mode === 'ask') {
+      suggestions =
+        chipSuggestions.length > 0
+          ? chipSuggestions
+          : generateSuggestions(normalized.actions, normalizedCtx);
+    } else if (mode === 'keep') {
+      suggestions = generateSuggestions(normalized.actions, normalizedCtx);
+    }
 
     const result: CortexResponse = {
       ...safeResult,
@@ -381,7 +448,12 @@ export async function cortexDecide(
       suggestions,
       confidence,
       mode,
-      meta: { intent: { kind: detected.kind, confidence: detected.confidence } },
+      meta: {
+        intent: { kind: detected.kind, confidence: detected.confidence },
+        showedChip:
+          (chipSuggestions.length > 0 || inMidConfidenceBand) &&
+          suggestions.some((suggestion) => typeof suggestion !== 'string'),
+      },
     };
 
     console.log('[cortexDecide][final]', {
@@ -412,6 +484,19 @@ export async function cortexDecide(
     });
     return fallback;
   }
+}
+
+function hasExplicitDateOrTime(text: string): boolean {
+  const t = (text || '').toLowerCase();
+  return (
+    /\btoday\b|\btomorrow\b|\btonight\b/.test(t) ||
+    /\bnext\s+(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(
+      t,
+    ) ||
+    /\b(on\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+\d{1,2}\b/.test(t) ||
+    /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(t) ||
+    /\b(at\s*)?\d{1,2}(:\d{2})?\s*(am|pm)\b/.test(t)
+  );
 }
 
 /**
@@ -621,8 +706,8 @@ function generateExplanation(
  * Generate alternative suggestions for ASK/KEEP modes
  * @internal
  */
-function generateSuggestions(actions: CortexAction[], ctx: CortexContext): string[] {
-  const suggestions: string[] = [];
+function generateSuggestions(actions: CortexAction[], ctx: CortexContext): CortexSuggestion[] {
+  const suggestions: CortexSuggestion[] = [];
 
   if (actions.length === 0) {
     suggestions.push('Save as note?');

@@ -245,7 +245,7 @@ describe('cortexDecide Integration', () => {
         type: 'habit',
         name: 'morning run',
         frequency: 'daily',
-        confidence: 0.85,
+        confidence: 0.9,
         aiPlaced: true,
         whyString: 'Daily habit detected',
       }),
@@ -284,6 +284,25 @@ describe('cortexDecide Integration', () => {
     expect(result.mode).toBe('auto');
     expect(result.actions).toHaveLength(1);
     expect(result.actions[0].type).toBe('create.todo');
+  });
+
+  it('should fall back to ask when confidence equals threshold', async () => {
+    const { createCortexEngine } = require('../cortex/createEngine');
+
+    createCortexEngine.mockReturnValue({
+      classify: jest.fn().mockResolvedValue({
+        type: 'habit',
+        name: 'drink water',
+        frequency: 'daily',
+        confidence: 0.85,
+        aiPlaced: true,
+        whyString: 'Daily habit detected',
+      }),
+    });
+
+    const result = await cortexDecide({ text: 'drink water every day' }, mockContext);
+
+    expect(result.mode).toBe('ask');
   });
 
   it('should use activeSpaceId from context', async () => {
