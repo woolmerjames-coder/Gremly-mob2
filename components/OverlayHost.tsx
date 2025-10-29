@@ -14,7 +14,6 @@ import { useRepo } from '../providers/RepoProvider';
 import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 import { emitOverlaySaved } from '../lib/events/overlaySaved';
-import type { OverlaySavedPayload } from '../lib/events/overlaySaved';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -376,7 +375,7 @@ export const OverlayHost = () => {
         conversionMeta={overlay.state.conversionMeta}
         onClose={overlay.close}
         onSaved={async (result) => {
-          emitOverlaySaved(result as OverlaySavedPayload);
+          emitOverlaySaved(result);
           // Refresh handled by individual screens
           overlay.close();
         }}

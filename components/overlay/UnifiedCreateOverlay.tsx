@@ -49,6 +49,7 @@ import {
 } from './mappers';
 import { getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 import { emitChatEvent } from '../../app/lib/chat/events';
+import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -74,7 +75,7 @@ export type UnifiedCreateOverlayProps = {
     initialDueDate?: string | null;
   };
   onClose: () => void;
-  onSaved?: (result: { type: string; id: string }) => void;
+  onSaved?: (result: OverlaySavedPayload) => void;
 };
 
 const TYPE_OPTIONS: { value: string; label: string; iconName: string }[] = [
@@ -653,7 +654,7 @@ export function UnifiedCreateOverlay({
   };
 
   // Phase 10.6: Helper to emit success event and call onSaved
-  const handleSaved = (result: { type: string; id: string }) => {
+  const handleSaved = (result: OverlaySavedPayload) => {
     emitChatEvent({
       type: 'overlay_success',
       payload: { type: result.type, created: result },
