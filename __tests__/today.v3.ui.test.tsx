@@ -1,5 +1,5 @@
 import React from 'react';
-import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import { fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
 
 // Mock env to enable v3
@@ -45,6 +45,13 @@ const mockRepo = {
     ]),
   ),
   getTodaySummary: jest.fn(() => Promise.resolve({ completed: 3, remaining: 2 })),
+  getFocusForDate: jest.fn(() => Promise.resolve(null)),
+  clearFocusForDate: jest.fn(() => Promise.resolve()),
+  setFocus: jest.fn(() => Promise.resolve()),
+  topFocusCandidates: jest.fn(() => Promise.resolve([{ id: 't1', type: 'todo', priority: 150 }])),
+  getById: jest.fn((id: string) =>
+    Promise.resolve(id === 't1' ? { id: 't1', type: 'todo', name: 'Finish packing' } : null),
+  ),
   logHabitProgress: jest.fn(() => Promise.resolve()),
   completeTodo: jest.fn(() => Promise.resolve()),
   // Drop zone
@@ -58,6 +65,28 @@ jest.mock('../providers/RepoProvider', () => ({
 describe('Today v3 UI', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRepo.listTodayMerged.mockResolvedValue([
+      { type: 'todo', id: 't1', name: 'Finish packing', status: 'active', carry_forward: true },
+      {
+        type: 'habit',
+        id: 'h1',
+        name: 'Water',
+        target_count: 8,
+        progress_today: 6,
+        cadence: 'day',
+      },
+    ]);
+    mockRepo.getTodaySummary.mockResolvedValue({ completed: 3, remaining: 2 });
+    mockRepo.getFocusForDate.mockResolvedValue(null);
+    mockRepo.clearFocusForDate.mockResolvedValue(undefined);
+    mockRepo.setFocus.mockResolvedValue(undefined);
+    mockRepo.topFocusCandidates.mockResolvedValue([{ id: 't1', type: 'todo', priority: 150 }]);
+    mockRepo.getById.mockImplementation((id: string) =>
+      Promise.resolve(id === 't1' ? { id: 't1', type: 'todo', name: 'Finish packing' } : null),
+    );
+    mockRepo.logHabitProgress.mockResolvedValue(undefined);
+    mockRepo.completeTodo.mockResolvedValue(undefined);
+    mockRepo.listRecentDrops.mockResolvedValue([]);
   });
 
   it('renders the v3 surface pieces when flag is on', async () => {
@@ -79,6 +108,28 @@ describe('Today v3 UI', () => {
     await waitFor(() => {
       expect(mockRepo.listTodayMerged).toHaveBeenCalled();
       expect(mockRepo.getTodaySummary).toHaveBeenCalled();
+    });
+  });
+
+  it('opens the focus picker and sets focus when a candidate is chosen', async () => {
+    renderWithProviders(<TodayScreen />);
+
+    const changeButton = await waitFor(() => screen.getByTestId('today-v3-focus-change'));
+    fireEvent.press(changeButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('focus-picker-modal')).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(mockRepo.topFocusCandidates).toHaveBeenCalled();
+    });
+
+    const candidate = await waitFor(() => screen.getByTestId('focus-pick-todo-t1'));
+    fireEvent.press(candidate);
+
+    await waitFor(() => {
+      expect(mockRepo.setFocus).toHaveBeenCalled();
     });
   });
 });
