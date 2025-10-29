@@ -42,10 +42,10 @@ import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
+import { organizedToastSummary } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
-import { organizedToastSummary } from '../../lib/ui/toast/copy';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -779,7 +779,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const showMindDropSuccessToast = useCallback(
     (args: { todos?: number; notes?: number; habits?: number }) => {
       const label = organizedToastSummary(args ?? {});
-
       showActionToast({
         type: 'success',
         content: label,
@@ -788,7 +787,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           onViewDetails: handleViewDetails,
         },
       });
-      // Optional haptic confirmation
       try {
         if (shouldUseHaptics()) void haptics.submitSuccess();
       } catch (e) {
@@ -971,13 +969,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 }
               }
 
-              showMindDropSuccessToast(counts);
-              await refreshOrganizedToday();
-              pendingUndo.current = createdIds;
-              resetState();
-              setRecentRefresh?.((v) => v + 1);
-              focusGreetingForA11y();
-
               const firstAction = actions[0];
               const probableIntent =
                 firstAction?.type === 'create.todo'
@@ -1142,13 +1133,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         createdIds.notes.push(rec.id);
       }
 
-      showMindDropSuccessToast(counts);
-      await refreshOrganizedToday();
-      pendingUndo.current = createdIds;
-      resetState();
-      setRecentRefresh?.((v) => v + 1);
-      focusGreetingForA11y();
-
       const probableIntent =
         payload.type === 'todo' ? 'todo' : payload.type === 'habit' ? 'habit' : 'note';
       const decisionMode = payload.type === 'note' ? 'keep' : 'auto';
@@ -1186,23 +1170,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       };
     } catch (error) {
       console.error('[CatchAllNotepad] Failed to capture note', error);
-      Alert.alert('Something went wrong', 'Please try again in a moment.');
-      resetState();
       end(trace, 'error', { message: String(error) });
-      return { created: { todos: [], notes: [], habits: [] } };
+      throw error;
     }
-  }, [
-    note,
-    repo,
-    resetState,
-    user,
-    userId,
-    decideWithContext,
-    showMindDropSuccessToast,
-    refreshOrganizedToday,
-    setRecentRefresh,
-    focusGreetingForA11y,
-  ]);
+  }, [note, repo, user, userId, decideWithContext]);
 
   const handlePickSuggestion = useCallback(
     async (suggestion: UISuggestion) => {
@@ -1343,29 +1314,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [listStyle],
   );
 
-  const handleSubmit = useCallback(() => {
-    if (isSubmitting || !note.trim()) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    const needsDelay = uiMode === 'guided';
-
-    if (needsDelay) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-      setIsThinking(true);
-      timerRef.current = setTimeout(() => {
-        setIsThinking(false);
-        timerRef.current = null;
-        void performSave();
-      }, THINKING_DURATION);
-    } else {
-      void performSave();
-    }
-  }, [isSubmitting, uiMode, note, performSave]);
-
   // Mind Drop: robust submit with retry + fallbacks
   const onSubmit = useCallback(async () => {
     const now = Date.now();
@@ -1384,7 +1332,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
         await saveToUnsortedTray(repo, trimmed);
-        setNote('');
+        resetState();
         showActionToast({
           type: 'success',
           content: COPY.savedOfflineMsg,
@@ -1464,7 +1412,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (isNetworkError(lastError)) {
           // Offline-ish path — save locally and reassure
           await saveToUnsortedTray(repo, trimmed);
-          setNote('');
+          resetState();
           showActionToast({
             type: 'success',
             content: COPY.savedOfflineMsg,
@@ -1485,7 +1433,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
           await saveToUnsortedTray(repo, trimmed);
-          setNote('');
+          resetState();
           showActionToast({
             type: 'success',
             content: COPY.savedUnsortedMsg,
@@ -1507,11 +1455,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Refresh trust count & recent
         await refreshOrganizedToday?.();
         setRecentRefresh?.((v) => v + 1);
+        focusGreetingForA11y();
         return;
       }
 
       // SUCCESS PATH — summarize created items
       if ((finalResult?.suggestions?.length ?? 0) > 0) {
+        try {
+          AccessibilityInfo.announceForAccessibility?.('Mind Drop organized successfully.');
+        } catch (e) {
+          void e;
+        }
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         return;
       }
@@ -1526,7 +1480,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         habits: createdHabits,
       };
 
-      setNote('');
+      resetState();
 
       showMindDropSuccessToast({
         todos: createdTodos.length,
@@ -1550,7 +1504,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     refreshOrganizedToday,
     showActionToast,
     networkIsOnline,
+    resetState,
+    focusGreetingForA11y,
+    setRecentRefresh,
   ]);
+
+  const handleSubmit = useCallback(() => {
+    if (isSubmitting || !note.trim()) {
+      return;
+    }
+
+    const needsDelay = uiMode === 'guided';
+
+    if (needsDelay) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      setIsThinking(true);
+      timerRef.current = setTimeout(() => {
+        setIsThinking(false);
+        timerRef.current = null;
+        void onSubmit();
+      }, THINKING_DURATION);
+    } else {
+      void onSubmit();
+    }
+  }, [isSubmitting, uiMode, note, onSubmit]);
 
   // Trust Builders static message - memoized to prevent re-renders
   const trustLine = React.useMemo(
