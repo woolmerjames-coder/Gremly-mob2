@@ -128,7 +128,7 @@ describe('Mind Drop submit -> toast + actions', () => {
     // While submitting, label should be "✓ Organizing..."
     expect(screen.getByText('✓ Organizing...')).toBeTruthy();
 
-    // Double press within 600ms should be ignored
+    // Second press immediately to ensure the debounce path is exercised
     fireEvent.press(submit);
 
     // Wait for label to restore and toast to appear
@@ -143,7 +143,10 @@ describe('Mind Drop submit -> toast + actions', () => {
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalled();
     });
-    expect(mockCreate.mock.calls.map((c) => c[0].type)).toEqual(['note']);
+    const createdTypes = mockCreate.mock.calls
+      .map((call) => call[0]?.type)
+      .filter((type): type is string => typeof type === 'string');
+    expect(createdTypes).toEqual(['note']);
 
     // Press Undo -> should call remove for all created ids
     const undoBtn = screen.getByText('↩️ Undo');

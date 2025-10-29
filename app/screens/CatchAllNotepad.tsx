@@ -45,11 +45,7 @@ import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
-import {
-  ORGANIZED_TOAST_PREFIX,
-  organizedToastContent,
-  type OrganizedKind,
-} from '../../lib/ui/toast/copy';
+import { organizedToastSummary } from '../../lib/ui/toast/copy';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -561,6 +557,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     habits: [],
   });
   const lastSubmitAt = useRef<number>(0);
+  const submitLockRef = useRef(false);
   // Trust Builders: organized today count
   const [organizedToday, setOrganizedToday] = useState<number>(0);
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -781,24 +778,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Shared success toast helper for Mind Drop
   const showMindDropSuccessToast = useCallback(
     (args: { todos?: number; notes?: number; habits?: number }) => {
-      const { todos = 0, notes = 0, habits = 0 } = args || {};
-      const segments: Array<{ kind: OrganizedKind; count: number }> = [];
-      if (todos) segments.push({ kind: 'todo', count: todos });
-      if (notes) segments.push({ kind: 'note', count: notes });
-      if (habits) segments.push({ kind: 'habit', count: habits });
-
-      let label: string;
-      if (segments.length === 0) {
-        label = `${ORGANIZED_TOAST_PREFIX}items`;
-      } else if (segments.length === 1) {
-        const seg = segments[0];
-        label = organizedToastContent(seg.kind, seg.count);
-      } else {
-        const parts = segments.map((seg) =>
-          organizedToastContent(seg.kind, seg.count).replace(ORGANIZED_TOAST_PREFIX, ''),
-        );
-        label = `${ORGANIZED_TOAST_PREFIX}${parts.join(', ')}`;
-      }
+      const label = organizedToastSummary(args ?? {});
 
       showActionToast({
         type: 'success',
@@ -1389,6 +1369,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Mind Drop: robust submit with retry + fallbacks
   const onSubmit = useCallback(async () => {
     const now = Date.now();
+    if (submitLockRef.current) return;
     if (isSubmitting) return;
     if (now - lastSubmitAt.current < 600) return; // debounce 600ms
     lastSubmitAt.current = now;
@@ -1396,11 +1377,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const trimmed = note.trim();
     if (!trimmed) return;
 
+    submitLockRef.current = true;
     setIsSubmitting(true);
 
-    // Optional short-circuit if network state is provided and offline
-    if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
-      try {
+    try {
+      // Optional short-circuit if network state is provided and offline
+      if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
         await saveToUnsortedTray(repo, trimmed);
         setNote('');
         showActionToast({
@@ -1425,19 +1407,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setRecentRefresh?.((v) => v + 1);
         // A11y focus target after clearing input
         focusGreetingForA11y();
-      } finally {
-        setIsSubmitting(false);
+        return;
       }
-      return;
-    }
 
-    // We’ll attempt performSave() up to 2 times total.
-    let attempt = 0;
-    const maxAttempts = 2;
-    let finalResult: any = null;
-    let lastError: any = null;
+      // We’ll attempt performSave() up to 2 times total.
+      let attempt = 0;
+      const maxAttempts = 2;
+      let finalResult: any = null;
+      let lastError: any = null;
 
-    try {
       while (attempt < maxAttempts) {
         attempt++;
         try {
@@ -1562,6 +1540,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       focusGreetingForA11y();
     } finally {
       setIsSubmitting(false);
+      submitLockRef.current = false;
     }
   }, [
     note,
