@@ -21,8 +21,18 @@ export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
           Sweep ready soon - {completed} done · {remaining} to tidy
         </Text>
         <Box row style={{ gap: 8 }}>
-          <Button title="Peek" variant="neutral" onPress={onPeek ?? (() => {})} />
-          <Button title="Start Early" variant="primary" onPress={onStart ?? (() => {})} />
+          <Button
+            title="Peek"
+            variant="neutral"
+            onPress={onPeek ?? (() => {})}
+            testID="today-v3-sweep-peek"
+          />
+          <Button
+            title="Start Early"
+            variant="primary"
+            onPress={onStart ?? (() => {})}
+            testID="today-v3-sweep-start"
+          />
         </Box>
       </Box>
     </View>
