@@ -948,6 +948,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 }
               }
 
+              setSuggestions([]);
+
               const firstAction = actions[0];
               const probableIntent =
                 firstAction?.type === 'create.todo'
