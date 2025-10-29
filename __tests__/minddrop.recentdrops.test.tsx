@@ -76,12 +76,16 @@ describe('RecentDrops in Mind Drop', () => {
     jest.useRealTimers();
   });
 
-  test('Toggle open/closed reveals the list container', async () => {
+  test('Starts open, toggle hides then reopens the list container', async () => {
     render(<CatchAllNotepad />);
-    // Wait for the toggle to appear before interacting (prevents race)
-    const toggle = await screen.findByTestId('minddrop-recent-toggle');
+    const list = await screen.findByTestId('minddrop-recent-list');
+    expect(list).toBeTruthy();
+
+    const toggle = screen.getByTestId('minddrop-recent-toggle');
     fireEvent.press(toggle);
-    // Wait for the list to be rendered after toggling open
+    await waitFor(() => expect(screen.queryByTestId('minddrop-recent-list')).toBeNull());
+
+    fireEvent.press(toggle);
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-list')).toBeTruthy());
   });
 
@@ -97,8 +101,6 @@ describe('RecentDrops in Mind Drop', () => {
 
     render(<CatchAllNotepad />);
 
-    // Open the section to render cards
-    fireEvent.press(screen.getByTestId('minddrop-recent-toggle'));
     // Ensure the loader fetched
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
     // Wait for items to replace Loading… by checking card testIDs
