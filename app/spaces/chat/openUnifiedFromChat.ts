@@ -17,6 +17,7 @@ export interface ChatConversionMeta {
 export interface OverlayInitial {
   title?: string;
   note?: string;
+  dueDate?: string | null;
   // add others as your overlay supports (due_date, cadence, etc.)
 }
 
@@ -50,6 +51,7 @@ export function openUnifiedFromChat(
       // Map overlay initial values to prefill fields
       initialTitle: initial.title || '',
       initialNote: initial.note || '',
+      initialDueDate: initial.dueDate ?? null,
     },
   });
 }

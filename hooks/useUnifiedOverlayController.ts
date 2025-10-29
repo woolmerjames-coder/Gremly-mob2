@@ -5,7 +5,7 @@
 import { useState, useCallback, useRef } from 'react';
 import type { AppRecord } from '../lib/types';
 
-type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person';
+type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
 
 interface ConversionMeta {
   origin?: string;
@@ -95,15 +95,21 @@ export function useUnifiedOverlayController() {
     } else if (record.type === 'todo') {
       entityType = 'todo';
     } else if (record.type === 'note') {
-      if (record.subtype === 'journal') {
+      const labels = (record as any)?.labels as string[] | undefined;
+      const recordSubtype = (record as any)?.subtype as string | undefined;
+
+      if (labels?.includes?.('needs_review') || recordSubtype === 'catchall') {
+        entityType = 'unsorted';
+        subtype = 'catchall';
+      } else if (recordSubtype === 'journal') {
         entityType = 'journal';
-        subtype = record.subtype;
+        subtype = recordSubtype;
       } else {
         entityType = 'note';
-        subtype = record.subtype || null;
+        subtype = recordSubtype ?? null;
       }
     } else {
-      // Fallback to note
+      // Fallback to note family
       entityType = 'note';
     }
 

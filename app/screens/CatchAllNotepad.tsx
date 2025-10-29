@@ -2,11 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffe
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   Modal,
-  Animated,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -17,15 +15,13 @@ import {
   GestureResponderEvent,
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
+  Image,
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHeaderHeight } from '@react-navigation/elements';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { Screen } from '../../ui/Screen';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { Icon } from '../../design-system/Icon';
@@ -46,10 +42,28 @@ import { organizedToastSummary } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { parseDue } from '../../lib/nlp/datetime/parseDue';
+import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
 const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
+
+const MOSS = '#2E5540';
+const LINEN_CREAM = '#F9F6F1';
+const SAGE_MIST = '#BFD8C0';
+const GOLDEN_PEAR = '#E0C47A';
+const TOGGLE_BLUE = '#9CA6E0';
+const CHIPS_AUTO_DISMISS_MS =
+  Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
+  12000;
+
+const DUE_STRIP =
+  String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
+const DUE_CONFIDENCE_FLOOR =
+  Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -162,9 +176,14 @@ const MindDropInput = React.memo<MindDropInputProps>(
           scrollEnabled={scrollEnabled}
         />
         <View style={hudContainerStyle} pointerEvents="none">
-          <Text testID="minddrop-privacy" style={hudTextStyle}>
-            🔒 Private & secure
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ marginRight: 6 }}>
+              <Icon name="Lock" size="xs" color={GOLDEN_PEAR} strokeWidth={1.75} />
+            </View>
+            <Text testID="minddrop-privacy" style={hudTextStyle}>
+              Private & secure
+            </Text>
+          </View>
           <Text testID="minddrop-counter" style={hudTextStyle}>{`${characterCount} / 2000`}</Text>
         </View>
       </Pressable>
@@ -178,11 +197,11 @@ const copy = {
   title: 'Mind Drop',
 } as const;
 
-const SHOW_SUPPORTIVE =
-  String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
-
-function buildSupportiveText(): string | null {
-  return SHOW_SUPPORTIVE ? 'Not sure? Save as a note…' : null;
+function buildChipsPrompt(suggestions: UISuggestion[]): string | null {
+  const SHOW =
+    String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
+  if (!SHOW || !suggestions?.length) return null;
+  return 'Not sure? Save as a note…';
 }
 
 // Centralized copy for consistent toasts/messages
@@ -297,26 +316,12 @@ function mapDecisionOutcome(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
 
 // Removed legacy hex placeholder color; placeholderTextColor now uses themed c.mutedText
 
-// Mind Drop utilities and storage keys
-export function getGreeting(now: Date, lastOpenedAt?: number | null): string {
-  const h = now.getHours();
-  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-  if (lastOpenedAt && now.getTime() - lastOpenedAt >= threeDaysMs) {
-    return '👋 Welcome back! Ready to clear your mind?';
-  }
-  if (h >= 6 && h < 11) return "🌅 Morning! What's on your mind?";
-  if (h >= 11 && h < 17) return '☀️ Drop your thoughts here...';
-  return '✨ Capture those late-night thoughts...';
-}
-
 export const PLACEHOLDERS = [
   'What’s on your mind?',
   'Tasks, thoughts, worries, ideas...',
   'Buy milk, call mom, that idea about...',
   'Just type everything...',
 ] as const;
-
-export const LAST_OPEN_KEY = 'minddrop:last_open_ts';
 
 // Trust Builders helpers
 function startOfTodayLocal() {
@@ -325,7 +330,13 @@ function startOfTodayLocal() {
 }
 
 // Recent Drops helpers and component (colocated for now)
-type RecentDrop = { id: string; text: string; created_at: string };
+type UnifiedDrop = {
+  id: string;
+  kind: 'note' | 'todo' | 'habit';
+  text: string;
+  created_at: string;
+  unsorted?: boolean; // for notes carrying the needs_review label
+};
 
 const relativeTime = (iso: string) => {
   const d = new Date(iso);
@@ -346,124 +357,227 @@ const RecentDrops: React.FC<{
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
-}> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = false, eagerLoad = false }) => {
-  const navigation = useNavigation();
+}> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
+  const overlay = useGlobalOverlay();
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
-  const [open, setOpen] = React.useState(!!initiallyOpen);
+
+  const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
-  const [items, setItems] = React.useState<RecentDrop[]>([]);
+  const [items, setItems] = React.useState<UnifiedDrop[]>([]);
+  const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
 
   const load = React.useCallback(async () => {
-    // In tests, we avoid showing a persistent loading state to reduce flakiness
     const isTest = process.env.JEST_WORKAROUND === '1';
-    if (!isTest) {
-      setLoading(true);
-    }
+    if (!isTest) setLoading(true);
     try {
-      // Fetch latest 3 catch-all notes (fallback filter in JS)
-      const all = (await repo?.notes?.list?.({ limit: 10, order: 'desc' })) ?? [];
-      const drops = (Array.isArray(all) ? all : [])
+      const fetchNotes = async () => {
+        if (!repo?.notes?.list) return [];
+        try {
+          const result = await repo.notes.list({ limit: 50, order: 'desc' });
+          return Array.isArray(result) ? result : [];
+        } catch {
+          return [];
+        }
+      };
+
+      const fetchTodos = async () => {
+        if (!repo?.todos?.list) return [];
+        try {
+          const result = await repo.todos.list({ limit: 50, order: 'desc' });
+          return Array.isArray(result) ? result : [];
+        } catch {
+          return [];
+        }
+      };
+
+      const fetchHabits = async () => {
+        if (!repo?.habits?.list) return [];
+        try {
+          const result = await repo.habits.list({ limit: 50, order: 'desc' });
+          return Array.isArray(result) ? result : [];
+        } catch {
+          return [];
+        }
+      };
+
+      const [notes, todos, habits] = await Promise.all([fetchNotes(), fetchTodos(), fetchHabits()]);
+
+      const start = startOfTodayLocal();
+      const cutoff = start.getTime();
+
+      const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
           (n) =>
-            n?.subtype === 'catchall' ||
+            n?.origin === 'catchall' ||
             (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL)),
         )
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 3)
         .map((n) => ({
           id: n.id,
+          kind: 'note' as const,
           text: n.body || n.title || n.text || n.content || '',
           created_at: n.created_at,
+          unsorted: Array.isArray(n?.labels) && n.labels.includes(UNSORTED_LABEL),
         }));
-      setItems(drops);
-    } catch (e) {
-      // no-op
-    } finally {
-      if (!isTest) {
-        setLoading(false);
+
+      const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
+        .filter((t) => t?.origin === 'catchall')
+        .map((t) => ({
+          id: t.id,
+          kind: 'todo' as const,
+          text: t.name || t.title || '',
+          created_at: t.created_at,
+        }));
+
+      const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
+        .filter((h) => h?.origin === 'catchall')
+        .map((h) => ({
+          id: h.id,
+          kind: 'habit' as const,
+          text: h.name || '',
+          created_at: h.created_at,
+        }));
+
+      let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
+        (i) => i.text && i.created_at,
+      );
+
+      if (!showOlder) {
+        unified = unified.filter((i) => {
+          const ts = new Date(i.created_at).getTime();
+          return Number.isFinite(ts) && ts >= cutoff; // "Today"
+        });
       }
+
+      unified = unified
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 25); // keep snappy; scroll handles overflow
+
+      setItems(unified);
+    } finally {
+      if (!isTest) setLoading(false);
     }
-  }, [repo]);
+  }, [repo, showOlder]);
 
   useEffect(() => {
     void load();
   }, [load, refreshSignal]);
 
-  // Optional eager load hook for tests to start load sooner
   useLayoutEffect(() => {
-    if (eagerLoad) {
-      void load();
-    }
+    if (eagerLoad) void load();
   }, [eagerLoad, load]);
 
-  const handleEdit = (id: string) => {
-    try {
-      (navigation as any).navigate('NoteDetail', { id });
-      onEdited?.();
-    } catch {
-      // TODO: implement inline edit sheet
-    }
+  const handleEdit = (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
+    overlay.openEdit({
+      record: { id, type: kind } as any,
+      spaceId: null,
+    });
+    onEdited?.();
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, kind: UnifiedDrop['kind']) => {
     try {
-      await (repo?.remove?.(id) ?? repo?.notes?.delete?.(id));
+      await (repo?.remove?.(id) ?? repo?.[`${kind}s`]?.delete?.(id));
       await load();
       onDeleted?.();
     } catch {
-      // Optional: handle error UI
+      // optional: error UI
     }
   };
 
   return (
     <View style={styles.recentRoot}>
-      <Pressable
-        testID="minddrop-recent-toggle"
-        onPress={() => setOpen((v) => !v)}
-        style={styles.recentHeader}
-        accessibilityRole="button"
-        accessibilityLabel="Toggle recent drops"
-        accessibilityState={{ expanded: open }}
-      >
-        <Text style={styles.recentHeaderText}>{open ? 'Recent drops ↑' : 'Recent drops ↓'}</Text>
-      </Pressable>
+      <View style={styles.recentHeaderRow}>
+        <Pressable
+          testID="minddrop-recent-toggle"
+          onPress={() => setOpen((v) => !v)}
+          style={styles.recentHeaderBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle recent drops"
+          accessibilityState={{ expanded: open }}
+        >
+          <Text style={styles.recentHeaderText}>Recent drops {open ? '↑' : '↓'}</Text>
+        </Pressable>
+
+        <View style={styles.recentHeaderRight}>
+          <Pressable onPress={() => setShowOlder(false)} accessibilityRole="button">
+            <Text style={[styles.recentToggle, !showOlder && styles.recentToggleActive]}>
+              Today
+            </Text>
+          </Pressable>
+          <Text style={styles.recentDot}>•</Text>
+          <Pressable onPress={() => setShowOlder(true)} accessibilityRole="button">
+            <Text style={[styles.recentToggle, showOlder && styles.recentToggleActive]}>
+              Show older
+            </Text>
+          </Pressable>
+        </View>
+      </View>
 
       {open ? (
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 ? (
-            <Text style={styles.recentEmpty}>No recent drops yet.</Text>
+            <Text style={styles.recentEmpty}>
+              {showOlder ? 'No drops yet.' : 'No drops yet today.'}
+            </Text>
           ) : (
-            items.map((item) => (
-              <View key={item.id} testID={`minddrop-recent-${item.id}`} style={styles.recentCard}>
-                <Text numberOfLines={2} style={styles.recentText}>
-                  {item.text || '—'}
-                </Text>
-                <View style={styles.recentMetaRow}>
-                  <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                  <View style={styles.recentActions}>
-                    <Pressable
-                      onPress={() => handleEdit(item.id)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.recentAction}>Edit</Text>
-                    </Pressable>
-                    <Text style={styles.recentDot}>•</Text>
-                    <Pressable
-                      onPress={() => handleDelete(item.id)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.recentActionDelete}>Delete</Text>
-                    </Pressable>
+            <ScrollView
+              contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+              showsVerticalScrollIndicator
+            >
+              {items.map((item) => (
+                <View
+                  key={`${item.kind}:${item.id}`}
+                  testID={`minddrop-recent-${item.kind}-${item.id}`}
+                  style={styles.recentCard}
+                >
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                    }}
+                  >
+                    <Text numberOfLines={2} style={styles.recentText}>
+                      {item.text || '—'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
+                        {item.kind}
+                      </Text>
+                      {item.kind === 'note' && item.unsorted ? (
+                        <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
+                      ) : null}
+                    </View>
+                  </View>
+
+                  <View style={styles.recentMetaRow}>
+                    <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                    <View style={styles.recentActions}>
+                      <Pressable
+                        onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentAction}>Edit</Text>
+                      </Pressable>
+                      <Text style={styles.recentDot}>•</Text>
+                      <Pressable
+                        onPress={() => handleDelete(item.id, item.kind)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentActionDelete}>Delete</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))
+              ))}
+            </ScrollView>
           )}
         </View>
       ) : null}
@@ -471,7 +585,7 @@ const RecentDrops: React.FC<{
   );
 };
 
-// Memoize RecentDrops to avoid re-rendering when parent state (greeting, trust, tips) changes
+// Memoize RecentDrops to avoid re-rendering when parent state (subtitle, trust, tips) changes
 const RecentDropsMemo = React.memo(RecentDrops);
 
 // Named export for tests to import the isolated component
@@ -492,14 +606,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
+  const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
   const themeResult = useTheme();
   const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
   const themeMode = themeResult.mode;
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
-  const gradientStopColor = themeMode === 'dark' ? c.sage : c.sageTint;
-  const gradientStopOpacity = themeMode === 'dark' ? 0.26 : 0.3;
   const reduceMotion = useReducedMotion();
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
@@ -510,11 +622,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
+  // Auto-dismiss chips after configured interval so parent owns lifecycle
+  useEffect(() => {
+    if (!suggestions?.length) return;
+    const timeout = setTimeout(() => setSuggestions([]), CHIPS_AUTO_DISMISS_MS);
+    return () => clearTimeout(timeout);
+  }, [suggestions, CHIPS_AUTO_DISMISS_MS]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Mind Drop: greeting + static placeholder
-  const [greeting, setGreeting] = useState<string>('');
+  // Mind Drop: subtitle + static placeholder
   const greetingRef = useRef<any>(null);
-  const [placeholder] = useState('How’s your day going?');
+  const subtitle = '✶ Capture those late-night thoughts…';
+  const [placeholder] = useState('Drop your thoughts here…');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
@@ -534,6 +652,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     notes: [],
     habits: [],
   });
+  const unsortedIdRef = useRef<string | null>(null);
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
   // Trust Builders: organized today count
@@ -553,66 +672,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
-  // On mount: load last open ts, compute greeting, save new last open ts
-  useEffect(() => {
-    let isMounted = true;
-
-    (async () => {
-      let lastOpenedAt: number | null = null;
-      try {
-        const raw = await AsyncStorage.getItem(LAST_OPEN_KEY);
-        if (raw) lastOpenedAt = Number(raw);
-      } catch (e) {
-        void e; // ignore read error
-      }
-
-      if (isMounted) {
-        const now = new Date();
-        setGreeting(getGreeting(now, lastOpenedAt));
-      }
-
-      // Save "last open" now
-      try {
-        await AsyncStorage.setItem(LAST_OPEN_KEY, String(Date.now()));
-      } catch (e) {
-        void e; // ignore write error
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  // Subtitle is static for consistent welcome tone
 
   const handleInfoOpen = useCallback(() => setInfoOpen(true), []);
   const handleInfoClose = useCallback(() => setInfoOpen(false), []);
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      (navigation as any).navigate('Tabs');
+    }
+  }, [navigation]);
 
   useLayoutEffect(() => {
-    navigation.setOptions({
-      title: copy.title,
-      headerShown: true,
-      headerTransparent: true,
-      headerShadowVisible: false,
-      headerStyle: { backgroundColor: 'transparent' },
-      headerTitle: () => (
-        <View style={styles.headerRow} testID="minddrop-header">
-          <Text style={styles.headerTitle} accessibilityRole="header">
-            {copy.title}
-          </Text>
-          <Pressable
-            accessibilityLabel="About Mind Drop"
-            accessibilityRole="button"
-            testID="minddrop-info-header"
-            style={styles.headerInfoBtn}
-            onPress={handleInfoOpen}
-            hitSlop={12}
-          >
-            <Icon name="Info" size="sm" color={c.mutedText} />
-          </Pressable>
-        </View>
-      ),
-    });
-  }, [navigation, styles, c.mutedText, handleInfoOpen]);
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
@@ -645,6 +719,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Silent fail — keep last known number
     }
   }, [repo]);
+
+  useEffect(() => {
+    const unsub = addOverlaySavedListener(() => {
+      void refreshOrganizedToday?.();
+      setRecentRefresh?.((v) => v + 1);
+    });
+    return unsub;
+  }, [refreshOrganizedToday]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(() => note.trim().length === 0 || isSubmitting, [note, isSubmitting]);
@@ -700,7 +782,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       !snapshot ||
       (!snapshot.todos.length && !snapshot.notes.length && !snapshot.habits.length)
     ) {
-      showActionToast({ type: 'success', content: 'Nothing to undo' });
+      if (TOASTS_ON) {
+        showActionToast({ type: 'success', content: 'Nothing to undo' });
+      }
       return;
     }
 
@@ -715,11 +799,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Clear snapshot to avoid repeat undo
       pendingUndo.current = { todos: [], notes: [], habits: [] };
 
-      showActionToast({ type: 'success', content: '✅ Undo complete — Mind Drop reverted' });
+      if (TOASTS_ON) {
+        showActionToast({ type: 'success', content: '✅ Undo complete — Mind Drop reverted' });
+      }
     } catch (e) {
       Alert.alert('Undo failed', 'Could not revert items. You can edit from Recent.');
     }
-  }, [repo, showActionToast]);
+  }, [repo, showActionToast, TOASTS_ON]);
 
   // Navigate to Hub → Recent (fallback toast if route missing)
   const handleViewDetails = useCallback(() => {
@@ -727,12 +813,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Navigate to Hub tab; pass filter for future use if supported
       (navigation as any).navigate('Tabs', { screen: 'Hub', params: { filter: 'recent' } });
     } catch (err) {
-      showActionToast({
-        type: 'success',
-        content: 'ℹ️ Open Hub → Recent to see new items',
-      });
+      if (TOASTS_ON) {
+        showActionToast({
+          type: 'success',
+          content: 'ℹ️ Open Hub → Recent to see new items',
+        });
+      }
     }
-  }, [navigation, showActionToast]);
+  }, [navigation, showActionToast, TOASTS_ON]);
 
   const handleInfoViewRecent = useCallback(() => {
     handleInfoClose();
@@ -756,6 +844,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Shared success toast helper for Mind Drop
   const showMindDropSuccessToast = useCallback(
     (args: { todos?: number; notes?: number; habits?: number }) => {
+      if (!TOASTS_ON) {
+        try {
+          if (shouldUseHaptics()) void haptics.submitSuccess();
+        } catch (e) {
+          void e;
+        }
+        try {
+          AccessibilityInfo.announceForAccessibility?.('Mind Drop organized successfully.');
+        } catch (e) {
+          void e;
+        }
+        return;
+      }
+
       const label = organizedToastSummary(args ?? {});
       showActionToast({
         type: 'success',
@@ -777,7 +879,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         void e;
       }
     },
-    [showActionToast, handleUndoCreated, handleViewDetails],
+    [TOASTS_ON, showActionToast, handleUndoCreated, handleViewDetails],
   );
 
   type SaveResult = {
@@ -802,6 +904,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const currentUserId = user?.id ?? userId ?? 'anonymous';
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+
+      const parsed = parseDue(trimmed);
+      const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
+      const cleanedSource =
+        hasConfidentDue && DUE_STRIP ? (parsed?.textWithoutWhen ?? '') : trimmed;
+      const cleanedText = cleanedSource.trim() || trimmed;
+      const parsedIso = hasConfidentDue && parsed ? parsed.iso : null;
 
       setSuggestions([]);
 
@@ -843,8 +952,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           for (const action of actions) {
             if (action.type === 'create.todo') {
-              const title = action.payload.title?.trim() || trimmed;
-              const due = action.payload.due ?? null;
+              const title = (action.payload.title?.trim() || cleanedText).trim() || 'Quick task';
+              const due = action.payload.due ?? parsedIso ?? null;
               mapped.push({
                 bucket: 'todos',
                 payload: {
@@ -860,7 +969,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'create.habit') {
-              const name = action.payload.name?.trim() || trimmed;
+              const name = action.payload.name?.trim() || cleanedText || trimmed;
               const freqRaw = action.payload.freq;
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
@@ -878,7 +987,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'create.note') {
-              const text = action.payload.text?.trim() || trimmed;
+              const text = action.payload.text?.trim() || cleanedText || trimmed;
               const rawSubtype = action.payload.subtype;
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
 
@@ -899,15 +1008,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'add.to.list') {
-              const itemText = action.payload.item?.trim() || trimmed;
-              const title = trimmed || itemText || 'Quick list';
+              const itemText = action.payload.item?.trim() || cleanedText || trimmed;
+              const title = cleanedText || itemText || trimmed || 'Quick list';
 
               mapped.push({
                 bucket: 'notes',
                 payload: {
                   type: 'note',
                   title,
-                  body: trimmed || itemText,
+                  body: cleanedText || itemText,
                   subtype: 'list',
                   origin: 'catchall',
                   ai_placed: true,
@@ -946,6 +1055,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   createdIds.notes.push(record.id);
                 }
               }
+
+              setSuggestions([]);
 
               const firstAction = actions[0];
               const probableIntent =
@@ -987,7 +1098,34 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
-          setSuggestions(chipSuggestions);
+          try {
+            const id = await saveToUnsortedTray(repo as any, trimmed);
+            unsortedIdRef.current = id ?? null;
+          } catch (e) {
+            console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
+          }
+
+          const enrichedChips = chipSuggestions.map((s) => {
+            if (s.type === 'create.todo') {
+              const name = (s.payload?.name || cleanedText || '').trim();
+              const due = s.payload?.due ?? s.payload?.due_date ?? parsedIso ?? null;
+              return {
+                ...s,
+                payload: {
+                  ...s.payload,
+                  name,
+                  due,
+                  due_date: due,
+                  undefined_due: !due,
+                },
+              } as UISuggestion;
+            }
+            return s;
+          });
+
+          setSuggestions(enrichedChips);
+          setNote('');
+          setRecentRefresh?.((v) => v + 1);
           pendingUndo.current = { todos: [], notes: [], habits: [] };
 
           void logCatchallDecision({
@@ -1008,7 +1146,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           step(trace, 'decide:chips', { count: chipSuggestions.length });
           return {
             created: { todos: [], notes: [], habits: [] },
-            suggestions: chipSuggestions,
+            suggestions: enrichedChips,
             decisionMode: decision.mode,
             decisionConfidence: decision.confidence,
           };
@@ -1046,12 +1184,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
+        const due = parsedIso ?? null;
         payload = {
           type: 'todo',
-          title: trimmed,
-          name: trimmed,
-          due_date: null,
-          undefined_due: true,
+          title: cleanedText,
+          name: cleanedText,
+          due_date: due,
+          undefined_due: !due,
           space_id: null,
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
@@ -1064,7 +1203,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         payload = {
           type: 'habit',
-          name: trimmed,
+          name: cleanedText || trimmed,
           frequency,
           space_id: null,
           ai_placed: true,
@@ -1074,8 +1213,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } else {
         payload = {
           type: 'note',
-          title: trimmed || 'Quick note',
-          body: trimmed,
+          title: cleanedText || trimmed || 'Quick note',
+          body: cleanedText || trimmed,
           subtype:
             classifyOut?.type === 'note' &&
             (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
@@ -1158,6 +1297,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const trimmed = note.trim();
 
       try {
+        const existingUnsortedId = unsortedIdRef.current;
+        if (existingUnsortedId) {
+          try {
+            await (repo as any).remove?.(existingUnsortedId);
+          } catch (e) {
+            console.warn('[MindDrop][Chip] failed to remove unsorted', e);
+          } finally {
+            unsortedIdRef.current = null;
+          }
+        }
+
         setIsSubmitting(true);
 
         const createdIds = {
@@ -1188,10 +1338,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             counts.notes = 1;
             createdIds.notes.push(record.id);
           } else {
+            const due = suggestion.payload.due ?? suggestion.payload.due_date ?? null;
             const record = await repo.create({
               type: 'todo',
-              name: suggestion.payload.name,
-              undefined_due: !!suggestion.payload.undefined_due,
+              title: rawTodoText,
+              name: rawTodoText,
+              due_date: due,
+              undefined_due: !due,
               ai_placed: true,
               why_string: 'Chosen via chip',
               origin: 'catchall',
@@ -1311,10 +1464,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
         await saveToUnsortedTray(repo, trimmed);
         resetState();
-        showActionToast({
-          type: 'success',
-          content: COPY.savedOfflineMsg,
-        });
+        if (TOASTS_ON) {
+          showActionToast({
+            type: 'success',
+            content: COPY.savedOfflineMsg,
+          });
+        }
         // Optional haptic warning
         try {
           if (shouldUseHaptics()) void haptics.warning();
@@ -1363,7 +1518,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // No items created -> mark as failure and possibly retry
           lastError = new Error('EmptySave');
           if (attempt === 1) {
-            showActionToast({ type: 'success', content: COPY.retrying });
+            if (TOASTS_ON) {
+              showActionToast({ type: 'success', content: COPY.retrying });
+            }
             // loop to attempt #2
           } else {
             // Second failure — stop retrying
@@ -1373,10 +1530,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           lastError = err;
           if (attempt === 1) {
             // First failure — show “retrying” toast and try again
-            showActionToast({
-              type: 'success',
-              content: COPY.retrying,
-            });
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: COPY.retrying,
+              });
+            }
             // loop to attempt #2
           } else {
             // Second failure — stop retrying
@@ -1391,10 +1550,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Offline-ish path — save locally and reassure
           await saveToUnsortedTray(repo, trimmed);
           resetState();
-          showActionToast({
-            type: 'success',
-            content: COPY.savedOfflineMsg,
-          });
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedOfflineMsg,
+            });
+          }
           // Optional haptic warning
           try {
             if (shouldUseHaptics()) void haptics.warning();
@@ -1412,10 +1573,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Non-network error: save to Unsorted Tray for manual follow-up
           await saveToUnsortedTray(repo, trimmed);
           resetState();
-          showActionToast({
-            type: 'success',
-            content: COPY.savedUnsortedMsg,
-          });
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedUnsortedMsg,
+            });
+          }
           // Optional haptic warning
           try {
             if (shouldUseHaptics()) void haptics.warning();
@@ -1485,6 +1648,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     resetState,
     focusGreetingForA11y,
     setRecentRefresh,
+    TOASTS_ON,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -1509,51 +1673,81 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [isSubmitting, uiMode, note, onSubmit]);
 
-  // Trust Builders static message - memoized to prevent re-renders
-  const trustLine = React.useMemo(
-    () =>
-      organizedToday > 0
-        ? `${organizedToday} ${organizedToday === 1 ? 'thought' : 'thoughts'} organized today`
-        : 'Your thoughts are private & secure with Gremly.',
-    [organizedToday],
-  );
   const legacyUI = React.useMemo(() => {
-    const supportingText = suggestions.length > 0 ? buildSupportiveText() : null;
+    const prompt = buildChipsPrompt(suggestions);
 
     return (
       <View>
-        {/* Greeting above the input */}
-        {greeting ? (
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow} testID="minddrop-header">
+            <View style={styles.headerLeftGroup}>
+              <Pressable
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                onPress={handleBack}
+                hitSlop={12}
+                style={styles.headerBackBtn}
+              >
+                <Text style={styles.headerBackText}>{'<'}</Text>
+              </Pressable>
+              <Text style={styles.headerTitle} accessibilityRole="header" numberOfLines={1}>
+                {copy.title}
+              </Text>
+              <Pressable
+                accessibilityLabel="About Mind Drop"
+                accessibilityRole="button"
+                testID="minddrop-info-header"
+                style={styles.headerInfoBtn}
+                onPress={handleInfoOpen}
+                hitSlop={12}
+              >
+                <Icon name="Info" size="sm" color={c.moss} />
+              </Pressable>
+            </View>
+          </View>
+          {/* Subtitle above the input */}
           <Text
             ref={greetingRef}
-            testID="minddrop-greeting"
-            style={styles.greeting}
+            testID="minddrop-subtitle"
+            style={styles.subtitle}
             accessibilityRole="header"
           >
-            {greeting}
+            {subtitle}
           </Text>
-        ) : null}
-        <MindDropInput
-          value={note}
-          onChangeText={handleChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={c.mutedText}
-          containerStyle={styles.inputContainer}
-          focusedStyle={styles.inputContainerFocused}
-          inputStyle={[styles.input, { height: inputHeight, paddingRight: 72, paddingBottom: 28 }]}
-          onFocusChange={handleInputFocusChange}
-          autoFocus
-          onContentSizeChange={handleInputContentSizeChange}
-          scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
-          hudContainerStyle={styles.inputHud}
-          hudTextStyle={styles.inputHudText}
-          characterCount={note.length}
-        />
+          <Image
+            source={GREMLY_TOP}
+            style={styles.headerMascot}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+        <View style={styles.inputBlock}>
+          <MindDropInput
+            value={note}
+            onChangeText={handleChangeText}
+            placeholder={placeholder}
+            placeholderTextColor={c.mutedText}
+            containerStyle={styles.inputContainer}
+            focusedStyle={styles.inputContainerFocused}
+            inputStyle={[
+              styles.input,
+              { height: inputHeight, paddingRight: 72, paddingBottom: 28 },
+            ]}
+            onFocusChange={handleInputFocusChange}
+            autoFocus
+            onContentSizeChange={handleInputContentSizeChange}
+            scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
+            hudContainerStyle={styles.inputHud}
+            hudTextStyle={styles.inputHudText}
+            characterCount={note.length}
+          />
+        </View>
         {suggestions.length > 0 ? (
           <MidConfidenceChips
             suggestions={suggestions}
             onPick={handlePickSuggestion}
-            supportingText={supportingText ?? undefined}
+            prompt={prompt ?? undefined}
+            autoDismissMs={CHIPS_AUTO_DISMISS_MS}
           />
         ) : null}
         <View style={styles.submitButtonWrapper}>
@@ -1569,13 +1763,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityState={{ busy: isSubmitting, disabled }}
           />
         </View>
-        <Text ref={greetingRef} style={styles.helperLine}>
-          Drop it. I’ll sort it.
-        </Text>
-        {/* Trust Builders row */}
         <View style={styles.trustRow} testID="minddrop-trust">
-          <Text style={styles.trustText} testID="minddrop-trust-text">
-            {trustLine}
+          <Text style={styles.trustStyled} testID="minddrop-trust-text">
+            <Text style={styles.trustNumber}>{organizedToday}</Text>
+            <Text style={styles.trustSuffix}>
+              {organizedToday === 1 ? ' thought organized today' : ' thoughts organized today'}
+            </Text>
           </Text>
         </View>
         {/* Recent Drops section */}
@@ -1583,11 +1776,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           refreshSignal={recentRefresh}
           onEdited={noopCallback}
           onDeleted={noopCallback}
+          initiallyOpen={true}
         />
       </View>
     );
   }, [
-    greeting,
     greetingRef,
     styles,
     note,
@@ -1596,16 +1789,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleInputContentSizeChange,
     placeholder,
     c.mutedText,
+    c.moss,
     c.bg,
     isSubmitting,
     disabled,
     onSubmit,
     suggestions,
     handlePickSuggestion,
-    trustLine,
+    organizedToday,
+    subtitle,
     recentRefresh,
     noopCallback,
     inputHeight,
+    handleBack,
+    handleInfoOpen,
   ]);
 
   const content = MIND_DROP_V2 ? (
@@ -1619,22 +1816,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   return (
-    <View
-      style={[
-        styles.root,
-        {
-          paddingTop: headerHeight + 12,
-          paddingBottom: 16 + insets.bottom,
-        },
-      ]}
-      testID="minddrop-screen"
-    >
+    <View style={styles.root} testID="minddrop-screen">
       {/* Inline Action Toast overlay */}
       <Svg pointerEvents="none" style={styles.gradientBackground}>
         <Defs>
           <SvgLinearGradient id="mindDropGradient" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={c.bg} stopOpacity={1} />
-            <Stop offset="100%" stopColor={gradientStopColor} stopOpacity={gradientStopOpacity} />
+            <Stop offset="0%" stopColor={LINEN_CREAM} stopOpacity={1} />
+            <Stop offset="20%" stopColor={SAGE_MIST} stopOpacity={1} />
+            <Stop offset="100%" stopColor={MOSS} stopOpacity={1} />
           </SvgLinearGradient>
         </Defs>
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
@@ -1690,7 +1879,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Pressable>
       </Modal>
 
-      {content}
+      <View
+        style={[
+          styles.contentWrapper,
+          {
+            paddingTop: insets.top + 12,
+            paddingBottom: 16 + insets.bottom,
+          },
+        ]}
+      >
+        {content}
+      </View>
     </View>
   );
 }
@@ -1699,46 +1898,85 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
   return StyleSheet.create({
     root: {
       flex: 1,
-      backgroundColor: c.bg,
-      padding: 16,
+      backgroundColor: 'transparent',
+    },
+    contentWrapper: {
+      flex: 1,
+      paddingHorizontal: 16,
     },
     gradientBackground: {
       ...StyleSheet.absoluteFillObject,
     },
 
+    headerContainer: {
+      position: 'relative',
+      paddingRight: 84,
+      marginBottom: 12,
+    },
+
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: 8,
-      marginBottom: 8,
+      justifyContent: 'flex-start',
+      marginBottom: 2,
+    },
+    headerLeftGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
     },
     headerTitle: {
       color: c.moss,
       fontFamily: 'PlusJakartaSans-Bold',
-      fontSize: 28,
+      fontSize: 32,
       lineHeight: 34,
+      flexShrink: 1,
+    },
+    headerBackBtn: {
+      padding: 6,
+      marginRight: 12,
+    },
+    headerBackText: {
+      color: c.moss,
+      fontSize: 24,
+      fontFamily: 'PlusJakartaSans-Bold',
+      lineHeight: 28,
     },
     headerInfoBtn: {
       padding: 8,
+      marginLeft: 8,
       borderRadius: 9999,
       backgroundColor: 'transparent',
     },
-
-    greeting: {
-      color: c.moss,
-      fontSize: 16,
-      marginBottom: 12,
-      fontFamily: 'Inter-Regular',
+    headerMascot: {
+      position: 'absolute',
+      width: 72,
+      height: 92,
+      right: -2,
+      bottom: -16,
     },
 
+    subtitle: {
+      color: c.moss,
+      fontSize: 14,
+      marginTop: -2,
+      marginBottom: 6,
+      fontFamily: 'Inter-Medium',
+      textShadowColor: '#00000033',
+      textShadowRadius: 2,
+      textShadowOffset: { width: 0, height: 1 },
+    },
+
+    inputBlock: {
+      position: 'relative',
+    },
     inputContainer: {
-      backgroundColor: '#FFFFFF',
+      backgroundColor: LINEN_CREAM,
       borderRadius: 16,
       padding: 20,
       minHeight: 240,
-      borderWidth: 1.5,
-      borderColor: c.sage ?? '#BFD8C0',
+      borderWidth: 1,
+      borderColor: SAGE_MIST,
       shadowColor: c.cardShadow,
       shadowOpacity: 0.06,
       shadowRadius: 8,
@@ -1746,9 +1984,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       elevation: 2,
     },
     inputContainerFocused: {
-      borderColor: c.sage ?? '#BFD8C0',
-      shadowColor: '#E0C47A',
-      shadowOpacity: 0.12,
+      borderColor: SAGE_MIST,
+      shadowColor: SAGE_MIST,
+      shadowOpacity: 0.18,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
       elevation: 6,
@@ -1827,13 +2065,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     submitButtonWrapper: {
       marginTop: 24,
     },
-    helperLine: {
-      marginTop: 6,
-      textAlign: 'center',
-      color: c.mutedText,
-      fontFamily: 'Inter-Regular',
-      fontSize: 13,
-    },
     submitButton: {
       marginTop: 16,
       height: 56,
@@ -1859,23 +2090,42 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       alignItems: 'center',
       minHeight: 20,
     },
-    trustText: {
-      color: c.mutedText,
-      fontSize: 13,
+    trustStyled: {
       textAlign: 'center',
+    },
+    trustNumber: {
+      color: GOLDEN_PEAR,
+      fontFamily: 'Inter-SemiBold',
+    },
+    trustSuffix: {
+      color: SAGE_MIST,
       fontFamily: 'Inter-Regular',
     },
 
-    recentRoot: { marginTop: 12 },
-    recentHeader: {
-      paddingVertical: 8,
+    recentRoot: { marginTop: 8 },
+    recentHeaderRow: {
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    recentHeaderBtn: {
+      paddingVertical: 8,
     },
     recentHeaderText: {
-      color: c.moss,
+      color: SAGE_MIST,
       fontSize: 16,
       fontWeight: '600',
       fontFamily: 'Inter-Medium',
+    },
+    recentHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    recentToggle: {
+      color: TOGGLE_BLUE,
+      fontSize: 12,
+      fontFamily: 'Inter-Medium',
+      textDecorationLine: 'underline',
+    },
+    recentToggleActive: {
+      textDecorationLine: 'none',
     },
     recentList: { marginTop: 6, gap: 8 },
     recentCard: {
@@ -1888,11 +2138,44 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       shadowOffset: { width: 0, height: 2 },
       elevation: 1,
     },
+    recentCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 8,
+    },
     recentText: {
-      color: c.text,
+      color: '#222222',
       fontSize: 14,
       lineHeight: 20,
       fontFamily: 'Inter-Regular',
+    },
+    recentBadgeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    recentBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 10,
+      fontSize: 11,
+      overflow: 'hidden',
+      color: c.text,
+      backgroundColor: c.sageTint,
+      fontFamily: 'Inter-Medium',
+    },
+    badge_note: {
+      backgroundColor: c.sageTint,
+    },
+    badge_todo: {
+      backgroundColor: '#E6F0FF',
+    },
+    badge_habit: {
+      backgroundColor: '#EAF7ED',
+    },
+    badge_unsorted: {
+      backgroundColor: '#FFF4CC',
     },
     recentMetaRow: {
       marginTop: 8,
@@ -1900,23 +2183,24 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       justifyContent: 'space-between',
       alignItems: 'center',
     },
-    recentTime: {
-      color: c.mutedText,
-      fontSize: 12,
-      fontFamily: 'Inter-Regular',
+    recentActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
     },
-    recentActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     recentAction: {
       color: c.moss,
       fontSize: 13,
       textDecorationLine: 'underline',
       fontFamily: 'Inter-Medium',
+      lineHeight: 18,
     },
     recentActionDelete: {
       color: c.danger,
       fontSize: 13,
       textDecorationLine: 'underline',
       fontFamily: 'Inter-Medium',
+      lineHeight: 18,
     },
     recentDot: { color: c.mutedText, marginHorizontal: 6 },
     recentEmpty: {
@@ -1925,6 +2209,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
       paddingVertical: 10,
+    },
+    recentTime: {
+      color: c.mutedText,
+      fontSize: 12,
+      fontFamily: 'Inter-Regular',
     },
   });
 }

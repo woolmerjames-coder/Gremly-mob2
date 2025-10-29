@@ -20,7 +20,7 @@ module.exports = {
     '<rootDir>/__tests__/setup/console.silence.ts',
   ],
   moduleNameMapper: {
-    '\\.(png|jpg|jpeg|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.js',
+    '\\.(png|jpg|jpeg|gif|webp|svg|lottie)$': '<rootDir>/__mocks__/fileMock.js',
     '^.+\\.(css|scss)$': 'identity-obj-proxy',
     '^@/(.*)$': '<rootDir>/$1',
   },

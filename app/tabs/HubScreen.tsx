@@ -28,6 +28,7 @@ import TagFilterBar from '../../components/filters/TagFilterBar';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
 import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
+import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -387,6 +388,13 @@ export default function HubScreen() {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    const off = addOverlaySavedListener(() => {
+      void load();
+    });
+    return off;
   }, [load]);
 
   // Reset notes subfilter when switching away from Notes tab

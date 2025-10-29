@@ -70,6 +70,11 @@ beforeEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
   mockDecideWithContext.mockClear();
+  process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+});
+
+afterEach(() => {
+  delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
 });
 
 function typeAndSubmit(text: string, options: { offline?: boolean } = {}) {

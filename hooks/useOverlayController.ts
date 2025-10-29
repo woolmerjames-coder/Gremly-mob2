@@ -18,7 +18,7 @@
 import { useState, useCallback } from 'react';
 import type { AppRecord } from '../lib/types';
 
-type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person';
+type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person' | 'unsorted';
 
 interface OverlayState {
   visible: boolean;
@@ -26,6 +26,7 @@ interface OverlayState {
   initialEntity?: {
     type: EntityType;
     id?: string;
+    subtype?: string | null;
   } | null;
   initialSpaceId?: string | null;
 }
@@ -82,7 +83,7 @@ function useLegacyOverlayController(): OverlayController {
     setState({
       visible: true,
       mode: 'create',
-      initialEntity: params?.type ? { type: params.type } : null,
+      initialEntity: params?.type ? { type: params.type, subtype: null } : null,
       initialSpaceId: params?.spaceId,
     });
   }, []);
@@ -91,9 +92,20 @@ function useLegacyOverlayController(): OverlayController {
     const { record, spaceId } = params;
 
     // Map AppRecord type to EntityType
-    let entityType: EntityType = record.type;
-    if (record.type === 'note' && record.subtype === 'journal') {
-      entityType = 'journal';
+    let entityType: EntityType = record.type as EntityType;
+    let subtype: string | null = null;
+
+    if (record.type === 'note') {
+      const labels = (record as any)?.labels as string[] | undefined;
+      const recordSubtype = (record as any)?.subtype as string | undefined;
+
+      if (labels?.includes?.('needs_review') || recordSubtype === 'catchall') {
+        entityType = 'unsorted';
+        subtype = 'catchall';
+      } else if (recordSubtype === 'journal') {
+        entityType = 'journal';
+        subtype = recordSubtype;
+      }
     }
 
     setState({
@@ -102,6 +114,7 @@ function useLegacyOverlayController(): OverlayController {
       initialEntity: {
         type: entityType,
         id: record.id,
+        subtype,
       },
       initialSpaceId: spaceId,
     });

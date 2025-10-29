@@ -28,7 +28,7 @@ import { useRepo } from '../providers/RepoProvider';
 import type { ManualAddPayload } from '../app/schemas/manualAdd';
 import type { AppRecord } from '../lib/types';
 
-type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person';
+type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person' | 'unsorted';
 
 interface FeatureFlaggedOverlayProps {
   visible: boolean;
@@ -36,6 +36,7 @@ interface FeatureFlaggedOverlayProps {
   initialEntity?: {
     type: EntityType;
     id?: string;
+    subtype?: string | null;
   } | null;
   initialSpaceId?: string | null;
   onClose: () => void;
@@ -186,7 +187,7 @@ function LegacyOverlayAdapter({
           ? 'habits'
           : initialEntity?.type === 'todo'
             ? 'todos'
-            : initialEntity?.type === 'journal'
+            : initialEntity?.type === 'journal' || initialEntity?.type === 'unsorted'
               ? 'journal'
               : 'habits'
       }
