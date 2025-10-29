@@ -28,6 +28,7 @@ import TodayHabitCard from '../../components/today/TodayHabitCard';
 import TodayTodoCard from '../../components/today/TodayTodoCard';
 import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
 import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
+import TodayV3View from './TodayV3View';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -58,6 +59,13 @@ function toKebabCase(str: string): string {
 }
 
 export default function TodayScreen() {
+  if (env.feature.today.v3) {
+    return <TodayV3View />;
+  }
+  return <TodayScreenV2 />;
+}
+
+function TodayScreenV2() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const navigation = useNavigation<NavigationProp>();
   const { user } = useAuth();
