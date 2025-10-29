@@ -907,10 +907,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
-      const cleanedCandidate =
-        hasConfidentDue && DUE_STRIP ? (parsed?.textWithoutWhen ?? trimmed) : trimmed;
-      const cleanedText = cleanedCandidate.trim() ? cleanedCandidate.trim() : trimmed;
-      const parsedDueIso = hasConfidentDue && parsed ? parsed.iso : null;
+      const cleanedSource =
+        hasConfidentDue && DUE_STRIP ? (parsed?.textWithoutWhen ?? '') : trimmed;
+      const cleanedText = cleanedSource.trim() || trimmed;
+      const parsedIso = hasConfidentDue && parsed ? parsed.iso : null;
 
       setSuggestions([]);
 
@@ -952,15 +952,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           for (const action of actions) {
             if (action.type === 'create.todo') {
-              const rawTitle =
-                action.payload.title?.trim() || cleanedText || trimmed || 'Quick task';
-              const due = action.payload.due ?? parsedDueIso ?? null;
+              const title = (action.payload.title?.trim() || cleanedText).trim() || 'Quick task';
+              const due = action.payload.due ?? parsedIso ?? null;
               mapped.push({
                 bucket: 'todos',
                 payload: {
                   type: 'todo',
-                  title: rawTitle,
-                  name: rawTitle,
+                  title,
+                  name: title,
                   due_date: due,
                   undefined_due: !due,
                   space_id: action.payload.spaceId ?? null,
@@ -1108,8 +1107,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           const enrichedChips = chipSuggestions.map((s) => {
             if (s.type === 'create.todo') {
-              const name = s.payload?.name?.trim() || cleanedText || trimmed;
-              const due = s.payload?.due ?? s.payload?.due_date ?? parsedDueIso ?? null;
+              const name = (s.payload?.name || cleanedText || '').trim();
+              const due = s.payload?.due ?? s.payload?.due_date ?? parsedIso ?? null;
               return {
                 ...s,
                 payload: {
@@ -1147,7 +1146,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           step(trace, 'decide:chips', { count: chipSuggestions.length });
           return {
             created: { todos: [], notes: [], habits: [] },
-            suggestions: chipSuggestions,
+            suggestions: enrichedChips,
             decisionMode: decision.mode,
             decisionConfidence: decision.confidence,
           };
@@ -1185,12 +1184,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
-        const title = cleanedText || trimmed;
-        const due = parsedDueIso ?? null;
+        const due = parsedIso ?? null;
         payload = {
           type: 'todo',
-          title,
-          name: title,
+          title: cleanedText,
+          name: cleanedText,
           due_date: due,
           undefined_due: !due,
           space_id: null,

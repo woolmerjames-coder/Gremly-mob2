@@ -39,6 +39,7 @@ import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
 import type { ItemType } from '../../lib/repo/types';
 import { callComplete, callClassify } from '../../lib/cortex/CortexClient';
+import { parseDue } from '../../lib/cortex/entities/datetime';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import {
   mapHabitToForm,
@@ -50,6 +51,7 @@ import {
 import { getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
+import { combineDueIso, normalizeTimeInput, splitDueParts } from './dueUtils';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -111,6 +113,12 @@ const CATCHALL_LABEL = 'catchall';
 const UNSORTED_LABEL = 'needs_review';
 const ALLOW_TYPE_CHANGE =
   String(process.env.EXPO_PUBLIC_UNIFIED_OVERLAY_ALLOW_TYPE_CHANGE ?? 'on').toLowerCase() !== 'off';
+
+const OVERLAY_DUE_STRIP =
+  String(process.env.EXPO_PUBLIC_UNIFIED_OVERLAY_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
+const OVERLAY_DUE_CONFIDENCE =
+  Number.parseFloat(String(process.env.EXPO_PUBLIC_UNIFIED_OVERLAY_DUE_CONFIDENCE ?? '0.84')) ||
+  0.84;
 
 export function UnifiedCreateOverlay({
   visible,
@@ -216,28 +224,6 @@ export function UnifiedCreateOverlay({
   const normalizeSpaceId = useCallback((val: string | null | undefined): string | null => {
     if (typeof val === 'string' && val.trim().length > 0) return val;
     return null;
-  }, []);
-
-  const normalizeDueDate = useCallback((val: string | null | undefined): string | null => {
-    if (!val) return null;
-    // Accept yyyy-mm-dd or full ISO; convert date-only to start-of-day ISO
-    const trimmed = val.trim();
-    if (!trimmed) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      try {
-        // Use UTC start-of-day for consistency
-        const iso = new Date(`${trimmed}T00:00:00.000Z`).toISOString();
-        return iso;
-      } catch {
-        return null;
-      }
-    }
-    // Fallback: if it's a valid date string, toISOString; else null
-    try {
-      return new Date(trimmed).toISOString();
-    } catch {
-      return null;
-    }
   }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false); // Single-flight submit guard
@@ -567,49 +553,57 @@ export function UnifiedCreateOverlay({
     if (!visible || !conversionMeta) return;
 
     const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
+    const hasPrefill = !!initialTitle || !!initialNote || !!initialDueDate;
 
-    if (initialTitle || initialNote) {
-      // Prefill based on selected type
+    if (selectedType === 'todo') {
+      const metaDueParts = splitDueParts(initialDueDate ?? null, null);
+      setTodoDueDate(metaDueParts.date);
+      setTodoDueTime(metaDueParts.time);
+
       if (initialTitle) {
-        // Set the appropriate name field based on type
-        if (selectedType === 'habit') {
-          setHabitName(initialTitle);
-        } else if (selectedType === 'todo') {
-          setTodoName(initialTitle);
-        } else if (
-          selectedType === 'note' ||
-          selectedType === 'journal' ||
-          selectedType === 'unsorted'
-        ) {
-          setNoteTitle(initialTitle);
-        } else if (selectedType === 'person') {
-          setPersonName(initialTitle);
-        }
-      }
-      if (initialNote) {
-        setNoteBody(initialNote);
-      }
+        const parsed = parseDue(initialTitle);
+        const hasParsedDue = parsed && parsed.confidence >= OVERLAY_DUE_CONFIDENCE;
 
-      if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-        console.log('[CORTEX][10.7C] overlay_prefill_applied:', {
-          hasTitle: !!initialTitle,
-          hasNote: !!initialNote,
-          selectedType,
-        });
+        if (hasParsedDue) {
+          if (!metaDueParts.date) {
+            setTodoDueDate(parsed.date);
+          }
+          if (!metaDueParts.time && parsed.time) {
+            setTodoDueTime(parsed.time);
+          }
+        }
+
+        const nextName =
+          hasParsedDue && OVERLAY_DUE_STRIP
+            ? parsed?.textWithoutWhen.trim() || initialTitle
+            : initialTitle;
+        setTodoName(nextName);
+      }
+    } else if (initialTitle) {
+      if (selectedType === 'habit') {
+        setHabitName(initialTitle);
+      } else if (
+        selectedType === 'note' ||
+        selectedType === 'journal' ||
+        selectedType === 'unsorted'
+      ) {
+        setNoteTitle(initialTitle);
+      } else if (selectedType === 'person') {
+        setPersonName(initialTitle);
       }
     }
 
-    // Prefill todo due date if provided
-    if (initialDueDate) {
-      try {
-        // Accept either yyyy-mm-dd or full ISO; normalize to yyyy-mm-dd for field
-        const dateOnly = initialDueDate.includes('T')
-          ? new Date(initialDueDate).toISOString().split('T')[0]
-          : initialDueDate;
-        setTodoDueDate(dateOnly);
-      } catch {
-        // ignore invalid dates
-      }
+    if (initialNote) {
+      setNoteBody(initialNote);
+    }
+
+    if ((__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') && hasPrefill) {
+      console.log('[CORTEX][10.7C] overlay_prefill_applied:', {
+        hasTitle: !!initialTitle,
+        hasNote: !!initialNote,
+        hasDue: !!initialDueDate,
+        selectedType,
+      });
     }
   }, [visible, conversionMeta, selectedType]);
 
@@ -1463,20 +1457,21 @@ export function UnifiedCreateOverlay({
           }),
         };
       }
-      case 'todo':
+      case 'todo': {
+        const normalizedDueTime = normalizeTimeInput(todoDueTime);
         return {
           ...baseInput,
           type: 'todo',
           name: todoName, // Phase 7+: name is required field
           title: todoName, // Backwards compatibility
-          // Normalize due date to full ISO string to satisfy schema datetime
-          due_date: normalizeDueDate(todoDueDate),
-          due_time: todoDueTime || null,
+          due_date: combineDueIso(todoDueDate, normalizedDueTime),
+          due_time: normalizedDueTime,
           reminders: todoDetails.reminders || undefined,
           notes: todoDetails.notes || null,
           tags: todoDetails.tags || null,
           space_id: normalizeSpaceId(todoDetails.spaceId ?? baseInput.space_id ?? null), // Apply normalized space
         };
+      }
       case 'journal':
         return {
           ...baseInput,
@@ -1567,11 +1562,14 @@ export function UnifiedCreateOverlay({
           }),
         } as Partial<AppRecord>;
       }
-      case 'todo':
+      case 'todo': {
+        const normalizedDueTime = normalizeTimeInput(todoDueTime);
         return {
           title: todoName,
-          due_date: todoDueDate || null,
+          due_date: combineDueIso(todoDueDate, normalizedDueTime),
+          due_time: normalizedDueTime,
         } as Partial<AppRecord>;
+      }
       case 'journal':
         return {
           body: journalEntry,

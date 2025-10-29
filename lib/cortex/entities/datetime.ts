@@ -8,11 +8,13 @@
  * - 11/5, 11/5/2025, 2025-11-05, 2025-11-05 14:00
  * - in 2h, in 30m, eod, eom
  *
- * Returns an ISO string in local timezone (offset applied), confidence, the matched text,
- * and the text without the matched "when" phrase (for optional title cleanup).
+ * Returns an ISO string in local timezone (offset applied), plus date/time strings for UI,
+ * confidence, the matched text, and the text without the matched "when" phrase (for optional title cleanup).
  */
 export type ParsedDue = {
   iso: string; // ISO with timezone offset applied
+  date: string; // YYYY-MM-DD in local time
+  time: string | null; // HH:MM in local time when granularity is time
   confidence: number; // 0..1
   granularity: 'date' | 'time';
   matched: string;
@@ -36,6 +38,14 @@ function toIsoLocal(d: Date) {
   const tzh = pad(Math.floor(Math.abs(tz) / 60));
   const tzm = pad(Math.abs(tz) % 60);
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}${sign}${tzh}:${tzm}`;
+}
+
+function toDateStr(d: Date) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function toTimeStr(d: Date) {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function nextWeekday(from: Date, target: number) {
@@ -116,6 +126,16 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     return null;
   };
 
+  const finish = (cleaned: string) => ({
+    iso: toIsoLocal(d),
+    date: toDateStr(d),
+    time: granularity === 'time' ? toTimeStr(d) : null,
+    confidence,
+    granularity,
+    matched,
+    textWithoutWhen: cleaned,
+  });
+
   // Explicit ISO or date-like first
   // yyyy-mm-dd( hh:mm)? or mm/dd(/yyyy)?
   const isoDateTime = /\b(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?\b/.exec(low);
@@ -135,8 +155,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
         end += trailing.consumed;
       }
     }
-    const textWithoutWhen = removeSpan(start, end);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(removeSpan(start, end));
   }
 
   const usDate = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/.exec(low);
@@ -157,8 +176,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
       confidence = Math.max(confidence, 0.93);
       end += trailing.consumed;
     }
-    const textWithoutWhen = removeSpan(start, end);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(removeSpan(start, end));
   }
 
   // Relative: in 2h / 30m
@@ -171,8 +189,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     else d.setMinutes(d.getMinutes() + n);
     confidence = 0.9;
     granularity = 'time';
-    const textWithoutWhen = rm(inRel[0]);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm(inRel[0]));
   }
 
   // today / tomorrow
@@ -189,8 +206,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
       confidence = Math.max(confidence, 0.9);
       end += trailing.consumed;
     }
-    const textWithoutWhen = removeSpan(todayMatch.index, end);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(removeSpan(todayMatch.index, end));
   }
   const tomorrowMatch = /\btomorrow\b/.exec(low);
   if (tomorrowMatch) {
@@ -207,8 +223,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
       confidence = Math.max(confidence, 0.92);
       end += trailing.consumed;
     }
-    const textWithoutWhen = removeSpan(tomorrowMatch.index, end);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(removeSpan(tomorrowMatch.index, end));
   }
 
   // eod / eom
@@ -217,8 +232,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 17, 0, 0, 0);
     confidence = 0.85;
     granularity = 'time';
-    const textWithoutWhen = rm(eodMatch[0]);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm(eodMatch[0]));
   }
   const eomMatch = /\b(eom|end of month)\b/i.exec(low);
   if (eomMatch) {
@@ -226,8 +240,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(last.getFullYear(), last.getMonth(), last.getDate(), 17, 0, 0, 0);
     confidence = 0.84;
     granularity = 'date';
-    const textWithoutWhen = rm(eomMatch[0]);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm(eomMatch[0]));
   }
 
   // next weekday
@@ -242,8 +255,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(tmp.getFullYear(), tmp.getMonth(), tmp.getDate(), 9, 0, 0, 0);
     confidence = 0.88;
     granularity = 'date';
-    const textWithoutWhen = rm(nextWd[0]);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm(nextWd[0]));
   }
 
   // at HH:MM or H[H]am/pm
@@ -270,8 +282,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), H, I, 0, 0);
     confidence = 0.87;
     granularity = 'time';
-    const textWithoutWhen = rm(matched);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm(matched));
   }
 
   // tonight / this evening / this afternoon / this morning
@@ -280,22 +291,19 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     confidence = 0.82;
     granularity = 'time';
     const phrase = /\btonight\b/.test(low) ? 'tonight' : 'this evening';
-    const textWithoutWhen = rm(phrase);
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm(phrase));
   }
   if (/\bthis afternoon\b/.test(low)) {
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 15, 0, 0, 0);
     confidence = 0.8;
     granularity = 'time';
-    const textWithoutWhen = rm('this afternoon');
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm('this afternoon'));
   }
   if (/\bthis morning\b/.test(low)) {
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0);
     confidence = 0.8;
     granularity = 'time';
-    const textWithoutWhen = rm('this morning');
-    return { iso: toIsoLocal(d), confidence, granularity, matched, textWithoutWhen };
+    return finish(rm('this morning'));
   }
 
   return null;

@@ -7,11 +7,24 @@ function expectIsoDateStartsWith(iso: string | undefined, prefix: string) {
   expect(iso!.startsWith(prefix)).toBe(true);
 }
 
+function expectDateTimeConsistency(parsed: ReturnType<typeof parseDue>) {
+  if (!parsed) {
+    throw new Error('Parsed result required for expectation');
+  }
+  expect(parsed.date).toBe(parsed.iso.slice(0, 10));
+  if (parsed.granularity === 'time') {
+    expect(parsed.time).toBe(parsed.iso.slice(11, 16));
+  } else {
+    expect(parsed.time).toBeNull();
+  }
+}
+
 describe('parseDue', () => {
   test('ISO explicit date captures match and cleanup', () => {
     const parsed = parseDue('Finish by 2025-11-03', FIXED);
     expect(parsed).not.toBeNull();
     expectIsoDateStartsWith(parsed?.iso, '2025-11-03');
+    expectDateTimeConsistency(parsed);
     expect(parsed?.confidence).toBeGreaterThanOrEqual(0.95);
     expect(parsed?.granularity).toBe('date');
     expect(parsed?.matched).toBe('2025-11-03');
@@ -22,6 +35,7 @@ describe('parseDue', () => {
     const parsed = parseDue('appt 11/03/2025 at 3pm', FIXED);
     expect(parsed).not.toBeNull();
     expectIsoDateStartsWith(parsed?.iso, '2025-11-03');
+    expectDateTimeConsistency(parsed);
     expect(parsed?.granularity).toBe('time');
     expect(parsed?.matched?.toLowerCase()).toContain('3pm');
   });
@@ -32,6 +46,7 @@ describe('parseDue', () => {
     expect(parsed?.confidence).toBeGreaterThanOrEqual(0.9);
     expect(parsed?.matched?.toLowerCase()).toBe('tomorrow');
     expect(parsed?.textWithoutWhen).toBe('buy flowers');
+    expectDateTimeConsistency(parsed);
   });
 
   test('relative hours adds offset', () => {
@@ -41,6 +56,7 @@ describe('parseDue', () => {
     const delta = Date.parse(iso) - FIXED.getTime();
     expect(Math.round(delta / (60 * 60 * 1000))).toBe(2);
     expect(parsed?.granularity).toBe('time');
+    expectDateTimeConsistency(parsed);
   });
 
   test('today with explicit time collapses full phrase', () => {
@@ -50,6 +66,7 @@ describe('parseDue', () => {
     expect(parsed?.granularity).toBe('time');
     expect(parsed?.matched?.toLowerCase()).toBe('today at 3pm');
     expect(parsed?.textWithoutWhen).toBe('finish');
+    expectDateTimeConsistency(parsed);
   });
 
   test('next weekday defaults to morning', () => {
@@ -57,6 +74,7 @@ describe('parseDue', () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.granularity).toBe('date');
     expect(parsed?.matched?.toLowerCase()).toBe('next wed');
+    expectDateTimeConsistency(parsed);
   });
 
   test('tonight returns time granularity', () => {
@@ -64,6 +82,7 @@ describe('parseDue', () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.granularity).toBe('time');
     expect(parsed?.matched?.toLowerCase()).toBe('tonight');
+    expectDateTimeConsistency(parsed);
   });
 
   test('no signals -> null', () => {

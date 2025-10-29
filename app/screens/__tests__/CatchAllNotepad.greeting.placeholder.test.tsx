@@ -34,12 +34,7 @@ jest.mock('@/src/config/featureFlags', () => ({
 import CatchAllNotepad from '../CatchAllNotepad';
 import { Text } from 'react-native';
 
-// Static placeholder text used in the component
-const STATIC_PLACEHOLDER = 'Buy milk, call mom, that idea about...';
-
-// Utilities from the screen module (keys/placeholders)
-// We avoid deep imports; instead, re-derive the storage key to seed AsyncStorage deterministically
-const LAST_OPEN_KEY = 'minddrop:last_open_ts';
+const SUBTITLE_TEXT = '✶ Capture those late-night thoughts…';
 
 beforeAll(() => {
   // Use real timers for most tests; we'll switch to fake timers only where needed
@@ -57,24 +52,20 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
     expect(screen.getByTestId('minddrop-input')).toBeTruthy();
   });
 
-  it('renders a greeting on first open', async () => {
+  it('renders the subtitle on first open', async () => {
     render(<CatchAllNotepad />);
 
-    const greeting = await screen.findByTestId('minddrop-greeting');
-    const text = greeting.props.children?.toString() || '';
-    expect(text.length).toBeGreaterThan(0);
+    const subtitle = await screen.findByTestId('minddrop-subtitle');
+    const text = subtitle.props.children?.toString() || '';
+    expect(text).toBe(SUBTITLE_TEXT);
   });
 
-  it('shows a welcome back message when LAST_OPEN_KEY is >= 3 days old', async () => {
-    // Mock last open to 4 days ago for this render
-    const fourDaysAgo = Date.now() - 4 * 24 * 60 * 60 * 1000;
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(String(fourDaysAgo));
-
+  it('still renders the subtitle when last open was several days ago', async () => {
     render(<CatchAllNotepad />);
 
-    const greeting = await screen.findByTestId('minddrop-greeting');
-    const text = greeting.props.children?.toString().toLowerCase();
-    expect(text).toContain('welcome');
+    const subtitle = await screen.findByTestId('minddrop-subtitle');
+    const text = subtitle.props.children?.toString() || '';
+    expect(text).toBe(SUBTITLE_TEXT);
   });
 
   it('displays static placeholder text', () => {
@@ -136,8 +127,14 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
     render(<CatchAllNotepad />);
 
     const trustText = screen.getByTestId('minddrop-trust-text');
-    const text = trustText.props.children?.toString() || '';
-    // Should show privacy message when organizedToday is 0
-    expect(text).toBe('Your thoughts are private & secure with Gremly.');
+    const children = React.Children.toArray(trustText.props.children);
+    const countNode = children[0] as any;
+    const suffixNode = children[1] as any;
+    const count = countNode?.props?.children;
+    const suffix = suffixNode?.props?.children;
+
+    expect(count).toBe(0);
+    expect(typeof suffix).toBe('string');
+    expect((suffix as string).trim()).toBe('thoughts organized today');
   });
 });

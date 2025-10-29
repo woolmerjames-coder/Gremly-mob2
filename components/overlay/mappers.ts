@@ -10,6 +10,7 @@ import type { JournalDetailsState, MoodType } from './fields/JournalFields';
 import type { NoteDetailsState } from './fields/NoteFields';
 import type { PersonDetailsState, PersonDate } from './fields/PersonFields';
 import type { FrequencyValue } from './fields/HabitFrequency';
+import { splitDueParts } from './dueUtils';
 
 export interface FormHabit {
   name: string;
@@ -98,11 +99,12 @@ export function mapTodoToForm(t: Todo | AppRecord): FormTodo {
   }
 
   const todo = t as Todo;
+  const { date, time } = splitDueParts(todo.due_date || null, todo.due_time || null);
 
   return {
     name: todo.name || todo.title || '',
-    dueDate: todo.due_date || null,
-    dueTime: todo.due_time || null,
+    dueDate: date,
+    dueTime: time,
     details: {
       reminders: todo.reminders || [],
       spaceId: todo.space_id || null,
