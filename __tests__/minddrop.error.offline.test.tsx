@@ -28,7 +28,6 @@ jest.mock('@react-navigation/elements', () => ({
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({ userId: 'user-1' }),
 }));
-
 // Repo mocks (per-test configured)
 const mockCreate = jest.fn();
 const mockNotesCreate = jest.fn();
