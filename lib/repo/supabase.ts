@@ -105,6 +105,10 @@ function normalizeIsoDatetime(value?: string | null): string | null | undefined 
   return parsed.toISOString();
 }
 
+function ensureDay(dateIso: string): string {
+  return new Date(dateIso).toISOString().split('T')[0];
+}
+
 /**
  * Phase 10.2: Simple title case helper for list names
  */
@@ -883,6 +887,396 @@ export class SupabaseRepo implements IRepo {
         }
       }
       return 0;
+    }
+  }
+
+  // =======================================================
+  // Phase 10.9 (Today v3) — New helpers
+  // =======================================================
+
+  async listTodayMerged(nowIso: string): Promise<
+    Array<
+      | {
+          type: 'todo';
+          id: ID;
+          name: string;
+          due_date?: string | null;
+          due_day?: string | null;
+          space_id?: ID | null;
+          tags?: string[];
+          status?: 'active' | 'completed' | 'archived';
+          carry_forward?: boolean;
+          overdue?: boolean;
+          nearDue?: boolean;
+        }
+      | {
+          type: 'habit';
+          id: ID;
+          name: string;
+          space_id?: ID | null;
+          tags?: string[];
+          cadence?: 'day' | 'week' | 'month';
+          target_count?: number;
+          period_unit?: 'day' | 'week' | 'month';
+          time_window?: 'any' | 'morning' | 'midday' | 'evening';
+          progress_today?: number;
+        }
+    >
+  > {
+    const userId = this.ensureUserId();
+    const day = ensureDay(nowIso);
+
+    const { data: todos, error: todosError } = await supabase
+      .from('todos')
+      .select('id,name,due_date,due_day,space_id,status,carry_forward')
+      .eq('owner_id', userId)
+      .eq('status', 'active')
+      .or(`due_day.eq.${day},carry_forward.eq.true`);
+
+    if (todosError) throw new Error(`listTodayMerged.todos failed: ${todosError.message}`);
+
+    const now = new Date(nowIso);
+    const todoItems = (todos ?? []).map((t: any) => {
+      let overdue = false;
+      let nearDue = false;
+      if (t.due_date) {
+        const due = new Date(t.due_date);
+        if (!Number.isNaN(due.getTime())) {
+          overdue = due < now;
+          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+        }
+      }
+
+      return {
+        type: 'todo' as const,
+        id: t.id,
+        name: t.name,
+        due_date: t.due_date ?? null,
+        due_day: t.due_day ?? null,
+        space_id: t.space_id ?? null,
+        tags: [],
+        status: t.status,
+        carry_forward: !!t.carry_forward,
+        overdue,
+        nearDue,
+      };
+    });
+
+    const { data: habits, error: habitsError } = await supabase
+      .from('habits')
+      .select('id,name,space_id,tags,target_count,period_unit,time_window,cadence')
+      .eq('owner_id', userId);
+
+    if (habitsError) throw new Error(`listTodayMerged.habits failed: ${habitsError.message}`);
+
+    const { data: progressRows, error: progressError } = await supabase
+      .from('habit_progress')
+      .select('habit_id,count')
+      .eq('owner_id', userId)
+      .eq('occurred_day', day);
+
+    if (progressError) throw new Error(`listTodayMerged.progress failed: ${progressError.message}`);
+
+    const progressByHabit = new Map<string, number>();
+    (progressRows ?? []).forEach((row: any) => {
+      progressByHabit.set(
+        row.habit_id,
+        (progressByHabit.get(row.habit_id) || 0) + (row.count ?? 1),
+      );
+    });
+
+    const habitItems = (habits ?? [])
+      .map((h: any) => {
+        const target = Math.max(1, h.target_count ?? 1);
+        const done = progressByHabit.get(h.id) || 0;
+        const remaining = target - done;
+        return {
+          type: 'habit' as const,
+          id: h.id,
+          name: h.name,
+          space_id: h.space_id ?? null,
+          tags: h.tags ?? [],
+          cadence: (h.cadence as any) ?? 'day',
+          target_count: target,
+          period_unit: (h.period_unit as any) ?? 'day',
+          time_window: (h.time_window as any) ?? 'any',
+          progress_today: done,
+          _remaining: remaining,
+        };
+      })
+      .filter((habit) => {
+        if (habit.cadence === 'day') {
+          return (habit as any)._remaining > 0;
+        }
+        return true;
+      })
+      .map((habit) => {
+        delete (habit as any)._remaining;
+        return habit;
+      });
+
+    return [...habitItems, ...todoItems];
+  }
+
+  async logHabitProgress(
+    habitId: ID,
+    atIso?: string,
+    count = 1,
+    occurrenceIndex?: number,
+  ): Promise<void> {
+    const ownerId = this.ensureUserId();
+    const payload: any = {
+      owner_id: ownerId,
+      habit_id: habitId,
+      count,
+    };
+
+    if (atIso) payload.occurred_at = atIso;
+    if (typeof occurrenceIndex === 'number') payload.occurrence_index = occurrenceIndex;
+
+    const { error } = await supabase.from('habit_progress').insert(payload);
+    if (error) throw new Error(`logHabitProgress failed: ${error.message}`);
+  }
+
+  async getHabitProgressForDate(habitId: ID, dayIso: string): Promise<number> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(dayIso);
+    const { data, error } = await supabase
+      .from('habit_progress')
+      .select('count')
+      .eq('owner_id', ownerId)
+      .eq('habit_id', habitId)
+      .eq('occurred_day', day);
+
+    if (error) throw new Error(`getHabitProgressForDate failed: ${error.message}`);
+    return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
+  }
+
+  async getFocusForDate(dayIso: string): Promise<{
+    id: ID;
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    created_at: string;
+    expires_at: string;
+  } | null> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(dayIso);
+    const { data, error } = await supabase
+      .from('focus_card')
+      .select('id,entry_id,entry_type,source,created_at,expires_at,focus_day')
+      .eq('owner_id', ownerId)
+      .eq('focus_day', day)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(`getFocusForDate failed: ${error.message}`);
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      entry_id: data.entry_id,
+      entry_type: data.entry_type,
+      source: data.source,
+      created_at: data.created_at,
+      expires_at: data.expires_at,
+    };
+  }
+
+  async setFocus(params: {
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    expires_at: string;
+  }): Promise<void> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(params.expires_at);
+    const payload: any = {
+      owner_id: ownerId,
+      entry_id: params.entry_id,
+      entry_type: params.entry_type,
+      source: params.source,
+      expires_at: params.expires_at,
+      focus_day: day,
+    };
+
+    const { error } = await supabase
+      .from('focus_card')
+      .upsert(payload, { onConflict: 'owner_id,focus_day' })
+      .select('id')
+      .single();
+
+    if (error) throw new Error(`setFocus failed: ${error.message}`);
+  }
+
+  async clearFocusForDate(dayIso: string): Promise<void> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(dayIso);
+    const { error } = await supabase
+      .from('focus_card')
+      .delete()
+      .eq('owner_id', ownerId)
+      .eq('focus_day', day);
+
+    if (error) throw new Error(`clearFocusForDate failed: ${error.message}`);
+  }
+
+  async topFocusCandidates(
+    limit: number,
+  ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(new Date().toISOString());
+
+    const { data, error } = await supabase
+      .from('todos')
+      .select('id,carry_forward,due_day,status')
+      .eq('owner_id', ownerId)
+      .eq('status', 'active')
+      .or(`carry_forward.eq.true,due_day.eq.${day}`)
+      .limit(Math.max(1, limit) * 2);
+
+    if (error) throw new Error(`topFocusCandidates.todos failed: ${error.message}`);
+
+    const scored: Array<{ id: ID; type: 'habit' | 'todo'; priority: number }> = [];
+
+    scored.push(
+      ...(data ?? []).map((row: any) => ({
+        id: row.id as ID,
+        type: 'todo' as const,
+        priority: (row.carry_forward ? 100 : 0) + (row.due_day === day ? 50 : 0),
+      })),
+    );
+
+    const { data: habitRows, error: habitError } = await supabase
+      .from('habits')
+      .select('id,target_count')
+      .eq('owner_id', ownerId);
+
+    if (!habitError && habitRows && habitRows.length > 0) {
+      const { data: progress, error: progressErr } = await supabase
+        .from('habit_progress')
+        .select('habit_id,count')
+        .eq('owner_id', ownerId)
+        .eq('occurred_day', day);
+
+      if (progressErr)
+        throw new Error(`topFocusCandidates.progress failed: ${progressErr.message}`);
+
+      const map = new Map<string, number>();
+      (progress ?? []).forEach((row: any) => {
+        map.set(row.habit_id, (map.get(row.habit_id) || 0) + (row.count ?? 1));
+      });
+
+      for (const habit of habitRows) {
+        const target = Math.max(1, habit.target_count ?? 1);
+        const done = map.get(habit.id) || 0;
+        if (done < target) {
+          scored.push({ id: habit.id, type: 'habit', priority: 40 - done });
+        }
+      }
+    } else if (habitError) {
+      throw new Error(`topFocusCandidates.habits failed: ${habitError.message}`);
+    }
+
+    scored.sort((a, b) => b.priority - a.priority);
+    return scored.slice(0, limit);
+  }
+
+  async listRecentDrops(
+    sinceIso: string,
+  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>> {
+    const ownerId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('notes')
+      .select('id,title,body,created_at')
+      .eq('owner_id', ownerId)
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) throw new Error(`listRecentDrops failed: ${error.message}`);
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      created_at: row.created_at,
+    }));
+  }
+
+  async getTodaySummary(): Promise<{ completed: number; remaining: number }> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(new Date().toISOString());
+
+    const { count: completedCount, error: completedError } = await supabase
+      .from('todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_id', ownerId)
+      .gte('completed_at', `${day}T00:00:00Z`)
+      .lt('completed_at', `${day}T23:59:59Z`);
+
+    if (completedError)
+      throw new Error(`getTodaySummary.completed failed: ${completedError.message}`);
+
+    const { count: remainingTodos, error: remainingError } = await supabase
+      .from('todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_id', ownerId)
+      .eq('status', 'active')
+      .or(`due_day.eq.${day},carry_forward.eq.true`);
+
+    if (remainingError)
+      throw new Error(`getTodaySummary.remaining failed: ${remainingError.message}`);
+
+    return {
+      completed: completedCount ?? 0,
+      remaining: remainingTodos ?? 0,
+    };
+  }
+
+  async sweepApplyAction(
+    id: ID,
+    type: 'habit' | 'todo',
+    action: 'archive' | 'carry_forward' | 'keep',
+    details?: { archived_reason?: string },
+  ): Promise<void> {
+    const ownerId = this.ensureUserId();
+
+    if (type === 'todo') {
+      if (action === 'archive') {
+        const { error } = await supabase
+          .from('todos')
+          .update({ status: 'archived', archived_reason: details?.archived_reason ?? 'swept' })
+          .eq('id', id)
+          .eq('owner_id', ownerId);
+
+        if (error) throw new Error(`sweepApplyAction.archive failed: ${error.message}`);
+        return;
+      }
+
+      if (action === 'carry_forward') {
+        const { error } = await supabase
+          .from('todos')
+          .update({ carry_forward: true })
+          .eq('id', id)
+          .eq('owner_id', ownerId);
+
+        if (error) throw new Error(`sweepApplyAction.carry_forward failed: ${error.message}`);
+        return;
+      }
+
+      // keep -> no-op
+      return;
+    }
+
+    // Habits currently ignore sweep actions beyond "keep"
+    if (action === 'archive') {
+      // Placeholder: habits aren't archived via sweep; swallow request for now.
+      return;
+    }
+
+    if (action === 'carry_forward') {
+      // Habits don't support carry_forward flag; skip.
+      return;
     }
   }
 
