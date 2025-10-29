@@ -48,6 +48,7 @@ import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import LottieView from 'lottie-react-native';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -165,7 +166,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
         />
         <View style={hudContainerStyle} pointerEvents="none">
           <Text testID="minddrop-privacy" style={hudTextStyle}>
-            🔒 Private & secure
+            Private & secure
           </Text>
           <Text testID="minddrop-counter" style={hudTextStyle}>{`${characterCount} / 2000`}</Text>
         </View>
@@ -622,11 +623,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
+  useEffect(() => {
+    if (!suggestions?.length) return;
+    const t = setTimeout(() => setSuggestions([]), 5000);
+    return () => clearTimeout(t);
+  }, [suggestions]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mind Drop: greeting + static placeholder
   const [greeting, setGreeting] = useState<string>('');
   const greetingRef = useRef<any>(null);
-  const [placeholder] = useState('How’s your day going?');
+  const [placeholder] = useState('Drop your thoughts here…');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
@@ -758,6 +764,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Silent fail — keep last known number
     }
   }, [repo]);
+
+  useEffect(() => {
+    const unsub = addOverlaySavedListener(() => {
+      void refreshOrganizedToday();
+      setRecentRefresh((v) => v + 1);
+    });
+    return unsub;
+  }, [refreshOrganizedToday]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(() => note.trim().length === 0 || isSubmitting, [note, isSubmitting]);
@@ -1798,7 +1812,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       style={[
         styles.root,
         {
-          paddingTop: headerHeight + 12,
+          paddingTop: headerHeight + 24,
           paddingBottom: 16 + insets.bottom,
         },
       ]}
@@ -1815,6 +1829,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
       </Svg>
       {ActionToast}
+
+      {String(process.env.EXPO_PUBLIC_MINDDROP_MASCOT ?? 'on').toLowerCase() !== 'off' ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: headerHeight + 4,
+            right: 12,
+            width: 56,
+            height: 56,
+            opacity: 0.9,
+          }}
+        >
+          <LottieView
+            autoPlay
+            loop
+            speed={0.6}
+            source={require('../../assets/lottie/minddropgremly.lottie')}
+            style={{ width: '100%', height: '100%' }}
+          />
+        </View>
+      ) : null}
 
       <Modal
         transparent
