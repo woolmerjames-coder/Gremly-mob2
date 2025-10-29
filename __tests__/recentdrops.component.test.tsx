@@ -45,13 +45,13 @@ describe('RecentDrops component (isolated)', () => {
     mockNotesList.mockResolvedValue([]);
   });
 
-  test('renders up to 3 items', async () => {
+  test('filters to today by default and toggles older items', async () => {
     const now = Date.now();
     mockNotesList.mockResolvedValue([
       makeNote('n1', 'one', new Date(now - 0)),
       makeNote('n2', 'two', new Date(now - 1000)),
       makeNote('n3', 'three', new Date(now - 2000)),
-      makeNote('n4', 'four', new Date(now - 3000)),
+      makeNote('n4', 'yesterday', new Date(now - 48 * 60 * 60 * 1000)),
     ]);
 
     render(<RecentDrops initiallyOpen eagerLoad />);
@@ -60,7 +60,15 @@ describe('RecentDrops component (isolated)', () => {
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy());
     expect(screen.getByTestId('minddrop-recent-note-n2')).toBeTruthy();
     expect(screen.getByTestId('minddrop-recent-note-n3')).toBeTruthy();
-    expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy();
+    expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull();
+
+    fireEvent.press(screen.getByText('Show older'));
+    await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Today'));
+    await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(3));
+    await waitFor(() => expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull());
   });
 
   test('shows relative timestamp (ago) within a card', async () => {

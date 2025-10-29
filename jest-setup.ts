@@ -195,5 +195,18 @@ jest.mock('react-native-safe-area-context', () => {
   };
 });
 
+// Default overlay controller mock keeps tests isolated from navigation
+jest.mock('./hooks/useOverlayController', () => {
+  const controller = {
+    state: { visible: false, mode: 'create', initialEntity: null, initialSpaceId: null },
+    openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    close: jest.fn(),
+  };
+  return {
+    useOverlayController: () => controller,
+  };
+});
+
 // Note: If RN Animated internals cause issues, prefer local per-test mocks
 // over a global mock of NativeAnimatedHelper, as the module path can vary by RN version.

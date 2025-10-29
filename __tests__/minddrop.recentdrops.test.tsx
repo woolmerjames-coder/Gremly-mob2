@@ -120,7 +120,7 @@ describe('RecentDrops in Mind Drop', () => {
       makeNote('n1', 'note one', new Date(now.getTime() - 0), true),
       makeNote('n2', 'note two', new Date(now.getTime() - 1200)),
       makeNote('n3', 'note three', new Date(now.getTime() - 2400)),
-      makeNote('n4', 'note four', new Date(now.getTime() - 3600)),
+      makeNote('n4', 'note four', new Date(now.getTime() - 48 * 60 * 60 * 1000)), // older than today
     ];
     mockNotesList.mockResolvedValue(notes);
     mockTodosList.mockResolvedValue([
@@ -143,6 +143,11 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.getByTestId('minddrop-recent-todo-t1')).toBeTruthy();
     expect(screen.getByTestId('minddrop-recent-habit-h1')).toBeTruthy();
     expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull();
+
+    // Toggle to show older items (re-fetch should include the older note)
+    fireEvent.press(screen.getByText('Show older'));
+    await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy());
 
     // Badge labels should be present for each kind
     expect(screen.getAllByText('note').length).toBeGreaterThan(0);

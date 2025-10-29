@@ -46,6 +46,8 @@ import { organizedToastSummary } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
+import { useOverlayController } from '../../hooks/useOverlayController';
+import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 
 export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
@@ -330,7 +332,7 @@ type UnifiedDrop = {
   kind: 'note' | 'todo' | 'habit';
   text: string;
   created_at: string;
-  unsorted?: boolean;
+  unsorted?: boolean; // for notes carrying the needs_review label
 };
 
 const relativeTime = (iso: string) => {
@@ -352,42 +354,55 @@ const RecentDrops: React.FC<{
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
-}> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = false, eagerLoad = false }) => {
-  const navigation = useNavigation();
+}> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
+  const overlayController = useOverlayController();
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
-  const [open, setOpen] = React.useState(!!initiallyOpen);
+
+  const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
+  const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
 
   const load = React.useCallback(async () => {
     const isTest = process.env.JEST_WORKAROUND === '1';
     if (!isTest) setLoading(true);
     try {
-      const [notes, todos, habits] = await Promise.all([
-        (async () => {
-          try {
-            return (await repo?.notes?.list?.({ limit: 20, order: 'desc' })) ?? [];
-          } catch {
-            return [];
-          }
-        })(),
-        (async () => {
-          try {
-            return (await repo?.todos?.list?.({ limit: 20, order: 'desc' })) ?? [];
-          } catch {
-            return [];
-          }
-        })(),
-        (async () => {
-          try {
-            return (await repo?.habits?.list?.({ limit: 20, order: 'desc' })) ?? [];
-          } catch {
-            return [];
-          }
-        })(),
-      ]);
+      const fetchNotes = async () => {
+        if (!repo?.notes?.list) return [];
+        try {
+          const result = await repo.notes.list({ limit: 50, order: 'desc' });
+          return Array.isArray(result) ? result : [];
+        } catch {
+          return [];
+        }
+      };
+
+      const fetchTodos = async () => {
+        if (!repo?.todos?.list) return [];
+        try {
+          const result = await repo.todos.list({ limit: 50, order: 'desc' });
+          return Array.isArray(result) ? result : [];
+        } catch {
+          return [];
+        }
+      };
+
+      const fetchHabits = async () => {
+        if (!repo?.habits?.list) return [];
+        try {
+          const result = await repo.habits.list({ limit: 50, order: 'desc' });
+          return Array.isArray(result) ? result : [];
+        } catch {
+          return [];
+        }
+      };
+
+      const [notes, todos, habits] = await Promise.all([fetchNotes(), fetchTodos(), fetchHabits()]);
+
+      const start = startOfTodayLocal();
+      const cutoff = start.getTime();
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
@@ -421,60 +436,52 @@ const RecentDrops: React.FC<{
           created_at: h.created_at,
         }));
 
-      const unified = [...noteDrops, ...todoDrops, ...habitDrops]
-        .filter((i) => i.text && i.created_at)
+      let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
+        (i) => i.text && i.created_at,
+      );
+
+      if (!showOlder) {
+        unified = unified.filter((i) => {
+          const ts = new Date(i.created_at).getTime();
+          return Number.isFinite(ts) && ts >= cutoff; // "Today"
+        });
+      }
+
+      unified = unified
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 5);
+        .slice(0, 25); // keep snappy; scroll handles overflow
 
       setItems(unified);
-    } catch {
-      // no-op
     } finally {
       if (!isTest) setLoading(false);
     }
-  }, [repo]);
+  }, [repo, showOlder]);
 
   useEffect(() => {
     void load();
   }, [load, refreshSignal]);
 
-  // Optional eager load hook for tests to start load sooner
   useLayoutEffect(() => {
-    if (eagerLoad) {
-      void load();
-    }
+    if (eagerLoad) void load();
   }, [eagerLoad, load]);
 
-  const handleEdit = React.useCallback(
-    (id: string, kind: UnifiedDrop['kind']) => {
-      try {
-        if (kind === 'note') {
-          (navigation as any).navigate('NoteDetail', { id });
-        } else if (kind === 'todo') {
-          (navigation as any).navigate('TodoDetail', { id });
-        } else if (kind === 'habit') {
-          (navigation as any).navigate('HabitDetail', { id });
-        }
-        onEdited?.();
-      } catch {
-        // TODO: implement inline edit sheet
-      }
-    },
-    [navigation, onEdited],
-  );
+  const handleEdit = (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
+    overlayController.openEdit({
+      record: { id, type: kind } as any,
+      spaceId: null,
+    });
+    onEdited?.();
+  };
 
-  const handleDelete = React.useCallback(
-    async (id: string, kind: UnifiedDrop['kind']) => {
-      try {
-        await (repo?.remove?.(id) ?? repo?.[`${kind}s`]?.delete?.(id));
-        await load();
-        onDeleted?.();
-      } catch {
-        // Optional: handle error UI
-      }
-    },
-    [load, onDeleted, repo],
-  );
+  const handleDelete = async (id: string, kind: UnifiedDrop['kind']) => {
+    try {
+      await (repo?.remove?.(id) ?? repo?.[`${kind}s`]?.delete?.(id));
+      await load();
+      onDeleted?.();
+    } catch {
+      // optional: error UI
+    }
+  };
 
   return (
     <View style={styles.recentRoot}>
@@ -490,62 +497,86 @@ const RecentDrops: React.FC<{
       </Pressable>
 
       {open ? (
-        <View testID="minddrop-recent-list" style={styles.recentList}>
-          {loading ? (
-            <Text style={styles.recentEmpty}>Loading…</Text>
-          ) : items.length === 0 ? (
-            <Text style={styles.recentEmpty}>No recent drops yet.</Text>
-          ) : (
-            items.map((item) => {
-              const kindBadgeStyle =
-                item.kind === 'note'
-                  ? styles.badge_note
-                  : item.kind === 'todo'
-                    ? styles.badge_todo
-                    : styles.badge_habit;
+        <>
+          <View style={styles.recentFilterRow}>
+            <Pressable onPress={() => setShowOlder(false)} accessibilityRole="button">
+              <Text style={[styles.recentFilter, !showOlder && styles.recentFilterActive]}>
+                Today
+              </Text>
+            </Pressable>
+            <Text style={styles.recentDot}>•</Text>
+            <Pressable onPress={() => setShowOlder(true)} accessibilityRole="button">
+              <Text style={[styles.recentFilter, showOlder && styles.recentFilterActive]}>
+                Show older
+              </Text>
+            </Pressable>
+          </View>
 
-              return (
-                <View
-                  key={`${item.kind}:${item.id}`}
-                  testID={`minddrop-recent-${item.kind}-${item.id}`}
-                  style={styles.recentCard}
-                >
-                  <View style={styles.recentCardHeader}>
-                    <Text numberOfLines={2} style={styles.recentText}>
-                      {item.text || '—'}
-                    </Text>
-                    <View style={styles.recentBadgeRow}>
-                      <Text style={[styles.recentBadge, kindBadgeStyle]}>{item.kind}</Text>
-                      {item.kind === 'note' && item.unsorted ? (
-                        <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
-                      ) : null}
+          <View testID="minddrop-recent-list" style={styles.recentListScrollable}>
+            {loading ? (
+              <Text style={styles.recentEmpty}>Loading…</Text>
+            ) : items.length === 0 ? (
+              <Text style={styles.recentEmpty}>
+                {showOlder ? 'No drops yet.' : 'No drops yet today.'}
+              </Text>
+            ) : (
+              <ScrollView
+                contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+                showsVerticalScrollIndicator
+              >
+                {items.map((item) => (
+                  <View
+                    key={`${item.kind}:${item.id}`}
+                    testID={`minddrop-recent-${item.kind}-${item.id}`}
+                    style={styles.recentCard}
+                  >
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                      }}
+                    >
+                      <Text numberOfLines={2} style={styles.recentText}>
+                        {item.text || '—'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
+                          {item.kind}
+                        </Text>
+                        {item.kind === 'note' && item.unsorted ? (
+                          <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
+                        ) : null}
+                      </View>
+                    </View>
+
+                    <View style={styles.recentMetaRow}>
+                      <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                      <View style={styles.recentActions}>
+                        <Pressable
+                          onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.recentAction}>Edit</Text>
+                        </Pressable>
+                        <Text style={styles.recentDot}>•</Text>
+                        <Pressable
+                          onPress={() => handleDelete(item.id, item.kind)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.recentActionDelete}>Delete</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   </View>
-                  <View style={styles.recentMetaRow}>
-                    <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                    <View style={styles.recentActions}>
-                      <Pressable
-                        onPress={() => handleEdit(item.id, item.kind)}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.recentAction}>Edit</Text>
-                      </Pressable>
-                      <Text style={styles.recentDot}>•</Text>
-                      <Pressable
-                        onPress={() => handleDelete(item.id, item.kind)}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.recentActionDelete}>Delete</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </>
       ) : null}
     </View>
   );
@@ -774,6 +805,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
   }, [refreshOrganizedToday, trustRefreshMs]);
+
+  useEffect(() => {
+    const unsubscribe = addOverlaySavedListener(() => {
+      void refreshOrganizedToday();
+      setRecentRefresh((v) => v + 1);
+    });
+    return unsubscribe;
+  }, [refreshOrganizedToday, setRecentRefresh]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -2014,6 +2053,26 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Medium',
     },
     recentList: { marginTop: 6, gap: 8 },
+    recentListScrollable: {
+      marginTop: 6,
+      maxHeight: 280,
+    },
+    recentFilterRow: {
+      marginTop: 6,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 8,
+    },
+    recentFilter: {
+      fontSize: 12,
+      textTransform: 'uppercase',
+      color: c.mutedText,
+      fontFamily: 'Inter-Medium',
+    },
+    recentFilterActive: {
+      color: c.moss,
+    },
     recentCard: {
       backgroundColor: c.sageTint,
       borderRadius: 12,
