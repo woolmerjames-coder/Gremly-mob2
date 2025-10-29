@@ -89,6 +89,22 @@ function stripNulls<T extends Record<string, any>>(obj: T) {
   ) as T;
 }
 
+const TZ_OFFSET_SUFFIX = /[+-]\d{2}:?\d{2}$/;
+
+function normalizeIsoDatetime(value?: string | null): string | null | undefined {
+  if (value == null) return value ?? null;
+  if (!TZ_OFFSET_SUFFIX.test(value)) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toISOString();
+}
+
 /**
  * Phase 10.2: Simple title case helper for list names
  */
@@ -284,7 +300,7 @@ export class SupabaseRepo implements IRepo {
           space_id: input.space_id ?? null,
           name: input.name, // Required - PRIMARY field for todos (NO 'title' in DB)
           body: input.body ?? null,
-          due_date: input.due_date ?? null,
+          due_date: normalizeIsoDatetime(input.due_date) ?? null,
           due_time: input.due_time ?? null, // Phase 7+: HH:mm format
           undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
           subtype: input.subtype ?? null, // AI-only: 'reminder' | 'microproject'
@@ -436,7 +452,14 @@ export class SupabaseRepo implements IRepo {
       if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
       if ('body' in patch) updatePayload.body = patch.body ?? null;
       if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('due_date' in patch) updatePayload.due_date = patch.due_date ?? null;
+      if ('due_date' in patch) {
+        const duePatch = patch.due_date as string | null | undefined;
+        updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
+      }
+      if ('due_time' in patch) {
+        const dueTimePatch = patch.due_time as string | null | undefined;
+        updatePayload.due_time = dueTimePatch ?? null;
+      }
       if ('undefined_due' in patch) updatePayload.undefined_due = !!patch.undefined_due;
       if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
       if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;

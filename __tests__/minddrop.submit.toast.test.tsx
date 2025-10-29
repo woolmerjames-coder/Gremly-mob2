@@ -96,6 +96,7 @@ import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 beforeEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
+  process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
   // Configure createMock to return IDs based on the type and call count
   let todoCount = 0;
   mockCreate.mockImplementation(async (input: any) => {
@@ -113,6 +114,10 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
+});
+
 describe('Mind Drop submit -> toast + actions', () => {
   it('Undo path: disables CTA while submitting, shows spinner label, restores after; double-press debounced; Undo deletes created ids', async () => {
     render(<CatchAllNotepad />);
@@ -128,8 +133,8 @@ describe('Mind Drop submit -> toast + actions', () => {
     // While submitting, label should be "✓ Organizing..."
     expect(screen.getByText('✓ Organizing...')).toBeTruthy();
 
-  // Second press immediately to ensure the debounce path is exercised
-  fireEvent.press(submit);
+    // Second press immediately to ensure the debounce path is exercised
+    fireEvent.press(submit);
     // Wait for label to restore and toast to appear
     await waitFor(() => {
       expect(screen.getByText('Drop to Gremly →')).toBeTruthy();

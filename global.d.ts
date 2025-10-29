@@ -11,3 +11,9 @@ declare module '@/src/config/featureFlags' {
 
 // Jest tests import react-test-renderer for act; provide a minimal module shim for TS
 declare module 'react-test-renderer';
+
+declare module '*.png' {
+  import type { ImageSourcePropType } from 'react-native';
+  const content: ImageSourcePropType;
+  export default content;
+}

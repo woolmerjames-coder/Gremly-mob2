@@ -39,6 +39,8 @@ const mockCreate: jest.Mock<Promise<any>, [any]> = jest.fn(async (_input: any) =
   type: 'note',
   created_at: new Date().toISOString(),
 }));
+const mockTodosList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async (_opts?: any) => []);
+const mockHabitsList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async (_opts?: any) => []);
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
@@ -46,14 +48,14 @@ jest.mock('../providers/RepoProvider', () => ({
     notes: { list: mockNotesList, delete: mockNotesDelete },
     // Ensure remove is undefined so RecentDrops falls back to notes.delete
     remove: undefined,
-    todos: { list: jest.fn(async () => []) },
-    habits: { list: jest.fn(async () => []) },
+    todos: { list: mockTodosList },
+    habits: { list: mockHabitsList },
   }),
 }));
 
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
-function makeNote(id: string, body: string, createdAt: Date) {
+function makeNote(id: string, body: string, createdAt: Date, unsorted = false) {
   return {
     id,
     type: 'note',
@@ -61,7 +63,28 @@ function makeNote(id: string, body: string, createdAt: Date) {
     title: body,
     body,
     created_at: createdAt.toISOString(),
-    labels: ['catchall'],
+    labels: unsorted ? ['catchall', 'needs_review'] : ['catchall'],
+    origin: 'catchall',
+  } as any;
+}
+
+function makeTodo(id: string, name: string, createdAt: Date) {
+  return {
+    id,
+    type: 'todo',
+    name,
+    created_at: createdAt.toISOString(),
+    origin: 'catchall',
+  } as any;
+}
+
+function makeHabit(id: string, name: string, createdAt: Date) {
+  return {
+    id,
+    type: 'habit',
+    name,
+    created_at: createdAt.toISOString(),
+    origin: 'catchall',
   } as any;
 }
 
@@ -70,47 +93,67 @@ describe('RecentDrops in Mind Drop', () => {
     jest.useRealTimers();
     jest.clearAllMocks();
     mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  test('Toggle open/closed reveals the list container', async () => {
+  test('Starts open, toggle hides then reopens the list container', async () => {
     render(<CatchAllNotepad />);
-    // Wait for the toggle to appear before interacting (prevents race)
-    const toggle = await screen.findByTestId('minddrop-recent-toggle');
+    const list = await screen.findByTestId('minddrop-recent-list');
+    expect(list).toBeTruthy();
+
+    const toggle = screen.getByTestId('minddrop-recent-toggle');
     fireEvent.press(toggle);
-    // Wait for the list to be rendered after toggling open
+    await waitFor(() => expect(screen.queryByTestId('minddrop-recent-list')).toBeNull());
+
+    fireEvent.press(toggle);
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-list')).toBeTruthy());
   });
 
-  test('Shows up to 3 items from repo.notes.list with subtype catchall', async () => {
+  test('Shows unified recent drops across notes, todos, and habits', async () => {
     const now = new Date();
-    const items = [
-      makeNote('n1', 'one', new Date(now.getTime() - 0)),
-      makeNote('n2', 'two', new Date(now.getTime() - 1000)),
-      makeNote('n3', 'three', new Date(now.getTime() - 2000)),
-      makeNote('n4', 'four', new Date(now.getTime() - 3000)),
+    const notes = [
+      makeNote('n1', 'note one', new Date(now.getTime() - 0), true),
+      makeNote('n2', 'note two', new Date(now.getTime() - 1200)),
+      makeNote('n3', 'note three', new Date(now.getTime() - 2400)),
+      makeNote('n4', 'note four', new Date(now.getTime() - 48 * 60 * 60 * 1000)), // older than today
     ];
-    mockNotesList.mockResolvedValue(items);
+    mockNotesList.mockResolvedValue(notes);
+    mockTodosList.mockResolvedValue([
+      makeTodo('t1', 'todo from drop', new Date(now.getTime() - 800)),
+    ]);
+    mockHabitsList.mockResolvedValue([
+      makeHabit('h1', 'habit from drop', new Date(now.getTime() - 1600)),
+    ]);
 
     render(<CatchAllNotepad />);
 
-    // Open the section to render cards
-    fireEvent.press(screen.getByTestId('minddrop-recent-toggle'));
-    // Ensure the loader fetched
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
-    // Wait for items to replace Loading… by checking card testIDs
-    await waitFor(() => expect(screen.getByTestId('minddrop-recent-n1')).toBeTruthy(), {
+    await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy(), {
       timeout: 3000,
     });
 
-    // Expect the first three cards present, and the 4th excluded
-    expect(screen.getByTestId('minddrop-recent-n1')).toBeTruthy();
-    expect(screen.getByTestId('minddrop-recent-n2')).toBeTruthy();
-    expect(screen.getByTestId('minddrop-recent-n3')).toBeTruthy();
-    expect(screen.queryByTestId('minddrop-recent-n4')).toBeNull();
+    expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy();
+    expect(screen.getByTestId('minddrop-recent-note-n2')).toBeTruthy();
+    expect(screen.getByTestId('minddrop-recent-note-n3')).toBeTruthy();
+    expect(screen.getByTestId('minddrop-recent-todo-t1')).toBeTruthy();
+    expect(screen.getByTestId('minddrop-recent-habit-h1')).toBeTruthy();
+    expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull();
+
+    // Toggle to show older items (re-fetch should include the older note)
+    fireEvent.press(screen.getByText('Show older'));
+    await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy());
+
+    // Badge labels should be present for each kind
+    expect(screen.getAllByText('note').length).toBeGreaterThan(0);
+    expect(screen.getByText('todo')).toBeTruthy();
+    expect(screen.getByText('habit')).toBeTruthy();
+    expect(screen.getByText('Unsorted')).toBeTruthy();
   });
 
   test.skip('Timestamp is present ("ago") for each rendered card', async () => {
@@ -119,9 +162,8 @@ describe('RecentDrops in Mind Drop', () => {
 
     render(<CatchAllNotepad />);
 
-    fireEvent.press(screen.getByTestId('minddrop-recent-toggle'));
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
-    const card = await screen.findByTestId('minddrop-recent-n1');
+    const card = await screen.findByTestId('minddrop-recent-note-n1');
 
     // The time label includes the word "ago"
     const timeLabel = within(card).getByText(/ago/i);
@@ -141,9 +183,8 @@ describe('RecentDrops in Mind Drop', () => {
     render(<CatchAllNotepad />);
 
     // Open the section
-    fireEvent.press(screen.getByTestId('minddrop-recent-toggle'));
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
-    await screen.findByTestId('minddrop-recent-n1');
+    await screen.findByTestId('minddrop-recent-note-n1');
 
     // Count initial list calls
     const callsBefore = mockNotesList.mock.calls.length;
@@ -174,7 +215,6 @@ describe('RecentDrops in Mind Drop', () => {
     render(<CatchAllNotepad />);
 
     // Open section for visibility (not required for load, but helps assertions)
-    fireEvent.press(screen.getByTestId('minddrop-recent-toggle'));
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
     await act(async () => {});
 

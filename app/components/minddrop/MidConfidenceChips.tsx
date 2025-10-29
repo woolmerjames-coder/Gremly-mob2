@@ -1,11 +1,17 @@
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
+import { haptics } from '../../../lib/haptics';
 
 export type UISuggestion =
   | {
       type: 'create.todo';
       label: string;
-      payload: { name: string; undefined_due: boolean };
+      payload: {
+        name: string;
+        undefined_due: boolean;
+        due?: string | null;
+        due_date?: string | null;
+      };
     }
   | {
       type: 'create.habit';
@@ -43,29 +49,70 @@ function stylesForType(type: UISuggestion['type']) {
 export function MidConfidenceChips({
   suggestions,
   onPick,
+  prompt,
   supportingText,
+  autoDismissMs = 12000,
 }: {
   suggestions: UISuggestion[];
   onPick: (s: UISuggestion) => void;
+  prompt?: string;
   supportingText?: string;
+  autoDismissMs?: number;
 }) {
-  if (!suggestions?.length) return null;
+  const limited = useMemo(() => suggestions?.slice(0, 3) ?? [], [suggestions]);
+  const fade = useMemo(() => new Animated.Value(0), []);
+
+  useEffect(() => {
+    fade.setValue(0);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [fade, suggestions]);
+
+  useEffect(() => {
+    if (!autoDismissMs || !limited.length) return;
+
+    const pulseDelay = Math.max(0, autoDismissMs - 800);
+    const timeout = setTimeout(() => {
+      Animated.sequence([
+        Animated.timing(fade, { toValue: 0.8, duration: 120, useNativeDriver: true }),
+        Animated.timing(fade, { toValue: 1, duration: 120, useNativeDriver: true }),
+      ]).start();
+    }, pulseDelay);
+
+    return () => clearTimeout(timeout);
+  }, [autoDismissMs, fade, limited.length, suggestions]);
+
+  if (!limited.length) return null;
+
+  const message = prompt ?? supportingText ?? null;
 
   return (
-    <View style={styles.wrapper}>
-      {supportingText ? (
-        <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={supportingText}>
-          {supportingText}
+    <Animated.View style={[styles.wrapper, { opacity: fade }]}>
+      {message ? (
+        <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={message}>
+          {message}
         </Text>
       ) : null}
 
       <View style={styles.row}>
-        {suggestions.map((s, idx) => {
+        {limited.map((s, idx) => {
           const c = stylesForType(s.type);
           return (
             <Pressable
               key={`${s.type}-${idx}`}
-              onPress={() => onPick(s)}
+              onPress={() => {
+                try {
+                  if (typeof haptics?.light === 'function') {
+                    haptics.light();
+                  }
+                } catch {
+                  // no-op for environments without haptics
+                }
+                onPick(s);
+              }}
               style={({ pressed }) => [
                 styles.chip,
                 { backgroundColor: c.bg, borderColor: c.fg },
@@ -79,7 +126,7 @@ export function MidConfidenceChips({
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

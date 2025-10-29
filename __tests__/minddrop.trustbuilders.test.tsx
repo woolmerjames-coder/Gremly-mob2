@@ -87,7 +87,7 @@ function setTodayCounts(n: number, t: number, h: number) {
 }
 
 describe('Mind Drop Trust Builders', () => {
-  test('renders trust row with static privacy message when count is 0', async () => {
+  test('renders trust row with count-based messaging when count is 0', async () => {
     setTodayCounts(0, 0, 0);
     render(<CatchAllNotepad />);
 
@@ -97,7 +97,13 @@ describe('Mind Drop Trust Builders', () => {
 
     // Wait for the text element and assert its value
     const trustText = await screen.findByTestId('minddrop-trust-text');
-    expect(trustText.props.children).toBe('Your thoughts are private & secure with Gremly.');
+    const children = React.Children.toArray(trustText.props.children);
+    const countNode = children[0] as any;
+    const suffixNode = children[1] as any;
+
+    expect(countNode?.props?.children).toBe(0);
+    expect(typeof suffixNode?.props?.children).toBe('string');
+    expect((suffixNode?.props?.children as string).trim()).toBe('thoughts organized today');
   });
 
   // Note: The following tests verify the static trust line updates when organizedToday changes.
@@ -113,7 +119,10 @@ describe('Mind Drop Trust Builders', () => {
     await waitFor(
       () => {
         const trustText = screen.getByTestId('minddrop-trust-text');
-        expect(trustText.props.children).toMatch(/3 thoughts organized today/i);
+        const suffixNode = React.Children.toArray(trustText.props.children)[1] as any;
+        expect(String(suffixNode?.props?.children)).toMatch(/thoughts organized today/i);
+        const countNode = React.Children.toArray(trustText.props.children)[0] as any;
+        expect(countNode?.props?.children).toBe(3);
       },
       { timeout: 5000 },
     );
@@ -126,7 +135,10 @@ describe('Mind Drop Trust Builders', () => {
     await waitFor(
       () => {
         const trustText = screen.getByTestId('minddrop-trust-text');
-        expect(trustText.props.children).toMatch(/1 thought organized today/i);
+        const suffixNode = React.Children.toArray(trustText.props.children)[1] as any;
+        expect(String(suffixNode?.props?.children)).toMatch(/thought organized today/i);
+        const countNode = React.Children.toArray(trustText.props.children)[0] as any;
+        expect(countNode?.props?.children).toBe(1);
       },
       { timeout: 5000 },
     );
@@ -140,7 +152,8 @@ describe('Mind Drop Trust Builders', () => {
     // Initial state should show privacy message
     await waitFor(() => {
       const trustText = screen.getByTestId('minddrop-trust-text');
-      expect(trustText.props.children).toBe('Your thoughts are private & secure with Gremly.');
+      const countNode = React.Children.toArray(trustText.props.children)[0] as any;
+      expect(countNode?.props?.children).toBe(0);
     });
 
     // Type and submit to create a note
@@ -158,7 +171,10 @@ describe('Mind Drop Trust Builders', () => {
     await waitFor(
       () => {
         const trustText = screen.getByTestId('minddrop-trust-text');
-        expect(trustText.props.children).toMatch(/1 thought organized today/i);
+        const suffixNode = React.Children.toArray(trustText.props.children)[1] as any;
+        expect(String(suffixNode?.props?.children)).toMatch(/thought organized today/i);
+        const countNode = React.Children.toArray(trustText.props.children)[0] as any;
+        expect(countNode?.props?.children).toBe(1);
       },
       { timeout: 5000 },
     );
