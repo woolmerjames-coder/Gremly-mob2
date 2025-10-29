@@ -534,6 +534,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     notes: [],
     habits: [],
   });
+  const unsortedIdRef = useRef<string | null>(null);
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
   // Trust Builders: organized today count
@@ -987,7 +988,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
+          try {
+            const id = await saveToUnsortedTray(repo as any, trimmed);
+            unsortedIdRef.current = id ?? null;
+          } catch (e) {
+            console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
+          }
+
           setSuggestions(chipSuggestions);
+          setNote('');
+          setRecentRefresh?.((v) => v + 1);
           pendingUndo.current = { todos: [], notes: [], habits: [] };
 
           void logCatchallDecision({
@@ -1158,6 +1168,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const trimmed = note.trim();
 
       try {
+        const existingUnsortedId = unsortedIdRef.current;
+        if (existingUnsortedId) {
+          try {
+            await (repo as any).remove?.(existingUnsortedId);
+          } catch (e) {
+            console.warn('[MindDrop][Chip] failed to remove unsorted', e);
+          } finally {
+            unsortedIdRef.current = null;
+          }
+        }
+
         setIsSubmitting(true);
 
         const createdIds = {
