@@ -39,8 +39,19 @@ export default function MascotBadge({ onPress }: Props) {
   };
 
   return (
-    <Pressable onPress={handlePress} accessibilityRole="button" testID="today-v3-mascot-badge">
-      <Animated.View style={[styles.wrap, { transform: [{ scale }] }]}>
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel="Mascot"
+      accessibilityHint="Opens tips"
+      hitSlop={8}
+      testID="today-v3-mascot-badge"
+    >
+      <Animated.View
+        style={[styles.wrap, { transform: [{ scale }] }]}
+        accessibilityRole="image"
+        accessibilityLabel="Mascot badge"
+      >
         <View style={styles.circle}>
           <Mascot width={28} height={28} />
         </View>

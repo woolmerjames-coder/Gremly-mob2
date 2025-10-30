@@ -19,7 +19,6 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
   const repo = useRepo();
   const [title, setTitle] = useState<string | null>(null);
 
-  // Resolve title for the focused entry
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -80,36 +79,41 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
         ...BRAND.elevation.one,
       }}
       testID="today-v3-focus-card"
+      accessibilityRole="summary"
+      accessibilityLabel="Focus for today"
     >
       <Box gap={2}>
         <Text variant="title">Focus for today</Text>
 
-        {/* Title or fallback kind */}
         {focus?.entry_id ? (
           <Text variant="body" style={{ color: BRAND.colors.charcoalInk, fontWeight: '600' }}>
             {title || kindLabel || 'Untitled'}
           </Text>
         ) : (
           <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
-            No set focus today — just flow.
+            No focus yet — tap Change to pick one.
           </Text>
         )}
 
         <Text variant="subtle">{subtitle}</Text>
 
-        <View style={styles.row}>
+        <View style={styles.row} testID="today-v3-focus-actions">
           <Button
             label="View Task"
             variant="outline"
             onPress={() => onView?.(focus?.entry_id ?? null, focus?.entry_type ?? null)}
             disabled={!focus?.entry_id}
             testID="today-v3-focus-view"
+            accessibilityLabel="View focus item"
+            accessibilityHint="Opens the focused item"
           />
           <Button
             label="Change"
-            variant="secondary"
+            variant="neutral"
             onPress={onChange}
             testID="today-v3-focus-change"
+            accessibilityLabel="Change focus"
+            accessibilityHint="Pick a different focus"
           />
           <Button
             label="Clear"
@@ -119,6 +123,8 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
               onClear?.();
             }}
             testID="today-v3-focus-clear"
+            accessibilityLabel="Clear focus"
+            accessibilityHint="Removes today’s focus"
           />
         </View>
       </Box>
@@ -129,6 +135,7 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     marginTop: 8,
   },

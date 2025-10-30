@@ -18,11 +18,12 @@ export default function TodayV3View() {
     // Optional: open a tiny “tip of the day” later; for now no-op
   };
 
-  const handleViewFocus = (entryId: string | null, entryType: 'todo' | 'habit' | 'note' | null) => {
+  const handleViewFocus = async (
+    entryId: string | null,
+    entryType: 'todo' | 'habit' | 'note' | null,
+  ) => {
     if (!entryId || !entryType) return;
-    overlay.openCreate({
-      type: entryType === 'todo' ? 'todo' : entryType === 'habit' ? 'habit' : 'note',
-    });
+    overlay.openCreate({ type: entryType, initialEntity: { id: entryId, type: entryType } as any });
   };
 
   return (
@@ -30,10 +31,7 @@ export default function TodayV3View() {
       <Box gap={4}>
         {/* Header row with subtle mascot at top-right */}
         <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box gap={1}>
-            <Text variant="display">Today</Text>
-            <Text variant="subtle">Small wins add up fast.</Text>
-          </Box>
+          <Text variant="subtle">Small wins add up fast.</Text>
           <MascotBadge onPress={handleMascotPress} />
         </Box>
 
@@ -47,8 +45,9 @@ export default function TodayV3View() {
 
         <DropZoneCard onViewDrops={() => overlay.openCreate({ type: 'note' })} />
 
-        <Box>
-          <Button title="Add More" variant="neutral" onPress={() => overlay.openCreate()} />
+        {/* Inline, brand-aligned "Add More" */}
+        <Box style={{ alignItems: 'center' }}>
+          <Button label="Add More" variant="neutral" onPress={() => overlay.openCreate()} />
         </Box>
 
         <SweepPreviewFooter onStart={() => setSweepOpen(true)} onPeek={() => setSweepOpen(true)} />

@@ -7,7 +7,7 @@ import { Pressable, ViewStyle, TextStyle } from 'react-native';
 import { useTokens } from '../design/makeStyles';
 import { Text } from './Text';
 
-type ButtonVariant = 'primary' | 'neutral' | 'danger';
+type ButtonVariant = 'primary' | 'neutral' | 'danger' | 'ghost';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -15,7 +15,10 @@ export interface ButtonProps {
   className?: never;
 
   /** Button label text */
-  title: string;
+  title?: string;
+
+  /** Alternate label prop for design-system parity */
+  label?: string;
 
   /** Press handler */
   onPress: () => void | Promise<void>;
@@ -44,6 +47,7 @@ export interface ButtonProps {
 
 export const Button: React.FC<ButtonProps> = ({
   title,
+  label,
   onPress,
   variant = 'primary',
   size = 'md',
@@ -54,6 +58,10 @@ export const Button: React.FC<ButtonProps> = ({
   accessibilityLabel,
 }) => {
   const t = useTokens();
+  const buttonLabel = label ?? title;
+  if (!buttonLabel) {
+    throw new Error('Button requires either `label` or `title`.');
+  }
 
   const getSizeStyle = (s: ButtonSize): { height: number; paddingHorizontal: number } => {
     switch (s) {
@@ -71,6 +79,7 @@ export const Button: React.FC<ButtonProps> = ({
       case 'primary':
         return { bg: t.colors.primary, textColor: '#FFFFFF' };
       case 'neutral':
+      case 'ghost':
         return { bg: t.colors.surface, textColor: t.colors.text };
       case 'danger':
         return { bg: t.colors.danger, textColor: '#FFFFFF' };
@@ -102,14 +111,14 @@ export const Button: React.FC<ButtonProps> = ({
     <Pressable
       accessible
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityLabel={accessibilityLabel ?? buttonLabel}
       style={({ pressed }) => [buttonStyle, pressed && !disabled && { opacity: 0.85 }]}
       onPress={onPress}
       disabled={disabled}
       testID={testID}
     >
       {iconLeft}
-      <Text style={textStyle}>{title}</Text>
+      <Text style={textStyle}>{buttonLabel}</Text>
       {iconRight}
     </Pressable>
   );

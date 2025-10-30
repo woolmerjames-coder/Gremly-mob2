@@ -26,7 +26,7 @@ export default function DropZoneCard({ onViewDrops }: Props) {
         <Text variant="subtle">
           {loading ? 'Loading\u2026' : `${count} drop${count === 1 ? '' : 's'} since yesterday`}
         </Text>
-        <Text variant="body" style={{ fontStyle: 'italic' }}>
+        <Text variant="body" style={{ color: 'rgba(0,0,0,0.7)', fontStyle: 'italic' }}>
           {`\u201C${quote}\u201D`}
         </Text>
         <View style={styles.row}>
@@ -35,6 +35,7 @@ export default function DropZoneCard({ onViewDrops }: Props) {
             variant="outline"
             onPress={onViewDrops}
             testID="today-v3-dropzone-view"
+            accessibilityLabel="View recent drops"
           />
         </View>
       </Box>

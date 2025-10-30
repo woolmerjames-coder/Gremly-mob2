@@ -19,21 +19,27 @@ export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
       testID="today-v3-sweep"
     >
       <Box row style={styles.row}>
-        <Text style={styles.text}>
+        <Text
+          style={styles.text}
+          accessibilityRole="summary"
+          accessibilityLabel={`Sweep ready soon. ${completed} done and ${remaining} to tidy.`}
+        >
           Sweep ready soon — {completed} done · {remaining} to tidy
         </Text>
-        <Box row style={{ gap: 8 }}>
+        <Box row style={styles.ctaWrap}>
           <Button
-            title="Peek"
-            variant="neutral"
+            label="Peek"
+            variant="ghost"
             onPress={onPeek ?? noop}
             testID="today-v3-sweep-peek"
+            accessibilityLabel="Peek at sweep"
           />
           <Button
-            title="Start"
+            label="Start"
             variant="primary"
             onPress={onStart ?? noop}
             testID="today-v3-sweep-start"
+            accessibilityLabel="Start sweep"
           />
         </Box>
       </Box>
@@ -43,12 +49,13 @@ export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
 
 const styles = StyleSheet.create({
   banner: {
-    position: 'relative', // parent Screen handles layout; keep simple here
+    position: 'relative',
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginTop: 12,
   },
-  row: { alignItems: 'center', justifyContent: 'space-between' },
-  text: { color: '#1A3328', fontWeight: '600' },
+  row: { alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  text: { color: '#1A3328', fontWeight: '600', flexShrink: 1 },
+  ctaWrap: { gap: 8, flexShrink: 0, flexWrap: 'wrap' as const },
 });
