@@ -22,13 +22,13 @@ SELECT
   t.id,
   'todo'::text AS kind,
   COALESCE(t.name, t.title, 'Untitled') AS title,
-  COALESCE(t.due_time, t.due_date::timestamptz) AS due_at,
+  COALESCE(NULLIF(t.due_time, '')::timestamptz, t.due_date::timestamptz) AS due_at,
   (t.completed_at IS NOT NULL) AS completed,
   t.owner_id AS user_id,
   t.created_at AS inserted_at,
   t.updated_at
 FROM public.todos t
-WHERE DATE(COALESCE(t.due_time, t.due_date::timestamptz) AT TIME ZONE 'utc') = DATE(now() AT TIME ZONE 'utc')
+WHERE DATE(COALESCE(NULLIF(t.due_time, '')::timestamptz, t.due_date::timestamptz) AT TIME ZONE 'utc') = DATE(now() AT TIME ZONE 'utc')
 UNION ALL
 SELECT
   h.id,
