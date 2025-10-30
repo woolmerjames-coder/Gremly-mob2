@@ -1,26 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { StyleSheet, Pressable, Animated, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Button } from '../../../design-system/Button';
-import { Text, Box } from '../../../ui';
+import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { GRADIENTS } from '../../../design/gradients';
 import { useFocusCard } from '../../../lib/today/hooks/useFocusCard';
 import { useRepo } from '../../../providers/RepoProvider';
 
 type Props = {
-  onView?: (entryId: string | null, entryType: 'todo' | 'habit' | 'note' | null) => void;
   onChange?: () => void;
   onClear?: () => void;
   autoSuggestIfEmpty?: boolean;
 };
 
-export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpty = true }: Props) {
+export default function FocusCard({ onChange, onClear, autoSuggestIfEmpty = true }: Props) {
   const { focus, autosuggest, clear, loading } = useFocusCard();
   const repo = useRepo();
   const [title, setTitle] = useState<string | null>(null);
 
-  // Resolve title
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -29,12 +26,22 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
         return;
       }
       try {
-        const rec = await repo.getById(focus.entry_id);
+        type RepoWithGetById = {
+          getById?: (id: string) => Promise<{
+            name?: string | null;
+            title?: string | null;
+          } | null>;
+        };
+        const repoWithGetById = repo as RepoWithGetById;
+        const rec = await repoWithGetById.getById?.(focus.entry_id);
         if (!cancelled) {
-          const derivedTitle =
-            (rec && 'name' in rec && typeof rec.name === 'string' ? rec.name : null) ??
-            (rec && 'title' in rec && typeof rec.title === 'string' ? rec.title : null);
-          setTitle(derivedTitle);
+          const name =
+            typeof rec?.name === 'string'
+              ? rec.name
+              : typeof rec?.title === 'string'
+                ? rec.title
+                : null;
+          setTitle(name);
         }
       } catch {
         if (!cancelled) setTitle(null);
@@ -46,15 +53,38 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
     };
   }, [focus?.entry_id, focus?.entry_type, repo]);
 
-  // Autosuggest when empty
   useEffect(() => {
     if (autoSuggestIfEmpty && !loading && !focus) {
       void autosuggest();
     }
   }, [autoSuggestIfEmpty, loading, focus, autosuggest]);
 
+  const [shimmer] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const animation = Animated.sequence([
+      Animated.timing(shimmer, {
+        toValue: 1,
+        duration: 650,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shimmer, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => {
+      animation.stop();
+    };
+  }, [shimmer]);
+  const underlineOpacity = useMemo(
+    () => shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }),
+    [shimmer],
+  );
+
   const subtitle = useMemo(() => {
-    if (!focus) return 'Anchor for the day';
+    if (!focus) return '';
     switch (focus.source) {
       case 'auto':
         return 'Suggested by Gremly';
@@ -63,148 +93,127 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
       case 'user':
         return 'You chose this.';
       default:
-        return 'Anchor for the day';
+        return '';
     }
   }, [focus]);
 
-  const kindLabel = focus?.entry_type
-    ? focus.entry_type === 'habit'
-      ? 'Habit'
-      : focus.entry_type === 'todo'
-        ? 'Task'
-        : 'Note'
-    : null;
+  const handleClear = () => {
+    void clear();
+    onClear?.();
+  };
 
-  // Edge-to-edge hero uses negative margins to bleed to screen edges
   return (
-    <View
-      style={styles.bleedWrap}
-      testID="today-v3-focus-card"
+    <LinearGradient
+      colors={GRADIENTS.focusHeroV2}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={styles.panel}
+      testID="focus-panel"
       accessibilityRole="summary"
       accessibilityLabel="Focus for today"
     >
-      <LinearGradient
-        colors={GRADIENTS.focusHero}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.hero}
-        testID="today-hero"
-      >
-        {/* Mascot top-right (small, subtle) */}
-        <Image
-          source={require('../../../assets/mascot/ACTUAL GREMLY.png')}
-          style={styles.mascot}
-          accessibilityIgnoresInvertColors
-        />
+      <Text style={styles.prompt} numberOfLines={1}>
+        If you could finish just one thing today…
+      </Text>
 
-        <Box gap={2}>
-          <Text variant="title" style={styles.headerText}>
-            Focus for today
-          </Text>
+      <Text style={styles.title}>Focus for today</Text>
 
-          {focus?.entry_id ? (
-            <Text variant="body" style={styles.focusText} numberOfLines={2}>
-              {title || kindLabel || 'Untitled'}
-            </Text>
-          ) : (
-            <Text variant="body" style={styles.focusTextMuted}>
-              No focus yet — tap Change to pick one.
-            </Text>
+      {focus?.entry_id ? (
+        <Text style={styles.focus} numberOfLines={2}>
+          {title || 'Untitled'}
+        </Text>
+      ) : (
+        <Text style={styles.focusMuted}>No focus yet — choose one.</Text>
+      )}
+
+      {!!subtitle && (
+        <Text style={styles.microcopy} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      )}
+
+      <Animated.View style={[styles.underline, { opacity: underlineOpacity }]} />
+
+      <View style={styles.actions} testID="focus-actions">
+        <Pressable
+          onPress={onChange}
+          accessibilityLabel="Change focus"
+          accessibilityHint="Pick a different focus"
+        >
+          {({ pressed }) => (
+            <Text style={[styles.link, pressed && styles.linkPressed]}>Change</Text>
           )}
-
-          <Text variant="subtle" style={styles.subtitleText}>
-            {subtitle}
-          </Text>
-
-          <View style={styles.actions} testID="today-hero-actions">
-            <Button
-              label="View"
-              variant="outline"
-              onPress={() => onView?.(focus?.entry_id ?? null, focus?.entry_type ?? null)}
-              disabled={!focus?.entry_id}
-              testID="today-v3-focus-view"
-              accessibilityLabel="View focus item"
-              accessibilityHint="Opens the focused item"
-            />
-            <Button
-              label="Change"
-              variant="neutral"
-              onPress={onChange}
-              testID="today-v3-focus-change"
-              accessibilityLabel="Change focus"
-              accessibilityHint="Pick a different focus"
-            />
-            <Button
-              label="Clear"
-              variant="ghost"
-              onPress={() => {
-                void clear();
-                onClear?.();
-              }}
-              testID="today-v3-focus-clear"
-              accessibilityLabel="Clear focus"
-              accessibilityHint="Removes today’s focus"
-            />
-          </View>
-
-          {/* Golden Pear underline accent */}
-          <View style={styles.underline} />
-        </Box>
-      </LinearGradient>
-    </View>
+        </Pressable>
+        <Text style={styles.separator}>•</Text>
+        <Pressable
+          onPress={handleClear}
+          accessibilityLabel="Clear focus"
+          accessibilityHint="Removes today’s focus"
+        >
+          {({ pressed }) => <Text style={[styles.link, pressed && styles.linkPressed]}>Clear</Text>}
+        </Pressable>
+      </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  bleedWrap: {
+  panel: {
     marginHorizontal: -16,
-  },
-  hero: {
     paddingHorizontal: 16,
-    paddingVertical: 18,
-    borderBottomLeftRadius: BRAND.radius['2xl'],
-    borderBottomRightRadius: BRAND.radius['2xl'],
-    position: 'relative',
+    paddingVertical: 16,
   },
-  mascot: {
-    position: 'absolute',
-    right: 14,
-    top: 10,
-    width: 28,
-    height: 28,
-    opacity: 0.9,
+  prompt: {
+    ...BRAND.typography.italic,
+    fontSize: 14,
+    color: BRAND.colors.sageMist,
+    marginBottom: 8,
   },
-  headerText: {
-    color: BRAND.colors.charcoalInk,
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  focusText: {
-    color: BRAND.colors.linenCream,
+  title: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 6,
   },
-  focusTextMuted: {
-    color: BRAND.colors.linenCream,
-    opacity: 0.9,
+  focus: {
     fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
   },
-  subtitleText: {
-    color: BRAND.colors.linenCream,
-    opacity: 0.9,
+  focusMuted: {
+    fontSize: 16,
+    color: BRAND.colors.charcoalInk,
+    opacity: 0.8,
+  },
+  microcopy: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#4C6A59',
   },
   actions: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    alignItems: 'center',
+    gap: 8,
     marginTop: 10,
   },
+  link: {
+    fontSize: 12,
+    color: BRAND.colors.mossGreen,
+    textDecorationLine: 'underline',
+    textDecorationColor: BRAND.colors.mossGreen,
+  },
+  linkPressed: {
+    opacity: 0.7,
+  },
+  separator: {
+    color: BRAND.colors.inkMuted,
+  },
   underline: {
-    marginTop: 10,
+    marginTop: 8,
+    marginBottom: 6,
     height: 2,
     width: 64,
     backgroundColor: BRAND.colors.goldenPear,
     borderRadius: 2,
-    opacity: 0.9,
   },
 });

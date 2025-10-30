@@ -95,7 +95,7 @@ describe('Today v3 UI', () => {
     await waitFor(() => {
       expect(screen.getByTestId('today-v3-screen')).toBeTruthy();
     });
-    expect(screen.getByTestId('today-v3-focus-card')).toBeTruthy();
+    expect(screen.getByTestId('focus-panel')).toBeTruthy();
     expect(screen.getByTestId('today-v3-stack')).toBeTruthy();
     expect(screen.getByTestId('today-v3-dropzone')).toBeTruthy();
     // Sweep may be conditionally available — with mocked env eveningV1=true and threshold default, it's based on local hour in CI; assert existence softly:
@@ -114,8 +114,8 @@ describe('Today v3 UI', () => {
   it('opens the focus picker and sets focus when a candidate is chosen', async () => {
     renderWithProviders(<TodayScreen />);
 
-    const changeButton = await waitFor(() => screen.getByTestId('today-v3-focus-change'));
-    fireEvent.press(changeButton);
+    const changeLink = await waitFor(() => screen.getByText('Change'));
+    fireEvent.press(changeLink);
 
     await waitFor(() => {
       expect(screen.getByTestId('focus-picker-modal')).toBeTruthy();

@@ -48,6 +48,7 @@ export const BRAND = {
     subhead: { fontFamily: 'PlusJakartaSans-SemiBold' },
     body: { fontFamily: 'Inter-Regular' },
     bodyMedium: { fontFamily: 'Inter-Medium' },
+    italic: { fontFamily: 'Inter-Italic' },
   },
 } as const;
 

@@ -20,67 +20,49 @@ jest.mock('../lib/env', () => ({
   },
 }));
 
-// Mock Auth
+// Auth
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({
-    user: { id: 'test-user-id', email: 'test@example.com' },
-    userId: 'test-user-id',
+    user: { id: 'u1', email: 'test@example.com', user_metadata: { full_name: 'Alex Stone' } },
+    userId: 'u1',
     loading: false,
   }),
 }));
 
-// Minimal repo mocks
 const mockRepo = {
+  getFocusForDate: jest.fn(() =>
+    Promise.resolve({
+      id: 'fc1',
+      entry_id: 't1',
+      entry_type: 'todo',
+      source: 'auto',
+      created_at: new Date().toISOString(),
+      expires_at: new Date().toISOString(),
+    }),
+  ),
   listTodayMerged: jest.fn(() => Promise.resolve([])),
   getTodaySummary: jest.fn(() => Promise.resolve({ completed: 0, remaining: 0 })),
+  getById: jest.fn(() =>
+    Promise.resolve({ id: 't1', type: 'todo', name: 'Email Alex tomorrow 3pm' }),
+  ),
   listRecentDrops: jest.fn(() => Promise.resolve([])),
-  getFocusForDate: jest.fn(() => Promise.resolve(null)),
 };
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
-jest.mock('../lib/today/hooks/useTodayEntries', () => ({
-  useTodayEntries: () => ({
-    items: [
-      {
-        type: 'todo',
-        id: 'todo-1',
-        name: 'Mock Todo',
-        overdue: false,
-        nearDue: false,
-      },
-    ],
-    doneItems: [],
-    completed: 1,
-    remaining: 1,
-    loading: false,
-    error: null,
-    reload: jest.fn(),
-  }),
-}));
-
-jest.mock('../lib/today/hooks/useDropZoneSummary', () => ({
-  useDropZoneSummary: () => ({ count: 0, quote: 'Keep going', loading: false }),
-}));
-
-jest.mock('../lib/today/hooks/useFocusCard', () => ({
-  useFocusCard: () => ({
-    focus: null,
-    autosuggest: jest.fn(),
-    clear: jest.fn(),
-    loading: false,
-  }),
-}));
-
-describe('Today v3 visual polish', () => {
-  it('renders greeting header and progress chip', async () => {
+describe('Phase 10.9B — Header and Focus panel refinement', () => {
+  it('renders greeting/date header and focus panel with inline actions', async () => {
     renderWithProviders(<TodayScreen />);
+
     await waitFor(() => {
       expect(screen.getByTestId('today-v3-screen')).toBeTruthy();
     });
+
     expect(screen.getByTestId('today-header')).toBeTruthy();
-    expect(screen.getByTestId('today-v3-progress-chip')).toBeTruthy();
+    expect(screen.getByTestId('focus-panel')).toBeTruthy();
+    expect(screen.getByTestId('focus-actions')).toBeTruthy();
+    expect(screen.queryByTestId('today-v3-focus-view')).toBeNull();
   });
 });
