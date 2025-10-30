@@ -6,6 +6,7 @@ import {
   UIManager,
   Platform,
   TouchableOpacity,
+  useWindowDimensions,
 } from 'react-native';
 import { Text, Box, Button } from '../../../ui';
 import { useRepo } from '../../../providers/RepoProvider';
@@ -27,10 +28,18 @@ type SessionDone = {
   completedAt?: string | null;
 };
 
+type HabitTickPayload = {
+  id: string;
+  title: string;
+  done: number;
+  target: number;
+};
+
 export default function TaskHabitStack() {
   const repo = useRepo();
-  const { items, doneItems, completed, remaining, loading, /* error */ reload } = useTodayEntries();
   const overlay = useGlobalOverlay();
+  const { width } = useWindowDimensions();
+  const { items, doneItems, completed, remaining, loading, /* error */ reload } = useTodayEntries();
 
   type HabitLoggerRepo = {
     logHabitProgress?: (id: string, occurredAtIso: string, count: number) => Promise<unknown>;
@@ -38,9 +47,11 @@ export default function TaskHabitStack() {
   const repoWithHabitLogging = repo as typeof repo & HabitLoggerRepo;
 
   const [sessionDone, setSessionDone] = useState<SessionDone[]>([]);
-  const [manualDoneOpen, setManualDoneOpen] = useState(false);
-  const [userCollapsedDone, setUserCollapsedDone] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(true);
   const [confettiTick, setConfettiTick] = useState(0);
+
+  const total = completed + remaining;
+  const narrow = width < 480;
 
   const orderedActive = useMemo(() => {
     const score = (entry: TodayMergedEntry) => {
@@ -60,21 +71,28 @@ export default function TaskHabitStack() {
 
   const recordCompletion = (id: string, entryType: 'todo' | 'habit', title: string) => {
     const completedAtIso = new Date().toISOString();
-    const nextHidden = new Set(sessionDone.map((entry) => entry.id));
-    nextHidden.add(id);
-    const remainingAfterComplete = orderedActive.filter(
-      (entry) => !nextHidden.has(entry.id),
-    ).length;
-    if (remainingAfterComplete <= 0) {
-      setConfettiTick((tick) => tick + 1);
-    }
-    setSessionDone((d) => [{ id, type: entryType, title, completedAt: completedAtIso }, ...d]);
-    setManualDoneOpen(true);
+    setSessionDone((current) => {
+      if (current.some((entry) => entry.id === id && entry.type === entryType)) {
+        return current;
+      }
+      const next = [{ id, type: entryType, title, completedAt: completedAtIso }, ...current];
+      const hiddenIds = new Set(next.map((entry) => entry.id));
+      const remainingAfterComplete = orderedActive.filter(
+        (entry) => !hiddenIds.has(entry.id),
+      ).length;
+      if (remainingAfterComplete <= 0) {
+        setConfettiTick((tick) => tick + 1);
+      }
+      return next;
+    });
+    setDoneOpen(true);
   };
 
-  const handleHabitComplete = async (id: string, title: string) => {
+  const handleHabitComplete = async ({ id, title, done, target }: HabitTickPayload) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    recordCompletion(id, 'habit', title);
+    if (done + 1 >= target) {
+      recordCompletion(id, 'habit', title);
+    }
     await repoWithHabitLogging.logHabitProgress?.(id, new Date().toISOString(), 1);
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
     void reload();
@@ -105,7 +123,7 @@ export default function TaskHabitStack() {
           );
         }
 
-        const spaceId = (record as any)?.space_id ?? undefined;
+        const spaceId = 'space_id' in record ? (record.space_id ?? undefined) : undefined;
         overlay.openEdit({ record, spaceId });
       } catch (error) {
         console.error('[TaskHabitStack] Failed to open overlay for entry:', entry, error);
@@ -122,6 +140,16 @@ export default function TaskHabitStack() {
   const visibleActive = useMemo(
     () => orderedActive.filter((entry) => !sessionHiddenIds.has(entry.id)),
     [orderedActive, sessionHiddenIds],
+  );
+
+  const habitEntries = useMemo(
+    () => visibleActive.filter((entry) => entry.type === 'habit'),
+    [visibleActive],
+  );
+
+  const todoEntries = useMemo(
+    () => visibleActive.filter((entry) => entry.type === 'todo'),
+    [visibleActive],
   );
 
   const remoteDone = useMemo<SessionDone[]>(
@@ -159,11 +187,6 @@ export default function TaskHabitStack() {
     });
   }, [sessionDone, remoteDone]);
 
-  const hasRemoteDone = remoteDone.length > 0;
-  const doneOpen = hasRemoteDone ? !userCollapsedDone : manualDoneOpen;
-
-  const total = completed + remaining;
-
   return (
     <View testID="today-v3-stack">
       <Box row style={styles.headerRow}>
@@ -196,38 +219,67 @@ export default function TaskHabitStack() {
         </Text>
       )}
 
-      <Box gap={0}>
-        {visibleActive.map((entry, idx) => (
-          <View key={`${entry.type}-${entry.id}`} style={{ marginBottom: idx % 2 ? 16 : 8 }}>
-            <TodayRow
-              id={entry.id}
-              type={entry.type}
-              title={entry.name}
-              dueTime={
-                entry.type === 'todo' && entry.due_date
-                  ? new Date(entry.due_date).toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })
-                  : undefined
-              }
-              habitProgress={
-                entry.type === 'habit'
-                  ? {
-                      done: entry.progress_today ?? 0,
-                      target: Math.max(1, entry.target_count ?? 1),
+      <Box row={!narrow} gap={narrow ? 12 : 16} style={!narrow ? styles.lanesWide : undefined}>
+        <View style={[styles.lane, !narrow && styles.laneHalf]}>
+          <Text style={styles.laneHeader}>Habits</Text>
+          <Box gap={8}>
+            {habitEntries.length === 0 ? (
+              <Text variant="subtle" style={styles.emptyCopy}>
+                No habits queued.
+              </Text>
+            ) : (
+              habitEntries.map((entry) => {
+                const done = entry.progress_today ?? 0;
+                const target = Math.max(1, entry.target_count ?? 1);
+                return (
+                  <TodayRow
+                    key={`habit-${entry.id}`}
+                    id={entry.id}
+                    lane="habit"
+                    title={entry.name}
+                    habitProgress={{ done, target }}
+                    onComplete={(rowId) =>
+                      handleHabitComplete({ id: rowId, title: entry.name, done, target })
                     }
-                  : null
-              }
-              onComplete={(idStr) =>
-                entry.type === 'habit'
-                  ? handleHabitComplete(idStr, entry.name)
-                  : handleTodoComplete(idStr, entry.name)
-              }
-              onPress={() => void handleEntryPress(entry)}
-            />
-          </View>
-        ))}
+                    onPress={() => void handleEntryPress(entry)}
+                    testID={`row-habit-${entry.id}`}
+                  />
+                );
+              })
+            )}
+          </Box>
+        </View>
+
+        <View style={[styles.lane, !narrow && styles.laneHalf]}>
+          <Text style={styles.laneHeader}>To-dos</Text>
+          <Box gap={8}>
+            {todoEntries.length === 0 ? (
+              <Text variant="subtle" style={styles.emptyCopy}>
+                No tasks yet.
+              </Text>
+            ) : (
+              todoEntries.map((entry) => (
+                <TodayRow
+                  key={`todo-${entry.id}`}
+                  id={entry.id}
+                  lane="todo"
+                  title={entry.name}
+                  dueTime={
+                    entry.due_date
+                      ? new Date(entry.due_date).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })
+                      : undefined
+                  }
+                  onComplete={(rowId) => handleTodoComplete(rowId, entry.name)}
+                  onPress={() => void handleEntryPress(entry)}
+                  testID={`row-todo-${entry.id}`}
+                />
+              ))
+            )}
+          </Box>
+        </View>
       </Box>
 
       {allDone.length > 0 && (
@@ -236,11 +288,7 @@ export default function TaskHabitStack() {
           <TouchableOpacity
             onPress={() => {
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              if (hasRemoteDone) {
-                setUserCollapsedDone((collapsed) => !collapsed);
-              } else {
-                setManualDoneOpen((open) => !open);
-              }
+              setDoneOpen((open) => !open);
             }}
             accessibilityRole="button"
             accessibilityLabel="Toggle done today"
@@ -254,16 +302,15 @@ export default function TaskHabitStack() {
           </TouchableOpacity>
 
           {doneOpen && (
-            <Box gap={8} style={{ marginTop: 8 }}>
+            <Box gap={8} style={styles.doneList}>
               {allDone.map((entry, index) => (
                 <TouchableOpacity
                   key={`${entry.type}-done-${entry.id}-${index}`}
-                  style={[styles.doneRow, BRAND.elevation.one]}
+                  style={styles.doneRow}
                   onPress={() => void handleEntryPress(entry)}
                   testID={`done-row-${entry.type}-${entry.id}`}
                 >
-                  <View style={[styles.doneStripe]} />
-                  <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
+                  <Text variant="body" style={styles.doneLabel}>
                     {entry.title}
                   </Text>
                 </TouchableOpacity>
@@ -273,7 +320,7 @@ export default function TaskHabitStack() {
         </View>
       )}
 
-      <Box style={{ alignItems: 'center', marginTop: 8 }}>
+      <Box style={{ alignItems: 'center', marginTop: 16 }}>
         <Button
           label="Add More"
           variant="primary"
@@ -303,6 +350,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  lanesWide: {
+    alignItems: 'flex-start',
+  },
+  lane: {
+    backgroundColor: 'rgba(236,241,237,0.6)',
+    borderRadius: 12,
+    padding: 12,
+  },
+  laneHalf: {
+    flex: 1,
+  },
+  laneHeader: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+  emptyCopy: {
+    textAlign: 'center',
+    color: BRAND.colors.inkMuted,
+  },
   doneHeader: {
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -311,22 +378,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
   },
+  doneList: {
+    marginTop: 8,
+  },
   doneRow: {
-    backgroundColor: 'rgba(224,196,122,0.12)',
+    backgroundColor: '#DCEADF',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    position: 'relative',
-    overflow: 'hidden',
   },
-  doneStripe: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-    backgroundColor: BRAND.colors.goldenPear,
-    borderTopLeftRadius: 10,
-    borderBottomLeftRadius: 10,
+  doneLabel: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
   },
 });

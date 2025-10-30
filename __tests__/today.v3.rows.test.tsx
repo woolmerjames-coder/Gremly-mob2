@@ -114,7 +114,7 @@ describe('Action Zone rows and Done Today', () => {
     configureNextSpy.mockRestore();
   });
 
-  it('renders rows with stripes and progress ring, and moves completed items to Done Today', async () => {
+  it('renders flat rows with progress text and moves completed items to Done Today', async () => {
     const repoOverrides = makeRepoOverrides();
     const { mockRepo } = renderWithProviders(<TodayScreen />, { repo: repoOverrides });
 
@@ -125,12 +125,11 @@ describe('Action Zone rows and Done Today', () => {
     await screen.findByTestId('row-todo-t1');
     await screen.findByTestId('row-habit-h1');
 
-    expect(screen.getByTestId('row-stripe-t1')).toBeTruthy();
-    expect(screen.getByTestId('row-stripe-h1')).toBeTruthy();
-    expect(screen.getByTestId('row-ring-h1')).toBeTruthy();
+    expect(screen.getByText(/Due:/)).toBeTruthy();
+    expect(screen.getByText('Today: 1 / 3')).toBeTruthy();
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId('row-complete-t1'));
+      fireEvent.press(screen.getByLabelText('Mark task complete'));
     });
 
     await waitFor(() => {
@@ -140,7 +139,7 @@ describe('Action Zone rows and Done Today', () => {
     expect(mockRepo.completeTodo).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId('row-ring-h1'));
+      fireEvent.press(screen.getByLabelText('Add a habit check-in'));
     });
 
     expect(mockRepo.logHabitProgress).toHaveBeenCalledTimes(1);
