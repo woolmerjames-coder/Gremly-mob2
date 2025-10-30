@@ -29,6 +29,7 @@ import TodayTodoCard from '../../components/today/TodayTodoCard';
 import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
 import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
 import TodayV3View from './TodayV3View';
+import TodayV4LanesView from './TodayV4LanesView';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -59,6 +60,9 @@ function toKebabCase(str: string): string {
 }
 
 export default function TodayScreen() {
+  if (env.feature.today.v4Lanes) {
+    return <TodayV4LanesView />;
+  }
   if (env.feature.today.v3) {
     return <TodayV3View />;
   }
