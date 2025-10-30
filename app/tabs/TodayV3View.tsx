@@ -7,17 +7,34 @@ import SweepPreviewFooter from '../../components/today/v3/SweepPreviewFooter';
 import FocusPickerModal from '../../components/today/v3/FocusPickerModal';
 import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useRepo } from '../../providers/RepoProvider';
 
 export default function TodayV3View() {
   const overlay = useUnifiedOverlayController();
+  const repo = useRepo();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
 
-  const handleViewFocus = (entryId: string | null, entryType: 'todo' | 'habit' | 'note' | null) => {
+  const handleViewFocus = async (
+    entryId: string | null,
+    entryType: 'todo' | 'habit' | 'note' | null,
+  ) => {
     if (!entryId || !entryType) return;
-    overlay.openCreate({
-      type: entryType === 'todo' ? 'todo' : entryType === 'habit' ? 'habit' : 'note',
-    });
+    try {
+      const rec = await (repo as any).getById?.(entryId);
+      const initialEntity = {
+        type: entryType,
+        id: (rec?.id as string | undefined) ?? entryId,
+        subtype:
+          ((rec as { subtype?: string | null })?.subtype as string | null | undefined) ?? null,
+      };
+      overlay.openCreate({
+        type: entryType,
+        initialEntity,
+      });
+    } catch {
+      overlay.openCreate({ type: entryType });
+    }
   };
 
   return (

@@ -36,6 +36,11 @@ interface CreateOptions {
   spaceId?: string | null;
   subtype?: string | null;
   conversionMeta?: ConversionMeta;
+  initialEntity?: {
+    type: EntityType | null;
+    id?: string;
+    subtype?: string | null;
+  };
 }
 
 interface EditOptions {
@@ -51,10 +56,10 @@ export function useUnifiedOverlayController() {
 
   // Debounce guard to prevent rapid re-opens
   const isOpeningRef = useRef(false);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openCreate = useCallback(
-    ({ type, spaceId, subtype, conversionMeta }: CreateOptions = {}) => {
+    ({ type, spaceId, subtype, conversionMeta, initialEntity }: CreateOptions = {}) => {
       if (isOpeningRef.current) {
         console.log('[OverlayController] open already in progress, ignoring');
         return;
@@ -64,7 +69,8 @@ export function useUnifiedOverlayController() {
       setState({
         visible: true,
         mode: 'create',
-        initialEntity: type ? { type, id: undefined, subtype: subtype || null } : undefined,
+        initialEntity:
+          initialEntity ?? (type ? { type, id: undefined, subtype: subtype || null } : undefined),
         initialSpaceId: spaceId,
         conversionMeta,
       });
