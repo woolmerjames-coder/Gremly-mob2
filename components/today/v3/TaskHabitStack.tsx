@@ -6,6 +6,7 @@ import { eventBus } from '../../../lib/events';
 import { useTodayEntries, type TodayMergedEntry } from '../../../lib/today/hooks/useTodayEntries';
 import TodayHabitCard from '../TodayHabitCard';
 import TodayTodoCard from '../TodayTodoCard';
+import { BRAND } from '../../../design/brand';
 
 type Props = {
   onLongPress?: (id: string) => void;
@@ -16,22 +17,23 @@ export default function TaskHabitStack({ onLongPress }: Props) {
   const { items, completed, remaining, loading, error, reload } = useTodayEntries();
 
   const ordered = useMemo(() => {
-    const list = Array.isArray(items) ? items : [];
-    // Simple sort: overdue > nearDue > carry_forward > habits > todos
-    const score = (e: TodayMergedEntry) => {
-      if (e.type === 'todo') {
-        return (e.overdue ? 300 : 0) + (e.nearDue ? 200 : 0) + (e.carry_forward ? 100 : 0) + 10;
+    const score = (entry: TodayMergedEntry) => {
+      if (entry.type === 'todo') {
+        return (
+          (entry.overdue ? 300 : 0) +
+          (entry.nearDue ? 200 : 0) +
+          (entry.carry_forward ? 100 : 0) +
+          10
+        );
       }
-      return 5; // habits after urgent tasks
+      return 5;
     };
-    return [...list].sort((a, b) => score(b) - score(a));
+
+    return [...items].sort((a, b) => score(b) - score(a));
   }, [items]);
 
   const handleHabitComplete = async (id: string) => {
-    // For v3 we log a progress tick (count=1)
-    if (typeof repo.logHabitProgress === 'function') {
-      await repo.logHabitProgress(id, new Date().toISOString(), 1);
-    }
+    await (repo as any).logHabitProgress?.(id, new Date().toISOString(), 1);
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
     void reload();
   };
@@ -42,6 +44,8 @@ export default function TaskHabitStack({ onLongPress }: Props) {
     void reload();
   };
 
+  const total = completed + remaining;
+
   return (
     <View testID="today-v3-stack">
       <Box row style={styles.headerRow}>
@@ -50,62 +54,62 @@ export default function TaskHabitStack({ onLongPress }: Props) {
         </Text>
         <View style={styles.progressChip} testID="today-v3-progress-chip">
           <Text style={styles.progressText}>
-            {completed} / {completed + remaining} complete
+            {completed} / {total} complete
           </Text>
         </View>
       </Box>
 
       {loading && (
-        <Text variant="subtle" style={{ textAlign: 'center', padding: 12 }}>
+        <Text variant="subtle" style={styles.placeholder}>
           Loading...
         </Text>
       )}
       {!loading && error && (
-        <Text variant="subtle" style={{ textAlign: 'center', padding: 12 }}>
+        <Text variant="subtle" style={styles.placeholder}>
           {error}
         </Text>
       )}
       {!loading && !error && ordered.length === 0 && (
-        <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
-          All clear for now - enjoy the space.
+        <Text variant="subtle" style={styles.placeholder}>
+          All clear for now — enjoy the space.
         </Text>
       )}
 
       <Box gap={2}>
-        {ordered.map((e) =>
-          e.type === 'habit' ? (
+        {ordered.map((entry) =>
+          entry.type === 'habit' ? (
             <TodayHabitCard
-              key={`habit-${e.id}`}
-              id={e.id}
-              name={e.name}
+              key={`habit-${entry.id}`}
+              id={entry.id}
+              name={entry.name}
               streakCount={undefined}
-              tags={e.tags}
+              tags={entry.tags}
               spaceName={undefined}
               onComplete={handleHabitComplete}
               onLongPress={onLongPress}
-              reducedMotion={true}
+              reducedMotion
             />
           ) : (
             <TodayTodoCard
-              key={`todo-${e.id}`}
-              id={e.id}
-              title={e.name}
+              key={`todo-${entry.id}`}
+              id={entry.id}
+              title={entry.name}
               dueTime={
-                e.due_date
-                  ? new Date(e.due_date).toLocaleTimeString('en-US', {
+                entry.due_date
+                  ? new Date(entry.due_date).toLocaleTimeString('en-US', {
                       hour: 'numeric',
                       minute: '2-digit',
                     })
                   : undefined
               }
-              tags={e.tags}
+              tags={entry.tags}
               spaceName={undefined}
-              overdue={!!e.overdue}
-              nearDue={!!e.nearDue}
+              overdue={!!entry.overdue}
+              nearDue={!!entry.nearDue}
               grouped={false}
               onComplete={handleTodoComplete}
               onLongPress={onLongPress}
-              reducedMotion={true}
+              reducedMotion
             />
           ),
         )}
@@ -115,13 +119,25 @@ export default function TaskHabitStack({ onLongPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  headerRow: { alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  headerRow: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   headerTitle: { fontWeight: '600' },
   progressChip: {
-    backgroundColor: '#0D3B3A',
+    backgroundColor: BRAND.colors.mossGreen,
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  progressText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  progressText: {
+    color: BRAND.colors.linenCream,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  placeholder: {
+    textAlign: 'center',
+    padding: 12,
+  },
 });

@@ -14,16 +14,20 @@ export default function DropZoneCard({ onViewDrops }: Props) {
   return (
     <Card
       padding="md"
-      style={{ backgroundColor: 'rgba(191,216,192,0.1)', borderRadius: BRAND.radius.xl }}
+      style={{
+        backgroundColor: 'rgba(191,216,192,0.1)',
+        borderRadius: BRAND.radius.xl,
+        ...BRAND.elevation.one,
+      }}
       testID="today-v3-dropzone"
     >
       <Box gap={2}>
         <Text variant="title">Drop Zone</Text>
         <Text variant="subtle">
-          {loading ? 'Loading...' : `${count} drop${count === 1 ? '' : 's'} since yesterday`}
+          {loading ? 'Loading\u2026' : `${count} drop${count === 1 ? '' : 's'} since yesterday`}
         </Text>
         <Text variant="body" style={{ fontStyle: 'italic' }}>
-          "{quote}"
+          {`\u201C${quote}\u201D`}
         </Text>
         <View style={styles.row}>
           <Button
