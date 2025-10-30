@@ -52,6 +52,7 @@ jest.mock('../lib/today/hooks/useTodayEntries', () => ({
         nearDue: false,
       },
     ],
+    doneItems: [],
     completed: 1,
     remaining: 1,
     loading: false,

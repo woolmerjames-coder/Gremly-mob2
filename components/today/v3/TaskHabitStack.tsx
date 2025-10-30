@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -14,24 +14,32 @@ import { useTodayEntries, type TodayMergedEntry } from '../../../lib/today/hooks
 import { BRAND } from '../../../design/brand';
 import TodayRow from './TodayRow';
 import ConfettiBurst from './ConfettiBurst';
+import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-type SessionDone = { id: string; type: 'todo' | 'habit'; title: string };
+type SessionDone = {
+  id: string;
+  type: 'todo' | 'habit';
+  title: string;
+  completedAt?: string | null;
+};
 
 export default function TaskHabitStack() {
   const repo = useRepo();
-  const { items, completed, remaining, loading, /* error */ reload } = useTodayEntries();
+  const { items, doneItems, completed, remaining, loading, /* error */ reload } = useTodayEntries();
+  const overlay = useGlobalOverlay();
 
   type HabitLoggerRepo = {
     logHabitProgress?: (id: string, occurredAtIso: string, count: number) => Promise<unknown>;
   };
   const repoWithHabitLogging = repo as typeof repo & HabitLoggerRepo;
 
-  const [done, setDone] = useState<SessionDone[]>([]);
-  const [doneOpen, setDoneOpen] = useState(false);
+  const [sessionDone, setSessionDone] = useState<SessionDone[]>([]);
+  const [manualDoneOpen, setManualDoneOpen] = useState(false);
+  const [userCollapsedDone, setUserCollapsedDone] = useState(false);
   const [confettiTick, setConfettiTick] = useState(0);
 
   const orderedActive = useMemo(() => {
@@ -50,25 +58,109 @@ export default function TaskHabitStack() {
     return [...items].sort((a, b) => score(b) - score(a));
   }, [items]);
 
+  const recordCompletion = (id: string, entryType: 'todo' | 'habit', title: string) => {
+    const completedAtIso = new Date().toISOString();
+    const nextHidden = new Set(sessionDone.map((entry) => entry.id));
+    nextHidden.add(id);
+    const remainingAfterComplete = orderedActive.filter(
+      (entry) => !nextHidden.has(entry.id),
+    ).length;
+    if (remainingAfterComplete <= 0) {
+      setConfettiTick((tick) => tick + 1);
+    }
+    setSessionDone((d) => [{ id, type: entryType, title, completedAt: completedAtIso }, ...d]);
+    setManualDoneOpen(true);
+  };
+
   const handleHabitComplete = async (id: string, title: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    recordCompletion(id, 'habit', title);
     await repoWithHabitLogging.logHabitProgress?.(id, new Date().toISOString(), 1);
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
-    setDone((d) => [{ id, type: 'habit', title }, ...d]);
-    setDoneOpen(true);
     void reload();
-    if (orderedActive.length - 1 <= 0) setConfettiTick((tick) => tick + 1);
   };
 
   const handleTodoComplete = async (id: string, title: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    recordCompletion(id, 'todo', title);
     await repo.completeTodo(id, new Date().toISOString());
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
-    setDone((d) => [{ id, type: 'todo', title }, ...d]);
-    setDoneOpen(true);
     void reload();
-    if (orderedActive.length - 1 <= 0) setConfettiTick((tick) => tick + 1);
   };
+
+  const handleEntryPress = useCallback(
+    async (entry: TodayMergedEntry | SessionDone) => {
+      try {
+        const record = await repo.getById(entry.id);
+        if (!record) {
+          console.warn('[TaskHabitStack] Unable to load record for overlay:', entry);
+          return;
+        }
+
+        if (record.type !== entry.type) {
+          console.warn(
+            '[TaskHabitStack] Record type mismatch when opening overlay:',
+            entry,
+            record.type,
+          );
+        }
+
+        const spaceId = (record as any)?.space_id ?? undefined;
+        overlay.openEdit({ record, spaceId });
+      } catch (error) {
+        console.error('[TaskHabitStack] Failed to open overlay for entry:', entry, error);
+      }
+    },
+    [overlay, repo],
+  );
+
+  const sessionHiddenIds = useMemo(
+    () => new Set(sessionDone.map((entry) => entry.id)),
+    [sessionDone],
+  );
+
+  const visibleActive = useMemo(
+    () => orderedActive.filter((entry) => !sessionHiddenIds.has(entry.id)),
+    [orderedActive, sessionHiddenIds],
+  );
+
+  const remoteDone = useMemo<SessionDone[]>(
+    () =>
+      doneItems.map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        title: entry.name,
+        completedAt: 'completed_at' in entry ? (entry.completed_at ?? null) : null,
+      })),
+    [doneItems],
+  );
+
+  const allDone = useMemo(() => {
+    const combined = new Map<string, SessionDone>();
+    sessionDone.forEach((entry) => {
+      const key = `${entry.type}-${entry.id}`;
+      combined.set(key, entry);
+    });
+    remoteDone.forEach((entry) => {
+      const key = `${entry.type}-${entry.id}`;
+      if (!combined.has(key)) {
+        combined.set(key, entry);
+      } else {
+        const existing = combined.get(key)!;
+        if (!existing.completedAt && entry.completedAt) {
+          combined.set(key, { ...existing, completedAt: entry.completedAt });
+        }
+      }
+    });
+    return Array.from(combined.values()).sort((a, b) => {
+      const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+      const bTime = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [sessionDone, remoteDone]);
+
+  const hasRemoteDone = remoteDone.length > 0;
+  const doneOpen = hasRemoteDone ? !userCollapsedDone : manualDoneOpen;
 
   const total = completed + remaining;
 
@@ -105,7 +197,7 @@ export default function TaskHabitStack() {
       )}
 
       <Box gap={0}>
-        {orderedActive.map((entry, idx) => (
+        {visibleActive.map((entry, idx) => (
           <View key={`${entry.type}-${entry.id}`} style={{ marginBottom: idx % 2 ? 16 : 8 }}>
             <TodayRow
               id={entry.id}
@@ -132,18 +224,23 @@ export default function TaskHabitStack() {
                   ? handleHabitComplete(idStr, entry.name)
                   : handleTodoComplete(idStr, entry.name)
               }
+              onPress={() => void handleEntryPress(entry)}
             />
           </View>
         ))}
       </Box>
 
-      {done.length > 0 && (
+      {allDone.length > 0 && (
         <View style={{ marginTop: 8, position: 'relative' }}>
           <ConfettiBurst trigger={confettiTick} />
           <TouchableOpacity
             onPress={() => {
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              setDoneOpen((open) => !open);
+              if (hasRemoteDone) {
+                setUserCollapsedDone((collapsed) => !collapsed);
+              } else {
+                setManualDoneOpen((open) => !open);
+              }
             }}
             accessibilityRole="button"
             accessibilityLabel="Toggle done today"
@@ -152,23 +249,24 @@ export default function TaskHabitStack() {
               <Text variant="subtle" style={{ fontWeight: '600' }}>
                 Done Today
               </Text>
-              <Text variant="subtle">({done.length})</Text>
+              <Text variant="subtle">({allDone.length})</Text>
             </Box>
           </TouchableOpacity>
 
           {doneOpen && (
             <Box gap={8} style={{ marginTop: 8 }}>
-              {done.map((entry, index) => (
-                <View
+              {allDone.map((entry, index) => (
+                <TouchableOpacity
                   key={`${entry.type}-done-${entry.id}-${index}`}
                   style={[styles.doneRow, BRAND.elevation.one]}
+                  onPress={() => void handleEntryPress(entry)}
                   testID={`done-row-${entry.type}-${entry.id}`}
                 >
                   <View style={[styles.doneStripe]} />
                   <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
                     {entry.title}
                   </Text>
-                </View>
+                </TouchableOpacity>
               ))}
             </Box>
           )}
@@ -176,7 +274,12 @@ export default function TaskHabitStack() {
       )}
 
       <Box style={{ alignItems: 'center', marginTop: 8 }}>
-        <Button label="Add More" variant="primary" onPress={() => {}} />
+        <Button
+          label="Add More"
+          variant="primary"
+          onPress={() => overlay.openCreate()}
+          accessibilityLabel="Add a new item"
+        />
       </Box>
     </View>
   );

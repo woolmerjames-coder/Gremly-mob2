@@ -2,6 +2,7 @@ import { isToday, parseISO } from 'date-fns';
 import type { AppRecord, Habit, Todo, Note, ID, Space, Tag, Person, EntityType } from '../types';
 import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
+import { eventBus } from '../events';
 import type {
   IRepo,
   CreateRecordInput,
@@ -205,6 +206,8 @@ export class MemoryRepo implements IRepo {
       title: rec.type === 'habit' || rec.type === 'todo' ? rec.name : rec.title,
     });
 
+    eventBus.emit('ItemSaved', { id: rec.id });
+
     return rec;
   }
 
@@ -372,7 +375,6 @@ export class MemoryRepo implements IRepo {
     (item as any).completed_at = atIso;
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
   }
 
@@ -380,9 +382,9 @@ export class MemoryRepo implements IRepo {
     const item = this.data.find((r) => r.id === id && r.owner_id === this.currentUserId);
     if (!item || item.type !== 'todo') throw new Error('Todo not found');
     (item as any).completed_at = atIso;
+    (item as any).status = 'completed';
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
   }
 
@@ -392,7 +394,6 @@ export class MemoryRepo implements IRepo {
     (item as any).completed_at = null;
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemUpdated', { id });
   }
 
@@ -432,17 +433,26 @@ export class MemoryRepo implements IRepo {
     const day = ensureDay(nowIso);
     const now = new Date(nowIso);
 
-    const todos = this.data.filter((r) => {
+    const activeTodos = this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo') return false;
       const carry = (r as any).carry_forward === true;
       const dueDay = r.due_date ? ensureDay(r.due_date) : null;
       const status = ((r as any).status ?? 'active') as 'active' | 'completed' | 'archived';
-      if (status !== 'active') return false;
+      const completedAt = (r as any).completed_at as string | null | undefined;
+      if (status === 'completed' || completedAt) return false;
       return dueDay === day || carry;
     });
 
-    const todoItems = todos.map((t: any) => {
+    const completedTodos = this.data.filter((r) => {
+      if (r.owner_id !== this.currentUserId) return false;
+      if (r.type !== 'todo') return false;
+      const completedAt = (r as any).completed_at as string | null | undefined;
+      if (!completedAt) return false;
+      return ensureDay(completedAt) === day;
+    });
+
+    const mapTodo = (t: any) => {
       let overdue = false;
       let nearDue = false;
       if (t.due_date) {
@@ -452,6 +462,10 @@ export class MemoryRepo implements IRepo {
           nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
         }
       }
+      const completedAt = (t as any).completed_at ?? null;
+      const status = completedAt
+        ? 'completed'
+        : ((t.status ?? 'active') as 'active' | 'completed' | 'archived');
       return {
         type: 'todo' as const,
         id: t.id,
@@ -460,12 +474,15 @@ export class MemoryRepo implements IRepo {
         due_day: t.due_date ? ensureDay(t.due_date) : null,
         space_id: t.space_id ?? null,
         tags: [],
-        status: ((t.status ?? 'active') as 'active' | 'completed' | 'archived') ?? 'active',
+        status,
         carry_forward: !!t.carry_forward,
         overdue,
         nearDue,
+        completed_at: completedAt,
       };
-    });
+    };
+
+    const todoItems = [...activeTodos, ...completedTodos].map(mapTodo);
 
     const habits = this.data.filter(
       (r) => r.owner_id === this.currentUserId && r.type === 'habit',
@@ -483,41 +500,48 @@ export class MemoryRepo implements IRepo {
       habit_id: string;
       occurred_day: string;
       count: number;
+      occurred_at?: string;
     }>;
 
-    const progressByHabit = new Map<string, number>();
+    const progressByHabit = new Map<string, { total: number; latestAt: string | null }>();
     for (const row of progressRows) {
       if (row.occurred_day === day) {
-        progressByHabit.set(
-          row.habit_id,
-          (progressByHabit.get(row.habit_id) || 0) + (row.count ?? 1),
-        );
+        const current = progressByHabit.get(row.habit_id) || { total: 0, latestAt: null };
+        let latestAt = current.latestAt;
+        if (row.occurred_at) {
+          if (!latestAt) {
+            latestAt = row.occurred_at;
+          } else if (new Date(row.occurred_at).getTime() > new Date(latestAt).getTime()) {
+            latestAt = row.occurred_at;
+          }
+        }
+        progressByHabit.set(row.habit_id, {
+          total: current.total + (row.count ?? 1),
+          latestAt,
+        });
       }
     }
 
-    const habitItems = habits
-      .map((h) => {
-        const target = Math.max(1, (h as any).target_count ?? 1);
-        const done = progressByHabit.get(h.id) || 0;
-        return {
-          type: 'habit' as const,
-          id: h.id,
-          name: h.name,
-          space_id: h.space_id ?? null,
-          tags: (h as any).tags ?? [],
-          cadence: ((h as any).cadence as any) ?? 'day',
-          target_count: target,
-          period_unit: ((h as any).period_unit as any) ?? 'day',
-          time_window: ((h as any).time_window as any) ?? 'any',
-          progress_today: done,
-        };
-      })
-      .filter((h) => {
-        if (h.cadence === 'day') {
-          return (h.progress_today ?? 0) < (h.target_count ?? 1);
-        }
-        return true;
-      });
+    const habitItems = habits.map((h) => {
+      const target = Math.max(1, (h as any).target_count ?? 1);
+      const info = progressByHabit.get(h.id) || { total: 0, latestAt: null };
+      const done = info.total;
+      const status: 'active' | 'completed' = done >= target && done > 0 ? 'completed' : 'active';
+      return {
+        type: 'habit' as const,
+        id: h.id,
+        name: h.name,
+        space_id: h.space_id ?? null,
+        tags: (h as any).tags ?? [],
+        cadence: ((h as any).cadence as any) ?? 'day',
+        target_count: target,
+        period_unit: ((h as any).period_unit as any) ?? 'day',
+        time_window: ((h as any).time_window as any) ?? 'any',
+        progress_today: done,
+        status,
+        completed_at: status === 'completed' ? info.latestAt : null,
+      };
+    });
 
     return [...habitItems, ...todoItems];
   }

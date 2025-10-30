@@ -48,6 +48,33 @@ const makeRepoOverrides = (): Partial<IRepo> => ({
   logHabitProgress: jest.fn((_id: string, _timestamp?: string, _count?: number) =>
     Promise.resolve(),
   ),
+  getById: jest.fn((id: string) =>
+    Promise.resolve(
+      id.startsWith('h')
+        ? ({
+            id,
+            type: 'habit',
+            name: 'Habit',
+            frequency: 'daily',
+            subtype: 'routine',
+            ai_placed: false,
+            created_at: nowIso,
+            updated_at: nowIso,
+            owner_id: 'test-user-1',
+            space_id: null,
+          } as any)
+        : ({
+            id,
+            type: 'todo',
+            name: 'Task',
+            ai_placed: false,
+            created_at: nowIso,
+            updated_at: nowIso,
+            owner_id: 'test-user-1',
+            space_id: null,
+          } as any),
+    ),
+  ),
 });
 
 describe('Action Zone rows and Done Today', () => {
@@ -73,6 +100,7 @@ describe('Action Zone rows and Done Today', () => {
           cadence: 'day' as const,
         },
       ],
+      doneItems: [],
       completed: 0,
       remaining: 2,
       loading: false,
@@ -110,5 +138,58 @@ describe('Action Zone rows and Done Today', () => {
     });
 
     expect(mockRepo.completeTodo).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('row-ring-h1'));
+    });
+
+    expect(mockRepo.logHabitProgress).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens overlay when tapping an active entry', async () => {
+    const repoOverrides = makeRepoOverrides();
+    const { mockRepo } = renderWithProviders(<TodayScreen />, { repo: repoOverrides });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('row-todo-t1')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('row-todo-t1'));
+    });
+
+    await waitFor(() => {
+      expect(mockRepo.getById).toHaveBeenCalledWith('t1');
+    });
+  });
+
+  it('hydrates Done Today rows from hook doneItems', async () => {
+    useTodayEntriesMock.mockReturnValue({
+      items: [],
+      doneItems: [
+        {
+          type: 'habit',
+          id: 'remote-h1',
+          name: 'Stretch',
+          target_count: 1,
+          progress_today: 1,
+          status: 'completed',
+          completed_at: nowIso,
+        },
+      ],
+      completed: 1,
+      remaining: 0,
+      loading: false,
+      error: null,
+      reload: jest.fn(() => Promise.resolve()),
+    });
+
+    renderWithProviders(<TodayScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('today-v3-stack')).toBeTruthy();
+    });
+
+    expect(screen.getByTestId('done-row-habit-remote-h1')).toBeTruthy();
   });
 });

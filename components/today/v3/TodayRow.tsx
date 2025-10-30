@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { GestureResponderEvent, Pressable, StyleSheet, View } from 'react-native';
 import { Text, Box, Button } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import ProgressRing from './ProgressRing';
@@ -15,6 +15,7 @@ type Props = {
   habitProgress?: { done: number; target: number } | null;
   completed?: boolean;
   onComplete: (id: string) => Promise<void> | void;
+  onPress?: (id: string) => void;
 };
 
 export default function TodayRow({
@@ -25,6 +26,7 @@ export default function TodayRow({
   habitProgress,
   completed = false,
   onComplete,
+  onPress,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [glow, setGlow] = useState(false);
@@ -41,19 +43,29 @@ export default function TodayRow({
     return { ratio: done / target, label: `${done}/${target}` };
   }, [habitProgress]);
 
-  const handleComplete = async () => {
+  const handleComplete = async (event?: GestureResponderEvent) => {
+    event?.stopPropagation?.();
     setGlow(true);
     await onComplete(id);
     setTimeout(() => setGlow(false), 500);
   };
 
+  const handlePress = () => {
+    if (onPress) {
+      onPress(id);
+    }
+    setExpanded((e) => !e);
+  };
+
   return (
     <Pressable
-      onPress={() => setExpanded((e) => !e)}
+      onPress={handlePress}
       style={[styles.rowWrap, BRAND.elevation.one]}
       testID={`row-${type}-${id}`}
       accessibilityLabel={`${title}. ${type === 'todo' ? 'Task' : 'Habit'}`}
-      accessibilityHint="Tap to expand for details"
+      accessibilityHint={
+        onPress ? 'Opens the item editor and shows more details' : 'Tap to expand for details'
+      }
     >
       <GlowPulse visible={glow} />
       <View style={[styles.stripe, { backgroundColor: stripeColor }]} testID={`row-stripe-${id}`} />
@@ -79,7 +91,14 @@ export default function TodayRow({
         </Box>
 
         {type === 'habit' && progress ? (
-          <View style={styles.rightCluster} testID={`row-ring-${id}`}>
+          <Pressable
+            style={styles.rightCluster}
+            testID={`row-ring-${id}`}
+            onPress={handleComplete}
+            accessibilityRole="button"
+            accessibilityLabel="Mark habit complete"
+            hitSlop={12}
+          >
             <ProgressRing
               size={22}
               stroke={3}
@@ -87,13 +106,13 @@ export default function TodayRow({
               progressColor={BRAND.colors.mossGreen}
               trackColor="rgba(0,0,0,0.08)"
             />
-          </View>
+          </Pressable>
         ) : (
           <View style={styles.rightCluster}>
             <Button
               label={completed ? 'Done' : 'Mark'}
               variant={completed ? 'neutral' : 'primary'}
-              onPress={handleComplete}
+              onPress={() => void handleComplete()}
               testID={`row-complete-${id}`}
               accessibilityLabel={completed ? 'Completed' : 'Mark complete'}
             />

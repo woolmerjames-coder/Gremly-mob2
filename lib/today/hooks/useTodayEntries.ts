@@ -17,6 +17,7 @@ export type TodayMergedTodo = {
   carry_forward?: boolean;
   overdue?: boolean;
   nearDue?: boolean;
+  completed_at?: string | null;
 };
 
 export type TodayMergedHabit = {
@@ -30,12 +31,15 @@ export type TodayMergedHabit = {
   period_unit?: 'day' | 'week' | 'month';
   time_window?: 'any' | 'morning' | 'midday' | 'evening';
   progress_today?: number;
+  status?: 'active' | 'completed';
+  completed_at?: string | null;
 };
 
 export type TodayMergedEntry = TodayMergedTodo | TodayMergedHabit;
 
 export interface TodayEntriesState {
   items: TodayMergedEntry[];
+  doneItems: TodayMergedEntry[];
   completed: number;
   remaining: number;
   loading: boolean;
@@ -48,6 +52,7 @@ export function useTodayEntries(): TodayEntriesState {
   const { user } = useAuth();
 
   const [items, setItems] = useState<TodayMergedEntry[]>([]);
+  const [doneItems, setDoneItems] = useState<TodayMergedEntry[]>([]);
   const [completed, setCompleted] = useState(0);
   const [remaining, setRemaining] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -58,6 +63,7 @@ export function useTodayEntries(): TodayEntriesState {
   const load = useCallback(async () => {
     if (!user) {
       setItems([]);
+      setDoneItems([]);
       setCompleted(0);
       setRemaining(0);
       setLoading(false);
@@ -70,10 +76,28 @@ export function useTodayEntries(): TodayEntriesState {
 
     try {
       let merged: TodayMergedEntry[] = [];
+      let remoteDone: TodayMergedEntry[] = [];
       const hasV3 = typeof (repo as any).listTodayMerged === 'function';
+      const dayIso = nowIso.split('T')[0];
 
       if (hasV3) {
-        merged = await (repo as any).listTodayMerged(nowIso);
+        const result = await (repo as any).listTodayMerged(nowIso);
+        const isCompleted = (entry: TodayMergedEntry) => {
+          if (entry.type === 'todo') {
+            if (entry.status === 'completed') return true;
+            if (entry.completed_at) {
+              const completedDay = entry.completed_at.split('T')[0];
+              return completedDay === dayIso;
+            }
+            return false;
+          }
+          const target = Math.max(1, entry.target_count ?? 1);
+          if (entry.status === 'completed') return true;
+          return (entry.progress_today ?? 0) >= target;
+        };
+
+        remoteDone = result.filter((entry: TodayMergedEntry) => isCompleted(entry));
+        merged = result.filter((entry: TodayMergedEntry) => !isCompleted(entry));
       } else {
         const due = await repo.listDueToday(nowIso);
         merged = (due || [])
@@ -90,9 +114,11 @@ export function useTodayEntries(): TodayEntriesState {
             overdue: false,
             nearDue: false,
           })) as TodayMergedEntry[];
+        remoteDone = [];
       }
 
       setItems(merged);
+      setDoneItems(remoteDone);
 
       if (typeof (repo as any).getTodaySummary === 'function') {
         try {
@@ -116,6 +142,7 @@ export function useTodayEntries(): TodayEntriesState {
     } catch (e: any) {
       console.error('[useTodayEntries] load failed:', e);
       setItems([]);
+      setDoneItems([]);
       setCompleted(0);
       setRemaining(0);
       setLoading(false);
@@ -142,6 +169,7 @@ export function useTodayEntries(): TodayEntriesState {
 
   return {
     items,
+    doneItems,
     completed,
     remaining,
     loading,

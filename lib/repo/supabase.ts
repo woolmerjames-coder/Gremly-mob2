@@ -19,6 +19,7 @@ import type {
   ListByTypeOptions,
 } from './IRepo';
 import { supabase } from '../supabase/client';
+import { eventBus } from '../events';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -422,9 +423,18 @@ export class SupabaseRepo implements IRepo {
 
     // Parse with Row schema to validate returned data (includes all fields)
     const record = { ...result, type: input.type };
-    if (input.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-    if (input.type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-    return noteZ.parse(mapNoteFromDb(record));
+    let parsedRecord: AppRecord;
+    if (input.type === 'habit') {
+      parsedRecord = habitZ.parse(mapHabitFromDb(record));
+    } else if (input.type === 'todo') {
+      parsedRecord = todoZ.parse(mapTodoFromDb(record));
+    } else {
+      parsedRecord = noteZ.parse(mapNoteFromDb(record));
+    }
+
+    eventBus.emit('ItemSaved', { id: parsedRecord.id });
+
+    return parsedRecord;
   }
 
   /**
@@ -927,43 +937,78 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const day = ensureDay(nowIso);
 
-    const { data: todos, error: todosErr } = await supabase
+    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward';
+    const todoFields = `${todoFieldsBase},completed_at`;
+
+    let activeTodos: any[] | null = null;
+    let todosErr: any = null;
+    const activeResp = await supabase
       .from('todos')
-      .select('id,name,due_date,due_day,space_id,status,carry_forward')
+      .select(todoFields)
       .eq('owner_id', userId)
       .eq('status', 'active')
       .or(`due_day.eq.${day},carry_forward.eq.true`);
+
+    if (activeResp.error) {
+      todosErr = activeResp.error;
+    } else {
+      activeTodos = activeResp.data ?? [];
+      this.todoCompletedAtSupported = true;
+    }
 
     if (todosErr) {
       console.error('[listTodayMerged] todos query failed:', todosErr);
     }
 
+    let completedTodos: any[] = [];
+    const completedResp = await supabase
+      .from('todos')
+      .select(todoFields)
+      .eq('owner_id', userId)
+      .eq('status', 'completed')
+      .gte('completed_at', `${day}T00:00:00`)
+      .lt('completed_at', `${day}T23:59:59.999`);
+
+    if (completedResp.error) {
+      console.error('[listTodayMerged] todos completed query failed:', completedResp.error);
+    } else {
+      completedTodos = completedResp.data ?? [];
+      this.todoCompletedAtSupported = true;
+    }
+
     const now = new Date();
-    const todoItems =
-      (todos || []).map((t: any) => {
-        let overdue = false;
-        let nearDue = false;
-        if (t.due_date) {
-          const due = new Date(t.due_date);
-          if (!Number.isNaN(due.getTime())) {
-            overdue = due < now;
-            nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
-          }
+    const mapTodo = (t: any) => {
+      let overdue = false;
+      let nearDue = false;
+      if (t.due_date) {
+        const due = new Date(t.due_date);
+        if (!Number.isNaN(due.getTime())) {
+          overdue = due < now;
+          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
         }
-        return {
-          type: 'todo' as const,
-          id: t.id,
-          name: t.name,
-          due_date: t.due_date,
-          due_day: t.due_day,
-          space_id: t.space_id ?? null,
-          tags: [],
-          status: t.status,
-          carry_forward: !!t.carry_forward,
-          overdue,
-          nearDue,
-        };
-      }) ?? [];
+      }
+
+      const completedAt = t.completed_at ?? null;
+      const rawStatus = (t.status ?? 'active') as 'active' | 'completed' | 'archived';
+      const status = completedAt && rawStatus !== 'archived' ? 'completed' : rawStatus;
+
+      return {
+        type: 'todo' as const,
+        id: t.id,
+        name: t.name,
+        due_date: t.due_date,
+        due_day: t.due_day,
+        space_id: t.space_id ?? null,
+        tags: [],
+        status,
+        carry_forward: !!t.carry_forward,
+        overdue,
+        nearDue,
+        completed_at: completedAt,
+      };
+    };
+
+    const todoItems = [...(activeTodos || []).map(mapTodo), ...(completedTodos || []).map(mapTodo)];
 
     let habitItems: any[] = [];
     try {
@@ -976,45 +1021,52 @@ export class SupabaseRepo implements IRepo {
 
       const { data: progressRows, error: progErr } = await supabase
         .from('habit_progress')
-        .select('habit_id,count,occurred_day')
+        .select('habit_id,count,occurred_day,occurred_at')
         .eq('owner_id', userId)
         .eq('occurred_day', day);
 
       if (progErr) throw progErr;
 
-      const progressByHabit = new Map<string, number>();
+      const progressByHabit = new Map<string, { total: number; latestAt: string | null }>();
       (progressRows || []).forEach((row: any) => {
-        progressByHabit.set(
-          row.habit_id,
-          (progressByHabit.get(row.habit_id) || 0) + (row.count || 1),
-        );
+        const current = progressByHabit.get(row.habit_id) || { total: 0, latestAt: null };
+        let latestAt = current.latestAt;
+        if (row.occurred_at) {
+          if (!latestAt) {
+            latestAt = row.occurred_at;
+          } else if (new Date(row.occurred_at).getTime() > new Date(latestAt).getTime()) {
+            latestAt = row.occurred_at;
+          }
+        }
+        progressByHabit.set(row.habit_id, {
+          total: current.total + (row.count || 1),
+          latestAt,
+        });
       });
 
       habitItems =
-        (habits || [])
-          .map((h: any) => {
-            const target = Math.max(1, h.target_count ?? 1);
-            const done = progressByHabit.get(h.id) || 0;
-            const remaining = target - done;
-            return {
-              type: 'habit' as const,
-              id: h.id,
-              name: h.name,
-              space_id: h.space_id ?? null,
-              tags: [],
-              cadence: (h.cadence as any) || 'day',
-              target_count: target,
-              period_unit: (h.period_unit as any) || 'day',
-              time_window: (h.time_window as any) || 'any',
-              progress_today: done,
-              _remaining: remaining,
-            };
-          })
-          .filter((habit) => (habit.cadence === 'day' ? (habit as any)._remaining > 0 : true))
-          .map((habit) => {
-            delete (habit as any)._remaining;
-            return habit;
-          }) ?? [];
+        (habits || []).map((h: any) => {
+          const target = Math.max(1, h.target_count ?? 1);
+          const progressInfo = progressByHabit.get(h.id) || { total: 0, latestAt: null };
+          const done = progressInfo.total;
+          const status: 'active' | 'completed' =
+            done >= target && done > 0 ? 'completed' : 'active';
+
+          return {
+            type: 'habit' as const,
+            id: h.id,
+            name: h.name,
+            space_id: h.space_id ?? null,
+            tags: [],
+            cadence: (h.cadence as any) || 'day',
+            target_count: target,
+            period_unit: (h.period_unit as any) || 'day',
+            time_window: (h.time_window as any) || 'any',
+            progress_today: done,
+            status,
+            completed_at: status === 'completed' ? progressInfo.latestAt : null,
+          };
+        }) ?? [];
     } catch (error) {
       console.error('[listTodayMerged] habits/progress failed:', error);
       habitItems = [];
@@ -1317,7 +1369,6 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to complete habit: ${error.message}`);
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
   }
 
@@ -1333,7 +1384,6 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to complete todo: ${error.message}`);
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
   }
 
@@ -1349,7 +1399,6 @@ export class SupabaseRepo implements IRepo {
 
     if (!todoError) {
       // Success - was a todo
-      const { eventBus } = await import('../events');
       eventBus.emit('ItemUpdated', { id });
       return;
     }
@@ -1366,7 +1415,6 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemUpdated', { id });
   }
 
