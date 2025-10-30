@@ -6,10 +6,12 @@ import { useSweepPreview } from '../../../lib/today/hooks/useSweepPreview';
 
 type Props = { onStart?: () => void; onPeek?: () => void };
 
+const noop = () => {};
+
 export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
   const { completed, remaining, available } = useSweepPreview();
 
-  if (!available) return null;
+  if (!available || (completed === 0 && remaining === 0)) return null;
 
   return (
     <View
@@ -18,19 +20,19 @@ export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
     >
       <Box row style={styles.row}>
         <Text style={styles.text}>
-          Sweep ready soon - {completed} done · {remaining} to tidy
+          Sweep ready soon — {completed} done · {remaining} to tidy
         </Text>
         <Box row style={{ gap: 8 }}>
           <Button
             title="Peek"
             variant="neutral"
-            onPress={onPeek ?? (() => {})}
+            onPress={onPeek ?? noop}
             testID="today-v3-sweep-peek"
           />
           <Button
-            title="Start Early"
+            title="Start"
             variant="primary"
-            onPress={onStart ?? (() => {})}
+            onPress={onStart ?? noop}
             testID="today-v3-sweep-start"
           />
         </Box>

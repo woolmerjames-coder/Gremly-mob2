@@ -95,9 +95,16 @@ export function useTodayEntries(): TodayEntriesState {
       setItems(merged);
 
       if (typeof (repo as any).getTodaySummary === 'function') {
-        const summary = await (repo as any).getTodaySummary();
-        setCompleted(summary.completed || 0);
-        setRemaining(summary.remaining || 0);
+        try {
+          const summary = await (repo as any).getTodaySummary();
+          setCompleted(summary.completed || 0);
+          setRemaining(summary.remaining || 0);
+        } catch (summaryError) {
+          console.warn('[useTodayEntries] getTodaySummary unavailable, falling back', summaryError);
+          const todoCount = merged.filter((m) => m.type === 'todo').length;
+          setCompleted(0);
+          setRemaining(todoCount);
+        }
       } else {
         const todoCount = merged.filter((m) => m.type === 'todo').length;
         setCompleted(0);

@@ -199,6 +199,7 @@ export class SupabaseRepo implements IRepo {
   private currentUserId: string | null = null;
   private lastCountCompletedTodayWarn: number = 0;
   private readonly WARN_THROTTLE_MS = 60000; // Throttle warnings to once per minute
+  private todoCompletedAtSupported: boolean | null = null;
 
   // Phase 10.7E: Space chat messages accessor
   public spaceChatMessages: {
@@ -1211,15 +1212,29 @@ export class SupabaseRepo implements IRepo {
     const ownerId = this.ensureUserId();
     const day = ensureDay(new Date().toISOString());
 
-    const { count: completedCount, error: completedError } = await supabase
-      .from('todos')
-      .select('*', { count: 'exact', head: true })
-      .eq('owner_id', ownerId)
-      .gte('completed_at', `${day}T00:00:00Z`)
-      .lt('completed_at', `${day}T23:59:59Z`);
+    let completedCount = 0;
+    if (this.todoCompletedAtSupported !== false) {
+      const { count: completedRaw, error: completedError } = await supabase
+        .from('todos')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', ownerId)
+        .gte('completed_at', `${day}T00:00:00Z`)
+        .lt('completed_at', `${day}T23:59:59Z`);
 
-    if (completedError)
-      throw new Error(`getTodaySummary.completed failed: ${completedError.message}`);
+      if (completedError) {
+        this.todoCompletedAtSupported = false;
+        const message = completedError.message || completedError.details || completedError.hint;
+        console.warn(
+          '[getTodaySummary] completed count unavailable; suppressing error',
+          message ?? completedError,
+        );
+      } else {
+        this.todoCompletedAtSupported = true;
+        if (typeof completedRaw === 'number') {
+          completedCount = completedRaw;
+        }
+      }
+    }
 
     const { count: remainingTodos, error: remainingError } = await supabase
       .from('todos')
