@@ -14,10 +14,6 @@ export default function TodayV3View() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
 
-  const handleMascotPress = () => {
-    // Optional: open a tiny “tip of the day” later; for now no-op
-  };
-
   const handleViewFocus = async (
     entryId: string | null,
     entryType: 'todo' | 'habit' | 'note' | null,
@@ -29,10 +25,10 @@ export default function TodayV3View() {
   return (
     <Screen title="Today" scroll padded testID="today-v3-screen">
       <Box gap={4}>
-        {/* Header row with subtle mascot at top-right */}
+        {/* Slim header row only (title handled by nav header) */}
         <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
           <Text variant="subtle">Small wins add up fast.</Text>
-          <MascotBadge onPress={handleMascotPress} />
+          <MascotBadge onPress={() => {}} />
         </Box>
 
         <FocusCard

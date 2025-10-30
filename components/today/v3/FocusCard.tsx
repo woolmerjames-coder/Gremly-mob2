@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Card } from '../../../design-system/Card';
+import { View, StyleSheet, Image } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../../../design-system/Button';
 import { Text, Box } from '../../../ui';
 import { BRAND } from '../../../design/brand';
+import { GRADIENTS } from '../../../design/gradients';
 import { useFocusCard } from '../../../lib/today/hooks/useFocusCard';
 import { useRepo } from '../../../providers/RepoProvider';
 
@@ -19,6 +20,7 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
   const repo = useRepo();
   const [title, setTitle] = useState<string | null>(null);
 
+  // Resolve title
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -42,6 +44,7 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
     };
   }, [focus?.entry_id, focus?.entry_type, repo]);
 
+  // Autosuggest when empty
   useEffect(() => {
     if (autoSuggestIfEmpty && !loading && !focus) {
       void autosuggest();
@@ -70,73 +73,136 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
         : 'Note'
     : null;
 
+  // Edge-to-edge hero uses negative margins to bleed to screen edges
   return (
-    <Card
-      padding="md"
-      style={{
-        backgroundColor: BRAND.colors.linenCream,
-        borderRadius: BRAND.radius.xl,
-        ...BRAND.elevation.one,
-      }}
+    <View
+      style={styles.bleedWrap}
       testID="today-v3-focus-card"
       accessibilityRole="summary"
       accessibilityLabel="Focus for today"
     >
-      <Box gap={2}>
-        <Text variant="title">Focus for today</Text>
+      <LinearGradient
+        colors={GRADIENTS.focusHero}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.hero}
+        testID="today-hero"
+      >
+        {/* Mascot top-right (small, subtle) */}
+        <Image
+          source={require('../../../masters/mascot/ACTUAL GREMLY.png')}
+          style={styles.mascot}
+          accessibilityIgnoresInvertColors
+        />
 
-        {focus?.entry_id ? (
-          <Text variant="body" style={{ color: BRAND.colors.charcoalInk, fontWeight: '600' }}>
-            {title || kindLabel || 'Untitled'}
+        <Box gap={2}>
+          <Text variant="title" style={styles.headerText}>
+            Focus for today
           </Text>
-        ) : (
-          <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
-            No focus yet — tap Change to pick one.
+
+          {focus?.entry_id ? (
+            <Text variant="body" style={styles.focusText} numberOfLines={2}>
+              {title || kindLabel || 'Untitled'}
+            </Text>
+          ) : (
+            <Text variant="body" style={styles.focusTextMuted}>
+              No focus yet — tap Change to pick one.
+            </Text>
+          )}
+
+          <Text variant="subtle" style={styles.subtitleText}>
+            {subtitle}
           </Text>
-        )}
 
-        <Text variant="subtle">{subtitle}</Text>
+          <View style={styles.actions} testID="today-hero-actions">
+            <Button
+              label="View"
+              variant="outline"
+              onPress={() => onView?.(focus?.entry_id ?? null, focus?.entry_type ?? null)}
+              disabled={!focus?.entry_id}
+              testID="today-v3-focus-view"
+              accessibilityLabel="View focus item"
+              accessibilityHint="Opens the focused item"
+            />
+            <Button
+              label="Change"
+              variant="neutral"
+              onPress={onChange}
+              testID="today-v3-focus-change"
+              accessibilityLabel="Change focus"
+              accessibilityHint="Pick a different focus"
+            />
+            <Button
+              label="Clear"
+              variant="ghost"
+              onPress={() => {
+                void clear();
+                onClear?.();
+              }}
+              testID="today-v3-focus-clear"
+              accessibilityLabel="Clear focus"
+              accessibilityHint="Removes today’s focus"
+            />
+          </View>
 
-        <View style={styles.row} testID="today-v3-focus-actions">
-          <Button
-            label="View Task"
-            variant="outline"
-            onPress={() => onView?.(focus?.entry_id ?? null, focus?.entry_type ?? null)}
-            disabled={!focus?.entry_id}
-            testID="today-v3-focus-view"
-            accessibilityLabel="View focus item"
-            accessibilityHint="Opens the focused item"
-          />
-          <Button
-            label="Change"
-            variant="neutral"
-            onPress={onChange}
-            testID="today-v3-focus-change"
-            accessibilityLabel="Change focus"
-            accessibilityHint="Pick a different focus"
-          />
-          <Button
-            label="Clear"
-            variant="ghost"
-            onPress={() => {
-              void clear();
-              onClear?.();
-            }}
-            testID="today-v3-focus-clear"
-            accessibilityLabel="Clear focus"
-            accessibilityHint="Removes today’s focus"
-          />
-        </View>
-      </Box>
-    </Card>
+          {/* Golden Pear underline accent */}
+          <View style={styles.underline} />
+        </Box>
+      </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
+  bleedWrap: {
+    marginHorizontal: -16,
+  },
+  hero: {
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    borderBottomLeftRadius: BRAND.radius['2xl'],
+    borderBottomRightRadius: BRAND.radius['2xl'],
+    position: 'relative',
+  },
+  mascot: {
+    position: 'absolute',
+    right: 14,
+    top: 10,
+    width: 28,
+    height: 28,
+    opacity: 0.9,
+  },
+  headerText: {
+    color: BRAND.colors.charcoalInk,
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  focusText: {
+    color: BRAND.colors.linenCream,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  focusTextMuted: {
+    color: BRAND.colors.linenCream,
+    opacity: 0.9,
+    fontSize: 16,
+  },
+  subtitleText: {
+    color: BRAND.colors.linenCream,
+    opacity: 0.9,
+  },
+  actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 8,
+    gap: 10,
+    marginTop: 10,
+  },
+  underline: {
+    marginTop: 10,
+    height: 2,
+    width: 64,
+    backgroundColor: BRAND.colors.goldenPear,
+    borderRadius: 2,
+    opacity: 0.9,
   },
 });
