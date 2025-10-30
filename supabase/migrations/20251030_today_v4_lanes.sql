@@ -33,7 +33,7 @@ UNION ALL
 SELECT
   h.id,
   'habit'::text AS kind,
-  COALESCE(h.name, h.title, 'Untitled') AS title,
+  COALESCE(h.name, 'Untitled') AS title,
   NULL::timestamptz AS due_at,
   (
     h.cadence = 'daily'
