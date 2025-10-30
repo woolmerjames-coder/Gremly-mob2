@@ -29,10 +29,12 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
         return;
       }
       try {
-        const rec = await (repo as any).getById?.(focus.entry_id);
+        const rec = await repo.getById(focus.entry_id);
         if (!cancelled) {
-          const name = (rec?.name as string) || (rec?.title as string) || null;
-          setTitle(name);
+          const derivedTitle =
+            (rec && 'name' in rec && typeof rec.name === 'string' ? rec.name : null) ??
+            (rec && 'title' in rec && typeof rec.title === 'string' ? rec.title : null);
+          setTitle(derivedTitle);
         }
       } catch {
         if (!cancelled) setTitle(null);
@@ -90,7 +92,7 @@ export default function FocusCard({ onView, onChange, onClear, autoSuggestIfEmpt
       >
         {/* Mascot top-right (small, subtle) */}
         <Image
-          source={require('../../../masters/mascot/ACTUAL GREMLY.png')}
+          source={require('../../../assets/mascot/ACTUAL GREMLY.png')}
           style={styles.mascot}
           accessibilityIgnoresInvertColors
         />

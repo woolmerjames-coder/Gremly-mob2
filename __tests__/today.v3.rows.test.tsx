@@ -1,0 +1,114 @@
+import React from 'react';
+import { LayoutAnimation } from 'react-native';
+import { act, fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import TodayScreen from '../app/tabs/TodayScreen';
+import { useTodayEntries } from '../lib/today/hooks/useTodayEntries';
+import type { IRepo } from '../lib/repo/IRepo';
+
+jest.mock('../lib/today/hooks/useTodayEntries', () => ({
+  useTodayEntries: jest.fn(),
+}));
+
+// Enable v3
+jest.mock('../lib/env', () => ({
+  env: {
+    feature: {
+      today: {
+        v3: true,
+        focusCard: true,
+        dropZone: true,
+        sweepPreview: true,
+        suggestions: false,
+        celebration: false,
+        eveningTeaser: false,
+      },
+      sweep: { eveningV1: true },
+    },
+  },
+}));
+
+// Auth
+jest.mock('../providers/AuthProvider', () => ({
+  ...jest.requireActual('../providers/AuthProvider'),
+  useAuth: () => require('./utils/renderWithProviders').useAuth(),
+}));
+
+jest.mock('../providers/RepoProvider', () => ({
+  ...jest.requireActual('../providers/RepoProvider'),
+  useRepo: () => require('./utils/renderWithProviders').useRepo(),
+}));
+
+const nowIso = new Date().toISOString();
+
+// Repo mock: one todo and one habit active
+const useTodayEntriesMock = useTodayEntries as jest.MockedFunction<typeof useTodayEntries>;
+
+const makeRepoOverrides = (): Partial<IRepo> => ({
+  completeTodo: jest.fn((_id: string, _timestamp: string) => Promise.resolve()),
+  logHabitProgress: jest.fn((_id: string, _timestamp?: string, _count?: number) =>
+    Promise.resolve(),
+  ),
+});
+
+describe('Action Zone rows and Done Today', () => {
+  let configureNextSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useTodayEntriesMock.mockReturnValue({
+      items: [
+        {
+          type: 'todo' as const,
+          id: 't1',
+          name: 'Email Alex tomorrow 3pm',
+          due_date: nowIso,
+          carry_forward: true,
+        },
+        {
+          type: 'habit' as const,
+          id: 'h1',
+          name: 'Swim',
+          target_count: 3,
+          progress_today: 1,
+          cadence: 'day' as const,
+        },
+      ],
+      completed: 0,
+      remaining: 2,
+      loading: false,
+      error: null,
+      reload: jest.fn(() => Promise.resolve()),
+    });
+    configureNextSpy = jest.spyOn(LayoutAnimation, 'configureNext').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    configureNextSpy.mockRestore();
+  });
+
+  it('renders rows with stripes and progress ring, and moves completed items to Done Today', async () => {
+    const repoOverrides = makeRepoOverrides();
+    const { mockRepo } = renderWithProviders(<TodayScreen />, { repo: repoOverrides });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('today-v3-stack')).toBeTruthy();
+    });
+
+    await screen.findByTestId('row-todo-t1');
+    await screen.findByTestId('row-habit-h1');
+
+    expect(screen.getByTestId('row-stripe-t1')).toBeTruthy();
+    expect(screen.getByTestId('row-stripe-h1')).toBeTruthy();
+    expect(screen.getByTestId('row-ring-h1')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('row-complete-t1'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('done-row-todo-t1')).toBeTruthy();
+    });
+
+    expect(mockRepo.completeTodo).toHaveBeenCalledTimes(1);
+  });
+});
