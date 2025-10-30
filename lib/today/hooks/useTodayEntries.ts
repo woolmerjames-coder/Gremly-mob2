@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useAuth } from '../../../providers/AuthProvider';
 import { eventBus } from '../../events';
 import { env } from '../../env';
-import type { AppRecord } from '../../types';
 
 export type TodayMergedTodo = {
   type: 'todo';
@@ -36,18 +36,13 @@ export type TodayMergedEntry = TodayMergedTodo | TodayMergedHabit;
 
 export interface TodayEntriesState {
   items: TodayMergedEntry[];
-  completed: number; // from repo summary when available
-  remaining: number; // from repo summary when available
+  completed: number;
+  remaining: number;
   loading: boolean;
-  error: string | null;
+  error: string | null; // kept for telemetry; UI should not render raw DB errors
   reload: () => Promise<void>;
 }
 
-/**
- * useTodayEntries - Phase 10.9 (Today v3)
- * Returns merged Habits+Todos for "What's on today" and a (completed/remaining) summary.
- * Requires Phase 2 repo methods; falls back to v2 helpers when absent.
- */
 export function useTodayEntries(): TodayEntriesState {
   const repo = useRepo();
   const { user } = useAuth();
@@ -59,14 +54,6 @@ export function useTodayEntries(): TodayEntriesState {
   const [error, setError] = useState<string | null>(null);
 
   const nowIso = useMemo(() => new Date().toISOString(), []);
-
-  type RepoTodo = AppRecord & {
-    type: 'todo';
-    space_id?: string | null;
-    status?: 'active' | 'completed' | 'archived';
-    carry_forward?: boolean;
-    due_date?: string | null;
-  };
 
   const load = useCallback(async () => {
     if (!user) {
@@ -82,22 +69,23 @@ export function useTodayEntries(): TodayEntriesState {
 
     try {
       let merged: TodayMergedEntry[] = [];
-      if (typeof repo.listTodayMerged === 'function') {
-        merged = await repo.listTodayMerged(nowIso);
+      const hasV3 = typeof (repo as any).listTodayMerged === 'function';
+
+      if (hasV3) {
+        merged = await (repo as any).listTodayMerged(nowIso);
       } else {
-        // Fallback to existing v2 behavior: listDueToday() only returns todos
         const due = await repo.listDueToday(nowIso);
         merged = (due || [])
-          .filter((record): record is RepoTodo => record.type === 'todo')
-          .map((todo) => ({
-            type: 'todo',
-            id: todo.id,
-            name: todo.name,
-            due_date: todo.due_date,
-            due_day: todo.due_date ? new Date(todo.due_date).toISOString().split('T')[0] : null,
-            space_id: todo.space_id ?? null,
-            status: (todo.status ?? 'active') as 'active' | 'completed' | 'archived',
-            carry_forward: !!todo.carry_forward,
+          .filter((r) => r.type === 'todo')
+          .map((t: any) => ({
+            type: 'todo' as const,
+            id: t.id,
+            name: t.name,
+            due_date: t.due_date,
+            due_day: t.due_date ? new Date(t.due_date).toISOString().split('T')[0] : null,
+            space_id: t.space_id ?? null,
+            status: (t.status ?? 'active') as 'active' | 'completed' | 'archived',
+            carry_forward: !!t.carry_forward,
             overdue: false,
             nearDue: false,
           })) as TodayMergedEntry[];
@@ -105,13 +93,11 @@ export function useTodayEntries(): TodayEntriesState {
 
       setItems(merged);
 
-      // Summary
-      if (typeof repo.getTodaySummary === 'function') {
-        const summary = await repo.getTodaySummary();
+      if (typeof (repo as any).getTodaySummary === 'function') {
+        const summary = await (repo as any).getTodaySummary();
         setCompleted(summary.completed || 0);
         setRemaining(summary.remaining || 0);
       } else {
-        // Fallback heuristic for v2: all todos shown are remaining; completed=0
         const todoCount = merged.filter((m) => m.type === 'todo').length;
         setCompleted(0);
         setRemaining(todoCount);
@@ -119,15 +105,16 @@ export function useTodayEntries(): TodayEntriesState {
 
       setLoading(false);
       setError(null);
-    } catch (error: unknown) {
+    } catch (e: any) {
+      console.error('[useTodayEntries] load failed:', e);
+      setItems([]);
+      setCompleted(0);
+      setRemaining(0);
       setLoading(false);
-      const message = error instanceof Error ? error.message : 'Failed to load Today entries';
-      setError(message);
+      setError('load_failed');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, repo, nowIso]);
 
-  // Auto-reload on relevant events
   useEffect(() => {
     if (!env.feature.today.v3) return;
 
@@ -138,7 +125,6 @@ export function useTodayEntries(): TodayEntriesState {
     return () => unsub.forEach((u) => u());
   }, [load]);
 
-  // Initial load
   useEffect(() => {
     const timeout = setTimeout(() => {
       void load();

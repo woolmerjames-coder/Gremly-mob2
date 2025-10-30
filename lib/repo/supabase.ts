@@ -926,94 +926,98 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const day = ensureDay(nowIso);
 
-    const { data: todos, error: todosError } = await supabase
+    const { data: todos, error: todosErr } = await supabase
       .from('todos')
       .select('id,name,due_date,due_day,space_id,status,carry_forward')
       .eq('owner_id', userId)
       .eq('status', 'active')
       .or(`due_day.eq.${day},carry_forward.eq.true`);
 
-    if (todosError) throw new Error(`listTodayMerged.todos failed: ${todosError.message}`);
+    if (todosErr) {
+      console.error('[listTodayMerged] todos query failed:', todosErr);
+    }
 
-    const now = new Date(nowIso);
-    const todoItems = (todos ?? []).map((t: any) => {
-      let overdue = false;
-      let nearDue = false;
-      if (t.due_date) {
-        const due = new Date(t.due_date);
-        if (!Number.isNaN(due.getTime())) {
-          overdue = due < now;
-          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+    const now = new Date();
+    const todoItems =
+      (todos || []).map((t: any) => {
+        let overdue = false;
+        let nearDue = false;
+        if (t.due_date) {
+          const due = new Date(t.due_date);
+          if (!Number.isNaN(due.getTime())) {
+            overdue = due < now;
+            nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+          }
         }
-      }
-
-      return {
-        type: 'todo' as const,
-        id: t.id,
-        name: t.name,
-        due_date: t.due_date ?? null,
-        due_day: t.due_day ?? null,
-        space_id: t.space_id ?? null,
-        tags: [],
-        status: t.status,
-        carry_forward: !!t.carry_forward,
-        overdue,
-        nearDue,
-      };
-    });
-
-    const { data: habits, error: habitsError } = await supabase
-      .from('habits')
-      .select('id,name,space_id,tags,target_count,period_unit,time_window,cadence')
-      .eq('owner_id', userId);
-
-    if (habitsError) throw new Error(`listTodayMerged.habits failed: ${habitsError.message}`);
-
-    const { data: progressRows, error: progressError } = await supabase
-      .from('habit_progress')
-      .select('habit_id,count')
-      .eq('owner_id', userId)
-      .eq('occurred_day', day);
-
-    if (progressError) throw new Error(`listTodayMerged.progress failed: ${progressError.message}`);
-
-    const progressByHabit = new Map<string, number>();
-    (progressRows ?? []).forEach((row: any) => {
-      progressByHabit.set(
-        row.habit_id,
-        (progressByHabit.get(row.habit_id) || 0) + (row.count ?? 1),
-      );
-    });
-
-    const habitItems = (habits ?? [])
-      .map((h: any) => {
-        const target = Math.max(1, h.target_count ?? 1);
-        const done = progressByHabit.get(h.id) || 0;
-        const remaining = target - done;
         return {
-          type: 'habit' as const,
-          id: h.id,
-          name: h.name,
-          space_id: h.space_id ?? null,
-          tags: h.tags ?? [],
-          cadence: (h.cadence as any) ?? 'day',
-          target_count: target,
-          period_unit: (h.period_unit as any) ?? 'day',
-          time_window: (h.time_window as any) ?? 'any',
-          progress_today: done,
-          _remaining: remaining,
+          type: 'todo' as const,
+          id: t.id,
+          name: t.name,
+          due_date: t.due_date,
+          due_day: t.due_day,
+          space_id: t.space_id ?? null,
+          tags: [],
+          status: t.status,
+          carry_forward: !!t.carry_forward,
+          overdue,
+          nearDue,
         };
-      })
-      .filter((habit) => {
-        if (habit.cadence === 'day') {
-          return (habit as any)._remaining > 0;
-        }
-        return true;
-      })
-      .map((habit) => {
-        delete (habit as any)._remaining;
-        return habit;
+      }) ?? [];
+
+    let habitItems: any[] = [];
+    try {
+      const { data: habits, error: habitsErr } = await supabase
+        .from('habits')
+        .select('id,name,space_id,cadence,target_count,period_unit,time_window')
+        .eq('owner_id', userId);
+
+      if (habitsErr) throw habitsErr;
+
+      const { data: progressRows, error: progErr } = await supabase
+        .from('habit_progress')
+        .select('habit_id,count,occurred_day')
+        .eq('owner_id', userId)
+        .eq('occurred_day', day);
+
+      if (progErr) throw progErr;
+
+      const progressByHabit = new Map<string, number>();
+      (progressRows || []).forEach((row: any) => {
+        progressByHabit.set(
+          row.habit_id,
+          (progressByHabit.get(row.habit_id) || 0) + (row.count || 1),
+        );
       });
+
+      habitItems =
+        (habits || [])
+          .map((h: any) => {
+            const target = Math.max(1, h.target_count ?? 1);
+            const done = progressByHabit.get(h.id) || 0;
+            const remaining = target - done;
+            return {
+              type: 'habit' as const,
+              id: h.id,
+              name: h.name,
+              space_id: h.space_id ?? null,
+              tags: [],
+              cadence: (h.cadence as any) || 'day',
+              target_count: target,
+              period_unit: (h.period_unit as any) || 'day',
+              time_window: (h.time_window as any) || 'any',
+              progress_today: done,
+              _remaining: remaining,
+            };
+          })
+          .filter((habit) => (habit.cadence === 'day' ? (habit as any)._remaining > 0 : true))
+          .map((habit) => {
+            delete (habit as any)._remaining;
+            return habit;
+          }) ?? [];
+    } catch (error) {
+      console.error('[listTodayMerged] habits/progress failed:', error);
+      habitItems = [];
+    }
 
     return [...habitItems, ...todoItems];
   }
