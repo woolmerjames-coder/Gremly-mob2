@@ -51,7 +51,7 @@ export function useTodayEntries(): TodayEntriesState {
   const [completed, setCompleted] = useState(0);
   const [remaining, setRemaining] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
 
   const nowIso = useMemo(() => new Date().toISOString(), []);
 
@@ -64,6 +64,7 @@ export function useTodayEntries(): TodayEntriesState {
       setError(null);
       return;
     }
+
     setLoading(true);
     setError(null);
 
@@ -113,7 +114,7 @@ export function useTodayEntries(): TodayEntriesState {
       setLoading(false);
       setError('load_failed');
     }
-  }, [user, repo, nowIso]);
+  }, [user, repo, nowIso, setError]);
 
   useEffect(() => {
     if (!env.feature.today.v3) return;
@@ -137,7 +138,7 @@ export function useTodayEntries(): TodayEntriesState {
     completed,
     remaining,
     loading,
-    error,
+    error: null,
     reload: load,
   };
 }

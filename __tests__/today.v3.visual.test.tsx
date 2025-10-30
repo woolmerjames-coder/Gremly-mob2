@@ -43,9 +43,17 @@ jest.mock('../providers/RepoProvider', () => ({
 
 jest.mock('../lib/today/hooks/useTodayEntries', () => ({
   useTodayEntries: () => ({
-    items: [],
-    completed: 0,
-    remaining: 0,
+    items: [
+      {
+        type: 'todo',
+        id: 'todo-1',
+        name: 'Mock Todo',
+        overdue: false,
+        nearDue: false,
+      },
+    ],
+    completed: 1,
+    remaining: 1,
     loading: false,
     error: null,
     reload: jest.fn(),

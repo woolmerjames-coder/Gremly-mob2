@@ -14,7 +14,12 @@ type Props = {
 
 export default function TaskHabitStack({ onLongPress }: Props) {
   const repo = useRepo();
-  const { items, completed, remaining, loading, error, reload } = useTodayEntries();
+  const { items, completed, remaining, loading, /* error */ reload } = useTodayEntries();
+
+  type HabitLoggerRepo = {
+    logHabitProgress?: (id: string, occurredAtIso: string, count: number) => Promise<unknown>;
+  };
+  const repoWithHabitLogging = repo as typeof repo & HabitLoggerRepo;
 
   const ordered = useMemo(() => {
     const score = (entry: TodayMergedEntry) => {
@@ -33,7 +38,7 @@ export default function TaskHabitStack({ onLongPress }: Props) {
   }, [items]);
 
   const handleHabitComplete = async (id: string) => {
-    await (repo as any).logHabitProgress?.(id, new Date().toISOString(), 1);
+    await repoWithHabitLogging.logHabitProgress?.(id, new Date().toISOString(), 1);
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
     void reload();
   };
@@ -50,28 +55,27 @@ export default function TaskHabitStack({ onLongPress }: Props) {
     <View testID="today-v3-stack">
       <Box row style={styles.headerRow}>
         <Text variant="title" style={styles.headerTitle}>
-          What's on today
+          What’s on today
         </Text>
-        <View style={styles.progressChip} testID="today-v3-progress-chip">
-          <Text style={styles.progressText}>
-            {completed} / {total} complete
-          </Text>
-        </View>
+
+        {total > 0 ? (
+          <View style={styles.progressChip} testID="today-v3-progress-chip">
+            <Text style={styles.progressText}>
+              {completed} / {total} complete
+            </Text>
+          </View>
+        ) : null}
       </Box>
 
       {loading && (
-        <Text variant="subtle" style={styles.placeholder}>
-          Loading...
+        <Text variant="subtle" style={{ textAlign: 'center', padding: 12 }}>
+          Loading…
         </Text>
       )}
-      {!loading && error && (
-        <Text variant="subtle" style={styles.placeholder}>
-          {error}
-        </Text>
-      )}
-      {!loading && !error && ordered.length === 0 && (
-        <Text variant="subtle" style={styles.placeholder}>
-          All clear for now — enjoy the space.
+
+      {!loading && total === 0 && (
+        <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
+          Nothing planned — add something when you’re ready.
         </Text>
       )}
 
@@ -87,7 +91,7 @@ export default function TaskHabitStack({ onLongPress }: Props) {
               spaceName={undefined}
               onComplete={handleHabitComplete}
               onLongPress={onLongPress}
-              reducedMotion
+              reducedMotion={true}
             />
           ) : (
             <TodayTodoCard
@@ -109,7 +113,7 @@ export default function TaskHabitStack({ onLongPress }: Props) {
               grouped={false}
               onComplete={handleTodoComplete}
               onLongPress={onLongPress}
-              reducedMotion
+              reducedMotion={true}
             />
           ),
         )}
@@ -135,9 +139,5 @@ const styles = StyleSheet.create({
     color: BRAND.colors.linenCream,
     fontSize: 12,
     fontWeight: '600',
-  },
-  placeholder: {
-    textAlign: 'center',
-    padding: 12,
   },
 });
