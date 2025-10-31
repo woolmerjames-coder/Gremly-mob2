@@ -24,6 +24,7 @@ import { detectIntent } from './intents/detectIntent';
 import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
+import { parseDue } from './entities/datetime';
 
 // Re-export lane types for convenience
 export type { Lane, CortexContextBase } from './lane';
@@ -580,6 +581,40 @@ function extractItemFromText(text: string): string {
 }
 
 /**
+ * Interpret commands like "Make work todo list today" as todo creation instead of list capture.
+ * Guards against "Add eggs to my todo list" by requiring build verbs and skipping list verbs.
+ */
+function convertTodoListCommandToTodo(text: string): { title: string; due?: string } | null {
+  const lower = text.toLowerCase();
+
+  if (!/\bto-?do list\b/.test(lower)) {
+    return null;
+  }
+
+  // Skip when user is clearly adding items to an existing todo list.
+  if (/(?:^|\s)(add|put|include|insert|append|throw|toss|drop)\b/.test(lower)) {
+    return null;
+  }
+
+  const buildVerbMatches =
+    /\b(make|create|start|begin|finish|complete|organize|plan|prep|prepare|build|draft|write|do|work on)\b/;
+  if (!buildVerbMatches.test(lower)) {
+    return null;
+  }
+
+  const parsedDue = parseDue(text);
+  const due = parsedDue && parsedDue.confidence >= 0.7 ? parsedDue.iso : undefined;
+  const cleanedSource = parsedDue && parsedDue.confidence >= 0.6 ? parsedDue.textWithoutWhen : text;
+  const title = cleanedSource.replace(/\s+/g, ' ').trim();
+
+  if (!title) {
+    return null;
+  }
+
+  return { title, due };
+}
+
+/**
  * Normalize engine output to canonical CortexAction[]
  * Phase 10.4: Apply space-level biasing for ambiguous intents
  * @internal
@@ -635,26 +670,38 @@ function normalizeEngineOutput(
     const subtype = engineOutput.subtype || 'catchall';
 
     if (subtype === 'list') {
-      // Detect if this is a shopping/list intent by checking text and engine whyString
-      const whyString = engineOutput.whyString || '';
-      const isShoppingIntent =
-        /shopping|grocery|groceries/i.test(fallbackText) ||
-        /shopping|grocery|groceries/i.test(whyString);
+      const todoOverride = convertTodoListCommandToTodo(fallbackText);
+      if (todoOverride) {
+        actions.push({
+          type: 'create.todo',
+          payload: {
+            title: todoOverride.title,
+            due: todoOverride.due,
+            spaceId: ctx.activeSpaceId,
+          },
+        });
+      } else {
+        // Detect if this is a shopping/list intent by checking text and engine whyString
+        const whyString = engineOutput.whyString || '';
+        const isShoppingIntent =
+          /shopping|grocery|groceries/i.test(fallbackText) ||
+          /shopping|grocery|groceries/i.test(whyString);
 
-      // Extract the actual item (not the full command)
-      const item = extractItemFromText(fallbackText);
+        // Extract the actual item (not the full command)
+        const item = extractItemFromText(fallbackText);
 
-      // Phase 10.4: Detect list type with space biasing
-      const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
+        // Phase 10.4: Detect list type with space biasing
+        const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
 
-      actions.push({
-        type: 'add.to.list',
-        payload: {
-          listKey,
-          item,
-          spaceId: ctx.activeSpaceId,
-        },
-      });
+        actions.push({
+          type: 'add.to.list',
+          payload: {
+            listKey,
+            item,
+            spaceId: ctx.activeSpaceId,
+          },
+        });
+      }
     } else {
       actions.push({
         type: 'create.note',

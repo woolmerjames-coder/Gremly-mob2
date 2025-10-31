@@ -179,6 +179,31 @@ describe('cortexDecide Integration', () => {
     expect(result.explanation).toBeDefined();
   });
 
+  it('should convert todo list creation commands into todo actions', async () => {
+    const { createCortexEngine } = require('../cortex/createEngine');
+
+    createCortexEngine.mockReturnValue({
+      classify: jest.fn().mockResolvedValue({
+        type: 'note',
+        subtype: 'list',
+        text: 'Make work todo list today',
+        confidence: 0.88,
+        aiPlaced: true,
+        whyString: 'Generic list capture',
+      }),
+    });
+
+    const result = await cortexDecide({ text: 'Make work todo list today' }, mockContext);
+
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0].type).toBe('create.todo');
+
+    if (result.actions[0].type === 'create.todo') {
+      expect(result.actions[0].payload.title).toBe('Make work todo list');
+      expect(result.actions[0].payload.due).toEqual(expect.any(String));
+    }
+  });
+
   it('should return ask mode for medium confidence (0.65)', async () => {
     const { createCortexEngine } = require('../cortex/createEngine');
 
