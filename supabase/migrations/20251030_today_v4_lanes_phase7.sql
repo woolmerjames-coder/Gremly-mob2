@@ -47,8 +47,8 @@ returns table (
 ) language sql security definer set search_path = public as $$
   with base as (
     select h.id,
-           h.name,
-           h.cadence,
+      h.name,
+      h.cadence::cadence_type as cadence,
            coalesce(h.target_per_period,1) as target_per_period,
            coalesce(h.target_per_day,1) as target_per_day,
            h.last_completed_at,
@@ -74,7 +74,12 @@ returns table (
     from base b
   )
   select
-    id, name, cadence, target_per_period, target_per_day, last_completed_at,
+  id,
+  name,
+  cadence::cadence_type as cadence,
+  target_per_period,
+  target_per_day,
+  last_completed_at,
     period_count, today_count,
     case
       when cadence = 'daily'   then today_count < target_per_day
