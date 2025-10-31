@@ -2,7 +2,7 @@
 module.exports = {
   preset: 'react-native',
   testEnvironment: 'jsdom',
-  testMatch: ['**/__tests__/**/*.test.(ts|tsx|js)'],
+  testMatch: ['**/__tests__/**/*.test.(ts|tsx|js)', '**/tests/**/*.test.(ts|tsx|js)'],
   testPathIgnorePatterns: [
     '/node_modules/',
     '<rootDir>/__tests__/pending/',

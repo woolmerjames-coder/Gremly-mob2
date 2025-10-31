@@ -58,6 +58,7 @@ jest.mock('react-native-reanimated', () => {
   };
 
   return {
+    __esModule: true,
     default: {
       View: View, // Use React Native's View for testing
       createAnimatedComponent: (Component: unknown) => Component,

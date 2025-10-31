@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Pressable } from 'react-native';
+import { Pressable, Text as RNText } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -10,17 +10,48 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { format } from 'date-fns';
 import { Screen, Box, Text } from '../../ui';
 import { useTodayData } from '../../selectors/today/useTodayData';
 import { BRAND } from '../../design/brand';
-import { useTokens } from '../../design/makeStyles';
+import { useTokens, useColorSchemeSafe } from '../../design/makeStyles';
 import { Dotline } from '../../components/today/Dotline';
+import { useAuth } from '../../providers/AuthProvider';
+import { useRepo } from '../../providers/RepoProvider';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 
 export default function TodayV4LanesView() {
   const { left, right, progress, completeItem, loading } = useTodayData();
   const tokens = useTokens();
+  const colorScheme = useColorSchemeSafe();
+  const { user } = useAuth();
+  const repo = useRepo();
+  const { openEdit } = useUnifiedOverlayController();
+  const displayName = (user?.user_metadata?.first_name as string) ?? 'James';
+  const todayString = format(new Date(), 'EEEE, MMMM do');
   const progressValue = useSharedValue(progress);
   const pulse = useSharedValue(1);
+  const verticalGuideColor = colorScheme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+
+  const Checkbox = ({ checked, onToggle }: { checked: boolean; onToggle: () => void }) => (
+    <Pressable
+      onPress={onToggle}
+      accessibilityLabel={checked ? 'Uncomplete item' : 'Complete item'}
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 2,
+        borderColor: BRAND.colors.mossGreen,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: tokens.spacing[2],
+        backgroundColor: checked ? BRAND.colors.mossGreen : 'transparent',
+      }}
+    >
+      {checked ? <RNText style={{ color: '#fff', fontWeight: '700' }}>✓</RNText> : null}
+    </Pressable>
+  );
 
   useEffect(() => {
     const prev = progressValue.value;
@@ -75,41 +106,87 @@ export default function TodayV4LanesView() {
         </Animated.View>
       </Box>
 
+      <Box px={4} pb={2}>
+        <Box gap={1} mb={2}>
+          <Text variant="title" style={{ fontSize: 20, color: BRAND.colors.charcoalInk }}>
+            Hi, {displayName}
+          </Text>
+          <Text variant="label" style={{ color: '#6A6F76' }}>
+            {todayString}
+          </Text>
+        </Box>
+        <Text
+          variant="title"
+          style={{
+            fontSize: 18,
+            color: BRAND.colors.mossGreen,
+            marginBottom: tokens.spacing[2],
+          }}
+        >
+          Focus for today
+        </Text>
+      </Box>
+
       <Box row gap={4} px={4} pb={8} style={{ alignItems: 'flex-start' }}>
         <Box flex={1} gap={3}>
           <Text
             variant="label"
-            style={{ color: BRAND.colors.goldenPear, marginBottom: tokens.spacing[2] }}
+            style={{
+              fontSize: 14,
+              fontWeight: '600',
+              color: BRAND.colors.goldenPear,
+              marginBottom: tokens.spacing[2],
+            }}
           >
             In Progress
           </Text>
 
-          {left.map((item) => (
-            <Animated.View
-              key={item.id}
-              entering={FadeIn.duration(200)}
-              exiting={FadeOut.duration(200)}
-              layout={Layout.springify()}
-            >
-              <Pressable
-                onPress={() => {
-                  void Haptics.selectionAsync().catch(() => undefined);
-                  completeItem(item.id, item.kind);
-                }}
-                accessibilityLabel={`Complete ${item.title}`}
+          {left.map((item) => {
+            const onComplete = () => {
+              void Haptics.selectionAsync().catch(() => undefined);
+              void completeItem(item.id, item.kind);
+            };
+
+            const openDetails = async () => {
+              const record = await repo.getById(item.id);
+              if (record) {
+                openEdit({ record });
+              }
+            };
+
+            return (
+              <Animated.View
+                key={item.id}
+                entering={FadeIn.duration(200)}
+                exiting={FadeOut.duration(200)}
+                layout={Layout.springify()}
               >
-                <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }} py={2}>
-                  <Text
-                    variant="body"
-                    numberOfLines={1}
-                    style={{
-                      color: BRAND.colors.charcoalInk,
-                      flex: 1,
-                      marginRight: tokens.spacing[2],
-                    }}
-                  >
-                    {item.title}
-                  </Text>
+                <Box
+                  row
+                  py={2}
+                  style={{
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderRightWidth: 1,
+                    borderRightColor: verticalGuideColor,
+                  }}
+                >
+                  <Box row style={{ flex: 1, alignItems: 'center' }}>
+                    <Checkbox checked={false} onToggle={onComplete} />
+                    <Pressable onPress={() => void openDetails()} style={{ flex: 1 }}>
+                      <Text
+                        variant="body"
+                        numberOfLines={2}
+                        style={{
+                          fontSize: 14,
+                          lineHeight: 18,
+                          color: BRAND.colors.charcoalInk,
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                    </Pressable>
+                  </Box>
                   {item.kind === 'habit' ? (
                     <Dotline
                       total={
@@ -120,13 +197,13 @@ export default function TodayV4LanesView() {
                       filled={
                         item.cadence === 'daily' ? (item.todayCount ?? 0) : (item.periodCount ?? 0)
                       }
-                      color={BRAND.colors.goldenPear}
+                      color={BRAND.colors.mossGreen}
                     />
                   ) : null}
                 </Box>
-              </Pressable>
-            </Animated.View>
-          ))}
+              </Animated.View>
+            );
+          })}
 
           {left.length === 0 && (
             <Text variant="subtle" style={{ color: BRAND.colors.inkMuted }}>
@@ -138,7 +215,12 @@ export default function TodayV4LanesView() {
         <Box flex={1} gap={3}>
           <Text
             variant="label"
-            style={{ color: BRAND.colors.mossGreen, marginBottom: tokens.spacing[2] }}
+            style={{
+              fontSize: 14,
+              fontWeight: '600',
+              color: BRAND.colors.mossGreen,
+              marginBottom: tokens.spacing[2],
+            }}
           >
             Done
           </Text>
@@ -149,44 +231,79 @@ export default function TodayV4LanesView() {
             </Text>
           )}
 
-          {right.map((item) => (
-            <Animated.View
-              key={item.id}
-              entering={FadeIn.duration(200)}
-              exiting={FadeOut.duration(200)}
-              layout={Layout.springify()}
-            >
-              <Box row py={2} style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text
-                  variant="body"
-                  numberOfLines={1}
+          {right.map((item) => {
+            const undo = async () => {
+              try {
+                if (typeof repo.undoCompletion === 'function') {
+                  await repo.undoCompletion(item.id);
+                } else {
+                  await completeItem(item.id, item.kind);
+                }
+              } catch (error) {
+                void completeItem(item.id, item.kind);
+              }
+            };
+
+            const openDetails = async () => {
+              const record = await repo.getById(item.id);
+              if (record) {
+                openEdit({ record });
+              }
+            };
+
+            return (
+              <Animated.View
+                key={item.id}
+                entering={FadeIn.duration(200)}
+                exiting={FadeOut.duration(200)}
+                layout={Layout.springify()}
+              >
+                <Box
+                  row
+                  py={2}
                   style={{
-                    color: BRAND.colors.mossGreen,
-                    textDecorationLine: 'line-through',
-                    flex: 1,
-                    marginRight: tokens.spacing[2],
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderRightWidth: 1,
+                    borderRightColor: verticalGuideColor,
                   }}
                 >
-                  {item.title}
-                </Text>
-                {item.kind === 'habit' ? (
-                  <Dotline
-                    total={
-                      item.cadence === 'daily'
-                        ? (item.targetPerDay ?? 1)
-                        : (item.targetPerPeriod ?? 1)
-                    }
-                    filled={
-                      item.cadence === 'daily'
-                        ? (item.targetPerDay ?? 1)
-                        : (item.targetPerPeriod ?? 1)
-                    }
-                    color={BRAND.colors.mossGreen}
-                  />
-                ) : null}
-              </Box>
-            </Animated.View>
-          ))}
+                  <Box row style={{ flex: 1, alignItems: 'center' }}>
+                    <Checkbox checked onToggle={() => void undo()} />
+                    <Pressable onPress={() => void openDetails()} style={{ flex: 1 }}>
+                      <Text
+                        variant="body"
+                        numberOfLines={2}
+                        style={{
+                          fontSize: 14,
+                          lineHeight: 18,
+                          color: BRAND.colors.mossGreen,
+                          textDecorationLine: 'line-through',
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                    </Pressable>
+                  </Box>
+                  {item.kind === 'habit' ? (
+                    <Dotline
+                      total={
+                        item.cadence === 'daily'
+                          ? (item.targetPerDay ?? 1)
+                          : (item.targetPerPeriod ?? 1)
+                      }
+                      filled={
+                        item.cadence === 'daily'
+                          ? (item.targetPerDay ?? 1)
+                          : (item.targetPerPeriod ?? 1)
+                      }
+                      color={BRAND.colors.mossGreen}
+                    />
+                  ) : null}
+                </Box>
+              </Animated.View>
+            );
+          })}
         </Box>
       </Box>
     </Screen>
