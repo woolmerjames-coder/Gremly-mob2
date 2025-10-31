@@ -24,22 +24,21 @@ export function useTodayData() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: todayRows, error: todayError }, { data: habitRows, error: habitError }] =
-        await Promise.all([
-          supabase.from('view_today_items').select('*'),
-          supabase.from('habits').select('*'),
-        ]);
+      const [todosResult, rollingResult] = await Promise.all([
+        supabase.from('view_today_items').select('*'),
+        supabase.rpc('get_rolling_habits'),
+      ]);
 
-      if (todayError) {
-        throw todayError;
+      if (todosResult.error) {
+        throw todosResult.error;
       }
-      if (habitError) {
-        throw habitError;
+      if (rollingResult.error) {
+        throw rollingResult.error;
       }
 
-      const todos = (todayRows ?? []).filter((row) => row.kind === 'todo');
-      const habits = habitRows ?? [];
-      const merged = mergeTodayData(todos, habits);
+      const todos = (todosResult.data ?? []).filter((row) => row.kind === 'todo');
+      const rollingHabits = rollingResult.data ?? [];
+      const merged = mergeTodayData(todos, rollingHabits);
       setItemsWithProgress(merged);
     } catch (error) {
       console.error('[useTodayData] fetch error', error);
@@ -56,10 +55,10 @@ export function useTodayData() {
         ),
       );
 
-      const { error } = await supabase.rpc('complete_item', {
-        _kind: kind,
-        _id: id,
-      });
+      const { error } =
+        kind === 'habit'
+          ? await supabase.rpc('complete_habit', { _id: id })
+          : await supabase.rpc('complete_item', { _kind: 'todo', _id: id });
 
       if (error) {
         console.error('[useTodayData] complete_item error', error);
