@@ -9,6 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Screen, Box, Text } from '../../ui';
 import { useTodayData } from '../../selectors/today/useTodayData';
 import { BRAND } from '../../design/brand';
@@ -18,13 +19,27 @@ export default function TodayV4LanesView() {
   const { left, right, progress, completeItem, loading } = useTodayData();
   const tokens = useTokens();
   const progressValue = useSharedValue(progress);
+  const pulse = useSharedValue(1);
 
   useEffect(() => {
+    const prev = progressValue.value;
     progressValue.value = withTiming(progress, { duration: 600 });
-  }, [progress, progressValue]);
+
+    const hitMilestone =
+      (prev < 0.25 && progress >= 0.25) ||
+      (prev < 0.5 && progress >= 0.5) ||
+      (prev < 1 && progress >= 1);
+
+    if (hitMilestone) {
+      pulse.value = withTiming(1.05, { duration: 200 }, () => {
+        pulse.value = withTiming(1, { duration: 200 });
+      });
+    }
+  }, [progress, progressValue, pulse]);
 
   const animatedBar = useAnimatedStyle(() => ({
     width: `${Math.min(progressValue.value * 100, 100)}%`,
+    transform: [{ scaleY: pulse.value }],
   }));
 
   if (loading) {
@@ -45,11 +60,18 @@ export default function TodayV4LanesView() {
             {
               height: 6,
               borderRadius: BRAND.radius.sm,
-              backgroundColor: BRAND.colors.goldenPear,
+              overflow: 'hidden',
             },
             animatedBar,
           ]}
-        />
+        >
+          <LinearGradient
+            colors={[BRAND.colors.goldenPear, BRAND.colors.mossGreen]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{ flex: 1 }}
+          />
+        </Animated.View>
       </Box>
 
       <Box row gap={4} px={4} pb={8} style={{ alignItems: 'flex-start' }}>
