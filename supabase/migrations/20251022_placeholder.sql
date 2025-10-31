@@ -1,0 +1,2 @@
+-- Placeholder migration to align with remote history for version 20251022.
+-- The actual changes were applied manually on the remote database.

@@ -48,7 +48,17 @@ returns table (
   with base as (
     select h.id,
       h.name,
-      h.cadence::cadence_type as cadence,
+      (
+        case h.cadence
+          when 'day' then 'daily'::cadence_type
+          when 'week' then 'weekly'::cadence_type
+          when 'month' then 'monthly'::cadence_type
+          when 'daily' then 'daily'::cadence_type
+          when 'weekly' then 'weekly'::cadence_type
+          when 'monthly' then 'monthly'::cadence_type
+          else 'daily'::cadence_type
+        end
+      ) as cadence,
            coalesce(h.target_per_period,1) as target_per_period,
            coalesce(h.target_per_day,1) as target_per_day,
            h.last_completed_at,
@@ -63,7 +73,7 @@ returns table (
         select count(*) from habit_log l
         where l.habit_id = b.id
           and l.user_id = b.user_id
-          and l.occurred_at >= period_start(b.cadence::cadence_type)
+          and l.occurred_at >= period_start(b.cadence)
       ) as period_count,
       (
         select count(*) from habit_log l2
@@ -76,7 +86,7 @@ returns table (
   select
   id,
   name,
-  cadence::cadence_type as cadence,
+  cadence,
   target_per_period,
   target_per_day,
   last_completed_at,

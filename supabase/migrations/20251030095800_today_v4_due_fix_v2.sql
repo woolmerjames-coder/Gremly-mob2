@@ -1,6 +1,13 @@
--- Safely handle todo due_time strings when building view_today_items
+-- Reapply today view with due_time sanitization
 CREATE OR REPLACE VIEW public.view_today_items AS
-WITH todo_source AS (
+WITH zone AS (
+  SELECT
+    now() AT TIME ZONE 'America/Los_Angeles' AS local_now,
+    DATE(now() AT TIME ZONE 'America/Los_Angeles') AS local_today,
+    DATE_TRUNC('week', now() AT TIME ZONE 'America/Los_Angeles') AS local_week_start,
+    DATE_TRUNC('month', now() AT TIME ZONE 'America/Los_Angeles') AS local_month_start
+),
+todo_source AS (
   SELECT
     t.id,
     'todo'::text AS kind,
@@ -9,7 +16,7 @@ WITH todo_source AS (
       WHEN sanitized.due_time_value IS NOT NULL AND sanitized.due_date_value IS NOT NULL THEN
         (sanitized.due_date_value + sanitized.due_time_value) AT TIME ZONE 'UTC'
       WHEN sanitized.due_time_value IS NOT NULL THEN
-        (DATE_TRUNC('day', now() AT TIME ZONE 'UTC')::date + sanitized.due_time_value) AT TIME ZONE 'UTC'
+        (DATE_TRUNC('day', z.local_now)::date + sanitized.due_time_value) AT TIME ZONE 'UTC'
       ELSE
         sanitized.due_date_timestamptz
     END AS due_at,
@@ -18,6 +25,7 @@ WITH todo_source AS (
     t.created_at AS inserted_at,
     t.updated_at
   FROM public.todos t
+  CROSS JOIN zone z
   CROSS JOIN LATERAL (
     SELECT
       CASE
@@ -46,10 +54,19 @@ WITH todo_source AS (
       END AS due_date_timestamptz
   ) AS sanitized
 )
-SELECT *
-FROM todo_source
-WHERE due_at IS NOT NULL
-  AND DATE(due_at AT TIME ZONE 'UTC') = DATE(now() AT TIME ZONE 'UTC')
+SELECT
+  ts.id,
+  ts.kind,
+  ts.title,
+  ts.due_at,
+  ts.completed,
+  ts.user_id,
+  ts.inserted_at,
+  ts.updated_at
+FROM todo_source ts
+CROSS JOIN zone z
+WHERE ts.due_at IS NOT NULL
+  AND DATE(ts.due_at AT TIME ZONE 'America/Los_Angeles') = z.local_today
 UNION ALL
 SELECT
   h.id,
@@ -57,16 +74,21 @@ SELECT
   COALESCE(h.name, 'Untitled') AS title,
   NULL::timestamptz AS due_at,
   (
-    h.cadence = 'daily'
+    h.cadence = 'day'
     AND h.last_completed_at IS NOT NULL
-    AND DATE(h.last_completed_at AT TIME ZONE 'utc') = DATE(now() AT TIME ZONE 'utc')
+    AND DATE(h.last_completed_at AT TIME ZONE 'America/Los_Angeles') = z.local_today
   ) AS completed,
   h.owner_id AS user_id,
   h.created_at AS inserted_at,
   h.updated_at
 FROM public.habits h
-WHERE h.cadence = 'daily'
+CROSS JOIN zone z
+WHERE h.cadence = 'day'
    OR (
-    h.cadence = 'weekly'
-    AND DATE_TRUNC('week', now() AT TIME ZONE 'utc') = DATE_TRUNC('week', COALESCE(h.period_start_at, now()) AT TIME ZONE 'utc')
+    h.cadence = 'week'
+    AND DATE_TRUNC('week', COALESCE(h.period_start_at, z.local_now)) = z.local_week_start
+  )
+   OR (
+    h.cadence = 'month'
+    AND DATE_TRUNC('month', COALESCE(h.period_start_at, z.local_now)) = z.local_month_start
   );
