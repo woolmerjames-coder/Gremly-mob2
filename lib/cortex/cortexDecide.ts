@@ -551,7 +551,9 @@ function looksHabitText(text: string): boolean {
     /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b/.test(t);
   const hasTimesPerPeriod = /\b\d+\s+times?\s+(a|per)\s+(day|week|month)\b/.test(t);
   const hasDurationPerDay =
-    /\b\d+\s+(minutes?|minute|hours?|hour)\b.*\b((per|each)\s*day|in\s+(a\s+)?day)\b/.test(t);
+    /\b\d+\s+(minutes?|minute|hours?|hour)\b.*\b((per|each|every)\s*day|a\s+day|in\s+(a\s+)?day)\b/.test(
+      t,
+    );
 
   return hasGenericFrequency || hasTimesPerPeriod || hasDurationPerDay;
 }
