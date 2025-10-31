@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase/client';
+import { eventBus } from '../../lib/events';
 import { mergeTodayData, splitLanes, calcProgress } from './index';
 import type { TodayItem, TodayItemKind } from './today.types';
 
@@ -77,6 +78,18 @@ export function useTodayData() {
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const unsubscribes = [
+      eventBus.on('ItemSaved', () => void fetchData()),
+      eventBus.on('ItemCompleted', () => void fetchData()),
+      eventBus.on('ItemUpdated', () => void fetchData()),
+    ];
+
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
   }, [fetchData]);
 
   const lanes = useMemo(() => splitLanes(items), [items]);
