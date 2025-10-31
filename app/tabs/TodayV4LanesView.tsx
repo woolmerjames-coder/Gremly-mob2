@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Pressable, Text as RNText } from 'react-native';
 import Animated, {
+  Easing,
   FadeIn,
   FadeOut,
   Layout,
@@ -9,7 +10,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 import { Screen, Box, Text } from '../../ui';
 import { useTodayData } from '../../selectors/today/useTodayData';
@@ -20,8 +20,49 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 
+const ProgressBar = ({ progress }: { progress: number }) => {
+  const pct = Math.max(0, Math.min(1, progress || 0));
+  const animated = useSharedValue(pct);
+
+  useEffect(() => {
+    animated.value = withTiming(pct, {
+      duration: 500,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [animated, pct]);
+
+  const widthStyle = useAnimatedStyle(() => ({
+    width: `${animated.value * 100}%`,
+  }));
+
+  return (
+    <Box style={{ width: '78%', marginTop: 8, marginBottom: 12 }}>
+      <Box
+        style={{
+          height: 8,
+          backgroundColor: '#DDE8E0',
+          borderRadius: 999,
+          overflow: 'hidden',
+        }}
+      >
+        <Animated.View
+          entering={FadeIn}
+          style={[
+            {
+              height: 8,
+              backgroundColor: '#2E5540',
+              borderRadius: 999,
+            },
+            widthStyle,
+          ]}
+        />
+      </Box>
+    </Box>
+  );
+};
+
 export default function TodayV4LanesView() {
-  const { left, right, progress, completeItem, loading } = useTodayData();
+  const { left, right, completeItem, loading } = useTodayData();
   const tokens = useTokens();
   const colorScheme = useColorSchemeSafe();
   const { user } = useAuth();
@@ -29,9 +70,12 @@ export default function TodayV4LanesView() {
   const { openEdit } = useUnifiedOverlayController();
   const displayName = (user?.user_metadata?.first_name as string) ?? 'James';
   const todayString = format(new Date(), 'EEEE, MMMM do');
-  const progressValue = useSharedValue(progress);
-  const pulse = useSharedValue(1);
-  const verticalGuideColor = colorScheme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+  const verticalGuideColor =
+    colorScheme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(34,34,34,0.06)';
+  const doneCount = right.length;
+  const totalCount = left.length + right.length;
+  const overallProgress = totalCount ? doneCount / totalCount : 0;
+  const openingGuardRef = useRef(false);
 
   const Checkbox = ({ checked, onToggle }: { checked: boolean; onToggle: () => void }) => (
     <Pressable
@@ -53,27 +97,6 @@ export default function TodayV4LanesView() {
     </Pressable>
   );
 
-  useEffect(() => {
-    const prev = progressValue.value;
-    progressValue.value = withTiming(progress, { duration: 600 });
-
-    const hitMilestone =
-      (prev < 0.25 && progress >= 0.25) ||
-      (prev < 0.5 && progress >= 0.5) ||
-      (prev < 1 && progress >= 1);
-
-    if (hitMilestone) {
-      pulse.value = withTiming(1.05, { duration: 200 }, () => {
-        pulse.value = withTiming(1, { duration: 200 });
-      });
-    }
-  }, [progress, progressValue, pulse]);
-
-  const animatedBar = useAnimatedStyle(() => ({
-    width: `${Math.min(progressValue.value * 100, 100)}%`,
-    transform: [{ scaleY: pulse.value }],
-  }));
-
   if (loading) {
     return (
       <Screen>
@@ -83,46 +106,19 @@ export default function TodayV4LanesView() {
       </Screen>
     );
   }
-
   return (
     <Screen scroll padded={false} testID="today-v4-lanes-screen">
-      <Box mx={4} my={3} radius={1} style={{ height: 6, backgroundColor: BRAND.colors.sageMist }}>
-        <Animated.View
-          style={[
-            {
-              height: 6,
-              borderRadius: BRAND.radius.sm,
-              overflow: 'hidden',
-            },
-            animatedBar,
-          ]}
-        >
-          <LinearGradient
-            colors={[BRAND.colors.goldenPear, BRAND.colors.mossGreen]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{ flex: 1 }}
-          />
-        </Animated.View>
-      </Box>
-
       <Box px={4} pb={2}>
         <Box gap={1} mb={2}>
-          <Text variant="title" style={{ fontSize: 20, color: BRAND.colors.charcoalInk }}>
+          <Text style={{ fontSize: 24, fontWeight: '700', color: '#222222' }}>
             Hi, {displayName}
           </Text>
-          <Text variant="label" style={{ color: '#6A6F76' }}>
+          <Text style={{ fontSize: 16, fontWeight: '500', color: 'rgba(34,34,34,0.75)' }}>
             {todayString}
           </Text>
         </Box>
-        <Text
-          variant="title"
-          style={{
-            fontSize: 18,
-            color: BRAND.colors.mossGreen,
-            marginBottom: tokens.spacing[2],
-          }}
-        >
+        <ProgressBar progress={overallProgress} />
+        <Text style={{ fontSize: 18, fontWeight: '700', color: '#2E5540', marginBottom: 8 }}>
           Focus for today
         </Text>
       </Box>
@@ -132,8 +128,9 @@ export default function TodayV4LanesView() {
           <Text
             variant="label"
             style={{
-              fontSize: 14,
-              fontWeight: '600',
+              fontSize: 15,
+              fontWeight: '700',
+              letterSpacing: 0.2,
               color: BRAND.colors.goldenPear,
               marginBottom: tokens.spacing[2],
             }}
@@ -148,9 +145,19 @@ export default function TodayV4LanesView() {
             };
 
             const openDetails = async () => {
-              const record = await repo.getById(item.id);
-              if (record) {
-                openEdit({ record });
+              if (openingGuardRef.current) {
+                return;
+              }
+              openingGuardRef.current = true;
+              try {
+                const record = await repo.getById(item.id);
+                if (record) {
+                  openEdit({ record });
+                }
+              } finally {
+                setTimeout(() => {
+                  openingGuardRef.current = false;
+                }, 100);
               }
             };
 
@@ -180,6 +187,7 @@ export default function TodayV4LanesView() {
                         style={{
                           fontSize: 14,
                           lineHeight: 18,
+                          marginRight: 8,
                           color: BRAND.colors.charcoalInk,
                         }}
                       >
@@ -216,8 +224,9 @@ export default function TodayV4LanesView() {
           <Text
             variant="label"
             style={{
-              fontSize: 14,
-              fontWeight: '600',
+              fontSize: 15,
+              fontWeight: '700',
+              letterSpacing: 0.2,
               color: BRAND.colors.mossGreen,
               marginBottom: tokens.spacing[2],
             }}
@@ -245,9 +254,19 @@ export default function TodayV4LanesView() {
             };
 
             const openDetails = async () => {
-              const record = await repo.getById(item.id);
-              if (record) {
-                openEdit({ record });
+              if (openingGuardRef.current) {
+                return;
+              }
+              openingGuardRef.current = true;
+              try {
+                const record = await repo.getById(item.id);
+                if (record) {
+                  openEdit({ record });
+                }
+              } finally {
+                setTimeout(() => {
+                  openingGuardRef.current = false;
+                }, 100);
               }
             };
 
@@ -277,6 +296,7 @@ export default function TodayV4LanesView() {
                         style={{
                           fontSize: 14,
                           lineHeight: 18,
+                          marginRight: 8,
                           color: BRAND.colors.mossGreen,
                           textDecorationLine: 'line-through',
                         }}

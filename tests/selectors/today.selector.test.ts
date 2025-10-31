@@ -3,7 +3,15 @@ import { mergeTodayData, splitLanes, calcProgress } from '../../selectors/today'
 describe('today selectors', () => {
   test('mergeTodayData combines todos and habits', () => {
     const todos = [{ id: 't1', title: 'Todo 1', completed: false, due_at: null }];
-    const habits = [{ id: 'h1', name: 'Habit 1', target_per_day: 1, completed_count: 0 }];
+    const habits = [
+      {
+        id: 'h1',
+        name: 'Habit 1',
+        target_per_day: 1,
+        today_count: 0,
+        should_surface_today: true,
+      },
+    ];
 
     const merged = mergeTodayData(todos as any, habits as any);
     expect(merged).toHaveLength(2);

@@ -1,6 +1,7 @@
 import React from 'react';
-import { act, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
+import { act, fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import TodayScreen from '../app/tabs/TodayScreen';
+import type { IRepo } from '../lib/repo/IRepo';
 
 // Enable v3 + sweep
 jest.mock('../lib/env', () => ({
@@ -32,47 +33,15 @@ jest.mock('../lib/today/hooks/useSweepPreview', () => ({
   }),
 }));
 
-// Mock Auth
+// Wire providers to test utility contexts
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({
-    user: { id: 'test-user-id', email: 'test@example.com' },
-    userId: 'test-user-id',
-    loading: false,
-  }),
+  ...jest.requireActual('../providers/AuthProvider'),
+  useAuth: () => require('./utils/renderWithProviders').useAuth(),
 }));
 
-// Repo mock
-const repoMock = {
-  listTodayMerged: jest.fn(() =>
-    Promise.resolve([
-      { type: 'todo', id: 't1', name: 'Finish packing', status: 'active', carry_forward: true },
-      {
-        type: 'todo',
-        id: 't2',
-        name: 'Check passport',
-        status: 'active',
-        carry_forward: false,
-        due_date: new Date().toISOString(),
-      },
-      {
-        type: 'habit',
-        id: 'h1',
-        name: 'Water',
-        target_count: 8,
-        progress_today: 6,
-        cadence: 'day',
-      },
-    ]),
-  ),
-  getTodaySummary: jest.fn(() => Promise.resolve({ completed: 1, remaining: 2 })),
-  sweepApplyAction: jest.fn(() => Promise.resolve()),
-  logHabitProgress: jest.fn(() => Promise.resolve()),
-  completeTodo: jest.fn(() => Promise.resolve()),
-  listRecentDrops: jest.fn(() => Promise.resolve([])),
-};
-
 jest.mock('../providers/RepoProvider', () => ({
-  useRepo: () => repoMock,
+  ...jest.requireActual('../providers/RepoProvider'),
+  useRepo: () => require('./utils/renderWithProviders').useRepo(),
 }));
 
 describe('Today v3 Sweep Drawer', () => {
@@ -81,12 +50,52 @@ describe('Today v3 Sweep Drawer', () => {
   });
 
   it('opens the sweep drawer and applies actions', async () => {
-    renderWithProviders(<TodayScreen />);
+    const repoOverrides: Partial<IRepo> = {
+      listTodayMerged: jest.fn(
+        () =>
+          Promise.resolve([
+            {
+              type: 'todo' as const,
+              id: 't1',
+              name: 'Finish packing',
+              status: 'active' as const,
+              carry_forward: true,
+            },
+            {
+              type: 'todo' as const,
+              id: 't2',
+              name: 'Check passport',
+              status: 'active' as const,
+              carry_forward: false,
+              due_date: new Date().toISOString(),
+            },
+            {
+              type: 'habit' as const,
+              id: 'h1',
+              name: 'Water',
+              target_count: 8,
+              progress_today: 6,
+              cadence: 'day' as const,
+            },
+          ]) as any,
+      ),
+      getTodaySummary: jest.fn(() => Promise.resolve({ completed: 1, remaining: 2 })),
+      sweepApplyAction: jest.fn(() => Promise.resolve()),
+      logHabitProgress: jest.fn(() => Promise.resolve()),
+      completeTodo: jest.fn(() => Promise.resolve()),
+      listRecentDrops: jest.fn(() => Promise.resolve([])),
+    };
+
+    const { mockRepo } = renderWithProviders(<TodayScreen />, { repo: repoOverrides });
+
+    await waitFor(() => {
+      expect(mockRepo.listTodayMerged).toHaveBeenCalled();
+    });
 
     // Footer renders and we can peek
     const peekBtn = await waitFor(() => screen.getByTestId('today-v3-sweep-peek'));
     await act(async () => {
-      peekBtn.props.onPress();
+      fireEvent.press(peekBtn);
     });
 
     // Drawer visible
@@ -95,27 +104,27 @@ describe('Today v3 Sweep Drawer', () => {
     });
 
     // Archive first item
-    const archive1 = screen.getByTestId('sweep-archive-t1');
+    const archive1 = await waitFor(() => screen.getByTestId('sweep-archive-t1'));
     await act(async () => {
-      archive1.props.onPress();
+      fireEvent.press(archive1);
     });
-    expect(repoMock.sweepApplyAction).toHaveBeenCalledWith('t1', 'todo', 'archive', {
+    expect(mockRepo.sweepApplyAction).toHaveBeenCalledWith('t1', 'todo', 'archive', {
       archived_reason: 'swept',
     });
 
     // Carry-forward second
-    const carry2 = screen.getByTestId('sweep-carry-t2');
+    const carry2 = await waitFor(() => screen.getByTestId('sweep-carry-t2'));
     await act(async () => {
-      carry2.props.onPress();
+      fireEvent.press(carry2);
     });
-    expect(repoMock.sweepApplyAction).toHaveBeenCalledWith('t2', 'todo', 'carry_forward', {
+    expect(mockRepo.sweepApplyAction).toHaveBeenCalledWith('t2', 'todo', 'carry_forward', {
       archived_reason: 'swept',
     });
 
     // Close
     const done = screen.getByTestId('sweep-done');
     await act(async () => {
-      done.props.onPress();
+      fireEvent.press(done);
     });
   });
 });

@@ -22,7 +22,7 @@ type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person' | 'unsorted';
 
 interface OverlayState {
   visible: boolean;
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   initialEntity?: {
     type: EntityType;
     id?: string;
@@ -41,10 +41,16 @@ interface OpenEditParams {
   spaceId?: string | null;
 }
 
+interface OpenViewParams {
+  record: AppRecord;
+  spaceId?: string | null;
+}
+
 export interface OverlayController {
   state: OverlayState;
   openCreate: (params?: OpenCreateParams) => void;
   openEdit: (params: OpenEditParams) => void;
+  openView: (params: OpenViewParams) => void;
   close: () => void;
 }
 
@@ -79,19 +85,7 @@ function useLegacyOverlayController(): OverlayController {
     initialSpaceId: null,
   });
 
-  const openCreate = useCallback((params?: OpenCreateParams) => {
-    setState({
-      visible: true,
-      mode: 'create',
-      initialEntity: params?.type ? { type: params.type, subtype: null } : null,
-      initialSpaceId: params?.spaceId,
-    });
-  }, []);
-
-  const openEdit = useCallback((params: OpenEditParams) => {
-    const { record, spaceId } = params;
-
-    // Map AppRecord type to EntityType
+  const resolveEntityFromRecord = useCallback((record: AppRecord) => {
     let entityType: EntityType = record.type as EntityType;
     let subtype: string | null = null;
 
@@ -108,17 +102,55 @@ function useLegacyOverlayController(): OverlayController {
       }
     }
 
+    return { entityType, subtype };
+  }, []);
+
+  const openCreate = useCallback((params?: OpenCreateParams) => {
     setState({
       visible: true,
-      mode: 'edit',
-      initialEntity: {
-        type: entityType,
-        id: record.id,
-        subtype,
-      },
-      initialSpaceId: spaceId,
+      mode: 'create',
+      initialEntity: params?.type ? { type: params.type, subtype: null } : null,
+      initialSpaceId: params?.spaceId,
     });
   }, []);
+
+  const openEdit = useCallback(
+    (params: OpenEditParams) => {
+      const { record, spaceId } = params;
+      const { entityType, subtype } = resolveEntityFromRecord(record);
+
+      setState({
+        visible: true,
+        mode: 'edit',
+        initialEntity: {
+          type: entityType,
+          id: record.id,
+          subtype,
+        },
+        initialSpaceId: spaceId,
+      });
+    },
+    [resolveEntityFromRecord],
+  );
+
+  const openView = useCallback(
+    (params: OpenViewParams) => {
+      const { record, spaceId } = params;
+      const { entityType, subtype } = resolveEntityFromRecord(record);
+
+      setState({
+        visible: true,
+        mode: 'view',
+        initialEntity: {
+          type: entityType,
+          id: record.id,
+          subtype,
+        },
+        initialSpaceId: spaceId,
+      });
+    },
+    [resolveEntityFromRecord],
+  );
 
   const close = useCallback(() => {
     setState({
@@ -133,6 +165,7 @@ function useLegacyOverlayController(): OverlayController {
     state,
     openCreate,
     openEdit,
+    openView,
     close,
   };
 }
