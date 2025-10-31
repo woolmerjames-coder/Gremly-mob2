@@ -14,6 +14,7 @@ import { Screen, Box, Text } from '../../ui';
 import { useTodayData } from '../../selectors/today/useTodayData';
 import { BRAND } from '../../design/brand';
 import { useTokens } from '../../design/makeStyles';
+import { Dotline } from '../../components/today/Dotline';
 
 export default function TodayV4LanesView() {
   const { left, right, progress, completeItem, loading } = useTodayData();
@@ -98,13 +99,29 @@ export default function TodayV4LanesView() {
                 accessibilityLabel={`Complete ${item.title}`}
               >
                 <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }} py={2}>
-                  <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
+                  <Text
+                    variant="body"
+                    numberOfLines={1}
+                    style={{
+                      color: BRAND.colors.charcoalInk,
+                      flex: 1,
+                      marginRight: tokens.spacing[2],
+                    }}
+                  >
                     {item.title}
                   </Text>
-                  {item.kind === 'habit' && item.totalCount ? (
-                    <Text variant="label" style={{ color: BRAND.colors.goldenPear }}>
-                      {item.completedCount ?? 0}/{item.totalCount}
-                    </Text>
+                  {item.kind === 'habit' ? (
+                    <Dotline
+                      total={
+                        item.cadence === 'daily'
+                          ? (item.targetPerDay ?? 1)
+                          : (item.targetPerPeriod ?? 1)
+                      }
+                      filled={
+                        item.cadence === 'daily' ? (item.todayCount ?? 0) : (item.periodCount ?? 0)
+                      }
+                      color={BRAND.colors.goldenPear}
+                    />
                   ) : null}
                 </Box>
               </Pressable>
@@ -142,14 +159,30 @@ export default function TodayV4LanesView() {
               <Box row py={2} style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text
                   variant="body"
-                  style={{ color: BRAND.colors.mossGreen, textDecorationLine: 'line-through' }}
+                  numberOfLines={1}
+                  style={{
+                    color: BRAND.colors.mossGreen,
+                    textDecorationLine: 'line-through',
+                    flex: 1,
+                    marginRight: tokens.spacing[2],
+                  }}
                 >
                   {item.title}
                 </Text>
-                {item.kind === 'habit' && item.totalCount ? (
-                  <Text variant="label" style={{ color: BRAND.colors.mossGreen }}>
-                    {item.totalCount}/{item.totalCount}
-                  </Text>
+                {item.kind === 'habit' ? (
+                  <Dotline
+                    total={
+                      item.cadence === 'daily'
+                        ? (item.targetPerDay ?? 1)
+                        : (item.targetPerPeriod ?? 1)
+                    }
+                    filled={
+                      item.cadence === 'daily'
+                        ? (item.targetPerDay ?? 1)
+                        : (item.targetPerPeriod ?? 1)
+                    }
+                    color={BRAND.colors.mossGreen}
+                  />
                 ) : null}
               </Box>
             </Animated.View>
