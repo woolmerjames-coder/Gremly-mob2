@@ -1,5 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Pressable } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  Layout,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Screen, Box, Text } from '../../ui';
 import { useTodayData } from '../../selectors/today/useTodayData';
 import { BRAND } from '../../design/brand';
@@ -8,7 +17,15 @@ import { useTokens } from '../../design/makeStyles';
 export default function TodayV4LanesView() {
   const { left, right, progress, completeItem, loading } = useTodayData();
   const tokens = useTokens();
-  const progressPercent = Math.min(progress * 100, 100);
+  const progressValue = useSharedValue(progress);
+
+  useEffect(() => {
+    progressValue.value = withTiming(progress, { duration: 600 });
+  }, [progress, progressValue]);
+
+  const animatedBar = useAnimatedStyle(() => ({
+    width: `${Math.min(progressValue.value * 100, 100)}%`,
+  }));
 
   if (loading) {
     return (
@@ -23,13 +40,15 @@ export default function TodayV4LanesView() {
   return (
     <Screen scroll padded={false} testID="today-v4-lanes-screen">
       <Box mx={4} my={3} radius={1} style={{ height: 6, backgroundColor: BRAND.colors.sageMist }}>
-        <Box
-          radius={1}
-          style={{
-            flex: 1,
-            width: `${progressPercent}%`,
-            backgroundColor: BRAND.colors.goldenPear,
-          }}
+        <Animated.View
+          style={[
+            {
+              height: 6,
+              borderRadius: BRAND.radius.sm,
+              backgroundColor: BRAND.colors.goldenPear,
+            },
+            animatedBar,
+          ]}
         />
       </Box>
 
@@ -43,22 +62,31 @@ export default function TodayV4LanesView() {
           </Text>
 
           {left.map((item) => (
-            <Pressable
+            <Animated.View
               key={item.id}
-              onPress={() => completeItem(item.id, item.kind)}
-              accessibilityLabel={`Complete ${item.title}`}
+              entering={FadeIn.duration(200)}
+              exiting={FadeOut.duration(200)}
+              layout={Layout.springify()}
             >
-              <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }} py={2}>
-                <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
-                  {item.title}
-                </Text>
-                {item.kind === 'habit' && item.totalCount ? (
-                  <Text variant="label" style={{ color: BRAND.colors.goldenPear }}>
-                    {item.completedCount ?? 0}/{item.totalCount}
+              <Pressable
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => undefined);
+                  completeItem(item.id, item.kind);
+                }}
+                accessibilityLabel={`Complete ${item.title}`}
+              >
+                <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }} py={2}>
+                  <Text variant="body" style={{ color: BRAND.colors.charcoalInk }}>
+                    {item.title}
                   </Text>
-                ) : null}
-              </Box>
-            </Pressable>
+                  {item.kind === 'habit' && item.totalCount ? (
+                    <Text variant="label" style={{ color: BRAND.colors.goldenPear }}>
+                      {item.completedCount ?? 0}/{item.totalCount}
+                    </Text>
+                  ) : null}
+                </Box>
+              </Pressable>
+            </Animated.View>
           ))}
 
           {left.length === 0 && (
@@ -83,24 +111,26 @@ export default function TodayV4LanesView() {
           )}
 
           {right.map((item) => (
-            <Box
+            <Animated.View
               key={item.id}
-              row
-              py={2}
-              style={{ alignItems: 'center', justifyContent: 'space-between' }}
+              entering={FadeIn.duration(200)}
+              exiting={FadeOut.duration(200)}
+              layout={Layout.springify()}
             >
-              <Text
-                variant="body"
-                style={{ color: BRAND.colors.mossGreen, textDecorationLine: 'line-through' }}
-              >
-                {item.title}
-              </Text>
-              {item.kind === 'habit' && item.totalCount ? (
-                <Text variant="label" style={{ color: BRAND.colors.mossGreen }}>
-                  {item.totalCount}/{item.totalCount}
+              <Box row py={2} style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text
+                  variant="body"
+                  style={{ color: BRAND.colors.mossGreen, textDecorationLine: 'line-through' }}
+                >
+                  {item.title}
                 </Text>
-              ) : null}
-            </Box>
+                {item.kind === 'habit' && item.totalCount ? (
+                  <Text variant="label" style={{ color: BRAND.colors.mossGreen }}>
+                    {item.totalCount}/{item.totalCount}
+                  </Text>
+                ) : null}
+              </Box>
+            </Animated.View>
           ))}
         </Box>
       </Box>
