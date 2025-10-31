@@ -46,10 +46,15 @@ returns table (
   should_surface_today boolean
 ) language sql security definer set search_path = public as $$
   with base as (
-    select h.id, h.name, h.cadence, coalesce(h.target_per_period,1) as target_per_period,
-           coalesce(h.target_per_day,1) as target_per_day, h.last_completed_at, h.user_id
+    select h.id,
+           h.name,
+           h.cadence,
+           coalesce(h.target_per_period,1) as target_per_period,
+           coalesce(h.target_per_day,1) as target_per_day,
+           h.last_completed_at,
+           h.owner_id as user_id
     from habits h
-    where h.user_id = auth.uid()
+    where h.owner_id = auth.uid()
   ),
   counts as (
     select
@@ -86,7 +91,7 @@ returns json language plpgsql security definer as $$
 declare payload json;
 begin
   insert into habit_log (habit_id, user_id) values (_id, auth.uid());
-  update habits set last_completed_at = now() where id = _id and user_id = auth.uid()
+  update habits set last_completed_at = now() where id = _id and owner_id = auth.uid()
   returning row_to_json(habits.*) into payload;
   return payload;
 end;
