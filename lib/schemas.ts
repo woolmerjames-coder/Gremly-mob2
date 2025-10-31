@@ -148,8 +148,8 @@ export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
 export const habitInsertSchema = z
   .object({
     space_id: z.string().uuid().nullable().optional(),
-    name: z.string().min(1), // Required - database column (habits use 'name', NOT 'title')
-    title: z.string().min(1).optional(), // LEGACY - accepted for backward compatibility but not saved to DB
+    name: z.string().min(1), // Required by database
+    title: z.string().min(1).optional(), // Database column is non-null; repo ensures fallback when absent
     frequency: z.string().min(1),
     subtype: z.enum(['start_habit', 'break_habit']).optional(), // Strictly enforce valid subtypes
     ai_placed: z.boolean().default(false),

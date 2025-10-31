@@ -254,16 +254,17 @@ export class SupabaseRepo implements IRepo {
       if (!input.frequency) throw new Error('Habit requires frequency');
       // NOTE: subtype removed - column doesn't exist in habits table
 
-      // Database schema truth: habits table has 'name' column (NOT 'title')
+      // Database schema truth: habits table enforces BOTH name and title (Mind Drop relies on title)
       const habitName = input.name ?? input.title ?? 'Untitled';
+      const habitTitle = input.title ?? habitName;
 
       // Build minimal payload with Insert schema validation
       // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: habitName, // Required - database column (habits use 'name', NOT 'title')
-          // title: REMOVED - column doesn't exist in habits table
+          name: habitName, // Required - database column (habits use both name and title)
+          title: habitTitle, // Required - Mind Drop inserts expect non-null title
           frequency: input.frequency,
           // subtype: REMOVED - column doesn't exist in database
           ai_placed: input.ai_placed ?? false,
