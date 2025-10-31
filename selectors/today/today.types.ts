@@ -1,5 +1,3 @@
-import type { Cadence } from '../../types/habit';
-
 export type TodayItemKind = 'todo' | 'habit';
 
 export interface TodayItem {
@@ -8,10 +6,10 @@ export interface TodayItem {
   title: string;
   completed: boolean;
   dueAt?: string | null;
-  cadence?: Cadence;
+  cadence?: 'daily' | 'weekly' | 'monthly';
   targetPerPeriod?: number;
   targetPerDay?: number;
-  completedCount?: number;
-  totalCount?: number;
+  periodCount?: number;
+  todayCount?: number;
   lastCompletedAt?: string | null;
 }
