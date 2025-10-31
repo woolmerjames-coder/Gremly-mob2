@@ -15,11 +15,13 @@ export default function TodayV3View() {
   const [sweepOpen, setSweepOpen] = useState(false);
 
   return (
-    <Screen title="Today" scroll padded testID="today-v3-screen">
+    <Screen scroll padded testID="today-v3-screen">
       <Box gap={4}>
         <TodayHeader />
 
-        <FocusCard onChange={() => setPickerOpen(true)} onClear={() => {}} />
+        <Box testID="today-hero">
+          <FocusCard onChange={() => setPickerOpen(true)} onClear={() => {}} />
+        </Box>
 
         <TaskHabitStack />
 

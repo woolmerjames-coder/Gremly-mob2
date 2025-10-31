@@ -116,7 +116,9 @@ export default function FocusCard({ onChange, onClear, autoSuggestIfEmpty = true
         If you could finish just one thing today…
       </Text>
 
-      <Text style={styles.title}>Focus for today</Text>
+      <Text style={styles.title}>If you could finish just one thing today…</Text>
+
+      <Animated.View style={[styles.underline, { opacity: underlineOpacity }]} />
 
       {focus?.entry_id ? (
         <Text style={styles.focus} numberOfLines={2}>
@@ -126,32 +128,38 @@ export default function FocusCard({ onChange, onClear, autoSuggestIfEmpty = true
         <Text style={styles.focusMuted}>No focus yet — choose one.</Text>
       )}
 
-      {!!subtitle && (
-        <Text style={styles.microcopy} numberOfLines={1}>
-          {subtitle}
-        </Text>
-      )}
+      <View style={styles.metaRow}>
+        {subtitle ? (
+          <Text style={styles.microcopy} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : (
+          <View style={styles.metaSpacer} />
+        )}
 
-      <Animated.View style={[styles.underline, { opacity: underlineOpacity }]} />
-
-      <View style={styles.actions} testID="focus-actions">
-        <Pressable
-          onPress={onChange}
-          accessibilityLabel="Change focus"
-          accessibilityHint="Pick a different focus"
-        >
-          {({ pressed }) => (
-            <Text style={[styles.link, pressed && styles.linkPressed]}>Change</Text>
-          )}
-        </Pressable>
-        <Text style={styles.separator}>•</Text>
-        <Pressable
-          onPress={handleClear}
-          accessibilityLabel="Clear focus"
-          accessibilityHint="Removes today’s focus"
-        >
-          {({ pressed }) => <Text style={[styles.link, pressed && styles.linkPressed]}>Clear</Text>}
-        </Pressable>
+        <View style={styles.actionsWrapper} testID="today-hero-actions">
+          <View style={styles.actions} testID="focus-actions">
+            <Pressable
+              onPress={onChange}
+              accessibilityLabel="Change focus"
+              accessibilityHint="Pick a different focus"
+            >
+              {({ pressed }) => (
+                <Text style={[styles.link, pressed && styles.linkPressed]}>Change</Text>
+              )}
+            </Pressable>
+            <Text style={styles.separator}>•</Text>
+            <Pressable
+              onPress={handleClear}
+              accessibilityLabel="Clear focus"
+              accessibilityHint="Remove the current focus"
+            >
+              {({ pressed }) => (
+                <Text style={[styles.link, pressed && styles.linkPressed]}>Clear</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
       </View>
     </LinearGradient>
   );
@@ -161,23 +169,25 @@ const styles = StyleSheet.create({
   panel: {
     marginHorizontal: -16,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   prompt: {
     ...BRAND.typography.italic,
     fontSize: 14,
     color: BRAND.colors.sageMist,
-    marginBottom: 8,
+    marginTop: 0,
+    marginBottom: 4,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   focus: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: BRAND.colors.charcoalInk,
   },
   focusMuted: {
@@ -185,8 +195,21 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     opacity: 0.8,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 12,
+  },
+  actionsWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaSpacer: {
+    flex: 1,
+  },
   microcopy: {
-    marginTop: 4,
+    flex: 1,
     fontSize: 12,
     color: '#4C6A59',
   },
@@ -194,7 +217,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 10,
   },
   link: {
     fontSize: 12,
@@ -209,7 +231,7 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
   },
   underline: {
-    marginTop: 8,
+    marginTop: 0,
     marginBottom: 6,
     height: 2,
     width: 64,

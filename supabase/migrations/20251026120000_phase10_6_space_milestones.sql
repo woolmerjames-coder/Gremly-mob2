@@ -14,22 +14,53 @@ create table if not exists public.space_milestones (
 -- Enable RLS
 alter table public.space_milestones enable row level security;
 
--- Policies: owner-only CRUD
-create policy if not exists "space_milestones_select_own"
-  on public.space_milestones for select
-  using (owner_id = auth.uid());
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'space_milestones'
+      and policyname = 'space_milestones_select_own'
+  ) then
+    execute 'create policy "space_milestones_select_own"
+      on public.space_milestones for select
+      using (owner_id = auth.uid())';
+  end if;
 
-create policy if not exists "space_milestones_insert_own"
-  on public.space_milestones for insert
-  with check (owner_id = auth.uid());
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'space_milestones'
+      and policyname = 'space_milestones_insert_own'
+  ) then
+    execute 'create policy "space_milestones_insert_own"
+      on public.space_milestones for insert
+      with check (owner_id = auth.uid())';
+  end if;
 
-create policy if not exists "space_milestones_update_own"
-  on public.space_milestones for update
-  using (owner_id = auth.uid());
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'space_milestones'
+      and policyname = 'space_milestones_update_own'
+  ) then
+    execute 'create policy "space_milestones_update_own"
+      on public.space_milestones for update
+      using (owner_id = auth.uid())';
+  end if;
 
-create policy if not exists "space_milestones_delete_own"
-  on public.space_milestones for delete
-  using (owner_id = auth.uid());
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'space_milestones'
+      and policyname = 'space_milestones_delete_own'
+  ) then
+    execute 'create policy "space_milestones_delete_own"
+      on public.space_milestones for delete
+      using (owner_id = auth.uid())';
+  end if;
+end
+$$;
 
 -- Optional helpful index for calendar queries
 create index if not exists idx_space_milestones_space_date

@@ -188,7 +188,7 @@ export default function TaskHabitStack() {
   }, [sessionDone, remoteDone]);
 
   return (
-    <View testID="today-v3-stack">
+    <View testID="today-v3-stack" style={styles.container}>
       <Box row style={styles.headerRow}>
         <Text variant="title" style={styles.headerTitle}>
           What’s on today
@@ -333,6 +333,9 @@ export default function TaskHabitStack() {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    marginTop: 24,
+  },
   headerRow: {
     alignItems: 'center',
     justifyContent: 'space-between',

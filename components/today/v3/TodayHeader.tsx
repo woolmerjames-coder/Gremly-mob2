@@ -34,7 +34,7 @@ export default function TodayHeader() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 24 },
+  wrap: { marginBottom: 6 },
   greeting: {
     ...BRAND.typography.subhead,
     fontSize: 24,
@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
   },
   date: {
     ...BRAND.typography.body,
-    fontSize: 16,
-    color: BRAND.colors.sageMist,
+    fontSize: 18,
+    color: BRAND.colors.mossGreen,
   },
 });
