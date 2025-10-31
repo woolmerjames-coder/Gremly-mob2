@@ -63,7 +63,7 @@ returns table (
         select count(*) from habit_log l
         where l.habit_id = b.id
           and l.user_id = b.user_id
-          and l.occurred_at >= period_start(b.cadence)
+          and l.occurred_at >= period_start(b.cadence::cadence_type)
       ) as period_count,
       (
         select count(*) from habit_log l2
