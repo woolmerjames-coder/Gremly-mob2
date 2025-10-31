@@ -15,7 +15,7 @@ describe('buildMindDropAskChips', () => {
 
     expect(chips.find((chip) => chip.type === 'create.todo')).toMatchObject({
       label: 'Create todo',
-      payload: { name: 'Book dentist appointment', undefined_due: true },
+      payload: { name: 'Book dentist appointment', undefined_due: true, due: null },
     });
   });
 
@@ -103,8 +103,40 @@ describe('Mid-confidence chips policy', () => {
     const todo = chips.find((c) => c.type === 'create.todo');
     expect(todo).toBeTruthy();
     if (todo && todo.type === 'create.todo') {
-      expect(todo.payload.name).toContain('Book dentist');
+      expect(todo.payload.name).toBe('Book dentist appointment');
       expect(todo.payload.undefined_due).toBe(true);
+      expect(todo.payload.due).toBeNull();
+    }
+  });
+});
+
+describe('Mid-confidence chips normalization', () => {
+  it('strips leading date phrasing from todo chip name and sets due', () => {
+    const chips = buildMindDropAskChips({
+      text: 'For today, find best mezcal marg in CDMX',
+      probable: 'todo',
+      confidence: 0.7,
+    });
+    const todo = chips.find((c) => c.type === 'create.todo');
+    expect(todo).toBeTruthy();
+    if (todo && todo.type === 'create.todo') {
+      expect(todo.payload.name).toBe('Find best mezcal marg in CDMX');
+      expect(todo.payload.undefined_due).toBe(false);
+      expect(todo.payload.due).toEqual(expect.any(String));
+    }
+  });
+
+  it('removes daily phrasing from habit chip name and keeps cadence', () => {
+    const chips = buildMindDropAskChips({
+      text: 'Drink 2 liters of water a day',
+      probable: 'habit',
+      confidence: 0.8,
+    });
+    const habit = chips.find((c) => c.type === 'create.habit');
+    expect(habit).toBeTruthy();
+    if (habit && habit.type === 'create.habit') {
+      expect(habit.payload.name).toBe('Drink 2 liters of water');
+      expect(habit.payload.freq).toBe('daily');
     }
   });
 });

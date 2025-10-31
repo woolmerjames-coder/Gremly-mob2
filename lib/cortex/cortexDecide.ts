@@ -24,7 +24,7 @@ import { detectIntent } from './intents/detectIntent';
 import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
-import { parseDue } from './entities/datetime';
+import { buildHabitFields, buildTodoFields } from './textNormalization';
 
 // Re-export lane types for convenience
 export type { Lane, CortexContextBase } from './lane';
@@ -602,16 +602,13 @@ function convertTodoListCommandToTodo(text: string): { title: string; due?: stri
     return null;
   }
 
-  const parsedDue = parseDue(text);
-  const due = parsedDue && parsedDue.confidence >= 0.7 ? parsedDue.iso : undefined;
-  const cleanedSource = parsedDue && parsedDue.confidence >= 0.6 ? parsedDue.textWithoutWhen : text;
-  const title = cleanedSource.replace(/\s+/g, ' ').trim();
+  const todoFields = buildTodoFields(text, undefined, { inferDueFromText: true });
 
-  if (!title) {
+  if (!todoFields.title) {
     return null;
   }
 
-  return { title, due };
+  return { title: todoFields.title, due: todoFields.due };
 }
 
 /**
@@ -648,20 +645,25 @@ function normalizeEngineOutput(
 
   // Map engine output type to canonical action
   if (engineType === 'todo') {
+    const { title, due } = buildTodoFields(engineOutput.title || fallbackText, engineOutput.due);
     actions.push({
       type: 'create.todo',
       payload: {
-        title: engineOutput.title || fallbackText,
-        due: engineOutput.due,
+        title,
+        due,
         spaceId: ctx.activeSpaceId,
       },
     });
   } else if (engineType === 'habit') {
+    const { name, freq } = buildHabitFields(
+      engineOutput.name || fallbackText,
+      engineOutput.frequency,
+    );
     actions.push({
       type: 'create.habit',
       payload: {
-        name: engineOutput.name || fallbackText,
-        freq: engineOutput.frequency || 'daily',
+        name,
+        freq,
         spaceId: ctx.activeSpaceId,
       },
     });

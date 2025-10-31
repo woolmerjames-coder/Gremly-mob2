@@ -204,6 +204,59 @@ describe('cortexDecide Integration', () => {
     }
   });
 
+  it('should strip due phrasing from todo titles while preserving due date', async () => {
+    const { createCortexEngine } = require('../cortex/createEngine');
+
+    createCortexEngine.mockReturnValue({
+      classify: jest.fn().mockResolvedValue({
+        type: 'todo',
+        text: 'For today, find CDMX day of the dead parties',
+        confidence: 0.92,
+        aiPlaced: true,
+        whyString: 'Todo with due date',
+        due: '2025-10-31T23:00:00.000Z',
+      }),
+    });
+
+    const result = await cortexDecide(
+      { text: 'For today, find CDMX day of the dead parties' },
+      mockContext,
+    );
+
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0].type).toBe('create.todo');
+
+    if (result.actions[0].type === 'create.todo') {
+      expect(result.actions[0].payload.title).toBe('Find CDMX day of the dead parties');
+      expect(result.actions[0].payload.due).toBe('2025-10-31T23:00:00.000Z');
+    }
+  });
+
+  it('should remove daily suffix from habit names while keeping cadence', async () => {
+    const { createCortexEngine } = require('../cortex/createEngine');
+
+    createCortexEngine.mockReturnValue({
+      classify: jest.fn().mockResolvedValue({
+        type: 'habit',
+        name: 'Drink 2 liters of water a day',
+        confidence: 0.91,
+        aiPlaced: true,
+        whyString: 'Daily habit detected',
+        frequency: 'daily',
+      }),
+    });
+
+    const result = await cortexDecide({ text: 'Drink 2 liters of water a day' }, mockContext);
+
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0].type).toBe('create.habit');
+
+    if (result.actions[0].type === 'create.habit') {
+      expect(result.actions[0].payload.name).toBe('Drink 2 liters of water');
+      expect(result.actions[0].payload.freq).toBe('daily');
+    }
+  });
+
   it('should return ask mode for medium confidence (0.65)', async () => {
     const { createCortexEngine } = require('../cortex/createEngine');
 
