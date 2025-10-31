@@ -1,3 +1,16 @@
+-- Ensure cadence enum exists (idempotent)
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type
+    where typname = 'cadence_type'
+  ) then
+    create type cadence_type as enum ('daily', 'weekly', 'monthly');
+  end if;
+end
+$$;
+
 -- 1) Completions log
 create table if not exists habit_log (
   id uuid primary key default gen_random_uuid(),
