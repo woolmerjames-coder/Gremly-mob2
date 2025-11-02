@@ -362,6 +362,8 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Overlay controller for conversion
   const overlayController = useUnifiedOverlayController();
+  const overlayMode =
+    overlayController.state.mode === 'view' ? 'create' : overlayController.state.mode;
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
@@ -2100,7 +2102,7 @@ export default function ChatThreadScreen({ route }: Props) {
         {/* Unified Create Overlay for Chat Conversions */}
         <UnifiedCreateOverlay
           visible={overlayController.state.visible}
-          mode={overlayController.state.mode}
+          mode={overlayMode}
           initialEntity={overlayController.state.initialEntity}
           initialSpaceId={overlayController.state.initialSpaceId}
           conversionMeta={overlayController.state.conversionMeta}

@@ -15,11 +15,26 @@ import fetch from 'node-fetch';
 const url = process.env.SB_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
 const key = process.env.SB_SERVICE_ROLE; // CI secret - service role key
 
+const runningInCI = ['CI', 'GITHUB_ACTIONS', 'BITBUCKET_BUILD_NUMBER', 'BUILD_ID'].some(
+  (flag) => {
+    const raw = process.env[flag];
+    if (!raw) return false;
+    const normalized = String(raw).toLowerCase();
+    return normalized !== '0' && normalized !== 'false';
+  },
+);
+
 if (!url || !key) {
-  console.error('[SchemaContract CI] Missing environment variables:');
-  console.error('  SB_URL (or EXPO_PUBLIC_SUPABASE_URL):', !!url);
-  console.error('  SB_SERVICE_ROLE:', !!key);
-  process.exit(1);
+  if (runningInCI) {
+    console.error('[SchemaContract CI] Missing environment variables:');
+    console.error('  SB_URL (or EXPO_PUBLIC_SUPABASE_URL):', !!url);
+    console.error('  SB_SERVICE_ROLE:', !!key);
+    process.exit(1);
+  }
+
+  console.warn('[SchemaContract CI] Skipping schema check (no Supabase credentials detected).');
+  console.warn('  Set SB_URL and SB_SERVICE_ROLE to run the schema contract locally.');
+  process.exit(0);
 }
 
 /**

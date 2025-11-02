@@ -33,6 +33,8 @@ export default function SpaceDetail() {
   const { userId } = useAuth();
   const tokens = useTokens();
   const overlayController = useUnifiedOverlayController();
+  const overlayMode =
+    overlayController.state.mode === 'view' ? 'create' : overlayController.state.mode;
   const [space, setSpace] = useState<Space | null>(null);
   const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
   const [chats, setChats] = useState<SpaceChat[]>([]);
@@ -161,7 +163,7 @@ export default function SpaceDetail() {
       {/* Unified Create Overlay */}
       <UnifiedCreateOverlay
         visible={overlayController.state.visible}
-        mode={overlayController.state.mode}
+        mode={overlayMode}
         initialEntity={overlayController.state.initialEntity}
         initialSpaceId={overlayController.state.initialSpaceId}
         onClose={overlayController.close}
