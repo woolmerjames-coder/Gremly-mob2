@@ -24,6 +24,7 @@ import { detectIntent } from './intents/detectIntent';
 import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
+import { buildHabitFields, buildTodoFields } from './textNormalization';
 
 // Re-export lane types for convenience
 export type { Lane, CortexContextBase } from './lane';
@@ -547,10 +548,15 @@ function hasExplicitDateOrTime(text: string): boolean {
 
 function looksHabitText(text: string): boolean {
   const t = (text || '').toLowerCase();
-  return (
-    /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b/.test(t) ||
-    /\b\d+\s+times?\s+(a|per)\s+(day|week|month)\b/.test(t)
-  );
+  const hasGenericFrequency =
+    /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b/.test(t);
+  const hasTimesPerPeriod = /\b\d+\s+times?\s+(a|per)\s+(day|week|month)\b/.test(t);
+  const hasDurationPerDay =
+    /\b\d+\s+(minutes?|minute|hours?|hour)\b.*\b((per|each|every)\s*day|a\s+day|in\s+(a\s+)?day)\b/.test(
+      t,
+    );
+
+  return hasGenericFrequency || hasTimesPerPeriod || hasDurationPerDay;
 }
 
 /**
@@ -572,6 +578,37 @@ function extractItemFromText(text: string): string {
   }
 
   return text.trim(); // ultimate fallback
+}
+
+/**
+ * Interpret commands like "Make work todo list today" as todo creation instead of list capture.
+ * Guards against "Add eggs to my todo list" by requiring build verbs and skipping list verbs.
+ */
+function convertTodoListCommandToTodo(text: string): { title: string; due?: string } | null {
+  const lower = text.toLowerCase();
+
+  if (!/\bto-?do list\b/.test(lower)) {
+    return null;
+  }
+
+  // Skip when user is clearly adding items to an existing todo list.
+  if (/(?:^|\s)(add|put|include|insert|append|throw|toss|drop)\b/.test(lower)) {
+    return null;
+  }
+
+  const buildVerbMatches =
+    /\b(make|create|start|begin|finish|complete|organize|plan|prep|prepare|build|draft|write|do|work on)\b/;
+  if (!buildVerbMatches.test(lower)) {
+    return null;
+  }
+
+  const todoFields = buildTodoFields(text, undefined, { inferDueFromText: true });
+
+  if (!todoFields.title) {
+    return null;
+  }
+
+  return { title: todoFields.title, due: todoFields.due };
 }
 
 /**
@@ -608,20 +645,25 @@ function normalizeEngineOutput(
 
   // Map engine output type to canonical action
   if (engineType === 'todo') {
+    const { title, due } = buildTodoFields(engineOutput.title || fallbackText, engineOutput.due);
     actions.push({
       type: 'create.todo',
       payload: {
-        title: engineOutput.title || fallbackText,
-        due: engineOutput.due,
+        title,
+        due,
         spaceId: ctx.activeSpaceId,
       },
     });
   } else if (engineType === 'habit') {
+    const { name, freq } = buildHabitFields(
+      engineOutput.name || fallbackText,
+      engineOutput.frequency,
+    );
     actions.push({
       type: 'create.habit',
       payload: {
-        name: engineOutput.name || fallbackText,
-        freq: engineOutput.frequency || 'daily',
+        name,
+        freq,
         spaceId: ctx.activeSpaceId,
       },
     });
@@ -630,26 +672,38 @@ function normalizeEngineOutput(
     const subtype = engineOutput.subtype || 'catchall';
 
     if (subtype === 'list') {
-      // Detect if this is a shopping/list intent by checking text and engine whyString
-      const whyString = engineOutput.whyString || '';
-      const isShoppingIntent =
-        /shopping|grocery|groceries/i.test(fallbackText) ||
-        /shopping|grocery|groceries/i.test(whyString);
+      const todoOverride = convertTodoListCommandToTodo(fallbackText);
+      if (todoOverride) {
+        actions.push({
+          type: 'create.todo',
+          payload: {
+            title: todoOverride.title,
+            due: todoOverride.due,
+            spaceId: ctx.activeSpaceId,
+          },
+        });
+      } else {
+        // Detect if this is a shopping/list intent by checking text and engine whyString
+        const whyString = engineOutput.whyString || '';
+        const isShoppingIntent =
+          /shopping|grocery|groceries/i.test(fallbackText) ||
+          /shopping|grocery|groceries/i.test(whyString);
 
-      // Extract the actual item (not the full command)
-      const item = extractItemFromText(fallbackText);
+        // Extract the actual item (not the full command)
+        const item = extractItemFromText(fallbackText);
 
-      // Phase 10.4: Detect list type with space biasing
-      const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
+        // Phase 10.4: Detect list type with space biasing
+        const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
 
-      actions.push({
-        type: 'add.to.list',
-        payload: {
-          listKey,
-          item,
-          spaceId: ctx.activeSpaceId,
-        },
-      });
+        actions.push({
+          type: 'add.to.list',
+          payload: {
+            listKey,
+            item,
+            spaceId: ctx.activeSpaceId,
+          },
+        });
+      }
     } else {
       actions.push({
         type: 'create.note',

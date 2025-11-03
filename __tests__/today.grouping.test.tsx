@@ -13,6 +13,23 @@ import TodayScreen from '../app/tabs/TodayScreen';
 import { useTodayData } from '../lib/today/useTodayData';
 import type { EnrichedTodo } from '../lib/today/useTodayData';
 
+jest.mock('../lib/env', () => {
+  const actual = jest.requireActual('../lib/env');
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      feature: {
+        ...actual.env.feature,
+        today: {
+          ...actual.env.feature?.today,
+          v3: false,
+        },
+      },
+    },
+  };
+});
+
 // Mock dependencies
 jest.mock('../lib/today/useTodayData');
 jest.mock('../hooks/useUnifiedOverlayController', () => ({

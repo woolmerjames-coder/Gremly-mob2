@@ -2,8 +2,9 @@
  * useUnifiedOverlayController - Phase 7 unified overlay state management
  * Centralized controller for opening create/edit overlays across the app
  */
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import type { AppRecord } from '../lib/types';
+import { useGlobalOverlay } from '../contexts/OverlayContext';
 
 type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
 
@@ -19,23 +20,16 @@ interface ConversionMeta {
   initialDueDate?: string | null;
 }
 
-interface OverlayState {
-  visible: boolean;
-  mode: 'create' | 'edit';
-  initialEntity?: {
-    type: EntityType | null;
-    id?: string;
-    subtype?: string | null;
-  };
-  initialSpaceId?: string | null;
-  conversionMeta?: ConversionMeta;
-}
-
 interface CreateOptions {
   type?: EntityType;
   spaceId?: string | null;
   subtype?: string | null;
   conversionMeta?: ConversionMeta;
+  initialEntity?: {
+    type: EntityType | null;
+    id?: string;
+    subtype?: string | null;
+  };
 }
 
 interface EditOptions {
@@ -43,50 +37,29 @@ interface EditOptions {
   spaceId?: string | null;
 }
 
+interface ViewOptions {
+  record: AppRecord;
+  spaceId?: string | null;
+}
+
+type QueuedOpenRequest =
+  | { mode: 'create'; options: CreateOptions | undefined }
+  | { mode: 'edit'; options: EditOptions }
+  | { mode: 'view'; options: ViewOptions };
+
 export function useUnifiedOverlayController() {
-  const [state, setState] = useState<OverlayState>({
-    visible: false,
-    mode: 'create',
-  });
+  const {
+    state: globalState,
+    openCreate: contextOpenCreate,
+    openEdit: contextOpenEdit,
+    close: contextClose,
+  } = useGlobalOverlay();
 
-  // Debounce guard to prevent rapid re-opens
   const isOpeningRef = useRef(false);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const queuedRef = useRef<QueuedOpenRequest | undefined>(undefined);
+  const rafRef = useRef<number | null>(null);
 
-  const openCreate = useCallback(
-    ({ type, spaceId, subtype, conversionMeta }: CreateOptions = {}) => {
-      if (isOpeningRef.current) {
-        console.log('[OverlayController] open already in progress, ignoring');
-        return;
-      }
-
-      isOpeningRef.current = true;
-      setState({
-        visible: true,
-        mode: 'create',
-        initialEntity: type ? { type, id: undefined, subtype: subtype || null } : undefined,
-        initialSpaceId: spaceId,
-        conversionMeta,
-      });
-
-      // Reset debounce flag after 600ms
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        isOpeningRef.current = false;
-      }, 600);
-    },
-    [],
-  );
-
-  const openEdit = useCallback(({ record, spaceId }: EditOptions) => {
-    if (isOpeningRef.current) {
-      console.log('[OverlayController] open already in progress, ignoring');
-      return;
-    }
-
-    // Map AppRecord to entity type
+  const resolveEntityFromRecord = useCallback((record: AppRecord) => {
     let entityType: EntityType;
     let subtype: string | null = null;
 
@@ -95,8 +68,13 @@ export function useUnifiedOverlayController() {
     } else if (record.type === 'todo') {
       entityType = 'todo';
     } else if (record.type === 'note') {
-      const labels = (record as any)?.labels as string[] | undefined;
-      const recordSubtype = (record as any)?.subtype as string | undefined;
+      const noteRecord = record as AppRecord & {
+        labels?: string[];
+        subtype?: string | null;
+      };
+
+      const labels = noteRecord.labels;
+      const recordSubtype = noteRecord.subtype ?? undefined;
 
       if (labels?.includes?.('needs_review') || recordSubtype === 'catchall') {
         entityType = 'unsorted';
@@ -109,54 +87,111 @@ export function useUnifiedOverlayController() {
         subtype = recordSubtype ?? null;
       }
     } else {
-      // Fallback to note family
       entityType = 'note';
     }
 
-    const newState = {
-      visible: true,
-      mode: 'edit' as const,
-      initialEntity: {
-        type: entityType,
-        id: record.id,
-        subtype,
-      },
-      initialSpaceId: spaceId,
-    };
-
-    console.log('[OverlayController] openEdit called with state:', newState);
-
-    isOpeningRef.current = true;
-    setState(newState);
-
-    // Reset debounce flag after 600ms
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      isOpeningRef.current = false;
-    }, 600);
+    return { entityType, subtype };
   }, []);
+
+  const executeOpen = useCallback(
+    function run(request: QueuedOpenRequest): void {
+      isOpeningRef.current = true;
+
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
+      if (request.mode === 'create') {
+        const opts = request.options ?? {};
+        const inferredType = opts.initialEntity?.type ?? opts.type ?? null;
+        const inferredSubtype = opts.initialEntity?.subtype ?? opts.subtype ?? null;
+
+        contextOpenCreate({
+          type: inferredType ?? undefined,
+          spaceId: opts.spaceId,
+          subtype: inferredSubtype ?? null,
+          conversionMeta: opts.conversionMeta,
+        });
+      } else {
+        const { record, spaceId } = request.options;
+        const { entityType, subtype } = resolveEntityFromRecord(record);
+        console.log('[OverlayController] openEdit called with state:', {
+          visible: true,
+          mode: request.mode,
+          initialEntity: {
+            type: entityType,
+            id: record.id,
+            subtype,
+          },
+          initialSpaceId: spaceId,
+        });
+
+        contextOpenEdit({ record, spaceId });
+      }
+
+      rafRef.current = requestAnimationFrame(() => {
+        isOpeningRef.current = false;
+        const next = queuedRef.current;
+        queuedRef.current = undefined;
+        if (next) {
+          run(next);
+        }
+      });
+    },
+    [contextOpenCreate, contextOpenEdit, resolveEntityFromRecord],
+  );
+
+  const enqueueOpen = useCallback(
+    (request: QueuedOpenRequest) => {
+      if (isOpeningRef.current) {
+        queuedRef.current = request;
+        return;
+      }
+      executeOpen(request);
+    },
+    [executeOpen],
+  );
+
+  const openCreate = useCallback(
+    (options: CreateOptions = {}) => {
+      enqueueOpen({ mode: 'create', options });
+    },
+    [enqueueOpen],
+  );
+
+  const openEdit = useCallback(
+    (options: EditOptions) => {
+      enqueueOpen({ mode: 'edit', options });
+    },
+    [enqueueOpen],
+  );
+
+  const openView = useCallback(
+    (options: ViewOptions) => {
+      enqueueOpen({ mode: 'view', options });
+    },
+    [enqueueOpen],
+  );
 
   const close = useCallback(() => {
-    setState({
-      visible: false,
-      mode: 'create',
-      initialEntity: undefined,
-      initialSpaceId: undefined,
-      conversionMeta: undefined,
-    });
-    // Allow immediate re-open on close
-    isOpeningRef.current = false;
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
-  }, []);
+    queuedRef.current = undefined;
+    isOpeningRef.current = false;
+    contextClose();
+  }, [contextClose]);
 
   return {
-    state,
+    state: {
+      ...globalState,
+      mode: globalState.mode as 'create' | 'edit' | 'view',
+    },
     openCreate,
     openEdit,
+    openView,
     close,
   };
 }

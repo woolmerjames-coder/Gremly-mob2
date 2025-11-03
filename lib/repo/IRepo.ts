@@ -94,6 +94,7 @@ export interface GroupedByType {
 
 /**
  * Repository interface - implemented by both memory and Supabase repos
+ * Phase 10.9 (Today v3): extend helpers for merged today view, focus card, progress, sweep.
  */
 export interface IRepo {
   // CRUD operations
@@ -118,11 +119,102 @@ export interface IRepo {
   // Hub helpers
   countUnsorted(): Promise<number>; // counts ai_placed = true across all types
 
-  // Today screen helpers
+  // Today screen helpers (v2)
   listDueToday(nowIso: string): Promise<AppRecord[]>;
   listUndefinedDue(): Promise<Todo[]>;
   countPlannedToday(): Promise<number>;
   countCompletedToday(): Promise<number>;
+
+  // =======================================================
+  // Phase 10.9 (Today v3) — New helpers
+  // =======================================================
+
+  /**
+   * Returns merged list of items relevant for "today":
+   * - Todos due today or marked carry_forward=true and status='active'
+   * - Habits where progress_today < target_count (computed from habit_progress)
+   * Basic enrichment: space, tags (if cheap), and simple nearDue/overdue.
+   */
+  listTodayMerged(nowIso: string): Promise<
+    Array<
+      | {
+          type: 'todo';
+          id: ID;
+          name: string;
+          due_date?: string | null;
+          due_day?: string | null;
+          space_id?: ID | null;
+          tags?: string[];
+          status?: 'active' | 'completed' | 'archived';
+          carry_forward?: boolean;
+          overdue?: boolean;
+          nearDue?: boolean;
+        }
+      | {
+          type: 'habit';
+          id: ID;
+          name: string;
+          space_id?: ID | null;
+          tags?: string[];
+          cadence?: 'day' | 'week' | 'month';
+          target_count?: number;
+          period_unit?: 'day' | 'week' | 'month';
+          time_window?: 'any' | 'morning' | 'midday' | 'evening';
+          progress_today?: number;
+        }
+    >
+  >;
+
+  /** Log a habit check-in. Count defaults to 1. */
+  logHabitProgress(
+    habitId: ID,
+    atIso?: string,
+    count?: number,
+    occurrenceIndex?: number,
+  ): Promise<void>;
+
+  /** Returns total progress for a habit on a given day (UTC date string 'YYYY-MM-DD'). */
+  getHabitProgressForDate(habitId: ID, dayIso: string): Promise<number>;
+
+  /** Focus card getters/setters (one focus per owner per day). */
+  getFocusForDate(dayIso: string): Promise<{
+    id: ID;
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    created_at: string;
+    expires_at: string;
+  } | null>;
+
+  setFocus(params: {
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    expires_at: string; // end-of-day timestamp
+  }): Promise<void>;
+
+  clearFocusForDate(dayIso: string): Promise<void>;
+
+  /** Crude "top candidates" for focus auto-suggest. */
+  topFocusCandidates(
+    limit: number,
+  ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>>;
+
+  /** Recent notes/drops since ISO timestamp — used by Drop Zone summary. */
+  listRecentDrops(
+    sinceIso: string,
+  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>>;
+
+  /** Returns today's completed vs remaining summary for Sweep. */
+  getTodaySummary(): Promise<{ completed: number; remaining: number }>;
+
+  /** Apply Sweep action for an item. */
+  sweepApplyAction(
+    id: ID,
+    type: 'habit' | 'todo',
+    action: 'archive' | 'carry_forward' | 'keep',
+    details?: { archived_reason?: string },
+  ): Promise<void>;
 
   // Completion methods (Phase 9)
   completeHabit(id: ID, atIso: string): Promise<void>;

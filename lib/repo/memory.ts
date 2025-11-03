@@ -2,6 +2,7 @@ import { isToday, parseISO } from 'date-fns';
 import type { AppRecord, Habit, Todo, Note, ID, Space, Tag, Person, EntityType } from '../types';
 import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
+import { eventBus } from '../events';
 import type {
   IRepo,
   CreateRecordInput,
@@ -64,6 +65,10 @@ const seed = (ownerId: string): AppRecord[] => {
 
   return [h1, t1, n1];
 };
+
+function ensureDay(dateIso: string): string {
+  return new Date(dateIso).toISOString().split('T')[0];
+}
 
 export class MemoryRepo implements IRepo {
   private data: AppRecord[] = [];
@@ -200,6 +205,8 @@ export class MemoryRepo implements IRepo {
       spaceId: rec.space_id,
       title: rec.type === 'habit' || rec.type === 'todo' ? rec.name : rec.title,
     });
+
+    eventBus.emit('ItemSaved', { id: rec.id });
 
     return rec;
   }
@@ -368,7 +375,6 @@ export class MemoryRepo implements IRepo {
     (item as any).completed_at = atIso;
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
   }
 
@@ -376,9 +382,9 @@ export class MemoryRepo implements IRepo {
     const item = this.data.find((r) => r.id === id && r.owner_id === this.currentUserId);
     if (!item || item.type !== 'todo') throw new Error('Todo not found');
     (item as any).completed_at = atIso;
+    (item as any).status = 'completed';
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
   }
 
@@ -388,8 +394,366 @@ export class MemoryRepo implements IRepo {
     (item as any).completed_at = null;
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemUpdated', { id });
+  }
+
+  // =======================================================
+  // Phase 10.9 (Today v3) — New helpers
+  // =======================================================
+
+  async listTodayMerged(nowIso: string): Promise<
+    Array<
+      | {
+          type: 'todo';
+          id: ID;
+          name: string;
+          due_date?: string | null;
+          due_day?: string | null;
+          space_id?: ID | null;
+          tags?: string[];
+          status?: 'active' | 'completed' | 'archived';
+          carry_forward?: boolean;
+          overdue?: boolean;
+          nearDue?: boolean;
+        }
+      | {
+          type: 'habit';
+          id: ID;
+          name: string;
+          space_id?: ID | null;
+          tags?: string[];
+          cadence?: 'day' | 'week' | 'month';
+          target_count?: number;
+          period_unit?: 'day' | 'week' | 'month';
+          time_window?: 'any' | 'morning' | 'midday' | 'evening';
+          progress_today?: number;
+        }
+    >
+  > {
+    const day = ensureDay(nowIso);
+    const now = new Date(nowIso);
+
+    const activeTodos = this.data.filter((r) => {
+      if (r.owner_id !== this.currentUserId) return false;
+      if (r.type !== 'todo') return false;
+      const carry = (r as any).carry_forward === true;
+      const dueDay = r.due_date ? ensureDay(r.due_date) : null;
+      const status = ((r as any).status ?? 'active') as 'active' | 'completed' | 'archived';
+      const completedAt = (r as any).completed_at as string | null | undefined;
+      if (status === 'completed' || completedAt) return false;
+      return dueDay === day || carry;
+    });
+
+    const completedTodos = this.data.filter((r) => {
+      if (r.owner_id !== this.currentUserId) return false;
+      if (r.type !== 'todo') return false;
+      const completedAt = (r as any).completed_at as string | null | undefined;
+      if (!completedAt) return false;
+      return ensureDay(completedAt) === day;
+    });
+
+    const mapTodo = (t: any) => {
+      let overdue = false;
+      let nearDue = false;
+      if (t.due_date) {
+        const due = new Date(t.due_date);
+        if (!Number.isNaN(due.getTime())) {
+          overdue = due < now;
+          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+        }
+      }
+      const completedAt = (t as any).completed_at ?? null;
+      const status = completedAt
+        ? 'completed'
+        : ((t.status ?? 'active') as 'active' | 'completed' | 'archived');
+      return {
+        type: 'todo' as const,
+        id: t.id,
+        name: t.name,
+        due_date: t.due_date ?? null,
+        due_day: t.due_date ? ensureDay(t.due_date) : null,
+        space_id: t.space_id ?? null,
+        tags: [],
+        status,
+        carry_forward: !!t.carry_forward,
+        overdue,
+        nearDue,
+        completed_at: completedAt,
+      };
+    };
+
+    const todoItems = [...activeTodos, ...completedTodos].map(mapTodo);
+
+    const habits = this.data.filter(
+      (r) => r.owner_id === this.currentUserId && r.type === 'habit',
+    ) as Array<
+      Habit &
+        Partial<{
+          target_count: number;
+          period_unit: 'day' | 'week' | 'month';
+          time_window: 'any' | 'morning' | 'midday' | 'evening';
+          cadence: 'day' | 'week' | 'month';
+        }>
+    >;
+
+    const progressRows = ((this as any)._habitProgress || []) as Array<{
+      habit_id: string;
+      occurred_day: string;
+      count: number;
+      occurred_at?: string;
+    }>;
+
+    const progressByHabit = new Map<string, { total: number; latestAt: string | null }>();
+    for (const row of progressRows) {
+      if (row.occurred_day === day) {
+        const current = progressByHabit.get(row.habit_id) || { total: 0, latestAt: null };
+        let latestAt = current.latestAt;
+        if (row.occurred_at) {
+          if (!latestAt) {
+            latestAt = row.occurred_at;
+          } else if (new Date(row.occurred_at).getTime() > new Date(latestAt).getTime()) {
+            latestAt = row.occurred_at;
+          }
+        }
+        progressByHabit.set(row.habit_id, {
+          total: current.total + (row.count ?? 1),
+          latestAt,
+        });
+      }
+    }
+
+    const habitItems = habits.map((h) => {
+      const target = Math.max(1, (h as any).target_count ?? 1);
+      const info = progressByHabit.get(h.id) || { total: 0, latestAt: null };
+      const done = info.total;
+      const status: 'active' | 'completed' = done >= target && done > 0 ? 'completed' : 'active';
+      return {
+        type: 'habit' as const,
+        id: h.id,
+        name: h.name,
+        space_id: h.space_id ?? null,
+        tags: (h as any).tags ?? [],
+        cadence: ((h as any).cadence as any) ?? 'day',
+        target_count: target,
+        period_unit: ((h as any).period_unit as any) ?? 'day',
+        time_window: ((h as any).time_window as any) ?? 'any',
+        progress_today: done,
+        status,
+        completed_at: status === 'completed' ? info.latestAt : null,
+      };
+    });
+
+    return [...habitItems, ...todoItems];
+  }
+
+  async logHabitProgress(
+    habitId: ID,
+    atIso?: string,
+    count = 1,
+    occurrenceIndex?: number,
+  ): Promise<void> {
+    const day = ensureDay(atIso ?? new Date().toISOString());
+    (this as any)._habitProgress = (this as any)._habitProgress || [];
+    (this as any)._habitProgress.push({
+      id: `hp_${Date.now()}`,
+      owner_id: this.currentUserId,
+      habit_id: habitId,
+      occurred_at: atIso ?? new Date().toISOString(),
+      occurred_day: day,
+      count,
+      occurrence_index: occurrenceIndex ?? null,
+    });
+  }
+
+  async getHabitProgressForDate(habitId: ID, dayIso: string): Promise<number> {
+    const day = ensureDay(dayIso);
+    const rows = ((this as any)._habitProgress || []) as Array<{
+      owner_id: string;
+      habit_id: string;
+      occurred_day: string;
+      count: number;
+    }>;
+    return rows
+      .filter(
+        (row) =>
+          row.owner_id === this.currentUserId &&
+          row.habit_id === habitId &&
+          row.occurred_day === day,
+      )
+      .reduce((sum, row) => sum + (row.count ?? 1), 0);
+  }
+
+  async getFocusForDate(dayIso: string): Promise<{
+    id: ID;
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    created_at: string;
+    expires_at: string;
+  } | null> {
+    const day = ensureDay(dayIso);
+    const rows = ((this as any)._focusCards || []) as Array<{
+      id: ID;
+      owner_id: string;
+      entry_id: ID | null;
+      entry_type: 'todo' | 'habit' | 'note' | null;
+      source: 'auto' | 'user' | 'carry_forward';
+      created_at: string;
+      expires_at: string;
+      focus_day: string;
+    }>;
+
+    const matches = rows.filter(
+      (row) => row.owner_id === this.currentUserId && row.focus_day === day,
+    );
+    if (matches.length === 0) return null;
+
+    const latest = matches[matches.length - 1];
+    return {
+      id: latest.id,
+      entry_id: latest.entry_id,
+      entry_type: latest.entry_type,
+      source: latest.source,
+      created_at: latest.created_at,
+      expires_at: latest.expires_at,
+    };
+  }
+
+  async setFocus(params: {
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    expires_at: string;
+  }): Promise<void> {
+    const day = ensureDay(params.expires_at);
+    (this as any)._focusCards = (this as any)._focusCards || [];
+    const cards = (this as any)._focusCards as Array<any>;
+    (this as any)._focusCards = cards.filter(
+      (row) => !(row.owner_id === this.currentUserId && row.focus_day === day),
+    );
+    (this as any)._focusCards.push({
+      id: `fc_${Date.now()}`,
+      owner_id: this.currentUserId,
+      entry_id: params.entry_id,
+      entry_type: params.entry_type,
+      source: params.source,
+      created_at: new Date().toISOString(),
+      expires_at: params.expires_at,
+      focus_day: day,
+    });
+  }
+
+  async clearFocusForDate(dayIso: string): Promise<void> {
+    const day = ensureDay(dayIso);
+    (this as any)._focusCards = (this as any)._focusCards || [];
+    (this as any)._focusCards = ((this as any)._focusCards as Array<any>).filter(
+      (row) => !(row.owner_id === this.currentUserId && row.focus_day === day),
+    );
+  }
+
+  async topFocusCandidates(
+    limit: number,
+  ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>> {
+    const day = ensureDay(new Date().toISOString());
+
+    const todos = this.data
+      .filter(
+        (r): r is Todo & { status?: string; carry_forward?: boolean } =>
+          r.owner_id === this.currentUserId && r.type === 'todo',
+      )
+      .map((todo) => ({
+        id: todo.id as ID,
+        type: 'todo' as const,
+        priority:
+          ((todo as any).carry_forward ? 100 : 0) +
+          (todo.due_date && ensureDay(todo.due_date) === day ? 50 : 0),
+        status: (todo as any).status ?? 'active',
+      }))
+      .filter((candidate) => candidate.status === 'active')
+      .map(({ status: _status, ...rest }) => rest);
+
+    const habits = this.data
+      .filter((r) => r.owner_id === this.currentUserId && r.type === 'habit')
+      .map((habit) => ({
+        id: habit.id as ID,
+        type: 'habit' as const,
+        priority: 40,
+      }));
+
+    const combined = [...todos, ...habits];
+    combined.sort((a, b) => b.priority - a.priority);
+    return combined.slice(0, limit);
+  }
+
+  async listRecentDrops(
+    sinceIso: string,
+  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>> {
+    return this.data
+      .filter(
+        (row): row is Note & { created_at: string } =>
+          row.owner_id === this.currentUserId &&
+          row.type === 'note' &&
+          !!row.created_at &&
+          row.created_at >= sinceIso,
+      )
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+      .slice(0, 100)
+      .map((row) => ({
+        id: row.id,
+        title: (row as any).title,
+        body: (row as any).body,
+        created_at: row.created_at!,
+      }));
+  }
+
+  async getTodaySummary(): Promise<{ completed: number; remaining: number }> {
+    const day = ensureDay(new Date().toISOString());
+
+    const completed = this.data.filter((row) => {
+      if (row.owner_id !== this.currentUserId || row.type !== 'todo') return false;
+      const completedAt = (row as any).completed_at;
+      return typeof completedAt === 'string' && completedAt.startsWith(day);
+    }).length;
+
+    const remaining = this.data.filter((row) => {
+      if (row.owner_id !== this.currentUserId || row.type !== 'todo') return false;
+      const status = ((row as any).status ?? 'active') as string;
+      if (status !== 'active') return false;
+      const dueDay = row.due_date ? ensureDay(row.due_date) : null;
+      return dueDay === day || (row as any).carry_forward === true;
+    }).length;
+
+    return { completed, remaining };
+  }
+
+  async sweepApplyAction(
+    id: ID,
+    type: 'habit' | 'todo',
+    action: 'archive' | 'carry_forward' | 'keep',
+    details?: { archived_reason?: string },
+  ): Promise<void> {
+    if (type !== 'todo') return;
+
+    const record = this.data.find(
+      (row) => row.id === id && row.owner_id === this.currentUserId && row.type === 'todo',
+    ) as
+      | (Todo & { status?: string; carry_forward?: boolean; archived_reason?: string })
+      | undefined;
+
+    if (!record) return;
+
+    if (action === 'archive') {
+      record.status = 'archived';
+      record.archived_reason = details?.archived_reason ?? 'swept';
+      return;
+    }
+
+    if (action === 'carry_forward') {
+      record.carry_forward = true;
+      return;
+    }
+
+    // keep -> no action
   }
 
   async addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord> {

@@ -8,6 +8,7 @@ export type RecordType = 'habit' | 'todo' | 'note';
 export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
+export type Cadence = 'daily' | 'weekly' | 'monthly';
 export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 
 /**
@@ -32,6 +33,14 @@ export interface Habit {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID
+
+  // Cadence tracking (Phase 10.10)
+  cadence?: Cadence; // Defaults to 'daily' in DB
+  target_per_period?: number;
+  target_per_day?: number;
+  days_active?: string[] | null;
+  last_completed_at?: string | null;
+  period_start_at?: string | null;
 
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)

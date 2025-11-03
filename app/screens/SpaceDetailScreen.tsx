@@ -159,14 +159,17 @@ export default function SpaceDetail() {
       <PlusFAB onPress={() => overlayController.openCreate({ spaceId: id })} />
 
       {/* Unified Create Overlay */}
-      <UnifiedCreateOverlay
-        visible={overlayController.state.visible}
-        mode={overlayController.state.mode}
-        initialEntity={overlayController.state.initialEntity}
-        initialSpaceId={overlayController.state.initialSpaceId}
-        onClose={overlayController.close}
-        onSaved={handleOverlaySaved}
-      />
+      {overlayController.state.visible &&
+        (overlayController.state.mode === 'create' || overlayController.state.mode === 'edit') && (
+          <UnifiedCreateOverlay
+            visible={overlayController.state.visible}
+            mode={overlayController.state.mode}
+            initialEntity={overlayController.state.initialEntity}
+            initialSpaceId={overlayController.state.initialSpaceId}
+            onClose={overlayController.close}
+            onSaved={handleOverlaySaved}
+          />
+        )}
     </ScrollView>
   );
 }

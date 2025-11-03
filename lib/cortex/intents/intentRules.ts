@@ -593,6 +593,7 @@ export const INTENT_RULES: IntentRule[] = [
         /\b(daily|weekly|monthly|regularly|consistently)\b/i,
         /\b(routine|practice|discipline|ritual)\b/i,
         /\b\d+ times (a|per) (day|week|month)\b/i,
+        /\b\d+\s+(minutes?|minute|hours?|hour)\b.*\b((per|each|every)\s*day|a\s+day|in\s+(a\s+)?day)\b/i,
       ];
       return frequencyPatterns.some((pattern) => pattern.test(text));
     },
@@ -781,6 +782,14 @@ export const INTENT_RULES: IntentRule[] = [
       const hasImperative = imperativeVerbs.some((pattern) => pattern.test(text));
       const hasModalAction = /^(need to|have to|must|should)\b/i.test(text);
       const hasTime = /\b(by|before|tomorrow|today|next)\b/i.test(text);
+
+      const habitLikeDuration =
+        /\b\d+\s+(minutes?|minute|hours?|hour)\b.*\b((per|each|every)\s*day|a\s+day|in\s+(a\s+)?day)\b/i.test(
+          text,
+        );
+      if (habitLikeDuration) {
+        return false;
+      }
 
       return hasImperative || (hasModalAction && hasTime);
     },

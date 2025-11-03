@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useState, useEffect, useRef } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { RefreshControl, View, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -28,10 +28,19 @@ import TodayHabitCard from '../../components/today/TodayHabitCard';
 import TodayTodoCard from '../../components/today/TodayTodoCard';
 import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
 import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
+import TodayV3View from './TodayV3View';
+import TodayV4LanesView from './TodayV4LanesView';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const UNDO_TIMEOUT_MS = 3000; // 3 seconds to undo
+
+type UndoState = {
+  id: string;
+  type: 'habit' | 'todo';
+  label: string;
+  persisted: boolean;
+};
 
 // Helper types and functions for space grouping
 type Group<T> = { key: string; items: T[] };
@@ -58,6 +67,16 @@ function toKebabCase(str: string): string {
 }
 
 export default function TodayScreen() {
+  if (env.feature.today.v4Lanes) {
+    return <TodayV4LanesView />;
+  }
+  if (env.feature.today.v3) {
+    return <TodayV3View />;
+  }
+  return <TodayScreenV2 />;
+}
+
+function TodayScreenV2() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const navigation = useNavigation<NavigationProp>();
   const { user } = useAuth();
@@ -67,6 +86,8 @@ export default function TodayScreen() {
 
   // Unified overlay controller
   const overlayController = useUnifiedOverlayController();
+  const overlayMode =
+    overlayController.state.mode === 'view' ? 'create' : overlayController.state.mode;
 
   // Today data hook
   const todayData = useTodayData();
@@ -77,6 +98,7 @@ export default function TodayScreen() {
   const [celebrationVisible, setCelebrationVisible] = useState(false);
   const [lastCompletedId, setLastCompletedId] = useState<string | null>(null);
   const [lastCompletedType, setLastCompletedType] = useState<'habit' | 'todo' | null>(null);
+  const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [showAllHabits, setShowAllHabits] = useState(false);
   const [showAllTodos, setShowAllTodos] = useState(false);
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
@@ -130,10 +152,14 @@ export default function TodayScreen() {
 
   // Handle habit completion with repo persistence
   const handleHabitComplete = async (id: string) => {
+    const habit = todayData.habits.find((h) => h.id === id);
+    const label = habit?.name ?? 'Habit';
+
     // Optimistic UI
     setCompletedHabitIds((prev) => new Set(prev).add(id));
     setLastCompletedId(id);
     setLastCompletedType('habit');
+    setUndoState({ id, type: 'habit', label, persisted: false });
 
     if (celebrationEnabled) {
       setCelebrationVisible(true);
@@ -142,6 +168,7 @@ export default function TodayScreen() {
     // Clear any existing timer
     if (undoTimerRef.current) {
       clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
     }
 
     // Start undo timer - persist after 3s
@@ -160,6 +187,7 @@ export default function TodayScreen() {
           habitId: id,
           streakAfter: todayData.header.streakCount + 1,
         });
+        setUndoState((prev) => (prev && prev.id === id ? { ...prev, persisted: true } : prev));
         // Event bus will trigger reload automatically
       } catch (err) {
         console.error('Failed to complete habit:', err);
@@ -169,6 +197,9 @@ export default function TodayScreen() {
           next.delete(id);
           return next;
         });
+        setUndoState((prev) => (prev && prev.id === id ? null : prev));
+      } finally {
+        undoTimerRef.current = null;
       }
     }, UNDO_TIMEOUT_MS);
   };
@@ -178,11 +209,13 @@ export default function TodayScreen() {
     // Find if todo is overdue
     const todo = todayData.todos.find((t) => t.id === id);
     const isOverdue = todo?.overdue || false;
+    const label = todo?.title ?? 'To-do';
 
     // Optimistic UI
     setCompletedTodoIds((prev) => new Set(prev).add(id));
     setLastCompletedId(id);
     setLastCompletedType('todo');
+    setUndoState({ id, type: 'todo', label, persisted: false });
 
     if (celebrationEnabled) {
       setCelebrationVisible(true);
@@ -191,6 +224,7 @@ export default function TodayScreen() {
     // Clear any existing timer
     if (undoTimerRef.current) {
       clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
     }
 
     // Start undo timer - persist after 3s
@@ -209,6 +243,7 @@ export default function TodayScreen() {
           todoId: id,
           overdue: isOverdue,
         });
+        setUndoState((prev) => (prev && prev.id === id ? { ...prev, persisted: true } : prev));
         // Event bus will trigger reload automatically
       } catch (err) {
         console.error('Failed to complete todo:', err);
@@ -218,6 +253,9 @@ export default function TodayScreen() {
           next.delete(id);
           return next;
         });
+        setUndoState((prev) => (prev && prev.id === id ? null : prev));
+      } finally {
+        undoTimerRef.current = null;
       }
     }, UNDO_TIMEOUT_MS);
   };
@@ -240,40 +278,55 @@ export default function TodayScreen() {
     }
   };
 
-  // Handle undo from celebration overlay
-  const handleUndo = () => {
-    // Clear the pending persist timer
+  const undoLastCompletion = useCallback(async () => {
+    if (!undoState) {
+      return;
+    }
+
+    const { id, type, persisted } = undoState;
+
     if (undoTimerRef.current) {
       clearTimeout(undoTimerRef.current);
       undoTimerRef.current = null;
     }
 
-    // Emit analytics
-    if (lastCompletedType) {
-      eventBus.emit('TodayUndoCompletion', { entityType: lastCompletedType });
-    }
+    try {
+      if (persisted) {
+        await repo.undoCompletion(id);
+        await todayData.reload();
+      }
 
-    // Revert optimistic UI
-    if (lastCompletedId && lastCompletedType) {
-      if (lastCompletedType === 'habit') {
+      if (type === 'habit') {
         setCompletedHabitIds((prev) => {
+          if (!prev.has(id)) return prev;
           const next = new Set(prev);
-          next.delete(lastCompletedId);
+          next.delete(id);
           return next;
         });
       } else {
         setCompletedTodoIds((prev) => {
+          if (!prev.has(id)) return prev;
           const next = new Set(prev);
-          next.delete(lastCompletedId);
+          next.delete(id);
           return next;
         });
       }
-    }
 
-    setCelebrationVisible(false);
-    setLastCompletedId(null);
-    setLastCompletedType(null);
-  };
+      setCelebrationVisible(false);
+      setLastCompletedId(null);
+      setLastCompletedType(null);
+      setUndoState(null);
+
+      eventBus.emit('TodayUndoCompletion', { entityType: type });
+    } catch (err) {
+      console.error('Failed to undo completion:', err);
+      Alert.alert('Undo failed', 'Please try again in a moment.');
+    }
+  }, [repo, todayData, undoState]);
+
+  const handleUndo = useCallback(() => {
+    void undoLastCompletion();
+  }, [undoLastCompletion]);
 
   // Handle long press
   const handleLongPress = (id: string) => {
@@ -329,6 +382,30 @@ export default function TodayScreen() {
               Loading...
             </Text>
           </Box>
+        )}
+
+        {undoState && (
+          <Card testID="today-undo-banner">
+            <Box
+              p={3}
+              gap={2}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <Text variant="body" style={{ flex: 1, marginRight: 12 }} numberOfLines={2}>
+                {`Marked "${undoState.label}" ${undoState.type === 'habit' ? 'habit' : 'to-do'} complete.`}
+              </Text>
+              <Button
+                title="Undo"
+                variant="neutral"
+                onPress={handleUndo}
+                testID="today-undo-button"
+              />
+            </Box>
+          </Card>
         )}
 
         {/* Main content */}
@@ -548,7 +625,7 @@ export default function TodayScreen() {
       {!isTestLight && (
         <UnifiedCreateOverlay
           visible={overlayController.state.visible}
-          mode={overlayController.state.mode}
+          mode={overlayMode}
           initialEntity={overlayController.state.initialEntity}
           initialSpaceId={overlayController.state.initialSpaceId}
           onClose={overlayController.close}

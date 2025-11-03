@@ -26,6 +26,18 @@ describe('Intent Detection', () => {
       expect(result.kind).toBe('habit');
       expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
+
+    it('detects habit with per-day duration phrasing', () => {
+      const result = detectIntent('Get 1 hour of gremly work in a day');
+      expect(result.kind).toBe('habit');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+    });
+
+    it('detects habit with a day phrasing', () => {
+      const result = detectIntent('Get 1 hour of work completed a day');
+      expect(result.kind).toBe('habit');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+    });
   });
 
   describe('To-Do Detection', () => {

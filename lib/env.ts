@@ -20,6 +20,12 @@ const raw = {
   TODAY_SUGGESTIONS: process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS ?? 'on',
   TODAY_CELEBRATION: process.env.EXPO_PUBLIC_TODAY_CELEBRATION ?? 'on',
   TODAY_EVENING_TEASER: process.env.EXPO_PUBLIC_TODAY_EVENING_TEASER ?? 'on',
+  TODAY_V3: process.env.EXPO_PUBLIC_TODAY_V3 ?? 'on',
+  TODAY_V4_LANES: process.env.EXPO_PUBLIC_TODAY_V4_LANES ?? 'off',
+  TODAY_FOCUS_CARD: process.env.EXPO_PUBLIC_TODAY_FOCUS_CARD ?? 'on',
+  TODAY_DROP_ZONE: process.env.EXPO_PUBLIC_TODAY_DROP_ZONE ?? 'on',
+  TODAY_SWEEP_PREVIEW: process.env.EXPO_PUBLIC_TODAY_SWEEP_PREVIEW ?? 'on',
+  EVENING_SWEEP_V1: process.env.EXPO_PUBLIC_EVENING_SWEEP_V1 ?? 'off',
   DEBUG_TODAY_TIMEWINDOW: process.env.EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW,
 
   CORTEX_URL: process.env.EXPO_PUBLIC_CORTEX_URL,
@@ -118,6 +124,15 @@ export const env = {
       suggestions: flag(raw.TODAY_SUGGESTIONS),
       celebration: flag(raw.TODAY_CELEBRATION),
       eveningTeaser: flag(raw.TODAY_EVENING_TEASER),
+      v3: flag(raw.TODAY_V3),
+      v4Lanes: flag(raw.TODAY_V4_LANES),
+      focusCard: flag(raw.TODAY_FOCUS_CARD),
+      dropZone: flag(raw.TODAY_DROP_ZONE),
+      sweepPreview: flag(raw.TODAY_SWEEP_PREVIEW),
+    },
+
+    sweep: {
+      eveningV1: flag(raw.EVENING_SWEEP_V1),
     },
 
     // Mascot feature flags (Phase 10.6)

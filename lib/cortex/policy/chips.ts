@@ -1,5 +1,16 @@
+import { buildHabitFields, buildTodoFields } from '../textNormalization';
+
 export type ChipSuggestion =
-  | { type: 'create.todo'; label: string; payload: { name: string; undefined_due: boolean } }
+  | {
+      type: 'create.todo';
+      label: string;
+      payload: {
+        name: string;
+        undefined_due: boolean;
+        due?: string | null;
+        due_date?: string | null;
+      };
+    }
   | {
       type: 'create.habit';
       label: string;
@@ -74,24 +85,32 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   const hasDate = hasExplicitDateOrTime(t);
 
   if (input.probable === 'todo' || input.probable === 'unknown' || isAction) {
+    const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
+    const due = todoFields.due ?? null;
     chips.push({
       type: 'create.todo',
       label: LABELS.todo,
-      payload: { name: t, undefined_due: true },
+      payload: {
+        name: todoFields.title,
+        undefined_due: !due,
+        due,
+        due_date: due,
+      },
     });
   }
 
   if ((input.probable === 'habit' || isHabitText) && !hasDate) {
-    const lc = t.toLowerCase();
-    const freq: 'daily' | 'weekly' | 'monthly' = /\bmonthly\b/.test(lc)
-      ? 'monthly'
-      : /\bweekly\b|times?\s+a\s+week/.test(lc)
+    const habitFields = buildHabitFields(t);
+    const freq: 'daily' | 'weekly' | 'monthly' =
+      habitFields.freq === 'weekly'
         ? 'weekly'
-        : 'daily';
+        : habitFields.freq === 'custom'
+          ? 'monthly'
+          : 'daily';
     chips.push({
       type: 'create.habit',
       label: LABELS.habit,
-      payload: { name: t, freq },
+      payload: { name: habitFields.name, freq },
     });
   }
 

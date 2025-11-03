@@ -19,6 +19,7 @@ import type {
   ListByTypeOptions,
 } from './IRepo';
 import { supabase } from '../supabase/client';
+import { eventBus } from '../events';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -103,6 +104,10 @@ function normalizeIsoDatetime(value?: string | null): string | null | undefined 
   }
 
   return parsed.toISOString();
+}
+
+function ensureDay(dateIso: string): string {
+  return new Date(dateIso).toISOString().split('T')[0];
 }
 
 /**
@@ -195,6 +200,7 @@ export class SupabaseRepo implements IRepo {
   private currentUserId: string | null = null;
   private lastCountCompletedTodayWarn: number = 0;
   private readonly WARN_THROTTLE_MS = 60000; // Throttle warnings to once per minute
+  private todoCompletedAtSupported: boolean | null = null;
 
   // Phase 10.7E: Space chat messages accessor
   public spaceChatMessages: {
@@ -248,16 +254,17 @@ export class SupabaseRepo implements IRepo {
       if (!input.frequency) throw new Error('Habit requires frequency');
       // NOTE: subtype removed - column doesn't exist in habits table
 
-      // Database schema truth: habits table has 'name' column (NOT 'title')
+      // Database schema truth: habits table enforces BOTH name and title (Mind Drop relies on title)
       const habitName = input.name ?? input.title ?? 'Untitled';
+      const habitTitle = input.title ?? habitName;
 
       // Build minimal payload with Insert schema validation
       // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: habitName, // Required - database column (habits use 'name', NOT 'title')
-          // title: REMOVED - column doesn't exist in habits table
+          name: habitName, // Required - database column (habits use both name and title)
+          title: habitTitle, // Required - Mind Drop inserts expect non-null title
           frequency: input.frequency,
           // subtype: REMOVED - column doesn't exist in database
           ai_placed: input.ai_placed ?? false,
@@ -417,9 +424,18 @@ export class SupabaseRepo implements IRepo {
 
     // Parse with Row schema to validate returned data (includes all fields)
     const record = { ...result, type: input.type };
-    if (input.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-    if (input.type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-    return noteZ.parse(mapNoteFromDb(record));
+    let parsedRecord: AppRecord;
+    if (input.type === 'habit') {
+      parsedRecord = habitZ.parse(mapHabitFromDb(record));
+    } else if (input.type === 'todo') {
+      parsedRecord = todoZ.parse(mapTodoFromDb(record));
+    } else {
+      parsedRecord = noteZ.parse(mapNoteFromDb(record));
+    }
+
+    eventBus.emit('ItemSaved', { id: parsedRecord.id });
+
+    return parsedRecord;
   }
 
   /**
@@ -886,6 +902,456 @@ export class SupabaseRepo implements IRepo {
     }
   }
 
+  // =======================================================
+  // Phase 10.9 (Today v3) — New helpers
+  // =======================================================
+
+  async listTodayMerged(nowIso: string): Promise<
+    Array<
+      | {
+          type: 'todo';
+          id: ID;
+          name: string;
+          due_date?: string | null;
+          due_day?: string | null;
+          space_id?: ID | null;
+          tags?: string[];
+          status?: 'active' | 'completed' | 'archived';
+          carry_forward?: boolean;
+          overdue?: boolean;
+          nearDue?: boolean;
+        }
+      | {
+          type: 'habit';
+          id: ID;
+          name: string;
+          space_id?: ID | null;
+          tags?: string[];
+          cadence?: 'day' | 'week' | 'month';
+          target_count?: number;
+          period_unit?: 'day' | 'week' | 'month';
+          time_window?: 'any' | 'morning' | 'midday' | 'evening';
+          progress_today?: number;
+        }
+    >
+  > {
+    const userId = this.ensureUserId();
+    const day = ensureDay(nowIso);
+
+    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward';
+    const todoFields = `${todoFieldsBase},completed_at`;
+
+    let activeTodos: any[] | null = null;
+    let todosErr: any = null;
+    const activeResp = await supabase
+      .from('todos')
+      .select(todoFields)
+      .eq('owner_id', userId)
+      .eq('status', 'active')
+      .or(`due_day.eq.${day},carry_forward.eq.true`);
+
+    if (activeResp.error) {
+      todosErr = activeResp.error;
+    } else {
+      activeTodos = activeResp.data ?? [];
+      this.todoCompletedAtSupported = true;
+    }
+
+    if (todosErr) {
+      console.error('[listTodayMerged] todos query failed:', todosErr);
+    }
+
+    let completedTodos: any[] = [];
+    const completedResp = await supabase
+      .from('todos')
+      .select(todoFields)
+      .eq('owner_id', userId)
+      .eq('status', 'completed')
+      .gte('completed_at', `${day}T00:00:00`)
+      .lt('completed_at', `${day}T23:59:59.999`);
+
+    if (completedResp.error) {
+      console.error('[listTodayMerged] todos completed query failed:', completedResp.error);
+    } else {
+      completedTodos = completedResp.data ?? [];
+      this.todoCompletedAtSupported = true;
+    }
+
+    const now = new Date();
+    const mapTodo = (t: any) => {
+      let overdue = false;
+      let nearDue = false;
+      if (t.due_date) {
+        const due = new Date(t.due_date);
+        if (!Number.isNaN(due.getTime())) {
+          overdue = due < now;
+          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+        }
+      }
+
+      const completedAt = t.completed_at ?? null;
+      const rawStatus = (t.status ?? 'active') as 'active' | 'completed' | 'archived';
+      const status = completedAt && rawStatus !== 'archived' ? 'completed' : rawStatus;
+
+      return {
+        type: 'todo' as const,
+        id: t.id,
+        name: t.name,
+        due_date: t.due_date,
+        due_day: t.due_day,
+        space_id: t.space_id ?? null,
+        tags: [],
+        status,
+        carry_forward: !!t.carry_forward,
+        overdue,
+        nearDue,
+        completed_at: completedAt,
+      };
+    };
+
+    const todoItems = [...(activeTodos || []).map(mapTodo), ...(completedTodos || []).map(mapTodo)];
+
+    let habitItems: any[] = [];
+    try {
+      const { data: habits, error: habitsErr } = await supabase
+        .from('habits')
+        .select('id,name,space_id,cadence,target_count,period_unit,time_window')
+        .eq('owner_id', userId);
+
+      if (habitsErr) throw habitsErr;
+
+      const { data: progressRows, error: progErr } = await supabase
+        .from('habit_progress')
+        .select('habit_id,count,occurred_day,occurred_at')
+        .eq('owner_id', userId)
+        .eq('occurred_day', day);
+
+      if (progErr) throw progErr;
+
+      const progressByHabit = new Map<string, { total: number; latestAt: string | null }>();
+      (progressRows || []).forEach((row: any) => {
+        const current = progressByHabit.get(row.habit_id) || { total: 0, latestAt: null };
+        let latestAt = current.latestAt;
+        if (row.occurred_at) {
+          if (!latestAt) {
+            latestAt = row.occurred_at;
+          } else if (new Date(row.occurred_at).getTime() > new Date(latestAt).getTime()) {
+            latestAt = row.occurred_at;
+          }
+        }
+        progressByHabit.set(row.habit_id, {
+          total: current.total + (row.count || 1),
+          latestAt,
+        });
+      });
+
+      habitItems =
+        (habits || []).map((h: any) => {
+          const target = Math.max(1, h.target_count ?? 1);
+          const progressInfo = progressByHabit.get(h.id) || { total: 0, latestAt: null };
+          const done = progressInfo.total;
+          const status: 'active' | 'completed' =
+            done >= target && done > 0 ? 'completed' : 'active';
+
+          return {
+            type: 'habit' as const,
+            id: h.id,
+            name: h.name,
+            space_id: h.space_id ?? null,
+            tags: [],
+            cadence: (h.cadence as any) || 'day',
+            target_count: target,
+            period_unit: (h.period_unit as any) || 'day',
+            time_window: (h.time_window as any) || 'any',
+            progress_today: done,
+            status,
+            completed_at: status === 'completed' ? progressInfo.latestAt : null,
+          };
+        }) ?? [];
+    } catch (error) {
+      console.error('[listTodayMerged] habits/progress failed:', error);
+      habitItems = [];
+    }
+
+    return [...habitItems, ...todoItems];
+  }
+
+  async logHabitProgress(
+    habitId: ID,
+    atIso?: string,
+    count = 1,
+    occurrenceIndex?: number,
+  ): Promise<void> {
+    const ownerId = this.ensureUserId();
+    const payload: any = {
+      owner_id: ownerId,
+      habit_id: habitId,
+      count,
+    };
+
+    if (atIso) payload.occurred_at = atIso;
+    if (typeof occurrenceIndex === 'number') payload.occurrence_index = occurrenceIndex;
+
+    const { error } = await supabase.from('habit_progress').insert(payload);
+    if (error) throw new Error(`logHabitProgress failed: ${error.message}`);
+  }
+
+  async getHabitProgressForDate(habitId: ID, dayIso: string): Promise<number> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(dayIso);
+    const { data, error } = await supabase
+      .from('habit_progress')
+      .select('count')
+      .eq('owner_id', ownerId)
+      .eq('habit_id', habitId)
+      .eq('occurred_day', day);
+
+    if (error) throw new Error(`getHabitProgressForDate failed: ${error.message}`);
+    return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
+  }
+
+  async getFocusForDate(dayIso: string): Promise<{
+    id: ID;
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    created_at: string;
+    expires_at: string;
+  } | null> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(dayIso);
+    const { data, error } = await supabase
+      .from('focus_card')
+      .select('id,entry_id,entry_type,source,created_at,expires_at,focus_day')
+      .eq('owner_id', ownerId)
+      .eq('focus_day', day)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(`getFocusForDate failed: ${error.message}`);
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      entry_id: data.entry_id,
+      entry_type: data.entry_type,
+      source: data.source,
+      created_at: data.created_at,
+      expires_at: data.expires_at,
+    };
+  }
+
+  async setFocus(params: {
+    entry_id: ID | null;
+    entry_type: 'todo' | 'habit' | 'note' | null;
+    source: 'auto' | 'user' | 'carry_forward';
+    expires_at: string;
+  }): Promise<void> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(params.expires_at);
+    const payload: any = {
+      owner_id: ownerId,
+      entry_id: params.entry_id,
+      entry_type: params.entry_type,
+      source: params.source,
+      expires_at: params.expires_at,
+      focus_day: day,
+    };
+
+    const { error } = await supabase
+      .from('focus_card')
+      .upsert(payload, { onConflict: 'owner_id,focus_day' })
+      .select('id')
+      .single();
+
+    if (error) throw new Error(`setFocus failed: ${error.message}`);
+  }
+
+  async clearFocusForDate(dayIso: string): Promise<void> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(dayIso);
+    const { error } = await supabase
+      .from('focus_card')
+      .delete()
+      .eq('owner_id', ownerId)
+      .eq('focus_day', day);
+
+    if (error) throw new Error(`clearFocusForDate failed: ${error.message}`);
+  }
+
+  async topFocusCandidates(
+    limit: number,
+  ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(new Date().toISOString());
+
+    const { data, error } = await supabase
+      .from('todos')
+      .select('id,carry_forward,due_day,status')
+      .eq('owner_id', ownerId)
+      .eq('status', 'active')
+      .or(`carry_forward.eq.true,due_day.eq.${day}`)
+      .limit(Math.max(1, limit) * 2);
+
+    if (error) throw new Error(`topFocusCandidates.todos failed: ${error.message}`);
+
+    const scored: Array<{ id: ID; type: 'habit' | 'todo'; priority: number }> = [];
+
+    scored.push(
+      ...(data ?? []).map((row: any) => ({
+        id: row.id as ID,
+        type: 'todo' as const,
+        priority: (row.carry_forward ? 100 : 0) + (row.due_day === day ? 50 : 0),
+      })),
+    );
+
+    const { data: habitRows, error: habitError } = await supabase
+      .from('habits')
+      .select('id,target_count')
+      .eq('owner_id', ownerId);
+
+    if (!habitError && habitRows && habitRows.length > 0) {
+      const { data: progress, error: progressErr } = await supabase
+        .from('habit_progress')
+        .select('habit_id,count')
+        .eq('owner_id', ownerId)
+        .eq('occurred_day', day);
+
+      if (progressErr)
+        throw new Error(`topFocusCandidates.progress failed: ${progressErr.message}`);
+
+      const map = new Map<string, number>();
+      (progress ?? []).forEach((row: any) => {
+        map.set(row.habit_id, (map.get(row.habit_id) || 0) + (row.count ?? 1));
+      });
+
+      for (const habit of habitRows) {
+        const target = Math.max(1, habit.target_count ?? 1);
+        const done = map.get(habit.id) || 0;
+        if (done < target) {
+          scored.push({ id: habit.id, type: 'habit', priority: 40 - done });
+        }
+      }
+    } else if (habitError) {
+      throw new Error(`topFocusCandidates.habits failed: ${habitError.message}`);
+    }
+
+    scored.sort((a, b) => b.priority - a.priority);
+    return scored.slice(0, limit);
+  }
+
+  async listRecentDrops(
+    sinceIso: string,
+  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>> {
+    const ownerId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('notes')
+      .select('id,title,body,created_at')
+      .eq('owner_id', ownerId)
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) throw new Error(`listRecentDrops failed: ${error.message}`);
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      created_at: row.created_at,
+    }));
+  }
+
+  async getTodaySummary(): Promise<{ completed: number; remaining: number }> {
+    const ownerId = this.ensureUserId();
+    const day = ensureDay(new Date().toISOString());
+
+    let completedCount = 0;
+    if (this.todoCompletedAtSupported !== false) {
+      const { count: completedRaw, error: completedError } = await supabase
+        .from('todos')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', ownerId)
+        .gte('completed_at', `${day}T00:00:00Z`)
+        .lt('completed_at', `${day}T23:59:59Z`);
+
+      if (completedError) {
+        this.todoCompletedAtSupported = false;
+        const message = completedError.message || completedError.details || completedError.hint;
+        console.warn(
+          '[getTodaySummary] completed count unavailable; suppressing error',
+          message ?? completedError,
+        );
+      } else {
+        this.todoCompletedAtSupported = true;
+        if (typeof completedRaw === 'number') {
+          completedCount = completedRaw;
+        }
+      }
+    }
+
+    const { count: remainingTodos, error: remainingError } = await supabase
+      .from('todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_id', ownerId)
+      .eq('status', 'active')
+      .or(`due_day.eq.${day},carry_forward.eq.true`);
+
+    if (remainingError)
+      throw new Error(`getTodaySummary.remaining failed: ${remainingError.message}`);
+
+    return {
+      completed: completedCount ?? 0,
+      remaining: remainingTodos ?? 0,
+    };
+  }
+
+  async sweepApplyAction(
+    id: ID,
+    type: 'habit' | 'todo',
+    action: 'archive' | 'carry_forward' | 'keep',
+    details?: { archived_reason?: string },
+  ): Promise<void> {
+    const ownerId = this.ensureUserId();
+
+    if (type === 'todo') {
+      if (action === 'archive') {
+        const { error } = await supabase
+          .from('todos')
+          .update({ status: 'archived', archived_reason: details?.archived_reason ?? 'swept' })
+          .eq('id', id)
+          .eq('owner_id', ownerId);
+
+        if (error) throw new Error(`sweepApplyAction.archive failed: ${error.message}`);
+        return;
+      }
+
+      if (action === 'carry_forward') {
+        const { error } = await supabase
+          .from('todos')
+          .update({ carry_forward: true })
+          .eq('id', id)
+          .eq('owner_id', ownerId);
+
+        if (error) throw new Error(`sweepApplyAction.carry_forward failed: ${error.message}`);
+        return;
+      }
+
+      // keep -> no-op
+      return;
+    }
+
+    // Habits currently ignore sweep actions beyond "keep"
+    if (action === 'archive') {
+      // Placeholder: habits aren't archived via sweep; swallow request for now.
+      return;
+    }
+
+    if (action === 'carry_forward') {
+      // Habits don't support carry_forward flag; skip.
+      return;
+    }
+  }
+
   // ==========================
   // COMPLETION METHODS (Phase 9)
   // ==========================
@@ -904,7 +1370,6 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to complete habit: ${error.message}`);
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
   }
 
@@ -920,7 +1385,6 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to complete todo: ${error.message}`);
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
   }
 
@@ -936,7 +1400,6 @@ export class SupabaseRepo implements IRepo {
 
     if (!todoError) {
       // Success - was a todo
-      const { eventBus } = await import('../events');
       eventBus.emit('ItemUpdated', { id });
       return;
     }
@@ -953,7 +1416,6 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Emit event for UI sync
-    const { eventBus } = await import('../events');
     eventBus.emit('ItemUpdated', { id });
   }
 

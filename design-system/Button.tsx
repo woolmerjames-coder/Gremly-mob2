@@ -20,13 +20,13 @@ import { Text } from '../ui/Text';
 import { useReducedMotion, pressDown, pressUp } from '../design/animations';
 import { buttonPress, primaryButtonPress } from '../lib/haptics';
 
-type Variant = 'primary' | 'secondary' | 'outline' | 'ghost';
+type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'neutral';
 type Size = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends Omit<PressableProps, 'children' | 'disabled'> {
   /** Button label text */
   label: string;
-  /** Button variant (maps: primary→primary, secondary/outline/ghost→neutral) */
+  /** Button variant (maps: primary→primary, secondary/neutral/outline/ghost→neutral) */
   variant?: Variant;
   /** Button size */
   size?: Size;
@@ -78,6 +78,7 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
         case 'primary':
           return { bg: t.colors.primary, textColor: '#FFFFFF' };
         case 'secondary':
+        case 'neutral':
         case 'ghost':
           return { bg: t.colors.surface, textColor: t.colors.text };
         case 'outline':
