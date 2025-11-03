@@ -883,14 +883,17 @@ export default function HubScreen() {
       />
 
       {/* Unified Create/Edit Overlay */}
-      <UnifiedCreateOverlay
-        visible={overlayController.state.visible}
-        mode={overlayController.state.mode}
-        initialEntity={overlayController.state.initialEntity}
-        initialSpaceId={overlayController.state.initialSpaceId}
-        onClose={overlayController.close}
-        onSaved={handleOverlaySaved}
-      />
+      {overlayController.state.visible &&
+        (overlayController.state.mode === 'create' || overlayController.state.mode === 'edit') && (
+          <UnifiedCreateOverlay
+            visible={overlayController.state.visible}
+            mode={overlayController.state.mode}
+            initialEntity={overlayController.state.initialEntity}
+            initialSpaceId={overlayController.state.initialSpaceId}
+            onClose={overlayController.close}
+            onSaved={handleOverlaySaved}
+          />
+        )}
 
       {/* Unsorted Review Sheet Modal */}
       {reviewSheetVisible && (
