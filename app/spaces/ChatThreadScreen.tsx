@@ -362,8 +362,6 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Overlay controller for conversion
   const overlayController = useUnifiedOverlayController();
-  const overlayMode =
-    overlayController.state.mode === 'view' ? 'create' : overlayController.state.mode;
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
@@ -2100,138 +2098,142 @@ export default function ChatThreadScreen({ route }: Props) {
         </KeyboardAvoidingView>
 
         {/* Unified Create Overlay for Chat Conversions */}
-        <UnifiedCreateOverlay
-          visible={overlayController.state.visible}
-          mode={overlayMode}
-          initialEntity={overlayController.state.initialEntity}
-          initialSpaceId={overlayController.state.initialSpaceId}
-          conversionMeta={overlayController.state.conversionMeta}
-          onClose={overlayController.close}
-          onSaved={async (result) => {
-            // Success toast with chat-specific messaging
-            const itemType =
-              result.type === 'note'
-                ? 'Note'
-                : result.type === 'todo'
-                  ? 'To-Do'
-                  : result.type === 'habit'
-                    ? 'Habit'
-                    : 'Item';
-            showChatConversionToast(`${itemType} created from chat ✨`);
+        {overlayController.state.visible &&
+          (overlayController.state.mode === 'create' ||
+            overlayController.state.mode === 'edit') && (
+            <UnifiedCreateOverlay
+              visible={overlayController.state.visible}
+              mode={overlayController.state.mode}
+              initialEntity={overlayController.state.initialEntity}
+              initialSpaceId={overlayController.state.initialSpaceId}
+              conversionMeta={overlayController.state.conversionMeta}
+              onClose={overlayController.close}
+              onSaved={async (result) => {
+                // Success toast with chat-specific messaging
+                const itemType =
+                  result.type === 'note'
+                    ? 'Note'
+                    : result.type === 'todo'
+                      ? 'To-Do'
+                      : result.type === 'habit'
+                        ? 'Habit'
+                        : 'Item';
+                showChatConversionToast(`${itemType} created from chat ✨`);
 
-            // Remove the action confirmation toast after successful creation
-            const actionConfirmation = messages.find(
-              (msg) => msg.metadata_json?.type === 'action-confirmation',
-            );
-            if (actionConfirmation) {
-              console.log(
-                '[Toast] Removing action confirmation after save:',
-                actionConfirmation.id,
-              );
-              removeMessage(actionConfirmation.id);
-            }
-
-            // Phase 11.7: Track last created item for encouragement messages
-            setLastCreatedItem({
-              type: result.type,
-              timestamp: Date.now(),
-            });
-
-            // Phase 11.6: Add entry card to chat thread
-            try {
-              // Fetch the created record
-              const record = await repo.getById(result.id);
-
-              if (
-                record &&
-                (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
-              ) {
-                // Helper function to get continuation message based on type
-                const getContinuationMessage = (
-                  type: 'habit' | 'todo' | 'note',
-                  itemName?: string,
-                ): string => {
-                  switch (type) {
-                    case 'habit':
-                      return `Great! Your ${itemName || 'habit'} is set. What else would you like to work on?`;
-                    case 'todo':
-                      return 'Task added to your list. Anything else you need to get done?';
-                    case 'note':
-                      return "Got it! Note saved. What's next?";
-                    default:
-                      return 'Done! What would you like to do next?';
-                  }
-                };
-
-                // Add locked confirmation message for all types
-                if (result.type === 'habit') {
-                  const habitRecord = record as any;
-                  await appendAssistantMessage('', {
-                    type: 'habit-locked',
-                    habitName: habitRecord.name || 'Habit',
-                    frequency: habitRecord.frequency || 'regularly',
-                    habitId: record.id,
-                    locked: true,
-                    itemType: 'habit',
-                  });
-
-                  // Add follow-up message after short delay
-                  setTimeout(async () => {
-                    try {
-                      await appendAssistantMessage(
-                        getContinuationMessage('habit', habitRecord.name),
-                      );
-                      console.log('[Chat] Follow-up message added after habit creation');
-                    } catch (err) {
-                      console.error('[Chat] Failed to add follow-up message:', err);
-                    }
-                  }, 1500);
-                } else if (result.type === 'todo') {
-                  const todoRecord = record as any;
-                  await appendAssistantMessage('', {
-                    type: 'todo-locked',
-                    todoTitle: todoRecord.title || 'Task',
-                    dueDate: todoRecord.due_date || null,
-                    todoId: record.id,
-                    locked: true,
-                    itemType: 'todo',
-                  });
-
-                  // Add follow-up message after short delay
-                  setTimeout(async () => {
-                    try {
-                      await appendAssistantMessage(getContinuationMessage('todo'));
-                      console.log('[Chat] Follow-up message added after todo creation');
-                    } catch (err) {
-                      console.error('[Chat] Failed to add follow-up message:', err);
-                    }
-                  }, 1500);
-                } else if (result.type === 'note') {
-                  const noteRecord = record as any;
-                  await appendAssistantMessage('', {
-                    type: 'note-locked',
-                    noteContent: noteRecord.content || noteRecord.title || 'Note',
-                    noteId: record.id,
-                    locked: true,
-                    itemType: 'note',
-                  });
-
-                  // Add follow-up message after short delay
-                  setTimeout(async () => {
-                    try {
-                      await appendAssistantMessage(getContinuationMessage('note'));
-                      console.log('[Chat] Follow-up message added after note creation');
-                    } catch (err) {
-                      console.error('[Chat] Failed to add follow-up message:', err);
-                    }
-                  }, 1500);
+                // Remove the action confirmation toast after successful creation
+                const actionConfirmation = messages.find(
+                  (msg) => msg.metadata_json?.type === 'action-confirmation',
+                );
+                if (actionConfirmation) {
+                  console.log(
+                    '[Toast] Removing action confirmation after save:',
+                    actionConfirmation.id,
+                  );
+                  removeMessage(actionConfirmation.id);
                 }
-              }
-            } catch (err) {
-              console.error('[EntryCard] Failed to add entry card to chat:', err);
-            }
-          }}
-        />
+
+                // Phase 11.7: Track last created item for encouragement messages
+                setLastCreatedItem({
+                  type: result.type,
+                  timestamp: Date.now(),
+                });
+
+                // Phase 11.6: Add entry card to chat thread
+                try {
+                  // Fetch the created record
+                  const record = await repo.getById(result.id);
+
+                  if (
+                    record &&
+                    (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
+                  ) {
+                    // Helper function to get continuation message based on type
+                    const getContinuationMessage = (
+                      type: 'habit' | 'todo' | 'note',
+                      itemName?: string,
+                    ): string => {
+                      switch (type) {
+                        case 'habit':
+                          return `Great! Your ${itemName || 'habit'} is set. What else would you like to work on?`;
+                        case 'todo':
+                          return 'Task added to your list. Anything else you need to get done?';
+                        case 'note':
+                          return "Got it! Note saved. What's next?";
+                        default:
+                          return 'Done! What would you like to do next?';
+                      }
+                    };
+
+                    // Add locked confirmation message for all types
+                    if (result.type === 'habit') {
+                      const habitRecord = record as any;
+                      await appendAssistantMessage('', {
+                        type: 'habit-locked',
+                        habitName: habitRecord.name || 'Habit',
+                        frequency: habitRecord.frequency || 'regularly',
+                        habitId: record.id,
+                        locked: true,
+                        itemType: 'habit',
+                      });
+
+                      // Add follow-up message after short delay
+                      setTimeout(async () => {
+                        try {
+                          await appendAssistantMessage(
+                            getContinuationMessage('habit', habitRecord.name),
+                          );
+                          console.log('[Chat] Follow-up message added after habit creation');
+                        } catch (err) {
+                          console.error('[Chat] Failed to add follow-up message:', err);
+                        }
+                      }, 1500);
+                    } else if (result.type === 'todo') {
+                      const todoRecord = record as any;
+                      await appendAssistantMessage('', {
+                        type: 'todo-locked',
+                        todoTitle: todoRecord.title || 'Task',
+                        dueDate: todoRecord.due_date || null,
+                        todoId: record.id,
+                        locked: true,
+                        itemType: 'todo',
+                      });
+
+                      // Add follow-up message after short delay
+                      setTimeout(async () => {
+                        try {
+                          await appendAssistantMessage(getContinuationMessage('todo'));
+                          console.log('[Chat] Follow-up message added after todo creation');
+                        } catch (err) {
+                          console.error('[Chat] Failed to add follow-up message:', err);
+                        }
+                      }, 1500);
+                    } else if (result.type === 'note') {
+                      const noteRecord = record as any;
+                      await appendAssistantMessage('', {
+                        type: 'note-locked',
+                        noteContent: noteRecord.content || noteRecord.title || 'Note',
+                        noteId: record.id,
+                        locked: true,
+                        itemType: 'note',
+                      });
+
+                      // Add follow-up message after short delay
+                      setTimeout(async () => {
+                        try {
+                          await appendAssistantMessage(getContinuationMessage('note'));
+                          console.log('[Chat] Follow-up message added after note creation');
+                        } catch (err) {
+                          console.error('[Chat] Failed to add follow-up message:', err);
+                        }
+                      }, 1500);
+                    }
+                  }
+                } catch (err) {
+                  console.error('[EntryCard] Failed to add entry card to chat:', err);
+                }
+              }}
+            />
+          )}
 
         {/* Message Search Modal */}
         <MessageSearch
