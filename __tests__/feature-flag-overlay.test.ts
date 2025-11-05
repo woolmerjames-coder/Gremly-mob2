@@ -113,7 +113,8 @@ describe.skip('Feature Flag: EXPO_PUBLIC_UNIFIED_OVERLAY', () => {
         result.current.openEdit({ record: mockJournalNote });
       });
 
-      expect(result.current.state.initialEntity?.type).toBe('journal');
+      expect(result.current.state.initialEntity?.type).toBe('log');
+      expect(result.current.state.initialEntity?.logSubtype).toBe('journal');
     });
   });
 
