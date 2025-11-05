@@ -1,5 +1,6 @@
 import type {
   AppRecord,
+  CanonicalType,
   Todo,
   ID,
   Frequency,
@@ -9,6 +10,7 @@ import type {
   Tag,
   Person,
   EntityType,
+  LegacyCanonicalType,
 } from '../types';
 import type { SpaceInsert } from '../schemas';
 
@@ -29,7 +31,7 @@ export interface CreateRecordInput {
   ai_placed?: boolean;
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual';
-  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
   views?: {

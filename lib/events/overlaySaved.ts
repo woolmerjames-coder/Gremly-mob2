@@ -1,6 +1,6 @@
 // Broadcast overlay-saved events so listeners can refresh themselves after unified overlay submissions
 export type OverlaySavedPayload = {
-  type: 'habit' | 'todo' | 'note' | 'journal' | 'person' | 'unsorted';
+  type: 'habit' | 'todo' | 'note' | 'journal' | 'unsorted';
   id: string;
 };
 
