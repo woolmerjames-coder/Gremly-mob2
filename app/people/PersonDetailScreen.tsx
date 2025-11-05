@@ -20,6 +20,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { colors, spacing, radii } from '../../theme/tokens';
 import type { EntityPerson, ItemType } from '../../lib/repo/types';
 import type { AppRecord } from '../../lib/types';
+import { getNoteLabel, kindToDisplayLabel } from '../../lib/canonicalTypes';
 
 type RootStackParamList = {
   PersonDetail: {
@@ -209,6 +210,9 @@ export default function PersonDetailScreen() {
     );
   }
 
+  const noteGroupLabel = kindToDisplayLabel('note', { plural: true });
+  const noteGroupLabelLowercase = getNoteLabel({ plural: true, lowercase: true });
+
   return (
     <Screen testID="person-detail-screen">
       <View style={styles.header}>
@@ -232,7 +236,8 @@ export default function PersonDetailScreen() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No linked items</Text>
             <Text style={styles.emptyText}>
-              This person hasn't been linked to any habits, todos, journal entries, or notes yet.
+              This person hasn't been linked to any habits, todos, journal entries, or{' '}
+              {noteGroupLabelLowercase} yet.
             </Text>
           </View>
         ) : (
@@ -240,7 +245,7 @@ export default function PersonDetailScreen() {
             {renderGroup('Habits', groupedItems.habit, 'habit')}
             {renderGroup('To-Dos', groupedItems.todo, 'todo')}
             {renderGroup('Journal Entries', groupedItems.journal, 'note')}
-            {renderGroup('Notes', groupedItems.note, 'note')}
+            {renderGroup(noteGroupLabel, groupedItems.note, 'note')}
           </>
         )}
       </ScrollView>

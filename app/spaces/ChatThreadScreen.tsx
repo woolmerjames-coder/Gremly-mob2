@@ -78,8 +78,27 @@ import { computeDuePrefill } from './chat/duePrefill';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import type { CanonicalType, LogSubtype } from '../../lib/types';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
+const resolveOverlayCreateParams = (
+  kind: IntentKind,
+): { type: CanonicalType; logSubtype?: LogSubtype | null } | null => {
+  switch (kind) {
+    case 'habit':
+      return { type: 'habit' };
+    case 'todo':
+      return { type: 'todo' };
+    case 'note':
+      return { type: 'log', logSubtype: 'everything_else' };
+    case 'reflection':
+      return { type: 'log', logSubtype: 'journal' };
+    case 'idea':
+      return { type: 'log', logSubtype: 'idea' };
+    default:
+      return null;
+  }
+};
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -622,9 +641,10 @@ export default function ChatThreadScreen({ route }: Props) {
               .catch(() => {});
           }
           // Open overlay for confirmation
-          if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+          const overlayParams = resolveOverlayCreateParams(intent.kind);
+          if (overlayParams) {
             overlayController.openCreate({
-              type: intent.kind as 'habit' | 'todo' | 'note',
+              ...overlayParams,
               spaceId: spaceId ?? undefined,
               conversionMeta: {
                 initialTitle: userText,
@@ -641,9 +661,10 @@ export default function ChatThreadScreen({ route }: Props) {
               });
 
               // Create primary first
-              if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+              const overlayParams = resolveOverlayCreateParams(intent.kind);
+              if (overlayParams) {
                 overlayController.openCreate({
-                  type: intent.kind as 'habit' | 'todo' | 'note',
+                  ...overlayParams,
                   spaceId: spaceId ?? undefined,
                   conversionMeta: {
                     initialTitle: userText,
@@ -694,9 +715,10 @@ export default function ChatThreadScreen({ route }: Props) {
               .catch(() => {});
           }
           // Open overlay for editing
-          if (intent.kind === 'habit' || intent.kind === 'todo' || intent.kind === 'note') {
+          const overlayParams = resolveOverlayCreateParams(intent.kind);
+          if (overlayParams) {
             overlayController.openCreate({
-              type: intent.kind as 'habit' | 'todo' | 'note',
+              ...overlayParams,
               spaceId: spaceId ?? undefined,
               conversionMeta: {
                 initialTitle: userText,
@@ -1985,13 +2007,16 @@ export default function ChatThreadScreen({ route }: Props) {
                     });
                   }
 
-                  overlayController.openCreate({
-                    type: actionType,
-                    spaceId: spaceId ?? undefined,
-                    conversionMeta: {
-                      initialTitle: cleanedTitle,
-                    },
-                  });
+                  const overlayParams = resolveOverlayCreateParams(actionType as IntentKind);
+                  if (overlayParams) {
+                    overlayController.openCreate({
+                      ...overlayParams,
+                      spaceId: spaceId ?? undefined,
+                      conversionMeta: {
+                        initialTitle: cleanedTitle,
+                      },
+                    });
+                  }
                 }
               };
 
@@ -2052,10 +2077,10 @@ export default function ChatThreadScreen({ route }: Props) {
                       key={pendingActionConfirmation.id}
                       message={pendingActionConfirmation}
                       onSelectIntent={async (kind: IntentKind) => {
-                        // Open overlay for selected intent type
-                        if (kind === 'habit' || kind === 'todo' || kind === 'note') {
+                        const overlayParams = resolveOverlayCreateParams(kind);
+                        if (overlayParams) {
                           overlayController.openCreate({
-                            type: kind as 'habit' | 'todo' | 'note',
+                            ...overlayParams,
                             spaceId: spaceId ?? undefined,
                             conversionMeta: {
                               initialTitle: pendingActionConfirmation.content,

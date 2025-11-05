@@ -25,7 +25,7 @@ export default function TodayV3View() {
 
         <TaskHabitStack />
 
-        <DropZoneCard onViewDrops={() => overlay.openCreate({ type: 'note' })} />
+        <DropZoneCard onViewDrops={() => overlay.openCreate({ type: 'unsorted' })} />
 
         <Box style={{ alignItems: 'center', marginTop: 8 }}>
           <Button label="Add More" variant="primary" onPress={() => overlay.openCreate()} />

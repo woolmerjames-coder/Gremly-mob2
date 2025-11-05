@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { colors, radii, spacing } from '../theme/tokens';
+import { getNoteLabel } from '../lib/canonicalTypes';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -13,6 +14,8 @@ export default function SegmentedTabs({
   onChange: (t: Tab) => void;
   tabs?: Tab[];
 }) {
+  const noteTabLabel = getNoteLabel({ plural: true });
+
   return (
     <ScrollView
       horizontal
@@ -21,6 +24,7 @@ export default function SegmentedTabs({
       keyboardShouldPersistTaps="handled"
     >
       {tabs.map((t) => {
+        const displayLabel = t === 'Notes' ? noteTabLabel : t;
         const active = value === t;
         return (
           <TouchableOpacity
@@ -32,7 +36,7 @@ export default function SegmentedTabs({
             testID={`tab-${t.toLowerCase()}`}
           >
             <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
-              {t}
+              {displayLabel}
             </Text>
           </TouchableOpacity>
         );

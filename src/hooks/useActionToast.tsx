@@ -14,7 +14,13 @@ import {
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
-import type { Frequency, HabitSubtype, NoteSubtype } from '../../lib/types';
+import type {
+  Frequency,
+  HabitSubtype,
+  NoteSubtype,
+  LogSubtype,
+  CanonicalType,
+} from '../../lib/types';
 
 type ActionType = 'habit' | 'todo' | 'note' | 'disambiguation' | 'success';
 
@@ -470,14 +476,42 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
     const initialTitle = payload.metadata?.conversionMeta?.initialTitle ?? payload.content;
     const initialNote = payload.metadata?.conversionMeta?.initialNote ?? payload.metadata?.noteBody;
 
-    overlay.openCreate({
-      type: payload.type as 'todo' | 'note' | 'habit',
-      spaceId: payload.metadata?.spaceId,
-      conversionMeta: {
-        initialTitle,
-        initialNote,
-      },
-    });
+    const overlayParams = (() => {
+      if (payload.type === 'habit') {
+        return { type: 'habit' as CanonicalType };
+      }
+      if (payload.type === 'todo') {
+        return { type: 'todo' as CanonicalType };
+      }
+      if (payload.type === 'note') {
+        const noteSubtype = payload.metadata?.noteSubtype;
+        const logSubtype: LogSubtype = (() => {
+          switch (noteSubtype) {
+            case 'journal':
+              return 'journal';
+            case 'idea':
+              return 'idea';
+            case 'list':
+              return 'list';
+            default:
+              return 'everything_else';
+          }
+        })();
+        return { type: 'log' as CanonicalType, logSubtype };
+      }
+      return null;
+    })();
+
+    if (overlayParams) {
+      overlay.openCreate({
+        ...overlayParams,
+        spaceId: payload.metadata?.spaceId,
+        conversionMeta: {
+          initialTitle,
+          initialNote,
+        },
+      });
+    }
   }, [clearExistingTimer, hideToast, overlay, payload]);
 
   const handleCancel = useCallback(() => {

@@ -42,6 +42,7 @@ import { organizedToastSummary } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
+import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
@@ -990,6 +991,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const text = action.payload.text?.trim() || cleanedText || trimmed;
               const rawSubtype = action.payload.subtype;
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
+              const canonicalType = persistedToCanonical('note', subtype);
 
               mapped.push({
                 bucket: 'notes',
@@ -1002,7 +1004,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: subtype !== 'catchall',
                   space_id: action.payload.spaceId ?? null,
                   why_string: decision.explanation || 'Organized via Mind Drop',
-                  canonicalType: 'note',
+                  canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                 },
@@ -1010,6 +1012,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             } else if (action.type === 'add.to.list') {
               const itemText = action.payload.item?.trim() || cleanedText || trimmed;
               const title = cleanedText || itemText || trimmed || 'Quick list';
+              const canonicalType = persistedToCanonical('note', 'list');
 
               mapped.push({
                 bucket: 'notes',
@@ -1022,7 +1025,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   space_id: action.payload.spaceId ?? null,
                   why_string: decision.explanation || 'Ideas/list capture',
-                  canonicalType: 'note',
+                  canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                 },
@@ -1211,15 +1214,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           origin: 'catchall',
         };
       } else {
+        const subtype =
+          classifyOut?.type === 'note' &&
+          (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
+            ? classifyOut.subtype
+            : 'catchall';
+        const canonicalType = persistedToCanonical('note', subtype);
+
         payload = {
           type: 'note',
           title: cleanedText || trimmed || 'Quick note',
           body: cleanedText || trimmed,
-          subtype:
-            classifyOut?.type === 'note' &&
-            (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
-              ? classifyOut.subtype
-              : 'catchall',
+          subtype,
           origin: 'catchall',
           ai_placed:
             classifyOut?.type === 'note' &&
@@ -1228,7 +1234,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               : false,
           space_id: null,
           why_string: classifyOut?.whyString || 'Saved from Catch-All Notepad',
-          canonicalType: 'note',
+          canonicalType,
           labels: [CATCHALL_LABEL],
           views: {
             alsoShowIn: ['Hub:Catch-All'],
@@ -1322,6 +1328,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const ideasPattern = /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i;
 
           if (ideasPattern.test(rawTodoText)) {
+            const canonicalType = persistedToCanonical('note', 'list');
             const record = await repo.create({
               type: 'note',
               title: rawTodoText || 'Quick note',
@@ -1331,7 +1338,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               ai_placed: true,
               space_id: null,
               why_string: 'Chosen via chip (ideas/list safety)',
-              canonicalType: 'note',
+              canonicalType,
               labels: [CATCHALL_LABEL],
               views: { alsoShowIn: ['Hub:Catch-All'] },
             });
@@ -1366,6 +1373,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           counts.habits = 1;
           createdIds.habits.push(record.id);
         } else {
+          const rawSubtype = suggestion.payload.subtype as string | undefined;
+          const canonicalType = persistedToCanonical('note', rawSubtype ?? undefined);
           const record = await repo.create({
             type: 'note',
             title: suggestion.payload.title,
@@ -1375,7 +1384,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             ai_placed: (suggestion.payload.subtype as string) !== 'catchall',
             space_id: null,
             why_string: 'Chosen via chip',
-            canonicalType: 'note',
+            canonicalType,
             labels: [CATCHALL_LABEL],
             views: suggestion.payload.subtype === 'list' ? { alsoShowIn: ['Hub:Catch-All'] } : {},
           });

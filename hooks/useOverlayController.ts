@@ -16,17 +16,34 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { AppRecord } from '../lib/types';
+import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 
-type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person' | 'unsorted';
+type EntityType = CanonicalType;
+const CATCHALL_LABEL = 'catchall';
+const NEEDS_REVIEW_LABEL = 'needs_review';
+
+const mapNoteSubtypeToLogSubtype = (subtype?: string | null): LogSubtype => {
+  switch (subtype) {
+    case 'journal':
+      return 'journal';
+    case 'idea':
+      return 'idea';
+    case 'list':
+      return 'list';
+    case 'person':
+      return 'person';
+    default:
+      return 'everything_else';
+  }
+};
 
 interface OverlayState {
   visible: boolean;
   mode: 'create' | 'edit' | 'view';
   initialEntity?: {
-    type: EntityType;
+    type: EntityType | null;
     id?: string;
-    subtype?: string | null;
+    logSubtype?: LogSubtype | null;
   } | null;
   initialSpaceId?: string | null;
 }
@@ -34,6 +51,7 @@ interface OverlayState {
 interface OpenCreateParams {
   type?: EntityType;
   spaceId?: string | null;
+  logSubtype?: LogSubtype | null;
 }
 
 interface OpenEditParams {
@@ -85,31 +103,43 @@ function useLegacyOverlayController(): OverlayController {
     initialSpaceId: null,
   });
 
-  const resolveEntityFromRecord = useCallback((record: AppRecord) => {
-    let entityType: EntityType = record.type as EntityType;
-    let subtype: string | null = null;
-
-    if (record.type === 'note') {
-      const labels = (record as any)?.labels as string[] | undefined;
-      const recordSubtype = (record as any)?.subtype as string | undefined;
-
-      if (labels?.includes?.('needs_review') || recordSubtype === 'catchall') {
-        entityType = 'unsorted';
-        subtype = 'catchall';
-      } else if (recordSubtype === 'journal') {
-        entityType = 'journal';
-        subtype = recordSubtype;
+  const resolveEntityFromRecord = useCallback(
+    (record: AppRecord): { entityType: EntityType; logSubtype: LogSubtype | null } => {
+      if (record.type === 'habit') {
+        return { entityType: 'habit', logSubtype: null };
       }
-    }
+      if (record.type === 'todo') {
+        return { entityType: 'todo', logSubtype: null };
+      }
+      if (record.type === 'note') {
+        const labels = (record as any)?.labels as string[] | undefined;
+        const recordSubtype = (record as any)?.subtype as string | undefined;
 
-    return { entityType, subtype };
-  }, []);
+        if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+          return { entityType: 'unsorted', logSubtype: null };
+        }
+
+        return {
+          entityType: 'log',
+          logSubtype: mapNoteSubtypeToLogSubtype(recordSubtype ?? null),
+        };
+      }
+
+      return { entityType: 'log', logSubtype: 'everything_else' };
+    },
+    [],
+  );
 
   const openCreate = useCallback((params?: OpenCreateParams) => {
     setState({
       visible: true,
       mode: 'create',
-      initialEntity: params?.type ? { type: params.type, subtype: null } : null,
+      initialEntity: params?.type
+        ? {
+            type: params.type,
+            logSubtype: params.type === 'log' ? (params.logSubtype ?? null) : null,
+          }
+        : null,
       initialSpaceId: params?.spaceId,
     });
   }, []);
@@ -117,7 +147,7 @@ function useLegacyOverlayController(): OverlayController {
   const openEdit = useCallback(
     (params: OpenEditParams) => {
       const { record, spaceId } = params;
-      const { entityType, subtype } = resolveEntityFromRecord(record);
+      const { entityType, logSubtype } = resolveEntityFromRecord(record);
 
       setState({
         visible: true,
@@ -125,7 +155,7 @@ function useLegacyOverlayController(): OverlayController {
         initialEntity: {
           type: entityType,
           id: record.id,
-          subtype,
+          logSubtype,
         },
         initialSpaceId: spaceId,
       });
@@ -136,7 +166,7 @@ function useLegacyOverlayController(): OverlayController {
   const openView = useCallback(
     (params: OpenViewParams) => {
       const { record, spaceId } = params;
-      const { entityType, subtype } = resolveEntityFromRecord(record);
+      const { entityType, logSubtype } = resolveEntityFromRecord(record);
 
       setState({
         visible: true,
@@ -144,7 +174,7 @@ function useLegacyOverlayController(): OverlayController {
         initialEntity: {
           type: entityType,
           id: record.id,
-          subtype,
+          logSubtype,
         },
         initialSpaceId: spaceId,
       });

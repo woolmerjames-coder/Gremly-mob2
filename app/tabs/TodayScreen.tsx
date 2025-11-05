@@ -270,7 +270,7 @@ function TodayScreenV2() {
 
     // Open overlay with prefilled data based on suggestion type
     if (suggestion.type === 'journal') {
-      overlayController.openCreate({ type: 'journal' });
+      overlayController.openCreate({ type: 'log', logSubtype: 'journal' });
     } else if (suggestion.type === 'todo') {
       overlayController.openCreate({ type: 'todo' });
     } else if (suggestion.type === 'habit') {
@@ -343,7 +343,7 @@ function TodayScreenV2() {
 
   // Open journal overlay with evening reflection prompt
   const handleOpenEveningReflection = () => {
-    overlayController.openCreate({ type: 'journal' });
+    overlayController.openCreate({ type: 'log', logSubtype: 'journal' });
   };
 
   // Determine which items to show based on visible/hidden and show more state

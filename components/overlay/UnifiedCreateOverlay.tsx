@@ -26,14 +26,20 @@ import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fie
 import { TodoFields } from './fields/TodoFields';
 import { JournalFields } from './fields/JournalFields';
 import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
-import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
 import { TagEditor } from './fields/TagEditor';
 import { PeopleLinker } from './fields/PeopleLinker';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
-import type { AppRecord, Frequency, HabitSubtype, NoteSubtype } from '../../lib/types';
+import type {
+  AppRecord,
+  CanonicalType,
+  Frequency,
+  HabitSubtype,
+  LogSubtype,
+  NoteSubtype,
+} from '../../lib/types';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
@@ -41,38 +47,39 @@ import type { ItemType } from '../../lib/repo/types';
 import { callComplete, callClassify } from '../../lib/cortex/CortexClient';
 import { parseDue } from '../../lib/cortex/entities/datetime';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
-import {
-  mapHabitToForm,
-  mapTodoToForm,
-  mapJournalToForm,
-  mapNoteToForm,
-  mapPersonToForm,
-} from './mappers';
-import { getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
+import { mapHabitToForm, mapTodoToForm, mapJournalToForm, mapNoteToForm } from './mappers';
+import { env, getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
 import { combineDueIso, normalizeTimeInput, splitDueParts } from './dueUtils';
+import { canonicalToPersisted } from '../../lib/canonical';
+import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 
-type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
+type EntityType = CanonicalType;
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
 
-type TypeFamily = 'habit' | 'todo' | 'note' | 'person';
+type TypeFamily = 'habit' | 'todo' | 'note';
+
+const capitalize = (value: string): string => {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
+const CANONICAL_TYPES_ENABLED = env.feature.canonicalTypes;
+const NOTE_LABEL = capitalize(kindToDisplayLabel('note', 'journal', CANONICAL_TYPES_ENABLED));
+const LOG_TYPE_HEADING = `${NOTE_LABEL} type`;
 
 const ENTITY_FAMILY: Record<EntityType, TypeFamily> = {
   habit: 'habit',
   todo: 'todo',
-  journal: 'note',
-  note: 'note',
-  person: 'person',
+  log: 'note',
   unsorted: 'note',
 };
 
 const FRIENDLY_TYPE_LABEL: Record<EntityType, string> = {
   habit: 'Habit',
   todo: 'To-Do',
-  journal: 'Journal',
-  note: 'Note',
-  person: 'Person',
+  log: NOTE_LABEL,
   unsorted: 'Unsorted',
 };
 
@@ -82,7 +89,7 @@ export type UnifiedCreateOverlayProps = {
   initialEntity?: {
     type: EntityType | null;
     id?: string;
-    subtype?: string | null;
+    logSubtype?: LogSubtype | null;
   };
   initialSpaceId?: string | null; // from scope
   conversionMeta?: {
@@ -103,11 +110,23 @@ export type UnifiedCreateOverlayProps = {
 const TYPE_OPTIONS: Array<{ value: EntityType; label: string; iconName: string }> = [
   { value: 'habit', label: 'Habit', iconName: 'Activity' },
   { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
-  { value: 'journal', label: 'Journal', iconName: 'BookOpen' },
-  { value: 'note', label: 'Note', iconName: 'FileText' },
-  { value: 'person', label: 'Person', iconName: 'User' },
+  {
+    value: 'log',
+    label: NOTE_LABEL,
+    iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
+  },
   { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
 ];
+
+const LOG_SUBTYPE_OPTIONS: Array<{ value: LogSubtype; label: string }> = [
+  { value: 'journal', label: 'Journal' },
+  { value: 'idea', label: 'Idea' },
+  { value: 'list', label: 'List' },
+  { value: 'person', label: 'Person' },
+  { value: 'everything_else', label: 'Everything Else' },
+];
+
+const DEFAULT_LOG_SUBTYPE: LogSubtype = 'everything_else';
 
 const CATCHALL_LABEL = 'catchall';
 const UNSORTED_LABEL = 'needs_review';
@@ -280,24 +299,25 @@ export function UnifiedCreateOverlay({
     tags: [],
   });
 
-  // Person fields
-  const [personName, setPersonName] = useState('');
-  const [personDetails, setPersonDetails] = useState<PersonDetailsState>({
-    email: '',
-    dates: [],
-    notes: '',
-    notesFormatting: null,
-    reminders: [],
-    spaceId: null,
-    tags: [],
-  });
+  // Log subtype selection
+  const [selectedLogSubtype, setSelectedLogSubtype] = useState<LogSubtype>(
+    initialEntity?.logSubtype ?? DEFAULT_LOG_SUBTYPE,
+  );
+
+  useEffect(() => {
+    if (!visible) return;
+    if (initialEntity?.type === 'log') {
+      setSelectedLogSubtype(initialEntity.logSubtype ?? DEFAULT_LOG_SUBTYPE);
+    }
+  }, [initialEntity?.logSubtype, initialEntity?.type, visible]);
 
   // Phase 8: Tags and People linking state
   const getItemType = (): ItemType | null => {
     if (!selectedType) return null;
-    if (selectedType === 'journal' || selectedType === 'unsorted') return 'note'; // note family
-    if (selectedType === 'person') return null; // persons don't support tags/people linking yet
-    return selectedType as ItemType;
+    if (selectedType === 'habit' || selectedType === 'todo') {
+      return selectedType;
+    }
+    return 'note';
   };
 
   const phase8Links = usePhase8LinksState(
@@ -334,19 +354,15 @@ export function UnifiedCreateOverlay({
     switch (selectedType) {
       case 'habit': {
         const isStartHabit = habitSubtype === 'start_habit';
-        const _isBreakHabit = habitSubtype === 'break_habit';
 
-        // Both Start and Break require Name
         if (!habitName.trim()) {
           return { isValid: false, hint: 'Name required' };
         }
 
-        // Start Habit requires Frequency
         if (isStartHabit && !habitFrequency) {
           return { isValid: false, hint: 'Frequency required for Start Habit' };
         }
 
-        // Break Habit only needs Name (subtype is already selected)
         return { isValid: true, hint: null };
       }
       case 'todo':
@@ -357,26 +373,30 @@ export function UnifiedCreateOverlay({
           return { isValid: false, hint: 'Due date required' };
         }
         return { isValid: true, hint: null };
-      case 'journal':
-        if (!journalDate.trim()) {
-          return { isValid: false, hint: 'Date required' };
+      case 'log': {
+        const subtype = selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE;
+
+        if (subtype === 'journal') {
+          if (!journalDate.trim()) {
+            return { isValid: false, hint: 'Date required' };
+          }
+          if (!journalEntry.trim()) {
+            return { isValid: false, hint: 'Entry required' };
+          }
+          if (!journalMood) {
+            return { isValid: false, hint: 'Mood required' };
+          }
+          return { isValid: true, hint: null };
         }
-        if (!journalEntry.trim()) {
-          return { isValid: false, hint: 'Entry required' };
-        }
-        if (!journalMood) {
-          return { isValid: false, hint: 'Mood required' };
-        }
-        return { isValid: true, hint: null };
-      case 'note':
-      case 'unsorted':
+
         if (!noteBody.trim()) {
           return { isValid: false, hint: 'Body required' };
         }
         return { isValid: true, hint: null };
-      case 'person':
-        if (!personName.trim()) {
-          return { isValid: false, hint: 'Name required' };
+      }
+      case 'unsorted':
+        if (!noteBody.trim()) {
+          return { isValid: false, hint: 'Body required' };
         }
         return { isValid: true, hint: null };
       default:
@@ -410,62 +430,74 @@ export function UnifiedCreateOverlay({
       try {
         setHydration('loading');
 
-        // Fetch based on type
-        if (type === 'person') {
-          const people = await repo.listPeople();
-          const person = people.find((p) => p.id === id);
-          if (!person) {
-            setHydration('error');
-            return;
-          }
-          originalEntityRef.current = null;
-          const formData = mapPersonToForm(person);
-          setPersonName(formData.name);
-          setPersonDetails(formData.details);
-        } else {
-          const entity = await repo.getById(id);
-          if (!entity) {
-            setHydration('error');
-            return;
-          }
-          originalEntityRef.current = entity;
+        const entity = await repo.getById(id);
+        if (!entity) {
+          setHydration('error');
+          return;
+        }
+        originalEntityRef.current = entity;
 
-          // Map based on entity type
-          switch (entity.type) {
-            case 'habit': {
-              const formData = mapHabitToForm(entity);
-              setHabitName(formData.name);
-              setHabitFrequency(formData.frequency as Frequency);
-              setHabitFrequencyValue(formData.frequencyValue);
-              setHabitSubtype(formData.subtype);
-              setHabitReminders(formData.reminders);
-              setHabitDetails(formData.details);
-              setHabitBreakState(formData.breakState);
-              break;
-            }
-            case 'todo': {
-              const formData = mapTodoToForm(entity);
-              setTodoName(formData.name);
-              setTodoDueDate(formData.dueDate);
-              setTodoDueTime(formData.dueTime);
-              setTodoDetails(formData.details);
-              break;
-            }
-            case 'note': {
-              if (entity.subtype === 'journal') {
-                const formData = mapJournalToForm(entity);
-                setJournalDate(formData.date);
-                setJournalEntry(formData.entry);
-                setJournalMood(formData.mood);
-                setJournalDetails(formData.details);
+        // Map based on entity type
+        switch (entity.type) {
+          case 'habit': {
+            const formData = mapHabitToForm(entity);
+            setHabitName(formData.name);
+            setHabitFrequency(formData.frequency as Frequency);
+            setHabitFrequencyValue(formData.frequencyValue);
+            setHabitSubtype(formData.subtype);
+            setHabitReminders(formData.reminders);
+            setHabitDetails(formData.details);
+            setHabitBreakState(formData.breakState);
+            setSelectedType('habit');
+            break;
+          }
+          case 'todo': {
+            const formData = mapTodoToForm(entity);
+            setTodoName(formData.name);
+            setTodoDueDate(formData.dueDate);
+            setTodoDueTime(formData.dueTime);
+            setTodoDetails(formData.details);
+            setSelectedType('todo');
+            break;
+          }
+          case 'note': {
+            const labels = Array.isArray((entity as any)?.labels)
+              ? ((entity as any).labels as string[])
+              : [];
+            const isUnsorted = labels.includes(UNSORTED_LABEL);
+            if (entity.subtype === 'journal') {
+              const formData = mapJournalToForm(entity);
+              setJournalDate(formData.date);
+              setJournalEntry(formData.entry);
+              setJournalMood(formData.mood);
+              setJournalDetails(formData.details);
+              setSelectedType('log');
+              setSelectedLogSubtype('journal');
+            } else {
+              const formData = mapNoteToForm(entity);
+              setNoteTitle(formData.title);
+              setNoteBody(formData.body);
+              setNoteDetails(formData.details);
+
+              if (isUnsorted) {
+                setSelectedType('unsorted');
+                setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
               } else {
-                const formData = mapNoteToForm(entity);
-                setNoteTitle(formData.title);
-                setNoteBody(formData.body);
-                setNoteDetails(formData.details);
+                const inferredSubtype: LogSubtype = (() => {
+                  switch (entity.subtype) {
+                    case 'idea':
+                      return 'idea';
+                    case 'list':
+                      return 'list';
+                    default:
+                      return 'everything_else';
+                  }
+                })();
+                setSelectedType('log');
+                setSelectedLogSubtype(inferredSubtype);
               }
-              break;
             }
+            break;
           }
         }
 
@@ -583,18 +615,19 @@ export function UnifiedCreateOverlay({
       if (selectedType === 'habit') {
         setHabitName(initialTitle);
       } else if (
-        selectedType === 'note' ||
-        selectedType === 'journal' ||
+        (selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) !== 'journal') ||
         selectedType === 'unsorted'
       ) {
         setNoteTitle(initialTitle);
-      } else if (selectedType === 'person') {
-        setPersonName(initialTitle);
       }
     }
 
     if (initialNote) {
-      setNoteBody(initialNote);
+      if (selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'journal') {
+        setJournalEntry(initialNote);
+      } else {
+        setNoteBody(initialNote);
+      }
     }
 
     if ((__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') && hasPrefill) {
@@ -605,7 +638,7 @@ export function UnifiedCreateOverlay({
         selectedType,
       });
     }
-  }, [visible, conversionMeta, selectedType]);
+  }, [visible, conversionMeta, selectedType, selectedLogSubtype]);
 
   useEffect(() => {
     let cancelled = false;
@@ -662,6 +695,7 @@ export function UnifiedCreateOverlay({
     setAiMode(false);
     setHydration('idle');
     setFreeformText('');
+    setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
     setHabitName('');
     setHabitFrequency('daily');
     setHabitSubtype(null);
@@ -681,16 +715,6 @@ export function UnifiedCreateOverlay({
     setNoteBody('');
     setNoteDetails({
       formatting: null,
-      spaceId: null,
-      tags: [],
-    });
-    setPersonName('');
-    setPersonDetails({
-      email: '',
-      dates: [],
-      notes: '',
-      notesFormatting: null,
-      reminders: [],
       spaceId: null,
       tags: [],
     });
@@ -731,11 +755,28 @@ export function UnifiedCreateOverlay({
     onSaved?.(result);
   };
 
+  const resolveOverlayPayloadType = (
+    type: EntityType,
+    subtype: LogSubtype | null,
+  ): OverlaySavedPayload['type'] => {
+    if (type === 'log') {
+      return subtype === 'journal' ? 'journal' : 'note';
+    }
+    return type === 'unsorted' ? 'unsorted' : type;
+  };
+
   const handleTypeSelect = (type: EntityType) => {
     if (mode === 'edit' && !ALLOW_TYPE_CHANGE) {
       return;
     }
+    const wasLog = selectedType === 'log';
     setSelectedType(type);
+    if (type === 'log' && !wasLog) {
+      setSelectedLogSubtype((prev) => prev ?? DEFAULT_LOG_SUBTYPE);
+    }
+    if (type !== 'log') {
+      setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
+    }
     setAiMode(false); // Exit AI mode when selecting a type
     // Fade in fields
     fadeAnim.setValue(0);
@@ -754,9 +795,11 @@ export function UnifiedCreateOverlay({
     // When entering AI mode, clear type selection
     if (nextAiMode) {
       setSelectedType(null);
+      setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
     } else {
-      // When exiting AI mode, restore default type
-      setSelectedType('todo');
+      // When exiting AI mode, restore default type via standard handler
+      handleTypeSelect('todo');
+      return;
     }
 
     // Fade in/out animation
@@ -1161,31 +1204,6 @@ export function UnifiedCreateOverlay({
 
       // Edit mode
       if (mode === 'edit' && initialEntity?.id && selectedType) {
-        // Person uses dedicated updatePerson method
-        if (selectedType === 'person') {
-          const personPatch = {
-            display_name: personName,
-            email: personDetails.email || null,
-            dates:
-              personDetails.dates.length > 0
-                ? personDetails.dates.map((d) => ({
-                    date: d.date,
-                    label: d.label,
-                  }))
-                : null,
-            notes: personDetails.notes || null,
-            notes_fmt: personDetails.notesFormatting || null,
-            reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
-            space_id: personDetails.spaceId || null,
-            tags: personDetails.tags.length > 0 ? personDetails.tags : null,
-          };
-          const result = await repo.updatePerson(initialEntity.id, personPatch);
-          handleSaved({ type: 'person', id: result.id });
-          showToast('Updated in the Hub.');
-          handleClose();
-          return;
-        }
-
         const originalType = originalTypeRef.current ?? (initialEntity.type as EntityType | null);
         const originalFamily = originalType
           ? ENTITY_FAMILY[originalType]
@@ -1249,7 +1267,11 @@ export function UnifiedCreateOverlay({
             );
           }
 
-          handleSaved({ type: selectedType, id: created.id });
+          const payloadType = resolveOverlayPayloadType(
+            selectedType,
+            selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+          );
+          handleSaved({ type: payloadType, id: created.id });
           showToast(`Converted to ${FRIENDLY_TYPE_LABEL[selectedType]}.`);
           handleClose();
           return;
@@ -1263,7 +1285,11 @@ export function UnifiedCreateOverlay({
         };
 
         const result = await repo.update(input);
-        handleSaved({ type: selectedType, id: result.id });
+        const payloadType = resolveOverlayPayloadType(
+          selectedType,
+          selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+        );
+        handleSaved({ type: payloadType, id: result.id });
         showToast('Updated in the Hub.');
         handleClose();
         return;
@@ -1271,32 +1297,6 @@ export function UnifiedCreateOverlay({
 
       // Create mode - structured
       if (selectedType) {
-        // Person uses dedicated createPerson method
-        if (selectedType === 'person') {
-          const personInput = {
-            display_name: personName,
-            email: personDetails.email || null,
-            dates:
-              personDetails.dates.length > 0
-                ? personDetails.dates.map((d) => ({
-                    date: d.date,
-                    label: d.label,
-                  }))
-                : null,
-            notes: personDetails.notes || null,
-            notes_fmt: personDetails.notesFormatting || null,
-            reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
-            space_id: personDetails.spaceId || null,
-            tags: personDetails.tags.length > 0 ? personDetails.tags : null,
-          };
-          const result = await repo.createPerson(personInput);
-          handleSaved({ type: 'person', id: result.id });
-          showToast('Saved to the Hub.');
-          handleClose();
-          return;
-        }
-
-        // Other types use standard create
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
 
@@ -1330,7 +1330,11 @@ export function UnifiedCreateOverlay({
           }
         }
 
-        handleSaved({ type: selectedType, id: result.id });
+        const payloadType = resolveOverlayPayloadType(
+          selectedType,
+          selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+        );
+        handleSaved({ type: payloadType, id: result.id });
         showToast('Saved to the Hub.');
         handleClose();
       }
@@ -1391,37 +1395,19 @@ export function UnifiedCreateOverlay({
       return 'Untitled note';
     };
 
-    const resolveNoteSubtype = (): NoteSubtype => {
-      if (mode === 'edit' && originalTypeRef.current === 'note') {
-        const existingSubtype = (originalEntityRef.current as any)?.subtype as
-          | NoteSubtype
-          | undefined;
-        if (existingSubtype && existingSubtype !== 'catchall') {
-          return existingSubtype;
-        }
-      }
-      return 'idea';
-    };
+    const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
+    const persisted = canonicalToPersisted(type, logSubtype);
 
-    switch (type) {
+    switch (persisted.recordType) {
       case 'habit': {
         const isStartHabit = habitSubtype === 'start_habit';
         const isBreakHabit = habitSubtype === 'break_habit';
-
-        console.log('[Overlay] Building habit input:', {
-          overlaySpaceId: spaceId,
-          habitDetailsSpaceId: habitDetails.spaceId,
-          baseInputSpaceId: baseInput.space_id,
-        });
 
         return {
           ...baseInput,
           type: 'habit',
           title: habitName,
           frequency: habitFrequency,
-          // Note: subtype removed - habits table doesn't have this column
-
-          // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
           notes: habitDetails.notes || null,
           tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
@@ -1436,16 +1422,12 @@ export function UnifiedCreateOverlay({
           ),
           start_date: habitDetails.startDate || null,
           end_date: habitDetails.endDate || null,
-
-          // Start Habit specific fields
           ...(isStartHabit && {
             frequency_value: habitFrequencyValue,
             stack_with_id: habitDetails.stackHabitId || null,
             stack_position: habitDetails.stackPosition || null,
             stack_offset_minutes: habitDetails.stackOffsetMinutes || null,
           }),
-
-          // Break Habit specific fields
           ...(isBreakHabit && {
             taper_plan: habitBreakState.taperPlan || null,
             triggers:
@@ -1462,37 +1444,56 @@ export function UnifiedCreateOverlay({
         return {
           ...baseInput,
           type: 'todo',
-          name: todoName, // Phase 7+: name is required field
-          title: todoName, // Backwards compatibility
+          name: todoName,
+          title: todoName,
           due_date: combineDueIso(todoDueDate, normalizedDueTime),
           due_time: normalizedDueTime,
           reminders: todoDetails.reminders || undefined,
           notes: todoDetails.notes || null,
           tags: todoDetails.tags || null,
-          space_id: normalizeSpaceId(todoDetails.spaceId ?? baseInput.space_id ?? null), // Apply normalized space
+          space_id: normalizeSpaceId(todoDetails.spaceId ?? baseInput.space_id ?? null),
         };
       }
-      case 'journal':
+      case 'note': {
+        if (type === 'log' && logSubtype === 'journal') {
+          return {
+            ...baseInput,
+            type: 'note',
+            subtype: 'journal',
+            title: journalEntry.trim() || 'Journal entry',
+            body: journalEntry,
+            date: journalDate || null,
+            mood: journalMood || null,
+            fmt: journalDetails.formatting || null,
+            reminders: journalDetails.reminders || undefined,
+            tags: journalDetails.tags || null,
+            space_id: normalizeSpaceId(journalDetails.spaceId ?? baseInput.space_id ?? null),
+            journal_subtype: null,
+          };
+        }
+
+        if (type === 'unsorted') {
+          return {
+            ...baseInput,
+            type: 'note',
+            subtype: 'catchall',
+            title: resolveNoteTitle(),
+            body: noteBody,
+            fmt: noteDetails.formatting || null,
+            tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+            space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
+            ai_placed: false,
+            canonicalType: 'note',
+            labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+            origin: 'catchall',
+            views: { alsoShowIn: ['Hub:Catch-All'] },
+          };
+        }
+
         return {
           ...baseInput,
           type: 'note',
-          subtype: 'journal',
-          title: journalEntry.trim() || 'Journal entry', // DB requires non-empty title
-          body: journalEntry,
-          // Journal-specific fields (Phase 7+)
-          date: journalDate || null,
-          mood: journalMood || null,
-          fmt: journalDetails.formatting || null,
-          reminders: journalDetails.reminders || undefined,
-          tags: journalDetails.tags || null,
-          space_id: normalizeSpaceId(journalDetails.spaceId ?? baseInput.space_id ?? null),
-          journal_subtype: null, // AI-only, never set by front-end
-        };
-      case 'note':
-        return {
-          ...baseInput,
-          type: 'note',
-          subtype: resolveNoteSubtype(),
+          subtype: (persisted.noteSubtype as NoteSubtype | null) ?? 'idea',
           title: resolveNoteTitle(),
           body: noteBody,
           fmt: noteDetails.formatting || null,
@@ -1500,29 +1501,17 @@ export function UnifiedCreateOverlay({
           space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
           ai_placed: false,
         };
-      case 'unsorted':
-        return {
-          ...baseInput,
-          type: 'note',
-          subtype: 'catchall',
-          title: resolveNoteTitle(),
-          body: noteBody,
-          fmt: noteDetails.formatting || null,
-          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
-          space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
-          ai_placed: false,
-          canonicalType: 'note',
-          labels: [CATCHALL_LABEL, UNSORTED_LABEL],
-          origin: 'catchall',
-          views: { alsoShowIn: ['Hub:Catch-All'] },
-        };
+      }
       default:
-        throw new Error('Unknown type');
+        throw new Error(`Unsupported canonical type: ${type}`);
     }
   };
 
   const buildUpdatePatch = (type: EntityType): Partial<AppRecord> => {
-    switch (type) {
+    const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
+    const persisted = canonicalToPersisted(type, logSubtype);
+
+    switch (persisted.recordType) {
       case 'habit': {
         const isStartHabit = habitSubtype === 'start_habit';
         const isBreakHabit = habitSubtype === 'break_habit';
@@ -1530,9 +1519,6 @@ export function UnifiedCreateOverlay({
         return {
           name: habitName,
           frequency: habitFrequency,
-          // Note: subtype and title removed - habits table doesn't have these columns
-
-          // Common fields for both Start & Break habits
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
           notes: habitDetails.notes || null,
           tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
@@ -1541,16 +1527,12 @@ export function UnifiedCreateOverlay({
           space_id: habitDetails.spaceId !== undefined ? habitDetails.spaceId : undefined,
           start_date: habitDetails.startDate || null,
           end_date: habitDetails.endDate || null,
-
-          // Start Habit specific fields
           ...(isStartHabit && {
             frequency_value: habitFrequencyValue,
             stack_with_id: habitDetails.stackHabitId || null,
             stack_position: habitDetails.stackPosition || null,
             stack_offset_minutes: habitDetails.stackOffsetMinutes || null,
           }),
-
-          // Break Habit specific fields
           ...(isBreakHabit && {
             taper_plan: habitBreakState.taperPlan || null,
             triggers:
@@ -1570,39 +1552,43 @@ export function UnifiedCreateOverlay({
           due_time: normalizedDueTime,
         } as Partial<AppRecord>;
       }
-      case 'journal':
-        return {
-          body: journalEntry,
-          subtype: 'journal',
-          date: journalDate || null,
-          mood: journalMood || null,
-          fmt: journalDetails.formatting || null,
-          reminders: journalDetails.reminders || undefined,
-          tags: journalDetails.tags || null,
-          space_id: journalDetails.spaceId || null,
-        } as Partial<AppRecord>;
-      case 'note':
+      case 'note': {
+        if (type === 'log' && logSubtype === 'journal') {
+          return {
+            body: journalEntry,
+            subtype: 'journal',
+            date: journalDate || null,
+            mood: journalMood || null,
+            fmt: journalDetails.formatting || null,
+            reminders: journalDetails.reminders || undefined,
+            tags: journalDetails.tags || null,
+            space_id: journalDetails.spaceId || null,
+          } as Partial<AppRecord>;
+        }
+
+        if (type === 'unsorted') {
+          return {
+            title: noteTitle || undefined,
+            body: noteBody,
+            fmt: noteDetails.formatting || null,
+            tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+            space_id: noteDetails.spaceId || null,
+            subtype: 'catchall',
+            labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+            canonicalType: 'note',
+            views: { alsoShowIn: ['Hub:Catch-All'] },
+          } as Partial<AppRecord>;
+        }
+
         return {
           title: noteTitle || undefined,
           body: noteBody,
           fmt: noteDetails.formatting || null,
           tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
           space_id: noteDetails.spaceId || null,
-          subtype: null,
-          labels: [],
+          subtype: (persisted.noteSubtype as NoteSubtype | null) ?? null,
         } as Partial<AppRecord>;
-      case 'unsorted':
-        return {
-          title: noteTitle || undefined,
-          body: noteBody,
-          fmt: noteDetails.formatting || null,
-          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
-          space_id: noteDetails.spaceId || null,
-          subtype: 'catchall',
-          labels: [CATCHALL_LABEL, UNSORTED_LABEL],
-          canonicalType: 'note',
-          views: { alsoShowIn: ['Hub:Catch-All'] },
-        } as Partial<AppRecord>;
+      }
       default:
         return {};
     }
@@ -1680,13 +1666,7 @@ export function UnifiedCreateOverlay({
                   const iconColor = isSelected
                     ? theme.colors.deepTeal.DEFAULT
                     : theme.colors.text.secondary;
-                  const originalType = originalTypeRef.current;
-                  const disallowPersonConversion =
-                    mode === 'edit' &&
-                    !!originalType &&
-                    ((originalType === 'person' && opt.value !== 'person') ||
-                      (opt.value === 'person' && originalType !== 'person'));
-                  const disabled = typePillsDisabled || disallowPersonConversion;
+                  const disabled = typePillsDisabled;
 
                   return (
                     <Chip
@@ -1710,6 +1690,45 @@ export function UnifiedCreateOverlay({
                   );
                 })}
               </View>
+              {CANONICAL_TYPES_ENABLED && selectedType === 'log' && !aiMode && (
+                <View style={[styles.subtypeSection, { borderColor: theme.colors.border.DEFAULT }]}>
+                  <Text style={[styles.subtypeLabel, { color: theme.colors.text.secondary }]}>
+                    {LOG_TYPE_HEADING}
+                  </Text>
+                  <View style={styles.chipRow}>
+                    {LOG_SUBTYPE_OPTIONS.map((opt) => {
+                      const isSelected = selectedLogSubtype === opt.value;
+                      const chipStyle = isSelected
+                        ? {
+                            backgroundColor: theme.colors.white,
+                            borderColor: theme.colors.deepTeal.DEFAULT,
+                          }
+                        : {
+                            backgroundColor: 'transparent',
+                            borderColor: theme.colors.border.DEFAULT,
+                          };
+                      const chipTextStyle = isSelected
+                        ? { color: theme.colors.deepTeal.DEFAULT }
+                        : { color: theme.colors.text.secondary };
+
+                      return (
+                        <Chip
+                          key={opt.value}
+                          label={opt.label}
+                          selected={isSelected}
+                          onPress={() => setSelectedLogSubtype(opt.value)}
+                          testID={`log-subtype-${opt.value}`}
+                          style={{
+                            ...styles.typeChip,
+                            ...chipStyle,
+                          }}
+                          textStyle={chipTextStyle}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
             </View>
 
             {/* AI mode button */}
@@ -1917,7 +1936,7 @@ export function UnifiedCreateOverlay({
                         disabled={false}
                       />
                     )}
-                    {selectedType === 'journal' && (
+                    {selectedType === 'log' && selectedLogSubtype === 'journal' && (
                       <JournalFields
                         date={journalDate}
                         onDateChange={setJournalDate}
@@ -1930,7 +1949,8 @@ export function UnifiedCreateOverlay({
                         disabled={false}
                       />
                     )}
-                    {(selectedType === 'note' || selectedType === 'unsorted') && (
+                    {((selectedType === 'log' && selectedLogSubtype !== 'journal') ||
+                      selectedType === 'unsorted') && (
                       <NoteFields
                         title={noteTitle}
                         onTitleChange={setNoteTitle}
@@ -1941,55 +1961,42 @@ export function UnifiedCreateOverlay({
                         disabled={false}
                       />
                     )}
-                    {selectedType === 'person' && (
-                      <PersonFields
-                        name={personName}
-                        onNameChange={setPersonName}
-                        details={personDetails}
-                        onDetailsChange={setPersonDetails}
-                        disabled={false}
-                      />
-                    )}
                   </Animated.View>
                 );
               })()}
 
             {/* Phase 8: Tags & People linking - behind feature flag */}
-            {usePhase8Features &&
-              !aiMode &&
-              selectedType &&
-              selectedType !== 'person' &&
-              getItemType() && (
-                <View style={styles.relationshipsSection}>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
-                    Tags & People
-                  </Text>
-                  <TagEditor
-                    userId={userId || ''}
-                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                    itemType={getItemType()!}
-                    currentTags={phase8Links.currentTags}
-                    allTags={phase8Links.allTags}
-                    onTagsChange={(tags) => {
-                      // Tags are managed by the hook; this is just for UI sync if needed
-                    }}
-                    onAddTag={phase8Links.addTag}
-                    onLinkTag={phase8Links.linkTag}
-                    onUnlinkTag={phase8Links.unlinkTag}
-                  />
-                  <PeopleLinker
-                    userId={userId || ''}
-                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                    itemType={getItemType()!}
-                    linkedPeople={phase8Links.linkedPeople}
-                    onPeopleChange={(people) => {
-                      // People are managed by the hook; this is just for UI sync if needed
-                    }}
-                    onLinkPerson={phase8Links.linkPerson}
-                    onUnlinkPerson={phase8Links.unlinkPerson}
-                  />
-                </View>
-              )}
+            {usePhase8Features && !aiMode && selectedType && getItemType() && (
+              <View style={styles.relationshipsSection}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
+                  Tags & People
+                </Text>
+                <TagEditor
+                  userId={userId || ''}
+                  itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                  itemType={getItemType()!}
+                  currentTags={phase8Links.currentTags}
+                  allTags={phase8Links.allTags}
+                  onTagsChange={(tags) => {
+                    // Tags are managed by the hook; this is just for UI sync if needed
+                  }}
+                  onAddTag={phase8Links.addTag}
+                  onLinkTag={phase8Links.linkTag}
+                  onUnlinkTag={phase8Links.unlinkTag}
+                />
+                <PeopleLinker
+                  userId={userId || ''}
+                  itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                  itemType={getItemType()!}
+                  linkedPeople={phase8Links.linkedPeople}
+                  onPeopleChange={(people) => {
+                    // People are managed by the hook; this is just for UI sync if needed
+                  }}
+                  onLinkPerson={phase8Links.linkPerson}
+                  onUnlinkPerson={phase8Links.unlinkPerson}
+                />
+              </View>
+            )}
 
             {/* Space selector placeholder */}
             {/* TODO: Add ScopeSelector integration */}
@@ -2097,6 +2104,18 @@ const styles = StyleSheet.create({
   },
   typeChip: {
     minWidth: 90,
+  },
+  subtypeSection: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  subtypeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   typeChipDisabled: {
     opacity: 0.6,

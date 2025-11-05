@@ -24,7 +24,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
 import { SupabaseSpaceChatRepo, SupabaseSpaceChatMessageRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
-import type { Space, SpaceChat, AppRecord } from '../../lib/types';
+import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import {
   listHabitsForSpace,
@@ -82,6 +82,9 @@ import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModa
 import GoalPlaceholder from '../../components/spaces/v33/GoalPlaceholder';
 import Menu from '../../components/spaces/v33/Menu';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
+import { env } from '../../lib/env';
+import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
+import type { CanonicalType } from '../../lib/cortex/canonicalMap';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -91,6 +94,10 @@ interface LayoutState {
   notesResourcesCollapsed?: boolean;
   journalCollapsed?: boolean;
 }
+
+const CANONICAL_TYPES_ON = env.feature.canonicalTypes;
+const NOTE_SECTION_LABELS = deriveDisplayLabels('note', 'journal', CANONICAL_TYPES_ON);
+const NOTE_SAVE_LABELS = deriveDisplayLabels('note', 'reference', CANONICAL_TYPES_ON);
 
 export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
@@ -691,12 +698,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         origin: 'catchall',
       });
 
-      Alert.alert('Success', 'Summary saved as note');
+      Alert.alert('Success', `Summary saved as ${NOTE_SAVE_LABELS.singular.toLowerCase()}`);
       // Refresh to show new note
       await reload();
     } catch (error) {
-      console.error('Failed to save insight as note:', error);
-      Alert.alert('Error', 'Failed to save note');
+      console.error(`Failed to save insight as ${NOTE_SAVE_LABELS.singular.toLowerCase()}:`, error);
+      Alert.alert('Error', `Failed to save ${NOTE_SAVE_LABELS.singular.toLowerCase()}`);
     }
   }, [spaceInsight, spaceId, repo, reload]);
 
@@ -1096,7 +1103,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             ))}
 
             <View style={{ height: T.spacing[4] }} />
-            <Text style={styles.sectionTitle}>Notes</Text>
+            <Text style={styles.sectionTitle}>{NOTE_SECTION_LABELS.plural}</Text>
             {notes.slice(0, 5).map((n) => (
               <Text key={n.id} style={{ color: T.colors.text, marginBottom: 8 }}>
                 {n.title}
@@ -1896,4 +1903,31 @@ function buildCalendarDays(items: AppRecord[]): Array<{
     });
     return { date: d, hasTodos, hasNotes, hasHabits };
   });
+}
+
+type DisplayKind = CanonicalType | 'note';
+
+function deriveDisplayLabels(
+  recordType: RecordType,
+  subtype: string | null | undefined,
+  canonicalTypesOn: boolean,
+): { singular: string; plural: string } {
+  const mapped = kindToDisplayLabel(recordType, subtype ?? null, canonicalTypesOn);
+  return mapDisplayKindToForms(mapped);
+}
+
+function mapDisplayKindToForms(kind: DisplayKind): { singular: string; plural: string } {
+  switch (kind) {
+    case 'habit':
+      return { singular: 'Habit', plural: 'Habits' };
+    case 'todo':
+      return { singular: 'To-Do', plural: 'To-Dos' };
+    case 'log':
+      return { singular: 'Log', plural: 'Logs' };
+    case 'unsorted':
+      return { singular: 'Unsorted', plural: 'Unsorted' };
+    case 'note':
+    default:
+      return { singular: 'Note', plural: 'Notes' };
+  }
 }

@@ -3,10 +3,28 @@
  * Centralized controller for opening create/edit overlays across the app
  */
 import { useCallback, useRef } from 'react';
-import type { AppRecord } from '../lib/types';
+import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
 
-type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
+type EntityType = CanonicalType;
+
+const CATCHALL_LABEL = 'catchall';
+const NEEDS_REVIEW_LABEL = 'needs_review';
+
+const mapNoteSubtypeToLogSubtype = (subtype?: string | null): LogSubtype => {
+  switch (subtype) {
+    case 'journal':
+      return 'journal';
+    case 'idea':
+      return 'idea';
+    case 'list':
+      return 'list';
+    case 'person':
+      return 'person';
+    default:
+      return 'everything_else';
+  }
+};
 
 interface ConversionMeta {
   origin?: string;
@@ -23,12 +41,12 @@ interface ConversionMeta {
 interface CreateOptions {
   type?: EntityType;
   spaceId?: string | null;
-  subtype?: string | null;
+  logSubtype?: LogSubtype | null;
   conversionMeta?: ConversionMeta;
   initialEntity?: {
     type: EntityType | null;
     id?: string;
-    subtype?: string | null;
+    logSubtype?: LogSubtype | null;
   };
 }
 
@@ -61,7 +79,7 @@ export function useUnifiedOverlayController() {
 
   const resolveEntityFromRecord = useCallback((record: AppRecord) => {
     let entityType: EntityType;
-    let subtype: string | null = null;
+    let logSubtype: LogSubtype | null = null;
 
     if (record.type === 'habit') {
       entityType = 'habit';
@@ -76,21 +94,19 @@ export function useUnifiedOverlayController() {
       const labels = noteRecord.labels;
       const recordSubtype = noteRecord.subtype ?? undefined;
 
-      if (labels?.includes?.('needs_review') || recordSubtype === 'catchall') {
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
         entityType = 'unsorted';
-        subtype = 'catchall';
-      } else if (recordSubtype === 'journal') {
-        entityType = 'journal';
-        subtype = recordSubtype;
+        logSubtype = null;
       } else {
-        entityType = 'note';
-        subtype = recordSubtype ?? null;
+        entityType = 'log';
+        logSubtype = mapNoteSubtypeToLogSubtype(recordSubtype ?? null);
       }
     } else {
-      entityType = 'note';
+      entityType = 'log';
+      logSubtype = 'everything_else';
     }
 
-    return { entityType, subtype };
+    return { entityType, logSubtype };
   }, []);
 
   const executeOpen = useCallback(
@@ -105,24 +121,24 @@ export function useUnifiedOverlayController() {
       if (request.mode === 'create') {
         const opts = request.options ?? {};
         const inferredType = opts.initialEntity?.type ?? opts.type ?? null;
-        const inferredSubtype = opts.initialEntity?.subtype ?? opts.subtype ?? null;
+        const inferredLogSubtype = opts.initialEntity?.logSubtype ?? opts.logSubtype ?? null;
 
         contextOpenCreate({
           type: inferredType ?? undefined,
           spaceId: opts.spaceId,
-          subtype: inferredSubtype ?? null,
+          logSubtype: inferredType === 'log' ? (inferredLogSubtype ?? null) : null,
           conversionMeta: opts.conversionMeta,
         });
       } else {
         const { record, spaceId } = request.options;
-        const { entityType, subtype } = resolveEntityFromRecord(record);
+        const { entityType, logSubtype } = resolveEntityFromRecord(record);
         console.log('[OverlayController] openEdit called with state:', {
           visible: true,
           mode: request.mode,
           initialEntity: {
             type: entityType,
             id: record.id,
-            subtype,
+            logSubtype,
           },
           initialSpaceId: spaceId,
         });
