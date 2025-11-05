@@ -1,4 +1,5 @@
 import { buildHabitFields, buildTodoFields } from '../textNormalization';
+import { env } from '../../env';
 
 export type ChipSuggestion =
   | {
@@ -24,18 +25,20 @@ export type ChipSuggestion =
 
 export type BuildChipsInput = {
   text: string;
-  probable: 'todo' | 'habit' | 'note' | 'unknown';
+  probable: 'todo' | 'habit' | 'log' | 'unknown';
   confidence: number;
 };
+
+const LOG_LABEL = env.feature.canonicalTypes ? 'Save as log' : 'Save as note';
 
 const LABELS = {
   todo: 'Create todo',
   habit: 'Create habit',
-  note: 'Save as note',
+  log: LOG_LABEL,
   list: 'Save as list',
 } as const;
 
-const ALWAYS_NOTE_FALLBACK =
+const ALWAYS_LOG_FALLBACK =
   String(process.env.EXPO_PUBLIC_MINDDROP_ALWAYS_NOTE_FALLBACK ?? 'on').toLowerCase() !== 'off';
 
 function looksHabitText(t: string): boolean {
@@ -114,19 +117,19 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     });
   }
 
-  if (isListLike || input.probable === 'note') {
+  if (isListLike || input.probable === 'log') {
     const subtype: 'list' | 'journal' = isListLike ? 'list' : 'journal';
     chips.push({
       type: 'create.note',
-      label: subtype === 'list' ? LABELS.list : LABELS.note,
+      label: subtype === 'list' ? LABELS.list : LABELS.log,
       payload: { title: t, body: t, subtype },
     });
   }
 
-  if (ALWAYS_NOTE_FALLBACK && !chips.some((chip) => chip.type === 'create.note')) {
+  if (ALWAYS_LOG_FALLBACK && !chips.some((chip) => chip.type === 'create.note')) {
     chips.push({
       type: 'create.note',
-      label: LABELS.note,
+      label: LABELS.log,
       payload: { title: t, body: t, subtype: 'journal' },
     });
   }
