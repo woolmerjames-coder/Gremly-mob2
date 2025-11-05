@@ -94,7 +94,7 @@ describe.skip('Catch-All Notepad (Phase 7)', () => {
           origin: 'catchall',
           ai_placed: false, // Phase 7: Direct save, not AI-placed
           why_string: 'Saved from Catch-All Notepad',
-          canonicalType: 'note',
+          canonicalType: 'unsorted',
           labels: ['catchall'],
           views: { alsoShowIn: ['Hub:Catch-All'] },
         }),

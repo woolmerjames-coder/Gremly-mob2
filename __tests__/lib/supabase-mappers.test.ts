@@ -52,7 +52,7 @@ describe('Supabase Mappers', () => {
       const _mockInput = {
         type: 'note' as const,
         title: 'Test Note',
-        canonicalType: 'note' as const,
+        canonicalType: 'log' as const,
         sourceMessageId: 'msg-123',
         ai_placed: false,
         why_string: 'Test reason',
@@ -68,7 +68,7 @@ describe('Supabase Mappers', () => {
       // origin → origin (no change)
 
       const expectedDbFields = {
-        canonical_type: 'note',
+        canonical_type: 'log',
         source_message_id: 'msg-123',
         ai_placed: false,
         why_string: 'Test reason',

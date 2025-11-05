@@ -25,6 +25,8 @@ import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
 import { buildHabitFields, buildTodoFields } from './textNormalization';
+import type { CanonicalType, LogSubtype } from '../types';
+import { canonicalToPersisted } from '../canonical';
 
 // Re-export lane types for convenience
 export type { Lane, CortexContextBase } from './lane';
@@ -309,10 +311,7 @@ export async function cortexDecide(
     }
 
     // Normalize engine output to canonical actions
-    let normalized = { actions: [] as CortexAction[], confidence: 0 } as {
-      actions: CortexAction[];
-      confidence: number;
-    };
+    let normalized: NormalizedEngineResult = { actions: [], confidence: 0 };
 
     if (engineOutput) {
       normalized = normalizeEngineOutput(engineOutput as any, normalizedCtx, engineInput.text);
@@ -329,6 +328,8 @@ export async function cortexDecide(
             },
           ],
           confidence: detected.confidence,
+          canonicalType: 'log',
+          canonicalSubtype: 'everything_else',
         };
       } else if (detected.kind === 'todo') {
         normalized = {
@@ -339,6 +340,7 @@ export async function cortexDecide(
             },
           ],
           confidence: detected.confidence,
+          canonicalType: 'todo',
         };
       } else if (detected.kind === 'habit') {
         normalized = {
@@ -349,6 +351,7 @@ export async function cortexDecide(
             },
           ],
           confidence: detected.confidence,
+          canonicalType: 'habit',
         };
       } else {
         normalized = { actions: [], confidence: 0 };
@@ -357,23 +360,34 @@ export async function cortexDecide(
 
     const candidateActions = normalized.actions;
 
-    const probable: 'todo' | 'habit' | 'note' | 'unknown' = (() => {
+    const probable: 'todo' | 'habit' | 'log' | 'unknown' = (() => {
+      const canonical = normalized.canonicalType;
+      if (canonical === 'todo') return 'todo';
+      if (canonical === 'habit') return 'habit';
+      if (canonical === 'log' || canonical === 'unsorted') return 'log';
+
       const firstAction = candidateActions[0];
       if (firstAction) {
         if (firstAction.type === 'create.todo') return 'todo';
         if (firstAction.type === 'create.habit') return 'habit';
-        if (firstAction.type === 'create.note') return 'note';
-        if (firstAction.type === 'add.to.list') return 'note';
+        if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') return 'log';
       }
 
-      const engineType =
-        typeof (engineOutput as any)?.type === 'string' ? (engineOutput as any).type : null;
-      if (engineType === 'todo' || engineType === 'habit' || engineType === 'note') {
-        return engineType;
+      const engineTypeRaw =
+        typeof normalized.engineType === 'string'
+          ? normalized.engineType
+          : typeof (engineOutput as any)?.type === 'string'
+            ? (engineOutput as any).type
+            : null;
+      if (engineTypeRaw === 'todo' || engineTypeRaw === 'habit') {
+        return engineTypeRaw;
+      }
+      if (engineTypeRaw === 'note') {
+        return 'log';
       }
       if (detected.kind === 'habit') return 'habit';
       if (detected.kind === 'todo') return 'todo';
-      if (detected.kind === 'note') return 'note';
+      if (detected.kind === 'note') return 'log';
       return 'unknown';
     })();
 
@@ -500,6 +514,8 @@ export async function cortexDecide(
           (chipSuggestions.length > 0 || inMidConfidenceBand) &&
           suggestions.some((suggestion) => typeof suggestion !== 'string'),
         candidateActions,
+        canonicalType: normalized.canonicalType,
+        canonicalSubtype: normalized.canonicalSubtype ?? null,
       },
     };
 
@@ -616,11 +632,19 @@ function convertTodoListCommandToTodo(text: string): { title: string; due?: stri
  * Phase 10.4: Apply space-level biasing for ambiguous intents
  * @internal
  */
+type NormalizedEngineResult = {
+  actions: CortexAction[];
+  confidence: number;
+  canonicalType?: CanonicalType;
+  canonicalSubtype?: LogSubtype | null;
+  engineType?: string | null;
+};
+
 function normalizeEngineOutput(
   engineOutput: any,
   ctx: CortexContext,
   originalText?: string,
-): { actions: CortexAction[]; confidence: number } {
+): NormalizedEngineResult {
   const actions: CortexAction[] = [];
 
   // Extract confidence if available, default to high confidence (0.85) if engine made a classification
@@ -643,8 +667,46 @@ function normalizeEngineOutput(
     }
   }
 
-  // Map engine output type to canonical action
+  let canonicalType: CanonicalType | undefined;
+  let canonicalSubtype: LogSubtype | null | undefined = null;
+
   if (engineType === 'todo') {
+    canonicalType = 'todo';
+  } else if (engineType === 'habit') {
+    canonicalType = 'habit';
+  } else if (engineType === 'note') {
+    const rawSubtype =
+      typeof engineOutput.subtype === 'string' ? engineOutput.subtype.toLowerCase() : '';
+    switch (rawSubtype) {
+      case 'journal':
+        canonicalType = 'log';
+        canonicalSubtype = 'journal';
+        break;
+      case 'idea':
+        canonicalType = 'log';
+        canonicalSubtype = 'idea';
+        break;
+      case 'person':
+        canonicalType = 'log';
+        canonicalSubtype = 'person';
+        break;
+      case 'list':
+        canonicalType = 'log';
+        canonicalSubtype = 'list';
+        break;
+      case 'catchall':
+      case '':
+        canonicalType = 'unsorted';
+        canonicalSubtype = null;
+        break;
+      default:
+        canonicalType = 'log';
+        canonicalSubtype = 'everything_else';
+        break;
+    }
+  }
+
+  if (canonicalType === 'todo') {
     const { title, due } = buildTodoFields(engineOutput.title || fallbackText, engineOutput.due);
     actions.push({
       type: 'create.todo',
@@ -654,7 +716,7 @@ function normalizeEngineOutput(
         spaceId: ctx.activeSpaceId,
       },
     });
-  } else if (engineType === 'habit') {
+  } else if (canonicalType === 'habit') {
     const { name, freq } = buildHabitFields(
       engineOutput.name || fallbackText,
       engineOutput.frequency,
@@ -667,56 +729,54 @@ function normalizeEngineOutput(
         spaceId: ctx.activeSpaceId,
       },
     });
-  } else if (engineType === 'note') {
-    // Check if it's a list-type note
-    const subtype = engineOutput.subtype || 'catchall';
-
-    if (subtype === 'list') {
-      const todoOverride = convertTodoListCommandToTodo(fallbackText);
-      if (todoOverride) {
-        actions.push({
-          type: 'create.todo',
-          payload: {
-            title: todoOverride.title,
-            due: todoOverride.due,
-            spaceId: ctx.activeSpaceId,
-          },
-        });
-      } else {
-        // Detect if this is a shopping/list intent by checking text and engine whyString
-        const whyString = engineOutput.whyString || '';
-        const isShoppingIntent =
-          /shopping|grocery|groceries/i.test(fallbackText) ||
-          /shopping|grocery|groceries/i.test(whyString);
-
-        // Extract the actual item (not the full command)
-        const item = extractItemFromText(fallbackText);
-
-        // Phase 10.4: Detect list type with space biasing
-        const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
-
-        actions.push({
-          type: 'add.to.list',
-          payload: {
-            listKey,
-            item,
-            spaceId: ctx.activeSpaceId,
-          },
-        });
-      }
-    } else {
+  } else if (canonicalType === 'log' && canonicalSubtype === 'list') {
+    const todoOverride = convertTodoListCommandToTodo(fallbackText);
+    if (todoOverride) {
       actions.push({
-        type: 'create.note',
+        type: 'create.todo',
         payload: {
-          text: fallbackText,
-          subtype: subtype as any,
+          title: todoOverride.title,
+          due: todoOverride.due,
+          spaceId: ctx.activeSpaceId,
+        },
+      });
+    } else {
+      const whyString = engineOutput.whyString || '';
+      const isShoppingIntent =
+        /shopping|grocery|groceries/i.test(fallbackText) ||
+        /shopping|grocery|groceries/i.test(whyString);
+
+      const item = extractItemFromText(fallbackText);
+      const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
+
+      actions.push({
+        type: 'add.to.list',
+        payload: {
+          listKey,
+          item,
           spaceId: ctx.activeSpaceId,
         },
       });
     }
+  } else if (canonicalType === 'log' || canonicalType === 'unsorted') {
+    const mapping = canonicalToPersisted(canonicalType, canonicalSubtype ?? null);
+    actions.push({
+      type: 'create.note',
+      payload: {
+        text: fallbackText,
+        subtype: (mapping.noteSubtype ?? 'catchall') as any,
+        spaceId: ctx.activeSpaceId,
+      },
+    });
   }
 
-  return { actions, confidence };
+  return {
+    actions,
+    confidence,
+    canonicalType,
+    canonicalSubtype: canonicalSubtype ?? null,
+    engineType,
+  };
 }
 
 /**
@@ -818,7 +878,7 @@ function generateSuggestions(actions: CortexAction[], ctx: CortexContext): Corte
   const suggestions: CortexSuggestion[] = [];
 
   if (actions.length === 0) {
-    suggestions.push('Save as note?');
+    suggestions.push('Save as log?');
     suggestions.push('Add to a list?');
     return suggestions;
   }
