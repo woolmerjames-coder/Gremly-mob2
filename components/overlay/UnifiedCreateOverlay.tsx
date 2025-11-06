@@ -16,6 +16,7 @@ import {
   Animated,
   ToastAndroid,
   Alert,
+  ActionSheetIOS,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../ui/Text';
@@ -26,6 +27,7 @@ import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fie
 import { TodoFields } from './fields/TodoFields';
 import { JournalFields } from './fields/JournalFields';
 import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
+import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
 import { TagEditor } from './fields/TagEditor';
 import { PeopleLinker } from './fields/PeopleLinker';
 import { useRepo } from '../../providers/RepoProvider';
@@ -43,17 +45,24 @@ import type {
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
-import type { ItemType } from '../../lib/repo/types';
+import type { EntityPerson, ItemType } from '../../lib/repo/types';
 import { callComplete, callClassify } from '../../lib/cortex/CortexClient';
 import { parseDue } from '../../lib/cortex/entities/datetime';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
-import { mapHabitToForm, mapTodoToForm, mapJournalToForm, mapNoteToForm } from './mappers';
+import {
+  mapHabitToForm,
+  mapTodoToForm,
+  mapJournalToForm,
+  mapNoteToForm,
+  mapPersonToForm,
+} from './mappers';
 import { env, getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
 import { combineDueIso, normalizeTimeInput, splitDueParts } from './dueUtils';
 import { canonicalToPersisted } from '../../lib/canonical';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
+import { convertLogListToTodo, convertTodoToLogList, hasChecklist } from '../../lib/conversion';
 
 type EntityType = CanonicalType;
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -87,7 +96,7 @@ export type UnifiedCreateOverlayProps = {
   visible: boolean;
   mode: 'create' | 'edit';
   initialEntity?: {
-    type: EntityType | null;
+    type: EntityType | 'journal' | 'note' | 'person' | null;
     id?: string;
     logSubtype?: LogSubtype | null;
   };
@@ -107,16 +116,32 @@ export type UnifiedCreateOverlayProps = {
   onSaved?: (result: OverlaySavedPayload) => void;
 };
 
-const TYPE_OPTIONS: Array<{ value: EntityType; label: string; iconName: string }> = [
-  { value: 'habit', label: 'Habit', iconName: 'Activity' },
-  { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
-  {
-    value: 'log',
-    label: NOTE_LABEL,
-    iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
-  },
-  { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
-];
+type TypeOption = {
+  value: EntityType;
+  label: string;
+  iconName: string;
+  logSubtype?: LogSubtype;
+};
+
+const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
+  ? [
+      { value: 'habit', label: 'Habit', iconName: 'Activity' },
+      { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
+      {
+        value: 'log',
+        label: NOTE_LABEL,
+        iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
+      },
+      { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
+    ]
+  : [
+      { value: 'habit', label: 'Habit', iconName: 'Activity' },
+      { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
+      { value: 'log', label: 'Journal', iconName: 'BookOpen', logSubtype: 'journal' },
+      { value: 'log', label: 'Note', iconName: 'FileText', logSubtype: 'everything_else' },
+      { value: 'log', label: 'Person', iconName: 'User', logSubtype: 'person' },
+      { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
+    ];
 
 const LOG_SUBTYPE_OPTIONS: Array<{ value: LogSubtype; label: string }> = [
   { value: 'journal', label: 'Journal' },
@@ -127,6 +152,28 @@ const LOG_SUBTYPE_OPTIONS: Array<{ value: LogSubtype; label: string }> = [
 ];
 
 const DEFAULT_LOG_SUBTYPE: LogSubtype = 'everything_else';
+
+const normalizeInitialSelection = (
+  initialEntity: UnifiedCreateOverlayProps['initialEntity'],
+): { type: EntityType | null; logSubtype: LogSubtype } => {
+  const fallbackSubtype = initialEntity?.logSubtype ?? DEFAULT_LOG_SUBTYPE;
+  const incomingType = initialEntity?.type;
+
+  if (!incomingType) {
+    return { type: null, logSubtype: fallbackSubtype };
+  }
+
+  switch (incomingType) {
+    case 'journal':
+      return { type: 'log', logSubtype: 'journal' };
+    case 'person':
+      return { type: 'log', logSubtype: 'person' };
+    case 'note':
+      return { type: 'log', logSubtype: fallbackSubtype };
+    default:
+      return { type: incomingType as EntityType, logSubtype: fallbackSubtype };
+  }
+};
 
 const CATCHALL_LABEL = 'catchall';
 const UNSORTED_LABEL = 'needs_review';
@@ -148,6 +195,11 @@ export function UnifiedCreateOverlay({
   onClose,
   onSaved,
 }: UnifiedCreateOverlayProps) {
+  const canonicalConversionsEnabled = env.feature.canonicalConversions;
+  const { type: normalizedInitialType, logSubtype: normalizedInitialSubtype } = useMemo(
+    () => normalizeInitialSelection(initialEntity),
+    [initialEntity],
+  );
   // Debug: Log when props change
   useEffect(() => {
     console.log('[UnifiedOverlay] Props changed:', {
@@ -201,21 +253,26 @@ export function UnifiedCreateOverlay({
 
   // State - with robust defaults
   // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
-  const [selectedType, setSelectedType] = useState<EntityType | null>(initialEntity?.type || null);
+  const [selectedType, setSelectedType] = useState<EntityType | null>(normalizedInitialType);
+  const [selectedLogSubtype, setSelectedLogSubtype] =
+    useState<LogSubtype>(normalizedInitialSubtype);
   const hasSyncedInitialTypeRef = useRef(false);
 
   // Synchronously update selectedType when initialEntity changes (e.g., overlay reopened)
   // This runs during render, before the DOM updates
   if (
     visible &&
-    initialEntity?.type &&
     !hasSyncedInitialTypeRef.current &&
-    selectedType !== initialEntity.type
+    (selectedType !== normalizedInitialType || selectedLogSubtype !== normalizedInitialSubtype)
   ) {
     hasSyncedInitialTypeRef.current = true;
-    setSelectedType(initialEntity.type);
+    setSelectedType(normalizedInitialType);
+    setSelectedLogSubtype(normalizedInitialSubtype);
     if (__DEV__) {
-      console.log('[UnifiedOverlay] Sync type update during render:', initialEntity.type);
+      console.log('[UnifiedOverlay] Sync type update during render:', {
+        type: normalizedInitialType,
+        logSubtype: normalizedInitialSubtype,
+      });
     }
   }
 
@@ -223,12 +280,12 @@ export function UnifiedCreateOverlay({
   const [spaceId, setSpaceId] = useState<string | null | undefined>(initialSpaceId);
 
   useEffect(() => {
-    if (mode === 'edit' && initialEntity?.type) {
-      originalTypeRef.current = initialEntity.type as EntityType;
+    if (mode === 'edit') {
+      originalTypeRef.current = normalizedInitialType ?? null;
     } else {
       originalTypeRef.current = null;
     }
-  }, [mode, initialEntity?.type]);
+  }, [mode, normalizedInitialType]);
 
   // Update spaceId when initialSpaceId prop changes
   // CRITICAL: Overlay is persistent, so we need to update state when opened with new spaceId
@@ -279,6 +336,7 @@ export function UnifiedCreateOverlay({
   const [todoDetails, setTodoDetails] = useState<import('./fields/TodoFields').TodoDetailsState>(
     {},
   );
+  const todoNotes = todoDetails?.notes ?? null;
 
   // Journal fields
   const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
@@ -299,10 +357,51 @@ export function UnifiedCreateOverlay({
     tags: [],
   });
 
-  // Log subtype selection
-  const [selectedLogSubtype, setSelectedLogSubtype] = useState<LogSubtype>(
-    initialEntity?.logSubtype ?? DEFAULT_LOG_SUBTYPE,
-  );
+  // Person fields
+  const [personName, setPersonName] = useState('');
+  const [personDetails, setPersonDetails] = useState<PersonDetailsState>({
+    email: '',
+    dates: [],
+    notes: '',
+    notesFormatting: null,
+    reminders: [],
+    spaceId: null,
+    tags: [],
+  });
+
+  const canConvertLogListToTodo = useMemo(() => {
+    if (mode !== 'edit') return false;
+    if (!initialEntity?.id) return false;
+    if (selectedType !== 'log' && selectedType !== 'unsorted') return false;
+    if (selectedType === 'log' && selectedLogSubtype === 'journal') return false;
+
+    const entity = originalEntityRef.current;
+    if (!entity || entity.type !== 'note') return false;
+
+    const bodyFromState = noteBody && noteBody.trim().length > 0 ? noteBody : (entity.body ?? '');
+    if (!bodyFromState) return false;
+
+    return hasChecklist(bodyFromState);
+  }, [mode, initialEntity?.id, selectedType, selectedLogSubtype, noteBody]);
+
+  const canConvertTodoToLogList = useMemo(() => {
+    if (mode !== 'edit') return false;
+    if (!initialEntity?.id) return false;
+    if (selectedType !== 'todo') return false;
+
+    const entity = originalEntityRef.current;
+    if (!entity || entity.type !== 'todo') return false;
+
+    const candidateSource =
+      todoNotes && todoNotes.trim().length > 0 ? todoNotes : (entity.body ?? entity.notes ?? '');
+
+    if (!candidateSource) return false;
+
+    return hasChecklist(candidateSource);
+  }, [mode, initialEntity?.id, selectedType, todoNotes]);
+
+  const hasOverflowActions =
+    canonicalConversionsEnabled && (canConvertLogListToTodo || canConvertTodoToLogList);
 
   useEffect(() => {
     if (!visible) return;
@@ -314,10 +413,24 @@ export function UnifiedCreateOverlay({
   // Phase 8: Tags and People linking state
   const getItemType = (): ItemType | null => {
     if (!selectedType) return null;
-    if (selectedType === 'habit' || selectedType === 'todo') {
-      return selectedType;
+
+    switch (selectedType) {
+      case 'habit':
+      case 'todo':
+        return selectedType;
+      case 'log':
+        if ((selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'journal') {
+          return 'journal';
+        }
+        if ((selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person') {
+          return null;
+        }
+        return 'note';
+      case 'unsorted':
+        return 'catchall';
+      default:
+        return 'note';
     }
-    return 'note';
   };
 
   const phase8Links = usePhase8LinksState(
@@ -326,6 +439,30 @@ export function UnifiedCreateOverlay({
     mode === 'edit' ? initialEntity?.id || null : null,
     getItemType(),
   );
+
+  const isLogPerson =
+    selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person';
+  const allowPeopleLinking = usePhase8Features && !isLogPerson;
+  const isEditingPerson =
+    mode === 'edit' &&
+    (initialEntity?.type === 'person' ||
+      (initialEntity?.type === 'log' &&
+        (initialEntity?.logSubtype ?? normalizedInitialSubtype ?? DEFAULT_LOG_SUBTYPE) ===
+          'person'));
+
+  useEffect(() => {
+    if (!visible) return;
+    if (mode !== 'edit') return;
+    if (selectedType !== 'log') return;
+    if ((selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person') return;
+
+    const entity = originalEntityRef.current;
+    if (!entity || entity.type !== 'note') return;
+    if (entity.subtype !== 'catchall') return;
+    if (phase8Links.linkedPeople.length === 0) return;
+
+    setSelectedLogSubtype('person');
+  }, [visible, mode, selectedType, selectedLogSubtype, phase8Links.linkedPeople]);
 
   // Debug logging for state
   if (__DEV__ && visible) {
@@ -389,6 +526,13 @@ export function UnifiedCreateOverlay({
           return { isValid: true, hint: null };
         }
 
+        if (subtype === 'person') {
+          if (!personName.trim()) {
+            return { isValid: false, hint: 'Name required' };
+          }
+          return { isValid: true, hint: null };
+        }
+
         if (!noteBody.trim()) {
           return { isValid: false, hint: 'Body required' };
         }
@@ -426,9 +570,43 @@ export function UnifiedCreateOverlay({
   }, []);
 
   const loadEntity = React.useCallback(
-    async (id: string, type: EntityType) => {
+    async (
+      id: string,
+      type: EntityType,
+      logSubtype: LogSubtype | null,
+      originalType?: NonNullable<UnifiedCreateOverlayProps['initialEntity']>['type'],
+    ) => {
       try {
         setHydration('loading');
+
+        const treatAsPerson =
+          originalType === 'person' ||
+          (type === 'log' && (logSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person');
+
+        if (treatAsPerson) {
+          try {
+            const people = await repo.listPeople();
+            const person = people.find((p) => p.id === id);
+
+            if (!person) {
+              setHydration('error');
+              return;
+            }
+
+            const formData = mapPersonToForm(person);
+            setPersonName(formData.name);
+            setPersonDetails(formData.details);
+            setSelectedType('log');
+            setSelectedLogSubtype('person');
+            originalEntityRef.current = null;
+            setHydration('ready');
+            return;
+          } catch (error) {
+            console.error('[UnifiedCreateOverlay] Failed to load person:', error);
+            setHydration('error');
+            return;
+          }
+        }
 
         const entity = await repo.getById(id);
         if (!entity) {
@@ -533,26 +711,41 @@ export function UnifiedCreateOverlay({
 
     if (mode === 'edit' && initialEntity && initialEntity.type) {
       // Only enforce the initial type while hydrating; once ready, respect user changes
-      if (hydration !== 'ready' && selectedType !== initialEntity.type) {
-        setSelectedType(initialEntity.type);
+      if (
+        hydration !== 'ready' &&
+        (selectedType !== normalizedInitialType || selectedLogSubtype !== normalizedInitialSubtype)
+      ) {
+        setSelectedType(normalizedInitialType);
+        setSelectedLogSubtype(normalizedInitialSubtype);
         if (__DEV__) {
-          console.log('[UnifiedOverlay] Correcting type for edit:', initialEntity.type);
+          console.log('[UnifiedOverlay] Correcting type for edit:', {
+            type: normalizedInitialType,
+            logSubtype: normalizedInitialSubtype,
+          });
         }
       }
       setAiMode(false); // No AI mode in edit
 
       if (__DEV__) {
-        console.log('[UnifiedOverlay] Setting type for edit:', initialEntity.type);
+        console.log('[UnifiedOverlay] Setting type for edit:', {
+          type: normalizedInitialType,
+          logSubtype: normalizedInitialSubtype,
+        });
       }
 
       // Load entity data
       if (initialEntity.id) {
         const needsLoad = initialEntity.id !== lastLoadedIdRef.current || hydration === 'idle';
 
-        if (needsLoad) {
+        if (needsLoad && normalizedInitialType) {
           hasSyncedInitialTypeRef.current = false;
           lastLoadedIdRef.current = initialEntity.id;
-          loadEntity(initialEntity.id, initialEntity.type);
+          loadEntity(
+            initialEntity.id,
+            normalizedInitialType,
+            normalizedInitialSubtype,
+            initialEntity.type ?? undefined,
+          );
         }
       } else {
         setHydration('ready'); // No ID means ready immediately
@@ -561,11 +754,20 @@ export function UnifiedCreateOverlay({
       // Create mode - immediately ready
       setHydration('ready');
       // Type should already be set from useState initializer, but ensure it's set
-      if (initialEntity?.type && hydration !== 'ready' && !hasSyncedInitialTypeRef.current) {
+      if (
+        initialEntity?.type &&
+        hydration !== 'ready' &&
+        !hasSyncedInitialTypeRef.current &&
+        normalizedInitialType !== null
+      ) {
         hasSyncedInitialTypeRef.current = true;
-        setSelectedType(initialEntity.type);
+        setSelectedType(normalizedInitialType);
+        setSelectedLogSubtype(normalizedInitialSubtype);
         if (__DEV__) {
-          console.log('[UnifiedOverlay] Correcting type for create:', initialEntity.type);
+          console.log('[UnifiedOverlay] Correcting type for create:', {
+            type: normalizedInitialType,
+            logSubtype: normalizedInitialSubtype,
+          });
         }
       }
       // Animate fields in when type is auto-selected
@@ -691,6 +893,8 @@ export function UnifiedCreateOverlay({
   }, [cortex, visible, aiDisabled]);
 
   const resetForm = () => {
+    phase8Links.clearPendingTags();
+    phase8Links.clearPendingPeople();
     setSelectedType(null); // Reset to no type selected
     setAiMode(false);
     setHydration('idle');
@@ -715,6 +919,16 @@ export function UnifiedCreateOverlay({
     setNoteBody('');
     setNoteDetails({
       formatting: null,
+      spaceId: null,
+      tags: [],
+    });
+    setPersonName('');
+    setPersonDetails({
+      email: '',
+      dates: [],
+      notes: '',
+      notesFormatting: null,
+      reminders: [],
       spaceId: null,
       tags: [],
     });
@@ -743,14 +957,31 @@ export function UnifiedCreateOverlay({
       payload: { type: result.type, created: result },
     });
 
-    // Phase 10.9: Emit celebration event for item creation
-    emitChatEvent({
-      type: 'item_created',
-      payload: {
-        type: result.type as 'todo' | 'note' | 'habit',
-        origin: mode === 'create' ? 'overlay' : 'edit',
-      },
-    });
+    // Phase 10.9: Emit celebration event for item creation (limited types)
+    const celebrationType: 'todo' | 'note' | 'habit' | null = (() => {
+      switch (result.type) {
+        case 'habit':
+          return 'habit';
+        case 'todo':
+          return 'todo';
+        case 'note':
+        case 'journal':
+        case 'unsorted':
+          return 'note';
+        default:
+          return null;
+      }
+    })();
+
+    if (celebrationType) {
+      emitChatEvent({
+        type: 'item_created',
+        payload: {
+          type: celebrationType,
+          origin: mode === 'create' ? 'overlay' : 'edit',
+        },
+      });
+    }
 
     onSaved?.(result);
   };
@@ -760,21 +991,37 @@ export function UnifiedCreateOverlay({
     subtype: LogSubtype | null,
   ): OverlaySavedPayload['type'] => {
     if (type === 'log') {
+      if (subtype === 'person') {
+        return 'person';
+      }
       return subtype === 'journal' ? 'journal' : 'note';
     }
     return type === 'unsorted' ? 'unsorted' : type;
   };
 
-  const handleTypeSelect = (type: EntityType) => {
+  const handleTypeSelect = (type: EntityType, logSubtypeOverride?: LogSubtype) => {
     if (mode === 'edit' && !ALLOW_TYPE_CHANGE) {
       return;
     }
     const wasLog = selectedType === 'log';
-    setSelectedType(type);
-    if (type === 'log' && !wasLog) {
-      setSelectedLogSubtype((prev) => prev ?? DEFAULT_LOG_SUBTYPE);
+    if (isEditingPerson) {
+      const proposedSubtype =
+        type === 'log'
+          ? (logSubtypeOverride ??
+            (wasLog ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : DEFAULT_LOG_SUBTYPE))
+          : null;
+      if (type !== 'log' || (proposedSubtype ?? DEFAULT_LOG_SUBTYPE) !== 'person') {
+        return;
+      }
     }
-    if (type !== 'log') {
+    setSelectedType(type);
+    if (type === 'log') {
+      if (logSubtypeOverride) {
+        setSelectedLogSubtype(logSubtypeOverride);
+      } else if (!wasLog) {
+        setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
+      }
+    } else {
       setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
     }
     setAiMode(false); // Exit AI mode when selecting a type
@@ -809,6 +1056,143 @@ export function UnifiedCreateOverlay({
       duration: 300,
       useNativeDriver: true,
     }).start();
+  };
+
+  const flushPendingAssociations = async (
+    itemId: string,
+    itemTypeOverride?: ItemType | null,
+  ): Promise<void> => {
+    const itemType = itemTypeOverride ?? getItemType();
+    if (!itemId || !itemType) return;
+
+    if (usePhase8Features && phase8Links.pendingTagIds.length > 0) {
+      for (const tagId of phase8Links.pendingTagIds) {
+        try {
+          await (repo as any).linkTag({ itemId, tagId, itemType });
+        } catch (error) {
+          console.error('[Phase8] Failed to link pending tag:', tagId, error);
+        }
+      }
+      phase8Links.clearPendingTags();
+    }
+
+    if (allowPeopleLinking && phase8Links.pendingPeople.length > 0) {
+      for (const person of phase8Links.pendingPeople) {
+        try {
+          await (repo as any).linkPerson({
+            itemId,
+            itemType,
+            personName: person.personName,
+            personEmail: person.personEmail,
+          });
+        } catch (error) {
+          console.error('[Phase8] Failed to link pending person:', person, error);
+        }
+      }
+
+      try {
+        await phase8Links.loadPeople();
+      } catch (error) {
+        console.error('[Phase8] Failed to refresh linked people after save:', error);
+      }
+
+      phase8Links.clearPendingPeople();
+    }
+  };
+
+  const handleConvertLogListToTodo = async () => {
+    if (!canonicalConversionsEnabled) return;
+    if (submitting || mode !== 'edit' || !initialEntity?.id) return;
+    if (!canConvertLogListToTodo) {
+      Alert.alert('Conversion unavailable', 'This log does not include a checklist to convert.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { todo } = await convertLogListToTodo(repo, initialEntity.id, { preserveState: true });
+      handleSaved({ type: 'todo', id: todo.id });
+      showToast('Converted to To-Do.');
+      handleClose();
+    } catch (error) {
+      console.error('[UnifiedCreateOverlay] Failed to convert log list to todo', error);
+      Alert.alert('Conversion failed', 'Unable to convert this log into a to-do right now.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConvertTodoToLogList = async () => {
+    if (!canonicalConversionsEnabled) return;
+    if (submitting || mode !== 'edit' || !initialEntity?.id) return;
+    if (!canConvertTodoToLogList) {
+      Alert.alert('Conversion unavailable', 'This to-do does not include a checklist to convert.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { note } = await convertTodoToLogList(repo, initialEntity.id, { preserveState: true });
+      const payloadType = resolveOverlayPayloadType('log', 'list');
+      handleSaved({ type: payloadType, id: note.id });
+      showToast('Converted to log list.');
+      handleClose();
+    } catch (error) {
+      console.error('[UnifiedCreateOverlay] Failed to convert todo to log list', error);
+      Alert.alert('Conversion failed', 'Unable to convert this to-do into a log right now.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenOverflowMenu = () => {
+    if (submitting) return;
+    if (!canonicalConversionsEnabled) {
+      Alert.alert('No extra actions', 'There are no additional options available right now.');
+      return;
+    }
+
+    const actions: Array<{ label: string; handler: () => void }> = [];
+
+    if (canConvertLogListToTodo) {
+      actions.push({ label: 'Convert to To-Do', handler: () => void handleConvertLogListToTodo() });
+    }
+
+    if (canConvertTodoToLogList) {
+      actions.push({
+        label: 'Convert to log list',
+        handler: () => void handleConvertTodoToLogList(),
+      });
+    }
+
+    if (!actions.length) {
+      Alert.alert('No extra actions', 'There are no additional options available right now.');
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...actions.map((a) => a.label), 'Cancel'],
+          cancelButtonIndex: actions.length,
+        },
+        (index) => {
+          if (typeof index === 'number' && index >= 0 && index < actions.length) {
+            actions[index].handler();
+          }
+        },
+      );
+    } else {
+      Alert.alert(
+        'More actions',
+        'Choose an option',
+        [
+          ...actions.map((a) => ({ text: a.label, onPress: a.handler })),
+          { text: 'Cancel', style: 'cancel' },
+        ],
+        { cancelable: true },
+      );
+    }
   };
 
   const handleSave = async () => {
@@ -846,6 +1230,9 @@ export function UnifiedCreateOverlay({
           };
           const result = await repo.create(input);
           console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'disabled' });
+          if (result.id) {
+            await flushPendingAssociations(result.id, 'note');
+          }
           handleSaved({ type: 'note', id: result.id });
           showToast('Added to Hub');
           handleClose();
@@ -903,32 +1290,8 @@ export function UnifiedCreateOverlay({
           const result = await repo.create(input);
           console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
 
-          // Link phase8 tags/people if any
-          if (
-            usePhase8Features &&
-            result.id &&
-            phase8Links.pendingTagIds.length + phase8Links.pendingPeople.length > 0
-          ) {
-            const itemType: ItemType = 'note';
-            for (const tagId of phase8Links.pendingTagIds) {
-              try {
-                await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
-              } catch (error) {
-                console.error('[Phase8] Failed to link pending tag to catchall:', error);
-              }
-            }
-            for (const person of phase8Links.pendingPeople) {
-              try {
-                await (repo as any).linkPerson({
-                  itemId: result.id,
-                  itemType,
-                  personName: person.personName,
-                  personEmail: person.personEmail,
-                });
-              } catch (error) {
-                console.error('[Phase8] Failed to link pending person to catchall:', error);
-              }
-            }
+          if (result.id) {
+            await flushPendingAssociations(result.id, 'note');
           }
 
           handleSaved({ type: 'note', id: result.id });
@@ -957,32 +1320,8 @@ export function UnifiedCreateOverlay({
         const newItem = await repo.create(input);
         console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'pending' });
 
-        // Link phase8 tags/people if any
-        if (
-          usePhase8Features &&
-          newItem.id &&
-          phase8Links.pendingTagIds.length + phase8Links.pendingPeople.length > 0
-        ) {
-          const itemType: ItemType = 'note';
-          for (const tagId of phase8Links.pendingTagIds) {
-            try {
-              await (repo as any).linkTag({ itemId: newItem.id, tagId, itemType });
-            } catch (error) {
-              console.error('[Phase8] Failed to link pending tag to catchall:', error);
-            }
-          }
-          for (const person of phase8Links.pendingPeople) {
-            try {
-              await (repo as any).linkPerson({
-                itemId: newItem.id,
-                itemType,
-                personName: person.personName,
-                personEmail: person.personEmail,
-              });
-            } catch (error) {
-              console.error('[Phase8] Failed to link pending person to catchall:', error);
-            }
-          }
+        if (newItem.id) {
+          await flushPendingAssociations(newItem.id, 'note');
         }
 
         handleSaved({ type: 'note', id: newItem.id });
@@ -1204,6 +1543,36 @@ export function UnifiedCreateOverlay({
 
       // Edit mode
       if (mode === 'edit' && initialEntity?.id && selectedType) {
+        const originalWasPerson = isEditingPerson;
+
+        if (isLogPerson && originalWasPerson) {
+          const personPatch = buildPersonPayload();
+          const result = await repo.updatePerson(initialEntity.id, personPatch);
+          handleSaved({ type: 'person', id: result.id });
+          showToast('Updated in the Hub.');
+          handleClose();
+          return;
+        }
+
+        if (isLogPerson && !originalWasPerson) {
+          const personInput = buildPersonPayload();
+          const createdPerson = await repo.createPerson(personInput);
+
+          try {
+            await repo.remove(initialEntity.id);
+          } catch (removeError) {
+            console.warn(
+              '[UnifiedCreateOverlay] Failed to remove original during conversion to person:',
+              removeError,
+            );
+          }
+
+          handleSaved({ type: 'person', id: createdPerson.id });
+          showToast('Converted to Person.');
+          handleClose();
+          return;
+        }
+
         const originalType = originalTypeRef.current ?? (initialEntity.type as EntityType | null);
         const originalFamily = originalType
           ? ENTITY_FAMILY[originalType]
@@ -1233,29 +1602,8 @@ export function UnifiedCreateOverlay({
 
           const created = await repo.create(convertedInput);
 
-          if (usePhase8Features && created.id && getItemType()) {
-            const itemType = getItemType()!;
-
-            for (const tagId of phase8Links.pendingTagIds) {
-              try {
-                await (repo as any).linkTag({ itemId: created.id, tagId, itemType });
-              } catch (error) {
-                console.error('[Phase8] Failed to link pending tag during conversion:', error);
-              }
-            }
-
-            for (const person of phase8Links.pendingPeople) {
-              try {
-                await (repo as any).linkPerson({
-                  itemId: created.id,
-                  itemType,
-                  personName: person.personName,
-                  personEmail: person.personEmail,
-                });
-              } catch (error) {
-                console.error('[Phase8] Failed to link pending person during conversion:', error);
-              }
-            }
+          if (created.id) {
+            await flushPendingAssociations(created.id);
           }
 
           try {
@@ -1297,37 +1645,21 @@ export function UnifiedCreateOverlay({
 
       // Create mode - structured
       if (selectedType) {
+        if (selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person') {
+          const personInput = buildPersonPayload();
+          const result = await repo.createPerson(personInput);
+          handleSaved({ type: 'person', id: result.id });
+          showToast('Saved to the Hub.');
+          handleClose();
+          return;
+        }
+
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
 
         // Phase 8: Flush pending tags and people after successful create
-        if (usePhase8Features && result.id && getItemType()) {
-          const itemType = getItemType()!;
-
-          // Link pending tags
-          for (const tagId of phase8Links.pendingTagIds) {
-            try {
-              await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
-            } catch (error) {
-              console.error('[Phase8] Failed to link pending tag:', tagId, error);
-              // Continue - don't fail the save
-            }
-          }
-
-          // Link pending people
-          for (const person of phase8Links.pendingPeople) {
-            try {
-              await (repo as any).linkPerson({
-                itemId: result.id,
-                itemType,
-                personName: person.personName,
-                personEmail: person.personEmail,
-              });
-            } catch (error) {
-              console.error('[Phase8] Failed to link pending person:', person, error);
-              // Continue - don't fail the save
-            }
-          }
+        if (result.id) {
+          await flushPendingAssociations(result.id);
         }
 
         const payloadType = resolveOverlayPayloadType(
@@ -1507,6 +1839,29 @@ export function UnifiedCreateOverlay({
     }
   };
 
+  const buildPersonPayload = () => {
+    const trimmedName = personName.trim();
+    const trimmedEmail = personDetails.email.trim();
+    const trimmedNotes = personDetails.notes.trim();
+
+    return {
+      display_name: trimmedName,
+      email: trimmedEmail.length > 0 ? trimmedEmail : null,
+      dates:
+        personDetails.dates.length > 0
+          ? personDetails.dates.map((d) => ({
+              date: d.date,
+              label: d.label,
+            }))
+          : null,
+      notes: trimmedNotes.length > 0 ? trimmedNotes : null,
+      notes_fmt: personDetails.notesFormatting || null,
+      reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
+      space_id: normalizeSpaceId(personDetails.spaceId),
+      tags: personDetails.tags.length > 0 ? personDetails.tags : null,
+    };
+  };
+
   const buildUpdatePatch = (type: EntityType): Partial<AppRecord> => {
     const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
     const persisted = canonicalToPersisted(type, logSubtype);
@@ -1628,9 +1983,28 @@ export function UnifiedCreateOverlay({
             <Text variant="title" style={{ color: theme.colors.text.primary }}>
               Add or Edit Item
             </Text>
-            <TouchableOpacity onPress={handleClose} testID="close-button">
-              <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              {hasOverflowActions ? (
+                <TouchableOpacity
+                  onPress={handleOpenOverflowMenu}
+                  disabled={submitting}
+                  testID="overlay-overflow-button"
+                  style={styles.headerIconButton}
+                >
+                  <Icon name="MoreHorizontal" size="sm" color={theme.colors.text.secondary} />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={handleClose}
+                testID="close-button"
+                style={[
+                  styles.headerIconButton,
+                  !hasOverflowActions && styles.headerIconButtonNoOffset,
+                ]}
+              >
+                <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView
@@ -1650,7 +2024,10 @@ export function UnifiedCreateOverlay({
             <View style={styles.section}>
               <View style={styles.chipRow}>
                 {TYPE_OPTIONS.map((opt) => {
-                  const isSelected = selectedType === opt.value && !aiMode;
+                  const isSelected =
+                    selectedType === opt.value &&
+                    (!opt.logSubtype || selectedLogSubtype === opt.logSubtype) &&
+                    !aiMode;
                   const chipStyle = isSelected
                     ? {
                         backgroundColor: theme.colors.mint,
@@ -1666,15 +2043,25 @@ export function UnifiedCreateOverlay({
                   const iconColor = isSelected
                     ? theme.colors.deepTeal.DEFAULT
                     : theme.colors.text.secondary;
-                  const disabled = typePillsDisabled;
+                  const nextSubtypeForOpt =
+                    opt.logSubtype ?? (opt.value === 'log' ? DEFAULT_LOG_SUBTYPE : null);
+                  const disabled =
+                    typePillsDisabled ||
+                    (isEditingPerson &&
+                      (opt.value !== 'log' ||
+                        (nextSubtypeForOpt ?? DEFAULT_LOG_SUBTYPE) !== 'person'));
+                  const chipKey = opt.logSubtype ? `${opt.value}-${opt.logSubtype}` : opt.value;
+                  const chipTestId = opt.logSubtype
+                    ? `type-pill-${opt.logSubtype}`
+                    : `type-pill-${opt.value}`;
 
                   return (
                     <Chip
-                      key={opt.value}
+                      key={chipKey}
                       label={opt.label}
                       selected={isSelected}
-                      onPress={() => handleTypeSelect(opt.value)}
-                      testID={`type-pill-${opt.value}`}
+                      onPress={() => handleTypeSelect(opt.value, opt.logSubtype)}
+                      testID={chipTestId}
                       disabled={disabled}
                       style={{
                         ...styles.typeChip,
@@ -1698,6 +2085,7 @@ export function UnifiedCreateOverlay({
                   <View style={styles.chipRow}>
                     {LOG_SUBTYPE_OPTIONS.map((opt) => {
                       const isSelected = selectedLogSubtype === opt.value;
+                      const subtypeDisabled = isEditingPerson && opt.value !== 'person';
                       const chipStyle = isSelected
                         ? {
                             backgroundColor: theme.colors.white,
@@ -1716,7 +2104,11 @@ export function UnifiedCreateOverlay({
                           key={opt.value}
                           label={opt.label}
                           selected={isSelected}
-                          onPress={() => setSelectedLogSubtype(opt.value)}
+                          onPress={() => {
+                            if (subtypeDisabled) return;
+                            setSelectedLogSubtype(opt.value);
+                          }}
+                          disabled={subtypeDisabled}
                           testID={`log-subtype-${opt.value}`}
                           style={{
                             ...styles.typeChip,
@@ -1949,8 +2341,29 @@ export function UnifiedCreateOverlay({
                         disabled={false}
                       />
                     )}
-                    {((selectedType === 'log' && selectedLogSubtype !== 'journal') ||
-                      selectedType === 'unsorted') && (
+                    {selectedType === 'log' && selectedLogSubtype === 'person' && (
+                      <PersonFields
+                        name={personName}
+                        onNameChange={setPersonName}
+                        details={personDetails}
+                        onDetailsChange={setPersonDetails}
+                        disabled={false}
+                      />
+                    )}
+                    {selectedType === 'log' &&
+                      selectedLogSubtype !== 'journal' &&
+                      selectedLogSubtype !== 'person' && (
+                        <NoteFields
+                          title={noteTitle}
+                          onTitleChange={setNoteTitle}
+                          body={noteBody}
+                          onBodyChange={setNoteBody}
+                          details={noteDetails}
+                          onDetailsChange={setNoteDetails}
+                          disabled={false}
+                        />
+                      )}
+                    {selectedType === 'unsorted' && (
                       <NoteFields
                         title={noteTitle}
                         onTitleChange={setNoteTitle}
@@ -1965,38 +2378,54 @@ export function UnifiedCreateOverlay({
                 );
               })()}
 
-            {/* Phase 8: Tags & People linking - behind feature flag */}
-            {usePhase8Features && !aiMode && selectedType && getItemType() && (
-              <View style={styles.relationshipsSection}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
-                  Tags & People
-                </Text>
-                <TagEditor
-                  userId={userId || ''}
-                  itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                  itemType={getItemType()!}
-                  currentTags={phase8Links.currentTags}
-                  allTags={phase8Links.allTags}
-                  onTagsChange={(tags) => {
-                    // Tags are managed by the hook; this is just for UI sync if needed
-                  }}
-                  onAddTag={phase8Links.addTag}
-                  onLinkTag={phase8Links.linkTag}
-                  onUnlinkTag={phase8Links.unlinkTag}
-                />
-                <PeopleLinker
-                  userId={userId || ''}
-                  itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                  itemType={getItemType()!}
-                  linkedPeople={phase8Links.linkedPeople}
-                  onPeopleChange={(people) => {
-                    // People are managed by the hook; this is just for UI sync if needed
-                  }}
-                  onLinkPerson={phase8Links.linkPerson}
-                  onUnlinkPerson={phase8Links.unlinkPerson}
-                />
-              </View>
-            )}
+            {/* Phase 8: Tags & People linking */}
+            {(() => {
+              if (aiMode || !selectedType) return null;
+
+              const itemType = getItemType();
+              if (!itemType) return null;
+
+              const showTagEditor = usePhase8Features;
+              const showPeopleLinker = allowPeopleLinking;
+
+              if (!showTagEditor && !showPeopleLinker) return null;
+
+              return (
+                <View style={styles.relationshipsSection}>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
+                    Tags & People
+                  </Text>
+                  {showTagEditor && (
+                    <TagEditor
+                      userId={userId || ''}
+                      itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                      itemType={itemType}
+                      currentTags={phase8Links.currentTags}
+                      allTags={phase8Links.allTags}
+                      onTagsChange={(tags) => {
+                        // Tags are managed by the hook; this is just for UI sync if needed
+                      }}
+                      onAddTag={phase8Links.addTag}
+                      onLinkTag={phase8Links.linkTag}
+                      onUnlinkTag={phase8Links.unlinkTag}
+                    />
+                  )}
+                  {showPeopleLinker && (
+                    <PeopleLinker
+                      userId={userId || ''}
+                      itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                      itemType={itemType}
+                      linkedPeople={phase8Links.linkedPeople}
+                      onPeopleChange={(people) => {
+                        // People are managed by the hook; this is just for UI sync if needed
+                      }}
+                      onLinkPerson={phase8Links.linkPerson}
+                      onUnlinkPerson={phase8Links.unlinkPerson}
+                    />
+                  )}
+                </View>
+              );
+            })()}
 
             {/* Space selector placeholder */}
             {/* TODO: Add ScopeSelector integration */}
@@ -2069,6 +2498,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIconButton: {
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    marginLeft: 12,
+  },
+  headerIconButtonNoOffset: {
+    marginLeft: 0,
   },
   closeButton: {
     fontSize: 26,

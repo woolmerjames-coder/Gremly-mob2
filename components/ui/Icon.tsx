@@ -16,7 +16,8 @@ export type IconName =
   | 'Bell' // Notification/reminder
   | 'Tag' // Tags
   | 'Circle' // Generic/placeholder
-  | 'X'; // Close
+  | 'X' // Close
+  | 'MoreHorizontal'; // Overflow menu
 
 // Map entity types to icons
 export const entityTypeToIcon: Record<string, IconName> = {
