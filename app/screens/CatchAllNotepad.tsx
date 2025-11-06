@@ -17,13 +17,11 @@ import {
   TextInputContentSizeChangeEventData,
   Image,
 } from 'react-native';
-import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
-import { Button } from '../../design-system/Button';
 import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
@@ -2082,17 +2080,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           />
         ) : null}
         <View style={styles.submitButtonWrapper}>
-          <Button
+          <Pressable
             testID="minddrop-submit-button"
-            label={isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
-            leftIcon={isSubmitting ? <ActivityIndicator size="small" color={c.bg} /> : undefined}
             onPress={onSubmit}
             disabled={disabled}
-            disabledOpacity={0.4}
             accessibilityRole="button"
             accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
             accessibilityState={{ busy: isSubmitting, disabled }}
-          />
+            style={({ pressed }) => [
+              styles.submitButton,
+              (disabled || isSubmitting) && styles.submitButtonDisabled,
+              pressed && !disabled && !isSubmitting && styles.submitButtonPressed,
+            ]}
+          >
+            <View style={styles.submitInnerRow}>
+              {isSubmitting ? <ActivityIndicator size="small" color={c.linenCream} /> : null}
+              <Text style={styles.submitLabel}>
+                {isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
+              </Text>
+            </View>
+          </Pressable>
         </View>
         <View style={styles.trustRow} testID="minddrop-trust">
           <Text style={styles.trustStyled} testID="minddrop-trust-text">
@@ -2119,9 +2126,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleInputFocusChange,
     handleInputContentSizeChange,
     placeholder,
-    c.mutedText,
-    c.moss,
-    c.bg,
+    c.mutedSageText,
+    c.goldenPear,
+    c.linenCream,
+    c.mossGreen,
     isSubmitting,
     disabled,
     onSubmit,
@@ -2148,17 +2156,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   return (
     <View style={styles.root} testID="minddrop-screen">
-      {/* Inline Action Toast overlay */}
-      <Svg pointerEvents="none" style={styles.gradientBackground}>
-        <Defs>
-          <SvgLinearGradient id="mindDropGradient" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={c.linenCream} stopOpacity={1} />
-            <Stop offset="20%" stopColor={c.sageMist} stopOpacity={1} />
-            <Stop offset="100%" stopColor={c.mossGreen} stopOpacity={1} />
-          </SvgLinearGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
-      </Svg>
       {ActionToast}
 
       <Modal
@@ -2191,12 +2188,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 for you.
               </Text>
               <View style={styles.infoActions}>
-                <Button
+                <Pressable
                   testID="minddrop-info-open-recent"
-                  label="View recent drops"
                   onPress={handleInfoViewRecent}
-                  fullWidth
-                />
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    pressed && styles.secondaryButtonPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="View recent drops"
+                >
+                  <Text style={styles.secondaryButtonLabel}>View recent drops</Text>
+                </Pressable>
                 <Pressable
                   testID="minddrop-info-close"
                   onPress={handleInfoClose}
@@ -2235,10 +2238,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flex: 1,
       paddingHorizontal: 16,
     },
-    gradientBackground: {
-      ...StyleSheet.absoluteFillObject,
-    },
-
     headerContainer: {
       position: 'relative',
       paddingRight: 84,
@@ -2386,6 +2385,24 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       alignItems: 'stretch',
     },
+    secondaryButton: {
+      borderWidth: 1,
+      borderColor: c.mossGreen,
+      borderRadius: 12,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'transparent',
+      width: '100%',
+    },
+    secondaryButtonPressed: {
+      backgroundColor: 'rgba(46,85,64,0.08)',
+    },
+    secondaryButtonLabel: {
+      color: c.mossGreen,
+      fontFamily: 'Inter-Medium',
+      fontSize: 16,
+    },
     infoClose: {
       color: c.mutedText,
       fontFamily: 'Inter-Regular',
@@ -2403,6 +2420,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: c.mossGreen, // Phase 2: primary CTA filled mossGreen
+    },
+    submitButtonPressed: {
+      opacity: 0.9,
+    },
+    submitButtonDisabled: {
+      backgroundColor: c.sageMist,
     },
     submitLabel: {
       color: c.linenCream, // Phase 2: linenCream text on mossGreen
