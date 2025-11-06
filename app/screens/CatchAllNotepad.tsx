@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   Modal,
+  KeyboardAvoidingView,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -61,7 +62,9 @@ const THINKING_MICROCOPY = [
 
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 const INPUT_LINE_HEIGHT = 26;
-const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
+const MIN_INPUT_HEIGHT = 96;
+const MAX_INPUT_HEIGHT = 256;
+const SPACE = 8;
 
 const TOGGLE_BLUE = '#9CA6E0';
 const CHIPS_AUTO_DISMISS_MS =
@@ -106,14 +109,16 @@ type MindDropInputProps = {
   containerStyle: any;
   focusedStyle: any;
   inputStyle: any;
+  focusedInputStyle?: any;
   onFocusChange?: (focused: boolean) => void;
   autoFocus?: boolean;
   onContentSizeChange?: (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => void;
   scrollEnabled?: boolean;
-  hudContainerStyle: any;
-  hudTextStyle: any;
-  characterCount: number;
-  lockIconColor: string; // Phase 1: theme color
+  hudContainerStyle?: any;
+  hudTextStyle?: any;
+  characterCount?: number;
+  lockIconColor?: string; // Phase 1: theme color
+  showHud?: boolean;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -125,14 +130,16 @@ const MindDropInput = React.memo<MindDropInputProps>(
     containerStyle,
     focusedStyle,
     inputStyle,
+    focusedInputStyle,
     onFocusChange,
     autoFocus = false,
     onContentSizeChange,
     scrollEnabled = false,
     hudContainerStyle,
     hudTextStyle,
-    characterCount,
-    lockIconColor,
+    characterCount = 0,
+    lockIconColor = '#2E5540',
+    showHud = true,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -188,7 +195,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
           onFocus={handleFocus}
           onBlur={handleBlur}
           multiline
-          style={inputStyle}
+          style={[inputStyle, focused && focusedInputStyle]}
           accessibilityLabel="Mind Drop input"
           accessibilityHint="Type anything on your mind"
           placeholder={placeholder}
@@ -198,32 +205,34 @@ const MindDropInput = React.memo<MindDropInputProps>(
           onContentSizeChange={onContentSizeChange}
           scrollEnabled={scrollEnabled}
         />
-        <View style={hudContainerStyle} pointerEvents="none">
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              flexShrink: 1,
-            }}
-          >
-            <View style={{ marginRight: 6 }}>
-              <Icon name="Lock" size="xs" color={lockIconColor} strokeWidth={1.75} />
+        {showHud ? (
+          <View style={hudContainerStyle} pointerEvents="none">
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                flexShrink: 1,
+              }}
+            >
+              <View style={{ marginRight: 6 }}>
+                <Icon name="Lock" size="xs" color={lockIconColor} strokeWidth={1.75} />
+              </View>
+              <Text
+                testID="minddrop-privacy"
+                style={hudTextStyle}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                Private & secure
+              </Text>
             </View>
             <Text
-              testID="minddrop-privacy"
-              style={hudTextStyle}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
-              Private & secure
-            </Text>
+              testID="minddrop-counter"
+              style={[hudTextStyle, { fontSize: 11, textAlign: 'right', marginLeft: 'auto' }]}
+            >{`${characterCount} / 2000`}</Text>
           </View>
-          <Text
-            testID="minddrop-counter"
-            style={[hudTextStyle, { fontSize: 11, textAlign: 'right', marginLeft: 'auto' }]}
-          >{`${characterCount} / 2000`}</Text>
-        </View>
+        ) : null}
       </Pressable>
     );
   },
@@ -769,7 +778,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
-  const [inputHeight, setInputHeight] = useState<number>(140);
+  const [inputHeight, setInputHeight] = useState<number>(MIN_INPUT_HEIGHT);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
@@ -784,13 +793,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [suggestions, CHIPS_AUTO_DISMISS_MS]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseScale = useRef(new Animated.Value(1)).current;
+  const submitScale = useRef(new Animated.Value(1)).current;
   const microcopyOpacity = useRef(new Animated.Value(0)).current;
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const microcopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProcessingRef = useRef(false);
   // Mind Drop: placeholder text and header focus target
   const headerTitleRef = useRef<any>(null);
-  const [placeholder] = useState('Drop your thoughts here…');
+  const [placeholder] = useState('Drop your thoughts here...');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
@@ -798,7 +808,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const handleInputContentSizeChange = useCallback(
     (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-      const nextHeight = Math.min(event.nativeEvent.contentSize.height, MAX_INPUT_HEIGHT);
+      const contentHeight = event.nativeEvent.contentSize.height;
+      const nextHeight = Math.max(MIN_INPUT_HEIGHT, Math.min(contentHeight, MAX_INPUT_HEIGHT));
       setInputHeight((prev) => (Math.abs(prev - nextHeight) < 0.5 ? prev : nextHeight));
     },
     [setInputHeight],
@@ -824,6 +835,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const noopCallback = useCallback(() => {}, []);
 
   const isProcessing = isSubmitting || isThinking;
+
+  const hour = new Date().getHours();
+  const contextPrompt =
+    hour >= 6 && hour < 12
+      ? "Good morning! What's on your mind?"
+      : hour >= 12 && hour < 17
+        ? 'Afternoon brain dump?'
+        : hour >= 17 && hour < 22
+          ? 'Evening thoughts?'
+          : 'Capture those late-night thoughts...';
 
   useEffect(() => {
     isProcessingRef.current = isProcessing;
@@ -1018,12 +1039,52 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     () => note.trim().length === 0 || isSubmitting || isThinking,
     [note, isSubmitting, isThinking],
   );
+  const isButtonVisuallyDisabled = note.trim().length === 0;
 
   const modeDescription = useMemo(() => {
     return uiMode === 'free'
       ? 'Just a calm notepad. You can format with bullets, numbers, or checkboxes.'
       : 'Talk it out with Gremly — I’ll suggest structure and help file it.';
   }, [uiMode]);
+
+  const animateSubmitScale = useCallback(
+    (toValue: number) => {
+      Animated.timing(submitScale, {
+        toValue,
+        duration: 120,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    },
+    [submitScale],
+  );
+
+  const handleSubmitPressIn = useCallback(() => {
+    if (disabled || reduceMotion) {
+      return;
+    }
+    animateSubmitScale(0.98);
+  }, [animateSubmitScale, disabled, reduceMotion]);
+
+  const handleSubmitPressOut = useCallback(() => {
+    if (reduceMotion) {
+      submitScale.setValue(1);
+      return;
+    }
+    animateSubmitScale(1);
+  }, [animateSubmitScale, reduceMotion, submitScale]);
+
+  useEffect(() => {
+    if (disabled) {
+      submitScale.setValue(1);
+    }
+  }, [disabled, submitScale]);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      submitScale.setValue(1);
+    }
+  }, [reduceMotion, submitScale]);
 
   const handleModeSelect = useCallback((next: Mode) => {
     setUiMode(next);
@@ -2203,28 +2264,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityIgnoresInvertColors
           />
         </View>
+        <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
+          {contextPrompt}
+        </Text>
         <View style={styles.inputBlock}>
           <MindDropInput
             value={note}
             onChangeText={handleChangeText}
             placeholder={placeholder}
-            placeholderTextColor="rgba(34,34,34,0.6)" // Phase 2B: slightly darker placeholder for contrast
+            placeholderTextColor="#66706A"
             containerStyle={styles.inputContainer}
             focusedStyle={styles.inputContainerFocused}
-            inputStyle={[
-              styles.input,
-              { height: inputHeight, paddingRight: 72, paddingBottom: 44 },
-            ]}
+            inputStyle={[styles.input, { height: inputHeight }]}
+            focusedInputStyle={styles.inputFocused}
             onFocusChange={handleInputFocusChange}
             autoFocus
             onContentSizeChange={handleInputContentSizeChange}
             scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
-            hudContainerStyle={styles.inputHud}
-            hudTextStyle={styles.inputHudText}
-            characterCount={note.length}
-            lockIconColor={c.goldenPear}
+            showHud={false}
           />
         </View>
+        {note.length > 0 ? (
+          <View style={styles.helperRow}>
+            <View style={styles.helperLeft}>
+              <Icon name="Lock" size="xs" color={c.goldenPear} strokeWidth={1.75} />
+              <Text testID="minddrop-privacy" style={styles.helperText} numberOfLines={1}>
+                Private & secure
+              </Text>
+            </View>
+            {note.length >= 1500 ? (
+              <Text
+                testID="minddrop-counter"
+                style={styles.helperCounter}
+              >{`${note.length}/2000`}</Text>
+            ) : null}
+          </View>
+        ) : null}
         {suggestions.length > 0 ? (
           <MidConfidenceChips
             suggestions={suggestions}
@@ -2241,30 +2316,36 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityRole="button"
             accessibilityLabel={isProcessing ? 'Organizing' : 'Drop to Gremly'}
             accessibilityState={{ busy: isProcessing, disabled }}
-            style={({ pressed }) => [
-              styles.submitButton,
-              disabled && styles.submitButtonDisabled,
-              pressed && !disabled && !isProcessing && styles.submitButtonPressed,
-            ]}
+            style={styles.submitPressable}
+            onPressIn={handleSubmitPressIn}
+            onPressOut={handleSubmitPressOut}
           >
-            <View style={styles.submitInnerRow}>
-              {isProcessing ? (
-                <Animated.View
+            <Animated.View
+              style={[
+                styles.submitButton,
+                isButtonVisuallyDisabled ? styles.submitButtonDisabled : styles.submitButtonActive,
+                { transform: [{ scale: submitScale }] },
+              ]}
+            >
+              <View style={styles.submitInnerRow}>
+                {isProcessing ? (
+                  <Animated.View
+                    style={[
+                      styles.submitPulse,
+                      reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                    ]}
+                  />
+                ) : null}
+                <Text
                   style={[
-                    styles.submitPulse,
-                    reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                    styles.submitLabel,
+                    isButtonVisuallyDisabled ? styles.submitLabelDisabled : null,
                   ]}
-                />
-              ) : null}
-              <Text
-                style={[
-                  styles.submitLabel,
-                  disabled && !isProcessing ? styles.submitLabelDisabled : null,
-                ]}
-              >
-                {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
-              </Text>
-            </View>
+                >
+                  {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
+                </Text>
+              </View>
+            </Animated.View>
           </Pressable>
           <View style={styles.submitMicrocopyContainer} pointerEvents="none">
             {isProcessing ? (
@@ -2280,14 +2361,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             ) : null}
           </View>
         </View>
-        <View style={styles.trustRow} testID="minddrop-trust">
-          <Text style={styles.trustStyled} testID="minddrop-trust-text">
-            <Text style={styles.trustNumber}>{organizedToday}</Text>
-            <Text style={styles.trustSuffix}>
-              {organizedToday === 1 ? ' thought organized today' : ' thoughts organized today'}
+        {organizedToday > 0 ? (
+          <View style={styles.trustRow} testID="minddrop-trust">
+            <Text style={styles.trustStyled} testID="minddrop-trust-text">
+              {`${organizedToday} thoughts organized today`}
             </Text>
-          </Text>
-        </View>
+          </View>
+        ) : null}
+        <View style={styles.sectionDivider} />
         {/* Recent Drops section */}
         <RecentDropsMemo
           refreshSignal={recentRefresh}
@@ -2305,6 +2386,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleInputFocusChange,
     handleInputContentSizeChange,
     placeholder,
+    contextPrompt,
     c.mutedSageText,
     c.goldenPear,
     c.linenCream,
@@ -2395,35 +2477,46 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Pressable>
       </Modal>
 
-      <View
-        style={[
-          styles.contentWrapper,
-          {
-            paddingTop: insets.top + 12,
-            paddingBottom: 16 + insets.bottom,
-          },
-        ]}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={insets.top + SPACE * 3}
       >
-        {content}
-      </View>
+        <View
+          style={[
+            styles.contentWrapper,
+            {
+              paddingTop: insets.top + SPACE * 3,
+              paddingBottom: insets.bottom + SPACE * 3,
+            },
+          ]}
+        >
+          {content}
+        </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
 export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
+  const space = SPACE;
+
   return StyleSheet.create({
     root: {
       flex: 1,
       backgroundColor: c.linenCream, // Phase 2: full-bleed background
     },
+    keyboardAvoider: {
+      flex: 1,
+    },
     contentWrapper: {
       flex: 1,
-      paddingHorizontal: 16,
+      paddingHorizontal: space * 2,
     },
     headerContainer: {
       position: 'relative',
       paddingRight: 84,
-      marginBottom: 12,
+      marginBottom: 0,
     },
 
     headerRow: {
@@ -2468,37 +2561,48 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       bottom: -16,
     },
 
+    contextPrompt: {
+      marginTop: space,
+      marginBottom: space * 2,
+      color: '#66706A',
+      fontFamily: 'Inter-Medium',
+      fontSize: 14,
+    },
+
     inputBlock: {
       position: 'relative',
+      marginTop: 0,
     },
     inputContainer: {
-      backgroundColor: c.linenCream,
+      width: '100%',
       borderRadius: 16,
-      padding: 24,
-      minHeight: 240,
-      borderWidth: 1,
-      borderColor: c.sageMist, // Phase 2: sageMist border
-      shadowColor: 'rgba(46,85,64,0.08)', // Phase 2: mossGreen-based shadow
-      shadowOpacity: 1,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 2,
+      padding: 0,
+      backgroundColor: 'transparent',
     },
     inputContainerFocused: {
-      borderColor: c.sageMist,
-      shadowColor: 'rgba(46,85,64,0.12)', // Phase 2: stronger on focus
-      shadowOpacity: 1,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 6,
+      borderRadius: 16,
+      shadowColor: 'rgba(46,85,64,0.1)',
+      shadowOpacity: Platform.OS === 'ios' ? 1 : 0,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 0 },
+      elevation: Platform.OS === 'android' ? 2 : 0,
     },
     input: {
-      color: c.charcoalInk, // Phase 2: default text color
+      width: '100%',
+      color: c.charcoalInk,
       fontSize: 18,
-      lineHeight: 26,
-      padding: 0,
+      lineHeight: INPUT_LINE_HEIGHT,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 16,
+      backgroundColor: '#F9F6F1',
+      borderWidth: 1,
+      borderColor: '#E0E0E0',
       textAlignVertical: 'top',
       fontFamily: 'Inter-Regular',
+    },
+    inputFocused: {
+      borderColor: '#2E5540',
     },
     inputHud: {
       position: 'absolute',
@@ -2515,6 +2619,30 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.mutedSageText, // Phase 2: muted text for HUD
       fontSize: 12,
       fontFamily: 'Inter-Regular',
+    },
+
+    helperRow: {
+      marginTop: space,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    helperLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space,
+      flexShrink: 1,
+    },
+    helperText: {
+      color: '#22222280',
+      fontFamily: 'Inter-Medium',
+      fontSize: 13,
+    },
+    helperCounter: {
+      color: '#22222280',
+      fontFamily: 'Inter-Medium',
+      fontSize: 13,
+      textAlign: 'right',
     },
 
     infoBackdrop: {
@@ -2589,25 +2717,40 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     submitButtonWrapper: {
-      marginTop: 24,
-      marginBottom: 16,
+      marginTop: space * 2,
+      marginBottom: 0,
+      width: '100%',
+    },
+    submitPressable: {
+      width: '100%',
+      borderRadius: 16,
     },
     submitButton: {
-      marginTop: 16,
-      height: 56,
-      borderRadius: 12,
+      width: '100%',
+      height: 48,
+      borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#2A4C3A',
+      paddingHorizontal: 20,
+      flexDirection: 'row',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowRadius: 8,
+      shadowOpacity: 0,
+      elevation: 0,
     },
-    submitButtonPressed: {
-      opacity: 0.9,
+    submitButtonActive: {
+      backgroundColor: '#2E5540',
+      shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
+      elevation: Platform.OS === 'android' ? 4 : 0,
     },
     submitButtonDisabled: {
-      backgroundColor: c.sageMist,
+      backgroundColor: '#BFD8C0',
+      shadowOpacity: 0,
+      elevation: 0,
     },
     submitLabel: {
-      color: c.linenCream,
+      color: '#F9F6F1',
       fontSize: 16,
       fontWeight: '600',
     },
@@ -2624,7 +2767,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: 12,
       height: 12,
       borderRadius: 6,
-      backgroundColor: c.linenCream,
+      backgroundColor: '#F9F6F1',
     },
     submitMicrocopyContainer: {
       minHeight: 18,
@@ -2633,30 +2776,33 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       justifyContent: 'center',
     },
     submitMicrocopy: {
-      color: c.linenCream,
+      color: '#2E5540',
       fontFamily: 'Inter-Medium',
       fontSize: 13,
     },
 
     trustRow: {
-      marginTop: 8,
+      marginTop: space * 3,
       alignItems: 'center',
       minHeight: 20,
     },
     trustStyled: {
       textAlign: 'center',
-      color: 'rgba(46,85,64,0.8)',
-    },
-    trustNumber: {
-      color: 'rgba(46,85,64,0.8)',
-      fontFamily: 'Inter-SemiBold',
-    },
-    trustSuffix: {
-      color: 'rgba(46,85,64,0.8)',
-      fontFamily: 'Inter-Regular',
+      color: '#222222',
+      fontFamily: 'Inter-Medium',
+      fontWeight: '500',
+      letterSpacing: -0.2,
     },
 
-    recentRoot: { marginTop: 8 },
+    sectionDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: 'rgba(46,85,64,0.06)',
+      marginTop: space * 3,
+      marginBottom: space,
+      borderRadius: 999,
+    },
+
+    recentRoot: { marginTop: 0 },
     recentHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2681,7 +2827,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentToggleActive: {
       textDecorationLine: 'none',
     },
-    recentList: { marginTop: 6, gap: 12 },
+    recentList: { marginTop: space, gap: 12 },
     recentCard: {
       backgroundColor: c.linenCream,
       borderRadius: 4,

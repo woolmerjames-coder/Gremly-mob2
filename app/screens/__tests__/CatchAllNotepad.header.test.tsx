@@ -107,11 +107,10 @@ describe('CatchAllNotepad header + info sheet', () => {
     mockGoBack.mockClear();
   });
 
-  it('renders header title and subtitle from copy', () => {
+  it('renders header title from copy', () => {
     const screen = render(<CatchAllNotepad />);
     expect(screen.getByTestId('minddrop-header')).toBeTruthy();
     expect(screen.getByText('Mind Drop')).toBeTruthy();
-    expect(screen.getByTestId('minddrop-subtitle')).toBeTruthy();
   });
 
   it('opens info sheet when header icon is pressed', () => {
