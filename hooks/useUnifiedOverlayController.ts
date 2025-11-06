@@ -4,27 +4,13 @@
  */
 import { useCallback, useRef } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
+import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
 
 type EntityType = CanonicalType;
 
 const CATCHALL_LABEL = 'catchall';
 const NEEDS_REVIEW_LABEL = 'needs_review';
-
-const mapNoteSubtypeToLogSubtype = (subtype?: string | null): LogSubtype => {
-  switch (subtype) {
-    case 'journal':
-      return 'journal';
-    case 'idea':
-      return 'idea';
-    case 'list':
-      return 'list';
-    case 'person':
-      return 'person';
-    default:
-      return 'everything_else';
-  }
-};
 
 interface ConversionMeta {
   origin?: string;
@@ -98,8 +84,8 @@ export function useUnifiedOverlayController() {
         entityType = 'unsorted';
         logSubtype = null;
       } else {
-        entityType = 'log';
-        logSubtype = mapNoteSubtypeToLogSubtype(recordSubtype ?? null);
+  entityType = 'log';
+  logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
       }
     } else {
       entityType = 'log';

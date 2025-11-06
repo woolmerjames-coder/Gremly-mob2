@@ -3,33 +3,9 @@ import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { haptics } from '../../../lib/haptics';
 import { env } from '../../../lib/env';
 import { kindToDisplayLabel } from '../../../lib/ui/kindToDisplayLabel';
+import type { ChipSuggestion } from '../../../lib/cortex/policy/chips';
 
-export type UISuggestion =
-  | {
-      type: 'create.todo';
-      label: string;
-      payload: {
-        name: string;
-        undefined_due: boolean;
-        due?: string | null;
-        due_date?: string | null;
-      };
-    }
-  | {
-      type: 'convert.log-list-to-todo';
-      label: string;
-      payload: { noteId: string | null; preserveState?: boolean };
-    }
-  | {
-      type: 'create.habit';
-      label: string;
-      payload: { name: string; freq: 'daily' | 'weekly' | 'monthly' };
-    }
-  | {
-      type: 'create.note';
-      label: string;
-      payload: { title: string; body: string; subtype: 'list' | 'journal' };
-    };
+export type UISuggestion = ChipSuggestion;
 
 const PALETTE = {
   todoBg: '#E6F0FF',
@@ -65,6 +41,10 @@ function deriveChipLabel(s: UISuggestion, canonicalTypesOn: boolean): string {
 
   if (s.payload.subtype === 'list') {
     return 'Save as list';
+  }
+
+  if (s.payload.subtype === 'idea') {
+    return 'Save as idea';
   }
 
   const display = kindToDisplayLabel('note', s.payload.subtype, canonicalTypesOn);

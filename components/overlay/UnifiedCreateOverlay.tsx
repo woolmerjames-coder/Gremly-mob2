@@ -200,17 +200,6 @@ export function UnifiedCreateOverlay({
     () => normalizeInitialSelection(initialEntity),
     [initialEntity],
   );
-  // Debug: Log when props change
-  useEffect(() => {
-    console.log('[UnifiedOverlay] Props changed:', {
-      visible,
-      mode,
-      initialEntityType: initialEntity?.type,
-      initialEntityId: initialEntity?.id,
-      initialSpaceId,
-    });
-  }, [visible, mode, initialEntity?.type, initialEntity?.id, initialSpaceId]);
-
   const insets = useSafeAreaInsets();
   const repo = useRepo();
   const cortex = useCortex();
@@ -221,14 +210,21 @@ export function UnifiedCreateOverlay({
   const lastLoadedIdRef = useRef<string | null>(null);
 
   // Feature flag checks
-  const useUnifiedOverlay =
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' || process.env.NODE_ENV === 'test';
+  const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
+  const unifiedOverlayEnabled =
+    CANONICAL_TYPES_ENABLED ||
+    unifiedOverlayFlag === undefined ||
+    (unifiedOverlayFlag ?? '').toLowerCase() === 'true' ||
+    (unifiedOverlayFlag ?? '').toLowerCase() === 'on';
+  const useUnifiedOverlay = unifiedOverlayEnabled || process.env.NODE_ENV === 'test';
   const usePhase8Features = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
 
   const aiDisabled = useMemo(() => {
     const raw = (process.env.EXPO_PUBLIC_DISABLE_AI ?? '').toLowerCase();
     return raw === 'on' || raw === 'true';
   }, []);
+
+  const shouldLogTransitions = __DEV__ || process.env.NODE_ENV === 'test';
 
   // Open-once guard: log only on first mount when visible
   const openedRef = useRef(false);
@@ -255,29 +251,30 @@ export function UnifiedCreateOverlay({
   // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
   const [selectedType, setSelectedType] = useState<EntityType | null>(normalizedInitialType);
   const [selectedLogSubtype, setSelectedLogSubtype] =
-    useState<LogSubtype>(normalizedInitialSubtype);
+    useState<LogSubtype | null>(normalizedInitialSubtype);
   const hasSyncedInitialTypeRef = useRef(false);
+  const lastHydratedSelectionRef = useRef<
+    { id: string | null; type: EntityType | null; logSubtype: LogSubtype | null } | null
+  >(null);
 
-  // Synchronously update selectedType when initialEntity changes (e.g., overlay reopened)
-  // This runs during render, before the DOM updates
-  if (
-    visible &&
-    !hasSyncedInitialTypeRef.current &&
-    (selectedType !== normalizedInitialType || selectedLogSubtype !== normalizedInitialSubtype)
-  ) {
-    hasSyncedInitialTypeRef.current = true;
-    setSelectedType(normalizedInitialType);
-    setSelectedLogSubtype(normalizedInitialSubtype);
-    if (__DEV__) {
-      console.log('[UnifiedOverlay] Sync type update during render:', {
-        type: normalizedInitialType,
-        logSubtype: normalizedInitialSubtype,
-      });
-    }
-  }
+  const normalizedInitialSelection = useMemo(
+    () => ({
+      type: normalizedInitialType,
+      logSubtype: normalizedInitialType === 'log' ? normalizedInitialSubtype : null,
+    }),
+    [normalizedInitialSubtype, normalizedInitialType],
+  );
+
+  const initialEntityId = initialEntity?.id ?? null;
 
   const [aiMode, setAiMode] = useState(false); // Explicit AI mode flag
   const [spaceId, setSpaceId] = useState<string | null | undefined>(initialSpaceId);
+
+  useEffect(() => {
+    if (selectedType !== 'log' && selectedLogSubtype !== null) {
+      setSelectedLogSubtype(null);
+    }
+  }, [selectedType, selectedLogSubtype]);
 
   useEffect(() => {
     if (mode === 'edit') {
@@ -291,9 +288,6 @@ export function UnifiedCreateOverlay({
   // CRITICAL: Overlay is persistent, so we need to update state when opened with new spaceId
   if (visible && initialSpaceId !== undefined && spaceId !== initialSpaceId) {
     setSpaceId(initialSpaceId);
-    if (__DEV__) {
-      console.log('[UnifiedOverlay] Sync spaceId update during render:', initialSpaceId);
-    }
   }
 
   // Helpers: normalize fields for repo insert schemas
@@ -313,6 +307,58 @@ export function UnifiedCreateOverlay({
     ? 'AI disabled — you can still save.'
     : 'AI temporarily unavailable — you can still save.';
   const showAiBanner = !aiReady || aiDisabled;
+
+  const prevHydrationRef = useRef<HydrationState>(hydration);
+  useEffect(() => {
+    if (prevHydrationRef.current !== hydration) {
+      if (shouldLogTransitions) {
+        console.log('[UnifiedOverlay] hydration change', {
+          from: prevHydrationRef.current,
+          to: hydration,
+        });
+      }
+      prevHydrationRef.current = hydration;
+    }
+  }, [hydration, shouldLogTransitions]);
+
+  const prevModeRef = useRef<typeof mode>(mode);
+  useEffect(() => {
+    if (prevModeRef.current !== mode) {
+      if (shouldLogTransitions) {
+        console.log('[UnifiedOverlay] mode change', {
+          from: prevModeRef.current,
+          to: mode,
+        });
+      }
+      prevModeRef.current = mode;
+    }
+  }, [mode, shouldLogTransitions]);
+
+  const prevSelectedTypeRef = useRef<EntityType | null>(selectedType);
+  useEffect(() => {
+    if (prevSelectedTypeRef.current !== selectedType) {
+      if (shouldLogTransitions) {
+        console.log('[UnifiedOverlay] selectedType change', {
+          from: prevSelectedTypeRef.current,
+          to: selectedType,
+        });
+      }
+      prevSelectedTypeRef.current = selectedType;
+    }
+  }, [selectedType, shouldLogTransitions]);
+
+  const prevInitialEntityIdRef = useRef<string | null>(initialEntityId);
+  useEffect(() => {
+    if (prevInitialEntityIdRef.current !== initialEntityId) {
+      if (shouldLogTransitions) {
+        console.log('[UnifiedOverlay] initialEntity change', {
+          from: prevInitialEntityIdRef.current,
+          to: initialEntityId,
+        });
+      }
+      prevInitialEntityIdRef.current = initialEntityId;
+    }
+  }, [initialEntityId, shouldLogTransitions]);
 
   // Animation for subtype chips and fields
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -403,13 +449,6 @@ export function UnifiedCreateOverlay({
   const hasOverflowActions =
     canonicalConversionsEnabled && (canConvertLogListToTodo || canConvertTodoToLogList);
 
-  useEffect(() => {
-    if (!visible) return;
-    if (initialEntity?.type === 'log') {
-      setSelectedLogSubtype(initialEntity.logSubtype ?? DEFAULT_LOG_SUBTYPE);
-    }
-  }, [initialEntity?.logSubtype, initialEntity?.type, visible]);
-
   // Phase 8: Tags and People linking state
   const getItemType = (): ItemType | null => {
     if (!selectedType) return null;
@@ -463,19 +502,6 @@ export function UnifiedCreateOverlay({
 
     setSelectedLogSubtype('person');
   }, [visible, mode, selectedType, selectedLogSubtype, phase8Links.linkedPeople]);
-
-  // Debug logging for state
-  if (__DEV__ && visible) {
-    console.log('[UnifiedOverlay] Render state:', {
-      mode,
-      selectedType,
-      hydration,
-      aiMode,
-      hasInitialEntity: !!initialEntity,
-      initialEntityType: initialEntity?.type,
-      initialEntityId: initialEntity?.id,
-    });
-  }
 
   // Validation logic
   const getValidationState = (): { isValid: boolean; hint: string | null } => {
@@ -659,7 +685,7 @@ export function UnifiedCreateOverlay({
 
               if (isUnsorted) {
                 setSelectedType('unsorted');
-                setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
+                setSelectedLogSubtype(null);
               } else {
                 const inferredSubtype: LogSubtype = (() => {
                   switch (entity.subtype) {
@@ -696,42 +722,27 @@ export function UnifiedCreateOverlay({
       originalEntityRef.current = null;
       lastLoadedIdRef.current = null;
       hasSyncedInitialTypeRef.current = false;
+      lastHydratedSelectionRef.current = null;
       return;
-    }
-
-    if (__DEV__) {
-      console.log('[UnifiedOverlay] Init effect:', {
-        mode,
-        initialEntityType: initialEntity?.type,
-        initialEntityId: initialEntity?.id,
-        currentSelectedType: selectedType,
-        visible,
-      });
     }
 
     if (mode === 'edit' && initialEntity && initialEntity.type) {
       // Only enforce the initial type while hydrating; once ready, respect user changes
       if (
         hydration !== 'ready' &&
-        (selectedType !== normalizedInitialType || selectedLogSubtype !== normalizedInitialSubtype)
+        (selectedType !== normalizedInitialType ||
+          (normalizedInitialSelection.type === 'log'
+            ? selectedLogSubtype !== normalizedInitialSelection.logSubtype
+            : selectedLogSubtype !== null))
       ) {
         setSelectedType(normalizedInitialType);
-        setSelectedLogSubtype(normalizedInitialSubtype);
-        if (__DEV__) {
-          console.log('[UnifiedOverlay] Correcting type for edit:', {
-            type: normalizedInitialType,
-            logSubtype: normalizedInitialSubtype,
-          });
+        if (normalizedInitialSelection.type === 'log') {
+          setSelectedLogSubtype(normalizedInitialSelection.logSubtype ?? DEFAULT_LOG_SUBTYPE);
+        } else {
+          setSelectedLogSubtype(null);
         }
       }
       setAiMode(false); // No AI mode in edit
-
-      if (__DEV__) {
-        console.log('[UnifiedOverlay] Setting type for edit:', {
-          type: normalizedInitialType,
-          logSubtype: normalizedInitialSubtype,
-        });
-      }
 
       // Load entity data
       if (initialEntity.id) {
@@ -762,12 +773,10 @@ export function UnifiedCreateOverlay({
       ) {
         hasSyncedInitialTypeRef.current = true;
         setSelectedType(normalizedInitialType);
-        setSelectedLogSubtype(normalizedInitialSubtype);
-        if (__DEV__) {
-          console.log('[UnifiedOverlay] Correcting type for create:', {
-            type: normalizedInitialType,
-            logSubtype: normalizedInitialSubtype,
-          });
+        if (normalizedInitialSelection.type === 'log') {
+          setSelectedLogSubtype(normalizedInitialSelection.logSubtype ?? DEFAULT_LOG_SUBTYPE);
+        } else {
+          setSelectedLogSubtype(null);
         }
       }
       // Animate fields in when type is auto-selected
@@ -781,6 +790,58 @@ export function UnifiedCreateOverlay({
       }
     }
   }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim, hydration]);
+
+  useEffect(() => {
+    if (mode !== 'edit') return;
+    if (hydration !== 'ready') return;
+    if (!initialEntity?.id) return;
+
+    const derivedType = normalizedInitialSelection.type;
+    const derivedLogSubtype = normalizedInitialSelection.logSubtype;
+
+    if (!derivedType) return;
+
+    const lastSelection = lastHydratedSelectionRef.current;
+    const hasSelectionChanged =
+      !lastSelection ||
+      lastSelection.id !== initialEntity.id ||
+      lastSelection.type !== derivedType ||
+      lastSelection.logSubtype !== (derivedLogSubtype ?? null);
+
+    if (!hasSelectionChanged) {
+      return;
+    }
+
+    lastHydratedSelectionRef.current = {
+      id: initialEntity.id,
+      type: derivedType,
+      logSubtype: derivedLogSubtype ?? null,
+    };
+
+    if (selectedType !== derivedType) {
+      setSelectedType(derivedType);
+    }
+
+    if (derivedType !== 'log') {
+      if (selectedLogSubtype !== null) {
+        setSelectedLogSubtype(null);
+      }
+      return;
+    }
+
+    const nextLogSubtype = derivedLogSubtype ?? DEFAULT_LOG_SUBTYPE;
+    if (selectedLogSubtype !== nextLogSubtype) {
+      setSelectedLogSubtype(nextLogSubtype);
+    }
+  }, [
+    hydration,
+    initialEntity?.id,
+    mode,
+    normalizedInitialSelection.logSubtype,
+    normalizedInitialSelection.type,
+    selectedLogSubtype,
+    selectedType,
+  ]);
 
   // Phase 10.7C: Prefill from conversionMeta
   useEffect(() => {
@@ -899,7 +960,7 @@ export function UnifiedCreateOverlay({
     setAiMode(false);
     setHydration('idle');
     setFreeformText('');
-    setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
+  setSelectedLogSubtype(null);
     setHabitName('');
     setHabitFrequency('daily');
     setHabitSubtype(null);
@@ -1022,7 +1083,7 @@ export function UnifiedCreateOverlay({
         setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
       }
     } else {
-      setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
+      setSelectedLogSubtype(null);
     }
     setAiMode(false); // Exit AI mode when selecting a type
     // Fade in fields
@@ -1042,7 +1103,7 @@ export function UnifiedCreateOverlay({
     // When entering AI mode, clear type selection
     if (nextAiMode) {
       setSelectedType(null);
-      setSelectedLogSubtype(DEFAULT_LOG_SUBTYPE);
+      setSelectedLogSubtype(null);
     } else {
       // When exiting AI mode, restore default type via standard handler
       handleTypeSelect('todo');
@@ -2263,16 +2324,6 @@ export function UnifiedCreateOverlay({
                 // Render fields only when ready (or in create mode which is always ready)
                 const canRenderFields =
                   mode === 'create' || (mode === 'edit' && hydration === 'ready');
-
-                if (__DEV__) {
-                  console.log('[UnifiedOverlay] Render guard check:', {
-                    mode,
-                    hydration,
-                    selectedType,
-                    canRenderFields,
-                    aiMode,
-                  });
-                }
 
                 if (!canRenderFields) {
                   return null;

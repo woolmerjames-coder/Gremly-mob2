@@ -68,6 +68,7 @@ describe('UnifiedCreateOverlay – Canonical Logs', () => {
   beforeEach(() => {
     mockRepo = {
       create: jest.fn().mockResolvedValue({ id: 'note-123', type: 'note' }),
+      createPerson: jest.fn().mockResolvedValue({ id: 'person-123', type: 'person' }),
       update: jest.fn(),
       remove: jest.fn(),
       listTags: jest.fn().mockResolvedValue([]),
@@ -174,19 +175,39 @@ describe('UnifiedCreateOverlay – Canonical Logs', () => {
     await waitFor(() => expect(getByTestId(`log-subtype-${logSubtype}`)).toBeTruthy());
 
     fireEvent.press(getByTestId(`log-subtype-${logSubtype}`));
-    await waitFor(() => expect(getByTestId('note-body')).toBeTruthy());
 
-    fireEvent.changeText(getByTestId('note-body'), `Body for ${logSubtype}`);
+    if (logSubtype === 'person') {
+      await waitFor(() => expect(getByTestId('person-name')).toBeTruthy());
+      fireEvent.changeText(getByTestId('person-name'), 'Ada Lovelace');
+      fireEvent.changeText(getByTestId('person-notes'), `Body for ${logSubtype}`);
+    } else {
+      await waitFor(() => expect(getByTestId('note-body')).toBeTruthy());
+      fireEvent.changeText(getByTestId('note-body'), `Body for ${logSubtype}`);
+    }
 
     fireEvent.press(getByTestId('save-to-hub'));
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
-    expect(mockRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'note', subtype: expectedSubtype }),
-    );
+    const repoMethod = logSubtype === 'person' ? mockRepo.createPerson : mockRepo.create;
+
+    await waitFor(() => expect(repoMethod).toHaveBeenCalled());
+
+    if (logSubtype === 'person') {
+      expect(mockRepo.createPerson).toHaveBeenCalledWith(
+        expect.objectContaining({ display_name: 'Ada Lovelace' }),
+      );
+      expect(mockRepo.create).not.toHaveBeenCalled();
+    } else {
+      expect(mockRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'note', subtype: expectedSubtype }),
+      );
+    }
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    mockRepo.create.mockClear();
+    if (logSubtype === 'person') {
+      mockRepo.createPerson.mockClear();
+    } else {
+      mockRepo.create.mockClear();
+    }
   });
 
   it('saves journal subtype using canonical adapter and journal fields', async () => {

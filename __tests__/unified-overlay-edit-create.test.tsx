@@ -89,7 +89,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="create"
-          initialEntity={{ type: 'journal', subtype: null }}
+          initialEntity={{ type: 'journal', logSubtype: 'journal' }}
           onClose={jest.fn()}
         />,
       );
@@ -110,7 +110,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="create"
-          initialEntity={{ type: 'habit', subtype: null }}
+          initialEntity={{ type: 'habit' }}
           onClose={jest.fn()}
         />,
         { includeNavigation: true },
@@ -153,7 +153,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="edit"
-          initialEntity={{ type: 'todo', id: 'todo-1', subtype: null }}
+          initialEntity={{ type: 'todo', id: 'todo-1' }}
           onClose={jest.fn()}
         />,
       );
@@ -190,7 +190,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="edit"
-          initialEntity={{ type: 'habit', id: 'habit-1', subtype: 'start_habit' }}
+          initialEntity={{ type: 'habit', id: 'habit-1' }}
           onClose={jest.fn()}
         />,
         { includeNavigation: true },
@@ -233,7 +233,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="edit"
-          initialEntity={{ type: 'note', id: 'note-1', subtype: null }}
+          initialEntity={{ type: 'note', id: 'note-1', logSubtype: null }}
           onClose={jest.fn()}
         />,
       );
@@ -251,7 +251,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="edit"
-          initialEntity={{ type: 'todo', id: 'invalid-id', subtype: null }}
+          initialEntity={{ type: 'todo', id: 'invalid-id' }}
           onClose={jest.fn()}
         />,
       );
@@ -270,7 +270,7 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="create"
-          initialEntity={{ type: 'habit', subtype: null }}
+          initialEntity={{ type: 'habit' }}
           onClose={jest.fn()}
         />,
         { includeNavigation: true },

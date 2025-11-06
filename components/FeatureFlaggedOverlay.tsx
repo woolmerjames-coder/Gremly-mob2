@@ -29,6 +29,12 @@ import type { ManualAddPayload } from '../app/schemas/manualAdd';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import type { OverlaySavedPayload } from '../lib/events/overlaySaved';
 
+const isFlagEnabled = (value?: string | null): boolean => {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return normalized === 'on' || normalized === 'true';
+};
+
 type EntityType = CanonicalType;
 
 interface FeatureFlaggedOverlayProps {
@@ -52,9 +58,12 @@ export function FeatureFlaggedOverlay({
   onClose,
   onSaved,
 }: FeatureFlaggedOverlayProps) {
+  const canonicalTypesOn = isFlagEnabled(process.env.EXPO_PUBLIC_CANONICAL_TYPES);
+  const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
   const useUnifiedOverlay =
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' ||
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === undefined; // Default to true
+    canonicalTypesOn ||
+    isFlagEnabled(unifiedOverlayFlag) ||
+    unifiedOverlayFlag === undefined; // Default to true when unset
 
   if (useUnifiedOverlay) {
     // Phase 7: Use unified overlay

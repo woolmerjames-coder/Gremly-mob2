@@ -155,7 +155,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-        initialEntity={{ type: 'todo', id: undefined, subtype: null }}
+  initialEntity={{ type: 'todo', id: undefined }}
         initialSpaceId="space_123"
         conversionMeta={{
           origin: 'space_chat',
@@ -193,7 +193,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-        initialEntity={{ type: 'note', id: undefined, subtype: null }}
+  initialEntity={{ type: 'note', id: undefined, logSubtype: null }}
         initialSpaceId="space_456"
         conversionMeta={{
           origin: 'space_chat',
@@ -240,7 +240,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-        initialEntity={{ type: 'habit', id: undefined, subtype: null }}
+  initialEntity={{ type: 'habit', id: undefined }}
         initialSpaceId={null}
         conversionMeta={{
           origin: 'space_chat',
@@ -293,7 +293,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-        initialEntity={{ type: 'todo', id: undefined, subtype: null }}
+  initialEntity={{ type: 'todo', id: undefined }}
         initialSpaceId="space_123"
         conversionMeta={{
           origin: 'space_chat',
@@ -318,7 +318,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-        initialEntity={{ type: 'todo', id: undefined, subtype: null }}
+  initialEntity={{ type: 'todo', id: undefined }}
         initialSpaceId="space_123"
         // No conversionMeta provided
         onClose={onClose}

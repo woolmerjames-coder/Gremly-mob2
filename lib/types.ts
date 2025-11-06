@@ -92,6 +92,7 @@ export interface Todo {
   views?: {
     alsoShowIn?: string[];
   };
+  source_message_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
@@ -118,6 +119,7 @@ export interface Note {
   views?: {
     alsoShowIn?: string[];
   };
+  source_message_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;

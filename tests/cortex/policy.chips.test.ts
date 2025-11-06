@@ -84,6 +84,26 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
       });
     });
 
+    it('adds list heuristic chips for bullet notes', () => {
+      const chips = buildMindDropAskChips({
+        text: '- [ ] Pack passport\n- Buy snacks',
+        probable: 'unknown',
+        confidence: 0.4,
+      });
+
+      const listNote = chips.find((chip) => chip.type === 'create.note' && chip.label === 'Save as list');
+      expect(listNote).toMatchObject({ reason: 'list-heuristic', payload: { subtype: 'list' } });
+
+      const checklist = chips.find(
+        (chip) => chip.type === 'create.todo' && chip.label === 'Create To-do checklist',
+      );
+      expect(checklist).toBeTruthy();
+      if (checklist && checklist.type === 'create.todo') {
+        expect(checklist.reason).toBe('list-heuristic');
+        expect(checklist.payload.undefined_due).toBe(true);
+      }
+    });
+
     it('falls back to journal note when no list cues', () => {
       const chips = buildMindDropAskChips({
         text: 'Thought about focus and deep work',
@@ -217,6 +237,24 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
       const labels = chips.map((c) => c.label);
       expect(labels).toContain('Save as list');
     });
+
+    it('surfaces idea heuristic chips for brainstorm phrasing', () => {
+      const chips = buildMindDropAskChips({
+        text: 'Maybe we could automate the onboarding emails next sprint.',
+        probable: 'unknown',
+        confidence: 0.55,
+      });
+
+      const ideaNote = chips.find((chip) => chip.type === 'create.note' && chip.label === 'Save as idea');
+      expect(ideaNote).toMatchObject({ reason: 'idea-heuristic', payload: { subtype: 'idea' } });
+
+      const ideaTodo = chips.find((chip) => chip.type === 'create.todo' && chip.label === 'Create To-do');
+      expect(ideaTodo).toBeTruthy();
+      if (ideaTodo && ideaTodo.type === 'create.todo') {
+        expect(ideaTodo.reason).toBe('idea-heuristic');
+        expect(ideaTodo.payload.name).toContain('automate the onboarding emails');
+      }
+    });
   });
 
   describe('Mid-confidence chips policy (polish)', () => {
@@ -273,5 +311,26 @@ describe('buildMindDropAskChips (canonical flag off)', () => {
     const labels = chips.map((c) => c.label);
     expect(labels).toContain(LEGACY_LOG_LABEL);
     expect(labels).not.toContain('Save as log');
+  });
+
+  it('applies legacy heuristic chip labels when canonical types disabled', () => {
+    const buildMindDropAskChips = loadChips('off');
+    const chips = buildMindDropAskChips({
+      text: '- Buy milk\n- Buy bread',
+      probable: 'unknown',
+      confidence: 0.4,
+    });
+
+    const listLabel = chips.map((c) => c.label);
+    expect(listLabel).toContain('Save as note (list)');
+
+    const ideaChips = buildMindDropAskChips({
+      text: 'Maybe we could explore a new pricing plan',
+      probable: 'unknown',
+      confidence: 0.5,
+    });
+
+    const ideaLabels = ideaChips.map((c) => c.label);
+    expect(ideaLabels).toContain('Save as note (idea)');
   });
 });

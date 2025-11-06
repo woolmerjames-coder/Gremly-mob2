@@ -113,18 +113,10 @@ const SYSTEM_PROMPT = `
 You are Gremly's classification engine. Output ONLY a single JSON object, nothing else. Do not greet or explain.
 Analyze the user's text and decide if it should be a habit, todo, or note for the Mind Drop system.
 
-Examples:
-- "Call mom tomorrow" → todo (specific action with time reference)
-- "Exercise every morning" → habit (recurring pattern)
-- "Meeting went well, client loved the demo" → note (past event, reflection)
-- "Remember to buy milk" → todo (action verb with intent)
-- "Drink 8 glasses of water daily" → habit (daily routine)
-- "Thoughts on the new project direction" → note (reflection, no action)
-
 Schema:
 {
   "type": "habit|todo|note",
-  "subtype": "journal|list|catchall",
+  "subtype": "journal|list|idea|catchall",
   "aiPlaced": boolean,
   "whyString": string,
   "frequency": "daily|weekly|monthly",
@@ -138,11 +130,32 @@ Rules:
   - habit: "habit","routine","practice"
   - note: "note","journal","thought","idea","list"
 - If "appointment" or "schedule" is implied, treat as todo (subtype => "catchall").
+- If the text has multiple lines that start with list markers ('-', '*', numbers like '1)', or checkbox '- [ ]'), classify as note.list.
+- If the text begins with "Idea:" or includes ideation phrases ("what if", "we could", "maybe we", "I have an idea", "could we"), classify as note.idea unless it is a direct question ending with '?'.
 - For type="habit", frequency must be one of: "daily","weekly","monthly" (default "daily" if unclear).
 - For type="todo", set "undefinedDue": true unless an explicit non-today due date is provided elsewhere (you must NOT schedule for today).
-- For type="note", subtype must be "journal","list", or "catchall" (default "catchall").
+- For type="note", subtype must be "journal","list", "idea", or "catchall" (default "catchall" when uncertain).
 - Always provide a concise "whyString" that explains the classification logic.
 - aiPlaced=true for "todo" and "habit"; aiPlaced=false for "note" when subtype="catchall".
+
+Examples:
+User: "Call mom tomorrow"
+Class: todo.catchall (specific action with time reference)
+
+User: "- [ ] Pack sunglasses\n- [ ] Refill sunscreen\n- [ ] Buy a beach hat"
+Class: note.list (multi-line checklist)
+
+User: "Idea: offline-first packing list app"
+Class: note.idea (ideation statement)
+
+User: "What if we build an automated summary bot"
+Class: note.idea (ideation phrase without direct question)
+
+User: "What should we do in Puerto Escondido?"
+Class: note.catchall (open question)
+
+User: "Exercise every morning"
+Class: habit (recurring behavior)
 `;
 
 function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
@@ -163,7 +176,10 @@ function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
     return { type: 'todo', undefinedDue, aiPlaced, whyString };
   }
 
-  const subtype = raw.subtype === 'journal' || raw.subtype === 'list' ? raw.subtype : 'catchall';
+  const subtype =
+    raw.subtype === 'journal' || raw.subtype === 'list' || raw.subtype === 'idea'
+      ? raw.subtype
+      : 'catchall';
   return {
     type: 'note',
     subtype,
@@ -295,10 +311,10 @@ export class OpenAiEngine implements ICortexEngine {
           }),
         },
 
-        // Note catchall
+        // Multi-line list
         {
           role: 'user',
-          content: 'Ideas for weekend trip',
+          content: '- [ ] Pack sunglasses\n- [ ] Refill sunscreen\n- [ ] Buy a beach hat',
         },
         {
           role: 'assistant',
@@ -306,7 +322,41 @@ export class OpenAiEngine implements ICortexEngine {
             type: 'note',
             subtype: 'list',
             aiPlaced: true,
-            whyString: 'Non-actionable list capture.',
+            whyString: 'Detected checklist list capture.',
+            frequency: 'daily',
+            undefinedDue: true,
+          }),
+        },
+
+        // Idea statement
+        {
+          role: 'user',
+          content: 'Idea: offline-first packing list app',
+        },
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            type: 'note',
+            subtype: 'idea',
+            aiPlaced: true,
+            whyString: 'Recognized ideation phrasing.',
+            frequency: 'daily',
+            undefinedDue: true,
+          }),
+        },
+
+        // Open-ended question → catchall note
+        {
+          role: 'user',
+          content: 'What should we do in Puerto Escondido?',
+        },
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            type: 'note',
+            subtype: 'catchall',
+            aiPlaced: false,
+            whyString: 'Detected open question without action.',
             frequency: 'daily',
             undefinedDue: true,
           }),

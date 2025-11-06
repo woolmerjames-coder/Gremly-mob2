@@ -12,6 +12,8 @@ import { createCortexEngine } from '../../cortex/createEngine';
 import type { CortexInput } from '../../cortex/ICortexEngine';
 import { type DecisionMode } from './thresholds';
 import { buildMindDropAskChips, type ChipSuggestion } from '../cortex/policy/chips';
+import { analyzeListShape } from './policy/listHeuristics';
+import { analyzeIdeaShape } from './policy/ideaHeuristics';
 import {
   explainFiledToSpace,
   explainAddedToList,
@@ -25,7 +27,7 @@ import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
 import { buildHabitFields, buildTodoFields } from './textNormalization';
-import type { CanonicalType, LogSubtype } from '../types';
+import type { CanonicalType, LogSubtype, NoteSubtype } from '../types';
 import { canonicalToPersisted } from '../canonical';
 
 // Re-export lane types for convenience
@@ -74,7 +76,7 @@ export type CortexAction =
     }
   | {
       type: 'create.note';
-      payload: { text: string; subtype?: 'journal' | 'catchall' | 'note'; spaceId?: string | null };
+      payload: { text: string; subtype?: NoteSubtype | 'note' | null; spaceId?: string | null };
     }
   | {
       type: 'add.to.list';
@@ -195,6 +197,10 @@ export async function cortexDecide(
     // Detect intent up-front for fast-path routing when highly confident
     const userText = input.text || (input.structured ? JSON.stringify(input.structured) : '');
     const detected = detectIntent(userText);
+    const listAnalysis = analyzeListShape(userText);
+    const ideaAnalysis = analyzeIdeaShape(userText);
+    const listHeuristicTriggered = listAnalysis.score >= 0.6;
+    const ideaHeuristicTriggered = ideaAnalysis.score >= 0.5;
 
     console.log('[DEBUG][cortexDecide] Intent detected:', {
       text: userText.substring(0, 50),
@@ -202,6 +208,16 @@ export async function cortexDecide(
       confidence: detected.confidence,
       suppressChips: detected.suppressChips,
       isMetaComment: (detected as any).isMetaComment,
+      listHeuristic: {
+        score: Number(listAnalysis.score.toFixed(2)),
+        matches: listAnalysis.matches,
+        triggered: listHeuristicTriggered,
+      },
+      ideaHeuristic: {
+        score: Number(ideaAnalysis.score.toFixed(2)),
+        matches: ideaAnalysis.matches.length,
+        triggered: ideaHeuristicTriggered,
+      },
     });
 
     // Create engine instance
@@ -419,8 +435,19 @@ export async function cortexDecide(
     const preferHabitAuto =
       (probable === 'habit' || habitByText) && !hasDate && confidence >= habitAutoFloor;
 
+    const listHeuristicApplied = listHeuristicTriggered;
+    const ideaHeuristicApplied =
+      ideaHeuristicTriggered && !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
+
+  const forceListAsk = listHeuristicApplied;
+  const forceIdeaAsk = ideaHeuristicApplied;
+  const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.5;
+
     const shouldAuto =
-      candidateActions.length > 0 && (confidence > autoThreshold || preferHabitAuto);
+      !forceListAsk &&
+      !forceIdeaAsk &&
+      candidateActions.length > 0 &&
+      (confidence > autoThreshold || preferHabitAuto);
 
     let mode: DecisionMode = 'keep';
 
@@ -432,13 +459,22 @@ export async function cortexDecide(
       mode = 'ask';
     }
 
+    if (forceListAsk || forceIdeaAsk) {
+      mode = 'ask';
+    }
+
     const listActionLowRisk =
       normalizedCtx.uiSurface === 'overlay' &&
       hasConfidence &&
       confidence <= autoThreshold &&
       candidateActions.some((action) => action.type === 'add.to.list');
 
-    if (mode === 'auto' && listActionLowRisk) {
+    const autoTodoWithStrongList =
+      mode === 'auto' &&
+      listStrong &&
+      candidateActions.some((action) => action.type === 'create.todo');
+
+    if (mode === 'auto' && (listActionLowRisk || autoTodoWithStrongList)) {
       mode = 'ask';
     }
 
@@ -468,14 +504,23 @@ export async function cortexDecide(
     const inMidConfidenceBand =
       hasConfidence && confidence >= midLower && confidence < autoThreshold;
 
-    const chipSuggestions =
-      mode === 'ask'
-        ? buildMindDropAskChips({
-            text: userText,
-            probable,
-            confidence: hasConfidence ? confidence : 0,
-          }).map((c) => ({ ...c }))
-        : [];
+    let chipSuggestions: ChipSuggestion[] = [];
+    if (mode === 'ask') {
+      const baseChips = buildMindDropAskChips({
+        text: userText,
+        probable,
+        confidence: hasConfidence ? confidence : 0,
+      }).map((c) => ({ ...c }));
+      const heuristicChips: ChipSuggestion[] = [];
+      if (listHeuristicApplied) {
+        heuristicChips.push(...buildListHeuristicChips(userText));
+      }
+      if (ideaHeuristicApplied) {
+        heuristicChips.push(...buildIdeaHeuristicChips(userText));
+      }
+
+      chipSuggestions = dedupeChipSuggestions([...baseChips, ...heuristicChips]);
+    }
 
     let suggestions: CortexSuggestion[] = [];
     if (mode === 'ask') {
@@ -501,6 +546,49 @@ export async function cortexDecide(
         ? explainAmbiguous(tone, suggestionLabels)
         : generateExplanation(candidateActions, mode, tone, normalizedCtx);
 
+    const candidateCanonical = canonicalFromAction(candidateActions[0]);
+    const canonicalHint = listHeuristicApplied
+      ? {
+          canonicalType: 'log' as CanonicalType,
+          canonicalSubtype: 'list' as LogSubtype,
+          score: listAnalysis.score,
+          reasons: [...listAnalysis.reasons],
+          source: 'list-heuristic' as const,
+        }
+      : ideaHeuristicApplied
+        ? {
+            canonicalType: 'log' as CanonicalType,
+            canonicalSubtype: 'idea' as LogSubtype,
+            score: ideaAnalysis.score,
+            reasons: [...ideaAnalysis.reasons],
+            source: 'idea-heuristic' as const,
+          }
+        : null;
+
+    const effectiveCanonicalType =
+      canonicalHint?.canonicalType ??
+      normalized.canonicalType ??
+      candidateCanonical.canonicalType;
+
+    const effectiveCanonicalSubtype =
+      canonicalHint?.canonicalSubtype ??
+      normalized.canonicalSubtype ??
+      candidateCanonical.canonicalSubtype ??
+      null;
+
+    const heuristicsMeta = {
+      list: {
+        ...listAnalysis,
+        triggered: listHeuristicTriggered,
+        applied: listHeuristicApplied,
+      },
+      idea: {
+        ...ideaAnalysis,
+        triggered: ideaHeuristicTriggered,
+        applied: ideaHeuristicApplied,
+      },
+    };
+
     const result: CortexResponse = {
       ...safeResult,
       actions: mode === 'auto' ? candidateActions : [],
@@ -514,8 +602,12 @@ export async function cortexDecide(
           (chipSuggestions.length > 0 || inMidConfidenceBand) &&
           suggestions.some((suggestion) => typeof suggestion !== 'string'),
         candidateActions,
-        canonicalType: normalized.canonicalType,
-        canonicalSubtype: normalized.canonicalSubtype ?? null,
+        canonicalType: effectiveCanonicalType,
+        canonicalSubtype: effectiveCanonicalSubtype,
+        listHeuristicTriggered: listHeuristicApplied,
+        ideaHeuristicTriggered: ideaHeuristicApplied,
+        heuristics: heuristicsMeta,
+        canonicalHint: canonicalHint ?? undefined,
       },
     };
 
@@ -579,6 +671,89 @@ function looksHabitText(text: string): boolean {
  * Extract item text from shopping list or similar add-to-list commands
  * @internal
  */
+function buildListHeuristicChips(text: string): ChipSuggestion[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const canonicalTypesOn = env.feature.canonicalTypes;
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const heading = lines[0] ?? trimmed;
+
+  const todoFields = buildTodoFields(trimmed, undefined, { inferDueFromText: true });
+  const due = todoFields.due ?? null;
+  const listNoteLabel = canonicalTypesOn ? 'Save as list' : 'Save as note (list)';
+
+  return [
+    {
+      type: 'create.note',
+      label: listNoteLabel,
+      payload: {
+        title: heading,
+        body: trimmed,
+        subtype: 'list',
+      },
+      reason: 'list-heuristic',
+    },
+    {
+      type: 'create.todo',
+      label: 'Create To-do checklist',
+      payload: {
+        name: todoFields.title || heading,
+        undefined_due: !due,
+        due,
+        due_date: due,
+      },
+      reason: 'list-heuristic',
+    },
+  ];
+}
+
+function buildIdeaHeuristicChips(text: string): ChipSuggestion[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const canonicalTypesOn = env.feature.canonicalTypes;
+  const ideaNoteLabel = canonicalTypesOn ? 'Save as idea' : 'Save as note (idea)';
+  const todoFields = buildTodoFields(trimmed, undefined, { inferDueFromText: true });
+  const due = todoFields.due ?? null;
+
+  return [
+    {
+      type: 'create.note',
+      label: ideaNoteLabel,
+      payload: {
+        title: trimmed,
+        body: trimmed,
+        subtype: 'idea',
+      },
+      reason: 'idea-heuristic',
+    },
+    {
+      type: 'create.todo',
+      label: 'Create To-do',
+      payload: {
+        name: todoFields.title,
+        undefined_due: !due,
+        due,
+        due_date: due,
+      },
+      reason: 'idea-heuristic',
+    },
+  ];
+}
+
+function dedupeChipSuggestions(chips: ChipSuggestion[]): ChipSuggestion[] {
+  const seen = new Set<string>();
+  const result: ChipSuggestion[] = [];
+  for (const chip of chips) {
+    const key = `${chip.type}:${chip.label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(chip);
+  }
+  return result;
+}
+
 function extractItemFromText(text: string): string {
   // Matches: "add oats to my shopping list", "put milk in shopping list", "add 'peanut butter' to groceries"
   const regexes = [
@@ -625,6 +800,43 @@ function convertTodoListCommandToTodo(text: string): { title: string; due?: stri
   }
 
   return { title: todoFields.title, due: todoFields.due };
+}
+
+function canonicalFromAction(
+  action: CortexAction | undefined,
+): { canonicalType?: CanonicalType; canonicalSubtype?: LogSubtype | null } {
+  if (!action) {
+    return { canonicalType: undefined, canonicalSubtype: null };
+  }
+
+  switch (action.type) {
+    case 'create.todo':
+      return { canonicalType: 'todo', canonicalSubtype: null };
+    case 'create.habit':
+      return { canonicalType: 'habit', canonicalSubtype: null };
+    case 'create.note': {
+      const subtype = action.payload.subtype ?? null;
+      if (!subtype) {
+        return { canonicalType: 'unsorted', canonicalSubtype: null };
+      }
+
+      switch (subtype) {
+        case 'journal':
+        case 'idea':
+        case 'list':
+          return { canonicalType: 'log', canonicalSubtype: subtype };
+        case 'reference':
+          return { canonicalType: 'log', canonicalSubtype: 'everything_else' };
+        case 'catchall':
+        default:
+          return { canonicalType: 'unsorted', canonicalSubtype: null };
+      }
+    }
+    case 'add.to.list':
+      return { canonicalType: 'log', canonicalSubtype: 'list' };
+    default:
+      return { canonicalType: undefined, canonicalSubtype: null };
+  }
 }
 
 /**

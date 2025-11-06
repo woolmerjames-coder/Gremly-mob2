@@ -120,7 +120,7 @@ describe('UnifiedCreateOverlay – Legacy Note Labels', () => {
 
   it('renders "Note" label for the log type pill when canonical types disabled', () => {
     const { getByTestId } = renderOverlay();
-    const logChip = getByTestId('type-pill-log');
+  const logChip = getByTestId('type-pill-everything_else');
     expect(within(logChip).getByText('Note')).toBeTruthy();
   });
 });

@@ -1,8 +1,76 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
+import { env } from '../../../lib/env';
+
+let mockRepo: any;
+let mockAuth: any;
+let mockTheme: any;
+let mockCortex: any;
+
+jest.mock('../../../providers/RepoProvider', () => ({
+  __esModule: true,
+  useRepo: () => mockRepo,
+}));
+
+jest.mock('../../../providers/AuthProvider', () => ({
+  __esModule: true,
+  useAuth: () => mockAuth,
+}));
+
+jest.mock('../../../providers/ThemeProvider', () => ({
+  __esModule: true,
+  useTheme: () => mockTheme,
+}));
+
+jest.mock('../../../providers/CortexProvider', () => ({
+  __esModule: true,
+  useCortex: () => mockCortex,
+}));
+
+jest.mock('../hooks/usePhase8LinksState', () => ({
+  usePhase8LinksState: () => ({
+    allTags: [],
+    currentTags: [],
+    loadTags: jest.fn(),
+    addTag: jest.fn(),
+    linkTag: jest.fn(),
+    unlinkTag: jest.fn(),
+    clearPendingTags: jest.fn(),
+    linkedPeople: [],
+    loadPeople: jest.fn(),
+    linkPerson: jest.fn(),
+    unlinkPerson: jest.fn(),
+    clearPendingPeople: jest.fn(),
+    pendingTagIds: [],
+    pendingPeople: [],
+    isLoading: false,
+  }),
+}));
+
+jest.mock('../fields/HabitFields', () => ({ HabitFields: () => null }));
+jest.mock('../fields/TodoFields', () => ({ TodoFields: () => null }));
+jest.mock('../fields/JournalFields', () => ({ JournalFields: () => null }));
+jest.mock('../fields/NoteFields', () => ({ NoteFields: () => null }));
+jest.mock('../fields/TagEditor', () => ({ TagEditor: () => null }));
+jest.mock('../fields/PeopleLinker', () => ({ PeopleLinker: () => null }));
+
+jest.mock(
+  'react-native-safe-area-context',
+  () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  }),
+  { virtual: true },
+);
+
+jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper', () => ({}), {
+  virtual: true,
+});
+
+// Imports after mocks
+import { UnifiedCreateOverlay } from '../UnifiedCreateOverlay';
 
 describe('UnifiedCreateOverlay conversions overflow menu', () => {
-  const originalEnv = process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS;
+  const originalCanonicalFlag = env.feature.canonicalConversions;
 
   const baseNote: any = {
     id: 'note-1',
@@ -25,47 +93,23 @@ describe('UnifiedCreateOverlay conversions overflow menu', () => {
   };
 
   afterEach(() => {
-    jest.resetModules();
-    process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS = originalEnv;
+    (env.feature as any).canonicalConversions = originalCanonicalFlag;
   });
 
   const renderOverlay = async (conversionsEnabled: boolean) => {
-    jest.resetModules();
+    (env.feature as any).canonicalConversions = conversionsEnabled;
 
-    process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS = conversionsEnabled ? 'on' : 'off';
-
-    const repoMock = {
+    mockRepo = {
       getById: jest.fn().mockResolvedValue(baseNote),
       create: jest.fn(),
       update: jest.fn(),
     };
 
-    jest.doMock('../../../providers/RepoProvider', () => ({
-      __esModule: true,
-      useRepo: () => repoMock,
-    }));
-
-    jest.doMock('../../../providers/AuthProvider', () => ({
-      __esModule: true,
-      useAuth: () => ({ userId: 'user-1', user: { id: 'user-1' } }),
-    }));
-
-    jest.doMock('../../../providers/ThemeProvider', () => ({
-      __esModule: true,
-      useTheme: () => ({
-        mode: 'light',
-        c: {},
-        theme: {
-          colors: {
-            text: { primary: '#111', secondary: '#444', tertiary: '#777' },
-            mint: '#DEF',
-            deepTeal: { DEFAULT: '#0AA' },
-            border: { DEFAULT: '#DDD' },
-            white: '#FFF',
-            cream: '#FFF9F0',
-            error: '#C00',
-          },
-        },
+    mockAuth = { userId: 'user-1', user: { id: 'user-1' } };
+    mockTheme = {
+      mode: 'light',
+      c: {},
+      theme: {
         colors: {
           text: { primary: '#111', secondary: '#444', tertiary: '#777' },
           mint: '#DEF',
@@ -75,54 +119,18 @@ describe('UnifiedCreateOverlay conversions overflow menu', () => {
           cream: '#FFF9F0',
           error: '#C00',
         },
-      }),
-    }));
-
-    jest.doMock('../../../providers/CortexProvider', () => ({
-      __esModule: true,
-      useCortex: () => ({ classify: jest.fn() }),
-    }));
-
-    jest.doMock('../hooks/usePhase8LinksState', () => ({
-      usePhase8LinksState: () => ({
-        allTags: [],
-        currentTags: [],
-        loadTags: jest.fn(),
-        addTag: jest.fn(),
-        linkTag: jest.fn(),
-        unlinkTag: jest.fn(),
-        clearPendingTags: jest.fn(),
-        linkedPeople: [],
-        loadPeople: jest.fn(),
-        linkPerson: jest.fn(),
-        unlinkPerson: jest.fn(),
-        clearPendingPeople: jest.fn(),
-        pendingTagIds: [],
-        pendingPeople: [],
-        isLoading: false,
-      }),
-    }));
-
-    jest.doMock('../fields/HabitFields', () => ({ HabitFields: () => null }));
-    jest.doMock('../fields/TodoFields', () => ({ TodoFields: () => null }));
-    jest.doMock('../fields/JournalFields', () => ({ JournalFields: () => null }));
-    jest.doMock('../fields/NoteFields', () => ({ NoteFields: () => null }));
-    jest.doMock('../fields/TagEditor', () => ({ TagEditor: () => null }));
-    jest.doMock('../fields/PeopleLinker', () => ({ PeopleLinker: () => null }));
-
-    jest.doMock(
-      'react-native-safe-area-context',
-      () => ({
-        useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-      }),
-      { virtual: true },
-    );
-
-    jest.doMock('react-native/Libraries/Animated/NativeAnimatedHelper', () => ({}), {
-      virtual: true,
-    });
-
-    const { UnifiedCreateOverlay } = await import('../UnifiedCreateOverlay');
+      },
+      colors: {
+        text: { primary: '#111', secondary: '#444', tertiary: '#777' },
+        mint: '#DEF',
+        deepTeal: { DEFAULT: '#0AA' },
+        border: { DEFAULT: '#DDD' },
+        white: '#FFF',
+        cream: '#FFF9F0',
+        error: '#C00',
+      },
+    };
+    mockCortex = { classify: jest.fn() };
 
     const utils = render(
       <UnifiedCreateOverlay
@@ -133,7 +141,7 @@ describe('UnifiedCreateOverlay conversions overflow menu', () => {
       />,
     );
 
-    return { ...utils, repoMock };
+  return { ...utils, repoMock: mockRepo };
   };
 
   it('shows overflow button when conversions flag is enabled and checklist present', async () => {

@@ -61,6 +61,7 @@ const baseRecordZ = z.object({
       alsoShowIn: z.array(z.string()).optional(),
     })
     .optional(),
+  source_message_id: z.string().optional().nullable(),
   created_at: z.string(), // Accept any string format from DB
   updated_at: z.string(), // Accept any string format from DB
   owner_id: z.string().min(1),

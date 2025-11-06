@@ -192,6 +192,7 @@ export class MemoryRepo implements IRepo {
         reminders: input.reminders ?? null,
         tags: input.tags ?? null,
         journal_subtype: input.journal_subtype ?? null,
+        source_message_id: input.sourceMessageId ?? null,
       };
     }
 
@@ -254,6 +255,15 @@ export class MemoryRepo implements IRepo {
 
   async getById(id: ID): Promise<AppRecord | null> {
     return this.data.find((r) => r.id === id) ?? null;
+  }
+
+  async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
+    if (!sourceMessageId) return null;
+    const match = this.data.find((r): r is Note => {
+      if (r.type !== 'note' || r.owner_id !== this.currentUserId) return false;
+      return ((r as any).source_message_id ?? null) === sourceMessageId;
+    });
+    return match ?? null;
   }
 
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {

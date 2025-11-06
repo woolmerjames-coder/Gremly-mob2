@@ -17,25 +17,17 @@
 
 import { useState, useCallback } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
+import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
+
+const isFlagEnabled = (value?: string | null): boolean => {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return normalized === 'on' || normalized === 'true';
+};
 
 type EntityType = CanonicalType;
 const CATCHALL_LABEL = 'catchall';
 const NEEDS_REVIEW_LABEL = 'needs_review';
-
-const mapNoteSubtypeToLogSubtype = (subtype?: string | null): LogSubtype => {
-  switch (subtype) {
-    case 'journal':
-      return 'journal';
-    case 'idea':
-      return 'idea';
-    case 'list':
-      return 'list';
-    case 'person':
-      return 'person';
-    default:
-      return 'everything_else';
-  }
-};
 
 interface OverlayState {
   visible: boolean;
@@ -84,9 +76,12 @@ export function useOverlayController(): OverlayController {
   const legacyController = useLegacyOverlayController();
 
   // Decide which to return based on flag
+  const canonicalTypesOn = isFlagEnabled(process.env.EXPO_PUBLIC_CANONICAL_TYPES);
+  const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
   const useUnifiedOverlay =
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' ||
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === undefined; // Default to true
+    canonicalTypesOn ||
+    isFlagEnabled(unifiedOverlayFlag) ||
+    unifiedOverlayFlag === undefined; // Default to true when unset
 
   return useUnifiedOverlay ? unifiedController : legacyController;
 }
@@ -121,7 +116,7 @@ function useLegacyOverlayController(): OverlayController {
 
         return {
           entityType: 'log',
-          logSubtype: mapNoteSubtypeToLogSubtype(recordSubtype ?? null),
+          logSubtype: persistedNoteSubtypeToLogSubtype(recordSubtype ?? null),
         };
       }
 
@@ -147,7 +142,7 @@ function useLegacyOverlayController(): OverlayController {
   const openEdit = useCallback(
     (params: OpenEditParams) => {
       const { record, spaceId } = params;
-      const { entityType, logSubtype } = resolveEntityFromRecord(record);
+  const { entityType, logSubtype } = resolveEntityFromRecord(record);
 
       setState({
         visible: true,

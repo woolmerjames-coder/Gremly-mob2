@@ -4,6 +4,7 @@ import type {
   Todo,
   ID,
   Frequency,
+  Note,
   NoteSubtype,
   HabitSubtype,
   Space,
@@ -103,6 +104,8 @@ export interface IRepo {
   create(input: CreateRecordInput): Promise<AppRecord>;
   update(input: UpdateRecordInput): Promise<AppRecord>;
   remove(id: ID): Promise<void>;
+
+  findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null>;
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;
