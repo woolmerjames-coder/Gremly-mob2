@@ -2362,10 +2362,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityLabel="About Mind Drop"
           >
             <View style={styles.infoSheet} testID="minddrop-info-sheet">
-              <Text style={styles.infoTitle}>About Mind Drop</Text>
+              <Text style={styles.infoTitle}>Your peaceful inbox</Text>
               <Text style={styles.infoBody}>
-                Mind Drop is a calming place to empty your mind. I privately sort what you share
-                into tasks, notes, or habits so you can keep moving.
+                Drop anything on your mind. I'll quietly sort it into tasks, habits, or log it for
+                later... so you can let it go and move on.
               </Text>
               <Text style={styles.infoHeading}>Need to revisit something?</Text>
               <Text style={styles.infoBody}>
@@ -2539,15 +2539,19 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingBottom: 24,
     },
     infoSheetContainer: {
-      backgroundColor: c.bg,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      backgroundColor: c.linenCream,
+      borderRadius: 12,
       paddingBottom: 24,
       paddingTop: 12,
       width: '100%',
+      shadowColor: 'rgba(46,85,64,0.15)',
+      shadowOpacity: 1,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 12 },
+      elevation: 6,
     },
     infoSheet: {
-      padding: 16,
+      padding: 20,
     },
     infoTitle: {
       fontFamily: 'PlusJakartaSans-Bold',
