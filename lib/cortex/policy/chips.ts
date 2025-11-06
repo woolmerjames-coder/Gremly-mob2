@@ -1,41 +1,55 @@
 import { buildHabitFields, buildTodoFields } from '../textNormalization';
+import { env } from '../../env';
+import { hasChecklist } from '../../conversion';
+import { analyzeListShape } from './listHeuristics';
+import { analyzeIdeaShape } from './ideaHeuristics';
+
+type ChipReason = 'list-heuristic' | 'idea-heuristic' | string;
+
+type BaseChipSuggestion = {
+  label: string;
+  reason?: ChipReason;
+};
 
 export type ChipSuggestion =
-  | {
+  | (BaseChipSuggestion & {
       type: 'create.todo';
-      label: string;
       payload: {
         name: string;
         undefined_due: boolean;
         due?: string | null;
         due_date?: string | null;
       };
-    }
-  | {
+    })
+  | (BaseChipSuggestion & {
       type: 'create.habit';
-      label: string;
       payload: { name: string; freq: 'daily' | 'weekly' | 'monthly' };
-    }
-  | {
+    })
+  | (BaseChipSuggestion & {
       type: 'create.note';
-      label: string;
-      payload: { title: string; body: string; subtype: 'list' | 'journal' };
-    };
-
+      payload: { title: string; body: string; subtype: 'list' | 'journal' | 'idea' };
+    })
+  | (BaseChipSuggestion & {
+      type: 'convert.log-list-to-todo';
+      payload: { noteId: string | null; preserveState?: boolean };
+    });
 export type BuildChipsInput = {
   text: string;
-  probable: 'todo' | 'habit' | 'note' | 'unknown';
+  probable: 'todo' | 'habit' | 'log' | 'unknown';
   confidence: number;
 };
+
+const canonicalTypesEnabled = Boolean(env.feature?.canonicalTypes);
+const LOG_LABEL = canonicalTypesEnabled ? 'Save as log' : 'Save as note';
 
 const LABELS = {
   todo: 'Create todo',
   habit: 'Create habit',
-  note: 'Save as note',
+  log: LOG_LABEL,
   list: 'Save as list',
 } as const;
 
-const ALWAYS_NOTE_FALLBACK =
+const ALWAYS_LOG_FALLBACK =
   String(process.env.EXPO_PUBLIC_MINDDROP_ALWAYS_NOTE_FALLBACK ?? 'on').toLowerCase() !== 'off';
 
 function looksHabitText(t: string): boolean {
@@ -78,12 +92,18 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   if (!t) return [];
 
   const chips: ChipSuggestion[] = [];
+  const canonicalTypesOn = canonicalTypesEnabled;
+
+  const listAnalysis = analyzeListShape(t);
+  const ideaAnalysis = analyzeIdeaShape(t);
 
   const isHabitText = looksHabitText(t);
-  const isListLike = looksListText(t);
+  const isListLike = looksListText(t) || listAnalysis.looksLikeList;
   const isAction = looksActionish(t);
   const hasDate = hasExplicitDateOrTime(t);
 
+  const containsChecklist = hasChecklist(t);
+  const conversionsEnabled = Boolean(env.feature?.canonicalConversions);
   if (input.probable === 'todo' || input.probable === 'unknown' || isAction) {
     const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
     const due = todoFields.due ?? null;
@@ -114,24 +134,88 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     });
   }
 
-  if (isListLike || input.probable === 'note') {
-    const subtype: 'list' | 'journal' = isListLike ? 'list' : 'journal';
+  if (listAnalysis.looksLikeList) {
+    const lines = t.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const heading = lines[0] ?? t;
+    const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
+    const due = todoFields.due ?? null;
+    const listNoteLabel = canonicalTypesOn ? LABELS.list : 'Save as note (list)';
+
     chips.push({
       type: 'create.note',
-      label: subtype === 'list' ? LABELS.list : LABELS.note,
+      label: listNoteLabel,
+      payload: { title: heading, body: t, subtype: 'list' },
+      reason: 'list-heuristic',
+    });
+
+    chips.push({
+      type: 'create.todo',
+      label: 'Create To-do checklist',
+      payload: {
+        name: todoFields.title || heading,
+        undefined_due: !due,
+        due,
+        due_date: due,
+      },
+      reason: 'list-heuristic',
+    });
+  }
+
+  if (ideaAnalysis.looksLikeIdea) {
+    const ideaNoteLabel = canonicalTypesOn ? 'Save as idea' : 'Save as note (idea)';
+    const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
+    const due = todoFields.due ?? null;
+
+    chips.push({
+      type: 'create.note',
+      label: ideaNoteLabel,
+      payload: { title: t, body: t, subtype: 'idea' },
+      reason: 'idea-heuristic',
+    });
+
+    chips.push({
+      type: 'create.todo',
+      label: 'Create To-do',
+      payload: {
+        name: todoFields.title,
+        undefined_due: !due,
+        due,
+        due_date: due,
+      },
+      reason: 'idea-heuristic',
+    });
+  }
+
+  if ((isListLike && !listAnalysis.looksLikeList) || input.probable === 'log') {
+    const subtype: 'list' | 'journal' = isListLike && !listAnalysis.looksLikeList ? 'list' : 'journal';
+    chips.push({
+      type: 'create.note',
+      label: subtype === 'list' ? LABELS.list : LABELS.log,
       payload: { title: t, body: t, subtype },
     });
   }
 
-  if (ALWAYS_NOTE_FALLBACK && !chips.some((chip) => chip.type === 'create.note')) {
+  if (ALWAYS_LOG_FALLBACK && !chips.some((chip) => chip.type === 'create.note')) {
     chips.push({
       type: 'create.note',
-      label: LABELS.note,
+      label: LABELS.log,
       payload: { title: t, body: t, subtype: 'journal' },
     });
   }
 
   const seen = new Set<string>();
+  if (
+    conversionsEnabled &&
+    (input.probable === 'log' || isListLike || containsChecklist) &&
+    !chips.some((chip) => chip.type === 'convert.log-list-to-todo')
+  ) {
+    const convertLabel = env.feature.canonicalTypes ? 'Convert to to-do' : 'Convert to task';
+    chips.push({
+      type: 'convert.log-list-to-todo',
+      label: convertLabel,
+      payload: { noteId: null, preserveState: true },
+    });
+  }
   return chips.filter((chip) => {
     const key = `${chip.type}:${chip.label}`;
     if (seen.has(key)) return false;

@@ -21,6 +21,7 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { cortexRoute } from '../../lib/cortex/router';
 import type { CortexContext, CortexAction } from '../../lib/cortex/cortexDecide';
+import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
 import { organizedToastSummary } from '../../lib/ui/toast/copy';
@@ -114,15 +115,18 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
                 });
                 counts.habits += 1;
               } else if (action.type === 'create.note') {
+                const subtype = (action.payload.subtype as any) || 'note';
+                const canonicalType = persistedToCanonical('note', subtype);
                 await (repo as any).create({
                   type: 'note',
                   title: action.payload.text || trimmed,
                   body: action.payload.text,
-                  subtype: (action.payload.subtype as any) || 'note',
+                  subtype,
                   space_id: action.payload.spaceId ?? null,
                   ai_placed: true,
                   why_string: response.explanation,
                   origin: 'catchall',
+                  canonicalType,
                 });
                 counts.notes += 1;
               }
@@ -156,6 +160,7 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
         setNote('');
       } else {
         // Mode is 'ask' or 'keep' - save to unsorted
+        const canonicalType = persistedToCanonical('note', 'catchall');
         await (repo as any).create({
           type: 'note',
           title: trimmed || 'Quick note',
@@ -165,7 +170,7 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
           ai_placed: false,
           space_id: null,
           why_string: response.explanation,
-          canonicalType: 'note',
+          canonicalType,
           labels: [CATCHALL_LABEL, ...(response.mode === 'ask' ? [UNSORTED_LABEL] : [])],
           views: {
             alsoShowIn: ['Hub:Catch-All'],
@@ -184,6 +189,7 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
 
       // Fallback: save directly
       try {
+        const canonicalType = persistedToCanonical('note', 'catchall');
         await (repo as any).create({
           type: 'note',
           title: note.trim() || 'Quick note',
@@ -193,7 +199,7 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
           ai_placed: false,
           space_id: null,
           why_string: 'Saved from Mind Drop',
-          canonicalType: 'note',
+          canonicalType,
           labels: [CATCHALL_LABEL],
           views: {
             alsoShowIn: ['Hub:Catch-All'],

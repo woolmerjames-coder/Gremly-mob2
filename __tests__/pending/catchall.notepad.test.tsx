@@ -117,7 +117,7 @@ describe('Catch-All entry points', () => {
             origin: 'catchall',
             ai_placed: true,
             why_string: 'Needs decision',
-            canonicalType: 'note',
+            canonicalType: 'unsorted',
             labels: ['catchall'],
             views: {
               alsoShowIn: ['Hub:Catch-All'],

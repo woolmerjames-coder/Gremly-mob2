@@ -10,7 +10,7 @@ export type CortexOutput =
   | { type: 'todo'; undefinedDue: boolean; aiPlaced: boolean; whyString: string }
   | {
       type: 'note';
-      subtype: 'journal' | 'list' | 'catchall';
+      subtype: 'journal' | 'list' | 'idea' | 'catchall';
       aiPlaced: boolean;
       whyString: string;
     };

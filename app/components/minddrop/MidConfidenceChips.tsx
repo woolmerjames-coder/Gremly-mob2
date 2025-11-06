@@ -1,28 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { haptics } from '../../../lib/haptics';
+import { env } from '../../../lib/env';
+import { kindToDisplayLabel } from '../../../lib/ui/kindToDisplayLabel';
+import type { ChipSuggestion } from '../../../lib/cortex/policy/chips';
 
-export type UISuggestion =
-  | {
-      type: 'create.todo';
-      label: string;
-      payload: {
-        name: string;
-        undefined_due: boolean;
-        due?: string | null;
-        due_date?: string | null;
-      };
-    }
-  | {
-      type: 'create.habit';
-      label: string;
-      payload: { name: string; freq: 'daily' | 'weekly' | 'monthly' };
-    }
-  | {
-      type: 'create.note';
-      label: string;
-      payload: { title: string; body: string; subtype: 'list' | 'journal' };
-    };
+export type UISuggestion = ChipSuggestion;
 
 const PALETTE = {
   todoBg: '#E6F0FF',
@@ -37,6 +20,7 @@ const PALETTE = {
 function stylesForType(type: UISuggestion['type']) {
   switch (type) {
     case 'create.todo':
+    case 'convert.log-list-to-todo':
       return { bg: PALETTE.todoBg, fg: PALETTE.todoFg };
     case 'create.habit':
       return { bg: PALETTE.habitBg, fg: PALETTE.habitFg };
@@ -44,6 +28,31 @@ function stylesForType(type: UISuggestion['type']) {
     default:
       return { bg: PALETTE.noteBg, fg: PALETTE.noteFg };
   }
+}
+
+function deriveChipLabel(s: UISuggestion, canonicalTypesOn: boolean): string {
+  if (s.type === 'convert.log-list-to-todo') {
+    return s.label;
+  }
+
+  if (!canonicalTypesOn || s.type !== 'create.note') {
+    return s.label;
+  }
+
+  if (s.payload.subtype === 'list') {
+    return 'Save as list';
+  }
+
+  if (s.payload.subtype === 'idea') {
+    return 'Save as idea';
+  }
+
+  const display = kindToDisplayLabel('note', s.payload.subtype, canonicalTypesOn);
+  if (display === 'log') return 'Save as log';
+  if (display === 'unsorted') return 'Save as note';
+
+  const capitalized = display.charAt(0).toUpperCase() + display.slice(1);
+  return `Save as ${capitalized}`;
 }
 
 export function MidConfidenceChips({
@@ -59,7 +68,15 @@ export function MidConfidenceChips({
   supportingText?: string;
   autoDismissMs?: number;
 }) {
-  const limited = useMemo(() => suggestions?.slice(0, 3) ?? [], [suggestions]);
+  const canonicalConversionsOn = env.feature.canonicalConversions;
+  const canonicalTypesOn = env.feature.canonicalTypes;
+  const limited = useMemo(() => {
+    const base = suggestions ?? [];
+    const filtered = canonicalConversionsOn
+      ? base
+      : base.filter((chip) => chip.type !== 'convert.log-list-to-todo');
+    return filtered.slice(0, 3);
+  }, [suggestions, canonicalConversionsOn]);
   const fade = useMemo(() => new Animated.Value(0), []);
 
   useEffect(() => {
@@ -69,7 +86,7 @@ export function MidConfidenceChips({
       duration: 220,
       useNativeDriver: true,
     }).start();
-  }, [fade, suggestions]);
+  }, [fade, limited]);
 
   useEffect(() => {
     if (!autoDismissMs || !limited.length) return;
@@ -83,7 +100,7 @@ export function MidConfidenceChips({
     }, pulseDelay);
 
     return () => clearTimeout(timeout);
-  }, [autoDismissMs, fade, limited.length, suggestions]);
+  }, [autoDismissMs, fade, limited.length]);
 
   if (!limited.length) return null;
 
@@ -100,6 +117,7 @@ export function MidConfidenceChips({
       <View style={styles.row}>
         {limited.map((s, idx) => {
           const c = stylesForType(s.type);
+          const derivedLabel = deriveChipLabel(s, canonicalTypesOn);
           return (
             <Pressable
               key={`${s.type}-${idx}`}
@@ -119,9 +137,9 @@ export function MidConfidenceChips({
                 pressed && styles.pressed,
               ]}
               accessibilityRole="button"
-              accessibilityLabel={s.label}
+              accessibilityLabel={derivedLabel}
             >
-              <Text style={[styles.chipText, { color: c.fg }]}>{s.label}</Text>
+              <Text style={[styles.chipText, { color: c.fg }]}>{derivedLabel}</Text>
             </Pressable>
           );
         })}

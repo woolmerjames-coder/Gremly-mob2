@@ -7,6 +7,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import type { Note } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
+import { getNoteLabel } from '../../lib/canonicalTypes';
 
 interface NotesResourcesPreviewProps {
   notes: Note[];
@@ -14,11 +15,14 @@ interface NotesResourcesPreviewProps {
 }
 
 export function NotesResourcesPreview({ notes, onViewAll }: NotesResourcesPreviewProps) {
+  const noteLabel = getNoteLabel();
+  const noteLabelPluralLower = getNoteLabel({ plural: true, lowercase: true });
+
   if (notes.length === 0) {
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyIcon}>📝</Text>
-        <Text style={styles.emptyText}>No notes or resources yet</Text>
+        <Text style={styles.emptyText}>No {noteLabelPluralLower} or resources yet</Text>
       </View>
     );
   }
@@ -43,7 +47,7 @@ export function NotesResourcesPreview({ notes, onViewAll }: NotesResourcesPrevie
           <Text style={styles.itemIcon}>{getIcon(note.subtype)}</Text>
           <View style={styles.itemContent}>
             <Text style={styles.itemTitle} numberOfLines={1}>
-              {note.title || 'Untitled Note'}
+              {note.title || `Untitled ${noteLabel}`}
             </Text>
             {note.body && (
               <Text style={styles.itemBody} numberOfLines={1}>
@@ -56,7 +60,9 @@ export function NotesResourcesPreview({ notes, onViewAll }: NotesResourcesPrevie
 
       {notes.length > 5 && onViewAll && (
         <TouchableOpacity style={styles.viewAllButton} onPress={onViewAll}>
-          <Text style={styles.viewAllText}>View all {notes.length} notes</Text>
+          <Text style={styles.viewAllText}>
+            View all {notes.length} {noteLabelPluralLower}
+          </Text>
         </TouchableOpacity>
       )}
     </View>

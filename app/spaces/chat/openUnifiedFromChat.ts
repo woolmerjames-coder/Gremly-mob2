@@ -1,6 +1,7 @@
 // app/spaces/chat/openUnifiedFromChat.ts
 import { Lane } from '../../../lib/cortex/lane';
 import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
+import type { CanonicalType, LogSubtype } from '../../../lib/types';
 
 export type OverlayKind = 'todo' | 'note' | 'habit' | 'reflection';
 
@@ -22,11 +23,16 @@ export interface OverlayInitial {
 }
 
 // Map overlay kind to entity type
-const kindToType: Record<OverlayKind, 'todo' | 'note' | 'habit'> = {
+const kindToType: Record<OverlayKind, CanonicalType> = {
   todo: 'todo',
-  note: 'note',
+  note: 'log',
   habit: 'habit',
-  reflection: 'note', // reflections are notes with journal subtype
+  reflection: 'log',
+};
+
+const kindToLogSubtype: Partial<Record<OverlayKind, LogSubtype>> = {
+  note: 'everything_else',
+  reflection: 'journal',
 };
 
 export function openUnifiedFromChat(
@@ -36,13 +42,13 @@ export function openUnifiedFromChat(
   overlayController: ReturnType<typeof useUnifiedOverlayController>,
 ) {
   const entityType = kindToType[kind];
+  const logSubtype = kindToLogSubtype[kind];
 
   // P0 Fix: Ensure proper mapping of title/note to initialTitle/initialNote
   overlayController.openCreate({
     type: entityType,
     spaceId: meta.spaceId,
-    // NEW: Pass subtype for reflection notes
-    subtype: kind === 'reflection' ? 'journal' : undefined,
+    logSubtype: logSubtype,
     conversionMeta: {
       origin: 'space_chat',
       ai_placed: false,

@@ -6,6 +6,9 @@
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
 export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
+export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
+export type LegacyCanonicalType = 'note' | 'journal';
+export type LogSubtype = 'journal' | 'idea' | 'person' | 'list' | 'everything_else';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';
@@ -25,7 +28,7 @@ export interface Habit {
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
-  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
     alsoShowIn?: string[];
@@ -84,11 +87,12 @@ export interface Todo {
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
-  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
     alsoShowIn?: string[];
   };
+  source_message_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
@@ -110,11 +114,12 @@ export interface Note {
   archived?: boolean; // true when converted to another type
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
-  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
     alsoShowIn?: string[];
   };
+  source_message_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;

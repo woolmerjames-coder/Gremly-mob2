@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react-native';
 import { act } from 'react-test-renderer';
+import { env } from '../lib/env';
 
 // Feature flag for Mind Drop v2 path (currently renders legacy UI content)
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
@@ -55,15 +56,22 @@ jest.mock('../providers/RepoProvider', () => ({
 
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
-function makeNote(id: string, body: string, createdAt: Date, unsorted = false) {
+function makeNote(
+  id: string,
+  body: string,
+  createdAt: Date,
+  unsorted = false,
+  subtype: string = 'catchall',
+) {
+  const labels = unsorted ? ['catchall', 'needs_review'] : ['catchall'];
   return {
     id,
     type: 'note',
-    subtype: 'catchall',
+    subtype,
     title: body,
     body,
     created_at: createdAt.toISOString(),
-    labels: unsorted ? ['catchall', 'needs_review'] : ['catchall'],
+    labels,
     origin: 'catchall',
   } as any;
 }
@@ -154,6 +162,64 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.getByText('todo')).toBeTruthy();
     expect(screen.getByText('habit')).toBeTruthy();
     expect(screen.getByText('Unsorted')).toBeTruthy();
+  });
+
+  test('Recent drop badges surface canonical labels when canonical types are enabled', async () => {
+    const now = new Date();
+    mockNotesList.mockResolvedValue([
+      makeNote('n1', 'catch-all idea', new Date(now.getTime() - 500), true, 'catchall'),
+      makeNote('n2', 'journal entry', new Date(now.getTime() - 400), false, 'journal'),
+    ]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
+
+    const originalCanonical = env.feature.canonicalTypes;
+
+    try {
+      (env.feature as any).canonicalTypes = true;
+
+      render(<CatchAllNotepad />);
+
+      await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy());
+
+      const unsortedCard = screen.getByTestId('minddrop-recent-note-n1');
+      expect(within(unsortedCard).getByText('unsorted')).toBeTruthy();
+      expect(within(unsortedCard).queryByText('Unsorted')).toBeNull();
+
+      const journalCard = screen.getByTestId('minddrop-recent-note-n2');
+      expect(within(journalCard).getByText('log')).toBeTruthy();
+    } finally {
+      (env.feature as any).canonicalTypes = originalCanonical;
+    }
+  });
+
+  test('Recent drop badges fall back to legacy note labels when canonical types are disabled', async () => {
+    const now = new Date();
+    mockNotesList.mockResolvedValue([
+      makeNote('n1', 'catch-all idea', new Date(now.getTime() - 500), true, 'catchall'),
+      makeNote('n2', 'journal entry', new Date(now.getTime() - 400), false, 'journal'),
+    ]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
+
+    const originalCanonical = env.feature.canonicalTypes;
+
+    try {
+      (env.feature as any).canonicalTypes = false;
+
+      render(<CatchAllNotepad />);
+
+      await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy());
+
+      const unsortedCard = screen.getByTestId('minddrop-recent-note-n1');
+      expect(within(unsortedCard).getByText('note')).toBeTruthy();
+      expect(within(unsortedCard).getByText('Unsorted')).toBeTruthy();
+
+      const journalCard = screen.getByTestId('minddrop-recent-note-n2');
+      expect(within(journalCard).getByText('note')).toBeTruthy();
+    } finally {
+      (env.feature as any).canonicalTypes = originalCanonical;
+    }
   });
 
   test.skip('Timestamp is present ("ago") for each rendered card', async () => {

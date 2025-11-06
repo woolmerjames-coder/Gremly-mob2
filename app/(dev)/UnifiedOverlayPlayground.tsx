@@ -18,12 +18,15 @@ import { useOverlayController } from '../../hooks/useOverlayController';
 import { FeatureFlaggedOverlay } from '../../components/FeatureFlaggedOverlay';
 import { useRepo } from '../../providers/RepoProvider';
 import type { AppRecord } from '../../lib/types';
+import { getNoteLabel } from '../../lib/canonicalTypes';
 
 export default function UnifiedOverlayPlayground() {
   const overlayController = useOverlayController();
   const repo = useRepo();
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [sampleRecords, setSampleRecords] = useState<AppRecord[]>([]);
+  const noteLabel = getNoteLabel();
+  const noteLabelLower = getNoteLabel({ lowercase: true });
 
   // Load sample records for editing
   const loadSamples = async () => {
@@ -86,21 +89,23 @@ export default function UnifiedOverlayPlayground() {
 
           <Button
             label="Create Journal Entry"
-            onPress={() => overlayController.openCreate({ type: 'journal' })}
+            onPress={() => overlayController.openCreate({ type: 'log', logSubtype: 'journal' })}
             testID="create-journal-button"
             style={styles.button}
           />
 
           <Button
-            label="Create Note"
-            onPress={() => overlayController.openCreate({ type: 'note' })}
+            label={`Create ${noteLabel}`}
+            onPress={() =>
+              overlayController.openCreate({ type: 'log', logSubtype: 'everything_else' })
+            }
             testID="create-note-button"
             style={styles.button}
           />
 
           <Button
             label="Create Person"
-            onPress={() => overlayController.openCreate({ type: 'person' })}
+            onPress={() => overlayController.openCreate({ type: 'log', logSubtype: 'person' })}
             testID="create-person-button"
             style={styles.button}
           />
@@ -200,6 +205,10 @@ export default function UnifiedOverlayPlayground() {
               EXPO_PUBLIC_UNIFIED_OVERLAY:{' '}
               {process.env.EXPO_PUBLIC_UNIFIED_OVERLAY || 'undefined (defaults to true)'}
             </Text>
+            <Text variant="subtle">
+              EXPO_PUBLIC_CANONICAL_TYPES:{' '}
+              {process.env.EXPO_PUBLIC_CANONICAL_TYPES || 'undefined (defaults to off)'}
+            </Text>
             <Text variant="subtle" style={styles.hint}>
               Current Implementation:{' '}
               {process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'false'
@@ -217,10 +226,10 @@ export default function UnifiedOverlayPlayground() {
 
           <View style={styles.infoBox}>
             <Text variant="subtle">
-              • Test all entity types (habit, todo, journal, note, person)
+              • Test all entity types (habit, todo, journal, {noteLabelLower}, person)
             </Text>
             <Text variant="subtle">• Try habit subtypes (start, break, routine)</Text>
-            <Text variant="subtle">• Try note subtypes (idea, list, reference)</Text>
+            <Text variant="subtle">• Try {noteLabelLower} subtypes (idea, list, reference)</Text>
             <Text variant="subtle">• Toggle AI mode and enter freeform text</Text>
             <Text variant="subtle">• Edit existing records and verify changes</Text>
             <Text variant="subtle">• Test with and without space context</Text>

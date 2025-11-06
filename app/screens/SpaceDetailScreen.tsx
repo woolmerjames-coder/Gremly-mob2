@@ -17,6 +17,7 @@ import { Box, Text } from '../../ui';
 import { Card, ListItem } from '../../design-system';
 import { useTokens } from '../../design/makeStyles';
 import { lightTokens } from '../../design/tokens';
+import { getNoteLabel } from '../../lib/canonicalTypes';
 
 type SpaceDetailRouteProp = RouteProp<RootStackParamList, 'SpaceDetail'>;
 type SpaceDetailNavigationProp = NativeStackNavigationProp<RootStackParamList, 'SpaceDetail'>;
@@ -37,6 +38,7 @@ export default function SpaceDetail() {
   const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
   const [chats, setChats] = useState<SpaceChat[]>([]);
   const [loading, setLoading] = useState(true);
+  const noteLabelPlural = getNoteLabel({ plural: true });
 
   // Create SpaceChatRepo instance
   const spaceChatRepo = React.useMemo(() => {
@@ -153,7 +155,7 @@ export default function SpaceDetail() {
 
       <Section title="Habits" items={groups.habits} />
       <Section title="To-Dos" items={groups.todos} />
-      <Section title="Notes" items={groups.notes} />
+      <Section title={noteLabelPlural} items={groups.notes} />
 
       {/* Plus FAB for Manual Add with spaceId context */}
       <PlusFAB onPress={() => overlayController.openCreate({ spaceId: id })} />

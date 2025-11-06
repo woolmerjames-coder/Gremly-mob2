@@ -1,14 +1,17 @@
 import type {
   AppRecord,
+  CanonicalType,
   Todo,
   ID,
   Frequency,
+  Note,
   NoteSubtype,
   HabitSubtype,
   Space,
   Tag,
   Person,
   EntityType,
+  LegacyCanonicalType,
 } from '../types';
 import type { SpaceInsert } from '../schemas';
 
@@ -29,7 +32,7 @@ export interface CreateRecordInput {
   ai_placed?: boolean;
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual';
-  canonicalType?: 'note' | 'todo' | 'habit' | 'journal';
+  canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
   views?: {
@@ -101,6 +104,8 @@ export interface IRepo {
   create(input: CreateRecordInput): Promise<AppRecord>;
   update(input: UpdateRecordInput): Promise<AppRecord>;
   remove(id: ID): Promise<void>;
+
+  findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null>;
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;

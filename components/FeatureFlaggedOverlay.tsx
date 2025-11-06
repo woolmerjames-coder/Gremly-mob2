@@ -26,21 +26,28 @@ import { UnifiedCreateOverlay } from './overlay/UnifiedCreateOverlay';
 import { ManualAddOverlay } from '../legacy/overlays/ManualAddOverlay';
 import { useRepo } from '../providers/RepoProvider';
 import type { ManualAddPayload } from '../app/schemas/manualAdd';
-import type { AppRecord } from '../lib/types';
+import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
+import type { OverlaySavedPayload } from '../lib/events/overlaySaved';
 
-type EntityType = 'habit' | 'todo' | 'note' | 'journal' | 'person' | 'unsorted';
+const isFlagEnabled = (value?: string | null): boolean => {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return normalized === 'on' || normalized === 'true';
+};
+
+type EntityType = CanonicalType;
 
 interface FeatureFlaggedOverlayProps {
   visible: boolean;
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   initialEntity?: {
-    type: EntityType;
+    type: EntityType | null;
     id?: string;
-    subtype?: string | null;
+    logSubtype?: LogSubtype | null;
   } | null;
   initialSpaceId?: string | null;
   onClose: () => void;
-  onSaved?: (result: { type: EntityType; id: string }) => void;
+  onSaved?: (result: OverlaySavedPayload) => void;
 }
 
 export function FeatureFlaggedOverlay({
@@ -51,22 +58,23 @@ export function FeatureFlaggedOverlay({
   onClose,
   onSaved,
 }: FeatureFlaggedOverlayProps) {
+  const canonicalTypesOn = isFlagEnabled(process.env.EXPO_PUBLIC_CANONICAL_TYPES);
+  const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
   const useUnifiedOverlay =
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === 'true' ||
-    process.env.EXPO_PUBLIC_UNIFIED_OVERLAY === undefined; // Default to true
+    canonicalTypesOn ||
+    isFlagEnabled(unifiedOverlayFlag) ||
+    unifiedOverlayFlag === undefined; // Default to true when unset
 
   if (useUnifiedOverlay) {
     // Phase 7: Use unified overlay
     return (
       <UnifiedCreateOverlay
         visible={visible}
-        mode={mode}
-        initialEntity={
-          initialEntity ? { ...initialEntity, type: initialEntity.type as any } : undefined
-        }
+        mode={mode === 'view' ? 'edit' : mode}
+        initialEntity={initialEntity ?? undefined}
         initialSpaceId={initialSpaceId}
         onClose={onClose}
-        onSaved={onSaved as any}
+        onSaved={onSaved}
       />
     );
   } else {
@@ -97,6 +105,14 @@ function LegacyOverlayAdapter({
   onSaved,
 }: FeatureFlaggedOverlayProps) {
   const repo = useRepo();
+
+  const deriveDefaultTab = () => {
+    if (initialEntity?.type === 'habit') return 'habits';
+    if (initialEntity?.type === 'todo') return 'todos';
+    if (initialEntity?.type === 'unsorted') return 'journal';
+    if (initialEntity?.type === 'log') return 'journal';
+    return 'habits';
+  };
 
   const handleLegacySubmit = useCallback(
     async (payload: ManualAddPayload) => {
@@ -181,22 +197,24 @@ function LegacyOverlayAdapter({
   return (
     <ManualAddOverlay
       visible={visible}
-      mode={mode}
-      defaultTab={
-        initialEntity?.type === 'habit'
-          ? 'habits'
-          : initialEntity?.type === 'todo'
-            ? 'todos'
-            : initialEntity?.type === 'journal' || initialEntity?.type === 'unsorted'
-              ? 'journal'
-              : 'habits'
-      }
+      mode={mode === 'view' ? 'edit' : mode}
+      defaultTab={deriveDefaultTab()}
       itemId={mode === 'edit' ? initialEntity?.id : undefined}
       initialValues={initialValues}
       onClose={onClose}
       onSubmit={handleLegacySubmit}
       onSaved={() =>
-        onSaved?.({ type: initialEntity?.type || 'habit', id: initialEntity?.id || '' })
+        onSaved?.({
+          type:
+            initialEntity?.type === 'log'
+              ? initialEntity?.logSubtype === 'journal'
+                ? 'journal'
+                : 'note'
+              : initialEntity?.type === 'unsorted'
+                ? 'unsorted'
+                : initialEntity?.type || 'habit',
+          id: initialEntity?.id || '',
+        })
       }
     />
   );

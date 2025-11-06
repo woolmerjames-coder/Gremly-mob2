@@ -79,7 +79,7 @@ describe('Note Prefill', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="create"
-          initialEntity={{ type: 'note', id: undefined, subtype: null }}
+          initialEntity={{ type: 'note', id: undefined, logSubtype: null }}
           conversionMeta={{
             origin: 'space_chat',
             ai_placed: false,
@@ -105,7 +105,7 @@ describe('Note Prefill', () => {
         <UnifiedCreateOverlay
           visible={true}
           mode="create"
-          initialEntity={{ type: 'note', id: undefined, subtype: null }}
+          initialEntity={{ type: 'note', id: undefined, logSubtype: null }}
           conversionMeta={{
             origin: 'manual',
           }}

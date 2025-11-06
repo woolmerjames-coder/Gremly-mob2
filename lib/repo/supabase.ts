@@ -1,5 +1,5 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Todo, ID, Space, Tag, Person, EntityType } from '../types';
+import type { AppRecord, Note, Todo, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
   todoZ,
@@ -193,6 +193,7 @@ function mapNoteFromDb(dbRecord: any): any {
     ...dbRecord,
     // Map jsonb column to TS field (used for journal entries)
     reminders: dbRecord.reminders_json,
+    source_message_id: dbRecord.source_message_id ?? null,
   };
 }
 
@@ -564,6 +565,32 @@ export class SupabaseRepo implements IRepo {
     }
 
     return null;
+  }
+
+  async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
+    const userId = this.ensureUserId();
+    if (!sourceMessageId) return null;
+
+    const { data, error } = await supabase
+      .from('notes')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('source_message_id', sourceMessageId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      logSupabaseError('notes.findBySourceMessageId', error);
+      throw new Error(`Failed to find note: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    if (!data) return null;
+
+    const record = { ...data, type: 'note' as const };
+    return noteZ.parse(mapNoteFromDb(record));
   }
 
   /**

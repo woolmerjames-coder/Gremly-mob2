@@ -38,13 +38,18 @@ import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
-import { organizedToastSummary } from '../../lib/ui/toast/copy';
+import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
+import type { AppRecord } from '../../lib/types';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
+import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
+import { env } from '../../lib/env';
+import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
+import { appendLineageToWhyString, convertLogListToTodo, hasChecklist } from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 
 export const THINKING_DURATION = 1200;
@@ -64,6 +69,19 @@ const DUE_STRIP =
   String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
 const DUE_CONFIDENCE_FLOOR =
   Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
+
+function createSubmissionId(): string {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch (error) {
+    void error;
+  }
+  const rand = Math.random().toString(36).slice(2, 10);
+  const time = Date.now().toString(36);
+  return `minddrop-${time}-${rand}`;
+}
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -201,7 +219,16 @@ function buildChipsPrompt(suggestions: UISuggestion[]): string | null {
   const SHOW =
     String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
   if (!SHOW || !suggestions?.length) return null;
-  return 'Not sure? Save as a note…';
+  const noteSuggestion = suggestions.find((s) => s.type === 'create.note');
+  if (!noteSuggestion) {
+    return 'Not sure? Save as a note…';
+  }
+
+  if (noteSuggestion.payload.subtype === 'list') {
+    return 'Not sure? Save as a list…';
+  }
+
+  return env.feature.canonicalTypes ? 'Not sure? Save as a log…' : 'Not sure? Save as a note…';
 }
 
 // Centralized copy for consistent toasts/messages
@@ -220,8 +247,10 @@ export async function saveToUnsortedTray(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   repo: any,
   text: string,
+  options: { sourceMessageId?: string; whyString?: string } = {},
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
+  const { sourceMessageId, whyString } = options;
 
   // Base create payload for our repos
   const baseInput = {
@@ -232,6 +261,8 @@ export async function saveToUnsortedTray(
     ai_placed: true,
     origin: 'catchall' as const,
     labels: [CATCHALL_LABEL, UNSORTED_LABEL],
+    why_string: whyString ?? null,
+    sourceMessageId: sourceMessageId ?? undefined,
   };
 
   // If notes.create exists (future), prefer it; otherwise use addUnsorted/create
@@ -242,6 +273,7 @@ export async function saveToUnsortedTray(
         labels: [CATCHALL_LABEL, UNSORTED_LABEL],
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
+        sourceMessageId: sourceMessageId ?? undefined,
       });
       return note?.id;
     }
@@ -252,7 +284,7 @@ export async function saveToUnsortedTray(
     }
 
     // Fallback to generic create
-    const inputAny: any = { ...baseInput };
+  const inputAny: any = { ...baseInput };
     // Hint for future reconciliation; safe to include if ignored by repo
     inputAny.pending_sync = true;
     const created = await repo.create(inputAny);
@@ -267,8 +299,88 @@ export async function saveToUnsortedTray(
   }
 }
 
+type UpdateFromChipParams = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  repo: any;
+  sourceMessageId: string;
+  chosenSubtype: 'journal' | 'idea' | 'list';
+  title?: string | null;
+  body?: string | null;
+  canonicalType?: string | null;
+  views?: { alsoShowIn?: string[] };
+  aiPlaced?: boolean;
+  why?: string;
+};
+
+export async function updateCatchallToChosenSubtype({
+  repo,
+  sourceMessageId,
+  chosenSubtype,
+  title,
+  body,
+  canonicalType,
+  views,
+  aiPlaced,
+  why = 'Chosen via chip',
+}: UpdateFromChipParams) {
+  if (!sourceMessageId) {
+    throw new Error('sourceMessageId is required to update a catchall note');
+  }
+
+  if (typeof repo?.findNoteBySourceMessageId !== 'function') {
+    throw new Error('Repository does not support findNoteBySourceMessageId');
+  }
+
+  const existingNote = await repo.findNoteBySourceMessageId(sourceMessageId);
+  if (!existingNote) {
+    throw new Error('No pre-saved note found for this submission');
+  }
+
+  const existingLabels = Array.isArray(existingNote.labels) ? existingNote.labels : [];
+  const sanitizedLabels = existingLabels.filter((label: string) => label !== UNSORTED_LABEL);
+  if (!sanitizedLabels.includes(CATCHALL_LABEL)) {
+    sanitizedLabels.push(CATCHALL_LABEL);
+  }
+
+  const lineageWhy = appendLineageToWhyString(existingNote.why_string, {
+    originId: existingNote.id,
+    source: 'ask-chip',
+  });
+  const combinedWhy = [lineageWhy, why].filter(Boolean).join(' | ');
+
+  const patch: Record<string, unknown> = {
+    subtype: chosenSubtype,
+    labels: sanitizedLabels,
+    why_string: combinedWhy || null,
+    canonicalType: canonicalType ?? existingNote.canonicalType ?? null,
+    views: views ?? existingNote.views ?? {},
+    ai_placed: aiPlaced ?? existingNote.ai_placed,
+  };
+
+  if (title !== undefined) {
+    patch.title = title;
+  }
+  if (body !== undefined) {
+    patch.body = body;
+  }
+
+  const updated = await repo.update({
+    id: existingNote.id,
+    patch: patch as any,
+  });
+
+  return updated;
+}
+
 type Mode = 'free' | 'guided';
 export type ListStyle = 'none' | 'bullets' | 'numbers' | 'checklist';
+
+type MindDropToastArgs = {
+  todos?: number;
+  notes?: number;
+  habits?: number;
+  details?: OrganizedDetail[];
+};
 
 export function nextPrefix(style: ListStyle, currentText: string): string {
   if (style === 'bullets') {
@@ -336,6 +448,7 @@ type UnifiedDrop = {
   text: string;
   created_at: string;
   unsorted?: boolean; // for notes carrying the needs_review label
+  noteSubtype?: string | null;
 };
 
 const relativeTime = (iso: string) => {
@@ -367,6 +480,7 @@ const RecentDrops: React.FC<{
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
+  const canonicalTypesOn = env.feature.canonicalTypes;
 
   const load = React.useCallback(async () => {
     const isTest = process.env.JEST_WORKAROUND === '1';
@@ -413,13 +527,21 @@ const RecentDrops: React.FC<{
             n?.origin === 'catchall' ||
             (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL)),
         )
-        .map((n) => ({
-          id: n.id,
-          kind: 'note' as const,
-          text: n.body || n.title || n.text || n.content || '',
-          created_at: n.created_at,
-          unsorted: Array.isArray(n?.labels) && n.labels.includes(UNSORTED_LABEL),
-        }));
+        .map((n) => {
+          const labels = Array.isArray(n?.labels) ? n.labels : [];
+          const unsorted = labels.includes(UNSORTED_LABEL);
+          const rawSubtype = typeof n?.subtype === 'string' ? n.subtype : null;
+          const noteSubtype = rawSubtype ?? (unsorted ? 'catchall' : null);
+
+          return {
+            id: n.id,
+            kind: 'note' as const,
+            text: n.body || n.title || n.text || n.content || '',
+            created_at: n.created_at,
+            unsorted,
+            noteSubtype,
+          };
+        });
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
         .filter((t) => t?.origin === 'catchall')
@@ -528,55 +650,65 @@ const RecentDrops: React.FC<{
               contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
               showsVerticalScrollIndicator
             >
-              {items.map((item) => (
-                <View
-                  key={`${item.kind}:${item.id}`}
-                  testID={`minddrop-recent-${item.kind}-${item.id}`}
-                  style={styles.recentCard}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      gap: 8,
-                    }}
-                  >
-                    <Text numberOfLines={2} style={styles.recentText}>
-                      {item.text || '—'}
-                    </Text>
-                    <View style={{ flexDirection: 'row', gap: 6 }}>
-                      <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
-                        {item.kind}
-                      </Text>
-                      {item.kind === 'note' && item.unsorted ? (
-                        <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
-                      ) : null}
-                    </View>
-                  </View>
+              {items.map((item) => {
+                const displayKind = kindToDisplayLabel(
+                  item.kind,
+                  item.noteSubtype ?? null,
+                  canonicalTypesOn,
+                );
+                const showLegacyUnsortedBadge =
+                  !canonicalTypesOn && item.kind === 'note' && item.unsorted;
 
-                  <View style={styles.recentMetaRow}>
-                    <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                    <View style={styles.recentActions}>
-                      <Pressable
-                        onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.recentAction}>Edit</Text>
-                      </Pressable>
-                      <Text style={styles.recentDot}>•</Text>
-                      <Pressable
-                        onPress={() => handleDelete(item.id, item.kind)}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.recentActionDelete}>Delete</Text>
-                      </Pressable>
+                return (
+                  <View
+                    key={`${item.kind}:${item.id}`}
+                    testID={`minddrop-recent-${item.kind}-${item.id}`}
+                    style={styles.recentCard}
+                  >
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                      }}
+                    >
+                      <Text numberOfLines={2} style={styles.recentText}>
+                        {item.text || '—'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
+                          {displayKind}
+                        </Text>
+                        {showLegacyUnsortedBadge ? (
+                          <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
+                        ) : null}
+                      </View>
+                    </View>
+
+                    <View style={styles.recentMetaRow}>
+                      <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                      <View style={styles.recentActions}>
+                        <Pressable
+                          onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.recentAction}>Edit</Text>
+                        </Pressable>
+                        <Text style={styles.recentDot}>•</Text>
+                        <Pressable
+                          onPress={() => handleDelete(item.id, item.kind)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.recentActionDelete}>Delete</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
           )}
         </View>
@@ -653,12 +785,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     habits: [],
   });
   const unsortedIdRef = useRef<string | null>(null);
+  const submissionIdRef = useRef<string | null>(null);
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
   // Trust Builders: organized today count
   const [organizedToday, setOrganizedToday] = useState<number>(0);
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
+  const canonicalConversionsOn = env.feature.canonicalConversions;
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
@@ -750,6 +884,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    unsortedIdRef.current = null;
+    submissionIdRef.current = null;
     setNote('');
     setIsSubmitting(false);
     setIsThinking(false);
@@ -843,7 +979,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Shared success toast helper for Mind Drop
   const showMindDropSuccessToast = useCallback(
-    (args: { todos?: number; notes?: number; habits?: number }) => {
+    (args: MindDropToastArgs = {}) => {
       if (!TOASTS_ON) {
         try {
           if (shouldUseHaptics()) void haptics.submitSuccess();
@@ -858,7 +994,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
-      const label = organizedToastSummary(args ?? {});
+      const { todos, notes, habits, details } = args;
+      const counts = { todos, notes, habits };
+      const label = organizedToastSummary(counts, {
+        canonicalTypesOn: env.feature.canonicalTypes,
+        details,
+      });
+
       showActionToast({
         type: 'success',
         content: label,
@@ -884,6 +1026,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   type SaveResult = {
     created: { todos: string[]; notes: string[]; habits: string[] };
+    createdDetails: OrganizedDetail[];
     suggestions?: UISuggestion[];
     decisionMode?: CortexResponse['mode'];
     decisionConfidence?: number;
@@ -898,12 +1041,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (!trimmed) {
         resetState();
         end(trace, 'empty', { length: 0 });
-        return { created: { todos: [], notes: [], habits: [] } };
+        return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
       }
 
       const currentUserId = user?.id ?? userId ?? 'anonymous';
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
+      const submissionId = submissionIdRef.current ?? createSubmissionId();
+      submissionIdRef.current = submissionId;
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
@@ -966,6 +1111,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
+                  sourceMessageId: submissionId,
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -984,12 +1130,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
+                  sourceMessageId: submissionId,
                 },
               });
             } else if (action.type === 'create.note') {
               const text = action.payload.text?.trim() || cleanedText || trimmed;
               const rawSubtype = action.payload.subtype;
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
+              const canonicalType = persistedToCanonical('note', subtype);
 
               mapped.push({
                 bucket: 'notes',
@@ -1002,14 +1150,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: subtype !== 'catchall',
                   space_id: action.payload.spaceId ?? null,
                   why_string: decision.explanation || 'Organized via Mind Drop',
-                  canonicalType: 'note',
+                  canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
+                  sourceMessageId: submissionId,
                 },
               });
             } else if (action.type === 'add.to.list') {
               const itemText = action.payload.item?.trim() || cleanedText || trimmed;
               const title = cleanedText || itemText || trimmed || 'Quick list';
+              const canonicalType = persistedToCanonical('note', 'list');
 
               mapped.push({
                 bucket: 'notes',
@@ -1022,9 +1172,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   space_id: action.payload.spaceId ?? null,
                   why_string: decision.explanation || 'Ideas/list capture',
-                  canonicalType: 'note',
+                  canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
+                  sourceMessageId: submissionId,
                 },
               });
             } else {
@@ -1040,6 +1191,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               habits: [] as string[],
             };
             const counts = { todos: 0, notes: 0, habits: 0 };
+            const createdDetails: OrganizedDetail[] = [];
 
             try {
               for (const entry of mapped) {
@@ -1047,12 +1199,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 if (entry.bucket === 'todos') {
                   counts.todos += 1;
                   createdIds.todos.push(record.id);
+                  createdDetails.push({ kind: 'todo' });
                 } else if (entry.bucket === 'habits') {
                   counts.habits += 1;
                   createdIds.habits.push(record.id);
+                  createdDetails.push({ kind: 'habit' });
                 } else {
                   counts.notes += 1;
                   createdIds.notes.push(record.id);
+                  const payloadSubtype =
+                    typeof (entry.payload as any)?.subtype === 'string'
+                      ? (entry.payload as any).subtype
+                      : null;
+                  createdDetails.push({
+                    kind: 'note',
+                    noteSubtype: payloadSubtype,
+                  });
                 }
               }
 
@@ -1088,6 +1250,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
               return {
                 created: createdIds,
+                createdDetails,
                 decisionMode: decision.mode,
                 decisionConfidence: decision.confidence,
               };
@@ -1099,12 +1262,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
           try {
-            const id = await saveToUnsortedTray(repo as any, trimmed);
+            const id = await saveToUnsortedTray(repo as any, trimmed, {
+              sourceMessageId: submissionId,
+              whyString: 'Awaiting chip selection',
+            });
             unsortedIdRef.current = id ?? null;
           } catch (e) {
             console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
           }
 
+          const savedUnsortedId = unsortedIdRef.current;
           const enrichedChips = chipSuggestions.map((s) => {
             if (s.type === 'create.todo') {
               const name = (s.payload?.name || cleanedText || '').trim();
@@ -1120,10 +1287,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               } as UISuggestion;
             }
+
+            if (s.type === 'convert.log-list-to-todo') {
+              return {
+                ...s,
+                payload: {
+                  noteId: savedUnsortedId ?? s.payload?.noteId ?? null,
+                  preserveState: s.payload?.preserveState ?? true,
+                },
+              } as UISuggestion;
+            }
+
             return s;
           });
 
-          setSuggestions(enrichedChips);
+          if (canonicalConversionsOn && savedUnsortedId && hasChecklist(trimmed)) {
+            const hasConversionChip = enrichedChips.some(
+              (chip) => chip.type === 'convert.log-list-to-todo',
+            );
+
+            if (!hasConversionChip) {
+              enrichedChips.unshift({
+                type: 'convert.log-list-to-todo',
+                label: env.feature.canonicalTypes ? 'Convert to to-do' : 'Convert to task',
+                payload: {
+                  noteId: savedUnsortedId,
+                  preserveState: true,
+                },
+              });
+            }
+          }
+
+          const visibleChips = canonicalConversionsOn
+            ? enrichedChips
+            : enrichedChips.filter((chip) => chip.type !== 'convert.log-list-to-todo');
+
+          setSuggestions(visibleChips);
           setNote('');
           setRecentRefresh?.((v) => v + 1);
           pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -1146,6 +1345,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           step(trace, 'decide:chips', { count: chipSuggestions.length });
           return {
             created: { todos: [], notes: [], habits: [] },
+            createdDetails: [],
             suggestions: enrichedChips,
             decisionMode: decision.mode,
             decisionConfidence: decision.confidence,
@@ -1170,6 +1370,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         habits: [] as string[],
       };
       const counts = { todos: 0, notes: 0, habits: 0 };
+      const createdDetails: OrganizedDetail[] = [];
 
       const looksLikeIdeas =
         /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i.test(trimmed);
@@ -1195,6 +1396,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
           origin: 'catchall',
+          sourceMessageId: submissionId,
         };
       } else if (classifyOut?.type === 'habit') {
         const freqRaw = typeof classifyOut?.frequency === 'string' ? classifyOut.frequency : null;
@@ -1209,17 +1411,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a habit',
           origin: 'catchall',
+          sourceMessageId: submissionId,
         };
       } else {
+        const subtype =
+          classifyOut?.type === 'note' &&
+          (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
+            ? classifyOut.subtype
+            : 'catchall';
+        const canonicalType = persistedToCanonical('note', subtype);
+
         payload = {
           type: 'note',
           title: cleanedText || trimmed || 'Quick note',
           body: cleanedText || trimmed,
-          subtype:
-            classifyOut?.type === 'note' &&
-            (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
-              ? classifyOut.subtype
-              : 'catchall',
+          subtype,
           origin: 'catchall',
           ai_placed:
             classifyOut?.type === 'note' &&
@@ -1228,11 +1434,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               : false,
           space_id: null,
           why_string: classifyOut?.whyString || 'Saved from Catch-All Notepad',
-          canonicalType: 'note',
+          canonicalType,
           labels: [CATCHALL_LABEL],
           views: {
             alsoShowIn: ['Hub:Catch-All'],
           },
+          sourceMessageId: submissionId,
         };
       }
 
@@ -1242,12 +1449,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (payload.type === 'todo') {
         counts.todos = 1;
         createdIds.todos.push(rec.id);
+        createdDetails.push({ kind: 'todo' });
       } else if (payload.type === 'habit') {
         counts.habits = 1;
         createdIds.habits.push(rec.id);
+        createdDetails.push({ kind: 'habit' });
       } else {
         counts.notes = 1;
         createdIds.notes.push(rec.id);
+        const subtypeValue =
+          typeof (payload as any)?.subtype === 'string' ? (payload as any).subtype : null;
+        createdDetails.push({ kind: 'note', noteSubtype: subtypeValue });
       }
 
       const probableIntent =
@@ -1281,6 +1493,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       return {
         created: createdIds,
+        createdDetails,
         decisionMode,
         decisionConfidence:
           typeof classifyOut?.confidence === 'number' ? classifyOut.confidence : undefined,
@@ -1295,10 +1508,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const handlePickSuggestion = useCallback(
     async (suggestion: UISuggestion) => {
       const trimmed = note.trim();
+      const conversionsEnabled = canonicalConversionsOn;
 
       try {
         const existingUnsortedId = unsortedIdRef.current;
-        if (existingUnsortedId) {
+        const submissionId = submissionIdRef.current ?? createSubmissionId();
+        submissionIdRef.current = submissionId;
+        const isConversion = suggestion.type === 'convert.log-list-to-todo';
+        const shouldRemoveUnsorted =
+          !!existingUnsortedId && !isConversion && suggestion.type !== 'create.note';
+
+        if (isConversion && !conversionsEnabled) {
+          console.warn('[MindDrop][Chip] Conversion suggestion ignored (flag disabled)');
+          return;
+        }
+
+        if (shouldRemoveUnsorted) {
           try {
             await (repo as any).remove?.(existingUnsortedId);
           } catch (e) {
@@ -1316,12 +1541,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           habits: [] as string[],
         };
         const counts = { todos: 0, notes: 0, habits: 0 };
+        const details: OrganizedDetail[] = [];
 
         if (suggestion.type === 'create.todo') {
           const rawTodoText = suggestion.payload.name?.trim() || trimmed;
           const ideasPattern = /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i;
 
           if (ideasPattern.test(rawTodoText)) {
+            const canonicalType = persistedToCanonical('note', 'list');
             const record = await repo.create({
               type: 'note',
               title: rawTodoText || 'Quick note',
@@ -1331,12 +1558,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               ai_placed: true,
               space_id: null,
               why_string: 'Chosen via chip (ideas/list safety)',
-              canonicalType: 'note',
+              canonicalType,
               labels: [CATCHALL_LABEL],
               views: { alsoShowIn: ['Hub:Catch-All'] },
+              sourceMessageId: submissionId,
             });
             counts.notes = 1;
             createdIds.notes.push(record.id);
+            details.push({ kind: 'note', noteSubtype: 'list' });
           } else {
             const due = suggestion.payload.due ?? suggestion.payload.due_date ?? null;
             const record = await repo.create({
@@ -1349,9 +1578,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               why_string: 'Chosen via chip',
               origin: 'catchall',
               views: {},
+              sourceMessageId: submissionId,
             });
             counts.todos = 1;
             createdIds.todos.push(record.id);
+            details.push({ kind: 'todo' });
           }
         } else if (suggestion.type === 'create.habit') {
           const record = await repo.create({
@@ -1362,28 +1593,118 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             why_string: 'Chosen via chip',
             origin: 'catchall',
             views: {},
+            sourceMessageId: submissionId,
           });
           counts.habits = 1;
           createdIds.habits.push(record.id);
-        } else {
-          const record = await repo.create({
-            type: 'note',
-            title: suggestion.payload.title,
-            body: suggestion.payload.body,
-            subtype: suggestion.payload.subtype,
-            origin: 'catchall',
-            ai_placed: (suggestion.payload.subtype as string) !== 'catchall',
-            space_id: null,
-            why_string: 'Chosen via chip',
-            canonicalType: 'note',
-            labels: [CATCHALL_LABEL],
-            views: suggestion.payload.subtype === 'list' ? { alsoShowIn: ['Hub:Catch-All'] } : {},
+          details.push({ kind: 'habit' });
+        } else if (suggestion.type === 'convert.log-list-to-todo') {
+          if (!conversionsEnabled) {
+            console.warn('[MindDrop][Chip] Conversion attempt blocked (flag disabled)');
+            return;
+          }
+          const targetId = suggestion.payload.noteId || existingUnsortedId;
+          if (!targetId) {
+            throw new Error('Missing note id for conversion');
+          }
+
+          const { todo } = await convertLogListToTodo(repo, targetId, {
+            preserveState: suggestion.payload.preserveState ?? true,
           });
+
+          counts.todos = 1;
+          createdIds.todos.push(todo.id);
+          details.push({ kind: 'todo' });
+          unsortedIdRef.current = null;
+        } else if (suggestion.type === 'create.note') {
+          const rawSubtype = suggestion.payload.subtype as string | undefined;
+          const canonicalType = persistedToCanonical('note', rawSubtype ?? undefined);
+          const viewsValue =
+            suggestion.payload.subtype === 'list' ? { alsoShowIn: ['Hub:Catch-All'] } : {};
+          const aiPlaced = (suggestion.payload.subtype as string) !== 'catchall';
+          const canUpdateCatchall =
+            rawSubtype === 'journal' || rawSubtype === 'idea' || rawSubtype === 'list';
+
+          let record: AppRecord | null = null;
+
+          if (
+            submissionId &&
+            canUpdateCatchall &&
+            typeof (repo as any).findNoteBySourceMessageId === 'function'
+          ) {
+            try {
+              record = await updateCatchallToChosenSubtype({
+                repo,
+                sourceMessageId: submissionId,
+                chosenSubtype: rawSubtype as 'journal' | 'idea' | 'list',
+                title: suggestion.payload.title,
+                body: suggestion.payload.body,
+                canonicalType,
+                views: viewsValue,
+                aiPlaced,
+                why: 'Chosen via chip',
+              });
+              unsortedIdRef.current = null;
+            } catch (updateError) {
+              console.warn('[MindDrop][Chip] catchall update failed, falling back to create', updateError);
+            }
+          }
+
+          if (!record && existingUnsortedId) {
+            try {
+              record = await repo.update({
+                id: existingUnsortedId,
+                patch: {
+                  title: suggestion.payload.title,
+                  body: suggestion.payload.body,
+                  subtype: suggestion.payload.subtype,
+                  ai_placed: aiPlaced,
+                  why_string: 'Chosen via chip',
+                  origin: 'catchall',
+                  canonicalType,
+                  labels: [CATCHALL_LABEL],
+                  views: viewsValue,
+                } as any,
+              });
+              unsortedIdRef.current = null;
+            } catch (updateByIdError) {
+              console.warn('[MindDrop][Chip] fallback update by id failed', updateByIdError);
+              record = null;
+            }
+          }
+
+          if (!record) {
+            record = await repo.create({
+              type: 'note',
+              title: suggestion.payload.title,
+              body: suggestion.payload.body,
+              subtype: suggestion.payload.subtype,
+              origin: 'catchall',
+              ai_placed: aiPlaced,
+              space_id: null,
+              why_string: 'Chosen via chip',
+              canonicalType,
+              labels: [CATCHALL_LABEL],
+              views: viewsValue,
+              sourceMessageId: submissionId,
+            });
+            unsortedIdRef.current = null;
+          }
+
           counts.notes = 1;
           createdIds.notes.push(record.id);
+          const subtypeValue = typeof rawSubtype === 'string' ? rawSubtype : null;
+          details.push({ kind: 'note', noteSubtype: subtypeValue });
+        } else {
+          return;
         }
 
-        showMindDropSuccessToast(counts);
+        showMindDropSuccessToast({
+          todos: counts.todos,
+          notes: counts.notes,
+          habits: counts.habits,
+          details,
+        });
         await refreshOrganizedToday();
         pendingUndo.current = createdIds;
         resetState();
@@ -1402,7 +1723,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 ? 'todo'
                 : suggestion.type === 'create.habit'
                   ? 'habit'
-                  : 'note',
+                  : suggestion.type === 'convert.log-list-to-todo'
+                    ? 'todo'
+                    : 'note',
             confidence: 0,
             mode: 'auto',
             decision: 'auto_create',
@@ -1429,6 +1752,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       showMindDropSuccessToast,
       user,
       userId,
+      canonicalConversionsOn,
     ],
   );
 
@@ -1459,10 +1783,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     submitLockRef.current = true;
     setIsSubmitting(true);
 
+    const submissionId = submissionIdRef.current ?? createSubmissionId();
+    submissionIdRef.current = submissionId;
+
     try {
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
-        await saveToUnsortedTray(repo, trimmed);
+        await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
         resetState();
         if (TOASTS_ON) {
           showActionToast({
@@ -1548,7 +1875,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Primary pipeline failed twice. Decide fallback by error type.
         if (isNetworkError(lastError)) {
           // Offline-ish path — save locally and reassure
-          await saveToUnsortedTray(repo, trimmed);
+          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -1571,7 +1898,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
-          await saveToUnsortedTray(repo, trimmed);
+          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -1614,6 +1941,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const createdTodos = finalResult?.created?.todos ?? [];
       const createdNotes = finalResult?.created?.notes ?? [];
       const createdHabits = finalResult?.created?.habits ?? [];
+      const createdDetails = finalResult?.createdDetails ?? [];
 
       pendingUndo.current = {
         todos: createdTodos,
@@ -1627,6 +1955,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         todos: createdTodos.length,
         notes: createdNotes.length,
         habits: createdHabits.length,
+        details: createdDetails,
       });
 
       await refreshOrganizedToday?.();

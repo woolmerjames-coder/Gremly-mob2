@@ -29,6 +29,7 @@ import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
 import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { getNoteLabel } from '../../lib/canonicalTypes';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -75,6 +76,8 @@ export default function HubScreen() {
     shopping: { incomplete: 0, total: 0 },
     packing: { incomplete: 0, total: 0 },
   });
+
+  const noteLabelPlural = getNoteLabel({ plural: true });
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
@@ -749,7 +752,7 @@ export default function HubScreen() {
             {tab === 'Notes' && isEmpty && !loading && !error && (
               <EmptyState
                 testID="empty-notes"
-                title="No Notes yet"
+                title={`No ${noteLabelPlural} yet`}
                 subtitle="Capture ideas, lists, and references."
               />
             )}
@@ -794,7 +797,7 @@ export default function HubScreen() {
             {/* Section header for main list */}
             {!isEmpty && !error && tab !== 'People' && tab !== 'Lists' && (
               <View style={styles.section}>
-                <Text style={typeStyles.h2}>{tab}</Text>
+                <Text style={typeStyles.h2}>{tab === 'Notes' ? noteLabelPlural : tab}</Text>
                 <Text style={[typeStyles.subtitle, { marginTop: 2 }]}>
                   {allItems.length} item(s)
                 </Text>

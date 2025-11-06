@@ -278,6 +278,36 @@ describe('cortexDecide Integration', () => {
     expect(result.suggestions!.length).toBeGreaterThan(0);
   });
 
+  it('normalizes low-confidence logs to unsorted catch-all candidates', async () => {
+    const { createCortexEngine } = require('../cortex/createEngine');
+
+    createCortexEngine.mockReturnValue({
+      classify: jest.fn().mockResolvedValue({
+        type: 'note',
+        subtype: 'catchall',
+        text: 'random thought fragment',
+        confidence: 0.3,
+        aiPlaced: true,
+        whyString: 'Low confidence note routing',
+      }),
+    });
+
+    const result = await cortexDecide({ text: 'random thought fragment' }, mockContext);
+
+    expect(result.mode).toBe('keep');
+    expect(result.actions).toHaveLength(0);
+    expect(result.meta?.canonicalType).toBe('unsorted');
+    expect(result.meta?.canonicalSubtype).toBeNull();
+
+    const candidates = result.meta?.candidateActions ?? [];
+    expect(candidates).toHaveLength(1);
+    const candidate = candidates[0];
+    expect(candidate.type).toBe('create.note');
+    if (candidate.type === 'create.note') {
+      expect(candidate.payload.subtype).toBe('catchall');
+    }
+  });
+
   it('should return keep mode with safe explanation on engine error', async () => {
     const { createCortexEngine } = require('../cortex/createEngine');
 

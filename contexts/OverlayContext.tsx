@@ -3,9 +3,13 @@
  * Ensures only one overlay instance exists across all screens
  */
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import type { AppRecord } from '../lib/types';
+import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
+import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 
-type EntityType = 'habit' | 'todo' | 'journal' | 'note' | 'person' | 'unsorted';
+type EntityType = CanonicalType;
+
+const CATCHALL_LABEL = 'catchall';
+const NEEDS_REVIEW_LABEL = 'needs_review';
 
 interface ConversionMeta {
   origin?: string;
@@ -23,7 +27,7 @@ interface OverlayState {
   initialEntity?: {
     type: EntityType | null;
     id?: string;
-    subtype?: string | null;
+    logSubtype?: LogSubtype | null;
   };
   initialSpaceId?: string | null;
   conversionMeta?: ConversionMeta;
@@ -32,7 +36,7 @@ interface OverlayState {
 interface CreateOptions {
   type?: EntityType;
   spaceId?: string | null;
-  subtype?: string | null;
+  logSubtype?: LogSubtype | null;
   conversionMeta?: ConversionMeta;
 }
 
@@ -60,7 +64,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const openCreate = useCallback(
-    ({ type, spaceId, subtype, conversionMeta }: CreateOptions = {}) => {
+    ({ type, spaceId, logSubtype, conversionMeta }: CreateOptions = {}) => {
       if (isOpeningRef.current) {
         console.log('[GlobalOverlay] open already in progress, ignoring');
         return;
@@ -70,7 +74,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       setState({
         visible: true,
         mode: 'create',
-        initialEntity: type ? { type, id: undefined, subtype: subtype || null } : undefined,
+        initialEntity: type
+          ? { type, id: undefined, logSubtype: type === 'log' ? (logSubtype ?? null) : null }
+          : undefined,
         initialSpaceId: spaceId,
         conversionMeta,
       });
@@ -92,7 +98,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     }
 
     let entityType: EntityType;
-    let subtype: string | null = null;
+    let logSubtype: LogSubtype | null = null;
 
     if (record.type === 'habit') {
       entityType = 'habit';
@@ -102,18 +108,16 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       const labels = (record as any)?.labels as string[] | undefined;
       const recordSubtype = (record as any)?.subtype as string | undefined;
 
-      if (labels?.includes?.('needs_review') || recordSubtype === 'catchall') {
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
         entityType = 'unsorted';
-        subtype = 'catchall';
-      } else if (recordSubtype === 'journal') {
-        entityType = 'journal';
-        subtype = recordSubtype;
+        logSubtype = null;
       } else {
-        entityType = 'note';
-        subtype = recordSubtype ?? null;
+  entityType = 'log';
+  logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
       }
     } else {
-      entityType = 'note';
+      entityType = 'log';
+      logSubtype = 'everything_else';
     }
 
     const newState = {
@@ -122,7 +126,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialEntity: {
         type: entityType,
         id: record.id,
-        subtype,
+        logSubtype,
       },
       initialSpaceId: spaceId,
     };

@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Screen, Box, Text, Button, Input, Chip } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
+import { getNoteLabel, kindToDisplayLabel } from '../../lib/canonicalTypes';
 // import { openManualAdd } from '../../components/ManualAddSheet'; // DEPRECATED - removed
 
 // Mock data
@@ -59,6 +60,7 @@ type FilterType = 'all' | 'habits' | 'todos' | 'notes';
 export default function HubDSPlayground() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const noteLabelPlural = getNoteLabel({ plural: true });
 
   const handleItemPress = (id: string, type: string) => {
     console.log('[HubDSPlayground] Item pressed:', id, type);
@@ -100,7 +102,7 @@ export default function HubDSPlayground() {
               testID="hub-filter-todos"
             />
             <Chip
-              label="Notes"
+              label={noteLabelPlural}
               selected={activeFilter === 'notes'}
               onPress={() => setActiveFilter('notes')}
               testID="hub-filter-notes"
@@ -115,7 +117,7 @@ export default function HubDSPlayground() {
             <ListItem
               key={item.id}
               title={item.title}
-              subtitle={`${item.type} • ${new Date(item.updated_at).toLocaleDateString()}`}
+              subtitle={`${kindToDisplayLabel(item.type, { lowercase: true })} • ${new Date(item.updated_at).toLocaleDateString()}`}
               onPress={() => handleItemPress(item.id, item.type)}
               testID={`hub-recent-${item.id}`}
             />
@@ -144,7 +146,7 @@ export default function HubDSPlayground() {
             <ListItem
               key={item.id}
               title={item.title}
-              subtitle={`${item.type} • AI placed`}
+              subtitle={`${kindToDisplayLabel(item.type, { lowercase: true })} • AI placed`}
               onPress={() => handleItemPress(item.id, item.type)}
               testID={`hub-tray-${item.id}`}
             />

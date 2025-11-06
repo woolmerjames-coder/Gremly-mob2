@@ -15,16 +15,18 @@ export interface Phase8LinksState {
   addTag: (tagName: string) => Promise<Tag>;
   linkTag: (tagId: string) => Promise<void>;
   unlinkTag: (tagId: string) => Promise<void>;
+  clearPendingTags: () => void;
 
   // People
   linkedPeople: EntityPerson[];
   loadPeople: () => Promise<void>;
   linkPerson: (personName: string, personEmail?: string) => Promise<EntityPerson>;
   unlinkPerson: (linkId: string) => Promise<void>;
+  clearPendingPeople: () => void;
 
   // Pending (for new items without ID)
   pendingTagIds: string[];
-  pendingPeople: Array<{ personName: string; personEmail?: string }>;
+  pendingPeople: Array<{ id?: string; personName: string; personEmail?: string }>;
 
   // State
   isLoading: boolean;
@@ -41,7 +43,7 @@ export function usePhase8LinksState(
   const [linkedPeople, setLinkedPeople] = useState<EntityPerson[]>([]);
   const [pendingTagIds, setPendingTagIds] = useState<string[]>([]);
   const [pendingPeople, setPendingPeople] = useState<
-    Array<{ personName: string; personEmail?: string }>
+    Array<{ id?: string; personName: string; personEmail?: string }>
   >([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -136,6 +138,10 @@ export function usePhase8LinksState(
     [repo, itemId, loadItemTags],
   );
 
+  const clearPendingTags = useCallback(() => {
+    setPendingTagIds([]);
+  }, []);
+
   const linkPerson = useCallback(
     async (personName: string, personEmail?: string): Promise<EntityPerson> => {
       if (itemId && itemType) {
@@ -150,10 +156,12 @@ export function usePhase8LinksState(
         return person as EntityPerson;
       } else {
         // 10R: New item - add to pending (uses owner_id, entity_id, entity_type, person_id)
+        const stamp = Date.now();
+        const tempId = `temp-${stamp}`;
         const tempPerson: EntityPerson = {
-          id: `temp-${Date.now()}`,
+          id: tempId,
           owner_id: userId,
-          person_id: `temp-person-${Date.now()}`, // 10R: FK to people table
+          person_id: `temp-person-${stamp}`, // 10R: FK to people table
           entity_id: '',
           entity_type: itemType || 'note',
           person_name: personName,
@@ -161,7 +169,8 @@ export function usePhase8LinksState(
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        setPendingPeople((prev) => [...prev, { personName, personEmail }]);
+        setPendingPeople((prev) => [...prev, { id: tempId, personName, personEmail }]);
+        setLinkedPeople((prev) => [...prev, tempPerson]);
         return tempPerson;
       }
     },
@@ -176,11 +185,17 @@ export function usePhase8LinksState(
         await loadPeople();
       } else {
         // New item - remove from pending (match by name)
-        setPendingPeople((prev) => prev.filter((_, idx) => `temp-${idx}` !== linkId));
+        setPendingPeople((prev) => prev.filter((person) => person.id !== linkId));
+        setLinkedPeople((prev) => prev.filter((person) => person.id !== linkId));
       }
     },
     [repo, itemId, loadPeople],
   );
+
+  const clearPendingPeople = useCallback(() => {
+    setPendingPeople([]);
+    setLinkedPeople((prev) => prev.filter((person) => !person.id?.startsWith('temp-')));
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -222,8 +237,10 @@ export function usePhase8LinksState(
     loadPeople,
     linkPerson,
     unlinkPerson,
+    clearPendingPeople,
     pendingTagIds,
     pendingPeople,
+    clearPendingTags,
     isLoading,
   };
 }
