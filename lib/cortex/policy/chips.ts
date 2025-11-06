@@ -1,6 +1,6 @@
 import { buildHabitFields, buildTodoFields } from '../textNormalization';
 import { env } from '../../env';
-
+import { hasChecklist } from '../../conversion';
 export type ChipSuggestion =
   | {
       type: 'create.todo';
@@ -21,8 +21,12 @@ export type ChipSuggestion =
       type: 'create.note';
       label: string;
       payload: { title: string; body: string; subtype: 'list' | 'journal' };
+    }
+  | {
+      type: 'convert.log-list-to-todo';
+      label: string;
+      payload: { noteId: string | null; preserveState?: boolean };
     };
-
 export type BuildChipsInput = {
   text: string;
   probable: 'todo' | 'habit' | 'log' | 'unknown';
@@ -87,6 +91,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   const isAction = looksActionish(t);
   const hasDate = hasExplicitDateOrTime(t);
 
+  const containsChecklist = hasChecklist(t);
+  const conversionsEnabled = env.feature.canonicalConversions;
   if (input.probable === 'todo' || input.probable === 'unknown' || isAction) {
     const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
     const due = todoFields.due ?? null;
@@ -135,6 +141,18 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   }
 
   const seen = new Set<string>();
+  if (
+    conversionsEnabled &&
+    (input.probable === 'log' || isListLike || containsChecklist) &&
+    !chips.some((chip) => chip.type === 'convert.log-list-to-todo')
+  ) {
+    const convertLabel = env.feature.canonicalTypes ? 'Convert to to-do' : 'Convert to task';
+    chips.push({
+      type: 'convert.log-list-to-todo',
+      label: convertLabel,
+      payload: { noteId: null, preserveState: true },
+    });
+  }
   return chips.filter((chip) => {
     const key = `${chip.type}:${chip.label}`;
     if (seen.has(key)) return false;
