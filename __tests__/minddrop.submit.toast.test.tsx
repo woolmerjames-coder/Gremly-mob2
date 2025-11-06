@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { organizedToastContent } from '../lib/ui/toast/copy';
+import { env } from '../lib/env';
 
 // Force feature flag ON
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
@@ -192,5 +193,42 @@ describe('Mind Drop submit -> toast + actions', () => {
     expect(navArgs[1]).toEqual(
       expect.objectContaining({ screen: 'Hub', params: { filter: 'recent' } }),
     );
+  });
+
+  it('Surfaces canonical labels in toast copy when canonical types flag enabled', async () => {
+    const originalCanonical = env.feature.canonicalTypes;
+
+    try {
+      (env.feature as any).canonicalTypes = true;
+      mockDecideWithContext.mockResolvedValueOnce({
+        mode: 'auto',
+        actions: [
+          {
+            type: 'create.note',
+            payload: { text: 'Reflective entry', subtype: 'journal', spaceId: null },
+          },
+        ],
+        confidence: 0.9,
+        suggestions: [],
+        explanation: 'journal',
+      });
+
+      render(<CatchAllNotepad />);
+
+      const input = screen.getByTestId('minddrop-input');
+      fireEvent.changeText(input, 'write about my day');
+
+      const submit = screen.getByTestId('minddrop-submit-button');
+      fireEvent.press(submit);
+
+      await waitFor(() => {
+        expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+      });
+
+      const expectedToast = organizedToastContent('log', 1);
+      await screen.findByText(expectedToast);
+    } finally {
+      (env.feature as any).canonicalTypes = originalCanonical;
+    }
   });
 });
