@@ -56,10 +56,6 @@ export const THINKING_DURATION = 1200;
 const INPUT_LINE_HEIGHT = 26;
 const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
 
-const MOSS = '#2E5540';
-const LINEN_CREAM = '#F9F6F1';
-const SAGE_MIST = '#BFD8C0';
-const GOLDEN_PEAR = '#E0C47A';
 const TOGGLE_BLUE = '#9CA6E0';
 const CHIPS_AUTO_DISMISS_MS =
   Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
@@ -110,6 +106,7 @@ type MindDropInputProps = {
   hudContainerStyle: any;
   hudTextStyle: any;
   characterCount: number;
+  lockIconColor: string; // Phase 1: theme color
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -128,6 +125,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
     hudContainerStyle,
     hudTextStyle,
     characterCount,
+    lockIconColor,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -196,7 +194,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
         <View style={hudContainerStyle} pointerEvents="none">
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ marginRight: 6 }}>
-              <Icon name="Lock" size="xs" color={GOLDEN_PEAR} strokeWidth={1.75} />
+              <Icon name="Lock" size="xs" color={lockIconColor} strokeWidth={1.75} />
             </View>
             <Text testID="minddrop-privacy" style={hudTextStyle}>
               Private & secure
@@ -284,7 +282,7 @@ export async function saveToUnsortedTray(
     }
 
     // Fallback to generic create
-  const inputAny: any = { ...baseInput };
+    const inputAny: any = { ...baseInput };
     // Hint for future reconciliation; safe to include if ignored by repo
     inputAny.pending_sync = true;
     const created = await repo.create(inputAny);
@@ -1646,7 +1644,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               });
               unsortedIdRef.current = null;
             } catch (updateError) {
-              console.warn('[MindDrop][Chip] catchall update failed, falling back to create', updateError);
+              console.warn(
+                '[MindDrop][Chip] catchall update failed, falling back to create',
+                updateError,
+              );
             }
           }
 
@@ -2069,6 +2070,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             hudContainerStyle={styles.inputHud}
             hudTextStyle={styles.inputHudText}
             characterCount={note.length}
+            lockIconColor={c.goldenPear}
           />
         </View>
         {suggestions.length > 0 ? (
@@ -2150,9 +2152,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <Svg pointerEvents="none" style={styles.gradientBackground}>
         <Defs>
           <SvgLinearGradient id="mindDropGradient" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={LINEN_CREAM} stopOpacity={1} />
-            <Stop offset="20%" stopColor={SAGE_MIST} stopOpacity={1} />
-            <Stop offset="100%" stopColor={MOSS} stopOpacity={1} />
+            <Stop offset="0%" stopColor={c.linenCream} stopOpacity={1} />
+            <Stop offset="20%" stopColor={c.sageMist} stopOpacity={1} />
+            <Stop offset="100%" stopColor={c.mossGreen} stopOpacity={1} />
           </SvgLinearGradient>
         </Defs>
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#mindDropGradient)" />
@@ -2300,12 +2302,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       position: 'relative',
     },
     inputContainer: {
-      backgroundColor: LINEN_CREAM,
+      backgroundColor: c.linenCream,
       borderRadius: 16,
       padding: 20,
       minHeight: 240,
       borderWidth: 1,
-      borderColor: SAGE_MIST,
+      borderColor: c.sageMist,
       shadowColor: c.cardShadow,
       shadowOpacity: 0.06,
       shadowRadius: 8,
@@ -2313,8 +2315,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       elevation: 2,
     },
     inputContainerFocused: {
-      borderColor: SAGE_MIST,
-      shadowColor: SAGE_MIST,
+      borderColor: c.sageMist,
+      shadowColor: c.sageMist,
       shadowOpacity: 0.18,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
@@ -2423,11 +2425,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'center',
     },
     trustNumber: {
-      color: GOLDEN_PEAR,
+      color: c.goldenPear,
       fontFamily: 'Inter-SemiBold',
     },
     trustSuffix: {
-      color: SAGE_MIST,
+      color: c.sageMist,
       fontFamily: 'Inter-Regular',
     },
 
@@ -2441,7 +2443,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingVertical: 8,
     },
     recentHeaderText: {
-      color: SAGE_MIST,
+      color: c.sageMist,
       fontSize: 16,
       fontWeight: '600',
       fontFamily: 'Inter-Medium',

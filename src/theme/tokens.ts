@@ -10,6 +10,13 @@ export const colors = {
     mutedText: '#6A7D76',
     danger: '#9E3B3B',
     cardShadow: 'rgba(0,0,0,0.05)',
+    // Phase 1: Mind Drop refresh tokens
+    linenCream: '#F9F6F1',
+    mossGreen: '#2E5540',
+    sageMist: '#BFD8C0',
+    goldenPear: '#E0C47A',
+    charcoalInk: '#222222',
+    mutedSageText: '#768879',
   },
   dark: {
     bg: '#1A3328', // Deep Forest
@@ -22,5 +29,19 @@ export const colors = {
     mutedText: '#C8D3CE',
     danger: '#E07A7A',
     cardShadow: 'rgba(0,0,0,0.35)',
+    // Phase 1: Mind Drop refresh tokens (dark mode)
+    linenCream: '#F9F6F1',
+    mossGreen: '#BFD8C0', // Lighter in dark mode
+    sageMist: '#2E5540',
+    goldenPear: '#E0C47A',
+    charcoalInk: '#F9F6F1', // Light text in dark mode
+    mutedSageText: '#C8D3CE',
   },
+} as const;
+
+// Motion timing tokens
+export const motion = {
+  fadeMs: 240,
+  pulseMs: 2000,
+  chipPulseMs: 400,
 } as const;
