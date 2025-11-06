@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
-  ActivityIndicator,
+  Animated,
+  Easing,
   Alert,
   Platform,
   Pressable,
@@ -51,6 +52,14 @@ import { appendLineageToWhyString, convertLogListToTodo, hasChecklist } from '..
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 
 export const THINKING_DURATION = 1200;
+const MICROCOPY_FADE_MS = 300;
+const THINKING_MICROCOPY = [
+  'Organizing your thoughts …',
+  'Finding a home for this …',
+  'All set.',
+] as const;
+
+const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 const INPUT_LINE_HEIGHT = 26;
 const MAX_INPUT_HEIGHT = INPUT_LINE_HEIGHT * 5 + 32;
 
@@ -190,15 +199,30 @@ const MindDropInput = React.memo<MindDropInputProps>(
           scrollEnabled={scrollEnabled}
         />
         <View style={hudContainerStyle} pointerEvents="none">
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              flexShrink: 1,
+            }}
+          >
             <View style={{ marginRight: 6 }}>
               <Icon name="Lock" size="xs" color={lockIconColor} strokeWidth={1.75} />
             </View>
-            <Text testID="minddrop-privacy" style={hudTextStyle}>
+            <Text
+              testID="minddrop-privacy"
+              style={hudTextStyle}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               Private & secure
             </Text>
           </View>
-          <Text testID="minddrop-counter" style={hudTextStyle}>{`${characterCount} / 2000`}</Text>
+          <Text
+            testID="minddrop-counter"
+            style={[hudTextStyle, { fontSize: 11, textAlign: 'right', marginLeft: 'auto' }]}
+          >{`${characterCount} / 2000`}</Text>
         </View>
       </Pressable>
     );
@@ -738,6 +762,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const insets = useSafeAreaInsets();
   const themeResult = useTheme();
   const c = React.useMemo(() => themeResult.c, [themeResult.mode]);
+  const motion = themeResult.motion;
   const themeMode = themeResult.mode;
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
   const reduceMotion = useReducedMotion();
@@ -747,6 +772,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [inputHeight, setInputHeight] = useState<number>(140);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [microcopyIndex, setMicrocopyIndex] = useState(0);
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
@@ -757,6 +783,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [suggestions, CHIPS_AUTO_DISMISS_MS]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseScale = useRef(new Animated.Value(1)).current;
+  const microcopyOpacity = useRef(new Animated.Value(0)).current;
+  const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const microcopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isProcessingRef = useRef(false);
   // Mind Drop: subtitle + static placeholder
   const greetingRef = useRef<any>(null);
   const subtitle = '✶ Capture those late-night thoughts…';
@@ -793,6 +824,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
 
+  const isProcessing = isSubmitting || isThinking;
+
+  useEffect(() => {
+    isProcessingRef.current = isProcessing;
+  }, [isProcessing]);
+
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -801,6 +838,127 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      pulseLoopRef.current?.stop();
+      pulseLoopRef.current = null;
+      pulseScale.stopAnimation();
+      pulseScale.setValue(1);
+      return;
+    }
+
+    if (isProcessing) {
+      pulseLoopRef.current?.stop();
+      pulseScale.stopAnimation();
+      pulseScale.setValue(1);
+      const grow = Animated.timing(pulseScale, {
+        toValue: 1.05,
+        duration: motion.pulseMs / 2,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      });
+      const shrink = Animated.timing(pulseScale, {
+        toValue: 1,
+        duration: motion.pulseMs / 2,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      });
+      const loop = Animated.loop(Animated.sequence([grow, shrink]));
+      pulseLoopRef.current = loop;
+      loop.start();
+    } else {
+      pulseLoopRef.current?.stop();
+      pulseLoopRef.current = null;
+      pulseScale.stopAnimation();
+      pulseScale.setValue(1);
+    }
+
+    return () => {
+      pulseLoopRef.current?.stop();
+      pulseLoopRef.current = null;
+      pulseScale.stopAnimation();
+    };
+  }, [isProcessing, reduceMotion, motion.pulseMs, pulseScale]);
+
+  useEffect(() => {
+    if (microcopyTimerRef.current) {
+      clearTimeout(microcopyTimerRef.current);
+      microcopyTimerRef.current = null;
+    }
+
+    if (!isProcessing) {
+      microcopyOpacity.stopAnimation();
+      microcopyOpacity.setValue(0);
+      setMicrocopyIndex(0);
+      return;
+    }
+
+    if (reduceMotion) {
+      microcopyOpacity.stopAnimation();
+      microcopyOpacity.setValue(1);
+      setMicrocopyIndex(0);
+      return;
+    }
+
+    microcopyOpacity.stopAnimation();
+    microcopyOpacity.setValue(0);
+    setMicrocopyIndex(0);
+
+    const fadeIn = Animated.timing(microcopyOpacity, {
+      toValue: 1,
+      duration: MICROCOPY_FADE_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+
+    const scheduleNext = () => {
+      const delay = Math.max(motion.pulseMs, MICROCOPY_FADE_MS * 2);
+      microcopyTimerRef.current = setTimeout(() => {
+        if (!isProcessingRef.current) {
+          return;
+        }
+
+        Animated.timing(microcopyOpacity, {
+          toValue: 0,
+          duration: MICROCOPY_FADE_MS,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (!finished || !isProcessingRef.current) {
+            return;
+          }
+
+          setMicrocopyIndex((prev) => (prev + 1) % THINKING_MICROCOPY.length);
+
+          Animated.timing(microcopyOpacity, {
+            toValue: 1,
+            duration: MICROCOPY_FADE_MS,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }).start(({ finished: fadeInFinished }) => {
+            if (fadeInFinished && isProcessingRef.current) {
+              scheduleNext();
+            }
+          });
+        });
+      }, delay);
+    };
+
+    fadeIn.start(({ finished }) => {
+      if (finished && isProcessingRef.current) {
+        scheduleNext();
+      }
+    });
+
+    return () => {
+      if (microcopyTimerRef.current) {
+        clearTimeout(microcopyTimerRef.current);
+        microcopyTimerRef.current = null;
+      }
+      microcopyOpacity.stopAnimation();
+    };
+  }, [isProcessing, reduceMotion, microcopyOpacity, motion.pulseMs]);
 
   // Subtitle is static for consistent welcome tone
 
@@ -859,7 +1017,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [refreshOrganizedToday]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
-  const disabled = useMemo(() => note.trim().length === 0 || isSubmitting, [note, isSubmitting]);
+  const disabled = useMemo(
+    () => note.trim().length === 0 || isSubmitting || isThinking,
+    [note, isSubmitting, isThinking],
+  );
 
   const modeDescription = useMemo(() => {
     return uiMode === 'free'
@@ -1980,7 +2141,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   ]);
 
   const handleSubmit = useCallback(() => {
-    if (isSubmitting || !note.trim()) {
+    if (isSubmitting || isThinking || !note.trim()) {
       return;
     }
 
@@ -1999,7 +2160,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } else {
       void onSubmit();
     }
-  }, [isSubmitting, uiMode, note, onSubmit]);
+  }, [isSubmitting, isThinking, uiMode, note, onSubmit]);
 
   const legacyUI = React.useMemo(() => {
     const prompt = buildChipsPrompt(suggestions);
@@ -2082,24 +2243,44 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         <View style={styles.submitButtonWrapper}>
           <Pressable
             testID="minddrop-submit-button"
-            onPress={onSubmit}
+            onPress={handleSubmit}
             disabled={disabled}
             accessibilityRole="button"
-            accessibilityLabel={isSubmitting ? 'Organizing' : 'Drop to Gremly'}
-            accessibilityState={{ busy: isSubmitting, disabled }}
+            accessibilityLabel={isProcessing ? 'Organizing' : 'Drop to Gremly'}
+            accessibilityState={{ busy: isProcessing, disabled }}
             style={({ pressed }) => [
               styles.submitButton,
-              (disabled || isSubmitting) && styles.submitButtonDisabled,
-              pressed && !disabled && !isSubmitting && styles.submitButtonPressed,
+              disabled && styles.submitButtonDisabled,
+              pressed && !disabled && !isProcessing && styles.submitButtonPressed,
             ]}
           >
             <View style={styles.submitInnerRow}>
-              {isSubmitting ? <ActivityIndicator size="small" color={c.linenCream} /> : null}
+              {isProcessing ? (
+                <Animated.View
+                  style={[
+                    styles.submitPulse,
+                    reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                  ]}
+                />
+              ) : null}
               <Text style={styles.submitLabel}>
-                {isSubmitting ? '✓ Organizing...' : 'Drop to Gremly →'}
+                {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
               </Text>
             </View>
           </Pressable>
+          <View style={styles.submitMicrocopyContainer} pointerEvents="none">
+            {isProcessing ? (
+              <AnimatedMicrocopyText
+                style={[
+                  styles.submitMicrocopy,
+                  reduceMotion ? null : { opacity: microcopyOpacity },
+                ]}
+                accessibilityLiveRegion="polite"
+              >
+                {THINKING_MICROCOPY[microcopyIndex]}
+              </AnimatedMicrocopyText>
+            ) : null}
+          </View>
         </View>
         <View style={styles.trustRow} testID="minddrop-trust">
           <Text style={styles.trustStyled} testID="minddrop-trust-text">
@@ -2130,9 +2311,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     c.goldenPear,
     c.linenCream,
     c.mossGreen,
-    isSubmitting,
+    isProcessing,
+    pulseScale,
+    reduceMotion,
+    microcopyOpacity,
+    microcopyIndex,
+    handleSubmit,
     disabled,
-    onSubmit,
     suggestions,
     handlePickSuggestion,
     organizedToday,
@@ -2331,11 +2516,14 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     inputHud: {
       position: 'absolute',
-      right: 10,
-      bottom: 8,
+      left: 20,
+      right: 20,
+      bottom: 12,
       flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
       gap: 12,
-      opacity: 0.7,
+      opacity: 0.8,
     },
     inputHudText: {
       color: c.mutedSageText, // Phase 2: muted text for HUD
@@ -2437,6 +2625,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
+    },
+    submitPulse: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: c.linenCream,
+    },
+    submitMicrocopyContainer: {
+      minHeight: 18,
+      marginTop: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    submitMicrocopy: {
+      color: c.linenCream,
+      fontFamily: 'Inter-Medium',
+      fontSize: 13,
     },
 
     trustRow: {
