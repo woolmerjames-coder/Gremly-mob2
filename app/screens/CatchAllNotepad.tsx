@@ -737,7 +737,7 @@ const RecentDrops: React.FC<{
   );
 };
 
-// Memoize RecentDrops to avoid re-rendering when parent state (subtitle, trust, tips) changes
+// Memoize RecentDrops to avoid re-rendering when parent state (trust, tips) changes
 const RecentDropsMemo = React.memo(RecentDrops);
 
 // Named export for tests to import the isolated component
@@ -788,9 +788,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const microcopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProcessingRef = useRef(false);
-  // Mind Drop: subtitle + static placeholder
-  const greetingRef = useRef<any>(null);
-  const subtitle = '✶ Capture those late-night thoughts…';
+  // Mind Drop: placeholder text and header focus target
+  const headerTitleRef = useRef<any>(null);
   const [placeholder] = useState('Drop your thoughts here…');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
@@ -960,8 +959,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, [isProcessing, reduceMotion, microcopyOpacity, motion.pulseMs]);
 
-  // Subtitle is static for consistent welcome tone
-
   const handleInfoOpen = useCallback(() => setInfoOpen(true), []);
   const handleInfoClose = useCallback(() => setInfoOpen(false), []);
   const handleBack = useCallback(() => {
@@ -1123,7 +1120,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // A11y: set focus to the greeting after successful actions
   const focusGreetingForA11y = useCallback(() => {
     try {
-      const node = findNodeHandle(greetingRef.current);
+      const node = findNodeHandle(headerTitleRef.current);
       if (node) {
         // Optional API depending on platform
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2179,7 +2176,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               >
                 <Text style={styles.headerBackText}>{'<'}</Text>
               </Pressable>
-              <Text style={styles.headerTitle} accessibilityRole="header" numberOfLines={1}>
+              <Text
+                ref={headerTitleRef}
+                style={styles.headerTitle}
+                accessibilityRole="header"
+                numberOfLines={1}
+              >
                 {copy.title}
               </Text>
               <Pressable
@@ -2194,15 +2196,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Pressable>
             </View>
           </View>
-          {/* Subtitle above the input */}
-          <Text
-            ref={greetingRef}
-            testID="minddrop-subtitle"
-            style={styles.subtitle}
-            accessibilityRole="header"
-          >
-            {subtitle}
-          </Text>
           <Image
             source={GREMLY_TOP}
             style={styles.headerMascot}
@@ -2215,12 +2208,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             value={note}
             onChangeText={handleChangeText}
             placeholder={placeholder}
-            placeholderTextColor={c.mutedSageText} // Phase 2: placeholder color
+            placeholderTextColor="rgba(34,34,34,0.6)" // Phase 2B: slightly darker placeholder for contrast
             containerStyle={styles.inputContainer}
             focusedStyle={styles.inputContainerFocused}
             inputStyle={[
               styles.input,
-              { height: inputHeight, paddingRight: 72, paddingBottom: 28 },
+              { height: inputHeight, paddingRight: 72, paddingBottom: 44 },
             ]}
             onFocusChange={handleInputFocusChange}
             autoFocus
@@ -2263,7 +2256,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ]}
                 />
               ) : null}
-              <Text style={styles.submitLabel}>
+              <Text
+                style={[
+                  styles.submitLabel,
+                  disabled && !isProcessing ? styles.submitLabelDisabled : null,
+                ]}
+              >
                 {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
               </Text>
             </View>
@@ -2300,7 +2298,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       </View>
     );
   }, [
-    greetingRef,
+    headerTitleRef,
     styles,
     note,
     handleChangeText,
@@ -2321,7 +2319,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     suggestions,
     handlePickSuggestion,
     organizedToday,
-    subtitle,
     recentRefresh,
     noopCallback,
     inputHeight,
@@ -2471,24 +2468,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       bottom: -16,
     },
 
-    subtitle: {
-      color: c.mutedSageText, // Phase 2: muted text for subtitle
-      fontSize: 14,
-      marginTop: -2,
-      marginBottom: 6,
-      fontFamily: 'Inter-Medium',
-      textShadowColor: '#00000033',
-      textShadowRadius: 2,
-      textShadowOffset: { width: 0, height: 1 },
-    },
-
     inputBlock: {
       position: 'relative',
     },
     inputContainer: {
       backgroundColor: c.linenCream,
       borderRadius: 16,
-      padding: 20,
+      padding: 24,
       minHeight: 240,
       borderWidth: 1,
       borderColor: c.sageMist, // Phase 2: sageMist border
@@ -2604,6 +2590,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     submitButtonWrapper: {
       marginTop: 24,
+      marginBottom: 16,
     },
     submitButton: {
       marginTop: 16,
@@ -2611,7 +2598,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: c.mossGreen, // Phase 2: primary CTA filled mossGreen
+      backgroundColor: '#2A4C3A',
     },
     submitButtonPressed: {
       opacity: 0.9,
@@ -2620,9 +2607,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: c.sageMist,
     },
     submitLabel: {
-      color: c.linenCream, // Phase 2: linenCream text on mossGreen
+      color: c.linenCream,
       fontSize: 16,
       fontWeight: '600',
+    },
+    submitLabelDisabled: {
+      color: 'rgba(46,85,64,0.85)',
     },
     submitInnerRow: {
       flexDirection: 'row',
@@ -2655,13 +2645,14 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     trustStyled: {
       textAlign: 'center',
+      color: 'rgba(46,85,64,0.8)',
     },
     trustNumber: {
-      color: c.goldenPear,
+      color: 'rgba(46,85,64,0.8)',
       fontFamily: 'Inter-SemiBold',
     },
     trustSuffix: {
-      color: c.sageMist,
+      color: 'rgba(46,85,64,0.8)',
       fontFamily: 'Inter-Regular',
     },
 
@@ -2690,7 +2681,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentToggleActive: {
       textDecorationLine: 'none',
     },
-    recentList: { marginTop: 6, gap: 8 },
+    recentList: { marginTop: 6, gap: 12 },
     recentCard: {
       backgroundColor: c.linenCream,
       borderRadius: 4,
