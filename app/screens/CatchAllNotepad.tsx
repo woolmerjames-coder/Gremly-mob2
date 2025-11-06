@@ -2031,7 +2031,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 onPress={handleInfoOpen}
                 hitSlop={12}
               >
-                <Icon name="Info" size="sm" color={c.moss} />
+                <Icon name="Info" size="sm" color={c.mossGreen} />
               </Pressable>
             </View>
           </View>
@@ -2056,7 +2056,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             value={note}
             onChangeText={handleChangeText}
             placeholder={placeholder}
-            placeholderTextColor={c.mutedText}
+            placeholderTextColor={c.mutedSageText} // Phase 2: placeholder color
             containerStyle={styles.inputContainer}
             focusedStyle={styles.inputContainerFocused}
             inputStyle={[
@@ -2229,7 +2229,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
   return StyleSheet.create({
     root: {
       flex: 1,
-      backgroundColor: 'transparent',
+      backgroundColor: c.linenCream, // Phase 2: full-bleed background
     },
     contentWrapper: {
       flex: 1,
@@ -2257,7 +2257,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flex: 1,
     },
     headerTitle: {
-      color: c.moss,
+      color: c.charcoalInk, // Phase 2: default text color
       fontFamily: 'PlusJakartaSans-Bold',
       fontSize: 32,
       lineHeight: 34,
@@ -2268,7 +2268,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       marginRight: 12,
     },
     headerBackText: {
-      color: c.moss,
+      color: c.mossGreen, // Phase 2: mossGreen for secondary actions
       fontSize: 24,
       fontFamily: 'PlusJakartaSans-Bold',
       lineHeight: 28,
@@ -2288,7 +2288,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     subtitle: {
-      color: c.moss,
+      color: c.mutedSageText, // Phase 2: muted text for subtitle
       fontSize: 14,
       marginTop: -2,
       marginBottom: 6,
@@ -2307,23 +2307,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 20,
       minHeight: 240,
       borderWidth: 1,
-      borderColor: c.sageMist,
-      shadowColor: c.cardShadow,
-      shadowOpacity: 0.06,
+      borderColor: c.sageMist, // Phase 2: sageMist border
+      shadowColor: 'rgba(46,85,64,0.08)', // Phase 2: mossGreen-based shadow
+      shadowOpacity: 1,
       shadowRadius: 8,
       shadowOffset: { width: 0, height: 4 },
       elevation: 2,
     },
     inputContainerFocused: {
       borderColor: c.sageMist,
-      shadowColor: c.sageMist,
-      shadowOpacity: 0.18,
+      shadowColor: 'rgba(46,85,64,0.12)', // Phase 2: stronger on focus
+      shadowOpacity: 1,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
       elevation: 6,
     },
     input: {
-      color: c.text,
+      color: c.charcoalInk, // Phase 2: default text color
       fontSize: 18,
       lineHeight: 26,
       padding: 0,
@@ -2339,7 +2339,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       opacity: 0.7,
     },
     inputHudText: {
-      color: c.mutedText,
+      color: c.mutedSageText, // Phase 2: muted text for HUD
       fontSize: 12,
       fontFamily: 'Inter-Regular',
     },
@@ -2402,10 +2402,10 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: c.moss,
+      backgroundColor: c.mossGreen, // Phase 2: primary CTA filled mossGreen
     },
     submitLabel: {
-      color: c.bg,
+      color: c.linenCream, // Phase 2: linenCream text on mossGreen
       fontSize: 16,
       fontWeight: '600',
     },
@@ -2476,7 +2476,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       gap: 8,
     },
     recentText: {
-      color: '#222222',
+      color: c.charcoalInk, // Phase 2: default text color
       fontSize: 14,
       lineHeight: 20,
       fontFamily: 'Inter-Regular',
@@ -2520,7 +2520,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       gap: 12,
     },
     recentAction: {
-      color: c.moss,
+      color: c.mossGreen, // Phase 2: mossGreen for actions
       fontSize: 13,
       textDecorationLine: 'underline',
       fontFamily: 'Inter-Medium',
