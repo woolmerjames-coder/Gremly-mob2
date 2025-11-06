@@ -663,7 +663,7 @@ const RecentDrops: React.FC<{
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 ? (
             <Text style={styles.recentEmpty}>
-              {showOlder ? 'No drops yet.' : 'No drops yet today.'}
+              {showOlder ? 'No drops yet.' : 'Clear your busy mind - add above'}
             </Text>
           ) : (
             <ScrollView
@@ -2692,14 +2692,16 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     recentList: { marginTop: 6, gap: 8 },
     recentCard: {
-      backgroundColor: c.sageTint,
-      borderRadius: 12,
+      backgroundColor: c.linenCream,
+      borderRadius: 4,
       padding: 12,
-      shadowColor: c.cardShadow,
-      shadowOpacity: 0.05,
-      shadowRadius: 4,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 1,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.sageMist,
+      shadowColor: 'rgba(46,85,64,0.08)',
+      shadowOpacity: 1,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 2,
     },
     recentCardHeader: {
       flexDirection: 'row',
@@ -2738,7 +2740,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: '#EAF7ED',
     },
     badge_unsorted: {
-      backgroundColor: '#FFF4CC',
+      backgroundColor: c.goldenPear,
+      color: c.mossGreen,
     },
     recentMetaRow: {
       marginTop: 8,
@@ -2777,6 +2780,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.mutedText,
       fontSize: 12,
       fontFamily: 'Inter-Regular',
+      fontStyle: 'italic',
+      opacity: 0.6,
     },
   });
 }
