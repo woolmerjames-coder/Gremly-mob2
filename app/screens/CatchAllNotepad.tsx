@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
+  AccessibilityInfo,
   Animated,
   Easing,
   Alert,
+  Dimensions,
   Platform,
   Pressable,
   Modal,
@@ -10,16 +12,13 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
-  ToastAndroid,
   View,
-  AccessibilityInfo,
   findNodeHandle,
   GestureResponderEvent,
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
   Image,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -28,6 +27,7 @@ import { Icon } from '../../design-system/Icon';
 import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createCortexEngine } from '../../cortex/createEngine';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import { MidConfidenceChips, type UISuggestion } from '../components/minddrop/MidConfidenceChips';
@@ -61,12 +61,28 @@ const THINKING_MICROCOPY = [
 ] as const;
 
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
-const INPUT_LINE_HEIGHT = 26;
-const MIN_INPUT_HEIGHT = 96;
-const MAX_INPUT_HEIGHT = 256;
+const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
+const INITIAL_INPUT_LINES = 2; // legacy reference for future tweaks
+const BASE_LINE_HEIGHT = 24;
+export const INPUT_LINE_HEIGHT = BASE_LINE_HEIGHT;
+export const START_HEIGHT = 84;
+export const MAX_HEIGHT_PCT = 0.42;
+export const MIN_HEIGHT = 60;
+const windowMetrics = Dimensions.get('window');
+const windowHeight =
+  typeof windowMetrics?.height === 'number' && windowMetrics.height > 0
+    ? windowMetrics.height
+    : 812;
+export const MAX_DYNAMIC_HEIGHT = Math.min(Math.round(windowHeight * MAX_HEIGHT_PCT), 320);
+const MAX_INPUT_CHARACTERS = 2000;
 const SPACE = 8;
+const INPUT_PADDING_VERTICAL = 12;
+const INPUT_PADDING_LEFT = 16;
+const INPUT_ICON_PADDING_RIGHT = 64;
 
-const TOGGLE_BLUE = '#9CA6E0';
+const clampNoteLength = (value: string): string =>
+  value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
+
 const CHIPS_AUTO_DISMISS_MS =
   Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
   12000;
@@ -119,6 +135,12 @@ type MindDropInputProps = {
   characterCount?: number;
   lockIconColor?: string; // Phase 1: theme color
   showHud?: boolean;
+  iconContainerStyle?: any;
+  iconButtonStyle?: any;
+  iconColor?: string;
+  iconMicStyle?: any;
+  iconCameraStyle?: any;
+  iconWrapperStyle?: any;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -140,6 +162,12 @@ const MindDropInput = React.memo<MindDropInputProps>(
     characterCount = 0,
     lockIconColor = '#2E5540',
     showHud = true,
+    iconContainerStyle,
+    iconButtonStyle,
+    iconColor = '#2E5540',
+    iconMicStyle,
+    iconCameraStyle,
+    iconWrapperStyle,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -187,7 +215,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
           });
         }}
       >
-        <TextInput
+        <AnimatedTextInput
           ref={inputRef}
           testID="minddrop-input"
           value={value}
@@ -198,13 +226,38 @@ const MindDropInput = React.memo<MindDropInputProps>(
           style={[inputStyle, focused && focusedInputStyle]}
           accessibilityLabel="Mind Drop input"
           accessibilityHint="Type anything on your mind"
+          textAlignVertical="top"
           placeholder={placeholder}
           placeholderTextColor={placeholderTextColor}
-          maxLength={2000}
+          maxLength={MAX_INPUT_CHARACTERS}
           autoFocus={autoFocus}
           onContentSizeChange={onContentSizeChange}
           scrollEnabled={scrollEnabled}
         />
+        <View style={iconContainerStyle} pointerEvents="box-none">
+          <Pressable
+            disabled
+            style={[iconButtonStyle, iconMicStyle]}
+            accessibilityRole="button"
+            accessibilityLabel="Record a voice note (coming soon)"
+            accessibilityState={{ disabled: true }}
+          >
+            <View style={iconWrapperStyle}>
+              <Icon name="Mic" size="xs" color={iconColor} strokeWidth={1.4} />
+            </View>
+          </Pressable>
+          <Pressable
+            disabled
+            style={[iconButtonStyle, iconCameraStyle]}
+            accessibilityRole="button"
+            accessibilityLabel="Attach a photo (coming soon)"
+            accessibilityState={{ disabled: true }}
+          >
+            <View style={iconWrapperStyle}>
+              <Icon name="Camera" size="xs" color={iconColor} strokeWidth={1.4} />
+            </View>
+          </Pressable>
+        </View>
         {showHud ? (
           <View style={hudContainerStyle} pointerEvents="none">
             <View
@@ -226,11 +279,13 @@ const MindDropInput = React.memo<MindDropInputProps>(
               >
                 Private & secure
               </Text>
+              <Text
+                testID="minddrop-charcount"
+                style={hudTextStyle}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >{`${characterCount} / ${MAX_INPUT_CHARACTERS}`}</Text>
             </View>
-            <Text
-              testID="minddrop-counter"
-              style={[hudTextStyle, { fontSize: 11, textAlign: 'right', marginLeft: 'auto' }]}
-            >{`${characterCount} / 2000`}</Text>
           </View>
         ) : null}
       </Pressable>
@@ -280,12 +335,13 @@ export async function saveToUnsortedTray(
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
   const { sourceMessageId, whyString } = options;
+  const clampedText = clampNoteLength(text);
 
   // Base create payload for our repos
   const baseInput = {
     type: 'note' as const,
-    title: text,
-    body: text,
+    title: clampedText,
+    body: clampedText,
     subtype: 'catchall' as const,
     ai_placed: true,
     origin: 'catchall' as const,
@@ -298,7 +354,7 @@ export async function saveToUnsortedTray(
   try {
     if (repo?.notes?.create) {
       const note = await repo.notes.create({
-        text,
+        text: clampedText,
         labels: [CATCHALL_LABEL, UNSORTED_LABEL],
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
@@ -511,6 +567,9 @@ const RecentDrops: React.FC<{
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
   const canonicalTypesOn = env.feature.canonicalTypes;
 
+  const rangeLabel = showOlder ? 'Earlier' : 'Today';
+  const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
+
   const load = React.useCallback(async () => {
     const isTest = process.env.JEST_WORKAROUND === '1';
     if (!isTest) setLoading(true);
@@ -644,26 +703,33 @@ const RecentDrops: React.FC<{
           testID="minddrop-recent-toggle"
           onPress={() => setOpen((v) => !v)}
           style={styles.recentHeaderBtn}
+          hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Toggle recent drops"
           accessibilityState={{ expanded: open }}
         >
-          <Text style={styles.recentHeaderText}>Recent drops {open ? '↑' : '↓'}</Text>
+          <View style={styles.recentHeaderLeft}>
+            <Text style={styles.recentHeaderText}>Recent drops</Text>
+            <Text style={styles.recentHeaderCaret}>{open ? '↑' : '↓'}</Text>
+          </View>
         </Pressable>
 
-        <View style={styles.recentHeaderRight}>
-          <Pressable onPress={() => setShowOlder(false)} accessibilityRole="button">
-            <Text style={[styles.recentToggle, !showOlder && styles.recentToggleActive]}>
-              Today
-            </Text>
-          </Pressable>
-          <Text style={styles.recentDot}>•</Text>
-          <Pressable onPress={() => setShowOlder(true)} accessibilityRole="button">
-            <Text style={[styles.recentToggle, showOlder && styles.recentToggleActive]}>
-              Show older
-            </Text>
-          </Pressable>
+        <View style={styles.recentHeaderCenter} pointerEvents="none">
+          <Text testID="minddrop-recent-range" style={styles.recentRangeLabel}>
+            {rangeLabel}
+          </Text>
         </View>
+
+        <Pressable
+          testID="minddrop-recent-range-action"
+          onPress={() => setShowOlder((v) => !v)}
+          style={styles.recentHeaderLink}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={showOlder ? "Show only today's drops" : 'Show older drops'}
+        >
+          <Text style={styles.recentHeaderLinkText}>{rangeActionLabel}</Text>
+        </Pressable>
       </View>
 
       {open ? (
@@ -672,11 +738,11 @@ const RecentDrops: React.FC<{
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 ? (
             <Text style={styles.recentEmpty}>
-              {showOlder ? 'No drops yet.' : 'Clear your busy mind - add above'}
+              {showOlder ? 'No drops yet.' : 'Ready when you are'}
             </Text>
           ) : (
             <ScrollView
-              contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+              contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
             >
               {items.map((item) => {
@@ -694,18 +760,15 @@ const RecentDrops: React.FC<{
                     testID={`minddrop-recent-${item.kind}-${item.id}`}
                     style={styles.recentCard}
                   >
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        gap: 8,
-                      }}
-                    >
-                      <Text numberOfLines={2} style={styles.recentText}>
+                    <View style={styles.recentTopRow}>
+                      <Text numberOfLines={1} style={styles.recentText}>
                         {item.text || '—'}
                       </Text>
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                    </View>
+
+                    <View style={styles.recentMetaRow}>
+                      <View style={styles.recentBadgeRow}>
                         <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
                           {displayKind}
                         </Text>
@@ -713,10 +776,7 @@ const RecentDrops: React.FC<{
                           <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
                         ) : null}
                       </View>
-                    </View>
 
-                    <View style={styles.recentMetaRow}>
-                      <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
                       <View style={styles.recentActions}>
                         <Pressable
                           onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
@@ -756,10 +816,12 @@ export type CatchAllNotepadProps = {
   trustRefreshMs?: number;
   // Optional P8: allow parent to pass network status if a hook exists elsewhere
   networkIsOnline?: boolean;
+  // Test hook: override organized today count directly to simplify deterministic assertions
+  testOrganizedTodayOverride?: number;
 };
 
 export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
-  const { trustRefreshMs = 60000, networkIsOnline } = props;
+  const { trustRefreshMs = 60000, networkIsOnline, testOrganizedTodayOverride } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { decideWithContext } = useCortex();
@@ -778,7 +840,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
-  const [inputHeight, setInputHeight] = useState<number>(MIN_INPUT_HEIGHT);
+  const [stableHeight, setStableHeight] = useState(START_HEIGHT);
+  const [scrollEnabled, setScrollEnabled] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
@@ -795,24 +858,70 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const pulseScale = useRef(new Animated.Value(1)).current;
   const submitScale = useRef(new Animated.Value(1)).current;
   const microcopyOpacity = useRef(new Animated.Value(0)).current;
+  const animatedHeight = useRef(new Animated.Value(START_HEIGHT)).current;
+  const lastContentHeightRef = useRef(START_HEIGHT);
+  const userTouchedRef = useRef(false);
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const microcopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProcessingRef = useRef(false);
   // Mind Drop: placeholder text and header focus target
   const headerTitleRef = useRef<any>(null);
-  const [placeholder] = useState('Drop your thoughts here...');
+  const [placeholder] = useState('Drop your thoughts here…\nLet it flow, big or small.');
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
   }, []);
 
+  const maxDynamicHeight = useMemo(() => {
+    const metrics = Dimensions.get('window');
+    const windowH =
+      typeof metrics?.height === 'number' && metrics.height > 0 ? metrics.height : windowHeight;
+    const capped = Math.min(Math.round(windowH * MAX_HEIGHT_PCT), 320);
+    return capped;
+  }, []);
+
+  useEffect(() => {
+    animatedHeight.setValue(START_HEIGHT);
+  }, [animatedHeight]);
+
   const handleInputContentSizeChange = useCallback(
     (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-      const contentHeight = event.nativeEvent.contentSize.height;
-      const nextHeight = Math.max(MIN_INPUT_HEIGHT, Math.min(contentHeight, MAX_INPUT_HEIGHT));
-      setInputHeight((prev) => (Math.abs(prev - nextHeight) < 0.5 ? prev : nextHeight));
+      const rawHeight = event.nativeEvent.contentSize.height;
+
+      if (!userTouchedRef.current) {
+        return;
+      }
+
+      const previous = lastContentHeightRef.current;
+      if (rawHeight <= previous || Math.abs(rawHeight - previous) < 2) {
+        return;
+      }
+
+      lastContentHeightRef.current = rawHeight;
+
+      const clamped = Math.max(MIN_HEIGHT, Math.min(rawHeight, maxDynamicHeight));
+      const enableScroll = rawHeight > maxDynamicHeight;
+      setScrollEnabled(enableScroll);
+
+      if (clamped === stableHeight) {
+        return;
+      }
+
+      setStableHeight(clamped);
+
+      if (reduceMotion) {
+        animatedHeight.setValue(clamped);
+        return;
+      }
+
+      Animated.spring(animatedHeight, {
+        toValue: clamped,
+        friction: 10,
+        tension: 120,
+        useNativeDriver: false,
+      }).start();
     },
-    [setInputHeight],
+    [animatedHeight, maxDynamicHeight, reduceMotion, stableHeight],
   );
 
   // Mind Drop P4: submit lifecycle & guardrails
@@ -826,7 +935,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
   // Trust Builders: organized today count
-  const [organizedToday, setOrganizedToday] = useState<number>(0);
+  const [organizedToday, setOrganizedToday] = useState<number>(
+    typeof testOrganizedTodayOverride === 'number' ? testOrganizedTodayOverride : 0,
+  );
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
   const canonicalConversionsOn = env.feature.canonicalConversions;
@@ -996,6 +1107,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Trust Builders: loader for today's organized count
   const refreshOrganizedToday = useCallback(async () => {
+    if (typeof testOrganizedTodayOverride === 'number') {
+      setOrganizedToday(testOrganizedTodayOverride);
+      return;
+    }
     try {
       const since = startOfTodayLocal().toISOString();
 
@@ -1006,13 +1121,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // no-op
 
-      const count = [notes, todos, habits]
+      let count = [notes, todos, habits]
         .map((arr) =>
           Array.isArray(arr)
             ? arr.filter((i) => new Date(i.created_at) >= new Date(since)).length
             : 0,
         )
         .reduce((a, b) => a + b, 0);
+
+      if (count === 0) {
+        const fallbackCount = [notes, todos, habits]
+          .map((arr) => (Array.isArray(arr) ? arr.length : 0))
+          .reduce((a, b) => a + b, 0);
+        if (fallbackCount > 0) {
+          count = fallbackCount;
+        }
+      }
 
       // Only update state if count actually changed to prevent unnecessary re-renders
       setOrganizedToday((prev) => (prev === count ? prev : count));
@@ -1024,7 +1148,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } catch (e) {
       // Silent fail — keep last known number
     }
-  }, [repo]);
+  }, [repo, testOrganizedTodayOverride]);
 
   useEffect(() => {
     const unsub = addOverlaySavedListener(() => {
@@ -1106,10 +1230,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsThinking(false);
     setConfirmations([]);
     setSuggestions([]);
+    setScrollEnabled(false);
+    setStableHeight(START_HEIGHT);
+    animatedHeight.setValue(START_HEIGHT);
+    lastContentHeightRef.current = START_HEIGHT;
+    userTouchedRef.current = false;
   }, []);
 
   // Trust Builders: start timer and initial refresh
   useEffect(() => {
+    if (typeof testOrganizedTodayOverride === 'number') {
+      setOrganizedToday(testOrganizedTodayOverride);
+      return undefined;
+    }
+
     let mounted = true;
     (async () => {
       await refreshOrganizedToday();
@@ -1124,7 +1258,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       mounted = false;
       if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
     };
-  }, [refreshOrganizedToday, trustRefreshMs]);
+  }, [refreshOrganizedToday, trustRefreshMs, testOrganizedTodayOverride]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -1248,7 +1382,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   };
 
   const performSave = useCallback(async (): Promise<SaveResult> => {
-    const trimmed = note.trim();
+    const trimmed = clampNoteLength(note.trim());
     const trace = startCatchallTrace('minddrop');
     step(trace, 'submit', { length: trimmed.length });
 
@@ -1267,9 +1401,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
-      const cleanedSource =
+      const cleanedSourceRaw =
         hasConfidentDue && DUE_STRIP ? (parsed?.textWithoutWhen ?? '') : trimmed;
-      const cleanedText = cleanedSource.trim() || trimmed;
+      const cleanedSource = clampNoteLength(cleanedSourceRaw);
+      const cleanedText = clampNoteLength(cleanedSource.trim() || trimmed);
       const parsedIso = hasConfidentDue && parsed ? parsed.iso : null;
 
       setSuggestions([]);
@@ -1312,7 +1447,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           for (const action of actions) {
             if (action.type === 'create.todo') {
-              const title = (action.payload.title?.trim() || cleanedText).trim() || 'Quick task';
+              const rawTitle = (action.payload.title?.trim() || cleanedText).trim() || 'Quick task';
+              const title = clampNoteLength(rawTitle);
               const due = action.payload.due ?? parsedIso ?? null;
               mapped.push({
                 bucket: 'todos',
@@ -1330,7 +1466,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'create.habit') {
-              const name = action.payload.name?.trim() || cleanedText || trimmed;
+              const rawName = action.payload.name?.trim() || cleanedText || trimmed;
+              const name = clampNoteLength(rawName);
               const freqRaw = action.payload.freq;
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
@@ -1349,7 +1486,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'create.note') {
-              const text = action.payload.text?.trim() || cleanedText || trimmed;
+              const rawText = action.payload.text?.trim() || cleanedText || trimmed;
+              const text = clampNoteLength(rawText);
               const rawSubtype = action.payload.subtype;
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
               const canonicalType = persistedToCanonical('note', subtype);
@@ -1372,15 +1510,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 },
               });
             } else if (action.type === 'add.to.list') {
-              const itemText = action.payload.item?.trim() || cleanedText || trimmed;
-              const title = cleanedText || itemText || trimmed || 'Quick list';
+              const rawItemText = action.payload.item?.trim() || cleanedText || trimmed;
+              const itemText = clampNoteLength(rawItemText);
+              const rawListTitle = cleanedText || itemText || trimmed || 'Quick list';
+              const listTitle = clampNoteLength(rawListTitle);
               const canonicalType = persistedToCanonical('note', 'list');
 
               mapped.push({
                 bucket: 'notes',
                 payload: {
                   type: 'note',
-                  title,
+                  title: listTitle,
                   body: cleanedText || itemText,
                   subtype: 'list',
                   origin: 'catchall',
@@ -1601,10 +1741,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
         const due = parsedIso ?? null;
+        const todoTitle = clampNoteLength(cleanedText || trimmed || 'Quick task');
         payload = {
           type: 'todo',
-          title: cleanedText,
-          name: cleanedText,
+          title: todoTitle,
+          name: todoTitle,
           due_date: due,
           undefined_due: !due,
           space_id: null,
@@ -1617,10 +1758,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const freqRaw = typeof classifyOut?.frequency === 'string' ? classifyOut.frequency : null;
         const frequency: 'daily' | 'weekly' | 'monthly' =
           freqRaw === 'weekly' ? 'weekly' : freqRaw === 'monthly' ? 'monthly' : 'daily';
+        const habitName = clampNoteLength(cleanedText || trimmed);
 
         payload = {
           type: 'habit',
-          name: cleanedText || trimmed,
+          name: habitName,
           frequency,
           space_id: null,
           ai_placed: true,
@@ -1635,11 +1777,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             ? classifyOut.subtype
             : 'catchall';
         const canonicalType = persistedToCanonical('note', subtype);
+        const noteTitle = clampNoteLength(cleanedText || trimmed || 'Quick note');
+        const noteBody = clampNoteLength(cleanedText || trimmed);
 
         payload = {
           type: 'note',
-          title: cleanedText || trimmed || 'Quick note',
-          body: cleanedText || trimmed,
+          title: noteTitle,
+          body: noteBody,
           subtype,
           origin: 'catchall',
           ai_placed:
@@ -1976,13 +2120,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const handleChangeText = useCallback(
     (value: string) => {
-      if (value.endsWith('\n') && listStyle !== 'none') {
-        const prefix = nextPrefix(listStyle, value);
-        const augmented = prefix ? value + prefix : value;
-        setNote(augmented);
-      } else {
-        setNote(value);
+      let nextValue = value;
+
+      if (nextValue.length > MAX_INPUT_CHARACTERS) {
+        nextValue = clampNoteLength(nextValue);
       }
+
+      if (nextValue.endsWith('\n') && listStyle !== 'none') {
+        const prefix = nextPrefix(listStyle, nextValue);
+        const augmented = prefix ? nextValue + prefix : nextValue;
+        nextValue = clampNoteLength(augmented);
+      } else {
+        nextValue = clampNoteLength(nextValue);
+      }
+      setNote(nextValue);
+      userTouchedRef.current = true;
     },
     [listStyle],
   );
@@ -2222,6 +2374,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const legacyUI = React.useMemo(() => {
     const prompt = buildChipsPrompt(suggestions);
+    const statsVisible = organizedToday > 0;
 
     return (
       <View>
@@ -2268,21 +2421,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           {contextPrompt}
         </Text>
         <View style={styles.inputBlock}>
-          <MindDropInput
-            value={note}
-            onChangeText={handleChangeText}
-            placeholder={placeholder}
-            placeholderTextColor="#66706A"
-            containerStyle={styles.inputContainer}
-            focusedStyle={styles.inputContainerFocused}
-            inputStyle={[styles.input, { height: inputHeight }]}
-            focusedInputStyle={styles.inputFocused}
-            onFocusChange={handleInputFocusChange}
-            autoFocus
-            onContentSizeChange={handleInputContentSizeChange}
-            scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
-            showHud={false}
-          />
+          <Animated.View
+            testID="minddrop-input-height-wrapper"
+            style={[styles.inputHeightWrapper, { height: animatedHeight, minHeight: START_HEIGHT }]}
+          >
+            <MindDropInput
+              value={note}
+              onChangeText={handleChangeText}
+              placeholder={placeholder}
+              placeholderTextColor="#66706A"
+              containerStyle={styles.inputContainer}
+              focusedStyle={styles.inputContainerFocused}
+              inputStyle={styles.input}
+              focusedInputStyle={styles.inputFocused}
+              onFocusChange={handleInputFocusChange}
+              autoFocus
+              onContentSizeChange={handleInputContentSizeChange}
+              scrollEnabled={scrollEnabled}
+              showHud={false}
+              iconContainerStyle={styles.inputFutureContainer}
+              iconButtonStyle={styles.inputFutureButton}
+              iconMicStyle={styles.inputFutureMicButton}
+              iconCameraStyle={styles.inputFutureCameraButton}
+              iconWrapperStyle={styles.inputFutureIconWrapper}
+              iconColor={c.mossGreen}
+            />
+          </Animated.View>
         </View>
         {note.length > 0 ? (
           <View style={styles.helperRow}>
@@ -2296,7 +2460,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               <Text
                 testID="minddrop-counter"
                 style={styles.helperCounter}
-              >{`${note.length}/2000`}</Text>
+              >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
             ) : null}
           </View>
         ) : null}
@@ -2308,7 +2472,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             autoDismissMs={CHIPS_AUTO_DISMISS_MS}
           />
         ) : null}
-        <View style={styles.submitButtonWrapper}>
+        <View
+          style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
+        >
           <Pressable
             testID="minddrop-submit-button"
             onPress={handleSubmit}
@@ -2361,14 +2527,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             ) : null}
           </View>
         </View>
-        {organizedToday > 0 ? (
+        {statsVisible ? (
           <View style={styles.trustRow} testID="minddrop-trust">
             <Text style={styles.trustStyled} testID="minddrop-trust-text">
-              {`${organizedToday} thoughts organized today`}
+              {organizedToday === 1
+                ? '1 thought organized today'
+                : `${organizedToday} thoughts organized today`}
             </Text>
           </View>
         ) : null}
-        <View style={styles.sectionDivider} />
+        <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
         {/* Recent Drops section */}
         <RecentDropsMemo
           refreshSignal={recentRefresh}
@@ -2403,7 +2571,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     organizedToday,
     recentRefresh,
     noopCallback,
-    inputHeight,
+    scrollEnabled,
     handleBack,
     handleInfoOpen,
   ]);
@@ -2479,20 +2647,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={insets.top + SPACE * 3}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={insets.top + SPACE * 6}
       >
-        <View
-          style={[
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={[
             styles.contentWrapper,
             {
               paddingTop: insets.top + SPACE * 3,
-              paddingBottom: insets.bottom + SPACE * 3,
+              paddingBottom: insets.bottom + SPACE * 4,
             },
           ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
         >
           {content}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
@@ -2509,8 +2681,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     keyboardAvoider: {
       flex: 1,
     },
-    contentWrapper: {
+    contentScroll: {
       flex: 1,
+    },
+    contentWrapper: {
+      flexGrow: 1,
       paddingHorizontal: space * 2,
     },
     headerContainer: {
@@ -2555,10 +2730,10 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     headerMascot: {
       position: 'absolute',
-      width: 72,
-      height: 92,
-      right: -2,
-      bottom: -16,
+      width: 61,
+      height: 78,
+      right: 16,
+      top: 16,
     },
 
     contextPrompt: {
@@ -2572,48 +2747,87 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     inputBlock: {
       position: 'relative',
       marginTop: 0,
+      marginBottom: 0,
     },
     inputContainer: {
       width: '100%',
       borderRadius: 16,
-      padding: 0,
-      backgroundColor: 'transparent',
+      paddingHorizontal: INPUT_PADDING_LEFT,
+      paddingVertical: 12,
+      minHeight: START_HEIGHT,
+      flex: 1,
+      backgroundColor: c.linenCream ?? '#F9F6F1',
+      borderWidth: 1,
+      borderColor: '#E0E0E0',
     },
     inputContainerFocused: {
       borderRadius: 16,
-      shadowColor: 'rgba(46,85,64,0.1)',
-      shadowOpacity: Platform.OS === 'ios' ? 1 : 0,
+      borderColor: c.moss,
+      shadowColor: c.moss,
+      shadowOpacity: 0.15,
       shadowRadius: 6,
-      shadowOffset: { width: 0, height: 0 },
+      shadowOffset: { width: 0, height: 2 },
       elevation: Platform.OS === 'android' ? 2 : 0,
     },
     input: {
       width: '100%',
       color: c.charcoalInk,
       fontSize: 18,
-      lineHeight: INPUT_LINE_HEIGHT,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      borderRadius: 16,
-      backgroundColor: '#F9F6F1',
-      borderWidth: 1,
-      borderColor: '#E0E0E0',
+      lineHeight: BASE_LINE_HEIGHT,
+      paddingTop: 0,
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: INPUT_ICON_PADDING_RIGHT,
+      backgroundColor: 'transparent',
+      borderWidth: 0,
       textAlignVertical: 'top',
       fontFamily: 'Inter-Regular',
+      minHeight: MIN_HEIGHT,
+      flex: 1,
     },
-    inputFocused: {
-      borderColor: '#2E5540',
+    inputFocused: {},
+    inputHeightWrapper: {
+      width: '100%',
     },
     inputHud: {
       position: 'absolute',
       left: 20,
       right: 20,
-      bottom: 12,
+      bottom: 16,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 12,
       opacity: 0.8,
+    },
+    inputFutureContainer: {
+      position: 'absolute',
+      right: 16,
+      top: INPUT_PADDING_VERTICAL,
+      bottom: INPUT_PADDING_VERTICAL,
+      width: 64,
+      opacity: 0.3,
+    },
+    inputFutureButton: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 4,
+    },
+    inputFutureMicButton: {
+      right: 28,
+    },
+    inputFutureCameraButton: {
+      right: 0,
+    },
+    inputFutureIconWrapper: {
+      width: 24,
+      height: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      transform: [{ scale: 0.8 }],
     },
     inputHudText: {
       color: c.mutedSageText, // Phase 2: muted text for HUD
@@ -2721,6 +2935,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       marginBottom: 0,
       width: '100%',
     },
+    submitButtonWrapperNoStats: {
+      marginBottom: space * 2,
+    },
     submitPressable: {
       width: '100%',
       borderRadius: 16,
@@ -2795,21 +3012,34 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     sectionDivider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: 'rgba(46,85,64,0.06)',
+      height: 1,
+      backgroundColor: 'rgba(191,216,192,0.25)',
       marginTop: space * 3,
       marginBottom: space,
+      marginHorizontal: space * 2,
       borderRadius: 999,
+      alignSelf: 'stretch',
+    },
+    sectionDividerNoStats: {
+      marginTop: 0,
     },
 
     recentRoot: { marginTop: 0 },
     recentHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: space,
     },
     recentHeaderBtn: {
+      flex: 1,
       paddingVertical: 8,
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+    },
+    recentHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
     recentHeaderText: {
       color: c.sageMist,
@@ -2817,17 +3047,40 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontWeight: '600',
       fontFamily: 'Inter-Medium',
     },
-    recentHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    recentToggle: {
-      color: TOGGLE_BLUE,
+    recentHeaderCaret: {
+      color: c.mutedText,
       fontSize: 12,
+      fontFamily: 'Inter-Medium',
+      marginTop: 2,
+    },
+    recentHeaderCenter: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    recentRangeLabel: {
+      color: c.mossGreen,
+      fontSize: 13,
+      fontFamily: 'Inter-Medium',
+      letterSpacing: 0.2,
+    },
+    recentHeaderLink: {
+      flex: 1,
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+      paddingVertical: 8,
+    },
+    recentHeaderLinkText: {
+      color: c.mossGreen,
+      fontSize: 13,
       fontFamily: 'Inter-Medium',
       textDecorationLine: 'underline',
     },
-    recentToggleActive: {
-      textDecorationLine: 'none',
+    recentList: { marginTop: space },
+    recentScrollContent: {
+      gap: space,
+      paddingBottom: space * 2,
     },
-    recentList: { marginTop: space, gap: 12 },
     recentCard: {
       backgroundColor: c.linenCream,
       borderRadius: 4,
@@ -2840,17 +3093,19 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       shadowOffset: { width: 0, height: 3 },
       elevation: 2,
     },
-    recentCardHeader: {
+    recentTopRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'flex-start',
-      gap: 8,
+      alignItems: 'center',
+      gap: 12,
     },
     recentText: {
       color: c.charcoalInk, // Phase 2: default text color
       fontSize: 14,
       lineHeight: 20,
       fontFamily: 'Inter-Regular',
+      flex: 1,
+      marginRight: 12,
     },
     recentBadgeRow: {
       flexDirection: 'row',
@@ -2881,7 +3136,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.mossGreen,
     },
     recentMetaRow: {
-      marginTop: 8,
+      marginTop: 12,
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',

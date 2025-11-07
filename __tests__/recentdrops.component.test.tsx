@@ -62,11 +62,17 @@ describe('RecentDrops component (isolated)', () => {
     expect(screen.getByTestId('minddrop-recent-note-n3')).toBeTruthy();
     expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull();
 
-    fireEvent.press(screen.getByText('Show older'));
+    fireEvent.press(screen.getByTestId('minddrop-recent-range-action'));
+    await waitFor(() =>
+      expect(screen.getByTestId('minddrop-recent-range').props.children).toBe('Earlier'),
+    );
     await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy());
 
-    fireEvent.press(screen.getByText('Today'));
+    fireEvent.press(screen.getByTestId('minddrop-recent-range-action'));
+    await waitFor(() =>
+      expect(screen.getByTestId('minddrop-recent-range').props.children).toBe('Today'),
+    );
     await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(3));
     await waitFor(() => expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull());
   });

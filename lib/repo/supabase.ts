@@ -36,6 +36,8 @@ import {
   type EntityPeopleInsert as DBEntityPeopleInsert,
 } from '../supabase/mappers';
 
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 /**
  * Supabase repository implementation.
  * Maps AppRecord types to Supabase tables and handles CRUD operations.
@@ -498,7 +500,7 @@ export class SupabaseRepo implements IRepo {
     }
 
     if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
-    if ('canonicalType' in patch) updatePayload.canonicalType = patch.canonicalType ?? null;
+    if ('canonicalType' in patch) updatePayload.canonical_type = patch.canonicalType ?? null;
     if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
     if ('views' in patch) updatePayload.views = patch.views ?? {};
 
@@ -570,6 +572,9 @@ export class SupabaseRepo implements IRepo {
   async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
     const userId = this.ensureUserId();
     if (!sourceMessageId) return null;
+    if (!UUID_REGEX.test(sourceMessageId)) {
+      return null;
+    }
 
     const { data, error } = await supabase
       .from('notes')
