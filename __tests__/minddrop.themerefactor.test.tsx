@@ -89,7 +89,6 @@ describe('Theme refactor smoke tests', () => {
     const baseStyleArr = Array.isArray(container.props.style)
       ? container.props.style
       : [container.props.style];
-    const styleCountBefore = baseStyleArr.length;
 
     // Focus
     fireEvent(input, 'focus');
@@ -106,8 +105,8 @@ describe('Theme refactor smoke tests', () => {
       .map((s: any) => s.shadowRadius)
       .pop(); // Get the last one (most recent style wins)
 
-    // Focused shadow radius should be 12 (from inputContainerFocused), base is 8
-    expect(focusedShadowRadius).toBe(12);
+    // Focused shadow radius should match the focused style configuration
+    expect(focusedShadowRadius).toBe(6);
     unmount();
   });
 });

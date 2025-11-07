@@ -158,10 +158,7 @@ let mockActionToastVisible = false;
 let mockAutoDismissHandle: NodeJS.Timeout | null = null;
 
 jest.mock('../../src/hooks/useActionToast', () => {
-  const React = require('react');
   const { View, Text, TouchableOpacity } = require('react-native');
-
-  const AUTO_DISMISS_MS = 6000;
 
   const formatSummary = (payload: any) => {
     if (!payload) return '';

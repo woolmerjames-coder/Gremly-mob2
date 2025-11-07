@@ -5,7 +5,6 @@
 
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import type { CelebrationPayload } from '../../app/features/celebration/CelebrationController';
-import { emitChatEvent } from '../../app/lib/chat/events';
 
 // Mock expo-haptics
 jest.mock('expo-haptics', () => ({

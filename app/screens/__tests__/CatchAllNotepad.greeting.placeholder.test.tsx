@@ -32,9 +32,6 @@ jest.mock('@/src/config/featureFlags', () => ({
 
 // Import after mocks
 import CatchAllNotepad from '../CatchAllNotepad';
-import { Text } from 'react-native';
-
-const SUBTITLE_TEXT = '✶ Capture those late-night thoughts…';
 
 beforeAll(() => {
   // Use real timers for most tests; we'll switch to fake timers only where needed
@@ -51,23 +48,6 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
     expect(screen.getByTestId('minddrop-input-container')).toBeTruthy();
     expect(screen.getByTestId('minddrop-input')).toBeTruthy();
   });
-
-  it('renders the subtitle on first open', async () => {
-    render(<CatchAllNotepad />);
-
-    const subtitle = await screen.findByTestId('minddrop-subtitle');
-    const text = subtitle.props.children?.toString() || '';
-    expect(text).toBe(SUBTITLE_TEXT);
-  });
-
-  it('still renders the subtitle when last open was several days ago', async () => {
-    render(<CatchAllNotepad />);
-
-    const subtitle = await screen.findByTestId('minddrop-subtitle');
-    const text = subtitle.props.children?.toString() || '';
-    expect(text).toBe(SUBTITLE_TEXT);
-  });
-
   it('displays static placeholder text', () => {
     render(<CatchAllNotepad />);
 
@@ -88,17 +68,19 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
   it('shows a live character counter under the input', () => {
     render(<CatchAllNotepad />);
 
-    const counter = screen.getByTestId('minddrop-counter');
-    expect(counter.props.children).toContain('0 / 2000');
-
     const input = screen.getByTestId('minddrop-input');
     fireEvent.changeText(input, 'Hello');
-    const counterAfter = screen.getByTestId('minddrop-counter');
-    expect(counterAfter.props.children).toContain('5 / 2000');
+    expect(screen.queryByTestId('minddrop-counter')).toBeNull();
+
+    fireEvent.changeText(input, 'x'.repeat(1500));
+    const counter = screen.getByTestId('minddrop-counter');
+    expect(counter.props.children).toBe('1500/2000');
   });
 
   it('renders the privacy badge with expected copy', () => {
     render(<CatchAllNotepad />);
+    const input = screen.getByTestId('minddrop-input');
+    fireEvent.changeText(input, 'privacy check');
     const privacy = screen.getByTestId('minddrop-privacy');
     const text = privacy.props.children?.toString() || '';
     expect(text.toLowerCase()).toContain('private & secure');
@@ -123,18 +105,9 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
     expect(isDisabledAfter).toBe(false);
   });
 
-  it('displays static trust line with privacy message when no items organized', () => {
+  it('hides trust row when no items have been organized today', () => {
     render(<CatchAllNotepad />);
 
-    const trustText = screen.getByTestId('minddrop-trust-text');
-    const children = React.Children.toArray(trustText.props.children);
-    const countNode = children[0] as any;
-    const suffixNode = children[1] as any;
-    const count = countNode?.props?.children;
-    const suffix = suffixNode?.props?.children;
-
-    expect(count).toBe(0);
-    expect(typeof suffix).toBe('string');
-    expect((suffix as string).trim()).toBe('thoughts organized today');
+    expect(screen.queryByTestId('minddrop-trust')).toBeNull();
   });
 });

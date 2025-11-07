@@ -96,14 +96,15 @@ jest.mock('../../components/overlay/UnifiedCreateOverlay', () => {
   const { useRepo } = require('../../providers/RepoProvider');
   const UnifiedCreateOverlay = (props: any) => {
     const repo = useRepo();
+    const { initialEntity, initialSpaceId, conversionMeta, onSaved } = props;
     React.useEffect(() => {
       const base = {
-        type: props.initialEntity?.type ?? 'todo',
-        space_id: props.initialSpaceId ?? null,
-        origin: props.conversionMeta?.origin ?? 'manual',
-        ai_placed: props.conversionMeta?.ai_placed ?? false,
-        why_string: props.conversionMeta?.why_string ?? null,
-        source_message_id: props.conversionMeta?.source_message_id ?? null,
+        type: initialEntity?.type ?? 'todo',
+        space_id: initialSpaceId ?? null,
+        origin: conversionMeta?.origin ?? 'manual',
+        ai_placed: conversionMeta?.ai_placed ?? false,
+        why_string: conversionMeta?.why_string ?? null,
+        source_message_id: conversionMeta?.source_message_id ?? null,
       };
       const payload =
         base.type === 'todo'
@@ -115,8 +116,8 @@ jest.mock('../../components/overlay/UnifiedCreateOverlay', () => {
               : base;
 
       repo.create(payload);
-      props.onSaved && props.onSaved({ type: base.type, id: 'test-item-123' });
-    }, []);
+      onSaved && onSaved({ type: base.type, id: 'test-item-123' });
+    }, [initialEntity, initialSpaceId, conversionMeta, onSaved, repo]);
     return null;
   };
   return { UnifiedCreateOverlay };
@@ -134,7 +135,6 @@ jest.mock('../../providers/RepoProvider', () => ({
 
 // Mock Modal component separately to avoid native module issues
 jest.mock('react-native/Libraries/Modal/Modal', () => {
-  const React = require('react');
   return ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 });
 
@@ -155,7 +155,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-  initialEntity={{ type: 'todo', id: undefined }}
+        initialEntity={{ type: 'todo', id: undefined }}
         initialSpaceId="space_123"
         conversionMeta={{
           origin: 'space_chat',
@@ -193,7 +193,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-  initialEntity={{ type: 'note', id: undefined, logSubtype: null }}
+        initialEntity={{ type: 'note', id: undefined, logSubtype: null }}
         initialSpaceId="space_456"
         conversionMeta={{
           origin: 'space_chat',
@@ -240,7 +240,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-  initialEntity={{ type: 'habit', id: undefined }}
+        initialEntity={{ type: 'habit', id: undefined }}
         initialSpaceId={null}
         conversionMeta={{
           origin: 'space_chat',
@@ -293,7 +293,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-  initialEntity={{ type: 'todo', id: undefined }}
+        initialEntity={{ type: 'todo', id: undefined }}
         initialSpaceId="space_123"
         conversionMeta={{
           origin: 'space_chat',
@@ -318,7 +318,7 @@ describe('Space Chat explicit conversion via overlay', () => {
       <UnifiedCreateOverlay
         visible={true}
         mode="create"
-  initialEntity={{ type: 'todo', id: undefined }}
+        initialEntity={{ type: 'todo', id: undefined }}
         initialSpaceId="space_123"
         // No conversionMeta provided
         onClose={onClose}

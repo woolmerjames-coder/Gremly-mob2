@@ -153,7 +153,7 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.queryByTestId('minddrop-recent-note-n4')).toBeNull();
 
     // Toggle to show older items (re-fetch should include the older note)
-    fireEvent.press(screen.getByText('Show older'));
+    fireEvent.press(screen.getByTestId('minddrop-recent-range-action'));
     await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy());
 
@@ -220,6 +220,48 @@ describe('RecentDrops in Mind Drop', () => {
     } finally {
       (env.feature as any).canonicalTypes = originalCanonical;
     }
+  });
+
+  test('shows singular stats copy when exactly one item is organized today', async () => {
+    const now = new Date();
+    mockNotesList.mockResolvedValue([makeNote('n-single', 'single note', now)]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
+
+    render(<CatchAllNotepad />);
+
+    await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
+    const statsRow = await screen.findByTestId('minddrop-trust');
+    expect(statsRow).toBeTruthy();
+    expect(screen.getByText('1 thought organized today')).toBeTruthy();
+  });
+
+  test('shows plural stats copy when multiple items are organized today', async () => {
+    const now = new Date();
+    mockNotesList.mockResolvedValue([
+      makeNote('n1', 'first note', now),
+      makeNote('n2', 'second note', new Date(now.getTime() - 1000)),
+    ]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
+
+    render(<CatchAllNotepad />);
+
+    await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
+    const statsRow = await screen.findByTestId('minddrop-trust');
+    expect(statsRow).toBeTruthy();
+    expect(screen.getByText('2 thoughts organized today')).toBeTruthy();
+  });
+
+  test('hides stats row when nothing has been organized today', async () => {
+    mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
+
+    render(<CatchAllNotepad />);
+
+    await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
+    expect(screen.queryByTestId('minddrop-trust')).toBeNull();
   });
 
   test.skip('Timestamp is present ("ago") for each rendered card', async () => {

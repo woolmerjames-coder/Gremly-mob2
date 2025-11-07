@@ -25,7 +25,7 @@ jest.mock('../../lib/cortex/intents/detectIntent', () => ({
 }));
 
 jest.mock('../../lib/cortex/intents/multiIntentDetector', () => ({
-  detectMultipleIntents: jest.fn((text: string) => ({
+  detectMultipleIntents: jest.fn((_text: string) => ({
     kind: 'note',
     confidence: 0.95,
     isMultiIntent: false,
