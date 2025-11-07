@@ -3,7 +3,7 @@
  * Test buildChatContext function with database integration
  */
 
-import { buildChatContext, type ChatTurn } from '../../lib/cortex/context/memory';
+import { buildChatContext } from '../../lib/cortex/context/memory';
 
 describe('buildChatContext', () => {
   const mockRepo = {

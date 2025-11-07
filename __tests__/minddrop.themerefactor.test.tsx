@@ -89,7 +89,6 @@ describe('Theme refactor smoke tests', () => {
     const baseStyleArr = Array.isArray(container.props.style)
       ? container.props.style
       : [container.props.style];
-    const styleCountBefore = baseStyleArr.length;
 
     // Focus
     fireEvent(input, 'focus');

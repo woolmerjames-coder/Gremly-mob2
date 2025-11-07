@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent } from '@testing-library/react-native';
 import { mockMindDropFlag, mockRepoHook, mockAuthHook } from './utils/flagHarness';
 
 // Navigation mock: avoid needing a NavigationContainer

@@ -4,7 +4,6 @@
  */
 
 import { detectIntent } from '../../lib/cortex/intents/detectIntent';
-import type { IntentKind } from '../../lib/cortex/intents/types';
 
 describe('Intent Detection', () => {
   describe('Habit Detection', () => {

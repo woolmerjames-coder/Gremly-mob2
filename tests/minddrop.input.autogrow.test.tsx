@@ -91,7 +91,9 @@ jest.mock('../providers/CortexProvider', () => ({
 
 const getInputHeight = (getByTestId: (testId: string) => { props: { style: unknown } }) => {
   const styleProp = getByTestId('minddrop-input-height-wrapper').props.style;
-  const flattened = StyleSheet.flatten(styleProp);
+  const flattened = StyleSheet.flatten(styleProp) as {
+    height?: number | { __getValue?: () => number };
+  };
   const height = flattened?.height;
   if (typeof height === 'number') {
     return height;
