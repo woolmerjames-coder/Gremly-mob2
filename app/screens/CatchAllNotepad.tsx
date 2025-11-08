@@ -2588,16 +2588,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             }
           }
         } else {
-          // Just keep as log - update archived flag to false to confirm it
+          // Just keep as log - update to remove catchall markers
           const originalNote = await repo.getById(unsortedId);
           await repo.update({
             id: unsortedId,
             patch: {
               archived: false,
-              ai_placed: true, // Mark as AI-placed after category selection
+              ai_placed: true,
+              origin: null, // Clear catchall origin so it doesn't show in Recent Drops
+              subtype: 'journal', // Change from 'catchall' to 'journal'
               labels: ((originalNote as any).labels || []).filter(
-                (l: string) => l !== 'needs_review',
-              ),
+                (l: string) => l !== 'needs_review' && l !== 'catchall',
+              ), // Remove both labels
               why_string: 'Confirmed as log via category chip',
             },
           });
