@@ -7,6 +7,8 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
 
+type ButtonNode = { props: { accessibilityState?: { disabled?: boolean } } };
+
 // Mock dependencies before imports
 const mockRepo = {
   create: jest.fn(),
@@ -17,7 +19,7 @@ const mockRepo = {
 };
 
 jest.mock('../../../providers/RepoProvider', () => ({
-  useRepo: () => ({ repo: mockRepo }),
+  useRepo: () => mockRepo,
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
@@ -46,8 +48,8 @@ jest.mock('../../../providers/CortexProvider', () => ({
 const mockShowActionToast = jest.fn();
 jest.mock('../../../src/hooks/useActionToast', () => ({
   useActionToast: () => ({
-    showActionToast: mockShowActionToast,
-    ActionToastPortal: () => null,
+    showToast: mockShowActionToast,
+    Toast: () => null,
   }),
 }));
 
@@ -98,6 +100,12 @@ describe('CatchAllNotepad - Category Chips', () => {
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   });
 
+  const waitForSubmitEnabled = async (button: ButtonNode) => {
+    await waitFor(() => {
+      expect(button.props.accessibilityState?.disabled).not.toBe(true);
+    });
+  };
+
   it('shows category chips when confidence < 0.8', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
@@ -120,6 +128,9 @@ describe('CatchAllNotepad - Category Chips', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Maybe do this thing');
+
+    await waitForSubmitEnabled(submitButton);
+
     fireEvent.press(submitButton);
 
     await waitFor(() => {
@@ -154,6 +165,9 @@ describe('CatchAllNotepad - Category Chips', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Maybe schedule meeting');
+
+    await waitForSubmitEnabled(submitButton);
+
     fireEvent.press(submitButton);
 
     await waitFor(() => {
@@ -164,18 +178,20 @@ describe('CatchAllNotepad - Category Chips', () => {
     fireEvent.press(todoChip);
 
     await waitFor(() => {
-      // Should have created unsorted note + todo, and archived the note
-      expect(createdRecords.length).toBe(2);
-      const noteRecord = createdRecords.find((r) => r.type === 'note');
-      const todoRecord = createdRecords.find((r) => r.type === 'todo');
-
-      expect(noteRecord).toBeTruthy();
-      expect(todoRecord).toBeTruthy();
-      expect(noteRecord.archived).toBe(true);
-
-      // Verify no duplicate - only 2 total records
-      expect(createdRecords.length).toBe(2);
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: createdRecords[0].id,
+          patch: expect.objectContaining({
+            type: 'todo',
+            ai_placed: true,
+          }),
+        }),
+      );
     });
+
+    expect(createdRecords.length).toBe(1);
+    expect(createdRecords[0].type).toBe('todo');
+    expect(createdRecords[0].ai_placed).toBe(true);
   });
 
   it('confirms as log without creating duplicate when "Just Save It" is selected', async () => {
@@ -200,6 +216,9 @@ describe('CatchAllNotepad - Category Chips', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Random thought about something');
+
+    await waitForSubmitEnabled(submitButton);
+
     fireEvent.press(submitButton);
 
     await waitFor(() => {
@@ -243,6 +262,9 @@ describe('CatchAllNotepad - Category Chips', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Buy milk tomorrow');
+
+    await waitForSubmitEnabled(submitButton);
+
     fireEvent.press(submitButton);
 
     await waitFor(() => {
