@@ -17,7 +17,7 @@ const mockRepo = {
 };
 
 jest.mock('../../../providers/RepoProvider', () => ({
-  useRepo: () => ({ repo: mockRepo }),
+  useRepo: () => mockRepo,
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
@@ -46,8 +46,8 @@ jest.mock('../../../providers/CortexProvider', () => ({
 const mockShowActionToast = jest.fn();
 jest.mock('../../../src/hooks/useActionToast', () => ({
   useActionToast: () => ({
-    showActionToast: mockShowActionToast,
-    ActionToastPortal: () => null,
+    showToast: mockShowActionToast,
+    Toast: () => null,
   }),
 }));
 

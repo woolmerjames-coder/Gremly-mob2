@@ -2,7 +2,7 @@
  * Test: Narrative classification prevents todo conversion
  */
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 const mockRepo = {
   create: jest.fn(),
@@ -11,9 +11,6 @@ const mockRepo = {
   getById: jest.fn(),
   query: jest.fn(() => Promise.resolve([])),
 };
-
-const mockClassifyNarrative = jest.fn();
-const mockClassifyMindDrop = jest.fn();
 
 jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
@@ -32,54 +29,73 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100,
 }));
 
+const mockDecideWithContext = jest.fn();
+jest.mock('../../../providers/CortexProvider', () => ({
+  useCortex: () => ({
+    decideWithContext: mockDecideWithContext,
+  }),
+}));
+
+const mockShowActionToast = jest.fn();
+jest.mock('../../../src/hooks/useActionToast', () => ({
+  useActionToast: () => ({
+    showToast: mockShowActionToast,
+    Toast: () => null,
+  }),
+}));
+
 import CatchAllNotepad from '../CatchAllNotepad';
 
 describe('Mind Drop Narrative Classification', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDecideWithContext.mockReset();
+    mockRepo.create.mockImplementation(async (payload) => ({
+      id: `record-${Date.now()}`,
+      ...payload,
+    }));
+    mockRepo.update.mockResolvedValue(null);
+    mockRepo.remove.mockResolvedValue(undefined);
   });
 
   it('narrative journal text does NOT produce todo classification', async () => {
     const narrativeText =
       'Today was a great day. I went to the park and enjoyed the sunshine. Feeling grateful.';
 
-    // Narrative classifier returns high narrative confidence
-    mockClassifyNarrative.mockResolvedValue({
-      isNarrative: true,
-      confidence: 0.92,
-      reasoning: 'Personal reflection, past tense',
+    mockDecideWithContext.mockResolvedValue({
+      mode: 'auto',
+      confidence: 0.9,
+      actions: [
+        {
+          type: 'create.todo',
+          payload: { title: 'Today was a great day' },
+        },
+      ],
+      suggestions: [],
     });
 
-    // Mind drop classifier should classify as note (not todo)
-    mockClassifyMindDrop.mockResolvedValue({
-      payload: { type: 'note', subtype: 'journal' },
-      confidence: 0.88,
-      reasoning: 'Journal entry',
-    });
-
-    mockRepo.create.mockResolvedValue({
-      id: 'note-journal-123',
-      type: 'note',
-      subtype: 'journal',
-    });
-
-    const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
+    const { getByTestId, findByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
+    const submitButton = getByTestId('minddrop-submit-button');
 
     // Submit narrative text
     fireEvent.changeText(input, narrativeText);
-    fireEvent(input, 'submitEditing');
-
-    await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.press(submitButton);
     });
 
-    // Verify no timing chips appear (narrative should not be treated as todo)
-    expect(queryByTestId('minddrop-timing-chips')).toBeNull();
+    await waitFor(() => {
+      const created = mockRepo.create.mock.calls.map((call) => call[0]);
+      expect(created.some((payload) => payload.type === 'note')).toBe(true);
+      expect(created.some((payload) => payload.type === 'todo')).toBe(false);
+    });
 
-    // Verify no category chips for todo conversion
-    expect(queryByTestId('minddrop-category-todo')).toBeNull();
+    // Verify category chips rendered for user confirmation
+    expect(await findByTestId('minddrop-category-todo')).toBeTruthy();
+
+    // Narrative guard should not surface timing chips automatically
+    expect(queryByTestId('minddrop-timing-chips')).toBeNull();
 
     // Verify created as note, not todo
     const createCall = mockRepo.create.mock.calls[0][0];
@@ -87,34 +103,29 @@ describe('Mind Drop Narrative Classification', () => {
   });
 
   it('task-oriented input with narrative false produces todo with timing chips', async () => {
-    const taskText = 'Submit quarterly report by Friday';
+    const taskText = 'Submit quarterly report';
 
-    // Not narrative
-    mockClassifyNarrative.mockResolvedValue({
-      isNarrative: false,
-      confidence: 0.95,
-      reasoning: 'Action-oriented, future deadline',
-    });
-
-    // High confidence todo
-    mockClassifyMindDrop.mockResolvedValue({
-      payload: { type: 'todo', name: 'Submit quarterly report by Friday' },
-      confidence: 0.91,
-      reasoning: 'Clear action with deadline',
-    });
-
-    mockRepo.create.mockResolvedValue({
-      id: 'todo-report-123',
-      type: 'todo',
-      name: 'Submit quarterly report by Friday',
+    mockDecideWithContext.mockResolvedValue({
+      mode: 'auto',
+      confidence: 0.92,
+      actions: [
+        {
+          type: 'create.todo',
+          payload: { title: 'Submit quarterly report', due: null },
+        },
+      ],
+      suggestions: [],
     });
 
     const { getByTestId, findByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
+    const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, taskText);
-    fireEvent(input, 'submitEditing');
+    await act(async () => {
+      fireEvent.press(submitButton);
+    });
 
     await waitFor(() => {
       expect(mockRepo.create).toHaveBeenCalled();
@@ -132,33 +143,28 @@ describe('Mind Drop Narrative Classification', () => {
   it('low-confidence narrative offers category chips for log (not todo)', async () => {
     const ambiguousNarrative = 'Went to dentist, teeth are fine';
 
-    // Moderate narrative signal
-    mockClassifyNarrative.mockResolvedValue({
-      isNarrative: true,
-      confidence: 0.75,
-      reasoning: 'Past tense, personal event',
-    });
-
-    // Low confidence classification
-    mockClassifyMindDrop.mockResolvedValue({
-      payload: { type: 'note', subtype: 'unsorted' },
+    mockDecideWithContext.mockResolvedValue({
+      mode: 'ask',
       confidence: 0.4,
-      reasoning: 'Ambiguous',
-    });
-
-    mockRepo.create.mockResolvedValue({
-      id: 'unsorted-dentist-123',
-      type: 'note',
-      subtype: 'unsorted',
-      body: ambiguousNarrative,
+      suggestions: [
+        {
+          type: 'create.note',
+          label: 'Save as log',
+          payload: { title: ambiguousNarrative, body: ambiguousNarrative, subtype: 'journal' },
+        },
+      ],
+      actions: [],
     });
 
     const { getByTestId, findByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
+    const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, ambiguousNarrative);
-    fireEvent(input, 'submitEditing');
+    await act(async () => {
+      fireEvent.press(submitButton);
+    });
 
     await waitFor(() => {
       expect(mockRepo.create).toHaveBeenCalled();
@@ -179,31 +185,27 @@ describe('Mind Drop Narrative Classification', () => {
   it('mixed narrative with action triggers note classification', async () => {
     const mixedText = 'Had a great meeting today. I should follow up with Jane about the proposal.';
 
-    // Contains both narrative and action - narrative wins
-    mockClassifyNarrative.mockResolvedValue({
-      isNarrative: true,
-      confidence: 0.68,
-      reasoning: 'Mixed: past tense event + future action mention',
+    mockDecideWithContext.mockResolvedValue({
+      mode: 'auto',
+      confidence: 0.85,
+      actions: [
+        {
+          type: 'create.todo',
+          payload: { title: 'Follow up with Jane' },
+        },
+      ],
+      suggestions: [],
     });
 
-    mockClassifyMindDrop.mockResolvedValue({
-      payload: { type: 'note', subtype: 'idea' },
-      confidence: 0.65,
-      reasoning: 'Contains action hint but primarily reflective',
-    });
-
-    mockRepo.create.mockResolvedValue({
-      id: 'note-mixed-123',
-      type: 'note',
-      subtype: 'idea',
-    });
-
-    const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
+    const { getByTestId, queryByTestId, findByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
+    const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, mixedText);
-    fireEvent(input, 'submitEditing');
+    await act(async () => {
+      fireEvent.press(submitButton);
+    });
 
     await waitFor(() => {
       expect(mockRepo.create).toHaveBeenCalled();
@@ -213,6 +215,9 @@ describe('Mind Drop Narrative Classification', () => {
     const createCall = mockRepo.create.mock.calls[0][0];
     expect(createCall.type).toBe('note');
 
+    // Category chips should surface for manual follow-up
+    expect(await findByTestId('minddrop-category-log')).toBeTruthy();
+
     // No timing chips for narrative-dominant input
     expect(queryByTestId('minddrop-timing-chips')).toBeNull();
   });
@@ -220,30 +225,27 @@ describe('Mind Drop Narrative Classification', () => {
   it('pure action without narrative context produces todo', async () => {
     const pureAction = 'Email Sarah about project timeline';
 
-    mockClassifyNarrative.mockResolvedValue({
-      isNarrative: false,
-      confidence: 0.97,
-      reasoning: 'Imperative verb, no narrative markers',
-    });
-
-    mockClassifyMindDrop.mockResolvedValue({
-      payload: { type: 'todo', name: 'Email Sarah about project timeline' },
+    mockDecideWithContext.mockResolvedValue({
+      mode: 'auto',
       confidence: 0.93,
-      reasoning: 'Clear action item',
-    });
-
-    mockRepo.create.mockResolvedValue({
-      id: 'todo-email-123',
-      type: 'todo',
-      name: 'Email Sarah about project timeline',
+      actions: [
+        {
+          type: 'create.todo',
+          payload: { title: 'Email Sarah about project timeline' },
+        },
+      ],
+      suggestions: [],
     });
 
     const { getByTestId, findByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
+    const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, pureAction);
-    fireEvent(input, 'submitEditing');
+    await act(async () => {
+      fireEvent.press(submitButton);
+    });
 
     await waitFor(() => {
       expect(mockRepo.create).toHaveBeenCalled();
