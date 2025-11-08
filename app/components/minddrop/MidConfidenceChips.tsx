@@ -1,82 +1,53 @@
 import React, { useEffect, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { haptics } from '../../../lib/haptics';
-import { env } from '../../../lib/env';
-import { kindToDisplayLabel } from '../../../lib/ui/kindToDisplayLabel';
-import type { ChipSuggestion } from '../../../lib/cortex/policy/chips';
-
-export type UISuggestion = ChipSuggestion;
 
 const PALETTE = {
-  todoBg: '#E6F0FF',
-  todoFg: '#0A3A8B',
-  habitBg: '#EAF7ED',
-  habitFg: '#1F7A3D',
-  noteBg: '#F4EFEA',
-  noteFg: '#5C3B24',
+  linenCream: '#FAF8F4',
+  moss: '#5C7457',
   promptFg: '#4A4A4A',
 };
 
-function stylesForType(type: UISuggestion['type']) {
-  switch (type) {
-    case 'create.todo':
-    case 'convert.log-list-to-todo':
-      return { bg: PALETTE.todoBg, fg: PALETTE.todoFg };
-    case 'create.habit':
-      return { bg: PALETTE.habitBg, fg: PALETTE.habitFg };
-    case 'create.note':
-    default:
-      return { bg: PALETTE.noteBg, fg: PALETTE.noteFg };
-  }
+export interface CategoryChip {
+  kind: 'todo' | 'log' | 'habit';
+  label: string;
 }
 
-function deriveChipLabel(s: UISuggestion, canonicalTypesOn: boolean): string {
-  if (s.type === 'convert.log-list-to-todo') {
-    return s.label;
-  }
+export type TimingOption =
+  | 'today'
+  | 'today-actually'
+  | 'tomorrow'
+  | 'later-this-week'
+  | 'this-weekend'
+  | 'monday'
+  | 'someday';
 
-  if (!canonicalTypesOn || s.type !== 'create.note') {
-    return s.label;
-  }
-
-  if (s.payload.subtype === 'list') {
-    return 'Save as list';
-  }
-
-  if (s.payload.subtype === 'idea') {
-    return 'Save as idea';
-  }
-
-  const display = kindToDisplayLabel('note', s.payload.subtype, canonicalTypesOn);
-  if (display === 'log') return 'Save as log';
-  if (display === 'unsorted') return 'Save as note';
-
-  const capitalized = display.charAt(0).toUpperCase() + display.slice(1);
-  return `Save as ${capitalized}`;
+export interface TimingChip {
+  option: TimingOption;
+  label: string;
 }
 
-export function MidConfidenceChips({
-  suggestions,
-  onPick,
-  prompt,
-  supportingText,
-  autoDismissMs = 12000,
-}: {
-  suggestions: UISuggestion[];
-  onPick: (s: UISuggestion) => void;
+interface MidConfidenceChipsProps {
+  variant?: 'category' | 'timing';
+  categoryChips?: CategoryChip[];
+  timingChips?: TimingChip[];
+  onDirectPick?: (kind: 'todo' | 'log' | 'habit') => void;
+  onTimingPick?: (option: TimingOption) => void;
   prompt?: string;
   supportingText?: string;
   autoDismissMs?: number;
-}) {
-  const canonicalConversionsOn = env.feature.canonicalConversions;
-  const canonicalTypesOn = env.feature.canonicalTypes;
-  const limited = useMemo(() => {
-    const base = suggestions ?? [];
-    const filtered = canonicalConversionsOn
-      ? base
-      : base.filter((chip) => chip.type !== 'convert.log-list-to-todo');
-    return filtered.slice(0, 3);
-  }, [suggestions, canonicalConversionsOn]);
+}
+
+export function MidConfidenceChips({
+  variant = 'category',
+  categoryChips = [],
+  timingChips = [],
+  onDirectPick,
+  onTimingPick,
+  prompt,
+  supportingText,
+  autoDismissMs = 12000,
+}: MidConfidenceChipsProps) {
   const fade = useMemo(() => new Animated.Value(0), []);
 
   useEffect(() => {
@@ -86,10 +57,11 @@ export function MidConfidenceChips({
       duration: 220,
       useNativeDriver: true,
     }).start();
-  }, [fade, limited]);
+  }, [fade, categoryChips, timingChips]);
 
   useEffect(() => {
-    if (!autoDismissMs || !limited.length) return;
+    const hasChips = categoryChips.length > 0 || timingChips.length > 0;
+    if (!autoDismissMs || !hasChips) return;
 
     const pulseDelay = Math.max(0, autoDismissMs - 800);
     const timeout = setTimeout(() => {
@@ -100,52 +72,109 @@ export function MidConfidenceChips({
     }, pulseDelay);
 
     return () => clearTimeout(timeout);
-  }, [autoDismissMs, fade, limited.length]);
+  }, [autoDismissMs, fade, categoryChips.length, timingChips.length]);
 
-  if (!limited.length) return null;
+  if (variant === 'category') {
+    if (!categoryChips.length) return null;
 
-  const message = prompt ?? supportingText ?? null;
+    const message = prompt ?? supportingText ?? null;
 
-  return (
-    <Animated.View style={[styles.wrapper, { opacity: fade }]}>
-      {message ? (
-        <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={message}>
-          {message}
-        </Text>
-      ) : null}
+    return (
+      <Animated.View style={[styles.wrapper, { opacity: fade }]}>
+        {message ? (
+          <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={message}>
+            {message}
+          </Text>
+        ) : null}
 
-      <View style={styles.row}>
-        {limited.map((s, idx) => {
-          const c = stylesForType(s.type);
-          const derivedLabel = deriveChipLabel(s, canonicalTypesOn);
-          return (
-            <Pressable
-              key={`${s.type}-${idx}`}
-              onPress={() => {
-                try {
-                  if (typeof haptics?.light === 'function') {
-                    haptics.light();
+        <View style={styles.row}>
+          {categoryChips.map((chip, idx) => {
+            const testID =
+              chip.kind === 'todo'
+                ? 'minddrop-category-todo'
+                : chip.kind === 'habit'
+                  ? 'minddrop-category-habit'
+                  : 'minddrop-category-log';
+
+            return (
+              <Pressable
+                key={`${chip.kind}-${idx}`}
+                testID={testID}
+                onPress={() => {
+                  try {
+                    if (typeof haptics?.light === 'function') {
+                      haptics.light();
+                    }
+                  } catch {
+                    // no-op
                   }
-                } catch {
-                  // no-op for environments without haptics
-                }
-                onPick(s);
-              }}
-              style={({ pressed }) => [
-                styles.chip,
-                { backgroundColor: c.bg, borderColor: c.fg },
-                pressed && styles.pressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={derivedLabel}
-            >
-              <Text style={[styles.chipText, { color: c.fg }]}>{derivedLabel}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </Animated.View>
-  );
+                  onDirectPick?.(chip.kind);
+                }}
+                style={({ pressed }) => [
+                  styles.chip,
+                  styles.categoryChip,
+                  pressed && styles.categoryPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={chip.label}
+              >
+                <Text style={[styles.chipText, styles.categoryChipText]}>{chip.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  if (variant === 'timing') {
+    if (!timingChips.length) return null;
+
+    const message = prompt ?? supportingText ?? null;
+
+    return (
+      <Animated.View style={[styles.wrapper, { opacity: fade }]} testID="minddrop-timing-chips">
+        {message ? (
+          <Text style={styles.prompt} accessibilityRole="text" accessibilityLabel={message}>
+            {message}
+          </Text>
+        ) : null}
+
+        <View style={styles.row}>
+          {timingChips.map((chip, idx) => {
+            return (
+              <Pressable
+                key={`${chip.option}-${idx}`}
+                testID={`minddrop-timing-${chip.option}`}
+                onPress={() => {
+                  try {
+                    if (typeof haptics?.light === 'function') {
+                      haptics.light();
+                    }
+                  } catch {
+                    // no-op
+                  }
+                  onTimingPick?.(chip.option);
+                }}
+                style={({ pressed }) => [
+                  styles.chip,
+                  styles.timingChip,
+                  pressed && styles.timingPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={chip.label}
+              >
+                <Text style={[styles.chipText, styles.timingChipText]}>{chip.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // No other variants supported
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -160,4 +189,31 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 14, fontWeight: '500' },
   pressed: { opacity: 0.7 },
+
+  // Category chip styles (linenCream background, moss border when active)
+  categoryChip: {
+    backgroundColor: PALETTE.linenCream,
+    borderColor: PALETTE.moss,
+    borderWidth: 1,
+  },
+  categoryChipText: {
+    color: PALETTE.moss,
+  },
+  categoryPressed: {
+    transform: [{ scale: 0.96 }],
+  },
+
+  // Timing chip styles (subtle tinted background, moss border, bold text)
+  timingChip: {
+    backgroundColor: PALETTE.linenCream,
+    borderColor: PALETTE.moss,
+    borderWidth: 1,
+  },
+  timingChipText: {
+    color: PALETTE.moss,
+    fontWeight: '600',
+  },
+  timingPressed: {
+    opacity: 0.7,
+  },
 });

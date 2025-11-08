@@ -88,10 +88,10 @@ jest.mock('../providers/CortexProvider', () => ({
 }));
 
 describe('Mind Drop keyboard smoke test', () => {
-  const stubSpring = () => {
-    const springSpy = jest.spyOn(Animated, 'spring');
+  const stubTiming = () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    springSpy.mockImplementation((value: any, config: any) => {
+    timingSpy.mockImplementation((value: any, config: any) => {
       if (typeof value?.setValue === 'function') {
         value.setValue(config?.toValue ?? 0);
       }
@@ -101,7 +101,7 @@ describe('Mind Drop keyboard smoke test', () => {
         reset: jest.fn(),
       } as unknown as Animated.CompositeAnimation;
     });
-    return springSpy;
+    return timingSpy;
   };
 
   beforeEach(() => {
@@ -113,7 +113,7 @@ describe('Mind Drop keyboard smoke test', () => {
   });
 
   test('submit button stays mounted after input expansion', async () => {
-    const springSpy = stubSpring();
+    const timingSpy = stubTiming();
     const { getByTestId } = render(<CatchAllNotepad />);
     const input = getByTestId('minddrop-input');
 
@@ -128,6 +128,6 @@ describe('Mind Drop keyboard smoke test', () => {
     });
 
     expect(getByTestId('minddrop-submit-button')).toBeTruthy();
-    springSpy.mockRestore();
+    timingSpy.mockRestore();
   });
 });
