@@ -2760,20 +2760,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Mind Drop: robust submit with retry + fallbacks
   const onSubmit = useCallback(async () => {
-    const now = Date.now();
+    // Lock immediately to prevent race conditions
     if (submitLockRef.current) return;
-    if (isSubmitting) return;
+    submitLockRef.current = true;
 
+    if (isSubmitting) {
+      submitLockRef.current = false;
+      return;
+    }
+    setIsSubmitting(true);
+
+    const now = Date.now();
     const trimmed = note.trim();
-    if (!trimmed) return;
+
+    if (!trimmed) {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+      return;
+    }
 
     // Prevent rapid repeat submissions of same text
     const MIN_SUBMIT_INTERVAL_MS = 2000;
     if (
       now - lastSubmitAt.current < MIN_SUBMIT_INTERVAL_MS &&
       trimmed === lastSubmittedTextRef.current
-    )
+    ) {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
       return;
+    }
     lastSubmitAt.current = now;
 
     // Duplicate prevention: if same text as last submission and we cleared state but unsorted note exists
@@ -2791,11 +2806,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       ]);
       setNote('');
       setIsSubmitting(false);
+      submitLockRef.current = false;
       return;
     }
-
-    submitLockRef.current = true;
-    setIsSubmitting(true);
 
     const submissionId = submissionIdRef.current ?? createSubmissionId();
     submissionIdRef.current = submissionId;
