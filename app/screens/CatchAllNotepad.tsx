@@ -2851,7 +2851,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const createdHabits = r?.created?.habits?.length ?? 0;
           const totalCreated = createdTodos + createdNotes + createdHabits;
 
-          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0) {
+          // Ask mode is a success even with 0 items created (user will manually categorize)
+          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0 || r?.decisionMode === 'ask') {
             finalResult = r;
             break; // success
           }
