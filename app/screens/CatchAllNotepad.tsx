@@ -349,6 +349,7 @@ export async function saveToUnsortedTray(
   if (!text?.trim()) return undefined;
   const { sourceMessageId, whyString } = options;
   const clampedText = clampNoteLength(text);
+  const catchallCanonical = persistedToCanonical('note', 'catchall');
 
   // Base create payload for our repos
   const baseInput = {
@@ -360,6 +361,7 @@ export async function saveToUnsortedTray(
     origin: 'catchall' as const,
     labels: [CATCHALL_LABEL, UNSORTED_LABEL],
     why_string: whyString ?? null,
+    canonicalType: catchallCanonical,
     sourceMessageId: sourceMessageId ?? undefined,
   };
 
@@ -1309,6 +1311,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
+  const recentRefreshBatchRef = useRef<number | null>(null);
+  const triggerRecentRefresh = useCallback(() => {
+    if (recentRefreshBatchRef.current != null) return;
+
+    recentRefreshBatchRef.current = requestAnimationFrame(() => {
+      recentRefreshBatchRef.current = null;
+      setRecentRefresh((v) => v + 1);
+    });
+  }, [setRecentRefresh]);
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
@@ -1332,6 +1343,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   useEffect(() => {
     return () => {
+      if (recentRefreshBatchRef.current != null) {
+        cancelAnimationFrame(recentRefreshBatchRef.current);
+        recentRefreshBatchRef.current = null;
+      }
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -1522,10 +1537,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   useEffect(() => {
     const unsub = addOverlaySavedListener(() => {
       void refreshOrganizedToday?.();
-      setRecentRefresh?.((v) => v + 1);
+      triggerRecentRefresh();
     });
     return unsub;
-  }, [refreshOrganizedToday]);
+  }, [refreshOrganizedToday, triggerRecentRefresh]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(
@@ -1836,7 +1851,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               { kind: 'habit', label: 'Start a Habit' },
             ]);
             setNote('');
-            setRecentRefresh?.((v) => v + 1);
+            triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
 
             void logCatchallDecision({
@@ -2154,7 +2169,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               { kind: 'habit', label: 'Start a Habit' },
             ]);
             setNote('');
-            setRecentRefresh?.((v) => v + 1);
+            triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
 
             void logCatchallDecision({
@@ -2183,7 +2198,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // If we reach here, show suggestion chips (not category chips)
           // This happens when confidence > 0.85 and not narrative
           setNote('');
-          setRecentRefresh?.((v) => v + 1);
+          triggerRecentRefresh();
           pendingUndo.current = { todos: [], notes: [], habits: [] };
 
           return {
@@ -2392,7 +2407,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       end(trace, 'error', { message: String(error) });
       throw error;
     }
-  }, [note, repo, user, userId, decideWithContext]);
+  }, [note, repo, user, userId, decideWithContext, triggerRecentRefresh]);
 
   const handleCategoryChipPick = useCallback(
     async (kind: 'todo' | 'log' | 'habit') => {
@@ -2439,7 +2454,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             });
 
             setOrganizedToday((prev) => prev + 1);
-            setRecentRefresh?.((v) => v + 1);
+            triggerRecentRefresh();
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
 
@@ -2464,7 +2479,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             });
 
             setOrganizedToday((prev) => prev + 1);
-            setRecentRefresh?.((v) => v + 1);
+            triggerRecentRefresh();
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
 
@@ -2510,7 +2525,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               });
 
               setOrganizedToday((prev) => prev + 1);
-              setRecentRefresh?.((v) => v + 1);
+              triggerRecentRefresh();
               setLowConfidenceUnsortedId(null);
               unsortedIdRef.current = null;
 
@@ -2555,7 +2570,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               }
 
               setOrganizedToday((prev) => prev + 1);
-              setRecentRefresh?.((v) => v + 1);
+              triggerRecentRefresh();
               setLowConfidenceUnsortedId(null);
               unsortedIdRef.current = null;
 
@@ -2588,14 +2603,25 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             }
           }
         } else {
-          // Just keep as log - remove needs_review label but keep in Recent Drops
+          // Just keep as log - promote to canonical "log" subtype
           const originalNote = await repo.getById(unsortedId);
+          const noteText =
+            (originalNote as any)?.body ||
+            (originalNote as any)?.title ||
+            (originalNote as any)?.text ||
+            '';
+          const narrative = classifyNarrative(noteText);
+          const nextSubtype = narrative ? 'journal' : 'idea';
+          const canonicalType = persistedToCanonical('note', nextSubtype);
+
           await repo.update({
             id: unsortedId,
             patch: {
               archived: false,
               ai_placed: true,
-              labels: ((originalNote as any).labels || []).filter(
+              subtype: nextSubtype,
+              canonicalType,
+              labels: ((originalNote as any)?.labels || []).filter(
                 (l: string) => l !== 'needs_review',
               ),
               why_string: 'Confirmed as log via category chip',
@@ -2603,7 +2629,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           });
 
           setOrganizedToday((prev) => prev + 1);
-          setRecentRefresh?.((v) => v + 1);
+          triggerRecentRefresh();
           setLowConfidenceUnsortedId(null);
           unsortedIdRef.current = null;
 
@@ -2631,7 +2657,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       lowConfidenceUnsortedId,
       repo,
       setOrganizedToday,
-      setRecentRefresh,
+      triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
     ],
@@ -2660,7 +2686,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           } as any, // Todo-specific fields
         });
 
-        setRecentRefresh?.((v) => v + 1);
+        triggerRecentRefresh();
 
         // Track timing selection (skip if this is auto-fallback which is already tracked)
         if (option !== 'someday' || timingChips.length > 0) {
@@ -2682,7 +2708,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [
       pendingTodoId,
       repo,
-      setRecentRefresh,
+      triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
       timingChips.length,
@@ -2833,7 +2859,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         await refreshOrganizedToday?.();
-        setRecentRefresh?.((v) => v + 1);
+        triggerRecentRefresh();
         // A11y focus target after clearing input
         focusGreetingForA11y();
         return;
@@ -2944,7 +2970,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         // Refresh trust count & recent
         await refreshOrganizedToday?.();
-        setRecentRefresh?.((v) => v + 1);
+        triggerRecentRefresh();
         focusGreetingForA11y();
         return;
       }
@@ -2981,7 +3007,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       });
 
       await refreshOrganizedToday?.();
-      setRecentRefresh?.((v) => v + 1);
+      triggerRecentRefresh();
       // A11y focus target after clearing input
       focusGreetingForA11y();
     } finally {
@@ -2998,7 +3024,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     networkIsOnline,
     resetState,
     focusGreetingForA11y,
-    setRecentRefresh,
+    triggerRecentRefresh,
     TOASTS_ON,
   ]);
 
