@@ -2588,18 +2588,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             }
           }
         } else {
-          // Just keep as log - update to remove catchall markers
+          // Just keep as log - remove needs_review label but keep in Recent Drops
           const originalNote = await repo.getById(unsortedId);
           await repo.update({
             id: unsortedId,
             patch: {
               archived: false,
               ai_placed: true,
-              origin: null, // Clear catchall origin so it doesn't show in Recent Drops
-              subtype: null, // Clear subtype (was 'catchall')
               labels: ((originalNote as any).labels || []).filter(
-                (l: string) => l !== 'needs_review' && l !== 'catchall',
-              ), // Remove both labels
+                (l: string) => l !== 'needs_review',
+              ),
               why_string: 'Confirmed as log via category chip',
             },
           });
