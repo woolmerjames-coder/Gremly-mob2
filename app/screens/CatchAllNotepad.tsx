@@ -2146,7 +2146,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const confidence = decision.confidence ?? 0;
 
           // If low confidence or narrative, show category chips instead of suggestions
-          if ((confidence < 0.85 || classifyNarrative(trimmed)) && savedUnsortedId) {
+          if ((confidence <= 0.85 || classifyNarrative(trimmed)) && savedUnsortedId) {
             setLowConfidenceUnsortedId(savedUnsortedId);
             setCategoryChips([
               { kind: 'todo', label: 'Add to To-Do List' },
