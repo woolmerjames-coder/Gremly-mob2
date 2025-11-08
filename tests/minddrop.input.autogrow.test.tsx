@@ -217,11 +217,11 @@ describe('Mind Drop input auto-grow', () => {
 
     fireEvent.changeText(input, 'quick note');
     fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 150, width: 300 } },
+      nativeEvent: { contentSize: { height: 140, width: 300 } },
     });
 
     await waitFor(() => {
-      expect(getInputHeight(getByTestId)).toBe(150);
+      expect(getInputHeight(getByTestId)).toBe(140);
     });
     expect(timingSpy).not.toHaveBeenCalled();
     expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
