@@ -2596,7 +2596,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               archived: false,
               ai_placed: true,
               origin: null, // Clear catchall origin so it doesn't show in Recent Drops
-              subtype: 'journal', // Change from 'catchall' to 'journal'
+              subtype: null, // Clear subtype (was 'catchall')
               labels: ((originalNote as any).labels || []).filter(
                 (l: string) => l !== 'needs_review' && l !== 'catchall',
               ), // Remove both labels
