@@ -2180,30 +2180,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
           }
 
+          // If we reach here, show suggestion chips (not category chips)
+          // This happens when confidence > 0.85 and not narrative
           setNote('');
           setRecentRefresh?.((v) => v + 1);
           pendingUndo.current = { todos: [], notes: [], habits: [] };
-
-          void logCatchallDecision({
-            userId: currentUserId,
-            text: trimmed,
-            surface: 'catchall',
-            engine: engineMode,
-            modelVersion,
-            intent: decision.meta?.intent?.kind ?? 'ambiguous',
-            confidence: decision.confidence ?? 0,
-            mode: decision.mode,
-            decision: mapDecisionOutcome('ask'),
-            createdTodos: 0,
-            createdNotes: 0,
-            createdHabits: 0,
-          });
 
           return {
             created: { todos: [], notes: [], habits: [] },
             createdDetails: [],
             decisionMode: decision.mode,
-            decisionConfidence: decision.confidence,
+            decisionConfidence: decision.confidence ?? 0,
           };
         }
       }
@@ -2453,6 +2440,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             setOrganizedToday((prev) => prev + 1);
             setRecentRefresh?.((v) => v + 1);
+            setLowConfidenceUnsortedId(null);
+            unsortedIdRef.current = null;
 
             // Track category conversion
             metricsRef.current.conversions += 1;
@@ -2476,6 +2465,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             setOrganizedToday((prev) => prev + 1);
             setRecentRefresh?.((v) => v + 1);
+            setLowConfidenceUnsortedId(null);
+            unsortedIdRef.current = null;
 
             // Track category conversion (fallback path)
             metricsRef.current.conversions += 1;
@@ -2613,6 +2604,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           setOrganizedToday((prev) => prev + 1);
           setRecentRefresh?.((v) => v + 1);
+          setLowConfidenceUnsortedId(null);
+          unsortedIdRef.current = null;
 
           if (TOASTS_ON) {
             showActionToast({
@@ -2623,6 +2616,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         setLowConfidenceUnsortedId(null);
+        unsortedIdRef.current = null;
 
         // Clear duplicate prevention tracking after successful category action
         lastSubmittedTextRef.current = null;
