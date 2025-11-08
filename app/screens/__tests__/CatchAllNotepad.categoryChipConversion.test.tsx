@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
 
 // Mock dependencies before imports
@@ -16,7 +16,7 @@ const mockRepo = {
 };
 
 jest.mock('../../../providers/RepoProvider', () => ({
-  useRepo: () => ({ repo: mockRepo }),
+  useRepo: () => mockRepo,
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
@@ -123,12 +123,36 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Buy groceries for the week');
-    fireEvent.press(submitButton);
+    await act(async () => {
+      fireEvent.press(submitButton);
+    });
 
     // Wait for category chips to appear
-    await waitFor(() => {
-      expect(getByText('Add to To-Do List')).toBeTruthy();
-    });
+    await waitFor(
+      () => {
+        expect(mockDecideWithContext).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    const decision = await mockDecideWithContext.mock.results[0].value;
+    expect(decision).toEqual(expect.objectContaining({ mode: 'ask' }));
+    expect(Array.isArray(decision.suggestions) && decision.suggestions.length).toBeGreaterThan(0);
+    expect(mockDecideWithContext).toHaveBeenCalledTimes(1);
+
+    await waitFor(
+      () => {
+        expect(mockRepo.create).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(getByText('Add to To-Do List')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     // Verify one unsorted note was created
     expect(createdRecords.length).toBe(1);
@@ -189,11 +213,30 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     const longText =
       'This is a very long first line that exceeds eighty characters and should be truncated properly when converted to todo\nSecond line should be ignored';
     fireEvent.changeText(input, longText);
-    fireEvent.press(submitButton);
-
-    await waitFor(() => {
-      expect(getByText('Add to To-Do List')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(submitButton);
     });
+
+    await waitFor(
+      () => {
+        expect(mockDecideWithContext).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(mockRepo.create).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(getByText('Add to To-Do List')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     fireEvent.press(getByText('Add to To-Do List'));
 
@@ -230,11 +273,30 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Call dentist');
-    fireEvent.press(submitButton);
-
-    await waitFor(() => {
-      expect(getByText('Add to To-Do List')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(submitButton);
     });
+
+    await waitFor(
+      () => {
+        expect(mockDecideWithContext).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(mockRepo.create).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(getByText('Add to To-Do List')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     // Manually add needs_review label to simulate initial state
     createdRecords[0].labels = ['needs_review', 'catchall'];
@@ -278,11 +340,30 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Had a great day today');
-    fireEvent.press(submitButton);
-
-    await waitFor(() => {
-      expect(getByText('Just Save It')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(submitButton);
     });
+
+    await waitFor(
+      () => {
+        expect(mockDecideWithContext).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(mockRepo.create).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(getByText('Just Save It')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     expect(createdRecords.length).toBe(1);
     const originalId = createdRecords[0].id;
@@ -337,11 +418,30 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Test task');
-    fireEvent.press(submitButton);
-
-    await waitFor(() => {
-      expect(getByText('Add to To-Do List')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(submitButton);
     });
+
+    await waitFor(
+      () => {
+        expect(mockDecideWithContext).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(mockRepo.create).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(getByText('Add to To-Do List')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     const originalId = createdRecords[0].id;
 
