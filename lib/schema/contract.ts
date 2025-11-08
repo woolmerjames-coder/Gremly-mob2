@@ -9,6 +9,22 @@
 type ColReq = { table: string; columns: string[] };
 type CheckReq = { table: string; mustAllowSubtypes?: boolean };
 
+const isNetworkFailure = (err: unknown): boolean => {
+  if (!err) return false;
+  if (typeof err === 'string') {
+    return err.toLowerCase().includes('network request failed');
+  }
+  if (err instanceof Error) {
+    return err.message.toLowerCase().includes('network request failed');
+  }
+  // Supabase errors sometimes surface the message on a payload object
+  if (typeof err === 'object' && 'message' in (err as any)) {
+    const message = String((err as any).message ?? '').toLowerCase();
+    return message.includes('network request failed');
+  }
+  return false;
+};
+
 /**
  * Required columns for each table
  * These must exist for the app to function correctly
@@ -102,8 +118,16 @@ export async function verifySchemaContract(supabase: any): Promise<void> {
   for (const r of REQUIRED) {
     try {
       const { data, error } = await supabase.rpc('list_columns', { tbl: r.table });
+      const errorMessage = typeof error === 'string' ? error : error?.message;
       if (error || !Array.isArray(data)) {
-        missing.push(`${r.table}: unable to list columns (${error?.message || 'rpc failed'})`);
+        if (isNetworkFailure(error ?? errorMessage)) {
+          const warnMsg = errorMessage ?? (error ? String(error) : 'unknown');
+          console.warn(
+            `[SchemaContract] Skipping ${r.table} column check due to network issue (${warnMsg})`,
+          );
+          continue;
+        }
+        missing.push(`${r.table}: unable to list columns (${errorMessage || 'rpc failed'})`);
         continue;
       }
 
@@ -114,6 +138,12 @@ export async function verifySchemaContract(supabase: any): Promise<void> {
         }
       }
     } catch (err) {
+      if (isNetworkFailure(err)) {
+        console.warn(
+          `[SchemaContract] Skipping ${r.table} column check due to network issue (${String(err)})`,
+        );
+        continue;
+      }
       missing.push(`${r.table}: RPC call failed (${err})`);
     }
   }
@@ -125,6 +155,12 @@ export async function verifySchemaContract(supabase: any): Promise<void> {
     try {
       const { data, error } = await supabase.rpc('list_checks', { tbl: c.table });
       if (error) {
+        if (isNetworkFailure(error)) {
+          console.warn(
+            `[SchemaContract] Skipping ${c.table} constraint check due to network issue (${error.message})`,
+          );
+          continue;
+        }
         missing.push(`${c.table}: unable to list checks (${error.message})`);
         continue;
       }
@@ -150,6 +186,12 @@ export async function verifySchemaContract(supabase: any): Promise<void> {
         missing.push(`${c.table}.subtype check not permissive`);
       }
     } catch (err) {
+      if (isNetworkFailure(err)) {
+        console.warn(
+          `[SchemaContract] Skipping ${c.table} constraint check due to network issue (${String(err)})`,
+        );
+        continue;
+      }
       missing.push(`${c.table}: constraint check failed (${err})`);
     }
   }

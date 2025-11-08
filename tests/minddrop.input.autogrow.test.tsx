@@ -132,10 +132,10 @@ describe('Mind Drop input auto-grow', () => {
     reduceMotionListener = undefined;
   });
 
-  const stubSpring = () => {
-    const springSpy = jest.spyOn(Animated, 'spring');
+  const stubTiming = () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    springSpy.mockImplementation((value: any, config: any) => {
+    timingSpy.mockImplementation((value: any, config: any) => {
       if (typeof value?.setValue === 'function') {
         value.setValue(config?.toValue ?? 0);
       }
@@ -145,22 +145,22 @@ describe('Mind Drop input auto-grow', () => {
         reset: jest.fn(),
       } as unknown as Animated.CompositeAnimation;
     });
-    return springSpy;
+    return timingSpy;
   };
 
   test('auto-sizes and toggles scroll when hitting the dynamic ceiling', async () => {
-    const springSpy = stubSpring();
+    const timingSpy = stubTiming();
     const { getByTestId } = render(<CatchAllNotepad />);
     const input = getByTestId('minddrop-input');
 
     fireEvent.changeText(input, 'short thought');
 
     fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 180, width: 300 } },
+      nativeEvent: { contentSize: { height: 140, width: 300 } },
     });
 
     await waitFor(() => {
-      expect(getInputHeight(getByTestId)).toBe(180);
+      expect(getInputHeight(getByTestId)).toBe(140);
     });
     expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
 
@@ -182,11 +182,11 @@ describe('Mind Drop input auto-grow', () => {
     });
     expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
-    springSpy.mockRestore();
+    timingSpy.mockRestore();
   });
 
   test('clamps large paste to 2000 characters without crashing', async () => {
-    const springSpy = stubSpring();
+    const timingSpy = stubTiming();
     const { getByTestId } = render(<CatchAllNotepad />);
     const input = getByTestId('minddrop-input');
 
@@ -203,12 +203,12 @@ describe('Mind Drop input auto-grow', () => {
       expect(getInputHeight(getByTestId)).toBe(MAX_DYNAMIC_HEIGHT);
     });
 
-    springSpy.mockRestore();
+    timingSpy.mockRestore();
   });
 
   test('respects reduced motion by skipping the spring animation', async () => {
     reduceMotionSpy.mockResolvedValue(true);
-    const springSpy = jest.spyOn(Animated, 'spring');
+    const timingSpy = jest.spyOn(Animated, 'timing');
 
     const { getByTestId } = render(<CatchAllNotepad />);
     const input = getByTestId('minddrop-input');
@@ -217,20 +217,20 @@ describe('Mind Drop input auto-grow', () => {
 
     fireEvent.changeText(input, 'quick note');
     fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 190, width: 300 } },
+      nativeEvent: { contentSize: { height: 140, width: 300 } },
     });
 
     await waitFor(() => {
-      expect(getInputHeight(getByTestId)).toBe(190);
+      expect(getInputHeight(getByTestId)).toBe(140);
     });
-    expect(springSpy).not.toHaveBeenCalled();
+    expect(timingSpy).not.toHaveBeenCalled();
     expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
 
-    springSpy.mockRestore();
+    timingSpy.mockRestore();
   });
 
   test('enables scrolling and caps height after typing past the max', async () => {
-    const springSpy = stubSpring();
+    const timingSpy = stubTiming();
     const { getByTestId } = render(<CatchAllNotepad />);
     const input = getByTestId('minddrop-input');
 
@@ -243,10 +243,10 @@ describe('Mind Drop input auto-grow', () => {
 
     await waitFor(() => {
       expect(getInputHeight(getByTestId)).toBe(MAX_DYNAMIC_HEIGHT);
+      expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
     });
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
-    springSpy.mockRestore();
+    timingSpy.mockRestore();
   });
 
   test('keeps submit button visible across focus changes', () => {

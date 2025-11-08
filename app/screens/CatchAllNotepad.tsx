@@ -4,7 +4,6 @@ import {
   Animated,
   Easing,
   Alert,
-  Dimensions,
   Platform,
   Pressable,
   Modal,
@@ -30,7 +29,12 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createCortexEngine } from '../../cortex/createEngine';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
-import { MidConfidenceChips, type UISuggestion } from '../components/minddrop/MidConfidenceChips';
+import {
+  MidConfidenceChips,
+  type CategoryChip,
+  type TimingOption,
+  type TimingChip,
+} from '../components/minddrop/MidConfidenceChips';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -61,24 +65,22 @@ const THINKING_MICROCOPY = [
 ] as const;
 
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
-const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
-const INITIAL_INPUT_LINES = 2; // legacy reference for future tweaks
-const BASE_LINE_HEIGHT = 24;
-export const INPUT_LINE_HEIGHT = BASE_LINE_HEIGHT;
-export const START_HEIGHT = 84;
-export const MAX_HEIGHT_PCT = 0.42;
-export const MIN_HEIGHT = 60;
-const windowMetrics = Dimensions.get('window');
-const windowHeight =
-  typeof windowMetrics?.height === 'number' && windowMetrics.height > 0
-    ? windowMetrics.height
-    : 812;
-export const MAX_DYNAMIC_HEIGHT = Math.min(Math.round(windowHeight * MAX_HEIGHT_PCT), 320);
+
+// Auto-grow constants: aligned for deterministic behavior
+const LINE_HEIGHT = 22; // Must match styles.input lineHeight
+const INPUT_VERTICAL_PADDING = 8; // paddingTop (4) + paddingBottom (4) from styles.input
+const MAX_LINES = 6;
+const START_HEIGHT = 100;
+const MIN_HEIGHT = 80;
+const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 22*6 + 8 + 8 = 148 (small safety buffer)
+
+export const INPUT_LINE_HEIGHT = LINE_HEIGHT;
+export { START_HEIGHT as START_HEIGHT, MIN_HEIGHT as MIN_HEIGHT, MAX_HEIGHT as MAX_HEIGHT };
+export const MAX_DYNAMIC_HEIGHT = MAX_HEIGHT; // Backwards compatibility for existing imports
 const MAX_INPUT_CHARACTERS = 2000;
 const SPACE = 8;
-const INPUT_PADDING_VERTICAL = 12;
 const INPUT_PADDING_LEFT = 16;
-const INPUT_ICON_PADDING_RIGHT = 64;
+const INPUT_ICON_PADDING_RIGHT = 72;
 
 const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
@@ -117,6 +119,15 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
+// Legacy UISuggestion stub - suggestion chips removed but code references remain
+type UISuggestion = {
+  type: string;
+  label?: string;
+  title?: string;
+  body?: string;
+  payload?: any;
+};
+
 type MindDropInputProps = {
   value: string;
   onChangeText: (text: string) => void;
@@ -141,6 +152,8 @@ type MindDropInputProps = {
   iconMicStyle?: any;
   iconCameraStyle?: any;
   iconWrapperStyle?: any;
+  heightWrapperStyle?: any;
+  inputDynHeight: number;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -168,6 +181,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
     iconMicStyle,
     iconCameraStyle,
     iconWrapperStyle,
+    heightWrapperStyle,
+    inputDynHeight,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -215,25 +230,39 @@ const MindDropInput = React.memo<MindDropInputProps>(
           });
         }}
       >
-        <AnimatedTextInput
-          ref={inputRef}
-          testID="minddrop-input"
-          value={value}
-          onChangeText={onChangeText}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          multiline
-          style={[inputStyle, focused && focusedInputStyle]}
-          accessibilityLabel="Mind Drop input"
-          accessibilityHint="Type anything on your mind"
-          textAlignVertical="top"
-          placeholder={placeholder}
-          placeholderTextColor={placeholderTextColor}
-          maxLength={MAX_INPUT_CHARACTERS}
-          autoFocus={autoFocus}
-          onContentSizeChange={onContentSizeChange}
-          scrollEnabled={scrollEnabled}
-        />
+        <View
+          testID="minddrop-input-height-wrapper"
+          style={[
+            heightWrapperStyle,
+            {
+              width: '100%',
+              height: inputDynHeight,
+              overflow: 'visible',
+            },
+          ]}
+        >
+          <TextInput
+            ref={inputRef}
+            testID="minddrop-input"
+            value={value}
+            onChangeText={onChangeText}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            multiline
+            accessibilityLabel="Mind Drop input"
+            accessibilityHint="Type anything on your mind"
+            textAlignVertical="top"
+            placeholder={placeholder}
+            placeholderTextColor={placeholderTextColor}
+            maxLength={MAX_INPUT_CHARACTERS}
+            autoFocus={autoFocus}
+            onContentSizeChange={onContentSizeChange}
+            scrollEnabled={scrollEnabled}
+            numberOfLines={undefined}
+            textBreakStrategy="simple"
+            style={[inputStyle, focused && focusedInputStyle]}
+          />
+        </View>
         <View style={iconContainerStyle} pointerEvents="box-none">
           <Pressable
             disabled
@@ -243,7 +272,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
             accessibilityState={{ disabled: true }}
           >
             <View style={iconWrapperStyle}>
-              <Icon name="Mic" size="xs" color={iconColor} strokeWidth={1.4} />
+              <Icon name="Mic" size="sm" color={iconColor} strokeWidth={1.4} />
             </View>
           </Pressable>
           <Pressable
@@ -254,7 +283,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
             accessibilityState={{ disabled: true }}
           >
             <View style={iconWrapperStyle}>
-              <Icon name="Camera" size="xs" color={iconColor} strokeWidth={1.4} />
+              <Icon name="Camera" size="sm" color={iconColor} strokeWidth={1.4} />
             </View>
           </Pressable>
         </View>
@@ -299,22 +328,6 @@ const copy = {
   title: 'Mind Drop',
 } as const;
 
-function buildChipsPrompt(suggestions: UISuggestion[]): string | null {
-  const SHOW =
-    String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_PROMPT ?? 'on').toLowerCase() !== 'off';
-  if (!SHOW || !suggestions?.length) return null;
-  const noteSuggestion = suggestions.find((s) => s.type === 'create.note');
-  if (!noteSuggestion) {
-    return 'Not sure? Save as a note…';
-  }
-
-  if (noteSuggestion.payload.subtype === 'list') {
-    return 'Not sure? Save as a list…';
-  }
-
-  return env.feature.canonicalTypes ? 'Not sure? Save as a log…' : 'Not sure? Save as a note…';
-}
-
 // Centralized copy for consistent toasts/messages
 const COPY = {
   retrying: 'Let me try again…',
@@ -336,6 +349,7 @@ export async function saveToUnsortedTray(
   if (!text?.trim()) return undefined;
   const { sourceMessageId, whyString } = options;
   const clampedText = clampNoteLength(text);
+  const catchallCanonical = persistedToCanonical('note', 'catchall');
 
   // Base create payload for our repos
   const baseInput = {
@@ -343,10 +357,11 @@ export async function saveToUnsortedTray(
     title: clampedText,
     body: clampedText,
     subtype: 'catchall' as const,
-    ai_placed: true,
+    ai_placed: false, // Unsorted items are pending, not AI-placed yet
     origin: 'catchall' as const,
     labels: [CATCHALL_LABEL, UNSORTED_LABEL],
     why_string: whyString ?? null,
+    canonicalType: catchallCanonical,
     sourceMessageId: sourceMessageId ?? undefined,
   };
 
@@ -534,6 +549,7 @@ type UnifiedDrop = {
   created_at: string;
   unsorted?: boolean; // for notes carrying the needs_review label
   noteSubtype?: string | null;
+  due_date?: string | null; // ISO timestamp for todos
 };
 
 const relativeTime = (iso: string) => {
@@ -547,6 +563,89 @@ const relativeTime = (iso: string) => {
   if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
   const days = Math.floor(h / 24);
   return `${days} day${days > 1 ? 's' : ''} ago`;
+};
+
+/**
+ * Formats due date for human-friendly display
+ */
+export const formatDue = (dueIso?: string | null): string => {
+  if (!dueIso) return 'no deadline yet';
+
+  const due = new Date(dueIso);
+  const now = new Date();
+
+  // Normalize to start of day for date comparisons
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dueStart = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  const diffMs = dueStart.getTime() - todayStart.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  // Check if time is specified (not midnight or 00:00)
+  const hasTime = due.getHours() !== 0 || due.getMinutes() !== 0;
+  const timeStr = hasTime
+    ? ` @ ${due.getHours().toString().padStart(2, '0')}:${due.getMinutes().toString().padStart(2, '0')}`
+    : '';
+
+  // Today
+  if (diffDays === 0) {
+    return `due Today${timeStr}`;
+  }
+
+  // Tomorrow
+  if (diffDays === 1) {
+    return `due Tomorrow${timeStr}`;
+  }
+
+  // Within next 7 days - show weekday short (Mon, Tue, Wed, etc.)
+  if (diffDays > 1 && diffDays <= 7) {
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const weekday = weekdays[due.getDay()];
+    return `due ${weekday}${timeStr}`;
+  }
+
+  // Beyond 7 days but within same month - show "Mon DD"
+  if (
+    diffDays > 7 &&
+    due.getMonth() === now.getMonth() &&
+    due.getFullYear() === now.getFullYear()
+  ) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    const month = months[due.getMonth()];
+    const day = due.getDate();
+    return `due ${month} ${day}${timeStr}`;
+  }
+
+  // Beyond same month - show "Mon DD"
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  const month = months[due.getMonth()];
+  const day = due.getDate();
+  return `due ${month} ${day}${timeStr}`;
 };
 
 const RecentDrops: React.FC<{
@@ -638,6 +737,7 @@ const RecentDrops: React.FC<{
           kind: 'todo' as const,
           text: t.name || t.title || '',
           created_at: t.created_at,
+          due_date: t.due_date ?? null,
         }));
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
@@ -775,6 +875,14 @@ const RecentDrops: React.FC<{
                         {showLegacyUnsortedBadge ? (
                           <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
                         ) : null}
+                        {item.kind === 'todo' ? (
+                          <Text
+                            testID={`minddrop-recent-todo-due-${item.id}`}
+                            style={styles.recentDueBadge}
+                          >
+                            {formatDue(item.due_date)}
+                          </Text>
+                        ) : null}
                       </View>
 
                       <View style={styles.recentActions}>
@@ -812,6 +920,230 @@ const RecentDropsMemo = React.memo(RecentDrops);
 // Named export for tests to import the isolated component
 export const RecentDropsTestable = RecentDrops;
 
+/**
+ * Detects if input text is clearly narrative/journaling content
+ * that should NOT trigger todo conversion chips.
+ *
+ * Heuristics:
+ * - Multiple sentences (2+) OR long average sentence length (>8 words)
+ * - No leading imperative verbs (buy, call, schedule, etc.)
+ * - No todo-related keywords (todo, task, remind, ASAP, date tokens)
+ *
+ * @returns true if text appears to be narrative/journal content
+ */
+export function classifyNarrative(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+
+  // Split by sentence terminators
+  const sentences = trimmed
+    .split(/[.!?]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  const wordCount = trimmed.split(/\s+/).length;
+  const avgWordsPerSentence = sentences.length > 0 ? wordCount / sentences.length : 0;
+
+  // Imperative verbs that suggest actionable tasks
+  const imperativeVerbs = new Set([
+    'buy',
+    'call',
+    'schedule',
+    'send',
+    'email',
+    'book',
+    'plan',
+    'find',
+    'check',
+    'update',
+    'pay',
+    'start',
+    'finish',
+    'complete',
+    'submit',
+    'review',
+    'prepare',
+    'organize',
+    'contact',
+    'remind',
+    'create',
+    'setup',
+    'configure',
+    'install',
+    'download',
+    'upload',
+    'sign',
+    'register',
+    'confirm',
+    'cancel',
+    'return',
+    'order',
+    'purchase',
+    'get',
+    'make',
+    'do',
+    'add',
+    'remove',
+    'delete',
+    'fix',
+    'repair',
+  ]);
+
+  // Task-related keywords
+  const taskKeywords = /\b(todo|task|remind|asap|urgent|deadline|due)\b/i;
+  const hasTaskKeywords = taskKeywords.test(trimmed);
+
+  // Date/time patterns suggesting scheduled action (more strict)
+  // Only flag if combined with action context
+  const hasActionableDate =
+    /\b(tomorrow|tonight)\b/i.test(trimmed) || // Clear future temporal markers
+    /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(morning|afternoon|evening|at|@)/i.test(
+      trimmed,
+    ) || // Day + time qualifier
+    /\bat\s+\d{1,2}[:/]\d{1,2}/i.test(trimmed) || // "at 3:30"
+    /\d{1,2}(st|nd|rd|th)\s+(at|of)/i.test(trimmed); // "15th at" or "3rd of"
+
+  // Check first word for imperative verb
+  const firstWord = trimmed
+    .split(/\s+/)[0]
+    ?.toLowerCase()
+    .replace(/[^a-z]/g, '');
+  const startsWithImperative = firstWord ? imperativeVerbs.has(firstWord) : false;
+
+  // Narrative criteria:
+  // Multiple sentences OR long sentences
+  // AND no imperative start
+  // AND no task keywords
+  // AND no actionable date patterns
+  const hasMultipleSentences = sentences.length >= 2;
+  const hasLongSentences = avgWordsPerSentence > 8;
+
+  const isNarrative =
+    (hasMultipleSentences || hasLongSentences) &&
+    !startsWithImperative &&
+    !hasTaskKeywords &&
+    !hasActionableDate;
+
+  return isNarrative;
+}
+
+/**
+ * Detects if text contains urgent markers
+ */
+export function isUrgent(input: string): boolean {
+  const keywords = ['asap', 'urgent', 'now', 'immediately', 'today'];
+  return keywords.some((k) => input.toLowerCase().includes(k));
+}
+
+/**
+ * Generates timing chip options based on current time
+ */
+export function getTimingChips(): Array<{ option: TimingOption; label: string }> {
+  const now = new Date();
+  const hour = now.getHours();
+  const day = now.getDay(); // 0 = Sunday, 5 = Friday
+
+  // Morning (6-10)
+  if (hour >= 6 && hour < 10) {
+    return [
+      { option: 'today', label: 'Today' },
+      { option: 'tomorrow', label: 'Tomorrow' },
+      { option: 'someday', label: 'Someday' },
+    ];
+  }
+
+  // Evening (18-23)
+  if (hour >= 18 && hour < 23) {
+    return [
+      { option: 'tomorrow', label: 'Tomorrow' },
+      { option: 'today-actually', label: 'Today actually' },
+      { option: 'someday', label: 'Someday' },
+    ];
+  }
+
+  // Late night (23-5)
+  if (hour >= 23 || hour < 5) {
+    return [
+      { option: 'tomorrow', label: 'Tomorrow' },
+      { option: 'later-this-week', label: 'Later this week' },
+      { option: 'someday', label: 'Someday' },
+    ];
+  }
+
+  // Friday after 15:00
+  if (day === 5 && hour >= 15) {
+    return [
+      { option: 'monday', label: 'Monday' },
+      { option: 'this-weekend', label: 'This weekend' },
+      { option: 'someday', label: 'Someday' },
+    ];
+  }
+
+  // Default (rest of the time)
+  return [
+    { option: 'today', label: 'Today' },
+    { option: 'tomorrow', label: 'Tomorrow' },
+    { option: 'someday', label: 'Someday' },
+  ];
+}
+
+/**
+ * Converts timing option to ISO date string
+ */
+export function timingOptionToDate(option: TimingOption): string | null {
+  const now = new Date();
+
+  switch (option) {
+    case 'today':
+    case 'today-actually': {
+      // Today at 17:00 local
+      const today = new Date(now);
+      today.setHours(17, 0, 0, 0);
+      return today.toISOString();
+    }
+
+    case 'tomorrow': {
+      // Tomorrow at 09:00 local
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      return tomorrow.toISOString();
+    }
+
+    case 'later-this-week': {
+      // +3 days at 09:00 local
+      const later = new Date(now);
+      later.setDate(later.getDate() + 3);
+      later.setHours(9, 0, 0, 0);
+      return later.toISOString();
+    }
+
+    case 'this-weekend': {
+      // Upcoming Saturday at 10:00 local
+      const dayOfWeek = now.getDay();
+      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7; // 0-6, if 0 then next week
+      const saturday = new Date(now);
+      saturday.setDate(saturday.getDate() + daysUntilSaturday);
+      saturday.setHours(10, 0, 0, 0);
+      return saturday.toISOString();
+    }
+
+    case 'monday': {
+      // Next Monday at 09:00 local
+      const dayOfWeek = now.getDay();
+      const daysUntilMonday = (1 - dayOfWeek + 7) % 7 || 7; // If today is Monday, go to next Monday
+      const monday = new Date(now);
+      monday.setDate(monday.getDate() + daysUntilMonday);
+      monday.setHours(9, 0, 0, 0);
+      return monday.toISOString();
+    }
+
+    case 'someday':
+    default:
+      return null; // No due date
+  }
+}
+
 export type CatchAllNotepadProps = {
   trustRefreshMs?: number;
   // Optional P8: allow parent to pass network status if a hook exists elsewhere
@@ -840,27 +1172,48 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [uiMode, setUiMode] = useState<Mode>('free');
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
-  const [stableHeight, setStableHeight] = useState(START_HEIGHT);
-  const [scrollEnabled, setScrollEnabled] = useState(false);
+  const [inputDynHeight, setInputDynHeight] = useState(START_HEIGHT);
+  const [inputScrollEnabled, setInputScrollEnabled] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState<UISuggestion[]>([]);
-  // Auto-dismiss chips after configured interval so parent owns lifecycle
+  const [categoryChips, setCategoryChips] = useState<CategoryChip[]>([]);
+  const [lowConfidenceUnsortedId, setLowConfidenceUnsortedId] = useState<string | null>(null);
+  const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
+  const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
+  const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
+
+  // Auto-dismiss category chips after configured interval
   useEffect(() => {
-    if (!suggestions?.length) return;
-    const timeout = setTimeout(() => setSuggestions([]), CHIPS_AUTO_DISMISS_MS);
+    if (!categoryChips?.length) return;
+    const timeout = setTimeout(() => setCategoryChips([]), CHIPS_AUTO_DISMISS_MS);
     return () => clearTimeout(timeout);
-  }, [suggestions, CHIPS_AUTO_DISMISS_MS]);
+  }, [categoryChips, CHIPS_AUTO_DISMISS_MS]);
+
+  // Auto-dismiss timing chips after configured interval
+  useEffect(() => {
+    if (!timingChips?.length) return;
+    // Auto-dismiss after 5s and assign 'Someday' (due null)
+    const timeout = setTimeout(() => {
+      setTimingChips([]);
+      if (pendingTodoId) {
+        // Auto-assign "Someday" (no due date)
+        metricsRef.current.timingFallback += 1;
+        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
+
+        handleTimingSelection('someday');
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [timingChips, pendingTodoId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseScale = useRef(new Animated.Value(1)).current;
   const submitScale = useRef(new Animated.Value(1)).current;
   const microcopyOpacity = useRef(new Animated.Value(0)).current;
-  const animatedHeight = useRef(new Animated.Value(START_HEIGHT)).current;
-  const lastContentHeightRef = useRef(START_HEIGHT);
-  const userTouchedRef = useRef(false);
+  const hasTypedRef = useRef(false);
+  const lastAppliedHeightRef = useRef(START_HEIGHT);
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const microcopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProcessingRef = useRef(false);
@@ -872,56 +1225,40 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     inputFocusRef.current = focused;
   }, []);
 
-  const maxDynamicHeight = useMemo(() => {
-    const metrics = Dimensions.get('window');
-    const windowH =
-      typeof metrics?.height === 'number' && metrics.height > 0 ? metrics.height : windowHeight;
-    const capped = Math.min(Math.round(windowH * MAX_HEIGHT_PCT), 320);
-    return capped;
-  }, []);
-
-  useEffect(() => {
-    animatedHeight.setValue(START_HEIGHT);
-  }, [animatedHeight]);
-
   const handleInputContentSizeChange = useCallback(
     (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-      const rawHeight = event.nativeEvent.contentSize.height;
+      if (!hasTypedRef.current) return;
 
-      if (!userTouchedRef.current) {
+      const raw = Math.ceil(event.nativeEvent.contentSize?.height ?? 0);
+      if (!raw) return;
+
+      // Deterministic height calculation: clamp between START and MAX
+      const target = Math.max(START_HEIGHT, Math.min(raw, MAX_HEIGHT));
+
+      // Enable scrolling only when content exceeds MAX_HEIGHT
+      const shouldScroll = raw > MAX_HEIGHT;
+      setInputScrollEnabled(shouldScroll);
+
+      // Only update if change is significant (avoid jitter from sub-pixel changes)
+      if (Math.abs(target - lastAppliedHeightRef.current) < 2) {
         return;
       }
 
-      const previous = lastContentHeightRef.current;
-      if (rawHeight <= previous || Math.abs(rawHeight - previous) < 2) {
-        return;
+      setInputDynHeight(target);
+      lastAppliedHeightRef.current = target;
+
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log('[MindDrop][AutoGrow]', {
+          raw,
+          target,
+          last: lastAppliedHeightRef.current,
+          shouldScroll,
+          max: MAX_HEIGHT,
+        });
       }
-
-      lastContentHeightRef.current = rawHeight;
-
-      const clamped = Math.max(MIN_HEIGHT, Math.min(rawHeight, maxDynamicHeight));
-      const enableScroll = rawHeight > maxDynamicHeight;
-      setScrollEnabled(enableScroll);
-
-      if (clamped === stableHeight) {
-        return;
-      }
-
-      setStableHeight(clamped);
-
-      if (reduceMotion) {
-        animatedHeight.setValue(clamped);
-        return;
-      }
-
-      Animated.spring(animatedHeight, {
-        toValue: clamped,
-        friction: 10,
-        tension: 120,
-        useNativeDriver: false,
-      }).start();
     },
-    [animatedHeight, maxDynamicHeight, reduceMotion, stableHeight],
+    [setInputDynHeight, setInputScrollEnabled],
   );
 
   // Mind Drop P4: submit lifecycle & guardrails
@@ -934,12 +1271,55 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const submissionIdRef = useRef<string | null>(null);
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
+
+  // Duplicate prevention: track last submitted text and its unsorted ID
+  const lastSubmittedTextRef = useRef<string | null>(null);
+  const lastUnsortedIdRef = useRef<string | null>(null);
+
+  // Metrics tracking for Mind Drop refinements
+  const metricsRef = useRef({
+    timingShown: 0,
+    timingSelected: 0,
+    timingFallback: 0,
+    conversions: 0,
+    urgentBypass: 0,
+    totalEvents: 0,
+  });
+
+  // Helper to log metrics every 15 events
+  const logMetrics = useCallback((eventName: string, payload?: any) => {
+    metricsRef.current.totalEvents += 1;
+
+    // Log to telemetry
+    void logCatchallDecision({ eventName, ...payload });
+
+    // Debug log every 15 events
+    if (metricsRef.current.totalEvents % 15 === 0) {
+      console.debug('[MindDropMetrics]', {
+        timingShown: metricsRef.current.timingShown,
+        timingSelected: metricsRef.current.timingSelected,
+        timingFallback: metricsRef.current.timingFallback,
+        conversions: metricsRef.current.conversions,
+        urgentBypass: metricsRef.current.urgentBypass,
+      });
+    }
+  }, []);
+
   // Trust Builders: organized today count
   const [organizedToday, setOrganizedToday] = useState<number>(
     typeof testOrganizedTodayOverride === 'number' ? testOrganizedTodayOverride : 0,
   );
   const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
+  const recentRefreshBatchRef = useRef<number | null>(null);
+  const triggerRecentRefresh = useCallback(() => {
+    if (recentRefreshBatchRef.current != null) return;
+
+    recentRefreshBatchRef.current = requestAnimationFrame(() => {
+      recentRefreshBatchRef.current = null;
+      setRecentRefresh((v) => v + 1);
+    });
+  }, [setRecentRefresh]);
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
@@ -963,6 +1343,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   useEffect(() => {
     return () => {
+      if (recentRefreshBatchRef.current != null) {
+        cancelAnimationFrame(recentRefreshBatchRef.current);
+        recentRefreshBatchRef.current = null;
+      }
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -1153,10 +1537,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   useEffect(() => {
     const unsub = addOverlaySavedListener(() => {
       void refreshOrganizedToday?.();
-      setRecentRefresh?.((v) => v + 1);
+      triggerRecentRefresh();
     });
     return unsub;
-  }, [refreshOrganizedToday]);
+  }, [refreshOrganizedToday, triggerRecentRefresh]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(
@@ -1229,12 +1613,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsSubmitting(false);
     setIsThinking(false);
     setConfirmations([]);
-    setSuggestions([]);
-    setScrollEnabled(false);
-    setStableHeight(START_HEIGHT);
-    animatedHeight.setValue(START_HEIGHT);
-    lastContentHeightRef.current = START_HEIGHT;
-    userTouchedRef.current = false;
+    setInputDynHeight(START_HEIGHT);
+    setInputScrollEnabled(false);
+    hasTypedRef.current = false;
+    lastAppliedHeightRef.current = START_HEIGHT;
   }, []);
 
   // Trust Builders: start timer and initial refresh
@@ -1386,6 +1768,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const trace = startCatchallTrace('minddrop');
     step(trace, 'submit', { length: trimmed.length });
 
+    // Duplicate prevention guard: if same text as last submission and we have an existing unsorted record
+    if (
+      trimmed === lastSubmittedTextRef.current &&
+      unsortedIdRef.current == null &&
+      lastUnsortedIdRef.current
+    ) {
+      // Don't create a new record, just show category chips for existing unsorted note
+      setLowConfidenceUnsortedId(lastUnsortedIdRef.current);
+      setCategoryChips([
+        { kind: 'todo', label: 'Add to To-Do List' },
+        { kind: 'log', label: 'Just Save It' },
+        { kind: 'habit', label: 'Start a Habit' },
+      ]);
+      setNote('');
+      end(trace, 'duplicate_prevented', { reusingUnsortedId: lastUnsortedIdRef.current });
+      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+    }
+
     try {
       if (!trimmed) {
         resetState();
@@ -1407,8 +1807,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const cleanedText = clampNoteLength(cleanedSource.trim() || trimmed);
       const parsedIso = hasConfidentDue && parsed ? parsed.iso : null;
 
-      setSuggestions([]);
-
       let decision: CortexResponse | null = null;
       try {
         const ctx: CortexContext = {
@@ -1424,6 +1822,101 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           actions: Array.isArray(decision.actions) ? decision.actions.map((a) => a.type) : [],
           suggestions: Array.isArray(decision.suggestions) ? decision.suggestions.length : 0,
         });
+
+        // Early narrative detection guard: force category chips to prevent multiple catchall notes
+        if (classifyNarrative(trimmed)) {
+          // Save to unsorted tray once if not already saved
+          if (unsortedIdRef.current == null) {
+            try {
+              const id = await saveToUnsortedTray(repo as any, trimmed, {
+                sourceMessageId: submissionId,
+                whyString: 'Narrative text - awaiting category selection',
+              });
+              unsortedIdRef.current = id ?? null;
+
+              // Track this submission to prevent duplicates
+              lastSubmittedTextRef.current = trimmed;
+              lastUnsortedIdRef.current = unsortedIdRef.current;
+            } catch (e) {
+              console.warn('[MindDrop][Narrative] failed to save to Unsorted', e);
+            }
+          }
+
+          const savedUnsortedId = unsortedIdRef.current;
+          if (savedUnsortedId) {
+            setLowConfidenceUnsortedId(savedUnsortedId);
+            setCategoryChips([
+              { kind: 'todo', label: 'Add to To-Do List' },
+              { kind: 'log', label: 'Just Save It' },
+              { kind: 'habit', label: 'Start a Habit' },
+            ]);
+            setNote('');
+            triggerRecentRefresh();
+            pendingUndo.current = { todos: [], notes: [], habits: [] };
+
+            void logCatchallDecision({
+              userId: currentUserId,
+              text: trimmed,
+              surface: 'catchall',
+              engine: engineMode,
+              modelVersion,
+              intent: 'narrative',
+              confidence: decision.confidence ?? 0,
+              mode: 'ask',
+              decision: mapDecisionOutcome('ask'),
+              createdTodos: 0,
+              createdNotes: 0,
+              createdHabits: 0,
+            });
+
+            step(trace, 'narrative:forced-category-chips', { unsortedId: savedUnsortedId });
+            end(trace, 'narrative-ask', { confidence: decision.confidence ?? 0 });
+
+            return {
+              created: { todos: [], notes: [], habits: [] },
+              createdDetails: [],
+              decisionMode: 'ask',
+              decisionConfidence: decision.confidence ?? 0,
+            };
+          }
+        }
+
+        // Apply narrative detection guard to avoid prompting conversion for journaling text
+        if (decision && classifyNarrative(trimmed)) {
+          const hasTodoAction = Array.isArray(decision.actions)
+            ? decision.actions.some((a: any) => a.type === 'create.todo')
+            : false;
+          const hasTodoSuggestion = Array.isArray(decision.suggestions)
+            ? decision.suggestions.some((s: any) => s.type === 'create.todo')
+            : false;
+
+          if (hasTodoAction || hasTodoSuggestion) {
+            // Override: convert todo classification to note with reduced confidence
+            decision = {
+              ...decision,
+              mode: 'ask',
+              confidence: 0.74, // Below 0.8 threshold to show category chips if needed
+              actions: [],
+              suggestions: [
+                {
+                  type: 'create.note',
+                  label: env.feature.canonicalTypes ? 'Save as log' : 'Save as note',
+                  payload: {
+                    title: trimmed,
+                    body: trimmed,
+                    subtype: 'journal',
+                  },
+                },
+              ],
+            };
+            step(trace, 'decide:narrative-override', {
+              originalMode: decision.mode,
+              originalConfidence: decision.confidence,
+              hadTodoAction: hasTodoAction,
+              hadTodoSuggestion: hasTodoSuggestion,
+            });
+          }
+        }
       } catch (err) {
         console.warn('[MindDrop][Decide] error', String(err));
         step(trace, 'decide:error', { error: String(err) });
@@ -1547,6 +2040,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
             const counts = { todos: 0, notes: 0, habits: 0 };
             const createdDetails: OrganizedDetail[] = [];
+            let firstTodoId: string | null = null;
 
             try {
               for (const entry of mapped) {
@@ -1555,6 +2049,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   counts.todos += 1;
                   createdIds.todos.push(record.id);
                   createdDetails.push({ kind: 'todo' });
+
+                  // Track first created todo for timing chips
+                  if (!firstTodoId) {
+                    firstTodoId = record.id;
+                  }
                 } else if (entry.bucket === 'habits') {
                   counts.habits += 1;
                   createdIds.habits.push(record.id);
@@ -1573,7 +2072,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 }
               }
 
-              setSuggestions([]);
+              // Show timing chips for auto-created todos
+              if (
+                firstTodoId &&
+                (decision.confidence ?? 0) >= 0.8 &&
+                !isUrgent(trimmed) &&
+                !parsedIso &&
+                timingAskedRef.current !== submissionIdRef.current
+              ) {
+                timingAskedRef.current = submissionIdRef.current;
+                setPendingTodoId(firstTodoId);
+                setTimingChips(getTimingChips());
+
+                // Track timing options shown
+                metricsRef.current.timingShown += 1;
+                logMetrics('timing_options_shown', {
+                  todoId: firstTodoId,
+                  confidence: decision.confidence,
+                  timingOptions: getTimingChips().map((c) => c.option),
+                });
+              }
 
               const firstAction = actions[0];
               const probableIntent =
@@ -1616,94 +2134,78 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
-          try {
-            const id = await saveToUnsortedTray(repo as any, trimmed, {
-              sourceMessageId: submissionId,
-              whyString: 'Awaiting chip selection',
-            });
-            unsortedIdRef.current = id ?? null;
-          } catch (e) {
-            console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
+          // Duplicate prevention: only save if no existing unsorted note OR text is different
+          const shouldSaveNew =
+            unsortedIdRef.current == null && lastSubmittedTextRef.current !== trimmed;
+
+          if (shouldSaveNew) {
+            try {
+              const id = await saveToUnsortedTray(repo as any, trimmed, {
+                sourceMessageId: submissionId,
+                whyString: 'Awaiting chip selection',
+              });
+              unsortedIdRef.current = id ?? null;
+
+              // Track this submission to prevent duplicates
+              lastSubmittedTextRef.current = trimmed;
+              lastUnsortedIdRef.current = unsortedIdRef.current;
+            } catch (e) {
+              console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
+            }
+          } else {
+            // Reuse existing unsorted note
+            console.debug('[MindDrop][Ask] Reusing existing unsorted note, not creating duplicate');
           }
 
           const savedUnsortedId = unsortedIdRef.current;
-          const enrichedChips = chipSuggestions.map((s) => {
-            if (s.type === 'create.todo') {
-              const name = (s.payload?.name || cleanedText || '').trim();
-              const due = s.payload?.due ?? s.payload?.due_date ?? parsedIso ?? null;
-              return {
-                ...s,
-                payload: {
-                  ...s.payload,
-                  name,
-                  due,
-                  due_date: due,
-                  undefined_due: !due,
-                },
-              } as UISuggestion;
-            }
+          const confidence = decision.confidence ?? 0;
 
-            if (s.type === 'convert.log-list-to-todo') {
-              return {
-                ...s,
-                payload: {
-                  noteId: savedUnsortedId ?? s.payload?.noteId ?? null,
-                  preserveState: s.payload?.preserveState ?? true,
-                },
-              } as UISuggestion;
-            }
+          // If low confidence or narrative, show category chips instead of suggestions
+          if ((confidence <= 0.85 || classifyNarrative(trimmed)) && savedUnsortedId) {
+            setLowConfidenceUnsortedId(savedUnsortedId);
+            setCategoryChips([
+              { kind: 'todo', label: 'Add to To-Do List' },
+              { kind: 'log', label: 'Just Save It' },
+              { kind: 'habit', label: 'Start a Habit' },
+            ]);
+            setNote('');
+            triggerRecentRefresh();
+            pendingUndo.current = { todos: [], notes: [], habits: [] };
 
-            return s;
-          });
+            void logCatchallDecision({
+              userId: currentUserId,
+              text: trimmed,
+              surface: 'catchall',
+              engine: engineMode,
+              modelVersion,
+              intent: decision.meta?.intent?.kind ?? 'ambiguous',
+              confidence,
+              mode: decision.mode,
+              decision: mapDecisionOutcome('ask'),
+              createdTodos: 0,
+              createdNotes: 0,
+              createdHabits: 0,
+            });
 
-          if (canonicalConversionsOn && savedUnsortedId && hasChecklist(trimmed)) {
-            const hasConversionChip = enrichedChips.some(
-              (chip) => chip.type === 'convert.log-list-to-todo',
-            );
-
-            if (!hasConversionChip) {
-              enrichedChips.unshift({
-                type: 'convert.log-list-to-todo',
-                label: env.feature.canonicalTypes ? 'Convert to to-do' : 'Convert to task',
-                payload: {
-                  noteId: savedUnsortedId,
-                  preserveState: true,
-                },
-              });
-            }
+            return {
+              created: { todos: [], notes: [], habits: [] },
+              createdDetails: [],
+              decisionMode: decision.mode,
+              decisionConfidence: confidence,
+            };
           }
 
-          const visibleChips = canonicalConversionsOn
-            ? enrichedChips
-            : enrichedChips.filter((chip) => chip.type !== 'convert.log-list-to-todo');
-
-          setSuggestions(visibleChips);
+          // If we reach here, show suggestion chips (not category chips)
+          // This happens when confidence > 0.85 and not narrative
           setNote('');
-          setRecentRefresh?.((v) => v + 1);
+          triggerRecentRefresh();
           pendingUndo.current = { todos: [], notes: [], habits: [] };
 
-          void logCatchallDecision({
-            userId: currentUserId,
-            text: trimmed,
-            surface: 'catchall',
-            engine: engineMode,
-            modelVersion,
-            intent: decision.meta?.intent?.kind ?? 'ambiguous',
-            confidence: decision.confidence ?? 0,
-            mode: decision.mode,
-            decision: mapDecisionOutcome('ask'),
-            createdTodos: 0,
-            createdNotes: 0,
-            createdHabits: 0,
-          });
-
-          step(trace, 'decide:chips', { count: chipSuggestions.length });
           return {
             created: { todos: [], notes: [], habits: [] },
             createdDetails: [],
-            suggestions: enrichedChips,
             decisionMode: decision.mode,
-            decisionConfidence: decision.confidence,
+            decisionConfidence: decision.confidence ?? 0,
           };
         }
       }
@@ -1809,6 +2311,49 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         counts.todos = 1;
         createdIds.todos.push(rec.id);
         createdDetails.push({ kind: 'todo' });
+
+        // Check if todo is urgent
+        if (isUrgent(trimmed)) {
+          // Auto-assign urgent todos to Today
+          const today = new Date();
+          today.setHours(17, 0, 0, 0); // Today at 17:00 local
+          await repo.update({
+            id: rec.id,
+            patch: {
+              due_date: today.toISOString(),
+              undefined_due: false,
+            } as any,
+          });
+          showActionToast({ type: 'success', content: 'Added to Today ✓' });
+
+          // Track urgent bypass
+          metricsRef.current.urgentBypass += 1;
+          logMetrics('urgent_bypass', { todoId: rec.id, input: trimmed });
+
+          // timingAskedRef remains false - no timing chips shown
+        } else {
+          // Check if we should show timing chips for non-urgent todos
+          const confidence =
+            typeof classifyOut?.confidence === 'number' && Number.isFinite(classifyOut.confidence)
+              ? classifyOut.confidence
+              : 0;
+          const shouldShowTiming =
+            confidence >= 0.8 && timingAskedRef.current !== submissionId && !parsedIso; // Don't ask if we already parsed a due date
+
+          if (shouldShowTiming) {
+            timingAskedRef.current = submissionId;
+            setPendingTodoId(rec.id);
+            setTimingChips(getTimingChips());
+
+            // Track timing options shown
+            metricsRef.current.timingShown += 1;
+            logMetrics('timing_options_shown', {
+              todoId: rec.id,
+              confidence,
+              timingOptions: getTimingChips().map((c) => c.option),
+            });
+          }
+        }
       } else if (payload.type === 'habit') {
         counts.habits = 1;
         createdIds.habits.push(rec.id);
@@ -1862,259 +2407,312 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       end(trace, 'error', { message: String(error) });
       throw error;
     }
-  }, [note, repo, user, userId, decideWithContext]);
+  }, [note, repo, user, userId, decideWithContext, triggerRecentRefresh]);
 
-  const handlePickSuggestion = useCallback(
-    async (suggestion: UISuggestion) => {
-      const trimmed = note.trim();
-      const conversionsEnabled = canonicalConversionsOn;
+  const handleCategoryChipPick = useCallback(
+    async (kind: 'todo' | 'log' | 'habit') => {
+      const unsortedId = lowConfidenceUnsortedId;
+      if (!unsortedId) {
+        console.warn('[MindDrop][CategoryChip] No unsorted id available');
+        return;
+      }
 
       try {
-        const existingUnsortedId = unsortedIdRef.current;
-        const submissionId = submissionIdRef.current ?? createSubmissionId();
-        submissionIdRef.current = submissionId;
-        const isConversion = suggestion.type === 'convert.log-list-to-todo';
-        const shouldRemoveUnsorted =
-          !!existingUnsortedId && !isConversion && suggestion.type !== 'create.note';
-
-        if (isConversion && !conversionsEnabled) {
-          console.warn('[MindDrop][Chip] Conversion suggestion ignored (flag disabled)');
-          return;
-        }
-
-        if (shouldRemoveUnsorted) {
-          try {
-            await (repo as any).remove?.(existingUnsortedId);
-          } catch (e) {
-            console.warn('[MindDrop][Chip] failed to remove unsorted', e);
-          } finally {
-            unsortedIdRef.current = null;
-          }
-        }
-
         setIsSubmitting(true);
+        setCategoryChips([]);
 
-        const createdIds = {
-          todos: [] as string[],
-          notes: [] as string[],
-          habits: [] as string[],
-        };
-        const counts = { todos: 0, notes: 0, habits: 0 };
-        const details: OrganizedDetail[] = [];
+        if (kind === 'todo') {
+          // Convert the unsorted note to a todo using repo.update
+          try {
+            // Get the original note to extract text
+            const originalNote = await repo.getById(unsortedId);
+            if (!originalNote) {
+              throw new Error('Original note not found');
+            }
 
-        if (suggestion.type === 'create.todo') {
-          const rawTodoText = suggestion.payload.name?.trim() || trimmed;
-          const ideasPattern = /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i;
+            // Extract first line for todo name (truncate to 80 chars)
+            const noteText =
+              (originalNote as any).body ||
+              (originalNote as any).title ||
+              (originalNote as any).text ||
+              '';
+            const firstLine = noteText.split('\n')[0].trim();
+            const todoName = firstLine.substring(0, 80);
 
-          if (ideasPattern.test(rawTodoText)) {
-            const canonicalType = persistedToCanonical('note', 'list');
-            const record = await repo.create({
-              type: 'note',
-              title: rawTodoText || 'Quick note',
-              body: rawTodoText,
-              subtype: 'list',
-              origin: 'catchall',
-              ai_placed: true,
-              space_id: null,
-              why_string: 'Chosen via chip (ideas/list safety)',
-              canonicalType,
-              labels: [CATCHALL_LABEL],
-              views: { alsoShowIn: ['Hub:Catch-All'] },
-              sourceMessageId: submissionId,
+            // Use repo.update to patch the record in place
+            await repo.update({
+              id: unsortedId,
+              patch: {
+                type: 'todo',
+                name: todoName,
+                ai_placed: true, // Mark as AI-placed after category selection
+                // Remove needs_review label
+                labels: ((originalNote as any).labels || []).filter(
+                  (l: string) => l !== 'needs_review',
+                ),
+              } as any,
             });
-            counts.notes = 1;
-            createdIds.notes.push(record.id);
-            details.push({ kind: 'note', noteSubtype: 'list' });
-          } else {
-            const due = suggestion.payload.due ?? suggestion.payload.due_date ?? null;
-            const record = await repo.create({
-              type: 'todo',
-              title: rawTodoText,
-              name: rawTodoText,
-              due_date: due,
-              undefined_due: !due,
-              ai_placed: true,
-              why_string: 'Chosen via chip',
-              origin: 'catchall',
-              views: {},
-              sourceMessageId: submissionId,
-            });
-            counts.todos = 1;
-            createdIds.todos.push(record.id);
-            details.push({ kind: 'todo' });
-          }
-        } else if (suggestion.type === 'create.habit') {
-          const record = await repo.create({
-            type: 'habit',
-            name: suggestion.payload.name,
-            frequency: suggestion.payload.freq,
-            ai_placed: true,
-            why_string: 'Chosen via chip',
-            origin: 'catchall',
-            views: {},
-            sourceMessageId: submissionId,
-          });
-          counts.habits = 1;
-          createdIds.habits.push(record.id);
-          details.push({ kind: 'habit' });
-        } else if (suggestion.type === 'convert.log-list-to-todo') {
-          if (!conversionsEnabled) {
-            console.warn('[MindDrop][Chip] Conversion attempt blocked (flag disabled)');
-            return;
-          }
-          const targetId = suggestion.payload.noteId || existingUnsortedId;
-          if (!targetId) {
-            throw new Error('Missing note id for conversion');
-          }
 
-          const { todo } = await convertLogListToTodo(repo, targetId, {
-            preserveState: suggestion.payload.preserveState ?? true,
-          });
+            setOrganizedToday((prev) => prev + 1);
+            triggerRecentRefresh();
+            setLowConfidenceUnsortedId(null);
+            unsortedIdRef.current = null;
 
-          counts.todos = 1;
-          createdIds.todos.push(todo.id);
-          details.push({ kind: 'todo' });
-          unsortedIdRef.current = null;
-        } else if (suggestion.type === 'create.note') {
-          const rawSubtype = suggestion.payload.subtype as string | undefined;
-          const canonicalType = persistedToCanonical('note', rawSubtype ?? undefined);
-          const viewsValue =
-            suggestion.payload.subtype === 'list' ? { alsoShowIn: ['Hub:Catch-All'] } : {};
-          const aiPlaced = (suggestion.payload.subtype as string) !== 'catchall';
-          const canUpdateCatchall =
-            rawSubtype === 'journal' || rawSubtype === 'idea' || rawSubtype === 'list';
+            // Track category conversion
+            metricsRef.current.conversions += 1;
+            logMetrics('category_converted_todo', { noteId: unsortedId, todoName });
 
-          let record: AppRecord | null = null;
-
-          if (
-            submissionId &&
-            canUpdateCatchall &&
-            typeof (repo as any).findNoteBySourceMessageId === 'function'
-          ) {
-            try {
-              record = await updateCatchallToChosenSubtype({
-                repo,
-                sourceMessageId: submissionId,
-                chosenSubtype: rawSubtype as 'journal' | 'idea' | 'list',
-                title: suggestion.payload.title,
-                body: suggestion.payload.body,
-                canonicalType,
-                views: viewsValue,
-                aiPlaced,
-                why: 'Chosen via chip',
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: 'Added to To-Do List',
               });
-              unsortedIdRef.current = null;
-            } catch (updateError) {
-              console.warn(
-                '[MindDrop][Chip] catchall update failed, falling back to create',
-                updateError,
-              );
+            }
+          } catch (conversionError) {
+            console.error(
+              '[MindDrop][CategoryChip] Conversion failed, using fallback',
+              conversionError,
+            );
+            // Fallback: use convertLogListToTodo which creates new record and deletes old
+            const { todo } = await convertLogListToTodo(repo, unsortedId, {
+              preserveState: true,
+            });
+
+            setOrganizedToday((prev) => prev + 1);
+            triggerRecentRefresh();
+            setLowConfidenceUnsortedId(null);
+            unsortedIdRef.current = null;
+
+            // Track category conversion (fallback path)
+            metricsRef.current.conversions += 1;
+            logMetrics('category_converted_todo', { noteId: unsortedId, fallback: true });
+
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: 'Added to To-Do List',
+              });
             }
           }
+        } else if (kind === 'habit') {
+          // Convert the unsorted note to a habit
+          try {
+            const original = await repo.getById(unsortedId);
+            if (!original) {
+              throw new Error('Original note not found');
+            }
 
-          if (!record && existingUnsortedId) {
+            const firstLine =
+              ((original as any).body || (original as any).title || '')
+                .split('\n')[0]
+                .trim()
+                .slice(0, 80) || 'New habit';
+
+            // Try updating in place
             try {
-              record = await repo.update({
-                id: existingUnsortedId,
+              await repo.update({
+                id: unsortedId,
                 patch: {
-                  title: suggestion.payload.title,
-                  body: suggestion.payload.body,
-                  subtype: suggestion.payload.subtype,
-                  ai_placed: aiPlaced,
-                  why_string: 'Chosen via chip',
-                  origin: 'catchall',
-                  canonicalType,
-                  labels: [CATCHALL_LABEL],
-                  views: viewsValue,
+                  type: 'habit',
+                  name: firstLine,
+                  frequency: 'daily',
+                  labels: ((original as any).labels || []).filter(
+                    (l: string) => l !== 'needs_review',
+                  ),
+                  ai_placed: true,
+                  why_string: 'Confirmed as habit via category chip',
                 } as any,
               });
+
+              setOrganizedToday((prev) => prev + 1);
+              triggerRecentRefresh();
+              setLowConfidenceUnsortedId(null);
               unsortedIdRef.current = null;
-            } catch (updateByIdError) {
-              console.warn('[MindDrop][Chip] fallback update by id failed', updateByIdError);
-              record = null;
+
+              metricsRef.current.conversions += 1;
+              logMetrics('category_converted_habit', { noteId: unsortedId, habitName: firstLine });
+
+              if (TOASTS_ON) {
+                showActionToast({
+                  type: 'success',
+                  content: 'Started a habit ✓',
+                });
+              }
+            } catch (updateError) {
+              console.warn(
+                '[MindDrop][CategoryChip] repo.update unsupported, using fallback',
+                updateError,
+              );
+
+              // Fallback: create new habit then remove unsorted
+              const newHabit = await repo.create({
+                type: 'habit',
+                name: firstLine,
+                frequency: 'daily',
+                labels: ((original as any).labels || []).filter(
+                  (l: string) => l !== 'needs_review',
+                ),
+                ai_placed: true,
+                origin: 'catchall',
+                why_string: 'Created as habit via category chip (fallback)',
+              } as any);
+
+              // Remove the unsorted note
+              if (unsortedId) {
+                try {
+                  await repo.remove(unsortedId);
+                } catch (deleteErr) {
+                  console.warn(
+                    '[MindDrop][CategoryChip] Failed to delete unsorted after habit creation',
+                    deleteErr,
+                  );
+                }
+              }
+
+              setOrganizedToday((prev) => prev + 1);
+              triggerRecentRefresh();
+              setLowConfidenceUnsortedId(null);
+              unsortedIdRef.current = null;
+
+              metricsRef.current.conversions += 1;
+              logMetrics('category_converted_habit', {
+                noteId: unsortedId,
+                habitId: newHabit?.id,
+                habitName: firstLine,
+                fallback: true,
+              });
+
+              if (TOASTS_ON) {
+                showActionToast({
+                  type: 'success',
+                  content: 'Started a habit ✓',
+                });
+              }
+            }
+          } catch (habitError) {
+            console.error(
+              '[MindDrop][CategoryChip] Habit conversion failed completely',
+              habitError,
+            );
+
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: 'Could not create habit',
+              });
             }
           }
-
-          if (!record) {
-            record = await repo.create({
-              type: 'note',
-              title: suggestion.payload.title,
-              body: suggestion.payload.body,
-              subtype: suggestion.payload.subtype,
-              origin: 'catchall',
-              ai_placed: aiPlaced,
-              space_id: null,
-              why_string: 'Chosen via chip',
-              canonicalType,
-              labels: [CATCHALL_LABEL],
-              views: viewsValue,
-              sourceMessageId: submissionId,
-            });
-            unsortedIdRef.current = null;
-          }
-
-          counts.notes = 1;
-          createdIds.notes.push(record.id);
-          const subtypeValue = typeof rawSubtype === 'string' ? rawSubtype : null;
-          details.push({ kind: 'note', noteSubtype: subtypeValue });
         } else {
-          return;
-        }
+          // Just keep as log - promote to canonical "log" subtype
+          const originalNote = await repo.getById(unsortedId);
+          const noteText =
+            (originalNote as any)?.body ||
+            (originalNote as any)?.title ||
+            (originalNote as any)?.text ||
+            '';
+          const narrative = classifyNarrative(noteText);
+          const nextSubtype = narrative ? 'journal' : 'idea';
+          const canonicalType = persistedToCanonical('note', nextSubtype);
 
-        showMindDropSuccessToast({
-          todos: counts.todos,
-          notes: counts.notes,
-          habits: counts.habits,
-          details,
-        });
-        await refreshOrganizedToday();
-        pendingUndo.current = createdIds;
-        resetState();
-        setRecentRefresh?.((v) => v + 1);
-        focusGreetingForA11y();
-
-        if (trimmed) {
-          void logCatchallDecision({
-            userId: user?.id ?? userId ?? 'anonymous',
-            text: trimmed,
-            surface: 'catchall',
-            engine: 'LLM',
-            modelVersion: process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini',
-            intent:
-              suggestion.type === 'create.todo'
-                ? 'todo'
-                : suggestion.type === 'create.habit'
-                  ? 'habit'
-                  : suggestion.type === 'convert.log-list-to-todo'
-                    ? 'todo'
-                    : 'note',
-            confidence: 0,
-            mode: 'auto',
-            decision: 'auto_create',
-            createdTodos: counts.todos,
-            createdNotes: counts.notes,
-            createdHabits: counts.habits,
+          await repo.update({
+            id: unsortedId,
+            patch: {
+              archived: false,
+              ai_placed: true,
+              subtype: nextSubtype,
+              canonicalType,
+              labels: ((originalNote as any)?.labels || []).filter(
+                (l: string) => l !== 'needs_review',
+              ),
+              why_string: 'Confirmed as log via category chip',
+            },
           });
+
+          setOrganizedToday((prev) => prev + 1);
+          triggerRecentRefresh();
+          setLowConfidenceUnsortedId(null);
+          unsortedIdRef.current = null;
+
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: 'Saved as note',
+            });
+          }
         }
+
+        setLowConfidenceUnsortedId(null);
+        unsortedIdRef.current = null;
+
+        // Clear duplicate prevention tracking after successful category action
+        lastSubmittedTextRef.current = null;
+        lastUnsortedIdRef.current = null;
       } catch (error) {
-        console.error('[CatchAllNotepad] Failed to apply suggestion', error);
-        Alert.alert('Something went wrong', 'Please try again in a moment.');
+        console.error('[MindDrop][CategoryChip] Failed to process', error);
       } finally {
         setIsSubmitting(false);
-        setSuggestions([]);
       }
     },
     [
-      note,
+      lowConfidenceUnsortedId,
       repo,
-      resetState,
-      refreshOrganizedToday,
-      setRecentRefresh,
-      focusGreetingForA11y,
-      showMindDropSuccessToast,
-      user,
-      userId,
-      canonicalConversionsOn,
+      setOrganizedToday,
+      triggerRecentRefresh,
+      TOASTS_ON,
+      showActionToast,
+    ],
+  );
+
+  const handleTimingSelection = useCallback(
+    async (option: TimingOption) => {
+      const todoId = pendingTodoId;
+      if (!todoId) {
+        console.warn('[MindDrop][Timing] No pending todo id');
+        return;
+      }
+
+      try {
+        setTimingChips([]);
+        setPendingTodoId(null);
+
+        const dueDate = timingOptionToDate(option);
+
+        // Update the todo with the selected due date
+        await repo.update({
+          id: todoId,
+          patch: {
+            due_date: dueDate,
+            undefined_due: !dueDate,
+          } as any, // Todo-specific fields
+        });
+
+        triggerRecentRefresh();
+
+        // Track timing selection (skip if this is auto-fallback which is already tracked)
+        if (option !== 'someday' || timingChips.length > 0) {
+          metricsRef.current.timingSelected += 1;
+          logMetrics('timing_selected', { todoId, option, dueDate });
+        }
+
+        if (TOASTS_ON) {
+          const label = option === 'someday' ? 'Added to list' : 'Scheduled ✓';
+          showActionToast({
+            type: 'success',
+            content: label,
+          });
+        }
+      } catch (error) {
+        console.error('[MindDrop][Timing] Failed to assign timing', error);
+      }
+    },
+    [
+      pendingTodoId,
+      repo,
+      triggerRecentRefresh,
+      TOASTS_ON,
+      showActionToast,
+      timingChips.length,
+      logMetrics,
     ],
   );
 
@@ -2133,25 +2731,104 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } else {
         nextValue = clampNoteLength(nextValue);
       }
+
+      // Clear duplicate prevention tracking when user changes text
+      if (nextValue.trim() !== lastSubmittedTextRef.current) {
+        lastSubmittedTextRef.current = null;
+        lastUnsortedIdRef.current = null;
+      }
+
       setNote(nextValue);
-      userTouchedRef.current = true;
+      if (nextValue.length === 0) {
+        hasTypedRef.current = false;
+        setInputDynHeight(START_HEIGHT);
+        setInputScrollEnabled(false);
+        lastAppliedHeightRef.current = START_HEIGHT;
+        return;
+      }
+
+      hasTypedRef.current = true;
+
+      // Fallback height calculation based on line count
+      const lines = nextValue.split(/\r?\n/).length;
+      const fallbackHeight = Math.min(
+        MAX_HEIGHT,
+        Math.max(START_HEIGHT, lines * LINE_HEIGHT + INPUT_VERTICAL_PADDING),
+      );
+
+      // Only apply fallback if it's strictly greater than current height
+      if (fallbackHeight > lastAppliedHeightRef.current) {
+        lastAppliedHeightRef.current = fallbackHeight;
+        setInputDynHeight(fallbackHeight);
+
+        const shouldScroll = lines * LINE_HEIGHT + INPUT_VERTICAL_PADDING > MAX_HEIGHT;
+        setInputScrollEnabled(shouldScroll);
+
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.log('[MindDrop][AutoGrow:fallback]', {
+            lines,
+            fallbackHeight,
+            last: lastAppliedHeightRef.current,
+            max: MAX_HEIGHT,
+          });
+        }
+      }
     },
     [listStyle],
   );
 
   // Mind Drop: robust submit with retry + fallbacks
   const onSubmit = useCallback(async () => {
-    const now = Date.now();
+    // Lock immediately to prevent race conditions
     if (submitLockRef.current) return;
-    if (isSubmitting) return;
-    if (now - lastSubmitAt.current < 600) return; // debounce 600ms
+    submitLockRef.current = true;
+
+    if (isSubmitting) {
+      submitLockRef.current = false;
+      return;
+    }
+    setIsSubmitting(true);
+
+    const now = Date.now();
+    const trimmed = note.trim();
+
+    if (!trimmed) {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+      return;
+    }
+
+    // Prevent rapid repeat submissions of same text
+    const MIN_SUBMIT_INTERVAL_MS = 2000;
+    if (
+      now - lastSubmitAt.current < MIN_SUBMIT_INTERVAL_MS &&
+      trimmed === lastSubmittedTextRef.current
+    ) {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+      return;
+    }
     lastSubmitAt.current = now;
 
-    const trimmed = note.trim();
-    if (!trimmed) return;
-
-    submitLockRef.current = true;
-    setIsSubmitting(true);
+    // Duplicate prevention: if same text as last submission and we cleared state but unsorted note exists
+    if (
+      trimmed === lastSubmittedTextRef.current &&
+      unsortedIdRef.current == null &&
+      lastUnsortedIdRef.current != null
+    ) {
+      // Re-hydrate category chips tied to existing unsorted record
+      setLowConfidenceUnsortedId(lastUnsortedIdRef.current);
+      setCategoryChips([
+        { kind: 'todo', label: 'Add to To-Do List' },
+        { kind: 'log', label: 'Just Save It' },
+        { kind: 'habit', label: 'Start a Habit' },
+      ]);
+      setNote('');
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+      return;
+    }
 
     const submissionId = submissionIdRef.current ?? createSubmissionId();
     submissionIdRef.current = submissionId;
@@ -2182,7 +2859,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         await refreshOrganizedToday?.();
-        setRecentRefresh?.((v) => v + 1);
+        triggerRecentRefresh();
         // A11y focus target after clearing input
         focusGreetingForA11y();
         return;
@@ -2207,7 +2884,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const createdHabits = r?.created?.habits?.length ?? 0;
           const totalCreated = createdTodos + createdNotes + createdHabits;
 
-          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0) {
+          // Ask mode is a success even with 0 items created (user will manually categorize)
+          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0 || r?.decisionMode === 'ask') {
             finalResult = r;
             break; // success
           }
@@ -2292,7 +2970,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         // Refresh trust count & recent
         await refreshOrganizedToday?.();
-        setRecentRefresh?.((v) => v + 1);
+        triggerRecentRefresh();
         focusGreetingForA11y();
         return;
       }
@@ -2329,7 +3007,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       });
 
       await refreshOrganizedToday?.();
-      setRecentRefresh?.((v) => v + 1);
+      triggerRecentRefresh();
       // A11y focus target after clearing input
       focusGreetingForA11y();
     } finally {
@@ -2346,7 +3024,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     networkIsOnline,
     resetState,
     focusGreetingForA11y,
-    setRecentRefresh,
+    triggerRecentRefresh,
     TOASTS_ON,
   ]);
 
@@ -2373,7 +3051,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [isSubmitting, isThinking, uiMode, note, onSubmit]);
 
   const legacyUI = React.useMemo(() => {
-    const prompt = buildChipsPrompt(suggestions);
     const statsVisible = organizedToday > 0;
 
     return (
@@ -2421,32 +3098,29 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           {contextPrompt}
         </Text>
         <View style={styles.inputBlock}>
-          <Animated.View
-            testID="minddrop-input-height-wrapper"
-            style={[styles.inputHeightWrapper, { height: animatedHeight, minHeight: START_HEIGHT }]}
-          >
-            <MindDropInput
-              value={note}
-              onChangeText={handleChangeText}
-              placeholder={placeholder}
-              placeholderTextColor="#66706A"
-              containerStyle={styles.inputContainer}
-              focusedStyle={styles.inputContainerFocused}
-              inputStyle={styles.input}
-              focusedInputStyle={styles.inputFocused}
-              onFocusChange={handleInputFocusChange}
-              autoFocus
-              onContentSizeChange={handleInputContentSizeChange}
-              scrollEnabled={scrollEnabled}
-              showHud={false}
-              iconContainerStyle={styles.inputFutureContainer}
-              iconButtonStyle={styles.inputFutureButton}
-              iconMicStyle={styles.inputFutureMicButton}
-              iconCameraStyle={styles.inputFutureCameraButton}
-              iconWrapperStyle={styles.inputFutureIconWrapper}
-              iconColor={c.mossGreen}
-            />
-          </Animated.View>
+          <MindDropInput
+            value={note}
+            onChangeText={handleChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="#66706A"
+            containerStyle={styles.inputContainer}
+            focusedStyle={styles.inputContainerFocused}
+            inputStyle={styles.input}
+            focusedInputStyle={styles.inputFocused}
+            onFocusChange={handleInputFocusChange}
+            autoFocus
+            onContentSizeChange={handleInputContentSizeChange}
+            scrollEnabled={inputScrollEnabled}
+            showHud={false}
+            iconContainerStyle={styles.inputIconCluster}
+            iconButtonStyle={styles.inputIconButton}
+            iconMicStyle={styles.inputIconMicButton}
+            iconCameraStyle={styles.inputIconCameraButton}
+            iconWrapperStyle={styles.inputIconWrapper}
+            iconColor={c.mossGreen}
+            heightWrapperStyle={styles.inputHeightWrapper}
+            inputDynHeight={inputDynHeight}
+          />
         </View>
         {note.length > 0 ? (
           <View style={styles.helperRow}>
@@ -2464,12 +3138,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             ) : null}
           </View>
         ) : null}
-        {suggestions.length > 0 ? (
+        {categoryChips.length > 0 ? (
           <MidConfidenceChips
-            suggestions={suggestions}
-            onPick={handlePickSuggestion}
-            prompt={prompt ?? undefined}
+            variant="category"
+            categoryChips={categoryChips}
+            onDirectPick={handleCategoryChipPick}
+            prompt="What would you like to do?"
             autoDismissMs={CHIPS_AUTO_DISMISS_MS}
+          />
+        ) : null}
+        {timingChips.length > 0 ? (
+          <MidConfidenceChips
+            variant="timing"
+            timingChips={timingChips}
+            onTimingPick={handleTimingSelection}
+            prompt="When do you want to do this?"
+            autoDismissMs={5000}
           />
         ) : null}
         <View
@@ -2566,12 +3250,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     microcopyIndex,
     handleSubmit,
     disabled,
-    suggestions,
-    handlePickSuggestion,
     organizedToday,
     recentRefresh,
     noopCallback,
-    scrollEnabled,
+    inputDynHeight,
+    inputScrollEnabled,
     handleBack,
     handleInfoOpen,
   ]);
@@ -2706,7 +3389,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flex: 1,
     },
     headerTitle: {
-      color: c.charcoalInk, // Phase 2: default text color
+      color: c.mossGreen,
       fontFamily: 'PlusJakartaSans-Bold',
       fontSize: 32,
       lineHeight: 34,
@@ -2753,12 +3436,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       borderRadius: 16,
       paddingHorizontal: INPUT_PADDING_LEFT,
-      paddingVertical: 12,
-      minHeight: START_HEIGHT,
-      flex: 1,
+      paddingVertical: 16,
       backgroundColor: c.linenCream ?? '#F9F6F1',
       borderWidth: 1,
       borderColor: '#E0E0E0',
+      minHeight: 100,
     },
     inputContainerFocused: {
       borderRadius: 16,
@@ -2773,17 +3455,16 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       color: c.charcoalInk,
       fontSize: 18,
-      lineHeight: BASE_LINE_HEIGHT,
-      paddingTop: 0,
-      paddingBottom: 0,
-      paddingLeft: 0,
+      lineHeight: 22,
       paddingRight: INPUT_ICON_PADDING_RIGHT,
       backgroundColor: 'transparent',
       borderWidth: 0,
       textAlignVertical: 'top',
       fontFamily: 'Inter-Regular',
-      minHeight: MIN_HEIGHT,
-      flex: 1,
+      padding: 0,
+      margin: 0,
+      paddingTop: 4,
+      paddingBottom: 4,
     },
     inputFocused: {},
     inputHeightWrapper: {
@@ -2800,34 +3481,27 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       gap: 12,
       opacity: 0.8,
     },
-    inputFutureContainer: {
+    inputIconCluster: {
       position: 'absolute',
-      right: 16,
-      top: INPUT_PADDING_VERTICAL,
-      bottom: INPUT_PADDING_VERTICAL,
-      width: 64,
-      opacity: 0.3,
+      right: 12,
+      bottom: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      opacity: 0.35,
     },
-    inputFutureButton: {
-      position: 'absolute',
-      top: 0,
-      bottom: 0,
+    inputIconButton: {
+      padding: 4,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 4,
     },
-    inputFutureMicButton: {
-      right: 28,
-    },
-    inputFutureCameraButton: {
-      right: 0,
-    },
-    inputFutureIconWrapper: {
+    inputIconMicButton: {},
+    inputIconCameraButton: {},
+    inputIconWrapper: {
       width: 24,
       height: 24,
       alignItems: 'center',
       justifyContent: 'center',
-      transform: [{ scale: 0.8 }],
     },
     inputHudText: {
       color: c.mutedSageText, // Phase 2: muted text for HUD
@@ -3134,6 +3808,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     badge_unsorted: {
       backgroundColor: c.goldenPear,
       color: c.mossGreen,
+    },
+    recentDueBadge: {
+      fontSize: 11,
+      color: c.mutedText,
+      fontFamily: 'Inter-Regular',
+      fontStyle: 'italic',
     },
     recentMetaRow: {
       marginTop: 12,
