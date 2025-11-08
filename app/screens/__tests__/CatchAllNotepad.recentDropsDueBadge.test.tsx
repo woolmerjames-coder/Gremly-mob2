@@ -41,22 +41,44 @@ jest.mock('../../../providers/ThemeProvider', () => ({
 jest.mock('../../../contexts/OverlayContext', () => ({
   useGlobalOverlay: () => ({
     openEdit: jest.fn(),
+    openCreate: jest.fn(),
+    close: jest.fn(),
   }),
 }));
 
+const fixedNow = new Date('2025-11-08T10:00:00.000Z');
+const RealDate = Date;
+
 describe('RecentDrops - Todo Due Date Badges', () => {
+  const renderRecentDrops = () => render(<RecentDrops initiallyOpen eagerLoad />);
+
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.useFakeTimers();
-    // Set current time to Nov 8, 2025, 10:00 AM
-    jest.setSystemTime(new Date('2025-11-08T10:00:00'));
+
+    class MockDate extends RealDate {
+      constructor(...args: any[]) {
+        if (args.length === 0) {
+          super(fixedNow.getTime());
+          return;
+        }
+        // @ts-expect-error Forwarding Date constructor args
+        super(...args);
+      }
+    }
+
+    MockDate.now = () => fixedNow.getTime();
+    MockDate.UTC = RealDate.UTC;
+    MockDate.parse = RealDate.parse;
+    // @ts-expect-error override Date for deterministic formatting
+    global.Date = MockDate;
 
     mockRepo.notes.list.mockResolvedValue([]);
     mockRepo.habits.list.mockResolvedValue([]);
+    mockRepo.todos.list.mockResolvedValue([]);
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    global.Date = RealDate;
   });
 
   it('shows "no deadline yet" for todo without due date', async () => {
@@ -70,7 +92,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-1');
@@ -89,7 +111,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-2');
@@ -108,7 +130,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-3');
@@ -127,7 +149,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-4');
@@ -146,7 +168,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-5');
@@ -165,7 +187,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-6');
@@ -184,7 +206,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-7');
@@ -203,7 +225,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-8');
@@ -236,7 +258,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       },
     ]);
 
-    const { getByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { getByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       expect(getByTestId('minddrop-recent-todo-due-todo-9').props.children).toBe('no deadline yet');
@@ -260,7 +282,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
     ]);
     mockRepo.todos.list.mockResolvedValue([]);
 
-    const { queryByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { queryByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       expect(queryByTestId('minddrop-recent-todo-due-note-1')).toBeNull();
@@ -278,7 +300,7 @@ describe('RecentDrops - Todo Due Date Badges', () => {
     ]);
     mockRepo.todos.list.mockResolvedValue([]);
 
-    const { queryByTestId } = render(<RecentDrops initiallyOpen eagerLoad />);
+    const { queryByTestId } = renderRecentDrops();
 
     await waitFor(() => {
       expect(queryByTestId('minddrop-recent-todo-due-habit-1')).toBeNull();
