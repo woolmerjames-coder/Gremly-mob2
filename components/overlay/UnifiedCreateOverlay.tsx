@@ -23,11 +23,13 @@ import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import Chip from '../ui/Chip';
 import { Icon } from '../ui/Icon';
+import type { IconName } from '../ui/Icon';
 import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fields/HabitFields';
 import { TodoFields } from './fields/TodoFields';
 import { JournalFields } from './fields/JournalFields';
 import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
 import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
+import { TagsField } from './fields/TagsField';
 import { TagEditor } from './fields/TagEditor';
 import { PeopleLinker } from './fields/PeopleLinker';
 import { useRepo } from '../../providers/RepoProvider';
@@ -45,8 +47,14 @@ import type {
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
-import type { EntityPerson, ItemType } from '../../lib/repo/types';
-import { callComplete, callClassify } from '../../lib/cortex/CortexClient';
+import type { ItemType, Tag } from '../../lib/repo/types';
+import {
+  normalizeTags,
+  getTagIdentifier,
+  recordRemovedTags,
+  deriveLogSubtypeFromTags,
+} from '../../lib/tags/normalize';
+import { callClassify, type CallClassifyResult } from '../../lib/cortex/CortexClient';
 import { parseDue } from '../../lib/cortex/entities/datetime';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import {
@@ -76,8 +84,6 @@ const capitalize = (value: string): string => {
 
 const CANONICAL_TYPES_ENABLED = env.feature.canonicalTypes;
 const NOTE_LABEL = capitalize(kindToDisplayLabel('note', 'journal', CANONICAL_TYPES_ENABLED));
-const LOG_TYPE_HEADING = `${NOTE_LABEL} type`;
-
 const ENTITY_FAMILY: Record<EntityType, TypeFamily> = {
   habit: 'habit',
   todo: 'todo',
@@ -90,6 +96,40 @@ const FRIENDLY_TYPE_LABEL: Record<EntityType, string> = {
   todo: 'To-Do',
   log: NOTE_LABEL,
   unsorted: 'Unsorted',
+};
+
+const tagListsEqual = (a: Tag[], b: Tag[]): boolean => {
+  if (a.length !== b.length) return false;
+  const leftIds = new Set(a.map((tag) => tag.id));
+  if (leftIds.size !== b.length) return false;
+  return b.every((tag) => leftIds.has(tag.id));
+};
+
+type AnalyticsClient = {
+  track: (event: string, payload?: Record<string, unknown>) => void;
+};
+
+const TAG_ANALYTICS_FLAG =
+  String(process.env.EXPO_PUBLIC_DEBUG_TAG_ANALYTICS ?? 'off').toLowerCase() === 'on';
+
+const resolveTagType = (tag: string): '@' | '*' | '#' => {
+  if (tag.startsWith('@')) return '@';
+  if (tag.startsWith('*')) return '*';
+  return '#';
+};
+
+const resolveAnalyticsClient = (): AnalyticsClient | null => {
+  if (!TAG_ANALYTICS_FLAG) {
+    return null;
+  }
+
+  const candidate = (globalThis as unknown as { analytics?: AnalyticsClient }).analytics;
+
+  if (candidate && typeof candidate.track === 'function') {
+    return candidate;
+  }
+
+  return null;
 };
 
 export type UnifiedCreateOverlayProps = {
@@ -119,7 +159,7 @@ export type UnifiedCreateOverlayProps = {
 type TypeOption = {
   value: EntityType;
   label: string;
-  iconName: string;
+  iconName: IconName;
   logSubtype?: LogSubtype;
 };
 
@@ -143,14 +183,7 @@ const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
       { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
     ];
 
-const LOG_SUBTYPE_OPTIONS: Array<{ value: LogSubtype; label: string }> = [
-  { value: 'journal', label: 'Journal' },
-  { value: 'idea', label: 'Idea' },
-  { value: 'list', label: 'List' },
-  { value: 'person', label: 'Person' },
-  { value: 'everything_else', label: 'Everything Else' },
-];
-
+// Star tags now derive log subtype automatically (see deriveLogSubtypeFromTags).
 const DEFAULT_LOG_SUBTYPE: LogSubtype = 'everything_else';
 
 const normalizeInitialSelection = (
@@ -231,7 +264,6 @@ export function UnifiedCreateOverlay({
   useEffect(() => {
     if (!visible) {
       openedRef.current = false;
-      return;
     }
     if (openedRef.current) return;
     openedRef.current = true;
@@ -372,7 +404,7 @@ export function UnifiedCreateOverlay({
   // Habit fields
   const [habitName, setHabitName] = useState('');
   const [habitFrequency, setHabitFrequency] = useState<Frequency>('daily');
-  const [habitSubtype, setHabitSubtype] = useState<string | null>(null);
+  const [habitSubtype, setHabitSubtype] = useState<HabitSubtype | null>(null);
   const [habitFrequencyValue, setHabitFrequencyValue] = useState<FrequencyValue>({ kind: 'daily' });
   const [habitReminders, setHabitReminders] = useState<ReminderRow[]>([]);
   const [habitDetails, setHabitDetails] = useState<HabitDetailsState>({});
@@ -482,6 +514,160 @@ export function UnifiedCreateOverlay({
     getItemType(),
   );
 
+  const removedTagsRef = useRef<Set<string>>(new Set());
+  const [tagsState, setTagsState] = useState<string[]>([]);
+  const latestTagsRef = useRef<string[]>([]);
+  const [tagEditorTags, setTagEditorTags] = useState<Tag[]>([]);
+  const tagEditorTagNames = useMemo(
+    () => normalizeTags(tagEditorTags.map((tag) => tag?.name ?? '')),
+    [tagEditorTags],
+  );
+
+  const analyticsClient = useMemo(() => resolveAnalyticsClient(), []);
+
+  const trackTagAnalytics = useCallback(
+    (previous: string[] | null | undefined, next: string[] | null | undefined) => {
+      if (!analyticsClient) {
+        return;
+      }
+
+      const previousNormalized = normalizeTags(previous ?? []);
+      const nextNormalized = normalizeTags(next ?? []);
+
+      const previousMap = new Map(previousNormalized.map((tag) => [getTagIdentifier(tag), tag]));
+      const nextMap = new Map(nextNormalized.map((tag) => [getTagIdentifier(tag), tag]));
+
+      let hasChanges = false;
+
+      nextMap.forEach((tag, key) => {
+        if (!previousMap.has(key)) {
+          hasChanges = true;
+          try {
+            analyticsClient.track('tag_added', {
+              origin: 'overlay',
+              tag_type: resolveTagType(tag),
+            });
+          } catch {
+            // No-op on analytics errors.
+          }
+        }
+      });
+
+      previousMap.forEach((tag, key) => {
+        if (!nextMap.has(key)) {
+          hasChanges = true;
+          try {
+            analyticsClient.track('tag_removed', {
+              origin: 'overlay',
+              tag_type: resolveTagType(tag),
+            });
+          } catch {
+            // No-op on analytics errors.
+          }
+        }
+      });
+
+      // Avoid retaining pointless references when there is no diff.
+      if (!hasChanges) {
+        return;
+      }
+    },
+    [analyticsClient],
+  );
+
+  const applyTagsChange = useCallback(
+    (previous: string[] | null | undefined, incoming: string[]): string[] => {
+      const next = recordRemovedTags(removedTagsRef.current, previous, incoming);
+      trackTagAnalytics(previous, next);
+      return next;
+    },
+    [trackTagAnalytics],
+  );
+
+  const syncDetailsWithTags = useCallback(
+    (next: string[], typeOverride?: EntityType | null, logSubtypeOverride?: LogSubtype | null) => {
+      const activeType = typeOverride ?? selectedType;
+
+      switch (activeType) {
+        case 'habit':
+          setHabitDetails((prev) => ({ ...prev, tags: next }));
+          break;
+        case 'todo':
+          setTodoDetails((prev) => ({ ...prev, tags: next }));
+          break;
+        case 'log': {
+          const subtype = logSubtypeOverride ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE;
+          if (subtype === 'journal') {
+            setJournalDetails((prev) => ({ ...prev, tags: next }));
+          } else if (subtype === 'person') {
+            setPersonDetails((prev) => ({ ...prev, tags: next }));
+          } else {
+            setNoteDetails((prev) => ({ ...prev, tags: next }));
+          }
+          break;
+        }
+        case 'unsorted':
+          setNoteDetails((prev) => ({ ...prev, tags: next }));
+          break;
+        default:
+          break;
+      }
+    },
+    [selectedLogSubtype, selectedType],
+  );
+
+  const initializeTags = useCallback(
+    (
+      incoming: string[] | null | undefined,
+      typeOverride?: EntityType | null,
+      logSubtypeOverride?: LogSubtype | null,
+    ) => {
+      removedTagsRef.current.clear();
+      const normalized = normalizeTags(incoming ?? []);
+      setTagsState(normalized);
+      syncDetailsWithTags(normalized, typeOverride, logSubtypeOverride);
+    },
+    [syncDetailsWithTags],
+  );
+
+  const handleTagsChange = useCallback(
+    (incoming: string[]) => {
+      setTagsState((prev) => {
+        const next = applyTagsChange(prev, incoming);
+        syncDetailsWithTags(next);
+        return next;
+      });
+    },
+    [applyTagsChange, syncDetailsWithTags],
+  );
+
+  const combineTags = useCallback((): string[] | null => {
+    const combined = normalizeTags([...tagsState, ...tagEditorTagNames]);
+    const filtered = combined.filter((tag) => !removedTagsRef.current.has(tag.toLowerCase()));
+    return filtered.length > 0 ? filtered : null;
+  }, [tagEditorTagNames, tagsState]);
+
+  const effectiveLogSubtype =
+    selectedType === 'log' ? (deriveLogSubtypeFromTags(tagsState) as LogSubtype | null) : null;
+
+  useEffect(() => {
+    latestTagsRef.current = tagsState;
+  }, [tagsState]);
+
+  useEffect(() => {
+    if (!selectedType) {
+      return;
+    }
+
+    syncDetailsWithTags(latestTagsRef.current);
+  }, [selectedLogSubtype, selectedType, syncDetailsWithTags]);
+
+  useEffect(() => {
+    if (!usePhase8Features) return;
+    if (tagListsEqual(tagEditorTags, phase8Links.currentTags)) return;
+    setTagEditorTags(phase8Links.currentTags);
+  }, [phase8Links.currentTags, tagEditorTags, usePhase8Features]);
+
   const isLogPerson =
     selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person';
   const allowPeopleLinking = usePhase8Features && !isLogPerson;
@@ -589,15 +775,6 @@ export function UnifiedCreateOverlay({
     }
   };
 
-  const notifyAiUnavailable = useCallback(() => {
-    const message = 'AI temporarily unavailable — saved locally.';
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-    } else {
-      console.warn('[UnifiedOverlay]', message);
-    }
-  }, []);
-
   const loadEntity = React.useCallback(
     async (
       id: string,
@@ -627,6 +804,7 @@ export function UnifiedCreateOverlay({
             setPersonDetails(formData.details);
             setSelectedType('log');
             setSelectedLogSubtype('person');
+            initializeTags(formData.details.tags ?? [], 'log', 'person');
             originalEntityRef.current = null;
             setHydration('ready');
             return;
@@ -656,6 +834,7 @@ export function UnifiedCreateOverlay({
             setHabitDetails(formData.details);
             setHabitBreakState(formData.breakState);
             setSelectedType('habit');
+            initializeTags(formData.details.tags ?? [], 'habit');
             break;
           }
           case 'todo': {
@@ -665,12 +844,11 @@ export function UnifiedCreateOverlay({
             setTodoDueTime(formData.dueTime);
             setTodoDetails(formData.details);
             setSelectedType('todo');
+            initializeTags(formData.details.tags ?? [], 'todo');
             break;
           }
           case 'note': {
-            const labels = Array.isArray((entity as any)?.labels)
-              ? ((entity as any).labels as string[])
-              : [];
+            const labels = Array.isArray(entity.labels) ? entity.labels : [];
             const isUnsorted = labels.includes(UNSORTED_LABEL);
             if (entity.subtype === 'journal') {
               const formData = mapJournalToForm(entity);
@@ -680,6 +858,7 @@ export function UnifiedCreateOverlay({
               setJournalDetails(formData.details);
               setSelectedType('log');
               setSelectedLogSubtype('journal');
+              initializeTags(formData.details.tags ?? [], 'log', 'journal');
             } else {
               const formData = mapNoteToForm(entity);
               setNoteTitle(formData.title);
@@ -689,6 +868,7 @@ export function UnifiedCreateOverlay({
               if (isUnsorted) {
                 setSelectedType('unsorted');
                 setSelectedLogSubtype(null);
+                initializeTags(formData.details.tags ?? [], 'unsorted');
               } else {
                 const inferredSubtype: LogSubtype = (() => {
                   switch (entity.subtype) {
@@ -702,6 +882,7 @@ export function UnifiedCreateOverlay({
                 })();
                 setSelectedType('log');
                 setSelectedLogSubtype(inferredSubtype);
+                initializeTags(formData.details.tags ?? [], 'log', inferredSubtype);
               }
             }
             break;
@@ -714,7 +895,7 @@ export function UnifiedCreateOverlay({
         setHydration('error');
       }
     },
-    [repo],
+    [initializeTags, repo],
   );
 
   // Initialize from initialEntity in edit mode
@@ -792,7 +973,20 @@ export function UnifiedCreateOverlay({
         }).start();
       }
     }
-  }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim, hydration]);
+  }, [
+    visible,
+    mode,
+    initialEntity,
+    loadEntity,
+    selectedType,
+    selectedLogSubtype,
+    fadeAnim,
+    hydration,
+    normalizedInitialSelection.logSubtype,
+    normalizedInitialSelection.type,
+    normalizedInitialSubtype,
+    normalizedInitialType,
+  ]);
 
   useEffect(() => {
     if (mode !== 'edit') return;
@@ -850,7 +1044,7 @@ export function UnifiedCreateOverlay({
   useEffect(() => {
     if (!visible || !conversionMeta) return;
 
-    const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
+    const { initialTitle, initialNote, initialDueDate } = conversionMeta;
     const hasPrefill = !!initialTitle || !!initialNote || !!initialDueDate;
 
     if (selectedType === 'todo') {
@@ -959,6 +1153,9 @@ export function UnifiedCreateOverlay({
   const resetForm = () => {
     phase8Links.clearPendingTags();
     phase8Links.clearPendingPeople();
+    removedTagsRef.current.clear();
+    setTagEditorTags([]);
+    setTagsState([]);
     setSelectedType(null); // Reset to no type selected
     setAiMode(false);
     setHydration('idle');
@@ -1132,7 +1329,7 @@ export function UnifiedCreateOverlay({
     if (usePhase8Features && phase8Links.pendingTagIds.length > 0) {
       for (const tagId of phase8Links.pendingTagIds) {
         try {
-          await (repo as any).linkTag({ itemId, tagId, itemType });
+          await repo.linkTag({ itemId, tagId, itemType });
         } catch (error) {
           console.error('[Phase8] Failed to link pending tag:', tagId, error);
         }
@@ -1143,7 +1340,7 @@ export function UnifiedCreateOverlay({
     if (allowPeopleLinking && phase8Links.pendingPeople.length > 0) {
       for (const person of phase8Links.pendingPeople) {
         try {
-          await (repo as any).linkPerson({
+          await repo.linkPerson({
             itemId,
             itemType,
             personName: person.personName,
@@ -1310,303 +1507,329 @@ export function UnifiedCreateOverlay({
 
         setThinking(true);
         setCortexStatus('thinking');
+        setCortexInFlight(true);
 
         // Kick AI classification call (don't await yet)
         const noteText = freeformText.trim();
         const aiPromise = callClassify({ text: noteText });
 
-        // Race AI vs min-think timer
-        const thinkTimer = new Promise((resolve) => setTimeout(resolve, minThink));
-        let finishedEarly = false;
-        let aiResult: any = null;
-
         try {
-          aiResult = await Promise.race([
-            aiPromise.then((r) => {
-              finishedEarly = true;
-              return r;
-            }),
-            thinkTimer.then(() => null),
-          ]);
-        } catch (e) {
-          aiResult = { ok: false, error: (e as Error)?.message || 'unknown' };
-        }
+          // Race AI vs min-think timer
+          const thinkTimer = new Promise<void>((resolve) => setTimeout(resolve, minThink));
+          let finishedEarly = false;
+          let aiResult: CallClassifyResult | null = null;
 
-        const elapsed = Date.now() - t0;
+          try {
+            aiResult = await Promise.race([
+              aiPromise.then((result) => {
+                finishedEarly = true;
+                return result;
+              }),
+              thinkTimer.then(() => null),
+            ]);
+          } catch (error) {
+            aiResult = { ok: false, error: (error as Error)?.message || 'unknown' };
+          }
 
-        // Case A: AI finished within ~1s and succeeded
-        if (optimisticEnabled && finishedEarly && aiResult?.ok) {
-          console.log('[Overlay] ai ms', elapsed);
+          const elapsed = Date.now() - t0;
 
-          // Save with classification immediately
+          // Case A: AI finished within ~1s and succeeded
+          if (optimisticEnabled && finishedEarly && aiResult?.ok) {
+            console.log('[Overlay] ai ms', elapsed);
+
+            // Save with classification immediately
+            const trimmedText = freeformText.trim();
+            const input: CreateRecordInput = {
+              type: 'note',
+              title: trimmedText || 'Quick note',
+              body: trimmedText,
+              subtype: 'catchall',
+              space_id: spaceId !== undefined ? spaceId : null,
+              ai_placed: true,
+              why_string: 'AI classified',
+              origin: 'catchall',
+            };
+
+            const result = await repo.create(input);
+            console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+
+            if (result.id) {
+              await flushPendingAssociations(result.id, 'note');
+            }
+
+            handleSaved({ type: 'note', id: result.id });
+            showToast('Added to Hub');
+            setThinking(false);
+            setCortexStatus(null);
+            handleClose();
+            return;
+          }
+
+          // Case B: AI not done in ~1s or failed - save optimistically to Catch-All
+          console.log('[Overlay] ai ms (optimistic)', elapsed);
+
           const trimmedText = freeformText.trim();
           const input: CreateRecordInput = {
             type: 'note',
-            title: trimmedText || 'Quick note',
+            title: trimmedText || 'Quick note', // Database requires non-empty title
             body: trimmedText,
             subtype: 'catchall',
             space_id: spaceId !== undefined ? spaceId : null,
-            ai_placed: true,
-            why_string: 'AI classified',
+            ai_placed: false,
+            why_string: 'Pending classification',
             origin: 'catchall',
           };
 
-          const result = await repo.create(input);
-          console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+          const newItem = await repo.create(input);
+          console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'pending' });
 
-          if (result.id) {
-            await flushPendingAssociations(result.id, 'note');
+          if (newItem.id) {
+            await flushPendingAssociations(newItem.id, 'note');
           }
 
-          handleSaved({ type: 'note', id: result.id });
-          showToast('Added to Hub');
+          handleSaved({ type: 'note', id: newItem.id });
+          showToast('Delivered to Hub — sorting in background');
           setThinking(false);
           setCortexStatus(null);
           handleClose();
-          return;
-        }
 
-        // Case B: AI not done in ~1s or failed - save optimistically to Catch-All
-        console.log('[Overlay] ai ms (optimistic)', elapsed);
+          // Background finalize (non-blocking)
+          if (optimisticEnabled) {
+            setTimeout(async () => {
+              try {
+                const timeoutPromise = new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error('bg-timeout')), bgTimeout),
+                );
+                const finalResult = await Promise.race([aiPromise, timeoutPromise]);
 
-        const trimmedText = freeformText.trim();
-        const input: CreateRecordInput = {
-          type: 'note',
-          title: trimmedText || 'Quick note', // Database requires non-empty title
-          body: trimmedText,
-          subtype: 'catchall',
-          space_id: spaceId !== undefined ? spaceId : null,
-          ai_placed: false,
-          why_string: 'Pending classification',
-          origin: 'catchall',
-        };
+                if (finalResult.ok) {
+                  console.log('[Overlay] bg classification success', newItem.id);
+                  console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
 
-        const newItem = await repo.create(input);
-        console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'pending' });
+                  // Extract classification info from AI response
+                  const classification = finalResult.classification;
+                  const originalNoteId = newItem.id;
+                  const originalText = noteText;
+                  const incomingClassificationTags = (classification.tags ?? []).filter(
+                    (tag) => !removedTagsRef.current.has(tag.toLowerCase()),
+                  );
 
-        if (newItem.id) {
-          await flushPendingAssociations(newItem.id, 'note');
-        }
-
-        handleSaved({ type: 'note', id: newItem.id });
-        showToast('Delivered to Hub — sorting in background');
-        setThinking(false);
-        setCortexStatus(null);
-        handleClose();
-
-        // Background finalize (non-blocking)
-        if (optimisticEnabled) {
-          setTimeout(async () => {
-            try {
-              const finalResult = await Promise.race([
-                aiPromise,
-                new Promise<any>((_, rej) =>
-                  setTimeout(() => rej(new Error('bg-timeout')), bgTimeout),
-                ),
-              ]);
-
-              if (finalResult && finalResult.ok) {
-                console.log('[Overlay] bg classification success', newItem.id);
-                console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
-
-                // Extract classification info from AI response
-                const classification = finalResult.classification;
-                const originalNoteId = newItem.id;
-                const originalText = noteText;
-
-                // Normalize category to lowercase for matching
-                const category = classification.category.toLowerCase();
-
-                try {
-                  // Find or create space if spaceName is provided
-                  let targetSpaceId: string | null = null;
-                  if (classification.spaceName) {
-                    const spaces = await repo.listSpaces();
-                    let space = spaces.find(
-                      (s) => s.name.toLowerCase() === classification.spaceName.toLowerCase(),
-                    );
-
-                    if (!space) {
-                      // Create the space if it doesn't exist
-                      space = await repo.createSpace({
-                        name: classification.spaceName,
-                      });
-                      console.log('[Overlay] Created new space:', space.name, space.id);
-                    }
-
-                    targetSpaceId = space.id;
+                  let mergedTagState = normalizeTags(latestTagsRef.current);
+                  if (incomingClassificationTags.length > 0) {
+                    setTagsState((prev) => {
+                      const merged = normalizeTags([...prev, ...incomingClassificationTags]);
+                      mergedTagState = merged;
+                      syncDetailsWithTags(merged);
+                      return merged;
+                    });
                   }
 
-                  let newItemId: string | null = null;
+                  const combinedTagsForPayload = normalizeTags([
+                    ...mergedTagState,
+                    ...tagEditorTagNames,
+                  ]);
+                  const filteredCombinedTags = combinedTagsForPayload.filter(
+                    (tag) => !removedTagsRef.current.has(tag.toLowerCase()),
+                  );
+                  const tagsPayload = filteredCombinedTags.length > 0 ? filteredCombinedTags : null;
 
-                  // Create appropriate item type based on classification
-                  switch (category) {
-                    case 'habit': {
-                      const habitInput: CreateRecordInput = {
-                        type: 'habit',
-                        name: originalText,
-                        frequency: 'daily',
-                        subtype: 'start_habit',
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                        tags: classification.tags ?? null,
-                      };
-                      const habit = await repo.create(habitInput);
-                      newItemId = habit.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'habit',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
+                  // Normalize category to lowercase for matching
+                  const category = classification.category.toLowerCase();
+
+                  try {
+                    // Find or create space if spaceName is provided
+                    let targetSpaceId: string | null = null;
+                    const spaceName = classification.spaceName;
+                    if (spaceName) {
+                      const spaces = await repo.listSpaces();
+                      let space = spaces.find(
+                        (s) => s.name.toLowerCase() === spaceName.toLowerCase(),
+                      );
+
+                      if (!space) {
+                        // Create the space if it doesn't exist
+                        space = await repo.createSpace({
+                          name: spaceName,
+                        });
+                        console.log('[Overlay] Created new space:', space.name, space.id);
+                      }
+
+                      targetSpaceId = space.id;
                     }
 
-                    case 'to-do':
-                    case 'todo': {
-                      const todoInput: CreateRecordInput = {
-                        type: 'todo',
-                        name: originalText,
-                        title: originalText,
-                        due_date: null,
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                        tags: classification.tags ?? null,
-                      };
-                      const todo = await repo.create(todoInput);
-                      newItemId = todo.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'todo',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
+                    let newItemId: string | null = null;
+
+                    // Create appropriate item type based on classification
+                    switch (category) {
+                      case 'habit': {
+                        const habitInput: CreateRecordInput = {
+                          type: 'habit',
+                          name: originalText,
+                          frequency: 'daily',
+                          subtype: 'start_habit',
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags: tagsPayload,
+                        };
+                        const habit = await repo.create(habitInput);
+                        newItemId = habit.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'habit',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      case 'to-do':
+                      case 'todo': {
+                        const todoInput: CreateRecordInput = {
+                          type: 'todo',
+                          name: originalText,
+                          title: originalText,
+                          due_date: null,
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags: tagsPayload,
+                        };
+                        const todo = await repo.create(todoInput);
+                        newItemId = todo.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'todo',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      case 'note': {
+                        const noteInput: CreateRecordInput = {
+                          type: 'note',
+                          title: originalText.slice(0, 100),
+                          body: originalText,
+                          subtype: 'idea',
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags: tagsPayload,
+                        };
+                        const note = await repo.create(noteInput);
+                        newItemId = note.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'note',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      case 'journal': {
+                        const journalInput: CreateRecordInput = {
+                          type: 'note',
+                          title: originalText.slice(0, 100),
+                          body: originalText,
+                          subtype: 'journal',
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags: tagsPayload,
+                        };
+                        const journal = await repo.create(journalInput);
+                        newItemId = journal.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'journal',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      default: {
+                        // Unknown category - just mark as classified but keep as catchall
+                        console.warn('[Overlay] Unknown category:', category);
+                        await repo.update({
+                          id: originalNoteId,
+                          patch: {
+                            ai_placed: true,
+                            why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence)`,
+                          },
+                        });
+                        break;
+                      }
                     }
 
-                    case 'note': {
-                      const noteInput: CreateRecordInput = {
-                        type: 'note',
-                        title: originalText.slice(0, 100),
-                        body: originalText,
-                        subtype: 'idea',
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                        tags: classification.tags ?? null,
-                      };
-                      const note = await repo.create(noteInput);
-                      newItemId = note.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'note',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
-                    }
-
-                    case 'journal': {
-                      const journalInput: CreateRecordInput = {
-                        type: 'note',
-                        title: originalText.slice(0, 100),
-                        body: originalText,
-                        subtype: 'journal',
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                        tags: classification.tags ?? null,
-                      };
-                      const journal = await repo.create(journalInput);
-                      newItemId = journal.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'journal',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
-                    }
-
-                    default: {
-                      // Unknown category - just mark as classified but keep as catchall
-                      console.warn('[Overlay] Unknown category:', category);
+                    // Archive the original catchall note if we created a new item
+                    if (newItemId) {
                       await repo.update({
                         id: originalNoteId,
                         patch: {
-                          ai_placed: true,
-                          why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence)`,
+                          archived: true,
+                          why_string: `Processed → ${category}`,
                         },
                       });
-                      break;
+                      console.log('[Overlay] Archived original catchall note:', originalNoteId);
                     }
-                  }
 
-                  // Archive the original catchall note if we created a new item
-                  if (newItemId) {
+                    // Show success toast
+                    if (Platform.OS === 'android') {
+                      ToastAndroid.show('Sorted — ready for review', ToastAndroid.SHORT);
+                    } else {
+                      console.log('[Toast] Sorted — ready for review');
+                    }
+                  } catch (createError) {
+                    console.error('[Overlay] Failed to create classified item:', createError);
+                    // Fall back to just marking the catchall as classified
                     await repo.update({
                       id: originalNoteId,
                       patch: {
-                        archived: true,
-                        why_string: `Processed → ${category}`,
+                        ai_placed: true,
+                        why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence) - creation failed`,
                       },
                     });
-                    console.log('[Overlay] Archived original catchall note:', originalNoteId);
                   }
-
-                  // Show success toast
-                  if (Platform.OS === 'android') {
-                    ToastAndroid.show('Sorted — ready for review', ToastAndroid.SHORT);
-                  } else {
-                    console.log('[Toast] Sorted — ready for review');
-                  }
-                } catch (createError) {
-                  console.error('[Overlay] Failed to create classified item:', createError);
-                  // Fall back to just marking the catchall as classified
+                } else {
+                  console.warn('[Overlay] bg classification failed', newItem.id);
+                  console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
                   await repo.update({
-                    id: originalNoteId,
+                    id: newItem.id,
                     patch: {
-                      ai_placed: true,
-                      why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence) - creation failed`,
+                      ai_placed: false,
+                      why_string: 'Classification failed',
                     },
                   });
+                  // Note: We could emit EventBus event here for UI toast
+                  // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'classification failed' });
                 }
-              } else {
-                console.warn('[Overlay] bg classification failed', newItem.id);
+              } catch (error) {
+                console.warn('[Overlay] bg classification timeout', newItem.id, error);
                 console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
-                await repo.update({
-                  id: newItem.id,
-                  patch: {
-                    ai_placed: false,
-                    why_string: 'Classification failed',
-                  },
-                });
+                await repo
+                  .update({
+                    id: newItem.id,
+                    patch: {
+                      ai_placed: false,
+                      why_string: 'Classification timeout',
+                    },
+                  })
+                  .catch(() => {
+                    // Silently fail - item is already saved
+                  });
                 // Note: We could emit EventBus event here for UI toast
-                // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'classification failed' });
+                // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'timeout' });
               }
-            } catch (error) {
-              console.warn('[Overlay] bg classification timeout', newItem.id, error);
-              console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
-              await repo
-                .update({
-                  id: newItem.id,
-                  patch: {
-                    ai_placed: false,
-                    why_string: 'Classification timeout',
-                  },
-                })
-                .catch(() => {
-                  // Silently fail - item is already saved
-                });
-              // Note: We could emit EventBus event here for UI toast
-              // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'timeout' });
-            }
-          }, 0);
-        }
+            }, 0);
+          }
 
-        return;
+          return;
+        } finally {
+          setCortexInFlight(false);
+        }
       }
 
       // Edit mode
@@ -1654,12 +1877,12 @@ export function UnifiedCreateOverlay({
             throw new Error('Original entity not available for conversion');
           }
 
-          const existingOrigin = (existing as any)?.origin;
+          const existingOrigin = existing.origin;
           const normalizedOrigin =
             existingOrigin === 'catchall' || existingOrigin === 'space_chat'
               ? existingOrigin
               : undefined;
-          const defaultSpaceId = (existing as any)?.space_id ?? null;
+          const defaultSpaceId = existing.space_id ?? null;
 
           const convertedInput = buildCreateInput(selectedType, {
             includeConversionMeta: false,
@@ -1685,7 +1908,9 @@ export function UnifiedCreateOverlay({
 
           const payloadType = resolveOverlayPayloadType(
             selectedType,
-            selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+            selectedType === 'log'
+              ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE)
+              : null,
           );
           handleSaved({ type: payloadType, id: created.id });
           showToast(`Converted to ${FRIENDLY_TYPE_LABEL[selectedType]}.`);
@@ -1703,7 +1928,9 @@ export function UnifiedCreateOverlay({
         const result = await repo.update(input);
         const payloadType = resolveOverlayPayloadType(
           selectedType,
-          selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+          selectedType === 'log'
+            ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE)
+            : null,
         );
         handleSaved({ type: payloadType, id: result.id });
         showToast('Updated in the Hub.');
@@ -1732,7 +1959,9 @@ export function UnifiedCreateOverlay({
 
         const payloadType = resolveOverlayPayloadType(
           selectedType,
-          selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+          selectedType === 'log'
+            ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE)
+            : null,
         );
         handleSaved({ type: payloadType, id: result.id });
         showToast('Saved to the Hub.');
@@ -1795,8 +2024,10 @@ export function UnifiedCreateOverlay({
       return 'Untitled note';
     };
 
-    const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
+    const logSubtype =
+      type === 'log' ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
     const persisted = canonicalToPersisted(type, logSubtype);
+    const tagsForCreate = tagsState.length > 0 ? tagsState : null;
 
     switch (persisted.recordType) {
       case 'habit': {
@@ -1810,7 +2041,7 @@ export function UnifiedCreateOverlay({
           frequency: habitFrequency,
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
           notes: habitDetails.notes || null,
-          tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
+          tags: tagsForCreate,
           buddy_id: habitDetails.buddyId || null,
           buddy_email: habitDetails.buddyEmail || null,
           space_id: normalizeSpaceId(
@@ -1850,7 +2081,7 @@ export function UnifiedCreateOverlay({
           due_time: normalizedDueTime,
           reminders: todoDetails.reminders || undefined,
           notes: todoDetails.notes || null,
-          tags: todoDetails.tags || null,
+          tags: tagsForCreate,
           space_id: normalizeSpaceId(todoDetails.spaceId ?? baseInput.space_id ?? null),
         };
       }
@@ -1866,7 +2097,7 @@ export function UnifiedCreateOverlay({
             mood: journalMood || null,
             fmt: journalDetails.formatting || null,
             reminders: journalDetails.reminders || undefined,
-            tags: journalDetails.tags || null,
+            tags: tagsForCreate,
             space_id: normalizeSpaceId(journalDetails.spaceId ?? baseInput.space_id ?? null),
             journal_subtype: null,
           };
@@ -1880,7 +2111,7 @@ export function UnifiedCreateOverlay({
             title: resolveNoteTitle(),
             body: noteBody,
             fmt: noteDetails.formatting || null,
-            tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+            tags: tagsForCreate,
             space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
             ai_placed: false,
             canonicalType: 'note',
@@ -1897,7 +2128,7 @@ export function UnifiedCreateOverlay({
           title: resolveNoteTitle(),
           body: noteBody,
           fmt: noteDetails.formatting || null,
-          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          tags: tagsForCreate,
           space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
           ai_placed: false,
         };
@@ -1926,12 +2157,13 @@ export function UnifiedCreateOverlay({
       notes_fmt: personDetails.notesFormatting || null,
       reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
       space_id: normalizeSpaceId(personDetails.spaceId),
-      tags: personDetails.tags.length > 0 ? personDetails.tags : null,
+      tags: combineTags(),
     };
   };
 
   const buildUpdatePatch = (type: EntityType): Partial<AppRecord> => {
-    const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
+    const logSubtype =
+      type === 'log' ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
     const persisted = canonicalToPersisted(type, logSubtype);
 
     switch (persisted.recordType) {
@@ -1944,7 +2176,7 @@ export function UnifiedCreateOverlay({
           frequency: habitFrequency,
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
           notes: habitDetails.notes || null,
-          tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
+          tags: combineTags(),
           buddy_id: habitDetails.buddyId || null,
           buddy_email: habitDetails.buddyEmail || null,
           space_id: habitDetails.spaceId !== undefined ? habitDetails.spaceId : undefined,
@@ -1969,10 +2201,17 @@ export function UnifiedCreateOverlay({
       }
       case 'todo': {
         const normalizedDueTime = normalizeTimeInput(todoDueTime);
+        const normalizedSpaceId =
+          todoDetails.spaceId !== undefined ? normalizeSpaceId(todoDetails.spaceId) : undefined;
+
         return {
           title: todoName,
           due_date: combineDueIso(todoDueDate, normalizedDueTime),
           due_time: normalizedDueTime,
+          reminders: todoDetails.reminders || undefined,
+          notes: todoDetails.notes || null,
+          tags: combineTags(),
+          ...(normalizedSpaceId !== undefined ? { space_id: normalizedSpaceId } : {}),
         } as Partial<AppRecord>;
       }
       case 'note': {
@@ -1984,7 +2223,7 @@ export function UnifiedCreateOverlay({
             mood: journalMood || null,
             fmt: journalDetails.formatting || null,
             reminders: journalDetails.reminders || undefined,
-            tags: journalDetails.tags || null,
+            tags: combineTags(),
             space_id: journalDetails.spaceId || null,
           } as Partial<AppRecord>;
         }
@@ -1994,7 +2233,7 @@ export function UnifiedCreateOverlay({
             title: noteTitle || undefined,
             body: noteBody,
             fmt: noteDetails.formatting || null,
-            tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+            tags: combineTags(),
             space_id: noteDetails.spaceId || null,
             subtype: 'catchall',
             labels: [CATCHALL_LABEL, UNSORTED_LABEL],
@@ -2007,7 +2246,7 @@ export function UnifiedCreateOverlay({
           title: noteTitle || undefined,
           body: noteBody,
           fmt: noteDetails.formatting || null,
-          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          tags: combineTags(),
           space_id: noteDetails.spaceId || null,
           subtype: (persisted.noteSubtype as NoteSubtype | null) ?? null,
         } as Partial<AppRecord>;
@@ -2140,55 +2379,12 @@ export function UnifiedCreateOverlay({
                         ...chipTextStyle,
                         ...(disabled ? styles.typeChipTextDisabled : {}),
                       }}
-                      leadingIcon={<Icon name={opt.iconName as any} size="xs" color={iconColor} />}
+                      leadingIcon={<Icon name={opt.iconName} size="xs" color={iconColor} />}
                     />
                   );
                 })}
               </View>
-              {CANONICAL_TYPES_ENABLED && selectedType === 'log' && !aiMode && (
-                <View style={[styles.subtypeSection, { borderColor: theme.colors.border.DEFAULT }]}>
-                  <Text style={[styles.subtypeLabel, { color: theme.colors.text.secondary }]}>
-                    {LOG_TYPE_HEADING}
-                  </Text>
-                  <View style={styles.chipRow}>
-                    {LOG_SUBTYPE_OPTIONS.map((opt) => {
-                      const isSelected = selectedLogSubtype === opt.value;
-                      const subtypeDisabled = isEditingPerson && opt.value !== 'person';
-                      const chipStyle = isSelected
-                        ? {
-                            backgroundColor: theme.colors.white,
-                            borderColor: theme.colors.deepTeal.DEFAULT,
-                          }
-                        : {
-                            backgroundColor: 'transparent',
-                            borderColor: theme.colors.border.DEFAULT,
-                          };
-                      const chipTextStyle = isSelected
-                        ? { color: theme.colors.deepTeal.DEFAULT }
-                        : { color: theme.colors.text.secondary };
-
-                      return (
-                        <Chip
-                          key={opt.value}
-                          label={opt.label}
-                          selected={isSelected}
-                          onPress={() => {
-                            if (subtypeDisabled) return;
-                            setSelectedLogSubtype(opt.value);
-                          }}
-                          disabled={subtypeDisabled}
-                          testID={`log-subtype-${opt.value}`}
-                          style={{
-                            ...styles.typeChip,
-                            ...chipStyle,
-                          }}
-                          textStyle={chipTextStyle}
-                        />
-                      );
-                    })}
-                  </View>
-                </View>
-              )}
+              {/* Log subtype chips intentionally removed (selectedLogSubtype state retained for compatibility) */}
             </View>
 
             {/* AI mode button */}
@@ -2355,62 +2551,119 @@ export function UnifiedCreateOverlay({
                     testID={`fields-${selectedType}`}
                   >
                     {selectedType === 'habit' && (
-                      <HabitFields
-                        name={habitName}
-                        onNameChange={setHabitName}
-                        frequency={habitFrequency}
-                        onFrequencyChange={setHabitFrequency}
-                        subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
-                        onSubtypeChange={setHabitSubtype}
-                        disabled={false}
-                        frequencyValue={habitFrequencyValue}
-                        onFrequencyValueChange={setHabitFrequencyValue}
-                        reminders={habitReminders}
-                        onRemindersChange={setHabitReminders}
-                        details={habitDetails}
-                        onDetailsChange={setHabitDetails}
-                        breakHabitState={habitBreakState}
-                        onBreakHabitStateChange={setHabitBreakState}
-                      />
+                      <>
+                        <HabitFields
+                          name={habitName}
+                          onNameChange={setHabitName}
+                          frequency={habitFrequency}
+                          onFrequencyChange={setHabitFrequency}
+                          subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
+                          onSubtypeChange={setHabitSubtype}
+                          disabled={false}
+                          frequencyValue={habitFrequencyValue}
+                          onFrequencyValueChange={setHabitFrequencyValue}
+                          reminders={habitReminders}
+                          onRemindersChange={setHabitReminders}
+                          details={habitDetails}
+                          onDetailsChange={setHabitDetails}
+                          breakHabitState={habitBreakState}
+                          onBreakHabitStateChange={setHabitBreakState}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'todo' && (
-                      <TodoFields
-                        name={todoName}
-                        onNameChange={setTodoName}
-                        dueDate={todoDueDate}
-                        onDueDateChange={setTodoDueDate}
-                        dueTime={todoDueTime}
-                        onDueTimeChange={setTodoDueTime}
-                        details={todoDetails}
-                        onDetailsChange={setTodoDetails}
-                        disabled={false}
-                      />
+                      <>
+                        <TodoFields
+                          name={todoName}
+                          onNameChange={setTodoName}
+                          dueDate={todoDueDate}
+                          onDueDateChange={setTodoDueDate}
+                          dueTime={todoDueTime}
+                          onDueTimeChange={setTodoDueTime}
+                          details={todoDetails}
+                          onDetailsChange={setTodoDetails}
+                          disabled={false}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'log' && selectedLogSubtype === 'journal' && (
-                      <JournalFields
-                        date={journalDate}
-                        onDateChange={setJournalDate}
-                        entry={journalEntry}
-                        onEntryChange={setJournalEntry}
-                        mood={journalMood}
-                        onMoodChange={setJournalMood}
-                        details={journalDetails}
-                        onDetailsChange={setJournalDetails}
-                        disabled={false}
-                      />
+                      <>
+                        <JournalFields
+                          date={journalDate}
+                          onDateChange={setJournalDate}
+                          entry={journalEntry}
+                          onEntryChange={setJournalEntry}
+                          mood={journalMood}
+                          onMoodChange={setJournalMood}
+                          details={journalDetails}
+                          onDetailsChange={setJournalDetails}
+                          disabled={false}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'log' && selectedLogSubtype === 'person' && (
-                      <PersonFields
-                        name={personName}
-                        onNameChange={setPersonName}
-                        details={personDetails}
-                        onDetailsChange={setPersonDetails}
-                        disabled={false}
-                      />
+                      <>
+                        <PersonFields
+                          name={personName}
+                          onNameChange={setPersonName}
+                          details={personDetails}
+                          onDetailsChange={setPersonDetails}
+                          disabled={false}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'log' &&
                       selectedLogSubtype !== 'journal' &&
                       selectedLogSubtype !== 'person' && (
+                        <>
+                          <NoteFields
+                            title={noteTitle}
+                            onTitleChange={setNoteTitle}
+                            body={noteBody}
+                            onBodyChange={setNoteBody}
+                            details={noteDetails}
+                            onDetailsChange={setNoteDetails}
+                            disabled={false}
+                          />
+                          <TagsField
+                            value={tagsState}
+                            onChange={handleTagsChange}
+                            disabled={submitting}
+                            testID="overlay-tags-field"
+                            removedRef={removedTagsRef}
+                          />
+                        </>
+                      )}
+                    {selectedType === 'unsorted' && (
+                      <>
                         <NoteFields
                           title={noteTitle}
                           onTitleChange={setNoteTitle}
@@ -2420,17 +2673,14 @@ export function UnifiedCreateOverlay({
                           onDetailsChange={setNoteDetails}
                           disabled={false}
                         />
-                      )}
-                    {selectedType === 'unsorted' && (
-                      <NoteFields
-                        title={noteTitle}
-                        onTitleChange={setNoteTitle}
-                        body={noteBody}
-                        onBodyChange={setNoteBody}
-                        details={noteDetails}
-                        onDetailsChange={setNoteDetails}
-                        disabled={false}
-                      />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                   </Animated.View>
                 );
@@ -2458,10 +2708,10 @@ export function UnifiedCreateOverlay({
                       userId={userId || ''}
                       itemId={mode === 'edit' ? initialEntity?.id || null : null}
                       itemType={itemType}
-                      currentTags={phase8Links.currentTags}
+                      currentTags={tagEditorTags}
                       allTags={phase8Links.allTags}
                       onTagsChange={(tags) => {
-                        // Tags are managed by the hook; this is just for UI sync if needed
+                        setTagEditorTags(tags);
                       }}
                       onAddTag={phase8Links.addTag}
                       onLinkTag={phase8Links.linkTag}
@@ -2474,7 +2724,7 @@ export function UnifiedCreateOverlay({
                       itemId={mode === 'edit' ? initialEntity?.id || null : null}
                       itemType={itemType}
                       linkedPeople={phase8Links.linkedPeople}
-                      onPeopleChange={(people) => {
+                      onPeopleChange={(_people) => {
                         // People are managed by the hook; this is just for UI sync if needed
                       }}
                       onLinkPerson={phase8Links.linkPerson}

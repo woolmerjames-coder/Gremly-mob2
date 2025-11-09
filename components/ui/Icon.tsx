@@ -17,7 +17,8 @@ export type IconName =
   | 'Tag' // Tags
   | 'Circle' // Generic/placeholder
   | 'X' // Close
-  | 'MoreHorizontal'; // Overflow menu
+  | 'MoreHorizontal' // Overflow menu
+  | 'Archive'; // Archive icon for unsorted items
 
 // Map entity types to icons
 export const entityTypeToIcon: Record<string, IconName> = {

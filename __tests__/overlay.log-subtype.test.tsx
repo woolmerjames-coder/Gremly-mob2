@@ -127,35 +127,6 @@ describe('UnifiedCreateOverlay – Canonical Logs', () => {
     }
   });
 
-  it('renders subtype chips and toggles between journal and note fields', async () => {
-    const { getByTestId, queryByTestId } = renderOverlay();
-
-    fireEvent.press(getByTestId('type-pill-log'));
-
-    await waitFor(() => {
-      expect(getByTestId('log-subtype-journal')).toBeTruthy();
-    });
-
-    // Default subtype should show note fields
-    await waitFor(() => {
-      expect(getByTestId('note-body')).toBeTruthy();
-    });
-
-    fireEvent.press(getByTestId('log-subtype-journal'));
-
-    await waitFor(() => {
-      expect(getByTestId('journal-entry')).toBeTruthy();
-    });
-    expect(queryByTestId('note-body')).toBeNull();
-
-    fireEvent.press(getByTestId('log-subtype-list'));
-
-    await waitFor(() => {
-      expect(getByTestId('note-body')).toBeTruthy();
-    });
-    expect(queryByTestId('journal-entry')).toBeNull();
-  });
-
   it('shows "Log" pill label when canonical types are enabled', () => {
     const { getByTestId } = renderOverlay();
     const logChip = getByTestId('type-pill-log');
@@ -163,72 +134,56 @@ describe('UnifiedCreateOverlay – Canonical Logs', () => {
   });
 
   it.each([
-    ['list', 'list'],
-    ['idea', 'idea'],
-    ['person', 'catchall'],
-    ['everything_else', 'catchall'],
-  ])('saves %s logs using canonical note subtype %s', async (logSubtype, expectedSubtype) => {
+    ['*journal', 'journal'],
+    ['*list', 'list'],
+    ['*idea', 'idea'],
+  ])('derives %s star tag into %s subtype when saving logs', async (starTag, expectedSubtype) => {
     const onClose = jest.fn();
     const { getByTestId } = renderOverlay({ onClose });
 
     fireEvent.press(getByTestId('type-pill-log'));
-    await waitFor(() => expect(getByTestId(`log-subtype-${logSubtype}`)).toBeTruthy());
 
-    fireEvent.press(getByTestId(`log-subtype-${logSubtype}`));
+    await waitFor(() => expect(getByTestId('note-body')).toBeTruthy());
 
-    if (logSubtype === 'person') {
-      await waitFor(() => expect(getByTestId('person-name')).toBeTruthy());
-      fireEvent.changeText(getByTestId('person-name'), 'Ada Lovelace');
-      fireEvent.changeText(getByTestId('person-notes'), `Body for ${logSubtype}`);
-    } else {
-      await waitFor(() => expect(getByTestId('note-body')).toBeTruthy());
-      fireEvent.changeText(getByTestId('note-body'), `Body for ${logSubtype}`);
-    }
+    fireEvent.changeText(getByTestId('note-body'), `Body for ${starTag}`);
 
-    fireEvent.press(getByTestId('save-to-hub'));
-
-    const repoMethod = logSubtype === 'person' ? mockRepo.createPerson : mockRepo.create;
-
-    await waitFor(() => expect(repoMethod).toHaveBeenCalled());
-
-    if (logSubtype === 'person') {
-      expect(mockRepo.createPerson).toHaveBeenCalledWith(
-        expect.objectContaining({ display_name: 'Ada Lovelace' }),
-      );
-      expect(mockRepo.create).not.toHaveBeenCalled();
-    } else {
-      expect(mockRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'note', subtype: expectedSubtype }),
-      );
-    }
-
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    if (logSubtype === 'person') {
-      mockRepo.createPerson.mockClear();
-    } else {
-      mockRepo.create.mockClear();
-    }
-  });
-
-  it('saves journal subtype using canonical adapter and journal fields', async () => {
-    const onClose = jest.fn();
-    const { getByTestId, queryByTestId } = renderOverlay({ onClose });
-
-    fireEvent.press(getByTestId('type-pill-log'));
-    await waitFor(() => expect(getByTestId('log-subtype-journal')).toBeTruthy());
-
-    fireEvent.press(getByTestId('log-subtype-journal'));
-    await waitFor(() => expect(getByTestId('journal-entry')).toBeTruthy());
-    expect(queryByTestId('note-body')).toBeNull();
-
-    fireEvent.changeText(getByTestId('journal-entry'), 'Daily reflection');
-    fireEvent.press(getByTestId('mood-happy'));
+    const tagsInput = getByTestId('overlay-tags-field-input');
+    fireEvent.changeText(tagsInput, starTag);
+    fireEvent(tagsInput, 'onSubmitEditing', { nativeEvent: { text: starTag } });
 
     fireEvent.press(getByTestId('save-to-hub'));
 
     await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
     expect(mockRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'note', subtype: 'journal', body: 'Daily reflection' }),
+      expect.objectContaining({
+        type: 'note',
+        subtype: expectedSubtype,
+        tags: expect.arrayContaining([starTag]),
+      }),
+    );
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('defaults to catchall subtype when no star tag is present', async () => {
+    const onClose = jest.fn();
+    const { getByTestId } = renderOverlay({ onClose });
+
+    fireEvent.press(getByTestId('type-pill-log'));
+
+    await waitFor(() => expect(getByTestId('note-body')).toBeTruthy());
+
+    fireEvent.changeText(getByTestId('note-body'), 'Plain log');
+
+    const tagsInput = getByTestId('overlay-tags-field-input');
+    fireEvent.changeText(tagsInput, '#routine');
+    fireEvent(tagsInput, 'onSubmitEditing', { nativeEvent: { text: '#routine' } });
+
+    fireEvent.press(getByTestId('save-to-hub'));
+
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
+    expect(mockRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'note', subtype: 'catchall' }),
     );
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
