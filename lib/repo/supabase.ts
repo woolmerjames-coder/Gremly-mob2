@@ -164,6 +164,7 @@ function mapHabitFromDb(dbRecord: any): any {
     frequency_value: dbRecord.frequency_json,
     reminders: dbRecord.reminders_json,
     triggers: dbRecord.triggers_json,
+    tags: dbRecord.tags ?? null,
   };
 }
 
@@ -183,6 +184,7 @@ function mapTodoFromDb(dbRecord: any): any {
     title: dbRecord.name, // Backwards compatibility in app code
     // Map jsonb column to TS field
     reminders: dbRecord.reminders_json,
+    tags: dbRecord.tags ?? null,
   };
 }
 
@@ -195,6 +197,7 @@ function mapNoteFromDb(dbRecord: any): any {
     ...dbRecord,
     // Map jsonb column to TS field (used for journal entries)
     reminders: dbRecord.reminders_json,
+    tags: dbRecord.tags ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
   };
 }
@@ -400,7 +403,7 @@ export class SupabaseRepo implements IRepo {
     const { data: result, error } = await supabase
       .from(table)
       .insert(payloadWithOwnerId)
-      .select()
+      .select('*')
       .single();
 
     if (error) {
@@ -499,6 +502,8 @@ export class SupabaseRepo implements IRepo {
       if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
     }
 
+    if ('tags' in patch) updatePayload.tags = patch.tags ?? null;
+
     if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
     if ('canonicalType' in patch) updatePayload.canonical_type = patch.canonicalType ?? null;
     if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
@@ -509,7 +514,7 @@ export class SupabaseRepo implements IRepo {
       .from(table)
       .update(updatePayload)
       .eq('id', id)
-      .select()
+      .select('*')
       .single();
 
     if (error) {
@@ -970,7 +975,7 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const day = ensureDay(nowIso);
 
-    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward';
+    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward,tags';
     const todoFields = `${todoFieldsBase},completed_at`;
 
     let activeTodos: any[] | null = null;
@@ -1032,7 +1037,7 @@ export class SupabaseRepo implements IRepo {
         due_date: t.due_date,
         due_day: t.due_day,
         space_id: t.space_id ?? null,
-        tags: [],
+        tags: Array.isArray(t.tags) ? t.tags : [],
         status,
         carry_forward: !!t.carry_forward,
         overdue,
@@ -1047,7 +1052,7 @@ export class SupabaseRepo implements IRepo {
     try {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
-        .select('id,name,space_id,cadence,target_count,period_unit,time_window')
+        .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags')
         .eq('owner_id', userId);
 
       if (habitsErr) throw habitsErr;
@@ -1090,7 +1095,7 @@ export class SupabaseRepo implements IRepo {
             id: h.id,
             name: h.name,
             space_id: h.space_id ?? null,
-            tags: [],
+            tags: Array.isArray(h.tags) ? h.tags : [],
             cadence: (h.cadence as any) || 'day',
             target_count: target,
             period_unit: (h.period_unit as any) || 'day',
