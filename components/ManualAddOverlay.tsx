@@ -29,6 +29,8 @@ import { useCortex } from '../providers/CortexProvider';
 import { useRepo } from '../providers/RepoProvider';
 import type { CortexOutput } from '../cortex/ICortexEngine';
 import type { CreateRecordInput } from '../lib/repo/IRepo';
+import type { NoteSubtype } from '../lib/types';
+import { normalizeTags, deriveLogSubtypeFromTags } from '../lib/tags/normalize';
 
 type TabType = 'habits' | 'todos' | 'journal' | 'catchall';
 
@@ -89,40 +91,12 @@ export function ManualAddOverlay({
 
         // Map classification to repo payload
         const trimmedText = inputText.trim();
-        const finalPayload: CreateRecordInput = res
-          ? res.type === 'note'
-            ? {
-                type: 'note' as const,
-                title: trimmedText || 'Quick note',
-                body: trimmedText,
-                subtype: res.subtype || 'catchall',
-                space_id: null,
-                ai_placed: res.aiPlaced || false,
-                why_string: res.whyString || 'Heuristic default.',
-                tags: res.tags ?? null,
-              }
-            : res.type === 'todo'
-              ? {
-                  type: 'todo' as const,
-                  title: inputText,
-                  body: inputText,
-                  due_date: null,
-                  undefined_due: true,
-                  space_id: null,
-                  ai_placed: res.aiPlaced || false,
-                  why_string: res.whyString || 'Classified as todo.',
-                  tags: res.tags ?? null,
-                }
-              : {
-                  type: 'habit' as const,
-                  title: inputText,
-                  frequency: (res as any).frequency || 'daily',
-                  space_id: null,
-                  ai_placed: res.aiPlaced || false,
-                  why_string: res.whyString || 'Classified as habit.',
-                  tags: res.tags ?? null,
-                }
-          : {
+        const normalizedTags = normalizeTags(res?.tags ?? []);
+        const tags = normalizedTags.length ? normalizedTags : null;
+
+        const finalPayload: CreateRecordInput = (() => {
+          if (!res) {
+            return {
               type: 'note' as const,
               title: trimmedText || 'Quick note',
               body: trimmedText,
@@ -130,8 +104,59 @@ export function ManualAddOverlay({
               space_id: null,
               ai_placed: false,
               why_string: 'Heuristic default.',
-              tags: null,
+              tags,
             };
+          }
+
+          if (res.type === 'note') {
+            const starSubtype = deriveLogSubtypeFromTags(normalizedTags);
+            const adaptedStarSubtype: NoteSubtype | null = (() => {
+              if (!starSubtype) return null;
+              if (starSubtype === 'meeting') {
+                return 'list';
+              }
+              return starSubtype as NoteSubtype;
+            })();
+            const derivedSubtype: NoteSubtype =
+              adaptedStarSubtype ?? (res.subtype as NoteSubtype | null | undefined) ?? 'catchall';
+
+            return {
+              type: 'note' as const,
+              title: trimmedText || 'Quick note',
+              body: trimmedText,
+              subtype: derivedSubtype,
+              space_id: null,
+              ai_placed: res.aiPlaced || false,
+              why_string: res.whyString || 'Heuristic default.',
+              tags,
+            };
+          }
+
+          if (res.type === 'todo') {
+            return {
+              type: 'todo' as const,
+              name: inputText,
+              title: inputText,
+              body: inputText,
+              due_date: null,
+              undefined_due: true,
+              space_id: null,
+              ai_placed: res.aiPlaced || false,
+              why_string: res.whyString || 'Classified as todo.',
+              tags,
+            };
+          }
+
+          return {
+            type: 'habit' as const,
+            name: inputText,
+            frequency: (res as any).frequency || 'daily',
+            space_id: null,
+            ai_placed: res.aiPlaced || false,
+            why_string: res.whyString || 'Classified as habit.',
+            tags,
+          };
+        })();
 
         if (DEBUG) {
           console.log('[OVERLAY][CATCHALL] final payload:', finalPayload);
