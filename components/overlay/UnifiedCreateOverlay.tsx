@@ -250,12 +250,15 @@ export function UnifiedCreateOverlay({
   // State - with robust defaults
   // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
   const [selectedType, setSelectedType] = useState<EntityType | null>(normalizedInitialType);
-  const [selectedLogSubtype, setSelectedLogSubtype] =
-    useState<LogSubtype | null>(normalizedInitialSubtype);
+  const [selectedLogSubtype, setSelectedLogSubtype] = useState<LogSubtype | null>(
+    normalizedInitialSubtype,
+  );
   const hasSyncedInitialTypeRef = useRef(false);
-  const lastHydratedSelectionRef = useRef<
-    { id: string | null; type: EntityType | null; logSubtype: LogSubtype | null } | null
-  >(null);
+  const lastHydratedSelectionRef = useRef<{
+    id: string | null;
+    type: EntityType | null;
+    logSubtype: LogSubtype | null;
+  } | null>(null);
 
   const normalizedInitialSelection = useMemo(
     () => ({
@@ -960,7 +963,7 @@ export function UnifiedCreateOverlay({
     setAiMode(false);
     setHydration('idle');
     setFreeformText('');
-  setSelectedLogSubtype(null);
+    setSelectedLogSubtype(null);
     setHabitName('');
     setHabitFrequency('daily');
     setHabitSubtype(null);
@@ -1447,6 +1450,7 @@ export function UnifiedCreateOverlay({
                         space_id: targetSpaceId,
                         ai_placed: true,
                         why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                        tags: classification.tags ?? null,
                       };
                       const habit = await repo.create(habitInput);
                       newItemId = habit.id;
@@ -1469,6 +1473,7 @@ export function UnifiedCreateOverlay({
                         space_id: targetSpaceId,
                         ai_placed: true,
                         why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                        tags: classification.tags ?? null,
                       };
                       const todo = await repo.create(todoInput);
                       newItemId = todo.id;
@@ -1490,6 +1495,7 @@ export function UnifiedCreateOverlay({
                         space_id: targetSpaceId,
                         ai_placed: true,
                         why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                        tags: classification.tags ?? null,
                       };
                       const note = await repo.create(noteInput);
                       newItemId = note.id;
@@ -1511,6 +1517,7 @@ export function UnifiedCreateOverlay({
                         space_id: targetSpaceId,
                         ai_placed: true,
                         why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                        tags: classification.tags ?? null,
                       };
                       const journal = await repo.create(journalInput);
                       newItemId = journal.id;
