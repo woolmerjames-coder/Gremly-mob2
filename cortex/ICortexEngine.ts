@@ -6,13 +6,24 @@ export type CortexOutput =
       frequency: 'daily' | 'weekly' | 'monthly';
       aiPlaced: boolean;
       whyString: string;
+      /** AI-suggested tags the user can edit before saving */
+      tags?: string[];
     }
-  | { type: 'todo'; undefinedDue: boolean; aiPlaced: boolean; whyString: string }
+  | {
+      type: 'todo';
+      undefinedDue: boolean;
+      aiPlaced: boolean;
+      whyString: string;
+      /** AI-suggested tags the user can edit before saving */
+      tags?: string[];
+    }
   | {
       type: 'note';
       subtype: 'journal' | 'list' | 'idea' | 'catchall';
       aiPlaced: boolean;
       whyString: string;
+      /** AI-suggested tags the user can edit before saving */
+      tags?: string[];
     };
 
 export interface CortexInput {
