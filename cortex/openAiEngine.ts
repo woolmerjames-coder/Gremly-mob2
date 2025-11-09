@@ -1,5 +1,6 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
+import { normalizeTag, normalizeTags } from '../lib/tags/normalize';
 
 interface OpenAiEngineConfig {
   apiKey: string; // Kept for backward compatibility but no longer used
@@ -116,10 +117,27 @@ const TYPE_TAG_PRIORITY: Array<'*journal' | '*list' | '*meeting' | '*idea'> = [
   '*idea',
 ];
 
+const TYPE_TAG_SET = new Set(TYPE_TAG_PRIORITY);
+
+function coerceTypeTag(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('*')) {
+    const { tag } = normalizeTag(trimmed);
+    return tag && TYPE_TAG_SET.has(tag as (typeof TYPE_TAG_PRIORITY)[number]) ? tag : null;
+  }
+
+  const collapsed = trimmed.toLowerCase().replace(/[^a-z]/g, '');
+  if (!collapsed) return null;
+  const candidate = `*${collapsed}` as (typeof TYPE_TAG_PRIORITY)[number] | string;
+  return TYPE_TAG_SET.has(candidate as (typeof TYPE_TAG_PRIORITY)[number]) ? candidate : null;
+}
+
 function sanitizeTags(rawTags: RawClassification['tags']): string[] {
   if (!Array.isArray(rawTags)) return [];
 
-  const people: string[] = [];
+  const mentions: string[] = [];
   const topics: string[] = [];
   let chosenType: string | null = null;
   let chosenPriority = TYPE_TAG_PRIORITY.length;
@@ -129,61 +147,37 @@ function sanitizeTags(rawTags: RawClassification['tags']): string[] {
     const trimmed = value.trim();
     if (!trimmed) continue;
 
-    if (trimmed.startsWith('@')) {
-      const body = trimmed.slice(1).trim();
-      if (!body) continue;
-      const normalizedBody = body.replace(/\s+/g, '');
-      if (!normalizedBody) continue;
-      const personTag = `@${normalizedBody}`;
-      if (!people.includes(personTag)) people.push(personTag);
-      continue;
-    }
-
-    const lower = trimmed.toLowerCase();
-    const candidateType = (() => {
-      if (trimmed.startsWith('*')) {
-        const body = trimmed
-          .slice(1)
-          .toLowerCase()
-          .replace(/[^a-z]/g, '');
-        return body ? `*${body}` : null;
-      }
-      const cleaned = lower.replace(/[^a-z]/g, '');
-      if (!cleaned) return null;
-      return `*${cleaned}`;
-    })();
-
-    if (
-      candidateType &&
-      TYPE_TAG_PRIORITY.includes(candidateType as (typeof TYPE_TAG_PRIORITY)[number])
-    ) {
-      const priority = TYPE_TAG_PRIORITY.indexOf(
-        candidateType as (typeof TYPE_TAG_PRIORITY)[number],
-      );
+    const coercedType = coerceTypeTag(trimmed);
+    if (coercedType) {
+      const priority = TYPE_TAG_PRIORITY.indexOf(coercedType as (typeof TYPE_TAG_PRIORITY)[number]);
       if (priority !== -1 && priority < chosenPriority) {
-        chosenType = candidateType;
+        chosenType = coercedType;
         chosenPriority = priority;
       }
       continue;
     }
 
-    const topicBody = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
-    const normalizedTopic = topicBody.trim().toLowerCase().replace(/\s+/g, '_');
-    if (!normalizedTopic) continue;
-    const topicTag = `#${normalizedTopic}`;
-    if (!topics.includes(topicTag)) topics.push(topicTag);
+    const { tag } = normalizeTag(trimmed);
+    if (!tag) continue;
+
+    if (tag.startsWith('@')) {
+      if (!mentions.includes(tag)) mentions.push(tag);
+      continue;
+    }
+
+    if (tag.startsWith('*')) {
+      const priority = TYPE_TAG_PRIORITY.indexOf(tag as (typeof TYPE_TAG_PRIORITY)[number]);
+      if (priority !== -1 && priority < chosenPriority) {
+        chosenType = tag;
+        chosenPriority = priority;
+      }
+      continue;
+    }
+
+    topics.push(tag);
   }
 
-  const deduped: string[] = [];
-  const seen = new Set<string>();
-  const ordered = [...people, ...(chosenType ? [chosenType] : []), ...topics];
-  for (const tag of ordered) {
-    if (seen.has(tag)) continue;
-    seen.add(tag);
-    deduped.push(tag);
-  }
-
-  return deduped;
+  return normalizeTags([...mentions, ...(chosenType ? [chosenType] : []), ...topics]);
 }
 
 function clamp01(n: unknown): number {

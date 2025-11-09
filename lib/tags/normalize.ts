@@ -1,11 +1,11 @@
+import type { LogSubtype } from '../types';
+
 const STAR_TAGS = ['*journal', '*list', '*meeting', '*idea'] as const;
 
-type StarSubtype = 'journal' | 'list' | 'meeting' | 'idea';
-
-const STAR_TAG_SUBTYPE: Record<(typeof STAR_TAGS)[number], StarSubtype> = {
+const STAR_TAG_SUBTYPE: Record<(typeof STAR_TAGS)[number], LogSubtype> = {
   '*journal': 'journal',
   '*list': 'list',
-  '*meeting': 'meeting',
+  '*meeting': 'list',
   '*idea': 'idea',
 };
 
@@ -25,7 +25,7 @@ function sanitizeHashtagBody(body: string): string | null {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_]/g, '');
+    .replace(/[^a-z0-9_-]/g, '');
 
   if (!normalized) {
     return null;
@@ -177,15 +177,15 @@ export function recordRemovedTags(
   return nextNormalized;
 }
 
-export function deriveLogSubtypeFromTags(tags: string[]): StarSubtype | null {
-  const normalized = normalizeTags(tags);
+export function deriveLogSubtypeFromTags(tags?: string[]): LogSubtype {
+  const normalized = normalizeTags(tags ?? []);
   const starTag = normalized.find((tag) => tag.startsWith('*')) as
     | (typeof STAR_TAGS)[number]
     | undefined;
 
   if (!starTag) {
-    return null;
+    return 'everything_else';
   }
 
-  return STAR_TAG_SUBTYPE[starTag] ?? null;
+  return STAR_TAG_SUBTYPE[starTag] ?? 'everything_else';
 }

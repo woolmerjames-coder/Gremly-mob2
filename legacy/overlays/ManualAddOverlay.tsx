@@ -32,6 +32,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import type { CortexOutput } from '../../cortex/ICortexEngine';
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { AppRecord, NoteSubtype } from '../../lib/types';
+import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
 
 type TabType = 'habits' | 'todos' | 'journal' | 'catchall';
 
@@ -211,6 +212,9 @@ export function ManualAddOverlay({
         // Map classification to repo payload
         let finalPayload: CreateRecordInput;
 
+        const normalizedTags = normalizeTags(res?.tags ?? []);
+        const tags = normalizedTags.length ? normalizedTags : null;
+
         // Determine space_id: use currentSpaceId if provided, otherwise null
         const spaceId = currentSpaceId !== undefined ? currentSpaceId : null;
         const trimmedText = inputText.trim();
@@ -224,21 +228,38 @@ export function ManualAddOverlay({
             space_id: spaceId,
             ai_placed: false,
             why_string: 'Heuristic default.',
-            tags: null,
+            tags,
           };
         } else {
           switch (res.type) {
             case 'note':
-              finalPayload = {
-                type: 'note',
-                title: trimmedText || 'Quick note',
-                body: trimmedText,
-                subtype: res.subtype || 'catchall',
-                space_id: spaceId,
-                ai_placed: res.aiPlaced || false,
-                why_string: res.whyString || 'Heuristic default.',
-                tags: res.tags ?? null,
-              };
+              {
+                const derivedLogSubtype = deriveLogSubtypeFromTags(normalizedTags);
+                const mappedSubtype: NoteSubtype | null = (() => {
+                  switch (derivedLogSubtype) {
+                    case 'journal':
+                      return 'journal';
+                    case 'list':
+                      return 'list';
+                    case 'idea':
+                      return 'idea';
+                    default:
+                      return null;
+                  }
+                })();
+                const subtype: NoteSubtype =
+                  mappedSubtype ?? (res.subtype as NoteSubtype | null | undefined) ?? 'catchall';
+                finalPayload = {
+                  type: 'note',
+                  title: trimmedText || 'Quick note',
+                  body: trimmedText,
+                  subtype,
+                  space_id: spaceId,
+                  ai_placed: res.aiPlaced || false,
+                  why_string: res.whyString || 'Heuristic default.',
+                  tags,
+                };
+              }
               break;
             case 'todo':
               finalPayload = {
@@ -250,7 +271,7 @@ export function ManualAddOverlay({
                 space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as todo.',
-                tags: res.tags ?? null,
+                tags,
               };
               break;
             case 'habit':
@@ -262,7 +283,7 @@ export function ManualAddOverlay({
                 space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as habit.',
-                tags: res.tags ?? null,
+                tags,
               };
               break;
           }

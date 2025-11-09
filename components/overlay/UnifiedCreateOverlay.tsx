@@ -647,8 +647,9 @@ export function UnifiedCreateOverlay({
     return filtered.length > 0 ? filtered : null;
   }, [tagEditorTagNames, tagsState]);
 
+  const derivedLogSubtype = selectedType === 'log' ? deriveLogSubtypeFromTags(tagsState) : null;
   const effectiveLogSubtype =
-    selectedType === 'log' ? (deriveLogSubtypeFromTags(tagsState) as LogSubtype | null) : null;
+    derivedLogSubtype && derivedLogSubtype !== 'everything_else' ? derivedLogSubtype : null;
 
   useEffect(() => {
     latestTagsRef.current = tagsState;
@@ -1614,13 +1615,14 @@ export function UnifiedCreateOverlay({
                   const classification = finalResult.classification;
                   const originalNoteId = newItem.id;
                   const originalText = noteText;
-                  const incomingClassificationTags = (classification.tags ?? []).filter(
+                  const classificationTags = normalizeTags(classification.tags ?? []);
+                  const filteredClassificationTags = classificationTags.filter(
                     (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
                   );
 
                   const mergedTagState = normalizeTags([
                     ...manualTagsSnapshot,
-                    ...incomingClassificationTags,
+                    ...filteredClassificationTags,
                   ]);
                   const combinedTagsForPayload = normalizeTags([
                     ...mergedTagState,
@@ -1630,6 +1632,9 @@ export function UnifiedCreateOverlay({
                     (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
                   );
                   const tagsPayload = filteredCombinedTags.length > 0 ? filteredCombinedTags : null;
+                  const tags =
+                    tagsPayload ??
+                    (filteredClassificationTags.length > 0 ? filteredClassificationTags : null);
 
                   // Normalize category to lowercase for matching
                   const category = classification.category.toLowerCase();
@@ -1668,7 +1673,7 @@ export function UnifiedCreateOverlay({
                           space_id: targetSpaceId,
                           ai_placed: true,
                           why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                          tags: tagsPayload,
+                          tags,
                         };
                         const habit = await repo.create(habitInput);
                         newItemId = habit.id;
@@ -1691,7 +1696,7 @@ export function UnifiedCreateOverlay({
                           space_id: targetSpaceId,
                           ai_placed: true,
                           why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                          tags: tagsPayload,
+                          tags,
                         };
                         const todo = await repo.create(todoInput);
                         newItemId = todo.id;
@@ -1705,15 +1710,30 @@ export function UnifiedCreateOverlay({
                       }
 
                       case 'note': {
+                        const tagsForSubtype = tags ?? filteredClassificationTags;
+                        const derivedSubtype = deriveLogSubtypeFromTags(tagsForSubtype);
+                        const resolvedSubtype: NoteSubtype = (() => {
+                          switch (derivedSubtype) {
+                            case 'journal':
+                              return 'journal';
+                            case 'list':
+                              return 'list';
+                            case 'idea':
+                              return 'idea';
+                            default:
+                              return 'idea';
+                          }
+                        })();
+
                         const noteInput: CreateRecordInput = {
                           type: 'note',
                           title: originalText.slice(0, 100),
                           body: originalText,
-                          subtype: 'idea',
+                          subtype: resolvedSubtype,
                           space_id: targetSpaceId,
                           ai_placed: true,
                           why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                          tags: tagsPayload,
+                          tags,
                         };
                         const note = await repo.create(noteInput);
                         newItemId = note.id;
@@ -1735,7 +1755,7 @@ export function UnifiedCreateOverlay({
                           space_id: targetSpaceId,
                           ai_placed: true,
                           why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                          tags: tagsPayload,
+                          tags,
                         };
                         const journal = await repo.create(journalInput);
                         newItemId = journal.id;

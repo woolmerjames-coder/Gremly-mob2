@@ -1,4 +1,5 @@
 import type { ICortexEngine, CortexInput, CortexOutput } from './ICortexEngine';
+import { normalizeTags } from '../lib/tags/normalize';
 
 // ultra-light rules for Phase 3 to unblock UI/tests.
 // Never auto-assign "today" here — just suggest type and rationale.
@@ -311,7 +312,7 @@ function generateTags(
     addTag(normalized);
   }
 
-  return finalTags;
+  return normalizeTags(finalTags);
 }
 
 export class HeuristicEngine implements ICortexEngine {

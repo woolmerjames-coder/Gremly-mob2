@@ -109,16 +109,21 @@ export function ManualAddOverlay({
           }
 
           if (res.type === 'note') {
-            const starSubtype = deriveLogSubtypeFromTags(normalizedTags);
-            const adaptedStarSubtype: NoteSubtype | null = (() => {
-              if (!starSubtype) return null;
-              if (starSubtype === 'meeting') {
-                return 'list';
+            const derivedLogSubtype = deriveLogSubtypeFromTags(normalizedTags);
+            const adaptedSubtype: NoteSubtype | null = (() => {
+              switch (derivedLogSubtype) {
+                case 'journal':
+                  return 'journal';
+                case 'list':
+                  return 'list';
+                case 'idea':
+                  return 'idea';
+                default:
+                  return null;
               }
-              return starSubtype as NoteSubtype;
             })();
             const derivedSubtype: NoteSubtype =
-              adaptedStarSubtype ?? (res.subtype as NoteSubtype | null | undefined) ?? 'catchall';
+              adaptedSubtype ?? (res.subtype as NoteSubtype | null | undefined) ?? 'catchall';
 
             return {
               type: 'note' as const,
