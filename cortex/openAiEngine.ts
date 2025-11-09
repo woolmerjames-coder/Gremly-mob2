@@ -188,6 +188,45 @@ const EMOTION_WORDS = [
   'calm',
   'stressed',
 ] as const;
+const PERSON_DISALLOWED = new Set([
+  'Call',
+  'Email',
+  'Schedule',
+  'Book',
+  'Plan',
+  'Meet',
+  'Send',
+  'Pay',
+  'Pick',
+  'Follow',
+  'Check',
+  'Draft',
+  'Review',
+  'Remind',
+  'Tell',
+  'Ask',
+  'Bring',
+  'Buy',
+  'Organize',
+  'Write',
+  'Prepare',
+  ...EMOTION_WORDS.map((word) => word.charAt(0).toUpperCase() + word.slice(1)),
+]);
+const PERSON_ALLOWED_SINGLE = new Set([
+  'Mom',
+  'Dad',
+  'Grandma',
+  'Grandpa',
+  'Granddad',
+  'Grandad',
+  'Brother',
+  'Sister',
+  'Coach',
+  'Boss',
+  'Partner',
+  'Therapist',
+  'Doctor',
+]);
 const REFLECTION_PATTERNS = ['i feel', 'i think', 'reflection', 'felt ', 'feeling '] as const;
 const IDEA_PATTERNS = ['idea:', 'what if', 'could we', 'maybe we'] as const;
 const LIST_LINE_REGEX = /^\s*(?:[-*]|\d+[.)])\s+/;
@@ -253,12 +292,27 @@ export function buildFallbackTags(
     }
   }
 
-  for (const word of words) {
-    if (people.size >= 2) break;
-    if (!/^[A-Z][a-z]{2,}$/.test(word)) continue;
-    const lowerWord = word.toLowerCase();
-    if (STOPWORDS.has(lowerWord)) continue;
-    people.add(`@${word}`);
+  const tokens = text.split(/\s+/);
+  const capitalizeRegex = /^[A-Z][a-z]{2,}$/;
+  for (let i = 0; i < tokens.length && people.size < 2; i += 1) {
+    const current = tokens[i].replace(/[^A-Za-z]/g, '');
+    if (!capitalizeRegex.test(current)) continue;
+    if (PERSON_DISALLOWED.has(current)) continue;
+    if (EMOTION_WORDS.includes(current.toLowerCase() as (typeof EMOTION_WORDS)[number])) continue;
+
+    const nextToken = tokens[i + 1]?.replace(/[^A-Za-z]/g, '') ?? null;
+    const nextIsCapitalized = nextToken ? capitalizeRegex.test(nextToken) : false;
+
+    if (nextIsCapitalized && nextToken && !PERSON_DISALLOWED.has(nextToken)) {
+      const combined = `${current}${nextToken}`;
+      people.add(`@${combined}`);
+      i += 1;
+      continue;
+    }
+
+    if (PERSON_ALLOWED_SINGLE.has(current)) {
+      people.add(`@${current}`);
+    }
   }
 
   tags.push(...people);

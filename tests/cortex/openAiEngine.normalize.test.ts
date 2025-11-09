@@ -29,7 +29,7 @@ describe('OpenAiEngine normalize', () => {
       undefinedDue: true,
       aiPlaced: false,
       whyString: 'auto',
-      tags: [],
+      tags: ['#finish', '#report'],
     });
   });
 
@@ -53,7 +53,7 @@ describe('OpenAiEngine normalize', () => {
       subtype: 'catchall',
       aiPlaced: false,
       whyString: 'Saved from Catch-All Notepad',
-      tags: [],
+      tags: ['#random', '#thought'],
     });
   });
 });

@@ -112,6 +112,46 @@ const STOPWORDS = new Set([
 
 const EMOTION_WORDS = ['anxious', 'grateful', 'excited', 'overwhelmed', 'calm', 'stressed'];
 
+const PERSON_VERB_STARTERS = [
+  'Call',
+  'Email',
+  'Schedule',
+  'Book',
+  'Plan',
+  'Meet',
+  'Send',
+  'Pay',
+  'Pick',
+  'Follow',
+  'Check',
+  'Draft',
+  'Review',
+  'Remind',
+  'Tell',
+  'Ask',
+  'Bring',
+  'Buy',
+  'Organize',
+  'Write',
+  'Prepare',
+];
+
+const ALLOWED_SINGLE_NAMES = [
+  'Mom',
+  'Dad',
+  'Grandma',
+  'Grandpa',
+  'Granddad',
+  'Grandad',
+  'Brother',
+  'Sister',
+  'Coach',
+  'Boss',
+  'Partner',
+  'Therapist',
+  'Doctor',
+];
+
 const MONTH_MAP: Record<string, string> = {
   january: '01',
   jan: '01',
@@ -219,7 +259,6 @@ function generateTags(
     finalTags.push(tag);
   };
 
-  const peopleCandidates = new Set<string>();
   const doctorMatches = text.match(/Dr\.?\s+[A-Z][A-Za-z]+/g);
   if (doctorMatches) {
     for (const match of doctorMatches) {
@@ -231,16 +270,70 @@ function generateTags(
     }
   }
 
-  const words = text.split(/[^A-Za-z]+/).filter(Boolean);
-  for (const word of words) {
-    if (word.length < 3) continue;
-    if (!/^[A-Z][a-z]+$/.test(word)) continue;
-    if (PEOPLE_STOPWORDS.has(word)) continue;
-    peopleCandidates.add(word);
+  const verbStarterSet = new Set(PERSON_VERB_STARTERS.map((word) => word.toLowerCase()));
+  const allowedSingleNameSet = new Set(ALLOWED_SINGLE_NAMES.map((word) => word.toLowerCase()));
+  const emotionWordSet = new Set(EMOTION_WORDS.map((word) => word.toLowerCase()));
+
+  const tokenInfos = text
+    .split(/\s+/)
+    .map((raw, index) => {
+      const cleaned = raw.replace(/[^A-Za-z]/g, '');
+      if (!cleaned) return null;
+      return {
+        cleaned,
+        lower: cleaned.toLowerCase(),
+        isCapitalized: /^[A-Z][a-z]+$/.test(cleaned),
+        index,
+      };
+    })
+    .filter(
+      (token): token is { cleaned: string; lower: string; isCapitalized: boolean; index: number } =>
+        Boolean(token),
+    );
+
+  const skipTokenIndexes = new Set<number>();
+  const firstToken = tokenInfos[0];
+  if (firstToken) {
+    if (verbStarterSet.has(firstToken.lower) || emotionWordSet.has(firstToken.lower)) {
+      skipTokenIndexes.add(firstToken.index);
+    }
   }
-  for (const candidate of peopleCandidates) {
-    peopleRoots.add(candidate.toLowerCase());
-    addTag(normalizePersonTag(candidate));
+
+  for (let i = 0; i < tokenInfos.length; i += 1) {
+    const current = tokenInfos[i];
+    if (skipTokenIndexes.has(current.index)) continue;
+    if (!current.isCapitalized) continue;
+    if (PEOPLE_STOPWORDS.has(current.cleaned)) continue;
+    if (verbStarterSet.has(current.lower)) continue;
+    if (emotionWordSet.has(current.lower)) continue;
+
+    let j = i;
+    const block = [current];
+    while (j + 1 < tokenInfos.length) {
+      const next = tokenInfos[j + 1];
+      if (skipTokenIndexes.has(next.index)) break;
+      if (!next.isCapitalized) break;
+      if (PEOPLE_STOPWORDS.has(next.cleaned)) break;
+      if (verbStarterSet.has(next.lower)) break;
+      if (emotionWordSet.has(next.lower)) break;
+      block.push(next);
+      j += 1;
+    }
+
+    if (block.length >= 2) {
+      const combined = block.map((token) => token.cleaned).join(' ');
+      for (const token of block) {
+        peopleRoots.add(token.lower);
+      }
+      addTag(normalizePersonTag(combined));
+      i = j;
+      continue;
+    }
+
+    if (allowedSingleNameSet.has(current.lower)) {
+      peopleRoots.add(current.lower);
+      addTag(normalizePersonTag(current.cleaned));
+    }
   }
 
   const lines = text.split(/\r?\n/);

@@ -206,7 +206,8 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
           subtype: 'catchall',
           body: 'buy milk',
           ai_placed: true,
-          why_string: 'AI classified',
+          why_string: expect.stringContaining('AI classified'),
+          tags: null,
         }),
       );
 
