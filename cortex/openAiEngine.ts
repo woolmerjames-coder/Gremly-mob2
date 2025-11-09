@@ -209,7 +209,7 @@ const STOPWORDS = new Set([
   'it',
 ]);
 
-function buildFallbackTags(
+export function buildFallbackTags(
   text: string,
   type: 'habit' | 'todo' | 'note',
   subtype?: string,
