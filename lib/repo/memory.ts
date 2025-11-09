@@ -29,6 +29,7 @@ const seed = (ownerId: string): AppRecord[] => {
     ai_placed: false,
     why_string: null,
     origin: null,
+    tags: null,
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -44,6 +45,7 @@ const seed = (ownerId: string): AppRecord[] => {
     ai_placed: false,
     why_string: null,
     origin: null,
+    tags: null,
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -58,6 +60,7 @@ const seed = (ownerId: string): AppRecord[] => {
     ai_placed: false,
     why_string: null,
     origin: null,
+    tags: null,
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -218,6 +221,9 @@ export class MemoryRepo implements IRepo {
 
     const original = this.data[idx];
     const merged = { ...original, ...patch, updated_at: nowIso() } as AppRecord;
+    if ('tags' in patch) {
+      (merged as AppRecord & { tags?: string[] | null }).tags = patch.tags ?? null;
+    }
     this.commit(merged);
     this.data[idx] = merged;
 
