@@ -35,6 +35,7 @@ export interface CreateRecordInput {
   canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
+  tags?: string[]; // Searchable tag slugs persisted with record
   views?: {
     alsoShowIn?: string[];
   };
@@ -45,7 +46,6 @@ export interface CreateRecordInput {
   frequency_value?: any; // FrequencyValue JSON
   reminders?: any[]; // ReminderRow[] JSON
   notes?: string | null;
-  tags?: string[] | null;
   buddy_id?: ID | null;
   buddy_email?: string | null;
   stack_with_id?: ID | null;
@@ -73,7 +73,9 @@ export interface CreateRecordInput {
  */
 export interface UpdateRecordInput {
   id: ID;
-  patch: Partial<Omit<AppRecord, 'id' | 'type' | 'created_at' | 'owner_id'>>;
+  patch: Partial<Omit<AppRecord, 'id' | 'type' | 'created_at' | 'owner_id'>> & {
+    tags?: string[] | null;
+  };
 }
 
 /**
