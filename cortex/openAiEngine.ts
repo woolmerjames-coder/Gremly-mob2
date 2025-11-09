@@ -15,6 +15,7 @@ interface RawClassification {
   whyString?: string;
   frequency?: string;
   undefinedDue?: boolean;
+  tags?: string[] | null;
 }
 
 type ExternalClassification = Partial<RawClassification> & { category?: unknown };
@@ -101,7 +102,88 @@ function normalizeExternal(raw: unknown): RawClassification {
     result.whyString = 'Auto-classified by LLM';
   }
 
+  if (Array.isArray(source.tags)) {
+    result.tags = source.tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+
   return result;
+}
+
+const TYPE_TAG_PRIORITY: Array<'*journal' | '*list' | '*meeting' | '*idea'> = [
+  '*journal',
+  '*list',
+  '*meeting',
+  '*idea',
+];
+
+function sanitizeTags(rawTags: RawClassification['tags']): string[] {
+  if (!Array.isArray(rawTags)) return [];
+
+  const people: string[] = [];
+  const topics: string[] = [];
+  let chosenType: string | null = null;
+  let chosenPriority = TYPE_TAG_PRIORITY.length;
+
+  for (const value of rawTags) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith('@')) {
+      const body = trimmed.slice(1).trim();
+      if (!body) continue;
+      const normalizedBody = body.replace(/\s+/g, '');
+      if (!normalizedBody) continue;
+      const personTag = `@${normalizedBody}`;
+      if (!people.includes(personTag)) people.push(personTag);
+      continue;
+    }
+
+    const lower = trimmed.toLowerCase();
+    const candidateType = (() => {
+      if (trimmed.startsWith('*')) {
+        const body = trimmed
+          .slice(1)
+          .toLowerCase()
+          .replace(/[^a-z]/g, '');
+        return body ? `*${body}` : null;
+      }
+      const cleaned = lower.replace(/[^a-z]/g, '');
+      if (!cleaned) return null;
+      return `*${cleaned}`;
+    })();
+
+    if (
+      candidateType &&
+      TYPE_TAG_PRIORITY.includes(candidateType as (typeof TYPE_TAG_PRIORITY)[number])
+    ) {
+      const priority = TYPE_TAG_PRIORITY.indexOf(
+        candidateType as (typeof TYPE_TAG_PRIORITY)[number],
+      );
+      if (priority !== -1 && priority < chosenPriority) {
+        chosenType = candidateType;
+        chosenPriority = priority;
+      }
+      continue;
+    }
+
+    const topicBody = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+    const normalizedTopic = topicBody.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!normalizedTopic) continue;
+    const topicTag = `#${normalizedTopic}`;
+    if (!topics.includes(topicTag)) topics.push(topicTag);
+  }
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  const ordered = [...people, ...(chosenType ? [chosenType] : []), ...topics];
+  for (const tag of ordered) {
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    deduped.push(tag);
+  }
+
+  return deduped;
 }
 
 function clamp01(n: unknown): number {
@@ -120,7 +202,8 @@ Schema:
   "aiPlaced": boolean,
   "whyString": string,
   "frequency": "daily|weekly|monthly",
-  "undefinedDue": boolean
+  "undefinedDue": boolean,
+  "tags": string[]
 }
 
 Rules:
@@ -137,28 +220,18 @@ Rules:
 - For type="note", subtype must be "journal","list", "idea", or "catchall" (default "catchall" when uncertain).
 - Always provide a concise "whyString" that explains the classification logic.
 - aiPlaced=true for "todo" and "habit"; aiPlaced=false for "note" when subtype="catchall".
+- Always return "tags" as an array of strings (use [] if none apply).
 
-Examples:
-User: "Call mom tomorrow"
-Class: todo.catchall (specific action with time reference)
-
-User: "- [ ] Pack sunglasses\n- [ ] Refill sunscreen\n- [ ] Buy a beach hat"
-Class: note.list (multi-line checklist)
-
-User: "Idea: offline-first packing list app"
-Class: note.idea (ideation statement)
-
-User: "What if we build an automated summary bot"
-Class: note.idea (ideation phrase without direct question)
-
-User: "What should we do in Puerto Escondido?"
-Class: note.catchall (open question)
-
-User: "Exercise every morning"
-Class: habit (recurring behavior)
+Tag Rules:
+- People tags use the @ prefix (example: "@Mom"). Preserve name casing and drop spaces.
+- Include exactly one type tag with the * prefix from this set: "*journal","*list","*meeting","*idea" when applicable.
+- Topic/emotion/date tags use the # prefix, lowercase, and replace spaces with underscores. Aim for 2-3 solid topic tags when possible.
+- Add emotion #tags only for journal-style reflections.
+- Add a #date_YYYY-MM-DD tag when a concrete date is mentioned.
 `;
 
 function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
+  const tags = sanitizeTags(raw.tags);
   const aiPlaced =
     raw.aiPlaced !== undefined ? !!raw.aiPlaced : raw.type !== 'note' || raw.subtype !== 'catchall';
   const whyString = raw.whyString?.trim() || 'No rationale provided.';
@@ -168,12 +241,12 @@ function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
     type HabitFrequency = Extract<CortexOutput, { type: 'habit' }>['frequency'];
     const frequency: HabitFrequency =
       freq === 'weekly' ? 'weekly' : freq === 'monthly' ? 'monthly' : 'daily';
-    return { type: 'habit', frequency, aiPlaced, whyString };
+    return { type: 'habit', frequency, aiPlaced, whyString, tags };
   }
 
   if (raw.type === 'todo') {
     const undefinedDue = raw.undefinedDue !== undefined ? !!raw.undefinedDue : true;
-    return { type: 'todo', undefinedDue, aiPlaced, whyString };
+    return { type: 'todo', undefinedDue, aiPlaced, whyString, tags };
   }
 
   const subtype =
@@ -185,6 +258,7 @@ function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
     subtype,
     aiPlaced: subtype === 'catchall' ? false : aiPlaced,
     whyString,
+    tags,
   };
 }
 
@@ -262,7 +336,13 @@ export class OpenAiEngine implements ICortexEngine {
         let out = normaliseToCortexOutput(normalized) as any;
         if (isNonActionIdeasNote(text) && out.type === 'todo') {
           if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
-          out = { type: 'note', subtype: 'list', aiPlaced: true, whyString: 'Ideas/list capture' };
+          out = {
+            type: 'note',
+            subtype: 'list',
+            aiPlaced: true,
+            whyString: 'Ideas/list capture',
+            tags: [],
+          };
         }
         out.confidence = clamp01(c?.confidence ?? 0);
         if (DEBUG) console.log('[CORTEX][LLM] classify route mapped:', out);
@@ -277,10 +357,9 @@ export class OpenAiEngine implements ICortexEngine {
       if (DEBUG) console.log('[CORTEX][LLM] model:', this.model);
 
       const fewShots: ChatMessage[] = [
-        // Todo with date-ish language (we still return undefinedDue: true; real date parsing is downstream)
         {
           role: 'user',
-          content: 'Book dentist appointment tomorrow',
+          content: 'Call mom about trip',
         },
         {
           role: 'assistant',
@@ -288,16 +367,31 @@ export class OpenAiEngine implements ICortexEngine {
             type: 'todo',
             subtype: 'catchall',
             aiPlaced: true,
-            whyString: 'Detected actionable appointment request.',
-            frequency: 'daily', // ignored for todo
+            whyString: 'Actionable reminder directed at a specific person.',
+            frequency: 'daily',
             undefinedDue: true,
+            tags: ['@Mom', '#family', '#trip'],
           }),
         },
-
-        // Habit signal
         {
           role: 'user',
-          content: 'Run 3 times a week',
+          content: 'Feeling anxious today',
+        },
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            type: 'note',
+            subtype: 'journal',
+            aiPlaced: true,
+            whyString: 'Reflective emotional log with no action.',
+            frequency: 'daily',
+            undefinedDue: true,
+            tags: ['#anxious', '*journal'],
+          }),
+        },
+        {
+          role: 'user',
+          content: 'Start going to gym',
         },
         {
           role: 'assistant',
@@ -305,16 +399,15 @@ export class OpenAiEngine implements ICortexEngine {
             type: 'habit',
             subtype: 'catchall',
             aiPlaced: true,
-            whyString: 'Detected recurring activity.',
+            whyString: 'Ongoing routine request with weekly cadence implied.',
             frequency: 'weekly',
             undefinedDue: true,
+            tags: ['#health'],
           }),
         },
-
-        // Multi-line list
         {
           role: 'user',
-          content: '- [ ] Pack sunglasses\n- [ ] Refill sunscreen\n- [ ] Buy a beach hat',
+          content: '- milk\n- eggs\n- bread',
         },
         {
           role: 'assistant',
@@ -322,33 +415,15 @@ export class OpenAiEngine implements ICortexEngine {
             type: 'note',
             subtype: 'list',
             aiPlaced: true,
-            whyString: 'Detected checklist list capture.',
+            whyString: 'Multi-line checklist detected.',
             frequency: 'daily',
             undefinedDue: true,
+            tags: ['*list', '#shopping'],
           }),
         },
-
-        // Idea statement
         {
           role: 'user',
-          content: 'Idea: offline-first packing list app',
-        },
-        {
-          role: 'assistant',
-          content: JSON.stringify({
-            type: 'note',
-            subtype: 'idea',
-            aiPlaced: true,
-            whyString: 'Recognized ideation phrasing.',
-            frequency: 'daily',
-            undefinedDue: true,
-          }),
-        },
-
-        // Open-ended question → catchall note
-        {
-          role: 'user',
-          content: 'What should we do in Puerto Escondido?',
+          content: 'Meeting with Dr Smith at 3pm',
         },
         {
           role: 'assistant',
@@ -356,9 +431,10 @@ export class OpenAiEngine implements ICortexEngine {
             type: 'note',
             subtype: 'catchall',
             aiPlaced: false,
-            whyString: 'Detected open question without action.',
+            whyString: 'Calendar-style reference without explicit task ownership.',
             frequency: 'daily',
             undefinedDue: true,
+            tags: ['@DrSmith', '*meeting'],
           }),
         },
       ];
@@ -424,6 +500,7 @@ export class OpenAiEngine implements ICortexEngine {
           subtype: 'list',
           aiPlaced: true,
           whyString: 'Ideas/list capture',
+          tags: [],
         };
       }
       if (DEBUG)
