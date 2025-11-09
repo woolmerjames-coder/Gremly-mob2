@@ -180,6 +180,108 @@ function sanitizeTags(rawTags: RawClassification['tags']): string[] {
   return normalizeTags([...mentions, ...(chosenType ? [chosenType] : []), ...topics]);
 }
 
+const EMOTION_WORDS = [
+  'anxious',
+  'grateful',
+  'excited',
+  'overwhelmed',
+  'calm',
+  'stressed',
+] as const;
+const REFLECTION_PATTERNS = ['i feel', 'i think', 'reflection', 'felt ', 'feeling '] as const;
+const IDEA_PATTERNS = ['idea:', 'what if', 'could we', 'maybe we'] as const;
+const LIST_LINE_REGEX = /^\s*(?:[-*]|\d+[.)])\s+/;
+const STOPWORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'this',
+  'that',
+  'have',
+  'today',
+  'to',
+  'a',
+  'an',
+  'i',
+  'we',
+  'you',
+  'it',
+]);
+
+function buildFallbackTags(
+  text: string,
+  type: 'habit' | 'todo' | 'note',
+  subtype?: string,
+): string[] {
+  if (!text?.trim()) return [];
+
+  const tags: string[] = [];
+  const lower = text.toLowerCase();
+  const lines = text.split(/\r?\n/);
+  const words = text.split(/[^A-Za-z]+/).filter(Boolean);
+
+  if (type === 'note') {
+    const journalHint =
+      subtype === 'journal' || REFLECTION_PATTERNS.some((pattern) => lower.includes(pattern));
+    if (journalHint) {
+      tags.push('*journal');
+      for (const emotion of EMOTION_WORDS) {
+        if (lower.includes(emotion)) {
+          tags.push(`#${emotion}`);
+        }
+      }
+    }
+
+    if (IDEA_PATTERNS.some((pattern) => lower.includes(pattern))) {
+      tags.push('*idea');
+    }
+
+    if (lines.some((line) => LIST_LINE_REGEX.test(line))) {
+      tags.push('*list');
+    }
+  }
+
+  const people = new Set<string>();
+  const doctorMatches = text.match(/Dr\.?\s+[A-Z][a-z]+/g) ?? [];
+  for (const match of doctorMatches) {
+    if (people.size >= 2) break;
+    const collapsed = match.replace(/\s+/g, '');
+    const body = collapsed.replace(/^Dr\.?/, 'Dr').replace(/[^A-Za-z]/g, '');
+    if (body) {
+      people.add(`@${body}`);
+    }
+  }
+
+  for (const word of words) {
+    if (people.size >= 2) break;
+    if (!/^[A-Z][a-z]{2,}$/.test(word)) continue;
+    const lowerWord = word.toLowerCase();
+    if (STOPWORDS.has(lowerWord)) continue;
+    people.add(`@${word}`);
+  }
+
+  tags.push(...people);
+
+  const topicCandidates: string[] = [];
+  for (const word of words) {
+    const lowerWord = word.toLowerCase();
+    if (lowerWord.length < 3) continue;
+    if (STOPWORDS.has(lowerWord)) continue;
+    if (/^[A-Z]/.test(word) && people.has(`@${word}`)) continue;
+    if (!topicCandidates.includes(lowerWord)) {
+      topicCandidates.push(lowerWord);
+      if (topicCandidates.length >= 3) break;
+    }
+  }
+
+  for (const topic of topicCandidates) {
+    tags.push(`#${topic}`);
+  }
+
+  return normalizeTags(tags);
+}
+
 function clamp01(n: unknown): number {
   const v = Number(n);
   return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
@@ -327,7 +429,14 @@ export class OpenAiEngine implements ICortexEngine {
           whyString: `Proxy classify: ${c.category} (${Math.round((c.confidence ?? 0) * 100)}%)`,
         });
 
-        let out = normaliseToCortexOutput(normalized) as any;
+        let out = normaliseToCortexOutput(normalized) as CortexOutput & { confidence?: number };
+        if (!out.tags || out.tags.length === 0) {
+          out.tags = buildFallbackTags(
+            text,
+            out.type,
+            out.type === 'note' ? out.subtype : undefined,
+          );
+        }
         if (isNonActionIdeasNote(text) && out.type === 'todo') {
           if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
           out = {
@@ -336,7 +445,14 @@ export class OpenAiEngine implements ICortexEngine {
             aiPlaced: true,
             whyString: 'Ideas/list capture',
             tags: [],
-          };
+          } as CortexOutput & { confidence?: number };
+          if (!out.tags || out.tags.length === 0) {
+            out.tags = buildFallbackTags(
+              text,
+              out.type,
+              out.type === 'note' ? out.subtype : undefined,
+            );
+          }
         }
         out.confidence = clamp01(c?.confidence ?? 0);
         if (DEBUG) console.log('[CORTEX][LLM] classify route mapped:', out);
@@ -475,13 +591,21 @@ export class OpenAiEngine implements ICortexEngine {
           '[OpenAiEngine] Unable to parse classification JSON. Falling back to default.',
           (content || '').slice(0, 160),
         );
-        return normaliseToCortexOutput({
+        const fallback = normaliseToCortexOutput({
           type: 'note',
           subtype: 'catchall',
           aiPlaced: false,
           whyString: 'Saved from Catch-All Notepad',
           undefinedDue: true,
         });
+        if (!fallback.tags || fallback.tags.length === 0) {
+          fallback.tags = buildFallbackTags(
+            text,
+            fallback.type,
+            fallback.type === 'note' ? fallback.subtype : undefined,
+          );
+        }
+        return fallback;
       }
 
       const normalized = normalizeExternal(parsed);
@@ -496,6 +620,13 @@ export class OpenAiEngine implements ICortexEngine {
           whyString: 'Ideas/list capture',
           tags: [],
         };
+      }
+      if (!finalResult.tags || finalResult.tags.length === 0) {
+        finalResult.tags = buildFallbackTags(
+          text,
+          finalResult.type,
+          finalResult.type === 'note' ? finalResult.subtype : undefined,
+        );
       }
       if (DEBUG)
         console.log('[CORTEX][Normalized]', {

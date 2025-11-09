@@ -1538,7 +1538,30 @@ export function UnifiedCreateOverlay({
           if (optimisticEnabled && finishedEarly && aiResult?.ok) {
             console.log('[Overlay] ai ms', elapsed);
 
-            // Save with classification immediately
+            const classification = aiResult.classification;
+            // Derive tags NOW (same normalization semantics as background finalize)
+            const manualTagsSnapshot = normalizeTags(latestTagsRef.current);
+            const removedTagsSnapshot = new Set<string>(removedTagsRef.current);
+            const classificationTags = normalizeTags(classification.tags ?? []);
+            const filteredClassificationTags = classificationTags.filter(
+              (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
+            );
+            const mergedTagState = normalizeTags([
+              ...manualTagsSnapshot,
+              ...filteredClassificationTags,
+              ...tagEditorTagNames,
+            ]);
+            const filteredMerged = mergedTagState.filter(
+              (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
+            );
+            const tagsForCreate =
+              filteredMerged.length > 0
+                ? filteredMerged
+                : filteredClassificationTags.length > 0
+                  ? filteredClassificationTags
+                  : null;
+
+            // Save immediately as catch-all note (fast path) BUT include tags
             const trimmedText = freeformText.trim();
             const input: CreateRecordInput = {
               type: 'note',
@@ -1547,8 +1570,9 @@ export function UnifiedCreateOverlay({
               subtype: 'catchall',
               space_id: spaceId !== undefined ? spaceId : null,
               ai_placed: true,
-              why_string: 'AI classified',
+              why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
               origin: 'catchall',
+              tags: tagsForCreate,
             };
 
             const result = await repo.create(input);
