@@ -38,6 +38,11 @@ import {
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+const hasAll = (itemTags: string[], wanted: string[]) => {
+  const set = new Set(itemTags.map((t) => t.toLowerCase()));
+  return wanted.every((w) => set.has(w.toLowerCase()));
+};
+
 /**
  * Supabase repository implementation.
  * Maps AppRecord types to Supabase tables and handles CRUD operations.
@@ -638,12 +643,22 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to list ${type}s: ${error.message}`);
     if (!data) return [];
 
-    return data.map((item) => {
+    const items = data.map((item) => {
       const record = { ...item, type };
       if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
       if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
       return noteZ.parse(mapNoteFromDb(record));
     });
+
+    if (opts?.tagNames && opts.tagNames.length > 0) {
+      const wanted = opts.tagNames;
+      return items.filter((r) => {
+        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
+        return hasAll(tags, wanted);
+      });
+    }
+
+    return items;
   }
 
   async countUnsorted(): Promise<number> {
@@ -677,7 +692,7 @@ export class SupabaseRepo implements IRepo {
     return total;
   }
 
-  async listBySpace(spaceId: ID): Promise<AppRecord[]> {
+  async listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const results: AppRecord[] = [];
 
@@ -702,6 +717,14 @@ export class SupabaseRepo implements IRepo {
         });
         results.push(...parsed);
       }
+    }
+
+    if (opts?.tagNames && opts.tagNames.length > 0) {
+      const wanted = opts.tagNames;
+      return results.filter((r) => {
+        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
+        return hasAll(tags, wanted);
+      });
     }
 
     return results;
@@ -1632,7 +1655,10 @@ export class SupabaseRepo implements IRepo {
     return data || [];
   }
 
-  async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
+  async listBySpaceGrouped(
+    spaceId: string,
+    opts?: { tagNames?: string[] },
+  ): Promise<GroupedByType> {
     const userId = this.ensureUserId();
 
     // Query all three tables in parallel
@@ -1661,13 +1687,25 @@ export class SupabaseRepo implements IRepo {
     if (todosResult.error) throw new Error(`Failed to list todos: ${todosResult.error.message}`);
     if (notesResult.error) throw new Error(`Failed to list notes: ${notesResult.error.message}`);
 
-    return {
-      habits: (habitsResult.data ?? []).map((h) =>
-        habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })),
-      ),
-      todos: (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
-      notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
+    const applyTagFilter = <T extends AppRecord>(items: T[]): T[] => {
+      if (!opts?.tagNames || opts.tagNames.length === 0) return items;
+      return items.filter((item) => {
+        const tags = Array.isArray((item as any).tags) ? ((item as any).tags as string[]) : [];
+        return hasAll(tags, opts.tagNames!);
+      });
     };
+
+    const habits = applyTagFilter(
+      (habitsResult.data ?? []).map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))),
+    );
+    const todos = applyTagFilter(
+      (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
+    );
+    const notes = applyTagFilter(
+      (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
+    );
+
+    return { habits, todos, notes };
   }
 
   // ==========================

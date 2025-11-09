@@ -86,6 +86,7 @@ export interface ListByTypeOptions {
   unassignedOnly?: boolean; // true = only return items with space_id IS NULL
   subtypes?: string[]; // filter when querying notes (e.g., ['idea','list'] or ['journal'])
   tagIds?: ID[]; // filter by tags (optional - for future filtering)
+  tagNames?: string[]; // normalized names (#word, *tag, @person), AND semantics
 }
 
 /**
@@ -112,7 +113,7 @@ export interface IRepo {
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;
   listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
-  listBySpace(spaceId: ID): Promise<AppRecord[]>;
+  listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;
   /**
    * Search across items within a specific space and include space chats.
@@ -240,7 +241,7 @@ export interface IRepo {
   getSpaceById(spaceId: string): Promise<Space | null>;
   updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
   deleteSpace(spaceId: string): Promise<void>;
-  listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
+  listBySpaceGrouped(spaceId: string, opts?: { tagNames?: string[] }): Promise<GroupedByType>;
 
   // Spaces v2 methods (Phase 8+)
   getSpaceSummary(spaceId: string): Promise<string | null>;

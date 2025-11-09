@@ -73,6 +73,11 @@ function ensureDay(dateIso: string): string {
   return new Date(dateIso).toISOString().split('T')[0];
 }
 
+const hasAll = (itemTags: string[], wanted: string[]) => {
+  const set = new Set(itemTags.map((t) => t.toLowerCase()));
+  return wanted.every((w) => set.has(w.toLowerCase()));
+};
+
 export class MemoryRepo implements IRepo {
   private data: AppRecord[] = [];
   private spaces: Space[] = [];
@@ -293,6 +298,13 @@ export class MemoryRepo implements IRepo {
       });
     }
 
+    if (opts?.tagNames && opts.tagNames.length > 0) {
+      results = results.filter((r) => {
+        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
+        return hasAll(tags, opts.tagNames!);
+      });
+    }
+
     // TODO: Apply tag filter when tagIds is provided
     // For now, tagIds is ignored (stub for future implementation)
 
@@ -304,8 +316,19 @@ export class MemoryRepo implements IRepo {
       .length;
   }
 
-  async listBySpace(spaceId: ID): Promise<AppRecord[]> {
-    return this.data.filter((r) => r.space_id === spaceId && r.owner_id === this.currentUserId);
+  async listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]> {
+    let items = this.data.filter(
+      (r) => r.space_id === spaceId && r.owner_id === this.currentUserId,
+    );
+
+    if (opts?.tagNames && opts.tagNames.length > 0) {
+      items = items.filter((r) => {
+        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
+        return hasAll(tags, opts.tagNames!);
+      });
+    }
+
+    return items;
   }
 
   async search(text: string): Promise<AppRecord[]> {
@@ -832,8 +855,11 @@ export class MemoryRepo implements IRepo {
     );
   }
 
-  async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
-    const items = await this.listBySpace(spaceId);
+  async listBySpaceGrouped(
+    spaceId: string,
+    opts?: { tagNames?: string[] },
+  ): Promise<GroupedByType> {
+    const items = await this.listBySpace(spaceId, opts);
 
     return {
       habits: items.filter((r) => r.type === 'habit'),
