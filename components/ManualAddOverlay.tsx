@@ -99,6 +99,7 @@ export function ManualAddOverlay({
                 space_id: null,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Heuristic default.',
+                tags: res.tags ?? null,
               }
             : res.type === 'todo'
               ? {
@@ -110,6 +111,7 @@ export function ManualAddOverlay({
                   space_id: null,
                   ai_placed: res.aiPlaced || false,
                   why_string: res.whyString || 'Classified as todo.',
+                  tags: res.tags ?? null,
                 }
               : {
                   type: 'habit' as const,
@@ -118,6 +120,7 @@ export function ManualAddOverlay({
                   space_id: null,
                   ai_placed: res.aiPlaced || false,
                   why_string: res.whyString || 'Classified as habit.',
+                  tags: res.tags ?? null,
                 }
           : {
               type: 'note' as const,
@@ -127,6 +130,7 @@ export function ManualAddOverlay({
               space_id: null,
               ai_placed: false,
               why_string: 'Heuristic default.',
+              tags: null,
             };
 
         if (DEBUG) {

@@ -224,6 +224,7 @@ export function ManualAddOverlay({
             space_id: spaceId,
             ai_placed: false,
             why_string: 'Heuristic default.',
+            tags: null,
           };
         } else {
           switch (res.type) {
@@ -236,6 +237,7 @@ export function ManualAddOverlay({
                 space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Heuristic default.',
+                tags: res.tags ?? null,
               };
               break;
             case 'todo':
@@ -248,6 +250,7 @@ export function ManualAddOverlay({
                 space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as todo.',
+                tags: res.tags ?? null,
               };
               break;
             case 'habit':
@@ -259,6 +262,7 @@ export function ManualAddOverlay({
                 space_id: spaceId,
                 ai_placed: res.aiPlaced || false,
                 why_string: res.whyString || 'Classified as habit.',
+                tags: res.tags ?? null,
               };
               break;
           }
