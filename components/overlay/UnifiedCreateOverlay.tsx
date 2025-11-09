@@ -1587,6 +1587,10 @@ export function UnifiedCreateOverlay({
             await flushPendingAssociations(newItem.id, 'note');
           }
 
+          const manualTagsSnapshot = normalizeTags(latestTagsRef.current);
+          const removedTagsSnapshot = new Set<string>(removedTagsRef.current);
+          const tagEditorSnapshot = [...tagEditorTagNames];
+
           handleSaved({ type: 'note', id: newItem.id });
           showToast('Delivered to Hub — sorting in background');
           setThinking(false);
@@ -1611,25 +1615,19 @@ export function UnifiedCreateOverlay({
                   const originalNoteId = newItem.id;
                   const originalText = noteText;
                   const incomingClassificationTags = (classification.tags ?? []).filter(
-                    (tag) => !removedTagsRef.current.has(tag.toLowerCase()),
+                    (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
                   );
 
-                  let mergedTagState = normalizeTags(latestTagsRef.current);
-                  if (incomingClassificationTags.length > 0) {
-                    setTagsState((prev) => {
-                      const merged = normalizeTags([...prev, ...incomingClassificationTags]);
-                      mergedTagState = merged;
-                      syncDetailsWithTags(merged);
-                      return merged;
-                    });
-                  }
-
+                  const mergedTagState = normalizeTags([
+                    ...manualTagsSnapshot,
+                    ...incomingClassificationTags,
+                  ]);
                   const combinedTagsForPayload = normalizeTags([
                     ...mergedTagState,
-                    ...tagEditorTagNames,
+                    ...tagEditorSnapshot,
                   ]);
                   const filteredCombinedTags = combinedTagsForPayload.filter(
-                    (tag) => !removedTagsRef.current.has(tag.toLowerCase()),
+                    (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
                   );
                   const tagsPayload = filteredCombinedTags.length > 0 ? filteredCombinedTags : null;
 
