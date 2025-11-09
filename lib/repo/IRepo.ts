@@ -35,7 +35,7 @@ export interface CreateRecordInput {
   canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
-  tags?: string[]; // Searchable tag slugs persisted with record
+  tags?: string[] | null; // Searchable tag slugs persisted with record
   views?: {
     alsoShowIn?: string[];
   };
