@@ -2167,7 +2167,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 ? (decisionMeta?.classification?.tags as string[])
                 : [];
               const classificationTags = normalizeTags([...engineTags, ...classificationTagsMeta]);
-              console.log('[MD_DEBUG] classification.tags', classificationTags);
               const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
               const fallbackSubtype =
                 canonicalSubtypeMeta === 'journal' ||
@@ -2179,9 +2178,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 classificationTags.length > 0
                   ? classificationTags
                   : buildFallbackTags(trimmed, 'note', fallbackSubtype);
-              console.log('[MD_DEBUG] fallbackTags', fallbackTags);
               const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
-              console.log('[MD_DEBUG] create payload tags', tagsForCreate);
               const id = await saveToUnsortedTray(repo as any, trimmed, {
                 sourceMessageId: submissionId,
                 whyString: 'Awaiting chip selection',
