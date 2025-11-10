@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { Box, Text, Button } from '../../ui';
 import { useRepo } from '../../providers/RepoProvider';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import type { CanonicalType } from '../../lib/types';
+import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 
 type BaseType = 'log' | 'todo' | 'habit';
 
@@ -18,7 +20,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [title, setTitle] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
 
-  if (!visible) return null;
+  const draftKey = useMemo(
+    () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
+    [mode, baseType, initialSpaceId],
+  );
+
+  // load existing draft once
+  useEffect(() => {
+    let mounted = true;
+    readOverlayV2Draft(draftKey).then((v) => {
+      if (mounted && v && !text) setText(v);
+    });
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // autosave on change
+  useOverlayV2Draft(draftKey, text);
 
   // Initial defaults (match brief: text-first; first line becomes title)
   useEffect(() => {
@@ -55,6 +75,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         await repo.create(input as any);
       }
 
+      // clear local draft on success
+      await clearOverlayV2Draft(draftKey);
+
       // NOTE: emit overlaySaved already handled by OverlayHost on close in this repo
       setIsSaving(false);
       onClose?.();
@@ -65,13 +88,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [canSave, mode, baseType, text, title, initialSpaceId, initialEntity, repo, onClose]);
 
+  const handleCancel = useCallback(async () => {
+    await clearOverlayV2Draft(draftKey);
+    onClose?.();
+  }, [draftKey, onClose]);
+
+  if (!visible) return null;
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.select({ ios: 'padding', android: undefined })}
       keyboardVerticalOffset={Platform.select({ ios: 64, android: 0 })}
     >
-  <Box flex={1} bg="bg" pt={6}>
+      <Box flex={1} bg="bg" pt={6}>
         {/* Header: contextual title + base type pills */}
         <Box px={4} pb={3}>
           <Text variant="title">{headerFor(baseType, mode)}</Text>
@@ -102,8 +132,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         </ScrollView>
 
         {/* Save bar (fixed) */}
-        <Box px={4} py={3} row gap={2} style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E7E2D9' }}>
-          <Button variant="ghost" onPress={onClose} disabled={isSaving} title={isSaving ? 'Cancel' : 'Cancel'} />
+        <Box
+          px={4}
+          py={3}
+          row
+          gap={2}
+          style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E7E2D9' }}
+        >
+          <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
           <Box flex={1} />
           <Button onPress={onSave} disabled={!canSave} title={isSaving ? 'Saving...' : 'Save'} />
         </Box>
@@ -191,4 +227,3 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 });
-
