@@ -105,6 +105,7 @@ describe('Today Screen - Grouping Features', () => {
     habits: [],
     todos: mockTodos,
     suggestions: [],
+    commitments: [],
     visible: {
       habits: [],
       todos: mockTodos,

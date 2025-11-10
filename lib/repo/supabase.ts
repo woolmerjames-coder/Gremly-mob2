@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { isToday, parseISO } from 'date-fns';
+import { Alert, Platform, ToastAndroid } from 'react-native';
 import type { AppRecord, Note, Todo, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
@@ -37,6 +39,36 @@ import {
 } from '../supabase/mappers';
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+const TAG_FILTER_TOAST_MESSAGE = 'Tag filter temporarily unavailable';
+let hasShownTagFilterToast = false;
+
+const formatSupabaseError = (error: any) =>
+  error
+    ? {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      }
+    : null;
+
+function notifyTagFilterFallback() {
+  if (hasShownTagFilterToast) {
+    return;
+  }
+  hasShownTagFilterToast = true;
+
+  try {
+    if (Platform?.OS === 'android' && typeof ToastAndroid?.show === 'function') {
+      ToastAndroid.show(TAG_FILTER_TOAST_MESSAGE, ToastAndroid.SHORT);
+    } else if (typeof Alert?.alert === 'function') {
+      Alert.alert('Heads up', TAG_FILTER_TOAST_MESSAGE);
+    }
+  } catch (toastError) {
+    console.warn('[SupabaseRepo] Failed to show tag filter toast', toastError);
+  }
+}
 
 /**
  * Supabase repository implementation.
@@ -164,6 +196,7 @@ function mapHabitFromDb(dbRecord: any): any {
     frequency_value: dbRecord.frequency_json,
     reminders: dbRecord.reminders_json,
     triggers: dbRecord.triggers_json,
+    tags: dbRecord.tags ?? null,
   };
 }
 
@@ -183,6 +216,7 @@ function mapTodoFromDb(dbRecord: any): any {
     title: dbRecord.name, // Backwards compatibility in app code
     // Map jsonb column to TS field
     reminders: dbRecord.reminders_json,
+    tags: dbRecord.tags ?? null,
   };
 }
 
@@ -195,6 +229,7 @@ function mapNoteFromDb(dbRecord: any): any {
     ...dbRecord,
     // Map jsonb column to TS field (used for journal entries)
     reminders: dbRecord.reminders_json,
+    tags: dbRecord.tags ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
   };
 }
@@ -204,6 +239,13 @@ export class SupabaseRepo implements IRepo {
   private lastCountCompletedTodayWarn: number = 0;
   private readonly WARN_THROTTLE_MS = 60000; // Throttle warnings to once per minute
   private todoCompletedAtSupported: boolean | null = null;
+
+  // ==============================
+  // Commitments (Phase 6)
+  // ==============================
+  // Cache for commitment counting (5s)
+  private lastCommitCountAt = 0;
+  private lastCommitCountValue = 0;
 
   // Phase 10.7E: Space chat messages accessor
   public spaceChatMessages: {
@@ -400,7 +442,7 @@ export class SupabaseRepo implements IRepo {
     const { data: result, error } = await supabase
       .from(table)
       .insert(payloadWithOwnerId)
-      .select()
+      .select('*')
       .single();
 
     if (error) {
@@ -463,53 +505,73 @@ export class SupabaseRepo implements IRepo {
 
     const table = tableFor(existing.type);
 
+    const normalizedPatch = { ...patch } as typeof patch;
+    // Defensive: ensure we do not send empty/null tags until column parity is guaranteed
+    if (normalizedPatch && Object.prototype.hasOwnProperty.call(normalizedPatch, 'tags')) {
+      const tagsValue = (normalizedPatch as any).tags;
+      if (tagsValue == null || (Array.isArray(tagsValue) && tagsValue.length === 0)) {
+        delete (normalizedPatch as any).tags;
+      }
+    }
+    console.log('[SupabaseRepo.update] sanitized patch keys:', Object.keys(normalizedPatch));
+
     // Build minimal patch object - never include created_at, owner_id, or id
     // Only include fields that are actually being changed
     const updatePayload: Record<string, unknown> = {};
 
     if (existing.type === 'todo') {
-      if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
-      if ('body' in patch) updatePayload.body = patch.body ?? null;
-      if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('due_date' in patch) {
-        const duePatch = patch.due_date as string | null | undefined;
+      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
+        updatePayload.title = normalizedPatch.title;
+      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+      if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
+      if ('due_date' in normalizedPatch) {
+        const duePatch = normalizedPatch.due_date as string | null | undefined;
         updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
       }
-      if ('due_time' in patch) {
-        const dueTimePatch = patch.due_time as string | null | undefined;
+      if ('due_time' in normalizedPatch) {
+        const dueTimePatch = normalizedPatch.due_time as string | null | undefined;
         updatePayload.due_time = dueTimePatch ?? null;
       }
-      if ('undefined_due' in patch) updatePayload.undefined_due = !!patch.undefined_due;
-      if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
-      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
+      if ('undefined_due' in normalizedPatch)
+        updatePayload.undefined_due = !!normalizedPatch.undefined_due;
+      if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
+      if ('why_string' in normalizedPatch)
+        updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'habit') {
-      if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
-      if ('frequency' in patch && patch.frequency !== undefined)
-        updatePayload.frequency = patch.frequency;
-      if ('subtype' in patch) updatePayload.subtype = patch.subtype ?? null;
-      if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
-      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
+      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
+        updatePayload.title = normalizedPatch.title;
+      if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
+        updatePayload.frequency = normalizedPatch.frequency;
+      if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
+      if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
+      if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
+      if ('why_string' in normalizedPatch)
+        updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'note') {
-      if ('title' in patch) updatePayload.title = patch.title ?? null;
-      if ('body' in patch) updatePayload.body = patch.body ?? null;
-      if ('subtype' in patch && patch.subtype !== undefined) updatePayload.subtype = patch.subtype;
-      if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
-      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
+      if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
+      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+      if ('subtype' in normalizedPatch && normalizedPatch.subtype !== undefined)
+        updatePayload.subtype = normalizedPatch.subtype;
+      if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
+      if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
+      if ('why_string' in normalizedPatch)
+        updatePayload.why_string = normalizedPatch.why_string ?? null;
     }
 
-    if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
-    if ('canonicalType' in patch) updatePayload.canonical_type = patch.canonicalType ?? null;
-    if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
-    if ('views' in patch) updatePayload.views = patch.views ?? {};
+    if ('tags' in normalizedPatch) updatePayload.tags = normalizedPatch.tags ?? null;
+
+    if ('origin' in normalizedPatch) updatePayload.origin = normalizedPatch.origin ?? null;
+    if ('canonicalType' in normalizedPatch)
+      updatePayload.canonical_type = normalizedPatch.canonicalType ?? null;
+    if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
+    if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
       .from(table)
       .update(updatePayload)
       .eq('id', id)
-      .select()
+      .select('*')
       .single();
 
     if (error) {
@@ -604,41 +666,127 @@ export class SupabaseRepo implements IRepo {
    * 10R: Uses idx_notes_created_at, idx_todos_created_at for chronological ordering
    */
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
+    const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
+    const perfLabel = hasTagFilter ? `[PERF][tags] listByType:${type}` : null;
+    const perfStart = hasTagFilter ? Date.now() : null;
+
+    if (__DEV__ && hasTagFilter && perfLabel) {
+      try {
+        console.time(perfLabel);
+      } catch {
+        // some environments (tests) may not support console.time; ignore
+      }
+    }
+
     const userId = this.ensureUserId();
     const table = tableFor(type);
 
-    let query = supabase.from(table).select('*').eq('owner_id', userId);
+    const runQuery = async (applyTagFilter: boolean) => {
+      let query = supabase.from(table).select('*').eq('owner_id', userId);
 
-    // Apply space filter (uses idx_{table}_space_id)
-    if (opts?.unassignedOnly) {
-      query = query.is('space_id', null);
-    } else if (opts?.spaceId !== undefined) {
-      query = query.eq('space_id', opts.spaceId);
+      if (opts?.unassignedOnly) {
+        query = query.is('space_id', null);
+      } else if (opts?.spaceId !== undefined) {
+        query = query.eq('space_id', opts.spaceId);
+      }
+
+      if (opts?.subtypes && opts.subtypes.length > 0 && type === 'note') {
+        query = query.in('subtype', opts.subtypes);
+      }
+
+      if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
+        query = query.contains('tags', opts.tagNames);
+      }
+
+      query = query.order('created_at', { ascending: false });
+
+      const { data, error } = await query;
+      return { data: data ?? [], error };
+    };
+
+    try {
+      let rows: any[] = [];
+
+      if (hasTagFilter) {
+        try {
+          const initial = await runQuery(true);
+          if (initial.error) {
+            console.warn('[SupabaseRepo] Tag filter query failed, falling back without tags', {
+              type,
+              tagNames: opts?.tagNames,
+              error: formatSupabaseError(initial.error),
+            });
+            notifyTagFilterFallback();
+
+            const fallback = await runQuery(false);
+            if (fallback.error) {
+              console.warn('[SupabaseRepo] Tag filter fallback failed', {
+                type,
+                tagNames: opts?.tagNames,
+                error: formatSupabaseError(fallback.error),
+              });
+              const err = new Error(`Failed to list ${type}s: ${fallback.error.message}`);
+              (err as any).cause = fallback.error;
+              throw err;
+            }
+
+            rows = fallback.data;
+          } else {
+            rows = initial.data;
+          }
+        } catch (error) {
+          console.warn('[tags] contains failed, falling back', error);
+          notifyTagFilterFallback();
+
+          const fallback = await runQuery(false);
+          if (fallback.error) {
+            console.warn('[SupabaseRepo] Tag filter fallback failed', {
+              type,
+              tagNames: opts?.tagNames,
+              error: formatSupabaseError(fallback.error),
+            });
+            const err = new Error(`Failed to list ${type}s: ${fallback.error.message}`);
+            (err as any).cause = fallback.error;
+            throw err;
+          }
+
+          rows = fallback.data;
+        }
+      } else {
+        const result = await runQuery(false);
+        if (result.error) {
+          const err = new Error(`Failed to list ${type}s: ${result.error.message}`);
+          (err as any).cause = result.error;
+          throw err;
+        }
+        rows = result.data;
+      }
+
+      return rows.map((item) => {
+        const record = { ...item, type };
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+        return noteZ.parse(mapNoteFromDb(record));
+      });
+    } finally {
+      if (hasTagFilter && perfStart !== null && perfLabel) {
+        const elapsed = Date.now() - perfStart;
+        if (__DEV__) {
+          try {
+            console.timeEnd(perfLabel);
+          } catch {
+            // console.timeEnd may throw in certain environments; ignore.
+          }
+          if (elapsed > 600) {
+            console.warn('[PERF][tags] slow listByType query', {
+              type,
+              ms: elapsed,
+              tagCount: opts?.tagNames?.length ?? 0,
+            });
+          }
+        }
+      }
     }
-    // If spaceId is omitted, no filter (Everywhere)
-
-    // Apply subtype filter (only for notes)
-    if (opts?.subtypes && opts.subtypes.length > 0 && type === 'note') {
-      query = query.in('subtype', opts.subtypes);
-    }
-
-    // TODO: Apply tag filter when tagIds is provided
-    // For now, tagIds is ignored (stub for future implementation)
-
-    // Uses idx_notes_created_at for chronological ordering
-    query = query.order('created_at', { ascending: false });
-
-    const { data, error } = await query;
-
-    if (error) throw new Error(`Failed to list ${type}s: ${error.message}`);
-    if (!data) return [];
-
-    return data.map((item) => {
-      const record = { ...item, type };
-      if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-      if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-      return noteZ.parse(mapNoteFromDb(record));
-    });
   }
 
   async countUnsorted(): Promise<number> {
@@ -672,19 +820,20 @@ export class SupabaseRepo implements IRepo {
     return total;
   }
 
-  async listBySpace(spaceId: ID): Promise<AppRecord[]> {
+  async listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const results: AppRecord[] = [];
 
     // Query all three tables
     for (const type of ['habit', 'todo', 'note'] as const) {
       const table = tableFor(type);
-      const { data, error } = await supabase
-        .from(table)
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false });
+      let query = supabase.from(table).select('*').eq('owner_id', userId).eq('space_id', spaceId);
+
+      if (opts?.tagNames && opts.tagNames.length > 0) {
+        query = query.contains('tags', opts.tagNames);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw new Error(`Failed to list ${type}s in space: ${error.message}`);
 
@@ -698,7 +847,6 @@ export class SupabaseRepo implements IRepo {
         results.push(...parsed);
       }
     }
-
     return results;
   }
 
@@ -952,6 +1100,7 @@ export class SupabaseRepo implements IRepo {
           carry_forward?: boolean;
           overdue?: boolean;
           nearDue?: boolean;
+          commitment?: boolean;
         }
       | {
           type: 'habit';
@@ -964,13 +1113,14 @@ export class SupabaseRepo implements IRepo {
           period_unit?: 'day' | 'week' | 'month';
           time_window?: 'any' | 'morning' | 'midday' | 'evening';
           progress_today?: number;
+          commitment?: boolean;
         }
     >
   > {
     const userId = this.ensureUserId();
     const day = ensureDay(nowIso);
 
-    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward';
+    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward,tags,commitment';
     const todoFields = `${todoFieldsBase},completed_at`;
 
     let activeTodos: any[] | null = null;
@@ -1032,12 +1182,13 @@ export class SupabaseRepo implements IRepo {
         due_date: t.due_date,
         due_day: t.due_day,
         space_id: t.space_id ?? null,
-        tags: [],
+        tags: Array.isArray(t.tags) ? t.tags : [],
         status,
         carry_forward: !!t.carry_forward,
         overdue,
         nearDue,
         completed_at: completedAt,
+        commitment: t.commitment === true,
       };
     };
 
@@ -1047,7 +1198,7 @@ export class SupabaseRepo implements IRepo {
     try {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
-        .select('id,name,space_id,cadence,target_count,period_unit,time_window')
+        .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment')
         .eq('owner_id', userId);
 
       if (habitsErr) throw habitsErr;
@@ -1090,7 +1241,7 @@ export class SupabaseRepo implements IRepo {
             id: h.id,
             name: h.name,
             space_id: h.space_id ?? null,
-            tags: [],
+            tags: Array.isArray(h.tags) ? h.tags : [],
             cadence: (h.cadence as any) || 'day',
             target_count: target,
             period_unit: (h.period_unit as any) || 'day',
@@ -1098,6 +1249,7 @@ export class SupabaseRepo implements IRepo {
             progress_today: done,
             status,
             completed_at: status === 'completed' ? progressInfo.latestAt : null,
+            commitment: h.commitment === true,
           };
         }) ?? [];
     } catch (error) {
@@ -1384,6 +1536,152 @@ export class SupabaseRepo implements IRepo {
     }
   }
 
+  /** Count active commitments (habits + todos). No archived predicate yet. */
+  async countActiveCommitments(): Promise<number> {
+    const userId = this.ensureUserId();
+    const now = Date.now();
+    if (now - this.lastCommitCountAt < 5000) {
+      return this.lastCommitCountValue;
+    }
+
+    const [habitsRes, todosRes] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+      supabase
+        .from('todos')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+    ]);
+
+    if (habitsRes.error) {
+      throw new Error(`COMMITMENT_COUNT_FAILED: ${habitsRes.error.message}`);
+    }
+    if (todosRes.error) {
+      throw new Error(`COMMITMENT_COUNT_FAILED: ${todosRes.error.message}`);
+    }
+
+    const total = (habitsRes.count || 0) + (todosRes.count || 0);
+    this.lastCommitCountAt = now;
+    this.lastCommitCountValue = total;
+    return total;
+  }
+
+  /** List current commitments (merged; newest first). */
+  async listCommitments(): Promise<
+    Array<{
+      id: string;
+      type: 'habit' | 'todo';
+      name: string;
+      commitment_started_at?: string | null;
+      commitment_note?: string | null;
+    }>
+  > {
+    const userId = this.ensureUserId();
+
+    const [habitsRes, todosRes] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('id,name,commitment_started_at,commitment_note,commitment')
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+      supabase
+        .from('todos')
+        .select('id,name,commitment_started_at,commitment_note,commitment')
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+    ]);
+
+    if (habitsRes.error) {
+      throw new Error(`COMMITMENT_LIST_FAILED: ${habitsRes.error.message}`);
+    }
+    if (todosRes.error) {
+      throw new Error(`COMMITMENT_LIST_FAILED: ${todosRes.error.message}`);
+    }
+
+    const habits = (habitsRes.data || [])
+      .filter((h: any) => h.commitment === true)
+      .map((h: any) => ({
+        id: h.id,
+        type: 'habit' as const,
+        name: h.name || '',
+        commitment_started_at: h.commitment_started_at,
+        commitment_note: h.commitment_note,
+      }));
+
+    const todos = (todosRes.data || [])
+      .filter((t: any) => t.commitment === true)
+      .map((t: any) => ({
+        id: t.id,
+        type: 'todo' as const,
+        name: t.name || '',
+        commitment_started_at: t.commitment_started_at,
+        commitment_note: t.commitment_note,
+      }));
+
+    return [...habits, ...todos].sort((a, b) => {
+      const ta = a.commitment_started_at ? new Date(a.commitment_started_at).getTime() : 0;
+      const tb = b.commitment_started_at ? new Date(b.commitment_started_at).getTime() : 0;
+      return tb - ta;
+    });
+  }
+
+  /** Enable commitment for an item (max 3 total). Optionally set note. */
+  async addCommitment(id: string, type: 'habit' | 'todo', note?: string | null): Promise<void> {
+    const current = await this.countActiveCommitments();
+    if (current >= 3) {
+      throw new Error('MAX_COMMITMENTS_REACHED');
+    }
+    const startedAt = new Date().toISOString();
+    const table = type === 'habit' ? 'habits' : 'todos';
+
+    const { error } = await supabase
+      .from(table)
+      .update({
+        commitment: true,
+        commitment_started_at: startedAt,
+        ...(note !== undefined ? { commitment_note: note } : {}),
+      })
+      .eq('id', id)
+      .eq('owner_id', this.ensureUserId());
+
+    if (error) {
+      throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
+    }
+
+    this.lastCommitCountAt = Date.now();
+    this.lastCommitCountValue = current + 1;
+  }
+
+  /** Disable commitment (soft remove). Optionally store a reason in note. */
+  async removeCommitment(
+    id: string,
+    type: 'habit' | 'todo',
+    reason?: string | null,
+  ): Promise<void> {
+    const table = type === 'habit' ? 'habits' : 'todos';
+
+    const { error } = await supabase
+      .from(table)
+      .update({
+        commitment: false,
+        commitment_archived_at: new Date().toISOString(),
+        ...(reason ? { commitment_note: reason } : {}),
+      })
+      .eq('id', id)
+      .eq('owner_id', this.ensureUserId());
+
+    if (error) {
+      throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
+    }
+
+    this.lastCommitCountAt = Date.now();
+    this.lastCommitCountValue = Math.max(0, this.lastCommitCountValue - 1);
+  }
+
   // ==========================
   // COMPLETION METHODS (Phase 9)
   // ==========================
@@ -1627,42 +1925,142 @@ export class SupabaseRepo implements IRepo {
     return data || [];
   }
 
-  async listBySpaceGrouped(spaceId: string): Promise<GroupedByType> {
+  async listBySpaceGrouped(
+    spaceId: string,
+    opts?: { tagNames?: string[] },
+  ): Promise<GroupedByType> {
+    const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
+    const perfLabel = '[PERF][tags] listBySpaceGrouped';
+    const perfStart = hasTagFilter ? Date.now() : null;
+    if (hasTagFilter) {
+      console.time(perfLabel);
+    }
+
     const userId = this.ensureUserId();
 
-    // Query all three tables in parallel
-    const [habitsResult, todosResult, notesResult] = await Promise.all([
-      supabase
-        .from('habits')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('todos')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('notes')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false }),
-    ]);
+    const runTableQuery = async (table: 'habits' | 'todos' | 'notes', applyTagFilter: boolean) => {
+      let query = supabase.from(table).select('*').eq('owner_id', userId).eq('space_id', spaceId);
 
-    if (habitsResult.error) throw new Error(`Failed to list habits: ${habitsResult.error.message}`);
-    if (todosResult.error) throw new Error(`Failed to list todos: ${todosResult.error.message}`);
-    if (notesResult.error) throw new Error(`Failed to list notes: ${notesResult.error.message}`);
+      if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
+        query = query.contains('tags', opts.tagNames);
+      }
 
-    return {
-      habits: (habitsResult.data ?? []).map((h) =>
-        habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })),
-      ),
-      todos: (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
-      notes: (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
+      const { data, error } = await query.order('created_at', { ascending: false });
+      return { data: data ?? [], error };
     };
+
+    const runGroupedQuery = async (applyTagFilter: boolean) => {
+      const [habits, todos, notes] = await Promise.all([
+        runTableQuery('habits', applyTagFilter),
+        runTableQuery('todos', applyTagFilter),
+        runTableQuery('notes', applyTagFilter),
+      ]);
+
+      return { habits, todos, notes };
+    };
+
+    const ensureNoErrors = ({
+      habits,
+      todos,
+      notes,
+    }: Awaited<ReturnType<typeof runGroupedQuery>>) => {
+      if (habits.error) {
+        const err = new Error(`Failed to list habits: ${habits.error.message}`);
+        (err as any).cause = habits.error;
+        throw err;
+      }
+      if (todos.error) {
+        const err = new Error(`Failed to list todos: ${todos.error.message}`);
+        (err as any).cause = todos.error;
+        throw err;
+      }
+      if (notes.error) {
+        const err = new Error(`Failed to list notes: ${notes.error.message}`);
+        (err as any).cause = notes.error;
+        throw err;
+      }
+
+      return {
+        habits: habits.data,
+        todos: todos.data,
+        notes: notes.data,
+      };
+    };
+
+    try {
+      let groupedRaw: { habits: any[]; todos: any[]; notes: any[] };
+
+      if (hasTagFilter) {
+        try {
+          const initial = await runGroupedQuery(true);
+          const initialError = initial.habits.error ?? initial.todos.error ?? initial.notes.error;
+
+          if (initialError) {
+            console.warn(
+              '[SupabaseRepo] Tag filter grouped query failed, falling back without tags',
+              {
+                spaceId,
+                tagNames: opts?.tagNames,
+                error: formatSupabaseError(initialError),
+              },
+            );
+            notifyTagFilterFallback();
+
+            const fallback = await runGroupedQuery(false);
+            try {
+              groupedRaw = ensureNoErrors(fallback);
+            } catch (fallbackError) {
+              console.warn('[SupabaseRepo] Tag filter grouped fallback failed', {
+                spaceId,
+                error: formatSupabaseError(
+                  (fallbackError as Error & { cause?: any })?.cause ?? null,
+                ),
+              });
+              throw fallbackError;
+            }
+          } else {
+            groupedRaw = ensureNoErrors(initial);
+          }
+        } catch (error) {
+          console.warn('[tags] contains failed, falling back', error);
+          notifyTagFilterFallback();
+
+          const fallback = await runGroupedQuery(false);
+          try {
+            groupedRaw = ensureNoErrors(fallback);
+          } catch (fallbackError) {
+            console.warn('[SupabaseRepo] Tag filter grouped fallback failed', {
+              spaceId,
+              error: formatSupabaseError((fallbackError as Error & { cause?: any })?.cause ?? null),
+            });
+            throw fallbackError;
+          }
+        }
+      } else {
+        groupedRaw = ensureNoErrors(await runGroupedQuery(false));
+      }
+
+      return {
+        habits: groupedRaw.habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))),
+        todos: groupedRaw.todos.map((t) => todoZ.parse({ ...t, type: 'todo' })),
+        notes: groupedRaw.notes.map((n) => noteZ.parse({ ...n, type: 'note' })),
+      };
+    } finally {
+      if (hasTagFilter && perfStart !== null) {
+        const elapsed = Date.now() - perfStart;
+        try {
+          console.timeEnd(perfLabel);
+        } catch {
+          // console.timeEnd may throw in non-interactive test environments; ignore.
+        }
+        if (elapsed > 600) {
+          console.warn('[PERF][tags] slow query', {
+            ms: elapsed,
+            tagCount: opts?.tagNames?.length ?? 0,
+          });
+        }
+      }
+    }
   }
 
   // ==========================

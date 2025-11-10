@@ -4,6 +4,7 @@ import { useAuth } from '../providers/AuthProvider';
 import { SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../lib/repo/memory';
 import type { SpaceChat } from '../lib/types';
+import { normalizeSearchTagInput } from '../lib/tags/search';
 
 export type SearchItem = {
   id: string;
@@ -19,8 +20,41 @@ export function useSpaceSearch(spaceId: string) {
 
   const search = useCallback(
     async (q: string, filter: 'chats' | 'notes' | 'habits'): Promise<SearchItem[]> => {
-      const query = q.trim().toLowerCase();
-      if (!query) return [];
+      const trimmed = q.trim();
+      if (!trimmed) return [];
+
+      const query = trimmed.toLowerCase();
+      const isTagSearch = ['#', '*', '@'].includes(trimmed[0]);
+      const tagToken = normalizeSearchTagInput(trimmed);
+      const normalizedTagToken = tagToken.toLowerCase();
+      const hasTag = (tags?: string[]) => {
+        if (!normalizedTagToken) return false;
+        if (!Array.isArray(tags) || tags.length === 0) return false;
+        return tags.some((tag) => tag.toLowerCase() === normalizedTagToken);
+      };
+
+      const mapNote = (item: any): SearchItem => ({
+        id: item.id,
+        type: 'note' as const,
+        title: item.title || 'Untitled Note',
+        snippet: item.body
+          ? item.body.slice(0, 60) + (item.body.length > 60 ? '...' : '')
+          : undefined,
+        dateLabel: item.date
+          ? new Date(item.date).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            })
+          : undefined,
+      });
+
+      const mapHabit = (item: any): SearchItem => ({
+        id: item.id,
+        type: 'habit' as const,
+        title: item.title || item.name || 'Untitled Habit',
+        snippet: undefined,
+        dateLabel: undefined,
+      });
 
       try {
         if (filter === 'chats') {
@@ -51,45 +85,36 @@ export function useSpaceSearch(spaceId: string) {
                 : undefined,
             }));
         } else if (filter === 'notes') {
-          // Search notes
           const items = await repo.listBySpace(spaceId);
-          return items
-            .filter((item: any) => {
-              if (item.type !== 'note') return false;
-              const titleMatch = (item.title || '').toLowerCase().includes(query);
-              const bodyMatch = (item.body || '').toLowerCase().includes(query);
-              return titleMatch || bodyMatch;
-            })
-            .map((item: any) => ({
-              id: item.id,
-              type: 'note' as const,
-              title: item.title || 'Untitled Note',
-              snippet: item.body
-                ? item.body.slice(0, 60) + (item.body.length > 60 ? '...' : '')
-                : undefined,
-              dateLabel: item.date
-                ? new Date(item.date).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  })
-                : undefined,
-            }));
+
+          const matches = items.filter((item: any) => {
+            if (item.type !== 'note') return false;
+            if (isTagSearch) {
+              return hasTag(item.tags);
+            }
+
+            const titleMatch = (item.title || '').toLowerCase().includes(query);
+            const bodyMatch = (item.body || '').toLowerCase().includes(query);
+            const tagMatch = hasTag(item.tags);
+            return titleMatch || bodyMatch || tagMatch;
+          });
+
+          return matches.map(mapNote);
         } else if (filter === 'habits') {
-          // Search habits
           const items = await repo.listBySpace(spaceId);
-          return items
-            .filter((item: any) => {
-              if (item.type !== 'habit') return false;
-              const titleMatch = (item.title || item.name || '').toLowerCase().includes(query);
-              return titleMatch;
-            })
-            .map((item: any) => ({
-              id: item.id,
-              type: 'habit' as const,
-              title: item.title || item.name || 'Untitled Habit',
-              snippet: undefined,
-              dateLabel: undefined,
-            }));
+
+          const matches = items.filter((item: any) => {
+            if (item.type !== 'habit') return false;
+            if (isTagSearch) {
+              return hasTag(item.tags);
+            }
+
+            const titleMatch = (item.title || item.name || '').toLowerCase().includes(query);
+            const tagMatch = hasTag(item.tags);
+            return titleMatch || tagMatch;
+          });
+
+          return matches.map(mapHabit);
         }
 
         return [];

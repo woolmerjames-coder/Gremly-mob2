@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
  * UnifiedCreateOverlay - Phase 7 unified create/edit overlay
  * Single overlay for all entity types with type pills, subtypes, and AI freeform mode
@@ -16,18 +17,22 @@ import {
   Animated,
   ToastAndroid,
   Alert,
+  Switch,
   ActionSheetIOS,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import Chip from '../ui/Chip';
+import CommitmentToggleRow from '../CommitmentToggleRow';
 import { Icon } from '../ui/Icon';
+import type { IconName } from '../ui/Icon';
 import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fields/HabitFields';
 import { TodoFields } from './fields/TodoFields';
 import { JournalFields } from './fields/JournalFields';
 import { NoteFields, type NoteDetailsState } from './fields/NoteFields';
 import { PersonFields, type PersonDetailsState } from './fields/PersonFields';
+import { TagsField } from './fields/TagsField';
 import { TagEditor } from './fields/TagEditor';
 import { PeopleLinker } from './fields/PeopleLinker';
 import { useRepo } from '../../providers/RepoProvider';
@@ -45,8 +50,14 @@ import type {
 import type { CreateRecordInput, UpdateRecordInput } from '../../lib/repo/IRepo';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
-import type { EntityPerson, ItemType } from '../../lib/repo/types';
-import { callComplete, callClassify } from '../../lib/cortex/CortexClient';
+import type { ItemType, Tag } from '../../lib/repo/types';
+import {
+  normalizeTags,
+  getTagIdentifier,
+  recordRemovedTags,
+  deriveLogSubtypeFromTags,
+} from '../../lib/tags/normalize';
+import { callClassify, type CallClassifyResult } from '../../lib/cortex/CortexClient';
 import { parseDue } from '../../lib/cortex/entities/datetime';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import {
@@ -58,11 +69,13 @@ import {
 } from './mappers';
 import { env, getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 import { emitChatEvent } from '../../app/lib/chat/events';
+import { eventBus } from '../../lib/events';
 import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
 import { combineDueIso, normalizeTimeInput, splitDueParts } from './dueUtils';
 import { canonicalToPersisted } from '../../lib/canonical';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import { convertLogListToTodo, convertTodoToLogList, hasChecklist } from '../../lib/conversion';
+import { shouldAutoCommit } from '../../lib/commitments/auto';
 
 type EntityType = CanonicalType;
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -76,8 +89,6 @@ const capitalize = (value: string): string => {
 
 const CANONICAL_TYPES_ENABLED = env.feature.canonicalTypes;
 const NOTE_LABEL = capitalize(kindToDisplayLabel('note', 'journal', CANONICAL_TYPES_ENABLED));
-const LOG_TYPE_HEADING = `${NOTE_LABEL} type`;
-
 const ENTITY_FAMILY: Record<EntityType, TypeFamily> = {
   habit: 'habit',
   todo: 'todo',
@@ -91,6 +102,47 @@ const FRIENDLY_TYPE_LABEL: Record<EntityType, string> = {
   log: NOTE_LABEL,
   unsorted: 'Unsorted',
 };
+
+const tagListsEqual = (a: Tag[], b: Tag[]): boolean => {
+  if (a.length !== b.length) return false;
+  const leftIds = new Set(a.map((tag) => tag.id));
+  if (leftIds.size !== b.length) return false;
+  return b.every((tag) => leftIds.has(tag.id));
+};
+
+type AnalyticsClient = {
+  track: (event: string, payload?: Record<string, unknown>) => void;
+};
+
+const TAG_ANALYTICS_FLAG =
+  String(process.env.EXPO_PUBLIC_DEBUG_TAG_ANALYTICS ?? 'off').toLowerCase() === 'on';
+
+const COMMITMENTS_FEATURE_ENABLED = (() => {
+  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase();
+  return rawValue === 'on' || rawValue === 'true' || rawValue === '1';
+})();
+
+const resolveTagType = (tag: string): '@' | '*' | '#' => {
+  if (tag.startsWith('@')) return '@';
+  if (tag.startsWith('*')) return '*';
+  return '#';
+};
+
+const resolveAnalyticsClient = (): AnalyticsClient | null => {
+  if (!TAG_ANALYTICS_FLAG) {
+    return null;
+  }
+
+  const candidate = (globalThis as unknown as { analytics?: AnalyticsClient }).analytics;
+
+  if (candidate && typeof candidate.track === 'function') {
+    return candidate;
+  }
+
+  return null;
+};
+
+const COMMITMENT_NOTE_LIMIT = 140;
 
 export type UnifiedCreateOverlayProps = {
   visible: boolean;
@@ -114,12 +166,13 @@ export type UnifiedCreateOverlayProps = {
   };
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
+  onCommitmentsChanged?: () => void | Promise<void>;
 };
 
 type TypeOption = {
   value: EntityType;
   label: string;
-  iconName: string;
+  iconName: IconName;
   logSubtype?: LogSubtype;
 };
 
@@ -143,14 +196,7 @@ const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
       { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
     ];
 
-const LOG_SUBTYPE_OPTIONS: Array<{ value: LogSubtype; label: string }> = [
-  { value: 'journal', label: 'Journal' },
-  { value: 'idea', label: 'Idea' },
-  { value: 'list', label: 'List' },
-  { value: 'person', label: 'Person' },
-  { value: 'everything_else', label: 'Everything Else' },
-];
-
+// Star tags now derive log subtype automatically (see deriveLogSubtypeFromTags).
 const DEFAULT_LOG_SUBTYPE: LogSubtype = 'everything_else';
 
 const normalizeInitialSelection = (
@@ -194,6 +240,7 @@ export function UnifiedCreateOverlay({
   conversionMeta,
   onClose,
   onSaved,
+  onCommitmentsChanged,
 }: UnifiedCreateOverlayProps) {
   const canonicalConversionsEnabled = env.feature.canonicalConversions;
   const { type: normalizedInitialType, logSubtype: normalizedInitialSubtype } = useMemo(
@@ -208,6 +255,10 @@ export function UnifiedCreateOverlay({
   const originalTypeRef = useRef<EntityType | null>(null);
   const originalEntityRef = useRef<AppRecord | null>(null);
   const lastLoadedIdRef = useRef<string | null>(null);
+  const [persistedEntity, setPersistedEntity] = useState<{
+    id: string;
+    type: 'habit' | 'todo';
+  } | null>(null);
 
   // Feature flag checks
   const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
@@ -231,7 +282,6 @@ export function UnifiedCreateOverlay({
   useEffect(() => {
     if (!visible) {
       openedRef.current = false;
-      return;
     }
     if (openedRef.current) return;
     openedRef.current = true;
@@ -250,12 +300,15 @@ export function UnifiedCreateOverlay({
   // State - with robust defaults
   // CRITICAL: Initialize selectedType from initialEntity to avoid null flash
   const [selectedType, setSelectedType] = useState<EntityType | null>(normalizedInitialType);
-  const [selectedLogSubtype, setSelectedLogSubtype] =
-    useState<LogSubtype | null>(normalizedInitialSubtype);
+  const [selectedLogSubtype, setSelectedLogSubtype] = useState<LogSubtype | null>(
+    normalizedInitialSubtype,
+  );
   const hasSyncedInitialTypeRef = useRef(false);
-  const lastHydratedSelectionRef = useRef<
-    { id: string | null; type: EntityType | null; logSubtype: LogSubtype | null } | null
-  >(null);
+  const lastHydratedSelectionRef = useRef<{
+    id: string | null;
+    type: EntityType | null;
+    logSubtype: LogSubtype | null;
+  } | null>(null);
 
   const normalizedInitialSelection = useMemo(
     () => ({
@@ -369,11 +422,12 @@ export function UnifiedCreateOverlay({
   // Habit fields
   const [habitName, setHabitName] = useState('');
   const [habitFrequency, setHabitFrequency] = useState<Frequency>('daily');
-  const [habitSubtype, setHabitSubtype] = useState<string | null>(null);
+  const [habitSubtype, setHabitSubtype] = useState<HabitSubtype | null>(null);
   const [habitFrequencyValue, setHabitFrequencyValue] = useState<FrequencyValue>({ kind: 'daily' });
   const [habitReminders, setHabitReminders] = useState<ReminderRow[]>([]);
   const [habitDetails, setHabitDetails] = useState<HabitDetailsState>({});
   const [habitBreakState, setHabitBreakState] = useState<BreakHabitState>({});
+  const habitNotes = habitDetails?.notes ?? '';
 
   // Todo fields
   const [todoName, setTodoName] = useState('');
@@ -382,7 +436,41 @@ export function UnifiedCreateOverlay({
   const [todoDetails, setTodoDetails] = useState<import('./fields/TodoFields').TodoDetailsState>(
     {},
   );
-  const todoNotes = todoDetails?.notes ?? null;
+  const todoNotes = todoDetails?.notes ?? '';
+
+  // Commitment state
+  const [commitmentEnabled, setCommitmentEnabled] = useState(false);
+  const [commitmentBusy, setCommitmentBusy] = useState(false);
+  const [commitmentNote, setCommitmentNote] = useState('');
+  const [commitmentNoteDraft, setCommitmentNoteDraft] = useState('');
+  const [commitmentNoteEditing, setCommitmentNoteEditing] = useState(false);
+  const [commitmentNoteBusy, setCommitmentNoteBusy] = useState(false);
+
+  const runCommitmentsChangedCallback = useCallback(() => {
+    if (!onCommitmentsChanged) {
+      return;
+    }
+
+    try {
+      const result = onCommitmentsChanged();
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).catch((error) => {
+          if (__DEV__) {
+            console.warn('[UnifiedCreateOverlay] onCommitmentsChanged rejected', error);
+          }
+        });
+      }
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[UnifiedCreateOverlay] onCommitmentsChanged threw', error);
+      }
+    }
+  }, [onCommitmentsChanged]);
+
+  const emitCommitmentsChanged = useCallback(() => {
+    eventBus.emit('CommitmentsChanged', {});
+    runCommitmentsChangedCallback();
+  }, [runCommitmentsChangedCallback]);
 
   // Journal fields
   const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
@@ -414,6 +502,14 @@ export function UnifiedCreateOverlay({
     spaceId: null,
     tags: [],
   });
+
+  const entityForCommitment = useMemo(() => {
+    if (initialEntity?.id && (initialEntity.type === 'habit' || initialEntity.type === 'todo')) {
+      return { id: initialEntity.id, type: initialEntity.type as 'habit' | 'todo' };
+    }
+
+    return persistedEntity;
+  }, [initialEntity, persistedEntity]);
 
   const canConvertLogListToTodo = useMemo(() => {
     if (mode !== 'edit') return false;
@@ -478,6 +574,161 @@ export function UnifiedCreateOverlay({
     mode === 'edit' ? initialEntity?.id || null : null,
     getItemType(),
   );
+
+  const removedTagsRef = useRef<Set<string>>(new Set());
+  const [tagsState, setTagsState] = useState<string[]>([]);
+  const latestTagsRef = useRef<string[]>([]);
+  const [tagEditorTags, setTagEditorTags] = useState<Tag[]>([]);
+  const tagEditorTagNames = useMemo(
+    () => normalizeTags(tagEditorTags.map((tag) => tag?.name ?? '')),
+    [tagEditorTags],
+  );
+
+  const analyticsClient = useMemo(() => resolveAnalyticsClient(), []);
+
+  const trackTagAnalytics = useCallback(
+    (previous: string[] | null | undefined, next: string[] | null | undefined) => {
+      if (!analyticsClient) {
+        return;
+      }
+
+      const previousNormalized = normalizeTags(previous ?? []);
+      const nextNormalized = normalizeTags(next ?? []);
+
+      const previousMap = new Map(previousNormalized.map((tag) => [getTagIdentifier(tag), tag]));
+      const nextMap = new Map(nextNormalized.map((tag) => [getTagIdentifier(tag), tag]));
+
+      let hasChanges = false;
+
+      nextMap.forEach((tag, key) => {
+        if (!previousMap.has(key)) {
+          hasChanges = true;
+          try {
+            analyticsClient.track('tag_added', {
+              origin: 'overlay',
+              tag_type: resolveTagType(tag),
+            });
+          } catch {
+            // No-op on analytics errors.
+          }
+        }
+      });
+
+      previousMap.forEach((tag, key) => {
+        if (!nextMap.has(key)) {
+          hasChanges = true;
+          try {
+            analyticsClient.track('tag_removed', {
+              origin: 'overlay',
+              tag_type: resolveTagType(tag),
+            });
+          } catch {
+            // No-op on analytics errors.
+          }
+        }
+      });
+
+      // Avoid retaining pointless references when there is no diff.
+      if (!hasChanges) {
+        return;
+      }
+    },
+    [analyticsClient],
+  );
+
+  const applyTagsChange = useCallback(
+    (previous: string[] | null | undefined, incoming: string[]): string[] => {
+      const next = recordRemovedTags(removedTagsRef.current, previous, incoming);
+      trackTagAnalytics(previous, next);
+      return next;
+    },
+    [trackTagAnalytics],
+  );
+
+  const syncDetailsWithTags = useCallback(
+    (next: string[], typeOverride?: EntityType | null, logSubtypeOverride?: LogSubtype | null) => {
+      const activeType = typeOverride ?? selectedType;
+
+      switch (activeType) {
+        case 'habit':
+          setHabitDetails((prev) => ({ ...prev, tags: next }));
+          break;
+        case 'todo':
+          setTodoDetails((prev) => ({ ...prev, tags: next }));
+          break;
+        case 'log': {
+          const subtype = logSubtypeOverride ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE;
+          if (subtype === 'journal') {
+            setJournalDetails((prev) => ({ ...prev, tags: next }));
+          } else if (subtype === 'person') {
+            setPersonDetails((prev) => ({ ...prev, tags: next }));
+          } else {
+            setNoteDetails((prev) => ({ ...prev, tags: next }));
+          }
+          break;
+        }
+        case 'unsorted':
+          setNoteDetails((prev) => ({ ...prev, tags: next }));
+          break;
+        default:
+          break;
+      }
+    },
+    [selectedLogSubtype, selectedType],
+  );
+
+  const initializeTags = useCallback(
+    (
+      incoming: string[] | null | undefined,
+      typeOverride?: EntityType | null,
+      logSubtypeOverride?: LogSubtype | null,
+    ) => {
+      removedTagsRef.current.clear();
+      const normalized = normalizeTags(incoming ?? []);
+      setTagsState(normalized);
+      syncDetailsWithTags(normalized, typeOverride, logSubtypeOverride);
+    },
+    [syncDetailsWithTags],
+  );
+
+  const handleTagsChange = useCallback(
+    (incoming: string[]) => {
+      setTagsState((prev) => {
+        const next = applyTagsChange(prev, incoming);
+        syncDetailsWithTags(next);
+        return next;
+      });
+    },
+    [applyTagsChange, syncDetailsWithTags],
+  );
+
+  const combineTags = useCallback((): string[] | null => {
+    const combined = normalizeTags([...tagsState, ...tagEditorTagNames]);
+    const filtered = combined.filter((tag) => !removedTagsRef.current.has(tag.toLowerCase()));
+    return filtered.length > 0 ? filtered : null;
+  }, [tagEditorTagNames, tagsState]);
+
+  const derivedLogSubtype = selectedType === 'log' ? deriveLogSubtypeFromTags(tagsState) : null;
+  const effectiveLogSubtype =
+    derivedLogSubtype && derivedLogSubtype !== 'everything_else' ? derivedLogSubtype : null;
+
+  useEffect(() => {
+    latestTagsRef.current = tagsState;
+  }, [tagsState]);
+
+  useEffect(() => {
+    if (!selectedType) {
+      return;
+    }
+
+    syncDetailsWithTags(latestTagsRef.current);
+  }, [selectedLogSubtype, selectedType, syncDetailsWithTags]);
+
+  useEffect(() => {
+    if (!usePhase8Features) return;
+    if (tagListsEqual(tagEditorTags, phase8Links.currentTags)) return;
+    setTagEditorTags(phase8Links.currentTags);
+  }, [phase8Links.currentTags, tagEditorTags, usePhase8Features]);
 
   const isLogPerson =
     selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person';
@@ -578,20 +829,19 @@ export function UnifiedCreateOverlay({
   const typePillsDisabled = mode === 'edit' ? !ALLOW_TYPE_CHANGE : false;
 
   // Helper to show success toast cross-platform
-  const showToast = (message: string) => {
+  const showToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(message, ToastAndroid.SHORT);
     } else {
       Alert.alert('Success', message);
     }
-  };
+  }, []);
 
-  const notifyAiUnavailable = useCallback(() => {
-    const message = 'AI temporarily unavailable — saved locally.';
+  const showErrorToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(message, ToastAndroid.SHORT);
     } else {
-      console.warn('[UnifiedOverlay]', message);
+      Alert.alert('Heads up', message);
     }
   }, []);
 
@@ -624,7 +874,14 @@ export function UnifiedCreateOverlay({
             setPersonDetails(formData.details);
             setSelectedType('log');
             setSelectedLogSubtype('person');
+            initializeTags(formData.details.tags ?? [], 'log', 'person');
             originalEntityRef.current = null;
+            setCommitmentEnabled(false);
+            setCommitmentBusy(false);
+            setCommitmentNote('');
+            setCommitmentNoteDraft('');
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             setHydration('ready');
             return;
           } catch (error) {
@@ -653,6 +910,19 @@ export function UnifiedCreateOverlay({
             setHabitDetails(formData.details);
             setHabitBreakState(formData.breakState);
             setSelectedType('habit');
+            initializeTags(formData.details.tags ?? [], 'habit');
+            if (COMMITMENTS_FEATURE_ENABLED) {
+              setCommitmentEnabled(Boolean(entity.commitment && !entity.commitment_archived_at));
+              setCommitmentNote(entity.commitment_note ?? '');
+              setCommitmentNoteDraft(entity.commitment_note ?? '');
+            } else {
+              setCommitmentEnabled(false);
+              setCommitmentNote('');
+              setCommitmentNoteDraft('');
+            }
+            setCommitmentBusy(false);
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             break;
           }
           case 'todo': {
@@ -662,13 +932,30 @@ export function UnifiedCreateOverlay({
             setTodoDueTime(formData.dueTime);
             setTodoDetails(formData.details);
             setSelectedType('todo');
+            initializeTags(formData.details.tags ?? [], 'todo');
+            if (COMMITMENTS_FEATURE_ENABLED) {
+              setCommitmentEnabled(Boolean(entity.commitment && !entity.commitment_archived_at));
+              setCommitmentNote(entity.commitment_note ?? '');
+              setCommitmentNoteDraft(entity.commitment_note ?? '');
+            } else {
+              setCommitmentEnabled(false);
+              setCommitmentNote('');
+              setCommitmentNoteDraft('');
+            }
+            setCommitmentBusy(false);
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             break;
           }
           case 'note': {
-            const labels = Array.isArray((entity as any)?.labels)
-              ? ((entity as any).labels as string[])
-              : [];
+            const labels = Array.isArray(entity.labels) ? entity.labels : [];
             const isUnsorted = labels.includes(UNSORTED_LABEL);
+            setCommitmentEnabled(false);
+            setCommitmentBusy(false);
+            setCommitmentNote('');
+            setCommitmentNoteDraft('');
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             if (entity.subtype === 'journal') {
               const formData = mapJournalToForm(entity);
               setJournalDate(formData.date);
@@ -677,6 +964,7 @@ export function UnifiedCreateOverlay({
               setJournalDetails(formData.details);
               setSelectedType('log');
               setSelectedLogSubtype('journal');
+              initializeTags(formData.details.tags ?? [], 'log', 'journal');
             } else {
               const formData = mapNoteToForm(entity);
               setNoteTitle(formData.title);
@@ -686,6 +974,7 @@ export function UnifiedCreateOverlay({
               if (isUnsorted) {
                 setSelectedType('unsorted');
                 setSelectedLogSubtype(null);
+                initializeTags(formData.details.tags ?? [], 'unsorted');
               } else {
                 const inferredSubtype: LogSubtype = (() => {
                   switch (entity.subtype) {
@@ -699,6 +988,7 @@ export function UnifiedCreateOverlay({
                 })();
                 setSelectedType('log');
                 setSelectedLogSubtype(inferredSubtype);
+                initializeTags(formData.details.tags ?? [], 'log', inferredSubtype);
               }
             }
             break;
@@ -711,7 +1001,7 @@ export function UnifiedCreateOverlay({
         setHydration('error');
       }
     },
-    [repo],
+    [initializeTags, repo],
   );
 
   // Initialize from initialEntity in edit mode
@@ -789,7 +1079,20 @@ export function UnifiedCreateOverlay({
         }).start();
       }
     }
-  }, [visible, mode, initialEntity, loadEntity, selectedType, fadeAnim, hydration]);
+  }, [
+    visible,
+    mode,
+    initialEntity,
+    loadEntity,
+    selectedType,
+    selectedLogSubtype,
+    fadeAnim,
+    hydration,
+    normalizedInitialSelection.logSubtype,
+    normalizedInitialSelection.type,
+    normalizedInitialSubtype,
+    normalizedInitialType,
+  ]);
 
   useEffect(() => {
     if (mode !== 'edit') return;
@@ -847,7 +1150,7 @@ export function UnifiedCreateOverlay({
   useEffect(() => {
     if (!visible || !conversionMeta) return;
 
-    const { initialTitle, initialNote, initialDueDate } = conversionMeta as any;
+    const { initialTitle, initialNote, initialDueDate } = conversionMeta;
     const hasPrefill = !!initialTitle || !!initialNote || !!initialDueDate;
 
     if (selectedType === 'todo') {
@@ -956,11 +1259,15 @@ export function UnifiedCreateOverlay({
   const resetForm = () => {
     phase8Links.clearPendingTags();
     phase8Links.clearPendingPeople();
+    removedTagsRef.current.clear();
+    setTagEditorTags([]);
+    setTagsState([]);
     setSelectedType(null); // Reset to no type selected
     setAiMode(false);
     setHydration('idle');
+    setPersistedEntity(null);
     setFreeformText('');
-  setSelectedLogSubtype(null);
+    setSelectedLogSubtype(null);
     setHabitName('');
     setHabitFrequency('daily');
     setHabitSubtype(null);
@@ -993,6 +1300,12 @@ export function UnifiedCreateOverlay({
       spaceId: null,
       tags: [],
     });
+    setCommitmentEnabled(false);
+    setCommitmentBusy(false);
+    setCommitmentNote('');
+    setCommitmentNoteDraft('');
+    setCommitmentNoteEditing(false);
+    setCommitmentNoteBusy(false);
     originalEntityRef.current = null;
     originalTypeRef.current = null;
     lastLoadedIdRef.current = null;
@@ -1119,6 +1432,145 @@ export function UnifiedCreateOverlay({
     }).start();
   };
 
+  const handleCommitmentToggle = useCallback(
+    async (nextValue: boolean) => {
+      if (!COMMITMENTS_FEATURE_ENABLED) return;
+      if (!initialEntityId) return;
+      if (selectedType !== 'habit' && selectedType !== 'todo') return;
+      if (nextValue === commitmentEnabled) return;
+      if (commitmentBusy) return;
+
+      setCommitmentBusy(true);
+      try {
+        if (nextValue) {
+          const activeCount = await repo.countActiveCommitments();
+          if (activeCount >= 3) {
+            showErrorToast('Limit of 3 active commitments reached');
+            return;
+          }
+
+          const noteSource =
+            commitmentNote.trim().length > 0
+              ? commitmentNote
+              : selectedType === 'habit'
+                ? habitNotes
+                : todoNotes;
+          const trimmedNote = noteSource.trim();
+          await repo.addCommitment(
+            initialEntityId,
+            selectedType,
+            trimmedNote.length > 0 ? trimmedNote : null,
+          );
+          setCommitmentEnabled(true);
+          setCommitmentNote(trimmedNote);
+          setCommitmentNoteDraft(trimmedNote);
+          setCommitmentNoteEditing(false);
+          emitCommitmentsChanged();
+          return;
+        }
+
+        await repo.removeCommitment(initialEntityId, selectedType);
+        setCommitmentEnabled(false);
+        setCommitmentNote('');
+        setCommitmentNoteDraft('');
+        setCommitmentNoteEditing(false);
+        setCommitmentNoteBusy(false);
+        emitCommitmentsChanged();
+      } catch (error) {
+        console.error('[UnifiedCreateOverlay] Failed to toggle commitment', error);
+        if (error instanceof Error && error.message === 'MAX_COMMITMENTS_REACHED') {
+          showErrorToast('Limit of 3 active commitments reached');
+        } else {
+          showErrorToast('Unable to update commitment right now.');
+        }
+      } finally {
+        setCommitmentBusy(false);
+      }
+    },
+    [
+      commitmentBusy,
+      commitmentEnabled,
+      habitNotes,
+      initialEntityId,
+      repo,
+      selectedType,
+      commitmentNote,
+      showErrorToast,
+      todoNotes,
+      emitCommitmentsChanged,
+    ],
+  );
+
+  const handleCommitmentNotePress = useCallback(() => {
+    if (!COMMITMENTS_FEATURE_ENABLED) {
+      return;
+    }
+    if (!commitmentEnabled) {
+      showErrorToast('Enable commitment to add an intent.');
+      return;
+    }
+    setCommitmentNoteDraft(commitmentNote);
+    setCommitmentNoteEditing(true);
+  }, [commitmentEnabled, commitmentNote, showErrorToast]);
+
+  const handleCommitmentNoteCancel = useCallback(() => {
+    if (!COMMITMENTS_FEATURE_ENABLED) {
+      return;
+    }
+    setCommitmentNoteDraft(commitmentNote);
+    setCommitmentNoteEditing(false);
+  }, [commitmentNote]);
+
+  const handleCommitmentNoteSave = useCallback(async () => {
+    if (!COMMITMENTS_FEATURE_ENABLED) return;
+    if (!initialEntityId) return;
+    if (selectedType !== 'habit' && selectedType !== 'todo') return;
+    if (!commitmentEnabled) {
+      showErrorToast('Enable commitment to add an intent.');
+      return;
+    }
+
+    const trimmed = commitmentNoteDraft.trim();
+    if (trimmed.length > COMMITMENT_NOTE_LIMIT) {
+      showErrorToast(`Intent must be ${COMMITMENT_NOTE_LIMIT} characters or fewer.`);
+      return;
+    }
+
+    setCommitmentNoteBusy(true);
+    try {
+      const notePatch = {
+        commitment_note: trimmed.length > 0 ? trimmed : null,
+      } as any;
+      await repo.update({
+        id: initialEntityId,
+        patch: notePatch,
+      });
+      setCommitmentNote(trimmed);
+      setCommitmentNoteDraft(trimmed);
+      setCommitmentNoteEditing(false);
+      if (trimmed.length > 0) {
+        showToast('Intent saved.');
+      } else {
+        showToast('Intent cleared.');
+      }
+      emitCommitmentsChanged();
+    } catch (error) {
+      console.error('[UnifiedCreateOverlay] Failed to save commitment note', error);
+      showErrorToast('Unable to save intent right now.');
+    } finally {
+      setCommitmentNoteBusy(false);
+    }
+  }, [
+    commitmentEnabled,
+    commitmentNoteDraft,
+    initialEntityId,
+    emitCommitmentsChanged,
+    repo,
+    selectedType,
+    showErrorToast,
+    showToast,
+  ]);
+
   const flushPendingAssociations = async (
     itemId: string,
     itemTypeOverride?: ItemType | null,
@@ -1129,7 +1581,7 @@ export function UnifiedCreateOverlay({
     if (usePhase8Features && phase8Links.pendingTagIds.length > 0) {
       for (const tagId of phase8Links.pendingTagIds) {
         try {
-          await (repo as any).linkTag({ itemId, tagId, itemType });
+          await repo.linkTag({ itemId, tagId, itemType });
         } catch (error) {
           console.error('[Phase8] Failed to link pending tag:', tagId, error);
         }
@@ -1140,7 +1592,7 @@ export function UnifiedCreateOverlay({
     if (allowPeopleLinking && phase8Links.pendingPeople.length > 0) {
       for (const person of phase8Links.pendingPeople) {
         try {
-          await (repo as any).linkPerson({
+          await repo.linkPerson({
             itemId,
             itemType,
             personName: person.personName,
@@ -1307,299 +1759,370 @@ export function UnifiedCreateOverlay({
 
         setThinking(true);
         setCortexStatus('thinking');
+        setCortexInFlight(true);
 
         // Kick AI classification call (don't await yet)
         const noteText = freeformText.trim();
         const aiPromise = callClassify({ text: noteText });
 
-        // Race AI vs min-think timer
-        const thinkTimer = new Promise((resolve) => setTimeout(resolve, minThink));
-        let finishedEarly = false;
-        let aiResult: any = null;
-
         try {
-          aiResult = await Promise.race([
-            aiPromise.then((r) => {
-              finishedEarly = true;
-              return r;
-            }),
-            thinkTimer.then(() => null),
-          ]);
-        } catch (e) {
-          aiResult = { ok: false, error: (e as Error)?.message || 'unknown' };
-        }
+          // Race AI vs min-think timer
+          const thinkTimer = new Promise<void>((resolve) => setTimeout(resolve, minThink));
+          let finishedEarly = false;
+          let aiResult: CallClassifyResult | null = null;
 
-        const elapsed = Date.now() - t0;
+          try {
+            aiResult = await Promise.race([
+              aiPromise.then((result) => {
+                finishedEarly = true;
+                return result;
+              }),
+              thinkTimer.then(() => null),
+            ]);
+          } catch (error) {
+            aiResult = { ok: false, error: (error as Error)?.message || 'unknown' };
+          }
 
-        // Case A: AI finished within ~1s and succeeded
-        if (optimisticEnabled && finishedEarly && aiResult?.ok) {
-          console.log('[Overlay] ai ms', elapsed);
+          const elapsed = Date.now() - t0;
 
-          // Save with classification immediately
+          // Case A: AI finished within ~1s and succeeded
+          if (optimisticEnabled && finishedEarly && aiResult?.ok) {
+            console.log('[Overlay] ai ms', elapsed);
+
+            const classification = aiResult.classification;
+            // Derive tags NOW (same normalization semantics as background finalize)
+            const manualTagsSnapshot = normalizeTags(latestTagsRef.current);
+            const removedTagsSnapshot = new Set<string>(removedTagsRef.current);
+            const classificationTags = normalizeTags(classification.tags ?? []);
+            const filteredClassificationTags = classificationTags.filter(
+              (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
+            );
+            const mergedTagState = normalizeTags([
+              ...manualTagsSnapshot,
+              ...filteredClassificationTags,
+              ...tagEditorTagNames,
+            ]);
+            const filteredMerged = mergedTagState.filter(
+              (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
+            );
+            const tagsForCreate =
+              filteredMerged.length > 0
+                ? filteredMerged
+                : filteredClassificationTags.length > 0
+                  ? filteredClassificationTags
+                  : null;
+
+            // Save immediately as catch-all note (fast path) BUT include tags
+            const trimmedText = freeformText.trim();
+            const input: CreateRecordInput = {
+              type: 'note',
+              title: trimmedText || 'Quick note',
+              body: trimmedText,
+              subtype: 'catchall',
+              space_id: spaceId !== undefined ? spaceId : null,
+              ai_placed: true,
+              why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+              origin: 'catchall',
+              tags: tagsForCreate,
+            };
+
+            const result = await repo.create(input);
+            console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+
+            if (result.id) {
+              await flushPendingAssociations(result.id, 'note');
+            }
+
+            handleSaved({ type: 'note', id: result.id });
+            showToast('Added to Hub');
+            setThinking(false);
+            setCortexStatus(null);
+            handleClose();
+            return;
+          }
+
+          // Case B: AI not done in ~1s or failed - save optimistically to Catch-All
+          console.log('[Overlay] ai ms (optimistic)', elapsed);
+
           const trimmedText = freeformText.trim();
           const input: CreateRecordInput = {
             type: 'note',
-            title: trimmedText || 'Quick note',
+            title: trimmedText || 'Quick note', // Database requires non-empty title
             body: trimmedText,
             subtype: 'catchall',
             space_id: spaceId !== undefined ? spaceId : null,
-            ai_placed: true,
-            why_string: 'AI classified',
+            ai_placed: false,
+            why_string: 'Pending classification',
             origin: 'catchall',
           };
 
-          const result = await repo.create(input);
-          console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+          const newItem = await repo.create(input);
+          console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'pending' });
 
-          if (result.id) {
-            await flushPendingAssociations(result.id, 'note');
+          if (newItem.id) {
+            await flushPendingAssociations(newItem.id, 'note');
           }
 
-          handleSaved({ type: 'note', id: result.id });
-          showToast('Added to Hub');
+          const manualTagsSnapshot = normalizeTags(latestTagsRef.current);
+          const removedTagsSnapshot = new Set<string>(removedTagsRef.current);
+          const tagEditorSnapshot = [...tagEditorTagNames];
+
+          handleSaved({ type: 'note', id: newItem.id });
+          showToast('Delivered to Hub — sorting in background');
           setThinking(false);
           setCortexStatus(null);
           handleClose();
-          return;
-        }
 
-        // Case B: AI not done in ~1s or failed - save optimistically to Catch-All
-        console.log('[Overlay] ai ms (optimistic)', elapsed);
+          // Background finalize (non-blocking)
+          if (optimisticEnabled) {
+            setTimeout(async () => {
+              try {
+                const timeoutPromise = new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error('bg-timeout')), bgTimeout),
+                );
+                const finalResult = await Promise.race([aiPromise, timeoutPromise]);
 
-        const trimmedText = freeformText.trim();
-        const input: CreateRecordInput = {
-          type: 'note',
-          title: trimmedText || 'Quick note', // Database requires non-empty title
-          body: trimmedText,
-          subtype: 'catchall',
-          space_id: spaceId !== undefined ? spaceId : null,
-          ai_placed: false,
-          why_string: 'Pending classification',
-          origin: 'catchall',
-        };
+                if (finalResult.ok) {
+                  console.log('[Overlay] bg classification success', newItem.id);
+                  console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
 
-        const newItem = await repo.create(input);
-        console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'pending' });
+                  // Extract classification info from AI response
+                  const classification = finalResult.classification;
+                  const originalNoteId = newItem.id;
+                  const originalText = noteText;
+                  const classificationTags = normalizeTags(classification.tags ?? []);
+                  const filteredClassificationTags = classificationTags.filter(
+                    (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
+                  );
 
-        if (newItem.id) {
-          await flushPendingAssociations(newItem.id, 'note');
-        }
+                  const mergedTagState = normalizeTags([
+                    ...manualTagsSnapshot,
+                    ...filteredClassificationTags,
+                  ]);
+                  const combinedTagsForPayload = normalizeTags([
+                    ...mergedTagState,
+                    ...tagEditorSnapshot,
+                  ]);
+                  const filteredCombinedTags = combinedTagsForPayload.filter(
+                    (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
+                  );
+                  const tagsPayload = filteredCombinedTags.length > 0 ? filteredCombinedTags : null;
+                  const tags =
+                    tagsPayload ??
+                    (filteredClassificationTags.length > 0 ? filteredClassificationTags : null);
 
-        handleSaved({ type: 'note', id: newItem.id });
-        showToast('Delivered to Hub — sorting in background');
-        setThinking(false);
-        setCortexStatus(null);
-        handleClose();
+                  // Normalize category to lowercase for matching
+                  const category = classification.category.toLowerCase();
 
-        // Background finalize (non-blocking)
-        if (optimisticEnabled) {
-          setTimeout(async () => {
-            try {
-              const finalResult = await Promise.race([
-                aiPromise,
-                new Promise<any>((_, rej) =>
-                  setTimeout(() => rej(new Error('bg-timeout')), bgTimeout),
-                ),
-              ]);
+                  try {
+                    // Find or create space if spaceName is provided
+                    let targetSpaceId: string | null = null;
+                    const spaceName = classification.spaceName;
+                    if (spaceName) {
+                      const spaces = await repo.listSpaces();
+                      let space = spaces.find(
+                        (s) => s.name.toLowerCase() === spaceName.toLowerCase(),
+                      );
 
-              if (finalResult && finalResult.ok) {
-                console.log('[Overlay] bg classification success', newItem.id);
-                console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'classified' });
+                      if (!space) {
+                        // Create the space if it doesn't exist
+                        space = await repo.createSpace({
+                          name: spaceName,
+                        });
+                        console.log('[Overlay] Created new space:', space.name, space.id);
+                      }
 
-                // Extract classification info from AI response
-                const classification = finalResult.classification;
-                const originalNoteId = newItem.id;
-                const originalText = noteText;
-
-                // Normalize category to lowercase for matching
-                const category = classification.category.toLowerCase();
-
-                try {
-                  // Find or create space if spaceName is provided
-                  let targetSpaceId: string | null = null;
-                  if (classification.spaceName) {
-                    const spaces = await repo.listSpaces();
-                    let space = spaces.find(
-                      (s) => s.name.toLowerCase() === classification.spaceName.toLowerCase(),
-                    );
-
-                    if (!space) {
-                      // Create the space if it doesn't exist
-                      space = await repo.createSpace({
-                        name: classification.spaceName,
-                      });
-                      console.log('[Overlay] Created new space:', space.name, space.id);
+                      targetSpaceId = space.id;
                     }
 
-                    targetSpaceId = space.id;
-                  }
+                    let newItemId: string | null = null;
 
-                  let newItemId: string | null = null;
+                    // Create appropriate item type based on classification
+                    switch (category) {
+                      case 'habit': {
+                        const habitInput: CreateRecordInput = {
+                          type: 'habit',
+                          name: originalText,
+                          frequency: 'daily',
+                          subtype: 'start_habit',
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags,
+                        };
+                        const habit = await repo.create(habitInput);
+                        newItemId = habit.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'habit',
+                          spaceName,
+                        });
+                        break;
+                      }
 
-                  // Create appropriate item type based on classification
-                  switch (category) {
-                    case 'habit': {
-                      const habitInput: CreateRecordInput = {
-                        type: 'habit',
-                        name: originalText,
-                        frequency: 'daily',
-                        subtype: 'start_habit',
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                      };
-                      const habit = await repo.create(habitInput);
-                      newItemId = habit.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'habit',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
+                      case 'to-do':
+                      case 'todo': {
+                        const todoInput: CreateRecordInput = {
+                          type: 'todo',
+                          name: originalText,
+                          title: originalText,
+                          due_date: null,
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags,
+                        };
+                        const todo = await repo.create(todoInput);
+                        newItemId = todo.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'todo',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      case 'note': {
+                        const tagsForSubtype = tags ?? filteredClassificationTags;
+                        const derivedSubtype = deriveLogSubtypeFromTags(tagsForSubtype);
+                        const resolvedSubtype: NoteSubtype = (() => {
+                          switch (derivedSubtype) {
+                            case 'journal':
+                              return 'journal';
+                            case 'list':
+                              return 'list';
+                            case 'idea':
+                              return 'idea';
+                            default:
+                              return 'idea';
+                          }
+                        })();
+
+                        const noteInput: CreateRecordInput = {
+                          type: 'note',
+                          title: originalText.slice(0, 100),
+                          body: originalText,
+                          subtype: resolvedSubtype,
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags,
+                        };
+                        const note = await repo.create(noteInput);
+                        newItemId = note.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'note',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      case 'journal': {
+                        const journalInput: CreateRecordInput = {
+                          type: 'note',
+                          title: originalText.slice(0, 100),
+                          body: originalText,
+                          subtype: 'journal',
+                          space_id: targetSpaceId,
+                          ai_placed: true,
+                          why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
+                          tags,
+                        };
+                        const journal = await repo.create(journalInput);
+                        newItemId = journal.id;
+                        console.log('[CLASSIFIED_DEST]', {
+                          from: originalNoteId,
+                          to: newItemId,
+                          category: 'journal',
+                          spaceName,
+                        });
+                        break;
+                      }
+
+                      default: {
+                        // Unknown category - just mark as classified but keep as catchall
+                        console.warn('[Overlay] Unknown category:', category);
+                        await repo.update({
+                          id: originalNoteId,
+                          patch: {
+                            ai_placed: true,
+                            why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence)`,
+                          },
+                        });
+                        break;
+                      }
                     }
 
-                    case 'to-do':
-                    case 'todo': {
-                      const todoInput: CreateRecordInput = {
-                        type: 'todo',
-                        name: originalText,
-                        title: originalText,
-                        due_date: null,
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                      };
-                      const todo = await repo.create(todoInput);
-                      newItemId = todo.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'todo',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
-                    }
-
-                    case 'note': {
-                      const noteInput: CreateRecordInput = {
-                        type: 'note',
-                        title: originalText.slice(0, 100),
-                        body: originalText,
-                        subtype: 'idea',
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                      };
-                      const note = await repo.create(noteInput);
-                      newItemId = note.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'note',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
-                    }
-
-                    case 'journal': {
-                      const journalInput: CreateRecordInput = {
-                        type: 'note',
-                        title: originalText.slice(0, 100),
-                        body: originalText,
-                        subtype: 'journal',
-                        space_id: targetSpaceId,
-                        ai_placed: true,
-                        why_string: `AI classified (${Math.round(classification.confidence * 100)}% confidence)`,
-                      };
-                      const journal = await repo.create(journalInput);
-                      newItemId = journal.id;
-                      console.log('[CLASSIFIED_DEST]', {
-                        from: originalNoteId,
-                        to: newItemId,
-                        category: 'journal',
-                        spaceName: classification.spaceName,
-                      });
-                      break;
-                    }
-
-                    default: {
-                      // Unknown category - just mark as classified but keep as catchall
-                      console.warn('[Overlay] Unknown category:', category);
+                    // Archive the original catchall note if we created a new item
+                    if (newItemId) {
                       await repo.update({
                         id: originalNoteId,
                         patch: {
-                          ai_placed: true,
-                          why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence)`,
+                          archived: true,
+                          why_string: `Processed → ${category}`,
                         },
                       });
-                      break;
+                      console.log('[Overlay] Archived original catchall note:', originalNoteId);
                     }
-                  }
 
-                  // Archive the original catchall note if we created a new item
-                  if (newItemId) {
+                    // Show success toast
+                    if (Platform.OS === 'android') {
+                      ToastAndroid.show('Sorted — ready for review', ToastAndroid.SHORT);
+                    } else {
+                      console.log('[Toast] Sorted — ready for review');
+                    }
+                  } catch (createError) {
+                    console.error('[Overlay] Failed to create classified item:', createError);
+                    // Fall back to just marking the catchall as classified
                     await repo.update({
                       id: originalNoteId,
                       patch: {
-                        archived: true,
-                        why_string: `Processed → ${category}`,
+                        ai_placed: true,
+                        why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence) - creation failed`,
                       },
                     });
-                    console.log('[Overlay] Archived original catchall note:', originalNoteId);
                   }
-
-                  // Show success toast
-                  if (Platform.OS === 'android') {
-                    ToastAndroid.show('Sorted — ready for review', ToastAndroid.SHORT);
-                  } else {
-                    console.log('[Toast] Sorted — ready for review');
-                  }
-                } catch (createError) {
-                  console.error('[Overlay] Failed to create classified item:', createError);
-                  // Fall back to just marking the catchall as classified
+                } else {
+                  console.warn('[Overlay] bg classification failed', newItem.id);
+                  console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
                   await repo.update({
-                    id: originalNoteId,
+                    id: newItem.id,
                     patch: {
-                      ai_placed: true,
-                      why_string: `AI: ${category} (${Math.round(classification.confidence * 100)}% confidence) - creation failed`,
+                      ai_placed: false,
+                      why_string: 'Classification failed',
                     },
                   });
+                  // Note: We could emit EventBus event here for UI toast
+                  // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'classification failed' });
                 }
-              } else {
-                console.warn('[Overlay] bg classification failed', newItem.id);
+              } catch (error) {
+                console.warn('[Overlay] bg classification timeout', newItem.id, error);
                 console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
-                await repo.update({
-                  id: newItem.id,
-                  patch: {
-                    ai_placed: false,
-                    why_string: 'Classification failed',
-                  },
-                });
+                await repo
+                  .update({
+                    id: newItem.id,
+                    patch: {
+                      ai_placed: false,
+                      why_string: 'Classification timeout',
+                    },
+                  })
+                  .catch(() => {
+                    // Silently fail - item is already saved
+                  });
                 // Note: We could emit EventBus event here for UI toast
-                // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'classification failed' });
+                // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'timeout' });
               }
-            } catch (error) {
-              console.warn('[Overlay] bg classification timeout', newItem.id, error);
-              console.log('[UX] capture_saved', { path: 'catchall', aiStatus: 'failed' });
-              await repo
-                .update({
-                  id: newItem.id,
-                  patch: {
-                    ai_placed: false,
-                    why_string: 'Classification timeout',
-                  },
-                })
-                .catch(() => {
-                  // Silently fail - item is already saved
-                });
-              // Note: We could emit EventBus event here for UI toast
-              // EventBus.emit('cortex:failed', { itemId: newItem.id, error: 'timeout' });
-            }
-          }, 0);
-        }
+            }, 0);
+          }
 
-        return;
+          return;
+        } finally {
+          setCortexInFlight(false);
+        }
       }
 
       // Edit mode
@@ -1647,12 +2170,12 @@ export function UnifiedCreateOverlay({
             throw new Error('Original entity not available for conversion');
           }
 
-          const existingOrigin = (existing as any)?.origin;
+          const existingOrigin = existing.origin;
           const normalizedOrigin =
             existingOrigin === 'catchall' || existingOrigin === 'space_chat'
               ? existingOrigin
               : undefined;
-          const defaultSpaceId = (existing as any)?.space_id ?? null;
+          const defaultSpaceId = existing.space_id ?? null;
 
           const convertedInput = buildCreateInput(selectedType, {
             includeConversionMeta: false,
@@ -1662,6 +2185,33 @@ export function UnifiedCreateOverlay({
           });
 
           const created = await repo.create(convertedInput);
+
+          if (created && (created.type === 'habit' || created.type === 'todo')) {
+            setPersistedEntity({ id: created.id, type: created.type as 'habit' | 'todo' });
+
+            const textBlob =
+              `${(created as any).name || (created as any).title || ''} ${((created as any).body as string | undefined) || ''}`.trim();
+            if (__DEV__) {
+              console.log('[AutoCommitment][candidate]', {
+                textBlob,
+                matched: shouldAutoCommit(textBlob),
+              });
+            }
+            if (shouldAutoCommit(textBlob)) {
+              try {
+                const count = await repo.countActiveCommitments();
+                if (count < 3) {
+                  await repo.addCommitment(created.id, created.type as 'habit' | 'todo');
+                  if (__DEV__) console.log('[AutoCommitment][applied]', created.id);
+                  emitCommitmentsChanged();
+                }
+              } catch (e) {
+                if (__DEV__) console.warn('[AutoCommitment] failed', e);
+              }
+            }
+          } else {
+            setPersistedEntity(null);
+          }
 
           if (created.id) {
             await flushPendingAssociations(created.id);
@@ -1678,7 +2228,9 @@ export function UnifiedCreateOverlay({
 
           const payloadType = resolveOverlayPayloadType(
             selectedType,
-            selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+            selectedType === 'log'
+              ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE)
+              : null,
           );
           handleSaved({ type: payloadType, id: created.id });
           showToast(`Converted to ${FRIENDLY_TYPE_LABEL[selectedType]}.`);
@@ -1696,7 +2248,9 @@ export function UnifiedCreateOverlay({
         const result = await repo.update(input);
         const payloadType = resolveOverlayPayloadType(
           selectedType,
-          selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+          selectedType === 'log'
+            ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE)
+            : null,
         );
         handleSaved({ type: payloadType, id: result.id });
         showToast('Updated in the Hub.');
@@ -1718,6 +2272,33 @@ export function UnifiedCreateOverlay({
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
 
+        if (result && (result.type === 'todo' || result.type === 'habit')) {
+          setPersistedEntity({ id: result.id, type: result.type as 'habit' | 'todo' });
+
+          const textBlob =
+            `${(result as any).name || (result as any).title || ''} ${((result as any).body as string | undefined) || ''}`.trim();
+          if (__DEV__) {
+            console.log('[AutoCommitment][candidate]', {
+              textBlob,
+              matched: shouldAutoCommit(textBlob),
+            });
+          }
+          if (shouldAutoCommit(textBlob)) {
+            try {
+              const count = await repo.countActiveCommitments();
+              if (count < 3) {
+                await repo.addCommitment(result.id, result.type as 'habit' | 'todo');
+                if (__DEV__) console.log('[AutoCommitment][applied]', result.id);
+                emitCommitmentsChanged();
+              }
+            } catch (e) {
+              if (__DEV__) console.warn('[AutoCommitment] failed', e);
+            }
+          }
+        } else {
+          setPersistedEntity(null);
+        }
+
         // Phase 8: Flush pending tags and people after successful create
         if (result.id) {
           await flushPendingAssociations(result.id);
@@ -1725,7 +2306,9 @@ export function UnifiedCreateOverlay({
 
         const payloadType = resolveOverlayPayloadType(
           selectedType,
-          selectedType === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null,
+          selectedType === 'log'
+            ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE)
+            : null,
         );
         handleSaved({ type: payloadType, id: result.id });
         showToast('Saved to the Hub.');
@@ -1788,8 +2371,10 @@ export function UnifiedCreateOverlay({
       return 'Untitled note';
     };
 
-    const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
+    const logSubtype =
+      type === 'log' ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
     const persisted = canonicalToPersisted(type, logSubtype);
+    const tagsForCreate = tagsState.length > 0 ? tagsState : null;
 
     switch (persisted.recordType) {
       case 'habit': {
@@ -1803,7 +2388,7 @@ export function UnifiedCreateOverlay({
           frequency: habitFrequency,
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
           notes: habitDetails.notes || null,
-          tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
+          tags: tagsForCreate,
           buddy_id: habitDetails.buddyId || null,
           buddy_email: habitDetails.buddyEmail || null,
           space_id: normalizeSpaceId(
@@ -1843,7 +2428,7 @@ export function UnifiedCreateOverlay({
           due_time: normalizedDueTime,
           reminders: todoDetails.reminders || undefined,
           notes: todoDetails.notes || null,
-          tags: todoDetails.tags || null,
+          tags: tagsForCreate,
           space_id: normalizeSpaceId(todoDetails.spaceId ?? baseInput.space_id ?? null),
         };
       }
@@ -1859,7 +2444,7 @@ export function UnifiedCreateOverlay({
             mood: journalMood || null,
             fmt: journalDetails.formatting || null,
             reminders: journalDetails.reminders || undefined,
-            tags: journalDetails.tags || null,
+            tags: tagsForCreate,
             space_id: normalizeSpaceId(journalDetails.spaceId ?? baseInput.space_id ?? null),
             journal_subtype: null,
           };
@@ -1873,7 +2458,7 @@ export function UnifiedCreateOverlay({
             title: resolveNoteTitle(),
             body: noteBody,
             fmt: noteDetails.formatting || null,
-            tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+            tags: tagsForCreate,
             space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
             ai_placed: false,
             canonicalType: 'note',
@@ -1890,7 +2475,7 @@ export function UnifiedCreateOverlay({
           title: resolveNoteTitle(),
           body: noteBody,
           fmt: noteDetails.formatting || null,
-          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          tags: tagsForCreate,
           space_id: normalizeSpaceId(noteDetails.spaceId ?? baseInput.space_id ?? null),
           ai_placed: false,
         };
@@ -1919,12 +2504,13 @@ export function UnifiedCreateOverlay({
       notes_fmt: personDetails.notesFormatting || null,
       reminders: personDetails.reminders.length > 0 ? personDetails.reminders : null,
       space_id: normalizeSpaceId(personDetails.spaceId),
-      tags: personDetails.tags.length > 0 ? personDetails.tags : null,
+      tags: combineTags(),
     };
   };
 
   const buildUpdatePatch = (type: EntityType): Partial<AppRecord> => {
-    const logSubtype = type === 'log' ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
+    const logSubtype =
+      type === 'log' ? (effectiveLogSubtype ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : null;
     const persisted = canonicalToPersisted(type, logSubtype);
 
     switch (persisted.recordType) {
@@ -1937,7 +2523,7 @@ export function UnifiedCreateOverlay({
           frequency: habitFrequency,
           reminders: habitReminders.length > 0 ? habitReminders : undefined,
           notes: habitDetails.notes || null,
-          tags: habitDetails.tags && habitDetails.tags.length > 0 ? habitDetails.tags : null,
+          tags: combineTags(),
           buddy_id: habitDetails.buddyId || null,
           buddy_email: habitDetails.buddyEmail || null,
           space_id: habitDetails.spaceId !== undefined ? habitDetails.spaceId : undefined,
@@ -1962,10 +2548,17 @@ export function UnifiedCreateOverlay({
       }
       case 'todo': {
         const normalizedDueTime = normalizeTimeInput(todoDueTime);
+        const normalizedSpaceId =
+          todoDetails.spaceId !== undefined ? normalizeSpaceId(todoDetails.spaceId) : undefined;
+
         return {
           title: todoName,
           due_date: combineDueIso(todoDueDate, normalizedDueTime),
           due_time: normalizedDueTime,
+          reminders: todoDetails.reminders || undefined,
+          notes: todoDetails.notes || null,
+          tags: combineTags(),
+          ...(normalizedSpaceId !== undefined ? { space_id: normalizedSpaceId } : {}),
         } as Partial<AppRecord>;
       }
       case 'note': {
@@ -1977,7 +2570,7 @@ export function UnifiedCreateOverlay({
             mood: journalMood || null,
             fmt: journalDetails.formatting || null,
             reminders: journalDetails.reminders || undefined,
-            tags: journalDetails.tags || null,
+            tags: combineTags(),
             space_id: journalDetails.spaceId || null,
           } as Partial<AppRecord>;
         }
@@ -1987,7 +2580,7 @@ export function UnifiedCreateOverlay({
             title: noteTitle || undefined,
             body: noteBody,
             fmt: noteDetails.formatting || null,
-            tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+            tags: combineTags(),
             space_id: noteDetails.spaceId || null,
             subtype: 'catchall',
             labels: [CATCHALL_LABEL, UNSORTED_LABEL],
@@ -2000,7 +2593,7 @@ export function UnifiedCreateOverlay({
           title: noteTitle || undefined,
           body: noteBody,
           fmt: noteDetails.formatting || null,
-          tags: noteDetails.tags.length > 0 ? noteDetails.tags : null,
+          tags: combineTags(),
           space_id: noteDetails.spaceId || null,
           subtype: (persisted.noteSubtype as NoteSubtype | null) ?? null,
         } as Partial<AppRecord>;
@@ -2133,55 +2726,12 @@ export function UnifiedCreateOverlay({
                         ...chipTextStyle,
                         ...(disabled ? styles.typeChipTextDisabled : {}),
                       }}
-                      leadingIcon={<Icon name={opt.iconName as any} size="xs" color={iconColor} />}
+                      leadingIcon={<Icon name={opt.iconName} size="xs" color={iconColor} />}
                     />
                   );
                 })}
               </View>
-              {CANONICAL_TYPES_ENABLED && selectedType === 'log' && !aiMode && (
-                <View style={[styles.subtypeSection, { borderColor: theme.colors.border.DEFAULT }]}>
-                  <Text style={[styles.subtypeLabel, { color: theme.colors.text.secondary }]}>
-                    {LOG_TYPE_HEADING}
-                  </Text>
-                  <View style={styles.chipRow}>
-                    {LOG_SUBTYPE_OPTIONS.map((opt) => {
-                      const isSelected = selectedLogSubtype === opt.value;
-                      const subtypeDisabled = isEditingPerson && opt.value !== 'person';
-                      const chipStyle = isSelected
-                        ? {
-                            backgroundColor: theme.colors.white,
-                            borderColor: theme.colors.deepTeal.DEFAULT,
-                          }
-                        : {
-                            backgroundColor: 'transparent',
-                            borderColor: theme.colors.border.DEFAULT,
-                          };
-                      const chipTextStyle = isSelected
-                        ? { color: theme.colors.deepTeal.DEFAULT }
-                        : { color: theme.colors.text.secondary };
-
-                      return (
-                        <Chip
-                          key={opt.value}
-                          label={opt.label}
-                          selected={isSelected}
-                          onPress={() => {
-                            if (subtypeDisabled) return;
-                            setSelectedLogSubtype(opt.value);
-                          }}
-                          disabled={subtypeDisabled}
-                          testID={`log-subtype-${opt.value}`}
-                          style={{
-                            ...styles.typeChip,
-                            ...chipStyle,
-                          }}
-                          textStyle={chipTextStyle}
-                        />
-                      );
-                    })}
-                  </View>
-                </View>
-              )}
+              {/* Log subtype chips intentionally removed (selectedLogSubtype state retained for compatibility) */}
             </View>
 
             {/* AI mode button */}
@@ -2348,62 +2898,119 @@ export function UnifiedCreateOverlay({
                     testID={`fields-${selectedType}`}
                   >
                     {selectedType === 'habit' && (
-                      <HabitFields
-                        name={habitName}
-                        onNameChange={setHabitName}
-                        frequency={habitFrequency}
-                        onFrequencyChange={setHabitFrequency}
-                        subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
-                        onSubtypeChange={setHabitSubtype}
-                        disabled={false}
-                        frequencyValue={habitFrequencyValue}
-                        onFrequencyValueChange={setHabitFrequencyValue}
-                        reminders={habitReminders}
-                        onRemindersChange={setHabitReminders}
-                        details={habitDetails}
-                        onDetailsChange={setHabitDetails}
-                        breakHabitState={habitBreakState}
-                        onBreakHabitStateChange={setHabitBreakState}
-                      />
+                      <>
+                        <HabitFields
+                          name={habitName}
+                          onNameChange={setHabitName}
+                          frequency={habitFrequency}
+                          onFrequencyChange={setHabitFrequency}
+                          subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
+                          onSubtypeChange={setHabitSubtype}
+                          disabled={false}
+                          frequencyValue={habitFrequencyValue}
+                          onFrequencyValueChange={setHabitFrequencyValue}
+                          reminders={habitReminders}
+                          onRemindersChange={setHabitReminders}
+                          details={habitDetails}
+                          onDetailsChange={setHabitDetails}
+                          breakHabitState={habitBreakState}
+                          onBreakHabitStateChange={setHabitBreakState}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'todo' && (
-                      <TodoFields
-                        name={todoName}
-                        onNameChange={setTodoName}
-                        dueDate={todoDueDate}
-                        onDueDateChange={setTodoDueDate}
-                        dueTime={todoDueTime}
-                        onDueTimeChange={setTodoDueTime}
-                        details={todoDetails}
-                        onDetailsChange={setTodoDetails}
-                        disabled={false}
-                      />
+                      <>
+                        <TodoFields
+                          name={todoName}
+                          onNameChange={setTodoName}
+                          dueDate={todoDueDate}
+                          onDueDateChange={setTodoDueDate}
+                          dueTime={todoDueTime}
+                          onDueTimeChange={setTodoDueTime}
+                          details={todoDetails}
+                          onDetailsChange={setTodoDetails}
+                          disabled={false}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'log' && selectedLogSubtype === 'journal' && (
-                      <JournalFields
-                        date={journalDate}
-                        onDateChange={setJournalDate}
-                        entry={journalEntry}
-                        onEntryChange={setJournalEntry}
-                        mood={journalMood}
-                        onMoodChange={setJournalMood}
-                        details={journalDetails}
-                        onDetailsChange={setJournalDetails}
-                        disabled={false}
-                      />
+                      <>
+                        <JournalFields
+                          date={journalDate}
+                          onDateChange={setJournalDate}
+                          entry={journalEntry}
+                          onEntryChange={setJournalEntry}
+                          mood={journalMood}
+                          onMoodChange={setJournalMood}
+                          details={journalDetails}
+                          onDetailsChange={setJournalDetails}
+                          disabled={false}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'log' && selectedLogSubtype === 'person' && (
-                      <PersonFields
-                        name={personName}
-                        onNameChange={setPersonName}
-                        details={personDetails}
-                        onDetailsChange={setPersonDetails}
-                        disabled={false}
-                      />
+                      <>
+                        <PersonFields
+                          name={personName}
+                          onNameChange={setPersonName}
+                          details={personDetails}
+                          onDetailsChange={setPersonDetails}
+                          disabled={false}
+                        />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
                     {selectedType === 'log' &&
                       selectedLogSubtype !== 'journal' &&
                       selectedLogSubtype !== 'person' && (
+                        <>
+                          <NoteFields
+                            title={noteTitle}
+                            onTitleChange={setNoteTitle}
+                            body={noteBody}
+                            onBodyChange={setNoteBody}
+                            details={noteDetails}
+                            onDetailsChange={setNoteDetails}
+                            disabled={false}
+                          />
+                          <TagsField
+                            value={tagsState}
+                            onChange={handleTagsChange}
+                            disabled={submitting}
+                            testID="overlay-tags-field"
+                            removedRef={removedTagsRef}
+                          />
+                        </>
+                      )}
+                    {selectedType === 'unsorted' && (
+                      <>
                         <NoteFields
                           title={noteTitle}
                           onTitleChange={setNoteTitle}
@@ -2413,18 +3020,158 @@ export function UnifiedCreateOverlay({
                           onDetailsChange={setNoteDetails}
                           disabled={false}
                         />
-                      )}
-                    {selectedType === 'unsorted' && (
-                      <NoteFields
-                        title={noteTitle}
-                        onTitleChange={setNoteTitle}
-                        body={noteBody}
-                        onBodyChange={setNoteBody}
-                        details={noteDetails}
-                        onDetailsChange={setNoteDetails}
-                        disabled={false}
-                      />
+                        <TagsField
+                          value={tagsState}
+                          onChange={handleTagsChange}
+                          disabled={submitting}
+                          testID="overlay-tags-field"
+                          removedRef={removedTagsRef}
+                        />
+                      </>
                     )}
+                    {COMMITMENTS_FEATURE_ENABLED &&
+                      hydration === 'ready' &&
+                      entityForCommitment && (
+                        <CommitmentToggleRow
+                          entity={entityForCommitment}
+                          onChanged={runCommitmentsChangedCallback}
+                        />
+                      )}
+                    {COMMITMENTS_FEATURE_ENABLED &&
+                      !entityForCommitment &&
+                      mode === 'edit' &&
+                      hydration === 'ready' &&
+                      initialEntity?.id &&
+                      (selectedType === 'habit' || selectedType === 'todo') && (
+                        <View>
+                          <View
+                            style={[
+                              styles.commitmentRow,
+                              { borderColor: theme.colors.border.DEFAULT },
+                            ]}
+                            testID="commitment-toggle-row"
+                          >
+                            <View style={styles.commitmentLabelContainer}>
+                              <Text
+                                style={[
+                                  styles.commitmentLabel,
+                                  { color: theme.colors.text.primary },
+                                ]}
+                              >
+                                Commitment
+                              </Text>
+                              <Pressable
+                                onPress={handleCommitmentNotePress}
+                                disabled={commitmentNoteBusy}
+                                hitSlop={8}
+                                testID="commitment-note-trigger"
+                              >
+                                <Text
+                                  style={[
+                                    styles.commitmentLink,
+                                    {
+                                      color: commitmentEnabled
+                                        ? theme.colors.deepTeal.DEFAULT
+                                        : theme.colors.text.tertiary,
+                                      opacity: commitmentNoteBusy ? 0.4 : 1,
+                                    },
+                                  ]}
+                                >
+                                  {commitmentNote?.length ? 'Edit intent' : 'Add intent'}
+                                </Text>
+                              </Pressable>
+                            </View>
+                            <Switch
+                              value={commitmentEnabled}
+                              onValueChange={handleCommitmentToggle}
+                              disabled={commitmentBusy}
+                              testID="commitment-toggle"
+                              trackColor={{
+                                false: theme.colors.border.DEFAULT,
+                                true: theme.colors.deepTeal.DEFAULT,
+                              }}
+                              thumbColor={
+                                Platform.OS === 'android'
+                                  ? commitmentEnabled
+                                    ? theme.colors.deepTeal.DEFAULT
+                                    : '#f4f3f4'
+                                  : undefined
+                              }
+                              ios_backgroundColor={theme.colors.border.DEFAULT}
+                            />
+                          </View>
+                          {commitmentNoteEditing && commitmentEnabled && (
+                            <View
+                              style={[
+                                styles.commitmentNoteEditor,
+                                { borderColor: theme.colors.border.DEFAULT },
+                              ]}
+                              testID="commitment-note-editor"
+                            >
+                              <TextInput
+                                value={commitmentNoteDraft}
+                                onChangeText={setCommitmentNoteDraft}
+                                placeholder="Why is this important?"
+                                placeholderTextColor={theme.colors.text.tertiary}
+                                style={[
+                                  styles.commitmentNoteInput,
+                                  { color: theme.colors.text.primary },
+                                ]}
+                                maxLength={COMMITMENT_NOTE_LIMIT}
+                                multiline
+                                editable={!commitmentNoteBusy}
+                                testID="commitment-note-input"
+                              />
+                              <View style={styles.commitmentNoteMeta}>
+                                <Text
+                                  style={[
+                                    styles.commitmentNoteCount,
+                                    { color: theme.colors.text.tertiary },
+                                  ]}
+                                >
+                                  {commitmentNoteDraft.length}/{COMMITMENT_NOTE_LIMIT}
+                                </Text>
+                              </View>
+                              <View style={styles.commitmentNoteActions}>
+                                <TouchableOpacity
+                                  onPress={handleCommitmentNoteCancel}
+                                  disabled={commitmentNoteBusy}
+                                  style={styles.commitmentAction}
+                                  testID="commitment-note-cancel"
+                                >
+                                  <Text
+                                    style={[
+                                      styles.commitmentActionButton,
+                                      { color: theme.colors.text.secondary },
+                                    ]}
+                                  >
+                                    Cancel
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={handleCommitmentNoteSave}
+                                  disabled={commitmentNoteBusy}
+                                  style={[styles.commitmentAction, styles.commitmentActionPrimary]}
+                                  testID="commitment-note-save"
+                                >
+                                  <Text
+                                    style={[
+                                      styles.commitmentActionButton,
+                                      {
+                                        color: commitmentNoteBusy
+                                          ? theme.colors.text.tertiary
+                                          : theme.colors.deepTeal.DEFAULT,
+                                      },
+                                    ]}
+                                  >
+                                    Save
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      )}
                   </Animated.View>
                 );
               })()}
@@ -2451,10 +3198,10 @@ export function UnifiedCreateOverlay({
                       userId={userId || ''}
                       itemId={mode === 'edit' ? initialEntity?.id || null : null}
                       itemType={itemType}
-                      currentTags={phase8Links.currentTags}
+                      currentTags={tagEditorTags}
                       allTags={phase8Links.allTags}
                       onTagsChange={(tags) => {
-                        // Tags are managed by the hook; this is just for UI sync if needed
+                        setTagEditorTags(tags);
                       }}
                       onAddTag={phase8Links.addTag}
                       onLinkTag={phase8Links.linkTag}
@@ -2467,7 +3214,7 @@ export function UnifiedCreateOverlay({
                       itemId={mode === 'edit' ? initialEntity?.id || null : null}
                       itemType={itemType}
                       linkedPeople={phase8Links.linkedPeople}
-                      onPeopleChange={(people) => {
+                      onPeopleChange={(_people) => {
                         // People are managed by the hook; this is just for UI sync if needed
                       }}
                       onLinkPerson={phase8Links.linkPerson}
@@ -2647,6 +3394,63 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+  },
+  commitmentRow: {
+    marginTop: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  commitmentLabelContainer: {
+    flex: 1,
+  },
+  commitmentLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  commitmentLink: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  commitmentNoteEditor: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  commitmentNoteInput: {
+    minHeight: 80,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  commitmentNoteMeta: {
+    marginTop: 8,
+    alignItems: 'flex-end',
+  },
+  commitmentNoteCount: {
+    fontSize: 12,
+  },
+  commitmentNoteActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  commitmentAction: {
+    paddingHorizontal: 8,
+  },
+  commitmentActionPrimary: {
+    marginLeft: 18,
+  },
+  commitmentActionButton: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   sectionTitle: {
     fontSize: 16,

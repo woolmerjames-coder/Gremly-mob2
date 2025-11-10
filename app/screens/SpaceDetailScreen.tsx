@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +18,8 @@ import { Card, ListItem } from '../../design-system';
 import { useTokens } from '../../design/makeStyles';
 import { lightTokens } from '../../design/tokens';
 import { getNoteLabel } from '../../lib/canonicalTypes';
+import TagFilterBar from '../../components/tags/TagFilterBar';
+import { normalizeSearchTagArray } from '../../lib/tags/search';
 
 type SpaceDetailRouteProp = RouteProp<RootStackParamList, 'SpaceDetail'>;
 type SpaceDetailNavigationProp = NativeStackNavigationProp<RootStackParamList, 'SpaceDetail'>;
@@ -38,7 +40,21 @@ export default function SpaceDetail() {
   const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
   const [chats, setChats] = useState<SpaceChat[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
   const noteLabelPlural = getNoteLabel({ plural: true });
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    const groupKeys: Array<keyof GroupedByType> = ['habits', 'todos', 'notes'];
+
+    groupKeys.forEach((key) => {
+      groups[key].forEach((item) => {
+        const itemTags = (item as AppRecord & { tags?: string[] | null }).tags ?? [];
+        itemTags.forEach((tag) => set.add(tag));
+      });
+    });
+
+    return Array.from(set).sort();
+  }, [groups]);
 
   // Create SpaceChatRepo instance
   const spaceChatRepo = React.useMemo(() => {
@@ -50,9 +66,13 @@ export default function SpaceDetail() {
 
   const load = useCallback(async () => {
     try {
+      setLoading(true);
       const [spaceData, groupedData] = await Promise.all([
         repo.getSpaceById(id),
-        repo.listBySpaceGrouped(id),
+        repo.listBySpaceGrouped(
+          id,
+          selectedTagNames.length > 0 ? { tagNames: selectedTagNames } : undefined,
+        ),
       ]);
       setSpace(spaceData);
       setGroups(groupedData);
@@ -71,7 +91,7 @@ export default function SpaceDetail() {
     } finally {
       setLoading(false);
     }
-  }, [repo, id, spaceChatRepo]);
+  }, [repo, id, spaceChatRepo, selectedTagNames]);
 
   useEffect(() => {
     // Redirect to v3 SpaceHome when flag is enabled
@@ -82,7 +102,7 @@ export default function SpaceDetail() {
       return; // don't load legacy content
     }
     load();
-  }, [load]);
+  }, [load, navigation, id]);
 
   const handleOverlaySaved = useCallback(() => {
     load();
@@ -147,6 +167,15 @@ export default function SpaceDetail() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: tokens.colors.bg }}>
       {Banner}
+
+      <Box px={4} py={3}>
+        <TagFilterBar
+          selected={selectedTagNames}
+          available={availableTags}
+          onChange={(next) => setSelectedTagNames(normalizeSearchTagArray(next))}
+          testID="space-tag-filter"
+        />
+      </Box>
 
       {/* Chats Section - Feature flag gated */}
       {process.env.EXPO_PUBLIC_FEATURE_CHAT === 'on' && (

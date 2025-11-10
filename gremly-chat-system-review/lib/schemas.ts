@@ -52,6 +52,8 @@ export const frequencyZ = z
   ])
   .transform((val) => val.toLowerCase() as Frequency) as z.ZodType<Frequency>;
 
+const tagsZ = z.array(z.string()).nullable().optional();
+
 // ==========================
 // ROW SCHEMAS (from database)
 // ==========================
@@ -91,7 +93,7 @@ export const habitZ = baseRecordZ.extend({
   frequency_value: z.any().optional(),
   reminders: z.array(z.any()).nullable().optional(), // Allow null from DB
   notes: z.string().nullable().optional(),
-  tags: z.array(z.string()).nullable().optional(),
+  tags: tagsZ,
   buddy_id: z.string().nullable().optional(),
   buddy_email: z.string().nullable().optional(),
   stack_with_id: z.string().nullable().optional(),
@@ -120,7 +122,7 @@ export const todoZ = baseRecordZ.extend({
   subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only (already permissive)
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   notes: z.string().nullable().optional(), // Additional notes
-  tags: z.array(z.string()).nullable().optional(), // Categories
+  tags: tagsZ,
 }); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({
@@ -143,7 +145,7 @@ export const noteZ = baseRecordZ.extend({
   mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
-  tags: z.array(z.string()).nullable().optional(),
+  tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
 }); // Removed satisfies for flexibility with preprocess
 
@@ -174,7 +176,7 @@ export const habitInsertSchema = z.object({
   frequency_json: z.any().optional(), // Maps to frequency_json column (jsonb)
   reminders_json: z.array(z.any()).optional(), // Maps to reminders_json column (jsonb)
   notes: z.string().nullable().optional(),
-  tags: z.array(z.string()).nullable().optional(),
+  tags: tagsZ,
   buddy_id: z.string().uuid().nullable().optional(),
   buddy_email: z.string().email().nullable().optional(),
   stack_with_id: z.string().uuid().nullable().optional(),
@@ -202,7 +204,7 @@ export const todoInsertSchema = z.object({
   subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only, never set by front-end
   reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[] stored as jsonb
   notes: z.string().nullable().optional(), // Additional notes field
-  tags: z.array(z.string()).nullable().optional(), // Categories
+  tags: tagsZ,
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
@@ -235,7 +237,7 @@ export const noteInsertSchema = z.object({
   mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
   reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[]
-  tags: z.array(z.string()).nullable().optional(),
+  tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
 });
 

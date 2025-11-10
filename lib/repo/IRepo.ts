@@ -35,6 +35,7 @@ export interface CreateRecordInput {
   canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
+  tags?: string[] | null; // Searchable tag slugs persisted with record
   views?: {
     alsoShowIn?: string[];
   };
@@ -45,7 +46,6 @@ export interface CreateRecordInput {
   frequency_value?: any; // FrequencyValue JSON
   reminders?: any[]; // ReminderRow[] JSON
   notes?: string | null;
-  tags?: string[] | null;
   buddy_id?: ID | null;
   buddy_email?: string | null;
   stack_with_id?: ID | null;
@@ -73,7 +73,9 @@ export interface CreateRecordInput {
  */
 export interface UpdateRecordInput {
   id: ID;
-  patch: Partial<Omit<AppRecord, 'id' | 'type' | 'created_at' | 'owner_id'>>;
+  patch: Partial<Omit<AppRecord, 'id' | 'type' | 'created_at' | 'owner_id'>> & {
+    tags?: string[] | null;
+  };
 }
 
 /**
@@ -84,6 +86,7 @@ export interface ListByTypeOptions {
   unassignedOnly?: boolean; // true = only return items with space_id IS NULL
   subtypes?: string[]; // filter when querying notes (e.g., ['idea','list'] or ['journal'])
   tagIds?: ID[]; // filter by tags (optional - for future filtering)
+  tagNames?: string[]; // normalized names (#word, *tag, @person), AND semantics
 }
 
 /**
@@ -110,7 +113,7 @@ export interface IRepo {
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;
   listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
-  listBySpace(spaceId: ID): Promise<AppRecord[]>;
+  listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;
   /**
    * Search across items within a specific space and include space chats.
@@ -221,6 +224,20 @@ export interface IRepo {
     details?: { archived_reason?: string },
   ): Promise<void>;
 
+  /** Commitments */
+  listCommitments(): Promise<
+    Array<{
+      id: ID;
+      type: 'habit' | 'todo';
+      name: string;
+      commitment_started_at?: string | null;
+      commitment_note?: string | null;
+    }>
+  >;
+  addCommitment(id: ID, type: 'habit' | 'todo', note?: string | null): Promise<void>;
+  removeCommitment(id: ID, type: 'habit' | 'todo', reason?: string | null): Promise<void>;
+  countActiveCommitments(): Promise<number>;
+
   // Completion methods (Phase 9)
   completeHabit(id: ID, atIso: string): Promise<void>;
   completeTodo(id: ID, atIso: string): Promise<void>;
@@ -238,7 +255,7 @@ export interface IRepo {
   getSpaceById(spaceId: string): Promise<Space | null>;
   updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
   deleteSpace(spaceId: string): Promise<void>;
-  listBySpaceGrouped(spaceId: string): Promise<GroupedByType>;
+  listBySpaceGrouped(spaceId: string, opts?: { tagNames?: string[] }): Promise<GroupedByType>;
 
   // Spaces v2 methods (Phase 8+)
   getSpaceSummary(spaceId: string): Promise<string | null>;

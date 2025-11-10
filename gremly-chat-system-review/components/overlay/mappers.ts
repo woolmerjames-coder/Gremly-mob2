@@ -3,7 +3,7 @@
  * Pure helpers to hydrate edit mode from database entities
  */
 
-import type { AppRecord, Habit, Todo, Note, Person } from '../../lib/types';
+import type { AppRecord, Habit, Todo, Note, Person, HabitSubtype } from '../../lib/types';
 import type { HabitDetailsState, BreakHabitState } from './fields/HabitFields';
 import type { TodoDetailsState } from './fields/TodoFields';
 import type { JournalDetailsState, MoodType } from './fields/JournalFields';
@@ -15,7 +15,7 @@ export interface FormHabit {
   name: string;
   frequency: string;
   frequencyValue: FrequencyValue;
-  subtype: string | null;
+  subtype: HabitSubtype | null;
   reminders: any[];
   details: HabitDetailsState;
   breakState: BreakHabitState;

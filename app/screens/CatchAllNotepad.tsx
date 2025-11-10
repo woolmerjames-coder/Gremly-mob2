@@ -45,7 +45,7 @@ import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
-import type { AppRecord } from '../../lib/types';
+import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -55,6 +55,8 @@ import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import { appendLineageToWhyString, convertLogListToTodo, hasChecklist } from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
+import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
+import { buildFallbackTags } from '../../cortex/openAiEngine';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -344,12 +346,18 @@ export async function saveToUnsortedTray(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   repo: any,
   text: string,
-  options: { sourceMessageId?: string; whyString?: string } = {},
+  options: {
+    sourceMessageId?: string;
+    whyString?: string;
+    tags?: string[] | null | undefined;
+  } = {},
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
-  const { sourceMessageId, whyString } = options;
+  const { sourceMessageId, whyString, tags: incomingTags } = options;
   const clampedText = clampNoteLength(text);
   const catchallCanonical = persistedToCanonical('note', 'catchall');
+  const normalizedTags = normalizeTags(incomingTags ?? []);
+  const tags = normalizedTags.length > 0 ? normalizedTags : undefined;
 
   // Base create payload for our repos
   const baseInput = {
@@ -363,6 +371,7 @@ export async function saveToUnsortedTray(
     why_string: whyString ?? null,
     canonicalType: catchallCanonical,
     sourceMessageId: sourceMessageId ?? undefined,
+    tags,
   };
 
   // If notes.create exists (future), prefer it; otherwise use addUnsorted/create
@@ -374,6 +383,7 @@ export async function saveToUnsortedTray(
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
         sourceMessageId: sourceMessageId ?? undefined,
+        tags,
       });
       return note?.id;
     }
@@ -1828,9 +1838,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Save to unsorted tray once if not already saved
           if (unsortedIdRef.current == null) {
             try {
+              const narrativeTags = buildFallbackTags(trimmed, 'note', 'journal');
+              const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
               const id = await saveToUnsortedTray(repo as any, trimmed, {
                 sourceMessageId: submissionId,
                 whyString: 'Narrative text - awaiting category selection',
+                tags: tagsForCreate ?? undefined,
               });
               unsortedIdRef.current = id ?? null;
 
@@ -2140,9 +2153,36 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           if (shouldSaveNew) {
             try {
+              const decisionMeta = decision.meta as
+                | (Record<string, unknown> & {
+                    engineOutput?: { tags?: unknown };
+                    classification?: { tags?: unknown };
+                    canonicalSubtype?: LogSubtype | null;
+                  })
+                | undefined;
+              const engineTags = Array.isArray(decisionMeta?.engineOutput?.tags)
+                ? (decisionMeta?.engineOutput?.tags as string[])
+                : [];
+              const classificationTagsMeta = Array.isArray(decisionMeta?.classification?.tags)
+                ? (decisionMeta?.classification?.tags as string[])
+                : [];
+              const classificationTags = normalizeTags([...engineTags, ...classificationTagsMeta]);
+              const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
+              const fallbackSubtype =
+                canonicalSubtypeMeta === 'journal' ||
+                canonicalSubtypeMeta === 'list' ||
+                canonicalSubtypeMeta === 'idea'
+                  ? (canonicalSubtypeMeta as NoteSubtype)
+                  : 'catchall';
+              const fallbackTags =
+                classificationTags.length > 0
+                  ? classificationTags
+                  : buildFallbackTags(trimmed, 'note', fallbackSubtype);
+              const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
               const id = await saveToUnsortedTray(repo as any, trimmed, {
                 sourceMessageId: submissionId,
                 whyString: 'Awaiting chip selection',
+                tags: tagsForCreate ?? undefined,
               });
               unsortedIdRef.current = id ?? null;
 
@@ -2233,12 +2273,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i.test(trimmed);
       if (looksLikeIdeas && classifyOut?.type === 'todo') {
         classifyOut = {
+          ...classifyOut,
           type: 'note',
           subtype: 'list',
           aiPlaced: true,
           whyString: 'Ideas/list capture',
         };
       }
+
+      const normalizedTags = normalizeTags(classifyOut?.tags ?? []);
+      const tags = normalizedTags.length > 0 ? normalizedTags : null;
 
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
@@ -2255,6 +2299,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
           origin: 'catchall',
           sourceMessageId: submissionId,
+          tags,
         };
       } else if (classifyOut?.type === 'habit') {
         const freqRaw = typeof classifyOut?.frequency === 'string' ? classifyOut.frequency : null;
@@ -2271,13 +2316,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           why_string: classifyOut?.whyString || 'Auto-classified as a habit',
           origin: 'catchall',
           sourceMessageId: submissionId,
+          tags,
         };
       } else {
-        const subtype =
+        const derivedLogSubtype = deriveLogSubtypeFromTags(normalizedTags);
+        const derivedNoteSubtype: NoteSubtype | null = (() => {
+          switch (derivedLogSubtype) {
+            case 'journal':
+              return 'journal';
+            case 'list':
+              return 'list';
+            case 'idea':
+              return 'idea';
+            default:
+              return null;
+          }
+        })();
+
+        const classificationSubtype: NoteSubtype | null =
           classifyOut?.type === 'note' &&
-          (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
-            ? classifyOut.subtype
-            : 'catchall';
+          (classifyOut?.subtype === 'journal' ||
+            classifyOut?.subtype === 'list' ||
+            classifyOut?.subtype === 'idea')
+            ? (classifyOut.subtype as NoteSubtype)
+            : null;
+
+        const subtype = derivedNoteSubtype ?? classificationSubtype ?? 'catchall';
         const canonicalType = persistedToCanonical('note', subtype);
         const noteTitle = clampNoteLength(cleanedText || trimmed || 'Quick note');
         const noteBody = clampNoteLength(cleanedText || trimmed);
@@ -2289,10 +2353,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           subtype,
           origin: 'catchall',
           ai_placed:
-            classifyOut?.type === 'note' &&
-            (classifyOut?.subtype === 'journal' || classifyOut?.subtype === 'list')
-              ? (classifyOut?.aiPlaced ?? true)
-              : false,
+            classifyOut?.aiPlaced !== undefined
+              ? classifyOut?.aiPlaced
+                ? subtype !== 'catchall'
+                : false
+              : subtype !== 'catchall',
           space_id: null,
           why_string: classifyOut?.whyString || 'Saved from Catch-All Notepad',
           canonicalType,
@@ -2301,6 +2366,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             alsoShowIn: ['Hub:Catch-All'],
           },
           sourceMessageId: submissionId,
+          tags,
         };
       }
 

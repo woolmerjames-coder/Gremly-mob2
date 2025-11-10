@@ -122,6 +122,8 @@ export interface CortexResponse {
     empathy_triggered?: boolean; // Empathy mode flag
     [key: string]: any;
   };
+  /** Raw tags from engine classification (if provided) */
+  engineTags?: string[];
 }
 
 /**
@@ -178,6 +180,7 @@ export async function cortexDecide(
     confidence: 0,
     mode: 'ask',
     meta: {},
+    engineTags: [],
   };
 
   const midLower = 0.55; // offer chips for mid confidence
@@ -375,6 +378,9 @@ export async function cortexDecide(
     }
 
     const candidateActions = normalized.actions;
+    const engineTags = Array.isArray(normalized.tags)
+      ? normalized.tags
+      : coerceEngineTags(engineOutput?.tags);
 
     const probable: 'todo' | 'habit' | 'log' | 'unknown' = (() => {
       const canonical = normalized.canonicalType;
@@ -437,11 +443,12 @@ export async function cortexDecide(
 
     const listHeuristicApplied = listHeuristicTriggered;
     const ideaHeuristicApplied =
-      ideaHeuristicTriggered && !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
+      ideaHeuristicTriggered &&
+      !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
 
-  const forceListAsk = listHeuristicApplied;
-  const forceIdeaAsk = ideaHeuristicApplied;
-  const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.5;
+    const forceListAsk = listHeuristicApplied;
+    const forceIdeaAsk = ideaHeuristicApplied;
+    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.5;
 
     const shouldAuto =
       !forceListAsk &&
@@ -566,9 +573,7 @@ export async function cortexDecide(
         : null;
 
     const effectiveCanonicalType =
-      canonicalHint?.canonicalType ??
-      normalized.canonicalType ??
-      candidateCanonical.canonicalType;
+      canonicalHint?.canonicalType ?? normalized.canonicalType ?? candidateCanonical.canonicalType;
 
     const effectiveCanonicalSubtype =
       canonicalHint?.canonicalSubtype ??
@@ -609,6 +614,7 @@ export async function cortexDecide(
         heuristics: heuristicsMeta,
         canonicalHint: canonicalHint ?? undefined,
       },
+      engineTags,
     };
 
     console.log('[cortexDecide][final]', {
@@ -676,7 +682,10 @@ function buildListHeuristicChips(text: string): ChipSuggestion[] {
   if (!trimmed) return [];
 
   const canonicalTypesOn = env.feature.canonicalTypes;
-  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const heading = lines[0] ?? trimmed;
 
   const todoFields = buildTodoFields(trimmed, undefined, { inferDueFromText: true });
@@ -802,9 +811,10 @@ function convertTodoListCommandToTodo(text: string): { title: string; due?: stri
   return { title: todoFields.title, due: todoFields.due };
 }
 
-function canonicalFromAction(
-  action: CortexAction | undefined,
-): { canonicalType?: CanonicalType; canonicalSubtype?: LogSubtype | null } {
+function canonicalFromAction(action: CortexAction | undefined): {
+  canonicalType?: CanonicalType;
+  canonicalSubtype?: LogSubtype | null;
+} {
   if (!action) {
     return { canonicalType: undefined, canonicalSubtype: null };
   }
@@ -850,6 +860,7 @@ type NormalizedEngineResult = {
   canonicalType?: CanonicalType;
   canonicalSubtype?: LogSubtype | null;
   engineType?: string | null;
+  tags?: string[];
 };
 
 function normalizeEngineOutput(
@@ -864,6 +875,8 @@ function normalizeEngineOutput(
 
   // Use original text as fallback for title/name/text
   const fallbackText = originalText || 'Untitled';
+
+  const tags = coerceEngineTags(engineOutput?.tags);
 
   // Phase 10.4: Apply type biasing based on spaceDefaults.allowedTypes
   let engineType = engineOutput.type;
@@ -988,6 +1001,7 @@ function normalizeEngineOutput(
     canonicalType,
     canonicalSubtype: canonicalSubtype ?? null,
     engineType,
+    tags,
   };
 }
 
@@ -1031,6 +1045,22 @@ function detectListType(
   }
 
   return 'custom';
+}
+
+function coerceEngineTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const normalized = raw
+    .map((tag) => (typeof tag === 'string' ? tag.trim() : null))
+    .filter((tag): tag is string => Boolean(tag));
+
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  return Array.from(new Set(normalized));
 }
 
 /**

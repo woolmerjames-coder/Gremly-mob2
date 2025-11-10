@@ -3,7 +3,7 @@
  * Central hub showing recent activity, spaces, and sorting tray
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -24,12 +24,15 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
-import TagFilterBar from '../../components/filters/TagFilterBar';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
 import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { getNoteLabel } from '../../lib/canonicalTypes';
+import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags/search';
+import { parseSearchTokens } from '../../lib/tags/parseSearch';
+import TagFilterBar from '../../components/tags/TagFilterBar';
+import { eventBus } from '../../lib/events';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -67,8 +70,9 @@ export default function HubScreen() {
     'all',
   );
   const [tags, setTags] = useState<Tag[]>([]);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([]);
   const [itemTags, setItemTags] = useState<Map<string, Tag[]>>(new Map());
+  const hasFetchedTagsRef = useRef(false);
   const [listsData, setListsData] = useState<{
     shopping: { incomplete: number; total: number };
     packing: { incomplete: number; total: number };
@@ -77,7 +81,87 @@ export default function HubScreen() {
     packing: { incomplete: 0, total: 0 },
   });
 
+  const phase8Enabled = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
+
+  useEffect(() => {
+    setTags([]);
+    hasFetchedTagsRef.current = false;
+  }, [phase8Enabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (tags.length === 0) {
+      hasFetchedTagsRef.current = false;
+    }
+
+    const loadTags = async () => {
+      if (!repo || tags.length > 0 || hasFetchedTagsRef.current) {
+        return;
+      }
+
+      try {
+        hasFetchedTagsRef.current = true;
+        if (phase8Enabled) {
+          const phase8Tags = await (repo as any).listTags();
+          if (!cancelled) {
+            setTags(
+              phase8Tags.map((t: any) => ({
+                id: t.id,
+                name: t.name,
+                color: colors.deepTeal,
+              })),
+            );
+          }
+        } else {
+          const allTags = await repo.listTags();
+          if (!cancelled) {
+            setTags(allTags);
+          }
+        }
+      } catch (error) {
+        console.error('[Hub] Failed to load tags:', error);
+        if (!cancelled) {
+          setTags([]);
+        }
+      }
+    };
+
+    void loadTags();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repo, tags.length, phase8Enabled]);
+
   const noteLabelPlural = getNoteLabel({ plural: true });
+
+  const { text: parsedText, tagNames: parsedSearchTags } = useMemo(
+    () => parseSearchTokens(search),
+    [search],
+  );
+
+  const mergedTagNames = useMemo(
+    () => normalizeSearchTagArray([...selectedTagFilters, ...parsedSearchTags]),
+    [selectedTagFilters, parsedSearchTags],
+  );
+
+  const availableTagNames = useMemo(() => {
+    const normalized = tags.map((tag) => normalizeSearchTagInput(tag.name));
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const name of normalized) {
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        deduped.push(name);
+      }
+    }
+    return deduped.sort();
+  }, [tags]);
+
+  const handleTagFilterChange = useCallback((next: string[]) => {
+    setSelectedTagFilters(normalizeSearchTagArray(next));
+  }, []);
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
@@ -145,40 +229,20 @@ export default function HubScreen() {
   const load = useCallback(async () => {
     if (!user) {
       setError('Please sign in to view your items');
+      setLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    // Phase 8 feature flag check (used throughout this function)
-    const usePhase8 = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
+    const tagCount = mergedTagNames.length;
+    let loadSucceeded = false;
 
     try {
       // Load spaces, tags, and unsorted count
       const allSpaces = await repo.listSpaces();
       setSpaces(allSpaces);
-
-      // Phase 8: Load tags from new Phase 8 table if feature enabled
-      if (usePhase8) {
-        try {
-          const phase8Tags = await (repo as any).listTags();
-          // Convert Phase 8 tags to old Tag format for compatibility
-          setTags(
-            phase8Tags.map((t: any) => ({
-              id: t.id,
-              name: t.name,
-              color: colors.deepTeal, // Phase 8 tags don't have color yet
-            })),
-          );
-        } catch (error) {
-          console.error('[Hub] Failed to load Phase 8 tags:', error);
-          setTags([]);
-        }
-      } else {
-        const allTags = await repo.listTags();
-        setTags(allTags);
-      }
 
       // Load ALL items (all types, all scopes) for unsorted count calculation
       // This ensures the unsorted banner shows the global count across all tabs
@@ -213,9 +277,9 @@ export default function HubScreen() {
             ? { spaceId: scope.spaceId }
             : {}; // everywhere
 
-      // Add tag filtering if tags are selected
+      // Add tag filtering if tags are selected or parsed from search
       const filterOpts =
-        selectedTagIds.length > 0 ? { ...scopeOpts, tagIds: selectedTagIds } : scopeOpts;
+        mergedTagNames.length > 0 ? { ...scopeOpts, tagNames: mergedTagNames } : scopeOpts;
 
       // Load data based on current tab
       let data: AppRecord[] | Person[] = [];
@@ -275,6 +339,7 @@ export default function HubScreen() {
         setPeopleWithCounts(peopleWithCountsData);
         setItems([]);
         setLoading(false);
+        loadSucceeded = true;
         return;
       } else if (tab === 'Lists') {
         // Load lists data for shopping and packing
@@ -309,6 +374,7 @@ export default function HubScreen() {
 
         setItems([]);
         setLoading(false);
+        loadSucceeded = true;
         return;
       }
 
@@ -325,7 +391,7 @@ export default function HubScreen() {
       // Phase 8: Fetch linked tags using new method if feature enabled
       const tagsMap = new Map<string, Tag[]>();
 
-      if (usePhase8) {
+      if (phase8Enabled) {
         // Use Phase 8 listItemTags method
         await Promise.all(
           records.map(async (record) => {
@@ -367,6 +433,7 @@ export default function HubScreen() {
       }
 
       setItemTags(tagsMap);
+      loadSucceeded = true;
     } catch (err) {
       // Check if it's a ZodError for better dev experience
       const isZodError = err instanceof z.ZodError;
@@ -386,8 +453,11 @@ export default function HubScreen() {
       setError(message);
     } finally {
       setLoading(false);
+      if (loadSucceeded && tagCount > 0) {
+        eventBus.emit('TagFilterApplied', { tagCount });
+      }
     }
-  }, [repo, user, tab, scope, notesSubfilter, selectedTagIds]);
+  }, [repo, user, tab, scope, notesSubfilter, mergedTagNames, phase8Enabled]);
 
   useEffect(() => {
     void load();
@@ -409,25 +479,21 @@ export default function HubScreen() {
 
   // Filter by search (items are already filtered by tab via load())
   const filteredAll = useMemo(() => {
-    if (tab === 'People') return []; // People handled separately
+    if (tab === 'People') return [];
 
     let filtered = items;
 
-    // Phase 8: Client-side tag filtering when tags are selected
-    if (selectedTagIds.length > 0) {
-      const usePhase8 = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
-      if (usePhase8) {
-        // Filter items by selected tags (item must have at least one selected tag)
-        filtered = filtered.filter((item) => {
-          const itemTagsList = itemTags.get(item.id) || [];
-          return itemTagsList.some((tag) => selectedTagIds.includes(tag.id));
-        });
-      }
+    if (phase8Enabled && mergedTagNames.length > 0) {
+      const wanted = new Set(mergedTagNames);
+      filtered = filtered.filter((item) => {
+        const itemTagsList = itemTags.get(item.id) || [];
+        return itemTagsList.some((tag) => wanted.has(normalizeSearchTagInput(tag.name)));
+      });
     }
 
-    // Then apply search filter
-    if (!search.trim()) return filtered;
-    const needle = search.toLowerCase();
+    const textNeedle = parsedText?.trim();
+    if (!textNeedle) return filtered;
+    const needle = textNeedle.toLowerCase();
     return filtered.filter((item) => {
       const titleText =
         item.type === 'habit' || item.type === 'todo'
@@ -441,7 +507,7 @@ export default function HubScreen() {
         `${titleText ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [items, search, tab, selectedTagIds, itemTags]);
+  }, [items, parsedText, tab, mergedTagNames, itemTags, phase8Enabled]);
 
   // Convert AppRecord to UnsortedItem (for review sheet)
   const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
@@ -479,12 +545,12 @@ export default function HubScreen() {
         currentScope: scope.type,
         totalItemsInView: items.length,
         unsortedInView: result.length,
-        filters: { tab, scope: scope.type, search, selectedTagIds },
+        filters: { tab, scope: scope.type, search, tagNames: mergedTagNames },
       });
     }
 
     return result;
-  }, [items, tab, scope, search, selectedTagIds]);
+  }, [items, tab, scope, search, mergedTagNames]);
 
   // For the review sheet, use global unsorted items (all types, all scopes)
   const unsortedItems = useMemo(() => {
@@ -549,21 +615,6 @@ export default function HubScreen() {
     },
     [items, load],
   );
-
-  const handleToggleTag = useCallback((tagId: string) => {
-    setSelectedTagIds((prev) => {
-      // Phase 8 polish: Prevent duplicates explicitly
-      if (prev.includes(tagId)) {
-        return prev.filter((id) => id !== tagId);
-      }
-      // Guard against accidental duplicates
-      if (prev.find((id) => id === tagId)) {
-        console.warn('Tag already selected:', tagId);
-        return prev;
-      }
-      return [...prev, tagId];
-    });
-  }, []);
 
   const handleConfirmUnsorted = useCallback(
     async (id: string) => {
@@ -647,7 +698,7 @@ export default function HubScreen() {
             <View style={styles.searchWrap}>
               <TextInput
                 style={styles.search}
-                placeholder="Search the Hub"
+                placeholder="Search or add tags (#anxious *journal @alice)"
                 placeholderTextColor={colors.gray400}
                 value={search}
                 onChangeText={setSearch}
@@ -655,15 +706,15 @@ export default function HubScreen() {
               />
             </View>
 
-            {/* Tag Filter Bar (only for non-People/non-Lists tabs) */}
-            {tab !== 'People' && tab !== 'Lists' && (
-              <TagFilterBar
-                tags={tags}
-                selectedTagIds={selectedTagIds}
-                onToggleTag={handleToggleTag}
-                onClearAll={() => setSelectedTagIds([])}
-                testID="tag-filter-bar"
-              />
+            {availableTagNames.length > 0 && (
+              <View style={{ marginTop: spacing.sm, marginHorizontal: spacing.md }}>
+                <TagFilterBar
+                  selected={selectedTagFilters}
+                  available={availableTagNames}
+                  onChange={handleTagFilterChange}
+                  testID="hub-tag-filter"
+                />
+              </View>
             )}
 
             {/* Unsorted Banner */}

@@ -1,0 +1,1329 @@
+{
+  "generatedAt": "2025-11-10T04:33:02.341Z",
+  "datasetSize": 20,
+  "metrics": {
+    "typeCounts": {
+      "habit": 0,
+      "todo": 0,
+      "note": 20
+    },
+    "missingTypeTagCount": 0,
+    "missingTypeTagRate": 0,
+    "samplesWithTypeTag": 20,
+    "samplesWithTypeTagRate": 1,
+    "averageTopicTags": 2.4,
+    "averageEmotionTags": 0.75,
+    "emotionPrecision": 1,
+    "peopleFalsePositiveRate": 0,
+    "latencyMs": {
+      "min": 0.022125000000002615,
+      "max": 0.6835830000000129,
+      "average": 0.09042294999999996
+    },
+    "emotion": {
+      "truePositives": 15,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    }
+  },
+  "samples": [
+    {
+      "id": "sample-1",
+      "text": "Feeling anxious about tomorrow's presentation and grateful for the team's support.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Detected reflection or thought pattern.",
+        "tags": [
+          "*journal",
+          "#grateful",
+          "#anxious",
+          "#presentation"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#grateful",
+        "#anxious",
+        "#presentation"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#presentation"
+      ],
+      "emotionTags": [
+        "#grateful",
+        "#anxious"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#anxious",
+          "#grateful"
+        ],
+        "topics": [
+          "#presentation",
+          "#team"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#presentation",
+          "#team"
+        ],
+        "normalizedEmotions": [
+          "#anxious",
+          "#grateful"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 1,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.6835830000000129
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-2",
+      "text": "- milk\n- eggs\n- bread",
+      "output": {
+        "type": "note",
+        "subtype": "list",
+        "aiPlaced": true,
+        "whyString": "Detected list markers (- or *).",
+        "tags": [
+          "*list",
+          "#milk",
+          "#eggs",
+          "#bread"
+        ]
+      },
+      "tags": [
+        "*list",
+        "#milk",
+        "#eggs",
+        "#bread"
+      ],
+      "typeTag": "*list",
+      "topicTags": [
+        "#milk",
+        "#eggs",
+        "#bread"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*list",
+        "topics": [
+          "#milk",
+          "#eggs",
+          "#bread"
+        ],
+        "normalizedTypeTag": "*list",
+        "normalizedTopics": [
+          "#milk",
+          "#eggs",
+          "#bread"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.21766700000000583
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-3",
+      "text": "Meeting with Dr. Smith about lab results",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": false,
+        "whyString": "No strong signal; storing in Catch All.",
+        "tags": [
+          "@DrSmith",
+          "*meeting",
+          "#lab",
+          "#results"
+        ]
+      },
+      "tags": [
+        "@DrSmith",
+        "*meeting",
+        "#lab",
+        "#results"
+      ],
+      "typeTag": "*meeting",
+      "topicTags": [
+        "#lab",
+        "#results"
+      ],
+      "emotionTags": [],
+      "personTags": [
+        "@DrSmith"
+      ],
+      "expected": {
+        "typeTag": "*meeting",
+        "emotions": [],
+        "topics": [
+          "@DrSmith",
+          "#lab",
+          "#results"
+        ],
+        "normalizedTypeTag": "*meeting",
+        "normalizedTopics": [
+          "#lab",
+          "#results"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": [
+          "@DrSmith"
+        ]
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 2,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.07737500000000352
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-4",
+      "text": "Reflection: I feel calm after the morning yoga session and grateful for the quiet start.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#grateful",
+          "#calm",
+          "#morning",
+          "#yoga"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#grateful",
+        "#calm",
+        "#morning",
+        "#yoga"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#morning",
+        "#yoga"
+      ],
+      "emotionTags": [
+        "#grateful",
+        "#calm"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#calm",
+          "#grateful"
+        ],
+        "topics": [
+          "#morning",
+          "#yoga",
+          "#session"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#morning",
+          "#yoga",
+          "#session"
+        ],
+        "normalizedEmotions": [
+          "#calm",
+          "#grateful"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 2,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.11575000000000557
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-5",
+      "text": "Idea: Build a shared shopping list app for our roommates to coordinate groceries.",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": false,
+        "whyString": "No strong signal; storing in Catch All.",
+        "tags": [
+          "*idea",
+          "#build",
+          "#shared",
+          "#shopping"
+        ]
+      },
+      "tags": [
+        "*idea",
+        "#build",
+        "#shared",
+        "#shopping"
+      ],
+      "typeTag": "*idea",
+      "topicTags": [
+        "#build",
+        "#shared",
+        "#shopping"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*idea",
+        "emotions": [],
+        "topics": [
+          "#build",
+          "#shared",
+          "#shopping"
+        ],
+        "normalizedTypeTag": "*idea",
+        "normalizedTopics": [
+          "#build",
+          "#shared",
+          "#shopping"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.03595800000000793
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-6",
+      "text": "Meeting with Coach Taylor to review the training plan.",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": false,
+        "whyString": "No strong signal; storing in Catch All.",
+        "tags": [
+          "@CoachTaylor",
+          "*meeting",
+          "#review",
+          "#training",
+          "#plan"
+        ]
+      },
+      "tags": [
+        "@CoachTaylor",
+        "*meeting",
+        "#review",
+        "#training",
+        "#plan"
+      ],
+      "typeTag": "*meeting",
+      "topicTags": [
+        "#review",
+        "#training",
+        "#plan"
+      ],
+      "emotionTags": [],
+      "personTags": [
+        "@CoachTaylor"
+      ],
+      "expected": {
+        "typeTag": "*meeting",
+        "emotions": [],
+        "topics": [
+          "@CoachTaylor",
+          "#review",
+          "#training",
+          "#plan"
+        ],
+        "normalizedTypeTag": "*meeting",
+        "normalizedTopics": [
+          "#review",
+          "#training",
+          "#plan"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": [
+          "@CoachTaylor"
+        ]
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.2107910000000004
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-7",
+      "text": "Journal: I felt overwhelmed yet excited about launching the new project this quarter.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#excited",
+          "#overwhelmed",
+          "#launching"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#excited",
+        "#overwhelmed",
+        "#launching"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#launching"
+      ],
+      "emotionTags": [
+        "#excited",
+        "#overwhelmed"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#overwhelmed",
+          "#excited"
+        ],
+        "topics": [
+          "#launching",
+          "#new",
+          "#project"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#launching",
+          "#new",
+          "#project"
+        ],
+        "normalizedEmotions": [
+          "#overwhelmed",
+          "#excited"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 1,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.04520800000000236
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-8",
+      "text": "Packing list:\n- passport\n- tickets\n- charger",
+      "output": {
+        "type": "note",
+        "subtype": "list",
+        "aiPlaced": true,
+        "whyString": "Detected list markers (- or *).",
+        "tags": [
+          "*list",
+          "#packing",
+          "#passport",
+          "#tickets"
+        ]
+      },
+      "tags": [
+        "*list",
+        "#packing",
+        "#passport",
+        "#tickets"
+      ],
+      "typeTag": "*list",
+      "topicTags": [
+        "#packing",
+        "#passport",
+        "#tickets"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*list",
+        "topics": [
+          "#passport",
+          "#tickets",
+          "#charger"
+        ],
+        "normalizedTypeTag": "*list",
+        "normalizedTopics": [
+          "#passport",
+          "#tickets",
+          "#charger"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.027874999999994543
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-9",
+      "text": "Reflection: Thinking about how to balance work and family commitments this season.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#balance",
+          "#work",
+          "#family"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#balance",
+        "#work",
+        "#family"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#balance",
+        "#work",
+        "#family"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [],
+        "topics": [
+          "#balance",
+          "#work",
+          "#family"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#balance",
+          "#work",
+          "#family"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.029583999999999833
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-10",
+      "text": "Reflection: I felt stressed preparing for the budget review with Alex but proud after presenting.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#stressed",
+          "#preparing",
+          "#budget"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#stressed",
+        "#preparing",
+        "#budget"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#preparing",
+        "#budget"
+      ],
+      "emotionTags": [
+        "#stressed"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#stressed"
+        ],
+        "topics": [
+          "@Alex",
+          "#preparing",
+          "#budget",
+          "#review"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#preparing",
+          "#budget",
+          "#review"
+        ],
+        "normalizedEmotions": [
+          "#stressed"
+        ],
+        "normalizedPeople": [
+          "@Alex"
+        ]
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 2,
+        "emotion": {
+          "truePositives": 1,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.034874999999999545
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-11",
+      "text": "What if we organize a community cleanup to engage neighbors next month?",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": true,
+        "whyString": "Questions are typically notes for reflection.",
+        "tags": [
+          "*idea",
+          "#organize",
+          "#community",
+          "#cleanup"
+        ]
+      },
+      "tags": [
+        "*idea",
+        "#organize",
+        "#community",
+        "#cleanup"
+      ],
+      "typeTag": "*idea",
+      "topicTags": [
+        "#organize",
+        "#community",
+        "#cleanup"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*idea",
+        "emotions": [],
+        "topics": [
+          "#organize",
+          "#community",
+          "#cleanup"
+        ],
+        "normalizedTypeTag": "*idea",
+        "normalizedTopics": [
+          "#organize",
+          "#community",
+          "#cleanup"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.029792000000000485
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-12",
+      "text": "Meeting with Dr. Chen on March 12, 2025 about surgery options.",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": false,
+        "whyString": "No strong signal; storing in Catch All.",
+        "tags": [
+          "@DrChen",
+          "*meeting",
+          "#2025-03-12",
+          "#surgery",
+          "#options"
+        ]
+      },
+      "tags": [
+        "@DrChen",
+        "*meeting",
+        "#2025-03-12",
+        "#surgery",
+        "#options"
+      ],
+      "typeTag": "*meeting",
+      "topicTags": [
+        "#2025-03-12",
+        "#surgery",
+        "#options"
+      ],
+      "emotionTags": [],
+      "personTags": [
+        "@DrChen"
+      ],
+      "expected": {
+        "typeTag": "*meeting",
+        "emotions": [],
+        "topics": [
+          "@DrChen",
+          "#2025-03-12",
+          "#surgery",
+          "#options"
+        ],
+        "normalizedTypeTag": "*meeting",
+        "normalizedTopics": [
+          "#2025-03-12",
+          "#surgery",
+          "#options"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": [
+          "@DrChen"
+        ]
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.06004199999999571
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-13",
+      "text": "Reflection: I feel grateful and calm after the mindfulness retreat this weekend.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#grateful",
+          "#calm",
+          "#mindfulness"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#grateful",
+        "#calm",
+        "#mindfulness"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#mindfulness"
+      ],
+      "emotionTags": [
+        "#grateful",
+        "#calm"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#grateful",
+          "#calm"
+        ],
+        "topics": [
+          "#mindfulness",
+          "#retreat",
+          "#weekend"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#mindfulness",
+          "#retreat",
+          "#weekend"
+        ],
+        "normalizedEmotions": [
+          "#grateful",
+          "#calm"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 1,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.026458999999988464
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-14",
+      "text": "Idea: Maybe we could launch a podcast showcasing creative routines from artists.",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": false,
+        "whyString": "No strong signal; storing in Catch All.",
+        "tags": [
+          "*idea",
+          "#launch",
+          "#podcast",
+          "#showcasing"
+        ]
+      },
+      "tags": [
+        "*idea",
+        "#launch",
+        "#podcast",
+        "#showcasing"
+      ],
+      "typeTag": "*idea",
+      "topicTags": [
+        "#launch",
+        "#podcast",
+        "#showcasing"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*idea",
+        "emotions": [],
+        "topics": [
+          "#launch",
+          "#podcast",
+          "#creative"
+        ],
+        "normalizedTypeTag": "*idea",
+        "normalizedTopics": [
+          "#launch",
+          "#podcast",
+          "#creative"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.0325419999999923
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-15",
+      "text": "Brainstorm list:\n- potential sponsors\n- outreach strategy\n- timeline",
+      "output": {
+        "type": "note",
+        "subtype": "list",
+        "aiPlaced": true,
+        "whyString": "Detected list markers (- or *).",
+        "tags": [
+          "*list",
+          "#brainstorm",
+          "#potential",
+          "#sponsors"
+        ]
+      },
+      "tags": [
+        "*list",
+        "#brainstorm",
+        "#potential",
+        "#sponsors"
+      ],
+      "typeTag": "*list",
+      "topicTags": [
+        "#brainstorm",
+        "#potential",
+        "#sponsors"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*list",
+        "topics": [
+          "#brainstorm",
+          "#potential",
+          "#sponsors",
+          "#outreach"
+        ],
+        "normalizedTypeTag": "*list",
+        "normalizedTopics": [
+          "#brainstorm",
+          "#potential",
+          "#sponsors",
+          "#outreach"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.02441699999999969
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-16",
+      "text": "Reflection: I'm really anxious about the product demo tomorrow but also excited to share our progress.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#anxious",
+          "#excited",
+          "#really",
+          "#product"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#anxious",
+        "#excited",
+        "#really",
+        "#product"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#really",
+        "#product"
+      ],
+      "emotionTags": [
+        "#anxious",
+        "#excited"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#anxious",
+          "#excited"
+        ],
+        "topics": [
+          "#product",
+          "#demo",
+          "#progress"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#product",
+          "#demo",
+          "#progress"
+        ],
+        "normalizedEmotions": [
+          "#anxious",
+          "#excited"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 2,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.03479099999999846
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-17",
+      "text": "Meeting with Therapist Maria to discuss progress notes this afternoon.",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": false,
+        "whyString": "No strong signal; storing in Catch All.",
+        "tags": [
+          "@TherapistMaria",
+          "*meeting",
+          "#discuss",
+          "#progress",
+          "#notes"
+        ]
+      },
+      "tags": [
+        "@TherapistMaria",
+        "*meeting",
+        "#discuss",
+        "#progress",
+        "#notes"
+      ],
+      "typeTag": "*meeting",
+      "topicTags": [
+        "#discuss",
+        "#progress",
+        "#notes"
+      ],
+      "emotionTags": [],
+      "personTags": [
+        "@TherapistMaria"
+      ],
+      "expected": {
+        "typeTag": "*meeting",
+        "emotions": [],
+        "topics": [
+          "@TherapistMaria",
+          "#discuss",
+          "#progress",
+          "#notes"
+        ],
+        "normalizedTypeTag": "*meeting",
+        "normalizedTopics": [
+          "#discuss",
+          "#progress",
+          "#notes"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": [
+          "@TherapistMaria"
+        ]
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.03412499999998886
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-18",
+      "text": "Reflection: Noting that I felt calm during the meditation session today and grateful for the quiet room.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#grateful",
+          "#calm",
+          "#noting",
+          "#during"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#grateful",
+        "#calm",
+        "#noting",
+        "#during"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#noting",
+        "#during"
+      ],
+      "emotionTags": [
+        "#grateful",
+        "#calm"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#calm",
+          "#grateful"
+        ],
+        "topics": [
+          "#meditation",
+          "#session",
+          "#quiet"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#meditation",
+          "#session",
+          "#quiet"
+        ],
+        "normalizedEmotions": [
+          "#calm",
+          "#grateful"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 2,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.033124999999998295
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-19",
+      "text": "Idea: Could we create a shared assistant to support morning routines?",
+      "output": {
+        "type": "note",
+        "subtype": "catchall",
+        "aiPlaced": true,
+        "whyString": "Questions are typically notes for reflection.",
+        "tags": [
+          "*idea",
+          "#create",
+          "#shared",
+          "#assistant"
+        ]
+      },
+      "tags": [
+        "*idea",
+        "#create",
+        "#shared",
+        "#assistant"
+      ],
+      "typeTag": "*idea",
+      "topicTags": [
+        "#create",
+        "#shared",
+        "#assistant"
+      ],
+      "emotionTags": [],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*idea",
+        "emotions": [],
+        "topics": [
+          "#create",
+          "#shared",
+          "#assistant"
+        ],
+        "normalizedTypeTag": "*idea",
+        "normalizedTopics": [
+          "#create",
+          "#shared",
+          "#assistant"
+        ],
+        "normalizedEmotions": [],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 3,
+        "emotion": {
+          "truePositives": 0,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "latencyMs": 0.022125000000002615
+      },
+      "peopleFalsePositive": false
+    },
+    {
+      "id": "sample-20",
+      "text": "Reflection: Writing about how grateful I am for our small wins this week and excited for the next sprint.",
+      "output": {
+        "type": "note",
+        "subtype": "journal",
+        "aiPlaced": true,
+        "whyString": "Matched journal keywords.",
+        "tags": [
+          "*journal",
+          "#grateful",
+          "#excited",
+          "#writing",
+          "#small"
+        ]
+      },
+      "tags": [
+        "*journal",
+        "#grateful",
+        "#excited",
+        "#writing",
+        "#small"
+      ],
+      "typeTag": "*journal",
+      "topicTags": [
+        "#writing",
+        "#small"
+      ],
+      "emotionTags": [
+        "#grateful",
+        "#excited"
+      ],
+      "personTags": [],
+      "expected": {
+        "typeTag": "*journal",
+        "emotions": [
+          "#grateful",
+          "#excited"
+        ],
+        "topics": [
+          "#writing",
+          "#small",
+          "#wins"
+        ],
+        "normalizedTypeTag": "*journal",
+        "normalizedTopics": [
+          "#writing",
+          "#small",
+          "#wins"
+        ],
+        "normalizedEmotions": [
+          "#grateful",
+          "#excited"
+        ],
+        "normalizedPeople": []
+      },
+      "metrics": {
+        "missingTypeTag": false,
+        "topicCount": 2,
+        "emotion": {
+          "truePositives": 2,
+          "falsePositives": 0,
+          "falseNegatives": 0,
+          "precision": 1,
+          "recall": 1
+        },
+        "latencyMs": 0.03237500000000182
+      },
+      "peopleFalsePositive": false
+    }
+  ],
+  "failures": {
+    "missingTypeTag": [],
+    "tooManyTopics": [],
+    "emotionFalsePositive": [],
+    "personFalsePositive": []
+  }
+}

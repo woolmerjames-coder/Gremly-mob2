@@ -188,6 +188,12 @@ None - All compilation errors resolved.
 
 ## Technical Notes
 
+### Phase 2 AI Tag Emissions (2025-11)
+
+- Cortex V2 now returns sanitized `tags` in every classification result (chat fallback and classify endpoint follow the new @/*/# rules).
+- `UnifiedCreateOverlay` and legacy `ManualAddOverlay` forward those tag arrays into repo `create()` calls so they persist via Supabase.
+- UI still hides tag chips for now; follow-up work will surface them once design hands us visuals.
+
 ### Why Person Uses Separate Methods
 
 Person entities are stored in the `people` table (not `records`), so they require dedicated CRUD methods:

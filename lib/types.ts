@@ -15,7 +15,7 @@ export type Cadence = 'daily' | 'weekly' | 'monthly';
 export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 
 /**
- * Habit - recurring activity tracked by user
+ * Habit - recurring activity tracked by user (tags stored as searchable, AI/editable JSON array)
  */
 export interface Habit {
   id: ID;
@@ -45,11 +45,16 @@ export interface Habit {
   last_completed_at?: string | null;
   period_start_at?: string | null;
 
+  commitment?: boolean;
+  commitment_started_at?: string | null;
+  commitment_note?: string | null;
+  commitment_archived_at?: string | null;
+
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)
   reminders?: any[] | null; // ReminderRow[] JSON (nullable in DB)
   notes?: string | null;
-  tags?: string[] | null;
+  tags?: string[] | null; // Searchable, AI-editable JSON array persisted in DB
   buddy_id?: ID | null;
   buddy_email?: string | null;
   stack_with_id?: ID | null;
@@ -66,7 +71,7 @@ export interface Habit {
 }
 
 /**
- * Todo - task with optional due date
+ * Todo - task with optional due date (tags stored as searchable, AI/editable JSON array)
  * undefined_due flag indicates if user explicitly left date undefined
  */
 export interface Todo {
@@ -81,7 +86,7 @@ export interface Todo {
   reminders?: any[] | null; // ReminderRow[] JSON
   undefined_due?: boolean; // true if user wants "Might be today?" treatment (legacy)
   notes?: string | null; // Additional notes
-  tags?: string[] | null; // Categories/tags
+  tags?: string[] | null; // Searchable, AI-editable JSON array persisted in DB
   subtype?: 'reminder' | 'microproject' | null; // AI-only, never set by front-end
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
@@ -96,10 +101,15 @@ export interface Todo {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
+
+  commitment?: boolean;
+  commitment_started_at?: string | null;
+  commitment_note?: string | null;
+  commitment_archived_at?: string | null;
 }
 
 /**
- * Note - journal entry, list, or catch-all note
+ * Note - journal entry, list, or catch-all note (tags stored as searchable, AI/editable JSON array)
  * When subtype='journal', additional fields (mood, date, reminders, journal_subtype) are used
  * fmt and tags are used for all note types
  */
@@ -126,7 +136,7 @@ export interface Note {
 
   // Note formatting and organization (Phase 7+) - used for all note types
   fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style
-  tags?: string[] | null; // Categories/tags
+  tags?: string[] | null; // Searchable, AI-editable JSON array persisted in DB
 
   // Journal-specific fields (Phase 7+) - only used when subtype='journal'
   date?: string | null; // ISO date for journal entry (may differ from created_at)

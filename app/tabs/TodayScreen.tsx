@@ -18,7 +18,7 @@ import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useTodayData, type Suggestion } from '../../lib/today/useTodayData';
+import { useTodayData, type Suggestion, type TodayCommitment } from '../../lib/today/useTodayData';
 import { eventBus } from '../../lib/events';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import { env } from '../../lib/env';
@@ -30,10 +30,16 @@ import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
 import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
 import TodayV3View from './TodayV3View';
 import TodayV4LanesView from './TodayV4LanesView';
+import { Icon, type IconName } from '../../components/ui/Icon';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const UNDO_TIMEOUT_MS = 3000; // 3 seconds to undo
+
+const COMMITMENTS_FEATURE_ENABLED = (() => {
+  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase();
+  return rawValue === 'on' || rawValue === 'true' || rawValue === '1';
+})();
 
 type UndoState = {
   id: string;
@@ -66,7 +72,41 @@ function toKebabCase(str: string): string {
   return str.toLowerCase().replace(/\s+/g, '-');
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function getCommitmentStartedLabel(started?: string | null): string {
+  if (!started) {
+    return 'Started recently';
+  }
+
+  const startedDate = new Date(started);
+  if (Number.isNaN(startedDate.getTime())) {
+    return 'Started recently';
+  }
+
+  const now = new Date();
+  const diffMs = now.getTime() - startedDate.getTime();
+  const days = Math.max(0, Math.floor(diffMs / MS_PER_DAY));
+
+  if (days <= 0) {
+    return 'Started today';
+  }
+
+  if (days === 1) {
+    return 'Started 1 day ago';
+  }
+
+  return `Started ${days} days ago`;
+}
+
 export default function TodayScreen() {
+  if (__DEV__) {
+    console.log('[TodayVariant]', {
+      v3: env.feature.today.v3,
+      v4: env.feature.today.v4Lanes,
+      showCommitments: COMMITMENTS_FEATURE_ENABLED,
+    });
+  }
   if (env.feature.today.v4Lanes) {
     return <TodayV4LanesView />;
   }
@@ -96,12 +136,11 @@ function TodayScreenV2() {
   const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
   const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
   const [celebrationVisible, setCelebrationVisible] = useState(false);
-  const [lastCompletedId, setLastCompletedId] = useState<string | null>(null);
-  const [lastCompletedType, setLastCompletedType] = useState<'habit' | 'todo' | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [showAllHabits, setShowAllHabits] = useState(false);
   const [showAllTodos, setShowAllTodos] = useState(false);
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
+  const [removingCommitmentId, setRemovingCommitmentId] = useState<string | null>(null);
 
   // State for pull-to-refresh
   const [refreshing, setRefreshing] = useState(false);
@@ -157,8 +196,6 @@ function TodayScreenV2() {
 
     // Optimistic UI
     setCompletedHabitIds((prev) => new Set(prev).add(id));
-    setLastCompletedId(id);
-    setLastCompletedType('habit');
     setUndoState({ id, type: 'habit', label, persisted: false });
 
     if (celebrationEnabled) {
@@ -213,8 +250,6 @@ function TodayScreenV2() {
 
     // Optimistic UI
     setCompletedTodoIds((prev) => new Set(prev).add(id));
-    setLastCompletedId(id);
-    setLastCompletedType('todo');
     setUndoState({ id, type: 'todo', label, persisted: false });
 
     if (celebrationEnabled) {
@@ -313,8 +348,6 @@ function TodayScreenV2() {
       }
 
       setCelebrationVisible(false);
-      setLastCompletedId(null);
-      setLastCompletedType(null);
       setUndoState(null);
 
       eventBus.emit('TodayUndoCompletion', { entityType: type });
@@ -336,9 +369,44 @@ function TodayScreenV2() {
     }
   };
 
+  const reloadToday = todayData.reload;
+
+  const handleCommitmentRemove = useCallback(
+    async (commitment: TodayCommitment) => {
+      if (!COMMITMENTS_FEATURE_ENABLED) {
+        return;
+      }
+      if (removingCommitmentId) {
+        return;
+      }
+
+      setRemovingCommitmentId(commitment.id);
+      try {
+        await repo.removeCommitment(commitment.id, commitment.type);
+        await reloadToday();
+      } catch (err) {
+        console.error('Failed to remove commitment:', err);
+        Alert.alert('Remove failed', 'Unable to remove commitment right now. Please try again.');
+      } finally {
+        setRemovingCommitmentId(null);
+      }
+    },
+    [reloadToday, removingCommitmentId, repo],
+  );
+
   const handleOverlaySaved = useCallback(async () => {
     // Reload data after overlay save (event bus will also trigger reload)
     await todayData.reload();
+  }, [todayData]);
+
+  const handleCommitmentsChanged = useCallback(async () => {
+    try {
+      await todayData.reload();
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[TodayScreen] Failed to reload after commitment change', error);
+      }
+    }
   }, [todayData]);
 
   // Open journal overlay with evening reflection prompt
@@ -359,6 +427,8 @@ function TodayScreenV2() {
 
   // Group todos by space
   const todoGroups = groupBy(visibleTodos, (t) => t.spaceName || '');
+  const commitments = COMMITMENTS_FEATURE_ENABLED ? (todayData.commitments ?? []) : [];
+  const hasCommitments = COMMITMENTS_FEATURE_ENABLED && commitments.length > 0;
 
   return (
     <Screen
@@ -412,6 +482,69 @@ function TodayScreenV2() {
         {!todayData.loading && !todayData.error && user && (
           <>
             {isTestLight && <View testID="today-light-mode" accessibilityLabel="1" />}
+
+            {hasCommitments && (
+              <Box gap={3} testID="today-section-commitments">
+                <Text variant="title">Commitments</Text>
+                <Box gap={3}>
+                  {commitments.map((commitment) => {
+                    const iconName: IconName =
+                      commitment.type === 'habit' ? 'Activity' : 'CheckCircle2';
+                    const startedLabel = getCommitmentStartedLabel(commitment.started);
+                    const isRemoving = removingCommitmentId === commitment.id;
+
+                    return (
+                      <Card
+                        key={commitment.id}
+                        variant="outlined"
+                        padding="md"
+                        testID={`commitment-card-${commitment.id}`}
+                      >
+                        <Box row gap={4} style={{ alignItems: 'flex-start' }}>
+                          <View
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 16,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderWidth: 1,
+                              borderColor: theme.colors.border.DEFAULT,
+                              backgroundColor: theme.colors.cream,
+                            }}
+                          >
+                            <Icon name={iconName} size="sm" color={theme.colors.deepTeal.DEFAULT} />
+                          </View>
+                          <Box flex={1} gap={1}>
+                            <Text variant="body" style={{ fontWeight: '600' }} numberOfLines={1}>
+                              {commitment.name}
+                            </Text>
+                            <Text variant="subtle">{startedLabel}</Text>
+                            {commitment.note ? (
+                              <Text
+                                variant="subtle"
+                                style={{ color: theme.colors.text.secondary }}
+                                numberOfLines={1}
+                              >
+                                {commitment.note}
+                              </Text>
+                            ) : null}
+                          </Box>
+                          <Button
+                            label={isRemoving ? 'Removing...' : 'Remove'}
+                            variant="ghost"
+                            size="sm"
+                            onPress={() => void handleCommitmentRemove(commitment)}
+                            disabled={isRemoving}
+                            testID={`commitment-remove-${commitment.id}`}
+                          />
+                        </Box>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              </Box>
+            )}
 
             {/* Mascot Header */}
             <TodayMascotHeader
@@ -630,6 +763,7 @@ function TodayScreenV2() {
           initialSpaceId={overlayController.state.initialSpaceId}
           onClose={overlayController.close}
           onSaved={handleOverlaySaved}
+          onCommitmentsChanged={handleCommitmentsChanged}
         />
       )}
 
@@ -640,8 +774,6 @@ function TodayScreenV2() {
           onUndo={handleUndo}
           onRequestClose={() => {
             setCelebrationVisible(false);
-            setLastCompletedId(null);
-            setLastCompletedType(null);
           }}
           reducedMotion={todayData.reducedMotion}
         />
