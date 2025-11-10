@@ -5,13 +5,20 @@ import { UnifiedCreateOverlay } from './UnifiedCreateOverlay';
 import { ManualAddOverlay } from '../ManualAddOverlay';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 
-/** Single import surface for all screens */
-export function OverlayComponent(props: UnifiedCreateOverlayProps) {
-  if (env.feature.overlayV2) return <UnifiedOverlayV2 {...props} />;
-  // fall back to current unified overlay if enabled
+/**
+ * Gateway component that exposes a single `OverlayComponent` export.
+ * It selects the implementation based on the runtime feature flag
+ * `env.features.overlayV2` so callers import a single surface.
+ */
+export default function OverlayComponent(props: UnifiedCreateOverlayProps) {
+  // Prefer the new V2 overlay when feature gate enabled
+  if (env.features?.overlayV2) return <UnifiedOverlayV2 {...props} />;
+
+  // Fall back to the current unified overlay when configured
   if (process.env.EXPO_PUBLIC_UNIFIED_OVERLAY !== 'off') {
     return <UnifiedCreateOverlay {...props} />;
   }
-  // legacy/manual fallback
+
+  // Legacy/manual fallback
   return <ManualAddOverlay {...(props as any)} />;
 }
