@@ -185,6 +185,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_at: s.todo.due_at ?? s.reminderAt ?? null,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        // Commitment fields (only for todos/habits)
+        ...{
+          commitment: s.commitment,
+          commitment_note: s.commitment ? s.commitmentNote || null : null,
+          commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
+        },
       };
     }
     if (baseType === 'habit') {
@@ -195,6 +201,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        // Commitment fields (only for todos/habits)
+        ...{
+          commitment: s.commitment,
+          commitment_note: s.commitment ? s.commitmentNote || null : null,
+          commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
+        },
       };
     }
 
