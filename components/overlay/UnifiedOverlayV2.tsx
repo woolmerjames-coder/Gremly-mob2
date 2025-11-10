@@ -22,9 +22,11 @@ import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
+import useOverlayPrefill from './useOverlayPrefill';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
 import { toCreateOrUpdateInput, linkSelectedPerson } from './overlayV2.mapping';
+import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
@@ -169,6 +171,64 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       dispatch({ type: 'HYDRATE_EDIT', payload });
     }
   }, [mode, initialEntity]);
+
+  // AI prefill hook: request suggestions when creating a new item with empty text
+  const { suggestedTitle, suggestedTags, confidence } = useOverlayPrefill('');
+
+  // Track previous title to detect manual edits after an AI suggestion was applied
+  const prevTitleRef = useRef<string | null>(null);
+  // Track which suggested tag names were offered
+  const suggestedTagNamesRef = useRef<Set<string>>(new Set());
+  // Avoid duplicate feedback for tags
+  const tagsFeedbackSentRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Only apply suggestions for fresh creates with an empty text body
+    if (mode !== 'create') return;
+    if (currentText && currentText.trim().length > 0) return;
+    if (suggestedTitle && !state.log.title) {
+      dispatch({ type: 'SET_TITLE', title: suggestedTitle });
+      // remember that the current title equals the suggestion we applied
+      prevTitleRef.current = suggestedTitle;
+    }
+    if (suggestedTags?.length) {
+      // remember suggested tag names
+      suggestedTagNamesRef.current = new Set(suggestedTags.map((t) => t.name));
+      suggestedTags.forEach((t) => {
+        if (t.name === 'journal') dispatch({ type: 'TOGGLE_TAG', tag: 'journal', on: true });
+        if (t.name === 'list') dispatch({ type: 'TOGGLE_TAG', tag: 'list', on: true });
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedTitle, suggestedTags]);
+
+  // Detect manual title edits away from an AI suggestion
+  useEffect(() => {
+    const prev = prevTitleRef.current;
+    const cur = state.log.title;
+    if (prev && prev.trim().length > 0 && cur !== prev && suggestedTitle === prev) {
+      // user edited the suggested title -> mark as rejected
+      recordOverlayFeedback({ type: 'title', accepted: false, prev, newValue: cur });
+      // clear prev so we don't repeatedly send
+      prevTitleRef.current = null;
+    }
+  }, [state.log.title, suggestedTitle]);
+
+  // Detect user unchecking suggested tags and send feedback once per tag
+  useEffect(() => {
+    const suggestedNames = suggestedTagNamesRef.current;
+    if (!suggestedNames || suggestedNames.size === 0) return;
+    const sent = tagsFeedbackSentRef.current;
+    suggestedNames.forEach((name) => {
+      const key = name as 'journal' | 'list';
+      const isOn = !!(state.tags as any)?.[key];
+      if (!isOn && !sent.has(name)) {
+        // user left the suggested tag toggled off
+        recordOverlayFeedback({ type: 'tags', accepted: false, prev: name, newValue: '' });
+        sent.add(name);
+      }
+    });
+  }, [state.tags]);
 
   const canSave = currentText.trim().length > 0 && !isSaving;
 
@@ -371,6 +431,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 onPress={() => dispatch({ type: 'TOGGLE_TAG', tag: 'list' })}
               />
             </Box>
+            {confidence && confidence < 0.8 ? (
+              <Box mt={2}>
+                <Text variant="subtle">AI suggestions (low confidence)</Text>
+              </Box>
+            ) : null}
           </Box>
 
           {/* Body: text input only (Level-1) */}
