@@ -20,6 +20,7 @@ const raw = {
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
   FEATURE_OVERLAY_V2: process.env.EXPO_PUBLIC_FEATURE_OVERLAY_V2 ?? 'off',
   FEATURE_COMMITMENTS: process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off',
+  FEATURE_OVERLAY_PREFILL: process.env.EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL ?? 'off',
 
   TODAY_SUGGESTIONS: process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS ?? 'on',
   TODAY_CELEBRATION: process.env.EXPO_PUBLIC_TODAY_CELEBRATION ?? 'on',
@@ -96,63 +97,53 @@ const debugWindow = raw.DEBUG_TODAY_TIMEWINDOW
   ? oneOf(raw.DEBUG_TODAY_TIMEWINDOW, ['morning', 'midday', 'evening'] as const, undefined)
   : undefined;
 
-// Validate chat feature configuration
-// Only enforce cortex URL when FEATURE_CHAT is explicitly enabled and not in test environment
-const featureChatExplicit = process.env.EXPO_PUBLIC_FEATURE_CHAT !== undefined;
-const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+// Build feature flags object first so we can expose both `feature` and `features`
+// (plural) to support callers that expect either shape.
+const featureConfig = {
+  spaces: flag(raw.FEATURE_SPACES),
+  chat: flag(raw.FEATURE_CHAT),
+  unifiedOverlay: flag(raw.UNIFIED_OVERLAY),
+  // New overlay v2 feature gate
+  overlayV2: raw.FEATURE_OVERLAY_V2 === 'on',
+  // Prefill/AI suggestions for overlays
+  overlayPrefill: flag(raw.FEATURE_OVERLAY_PREFILL),
+  canonicalTypes: raw.CANONICAL_TYPES === 'on',
+  canonicalConversions: raw.CANONICAL_CONVERSIONS === 'on',
+  buddy: flag(raw.FEATURE_BUDDY),
 
-if (featureChatExplicit && flag(raw.FEATURE_CHAT) && !isTestEnv) {
-  if (!raw.CORTEX_URL) {
-    throw new Error(
-      '[env] EXPO_PUBLIC_CORTEX_URL is required when FEATURE_CHAT=on. Please check your .env file.',
-    );
-  }
-}
+  // Today v2 feature flags (Phase 9)
+  today: {
+    suggestions: flag(raw.TODAY_SUGGESTIONS),
+    celebration: flag(raw.TODAY_CELEBRATION),
+    eveningTeaser: flag(raw.TODAY_EVENING_TEASER),
+    v3: flag(raw.TODAY_V3),
+    v4Lanes: flag(raw.TODAY_V4_LANES),
+    focusCard: flag(raw.TODAY_FOCUS_CARD),
+    dropZone: flag(raw.TODAY_DROP_ZONE),
+    sweepPreview: flag(raw.TODAY_SWEEP_PREVIEW),
+  },
 
-/**
- * Typed environment configuration object
- * Use this instead of process.env throughout the app
- */
+  sweep: {
+    eveningV1: flag(raw.EVENING_SWEEP_V1),
+  },
+  commitments: flag(raw.FEATURE_COMMITMENTS ?? 'off'),
+
+  // Mascot feature flags (Phase 10.6)
+  mascot: {
+    enabled: flag(raw.MASCOT),
+    debug: flag(raw.MASCOT_DEBUG),
+  },
+} as const;
+
 export const env = {
   // Repository backend
   repoBackend,
   supabaseUrl: raw.SUPABASE_URL || null,
   supabaseAnonKey: raw.SUPABASE_ANON_KEY || null,
 
-  // Feature flags
-  feature: {
-    spaces: flag(raw.FEATURE_SPACES),
-    chat: flag(raw.FEATURE_CHAT),
-    unifiedOverlay: flag(raw.UNIFIED_OVERLAY),
-    // New overlay v2 feature gate
-    overlayV2: raw.FEATURE_OVERLAY_V2 === 'on',
-    canonicalTypes: raw.CANONICAL_TYPES === 'on',
-    canonicalConversions: raw.CANONICAL_CONVERSIONS === 'on',
-    buddy: flag(raw.FEATURE_BUDDY),
-
-    // Today v2 feature flags (Phase 9)
-    today: {
-      suggestions: flag(raw.TODAY_SUGGESTIONS),
-      celebration: flag(raw.TODAY_CELEBRATION),
-      eveningTeaser: flag(raw.TODAY_EVENING_TEASER),
-      v3: flag(raw.TODAY_V3),
-      v4Lanes: flag(raw.TODAY_V4_LANES),
-      focusCard: flag(raw.TODAY_FOCUS_CARD),
-      dropZone: flag(raw.TODAY_DROP_ZONE),
-      sweepPreview: flag(raw.TODAY_SWEEP_PREVIEW),
-    },
-
-    sweep: {
-      eveningV1: flag(raw.EVENING_SWEEP_V1),
-    },
-    commitments: flag(raw.FEATURE_COMMITMENTS ?? 'off'),
-
-    // Mascot feature flags (Phase 10.6)
-    mascot: {
-      enabled: flag(raw.MASCOT),
-      debug: flag(raw.MASCOT_DEBUG),
-    },
-  },
+  // Feature flags (expose both singular and plural access)
+  feature: featureConfig,
+  features: featureConfig,
 
   // Today v2 dev overrides (Phase 9)
   todayDebugWindow: debugWindow, // undefined unless set to 'morning' | 'midday' | 'evening'
