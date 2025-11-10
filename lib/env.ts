@@ -19,7 +19,7 @@ const raw = {
   CANONICAL_CONVERSIONS: process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS ?? 'off',
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
   FEATURE_OVERLAY_V2: process.env.EXPO_PUBLIC_FEATURE_OVERLAY_V2 ?? 'off',
-  FEATURE_COMMITMENTS: process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on',
+  FEATURE_COMMITMENTS: process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off',
 
   TODAY_SUGGESTIONS: process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS ?? 'on',
   TODAY_CELEBRATION: process.env.EXPO_PUBLIC_TODAY_CELEBRATION ?? 'on',
@@ -145,7 +145,7 @@ export const env = {
     sweep: {
       eveningV1: flag(raw.EVENING_SWEEP_V1),
     },
-    commitments: flag(raw.FEATURE_COMMITMENTS ?? 'on'),
+    commitments: flag(raw.FEATURE_COMMITMENTS ?? 'off'),
 
     // Mascot feature flags (Phase 10.6)
     mascot: {
