@@ -18,6 +18,7 @@ const raw = {
   CANONICAL_TYPES: process.env.EXPO_PUBLIC_CANONICAL_TYPES ?? 'off',
   CANONICAL_CONVERSIONS: process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS ?? 'off',
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
+  FEATURE_OVERLAY_V2: process.env.EXPO_PUBLIC_FEATURE_OVERLAY_V2 ?? 'off',
   FEATURE_COMMITMENTS: process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on',
 
   TODAY_SUGGESTIONS: process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS ?? 'on',
@@ -123,6 +124,8 @@ export const env = {
     spaces: flag(raw.FEATURE_SPACES),
     chat: flag(raw.FEATURE_CHAT),
     unifiedOverlay: flag(raw.UNIFIED_OVERLAY),
+    // New overlay v2 feature gate
+    overlayV2: raw.FEATURE_OVERLAY_V2 === 'on',
     canonicalTypes: raw.CANONICAL_TYPES === 'on',
     canonicalConversions: raw.CANONICAL_CONVERSIONS === 'on',
     buddy: flag(raw.FEATURE_BUDDY),
