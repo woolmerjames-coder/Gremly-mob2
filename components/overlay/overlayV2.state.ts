@@ -21,6 +21,10 @@ export type V2State = {
   person: PersonLink;
   format: FormatKind; // notes only
   reminderAt: string | null; // ISO-ish
+  // Commitment fields (Phase X)
+  commitment: boolean;
+  commitmentNote: string;
+  commitmentStartedAt: string | null;
   log: LogState;
   todo: TodoState;
   habit: HabitState;
@@ -37,6 +41,9 @@ export const initialV2State: V2State = {
   person: null,
   format: 'plain',
   reminderAt: null,
+  commitment: false,
+  commitmentNote: '',
+  commitmentStartedAt: null,
   log: { title: '', body: '' },
   todo: { title: '', details: '', due_at: null },
   habit: { title: '', notes: '', schedule: 'custom' },
@@ -48,6 +55,8 @@ type Action =
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
   | { type: 'SET_TITLE'; title: string }
   | { type: 'SET_TODO_DUE'; due_at: string | null }
+  | { type: 'TOGGLE_COMMITMENT' }
+  | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'TOGGLE_TAG'; tag: TagKey; on?: boolean }
   | { type: 'SET_MOOD'; mood: 'pos' | 'neu' | 'neg' | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
@@ -130,6 +139,20 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     }
     case 'SET_TODO_DUE':
       return { ...state, todo: { ...state.todo, due_at: action.due_at } };
+    case 'TOGGLE_COMMITMENT': {
+      const turningOn = !state.commitment;
+      // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.
+      return {
+        ...state,
+        commitment: turningOn,
+        commitmentStartedAt:
+          turningOn && !state.commitmentStartedAt
+            ? new Date().toISOString()
+            : state.commitmentStartedAt,
+      };
+    }
+    case 'SET_COMMITMENT_NOTE':
+      return { ...state, commitmentNote: action.note };
     case 'HYDRATE_EDIT':
       return { ...state, ...action.payload } as V2State;
     case 'TOGGLE_EXPANDED':
