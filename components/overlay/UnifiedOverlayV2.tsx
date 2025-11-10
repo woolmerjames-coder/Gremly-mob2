@@ -21,8 +21,10 @@ import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
+import PersonPicker from './fields/PersonPicker';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
+import { toCreateOrUpdateInput, linkSelectedPerson } from './overlayV2.mapping';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
@@ -162,8 +164,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         type: 'todo' as const,
         title: s.todo.title || firstLine(s.todo.details) || 'Untitled',
         details: s.todo.details || null,
-        due_at: s.todo.due_at ?? null,
-        space_id: spaceId,
+        due_at: s.todo.due_at ?? s.reminderAt ?? null,
+        space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
       };
     }
@@ -173,25 +175,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
         notes: s.habit.notes || null,
         frequency: s.habit.schedule ?? 'custom',
-        space_id: spaceId,
+        space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
       };
     }
+
     // base note payload
     const base = {
       type: 'note' as const,
       subtype: 'catchall' as const,
       title: s.log.title || firstLine(s.log.body) || 'Untitled note',
       body: s.log.body,
-      space_id: spaceId,
+      space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
-    };
+    } as any;
 
-    // mood (Journal) and fmt (List) patches
-    const moodPatch = s.tags?.journal ? { mood: s.mood ?? 'neu' } : {};
-    const fmtPatch = s.tags?.list ? { fmt: 'checkboxes' as const } : {};
+    // mood (Journal)
+    const moodPatch = s.tags?.journal ? { mood: s.mood ?? 'neu' } : { mood: null };
 
-    return { ...base, ...moodPatch, ...fmtPatch };
+    // fmt: list tag overrides explicit format
+    let fmtVal: any = null;
+    if (s.tags?.list) fmtVal = 'checkboxes';
+    else if (s.format) fmtVal = s.format; // 'plain' | 'checkboxes' | 'bullet'
+
+    const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
+
+    const datePatch = s.reminderAt ? { date: s.reminderAt } : {};
+
+    return { ...base, ...moodPatch, ...fmtPatch, ...datePatch };
   }
 
   const onSave = useCallback(async () => {
@@ -203,6 +214,82 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         mode === 'edit' && (initialEntity as any)?.id
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
           : await repo.create(input as any);
+      // After a successful create/update, link any pending Phase‑8 tags/people
+      try {
+        const itemType = baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note';
+
+        // Link any pending tags first (non-blocking failures)
+        if ((phase8Links as any)?.pendingTagIds?.length) {
+          for (const tagId of (phase8Links as any).pendingTagIds) {
+            try {
+              // Cast to any for Phase 8 helpers
+              await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
+            } catch (err) {
+              console.error('[Phase8] Failed to link pending tag to item:', err);
+            }
+          }
+        }
+
+        // Link any pending people
+        if ((phase8Links as any)?.pendingPeople?.length) {
+          for (const person of (phase8Links as any).pendingPeople) {
+            try {
+              await (repo as any).linkPerson({
+                itemId: result.id,
+                itemType,
+                personName: person.personName,
+                personEmail: person.personEmail,
+              });
+            } catch (err) {
+              console.error('[Phase8] Failed to link pending person to item:', err);
+            }
+          }
+        }
+
+        // If there are pendingPeople entries (temp links), try to persist them
+        if ((phase8Links as any)?.pendingPeople?.length) {
+          for (const p of (phase8Links as any).pendingPeople) {
+            try {
+              const pid = p.id; // temp id from usePhase8LinksState (e.g., temp-...)
+              if (pid && typeof (repo as any).linkPersonToEntity === 'function') {
+                await (repo as any).linkPersonToEntity({ entityId: result.id, personId: pid });
+              } else if (
+                pid &&
+                (repo as any).entities &&
+                typeof (repo as any).entities.linkPerson === 'function'
+              ) {
+                await (repo as any).entities.linkPerson({ entityId: result.id, personId: pid });
+              } else if (
+                pid &&
+                (repo as any).people &&
+                typeof (repo as any).people.linkToEntity === 'function'
+              ) {
+                await (repo as any).people.linkToEntity({ entityId: result.id, personId: pid });
+              }
+            } catch (err) {
+              console.error('[Phase8] Failed to persist pending person link:', err);
+            }
+          }
+        }
+
+        // Clear any pending markers in the links state (UI cleanup)
+        try {
+          phase8Links.clearPendingPeople?.();
+          phase8Links.clearPendingTags?.();
+        } catch (err) {
+          // ignore
+        }
+      } catch (err) {
+        // Non-fatal: linking errors should not block the save flow
+        console.error('[UnifiedOverlayV2] post-save linking failed', err);
+      }
+      // Attempt to link the explicitly selected person (non-blocking)
+      try {
+        await linkSelectedPerson(repo, result?.id, (state as any).person?.id);
+      } catch (err) {
+        console.error('[UnifiedOverlayV2] person link failed', err);
+      }
+
       setIsSaving(false);
       await clearOverlayV2Draft(draftKey);
       onClose?.();
@@ -465,25 +552,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               <Text variant="label">Details</Text>
               {/* People linker + reminder/todo due + space selector */}
               <Box mt={2}>
-                <PeopleLinker
-                  userId={userId ?? 'anonymous'}
-                  itemId={null}
-                  itemType={baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note'}
-                  linkedPeople={phase8Links.linkedPeople}
-                  onPeopleChange={(people) => {
-                    // map first linked person into V2 state as PersonLink
-                    if (people && people.length > 0)
-                      dispatch({
-                        type: 'SET_PERSON',
-                        person: {
-                          id: people[0].id,
-                          display: people[0].person_name || people[0].person_email || people[0].id,
-                        },
-                      });
-                    else dispatch({ type: 'SET_PERSON', person: null });
-                  }}
-                  onLinkPerson={phase8Links.linkPerson}
-                  onUnlinkPerson={phase8Links.unlinkPerson}
+                {/* Thin picker for selecting an existing person (Phase-4) */}
+                <PersonPicker
+                  value={state.person ?? null}
+                  onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
                 />
 
                 <Box row mt={2} gap={2} style={{ alignItems: 'center' }}>
@@ -743,15 +815,54 @@ const styles = StyleSheet.create({
     paddingVertical: tokenSpacing.md,
     paddingHorizontal: tokenSpacing.base,
   },
-  chip: {
+
+  /* Details panel layout */
+  detailsContainer: {
+    paddingHorizontal: tokenSpacing.base,
+    paddingVertical: tokenSpacing.sm,
+    borderRadius: tokenRadius.sm,
+    backgroundColor: lightTokens.colors.surface || '#FFFFFF',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: lightTokens.colors.border,
+    // subtle elevation/shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+
+  detailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokenSpacing.sm,
+    marginTop: tokenSpacing.sm,
+  },
+
+  controlButton: {
     minHeight: 36,
+    paddingHorizontal: tokenSpacing.md,
+    paddingVertical: tokenSpacing.xs,
+    borderRadius: tokenRadius.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  scopeSelector: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: tokenSpacing.md,
+  },
+
+  chip: {
+    minHeight: 44,
     paddingHorizontal: tokenSpacing.md,
     paddingVertical: tokenSpacing.xs,
     borderRadius: tokenRadius.sm,
     justifyContent: 'center',
   },
   chipSmall: {
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: tokenSpacing.sm,
     paddingVertical: tokenSpacing.xs,
     borderRadius: tokenRadius.sm,
@@ -762,6 +873,6 @@ const styles = StyleSheet.create({
   listItem: {
     alignItems: 'center',
     marginBottom: tokenSpacing.sm,
-    minHeight: 36,
+    minHeight: 44,
   },
 });

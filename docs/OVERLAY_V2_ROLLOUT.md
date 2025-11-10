@@ -1,3 +1,36 @@
+# Overlay V2 rollout notes — Phase 4 (brief)
+
+Phase‑4 introduces a collapsible "Add details" panel on the Overlay V2. It contains:
+
+- Person: select/link an existing person (Phase‑8 join behavior persists)
+- Reminder: date/time reminder (optional)
+- Space: select assignment (space_id)
+- Formatting (notes/log only): fmt = plain | checkboxes | bullet
+
+Save mapping (summary):
+
+- Notes (log):
+  - `fmt`: from explicit format control, or `checkboxes` when List tag is used
+  - `mood`: set when Journal tag is present (defaults to `neu` if available)
+  - `date`: set when a reminder is selected
+
+- To‑dos:
+  - `due_at`: from the todo due chip; falls back to reminder time when set
+
+- Habits:
+  - No new persisted schedule fields yet — schedule handled in a later phase
+
+Person linking:
+
+- Overlay will attempt to persist an explicit person selection using the repo linking helper (e.g. `repo.linkPersonToEntity` / existing join API)
+
+Database / migrations:
+
+- No new Supabase migrations are required for Phase‑4 — this phase uses existing columns/relations.
+
+Host integration:
+
+- Piping/host controller flows are untouched — OverlayHost and controller wiring remain the same; this is an additive UI/data refinement behind the feature flag.
 # Unified Overlay V2 — Rollout Notes
 
 Goal
