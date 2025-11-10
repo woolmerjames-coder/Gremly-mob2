@@ -56,6 +56,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
   );
   const [spaces, setSpaces] = useState<any[]>([]);
+  // feature flag for commitments (soft rollout)
+  const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
+
+  async function canEnableCommitment(): Promise<boolean> {
+    try {
+      if (typeof (repo as any).countActiveCommitments === 'function') {
+        const n = await (repo as any).countActiveCommitments();
+        return n < 3;
+      }
+      if (typeof (repo as any).listCommitments === 'function') {
+        const items = await (repo as any).listCommitments();
+        return (items?.length ?? 0) < 3;
+      }
+    } catch (e) {
+      // ignore and allow by default
+    }
+    return true;
+  }
 
   // load spaces when details panel expands so selector can show options
   useEffect(() => {
@@ -607,6 +625,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     }}
                   />
                 </Box>
+                {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
+                  <Box mt={2}>
+                    <Text variant="label">Commitment</Text>
+                    <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
+                      <Button
+                        size="sm"
+                        variant={state.commitment ? 'primary' : 'ghost'}
+                        onPress={async () => {
+                          if (!state.commitment) {
+                            const ok = await canEnableCommitment();
+                            if (!ok) {
+                              console.log('[Commitment] Limit reached (3)');
+                              return;
+                            }
+                          }
+                          dispatch({ type: 'TOGGLE_COMMITMENT' });
+                        }}
+                        title={state.commitment ? 'Committed' : 'Make this a commitment'}
+                      />
+                      {state.commitment ? (
+                        <TextInput
+                          placeholder="Why this matters (optional, 140 max)"
+                          maxLength={140}
+                          value={state.commitmentNote}
+                          onChangeText={(t) => dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })}
+                          style={[styles.textArea, { minHeight: 40, paddingVertical: 8 }]}
+                        />
+                      ) : null}
+                    </Box>
+                  </Box>
+                ) : null}
               </Box>
               {baseType === 'log' ? (
                 <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
