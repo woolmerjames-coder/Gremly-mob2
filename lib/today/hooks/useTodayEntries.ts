@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useAuth } from '../../../providers/AuthProvider';
 import { eventBus } from '../../events';
 import { env } from '../../env';
+import { promptCommitmentReflection } from '../../commitments/reflection';
 
 export type TodayMergedTodo = {
   type: 'todo';
@@ -18,6 +19,7 @@ export type TodayMergedTodo = {
   overdue?: boolean;
   nearDue?: boolean;
   completed_at?: string | null;
+  commitment?: boolean;
 };
 
 export type TodayMergedHabit = {
@@ -33,6 +35,7 @@ export type TodayMergedHabit = {
   progress_today?: number;
   status?: 'active' | 'completed';
   completed_at?: string | null;
+  commitment?: boolean;
 };
 
 export type TodayMergedEntry = TodayMergedTodo | TodayMergedHabit;
@@ -57,6 +60,7 @@ export function useTodayEntries(): TodayEntriesState {
   const [remaining, setRemaining] = useState(0);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
+  const reflectedCommitmentIds = useRef<Set<string>>(new Set());
 
   const nowIso = useMemo(() => new Date().toISOString(), []);
 
@@ -81,7 +85,7 @@ export function useTodayEntries(): TodayEntriesState {
       const dayIso = nowIso.split('T')[0];
 
       if (hasV3) {
-        const result = await (repo as any).listTodayMerged(nowIso);
+        const result = (await (repo as any).listTodayMerged(nowIso)) as TodayMergedEntry[];
         const isCompleted = (entry: TodayMergedEntry) => {
           if (entry.type === 'todo') {
             if (entry.status === 'completed') return true;
@@ -96,8 +100,16 @@ export function useTodayEntries(): TodayEntriesState {
           return (entry.progress_today ?? 0) >= target;
         };
 
+        const incomplete = result.filter((entry: TodayMergedEntry) => !isCompleted(entry));
+        incomplete.forEach((entry: TodayMergedEntry) => {
+          if (entry.commitment === true && !reflectedCommitmentIds.current.has(entry.id)) {
+            reflectedCommitmentIds.current.add(entry.id);
+            void promptCommitmentReflection(entry.id);
+          }
+        });
+
         remoteDone = result.filter((entry: TodayMergedEntry) => isCompleted(entry));
-        merged = result.filter((entry: TodayMergedEntry) => !isCompleted(entry));
+        merged = incomplete;
       } else {
         const due = await repo.listDueToday(nowIso);
         merged = (due || [])
