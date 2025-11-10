@@ -6,7 +6,17 @@ export function useOverlayV2Draft(key: string, value: string) {
   useEffect(() => {
     if (t.current) clearTimeout(t.current);
     t.current = setTimeout(() => {
-      AsyncStorage.setItem(key, value).catch(() => {});
+      // AsyncStorage implementations in some test environments may
+      // not return a Promise. Guard against that by checking for
+      // a .catch function before calling it.
+      try {
+        const maybePromise = AsyncStorage.setItem(key, value);
+        if (maybePromise && typeof (maybePromise as any).catch === 'function') {
+          (maybePromise as any).catch(() => {});
+        }
+      } catch (e) {
+        // ignore
+      }
     }, 400);
     return () => {
       if (t.current) clearTimeout(t.current);
