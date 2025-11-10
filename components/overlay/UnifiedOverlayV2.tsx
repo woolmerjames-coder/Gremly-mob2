@@ -78,7 +78,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // clear local draft on success
       await clearOverlayV2Draft(draftKey);
 
-      // NOTE: emit overlaySaved already handled by OverlayHost on close in this repo
+      // NOTE: overlaySaved / analytics events are emitted by `OverlayHost` when the overlay
+      // is closed (via the `onClose`/`onSaved` plumbing). Do NOT emit analytics or global
+      // saved events from here — keep telemetry centralized in the Host.
       setIsSaving(false);
       onClose?.();
     } catch (e) {
