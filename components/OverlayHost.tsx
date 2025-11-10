@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-import { UnifiedCreateOverlay } from './overlay/UnifiedCreateOverlay';
+import { OverlayComponent } from './overlay/gateway';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
@@ -367,7 +367,7 @@ export const OverlayHost = () => {
       <NewSpaceModal />
 
       {/* Global Unified Overlay - single instance for entire app */}
-      <UnifiedCreateOverlay
+      <OverlayComponent
         visible={overlay.state.visible}
         mode={overlay.state.mode}
         initialEntity={overlay.state.initialEntity}
