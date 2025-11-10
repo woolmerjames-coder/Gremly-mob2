@@ -6,12 +6,21 @@ export type LogState = { body: string; title: string };
 export type TodoState = { title: string; details: string; due_at?: string | null };
 export type HabitState = { title: string; notes: string; schedule?: 'daily' | 'weekly' | 'custom' };
 
+export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
+export type PersonLink = { id: string; display: string } | null;
+
 export type V2State = {
   baseType: BaseType;
   tags: Partial<Record<TagKey, boolean>>;
   mood?: 'pos' | 'neu' | 'neg' | null;
   list?: { items: { id: string; text: string; checked: boolean }[] } | null;
   detected: { mentions: string[]; dates: string[] };
+  // Phase 4 additions
+  expanded: boolean;
+  spaceId: string | null;
+  person: PersonLink;
+  format: FormatKind; // notes only
+  reminderAt: string | null; // ISO-ish
   log: LogState;
   todo: TodoState;
   habit: HabitState;
@@ -23,6 +32,11 @@ export const initialV2State: V2State = {
   mood: null,
   list: null,
   detected: { mentions: [], dates: [] },
+  expanded: false,
+  spaceId: null,
+  person: null,
+  format: 'plain',
+  reminderAt: null,
   log: { title: '', body: '' },
   todo: { title: '', details: '', due_at: null },
   habit: { title: '', notes: '', schedule: 'custom' },
@@ -38,7 +52,12 @@ type Action =
   | { type: 'SET_MOOD'; mood: 'pos' | 'neu' | 'neg' | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
   | { type: 'TOGGLE_LIST_ITEM'; id: string; checked: boolean }
-  | { type: 'SET_DETECTED'; mentions: string[]; dates: string[] };
+  | { type: 'SET_DETECTED'; mentions: string[]; dates: string[] }
+  | { type: 'TOGGLE_EXPANDED' }
+  | { type: 'SET_SPACE'; spaceId: string | null }
+  | { type: 'SET_PERSON'; person: PersonLink }
+  | { type: 'SET_FORMAT'; fmt: FormatKind }
+  | { type: 'SET_REMINDER'; when: string | null };
 
 export function v2Reducer(state: V2State, action: Action): V2State {
   switch (action.type) {
@@ -113,6 +132,16 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, todo: { ...state.todo, due_at: action.due_at } };
     case 'HYDRATE_EDIT':
       return { ...state, ...action.payload } as V2State;
+    case 'TOGGLE_EXPANDED':
+      return { ...state, expanded: !state.expanded };
+    case 'SET_SPACE':
+      return { ...state, spaceId: action.spaceId };
+    case 'SET_PERSON':
+      return { ...state, person: action.person };
+    case 'SET_FORMAT':
+      return { ...state, format: action.fmt };
+    case 'SET_REMINDER':
+      return { ...state, reminderAt: action.when };
     default:
       return state;
   }

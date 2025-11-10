@@ -17,6 +17,10 @@ import {
   borderRadius as tokenRadius,
 } from '../../design/tokens';
 import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
+import ScopeSelector from '../ScopeSelector';
+import { usePhase8LinksState } from './hooks/usePhase8LinksState';
+import { PeopleLinker } from './fields/PeopleLinker';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
@@ -30,8 +34,44 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
   const baseType = state.baseType;
   const [isSaving, setIsSaving] = useState(false);
-  const [showDueModal, setShowDueModal] = useState(false);
+  const [showDateModal, setShowDateModal] = useState(false);
+  const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
   const [customDate, setCustomDate] = useState('');
+  // useAuth may not be available in some test harnesses that mock providers,
+  // so guard against the hook throwing by falling back to null.
+  let userId: string | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    userId = useAuth().userId ?? null;
+  } catch (e) {
+    userId = null;
+  }
+
+  const phase8Links = usePhase8LinksState(
+    repo,
+    userId ?? '',
+    null,
+    baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
+  );
+  const [spaces, setSpaces] = useState<any[]>([]);
+
+  // load spaces when details panel expands so selector can show options
+  useEffect(() => {
+    let mounted = true;
+    if (!state.expanded) return;
+    (async () => {
+      try {
+        const s = await repo.listSpaces();
+        if (mounted) setSpaces(s || []);
+      } catch (e) {
+        if (__DEV__) console.warn('[UnifiedOverlayV2] listSpaces failed', e);
+        if (mounted) setSpaces([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [repo, state.expanded]);
 
   // cross-fade anim for smooth type switching (best-effort caret preservation)
   const fade = useRef(new Animated.Value(1)).current;
@@ -234,7 +274,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onPress={() => setShowDueModal(true)}
+                    onPress={() => {
+                      setDateModalTarget('todo');
+                      setShowDateModal(true);
+                    }}
                     title={
                       state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
                     }
@@ -305,9 +348,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           due_at: addDays(new Date(), 1).toISOString(),
                         });
                       else {
-                        // fallback: open custom date modal prefilled
+                        // fallback: open custom date modal prefilled (for todo)
                         setCustomDate(d.replace(/^\D+/g, ''));
-                        setShowDueModal(true);
+                        setDateModalTarget('todo');
+                        setShowDateModal(true);
                       }
                     }}
                     title={
@@ -324,7 +368,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             </Box>
           </ScrollView>
 
-          <Modal visible={showDueModal} transparent animationType="fade">
+          <Modal visible={showDateModal} transparent animationType="fade">
             <Box
               style={{
                 flex: 1,
@@ -340,8 +384,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       variant="ghost"
                       onPress={() => {
                         const iso = new Date().toISOString();
-                        dispatch({ type: 'SET_TODO_DUE', due_at: iso });
-                        setShowDueModal(false);
+                        if (dateModalTarget === 'reminder')
+                          dispatch({ type: 'SET_REMINDER', when: iso });
+                        else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                        setShowDateModal(false);
+                        setDateModalTarget(null);
                       }}
                       title="Today"
                     />
@@ -349,16 +396,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       variant="ghost"
                       onPress={() => {
                         const iso = addDays(new Date(), 1).toISOString();
-                        dispatch({ type: 'SET_TODO_DUE', due_at: iso });
-                        setShowDueModal(false);
+                        if (dateModalTarget === 'reminder')
+                          dispatch({ type: 'SET_REMINDER', when: iso });
+                        else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                        setShowDateModal(false);
+                        setDateModalTarget(null);
                       }}
                       title="Tomorrow"
                     />
                     <Button
                       variant="ghost"
                       onPress={() => {
-                        dispatch({ type: 'SET_TODO_DUE', due_at: null });
-                        setShowDueModal(false);
+                        if (dateModalTarget === 'reminder')
+                          dispatch({ type: 'SET_REMINDER', when: null });
+                        else dispatch({ type: 'SET_TODO_DUE', due_at: null });
+                        setShowDateModal(false);
+                        setDateModalTarget(null);
                       }}
                       title="Clear"
                     />
@@ -373,7 +426,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     style={[styles.textArea, { minHeight: 40, paddingVertical: 8 }]}
                   />
                   <Box row mt={2}>
-                    <Button variant="ghost" onPress={() => setShowDueModal(false)} title="Cancel" />
+                    <Button
+                      variant="ghost"
+                      onPress={() => {
+                        setShowDateModal(false);
+                        setDateModalTarget(null);
+                      }}
+                      title="Cancel"
+                    />
                     <Box flex={1} />
                     <Button
                       onPress={() => {
@@ -381,9 +441,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           if (customDate.trim().length === 0) return;
                           const parsed = new Date(`${customDate}T00:00:00`);
                           if (isNaN(parsed.getTime())) return;
-                          dispatch({ type: 'SET_TODO_DUE', due_at: parsed.toISOString() });
+                          const iso = parsed.toISOString();
+                          if (dateModalTarget === 'reminder')
+                            dispatch({ type: 'SET_REMINDER', when: iso });
+                          else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
                           setCustomDate('');
-                          setShowDueModal(false);
+                          setShowDateModal(false);
+                          setDateModalTarget(null);
                         } catch (e) {
                           // ignore parse
                         }
@@ -395,6 +459,118 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               </Box>
             </Box>
           </Modal>
+          {/* Expanded details panel (Phase-4) */}
+          {state.expanded ? (
+            <Box px={4} pb={2}>
+              <Text variant="label">Details</Text>
+              {/* People linker + reminder/todo due + space selector */}
+              <Box mt={2}>
+                <PeopleLinker
+                  userId={userId ?? 'anonymous'}
+                  itemId={null}
+                  itemType={baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note'}
+                  linkedPeople={phase8Links.linkedPeople}
+                  onPeopleChange={(people) => {
+                    // map first linked person into V2 state as PersonLink
+                    if (people && people.length > 0)
+                      dispatch({
+                        type: 'SET_PERSON',
+                        person: {
+                          id: people[0].id,
+                          display: people[0].person_name || people[0].person_email || people[0].id,
+                        },
+                      });
+                    else dispatch({ type: 'SET_PERSON', person: null });
+                  }}
+                  onLinkPerson={phase8Links.linkPerson}
+                  onUnlinkPerson={phase8Links.unlinkPerson}
+                />
+
+                <Box row mt={2} gap={2} style={{ alignItems: 'center' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => {
+                      setDateModalTarget('reminder');
+                      setShowDateModal(true);
+                    }}
+                    title={
+                      state.reminderAt
+                        ? `Reminder: ${safeFormat(state.reminderAt)}`
+                        : 'Add reminder'
+                    }
+                  />
+                  {baseType === 'todo' ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => {
+                        setDateModalTarget('todo');
+                        setShowDateModal(true);
+                      }}
+                      title={
+                        state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
+                      }
+                    />
+                  ) : null}
+                </Box>
+
+                <Box mt={2}>
+                  {/* Space selector: load spaces when expanded */}
+                  <ScopeSelector
+                    selectedScope={
+                      state.spaceId
+                        ? {
+                            type: 'space',
+                            spaceId: state.spaceId,
+                            label: spaces.find((s) => s.id === state.spaceId)?.name ?? 'Space',
+                          }
+                        : { type: 'unassigned', label: 'Unassigned' }
+                    }
+                    spaces={spaces}
+                    onChange={(opt) => {
+                      if (opt.type === 'space')
+                        dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
+                      else dispatch({ type: 'SET_SPACE', spaceId: null });
+                    }}
+                  />
+                </Box>
+              </Box>
+              {baseType === 'log' ? (
+                <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
+                  <Button
+                    size="sm"
+                    variant={state.format === 'plain' ? 'primary' : 'ghost'}
+                    onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
+                    title="Plain"
+                  />
+                  <Button
+                    size="sm"
+                    variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
+                    onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
+                    title="Checkboxes"
+                  />
+                  <Button
+                    size="sm"
+                    variant={state.format === 'bullet' ? 'primary' : 'ghost'}
+                    onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
+                    title="Bullet"
+                  />
+                </Box>
+              ) : null}
+            </Box>
+          ) : null}
+
+          {/* Toggle row for expanded "Add details" panel (Phase-4) */}
+          <Box px={4} py={2} row style={{ alignItems: 'center' }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => dispatch({ type: 'TOGGLE_EXPANDED' })}
+              title={state.expanded ? 'Hide details' : 'Add details'}
+            />
+            <Box flex={1} />
+          </Box>
 
           {/* Save bar (fixed) */}
           <Box
