@@ -417,7 +417,7 @@ export function buildFallbackTags(
     .sort((a, b) => {
       const freqDiff = b[1] - a[1];
       if (freqDiff !== 0) return freqDiff;
-      return b[0].length - a[0].length;
+      return a[0].localeCompare(b[0]);
     })
     .slice(0, 3)
     .map(([word]) => word);

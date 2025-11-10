@@ -45,6 +45,11 @@ export interface Habit {
   last_completed_at?: string | null;
   period_start_at?: string | null;
 
+  commitment?: boolean;
+  commitment_started_at?: string | null;
+  commitment_note?: string | null;
+  commitment_archived_at?: string | null;
+
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)
   reminders?: any[] | null; // ReminderRow[] JSON (nullable in DB)
@@ -96,6 +101,11 @@ export interface Todo {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
+
+  commitment?: boolean;
+  commitment_started_at?: string | null;
+  commitment_note?: string | null;
+  commitment_archived_at?: string | null;
 }
 
 /**

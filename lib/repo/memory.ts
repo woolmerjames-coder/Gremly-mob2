@@ -793,6 +793,101 @@ export class MemoryRepo implements IRepo {
     // keep -> no action
   }
 
+  async countActiveCommitments(): Promise<number> {
+    return this.data.filter(
+      (row) => row.owner_id === this.currentUserId && (row as any).commitment === true,
+    ).length;
+  }
+
+  async listCommitments(): Promise<
+    Array<{
+      id: ID;
+      type: 'habit' | 'todo';
+      name: string;
+      commitment_started_at?: string | null;
+      commitment_note?: string | null;
+    }>
+  > {
+    return this.data
+      .filter(
+        (row): row is Habit | Todo =>
+          (row.type === 'habit' || row.type === 'todo') &&
+          row.owner_id === this.currentUserId &&
+          (row as any).commitment === true,
+      )
+      .map((row) => ({
+        id: row.id,
+        type: row.type,
+        name: row.name,
+        commitment_started_at: (row as any).commitment_started_at ?? null,
+        commitment_note: (row as any).commitment_note ?? null,
+      }));
+  }
+
+  async addCommitment(id: ID, type: 'habit' | 'todo', note?: string | null): Promise<void> {
+    const idx = this.data.findIndex(
+      (row) => row.id === id && row.type === type && row.owner_id === this.currentUserId,
+    );
+    if (idx < 0) throw new Error('Record not found for commitment');
+
+    const record = this.data[idx] as Habit | Todo;
+    if ((record as any).commitment === true) {
+      if (note !== undefined && (record as any).commitment_note !== note) {
+        const now = nowIso();
+        const updated = {
+          ...record,
+          commitment_note: note ?? null,
+          updated_at: now,
+        } as AppRecord;
+        this.commit(updated);
+        this.data[idx] = updated;
+      }
+      return;
+    }
+
+    const activeCount = await this.countActiveCommitments();
+    if (activeCount >= 3) {
+      throw new Error('Maximum active commitments reached');
+    }
+
+    const now = nowIso();
+    const updated = {
+      ...record,
+      commitment: true,
+      commitment_started_at: now,
+      commitment_note: note ?? null,
+      commitment_archived_at: null,
+      updated_at: now,
+    } as AppRecord;
+
+    this.commit(updated);
+    this.data[idx] = updated;
+    console.log('[REPO_COMMITMENT_ADD]', { id, type });
+  }
+
+  async removeCommitment(id: ID, type: 'habit' | 'todo', reason?: string | null): Promise<void> {
+    const idx = this.data.findIndex(
+      (row) => row.id === id && row.type === type && row.owner_id === this.currentUserId,
+    );
+    if (idx < 0) throw new Error('Record not found for commitment removal');
+
+    const record = this.data[idx] as Habit | Todo;
+    if (!(record as any).commitment) return;
+
+    const now = nowIso();
+    const updated = {
+      ...record,
+      commitment: false,
+      commitment_archived_at: now,
+      commitment_note: reason ?? (record as any).commitment_note ?? null,
+      updated_at: now,
+    } as AppRecord;
+
+    this.commit(updated);
+    this.data[idx] = updated;
+    console.log('[REPO_COMMITMENT_REMOVE]', { id, type, reason });
+  }
+
   async addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord> {
     // Force ai_placed and origin while preserving provided fields
     return this.create({

@@ -224,6 +224,20 @@ export interface IRepo {
     details?: { archived_reason?: string },
   ): Promise<void>;
 
+  /** Commitments */
+  listCommitments(): Promise<
+    Array<{
+      id: ID;
+      type: 'habit' | 'todo';
+      name: string;
+      commitment_started_at?: string | null;
+      commitment_note?: string | null;
+    }>
+  >;
+  addCommitment(id: ID, type: 'habit' | 'todo', note?: string | null): Promise<void>;
+  removeCommitment(id: ID, type: 'habit' | 'todo', reason?: string | null): Promise<void>;
+  countActiveCommitments(): Promise<number>;
+
   // Completion methods (Phase 9)
   completeHabit(id: ID, atIso: string): Promise<void>;
   completeTodo(id: ID, atIso: string): Promise<void>;

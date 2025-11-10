@@ -239,6 +239,13 @@ export class SupabaseRepo implements IRepo {
   private readonly WARN_THROTTLE_MS = 60000; // Throttle warnings to once per minute
   private todoCompletedAtSupported: boolean | null = null;
 
+  // ==============================
+  // Commitments (Phase 6)
+  // ==============================
+  // Cache for commitment counting (5s)
+  private lastCommitCountAt = 0;
+  private lastCommitCountValue = 0;
+
   // Phase 10.7E: Space chat messages accessor
   public spaceChatMessages: {
     list: (spaceId: string, opts?: { limit?: number }) => Promise<any[]>;
@@ -1504,6 +1511,150 @@ export class SupabaseRepo implements IRepo {
       // Habits don't support carry_forward flag; skip.
       return;
     }
+  }
+
+  /** Count active commitments (habits + todos). No archived predicate yet. */
+  async countActiveCommitments(): Promise<number> {
+    const userId = this.ensureUserId();
+    const now = Date.now();
+    if (now - this.lastCommitCountAt < 5000) {
+      return this.lastCommitCountValue;
+    }
+
+    const [habitsRes, todosRes] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+      supabase
+        .from('todos')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+    ]);
+
+    if (habitsRes.error) {
+      throw new Error(`COMMITMENT_COUNT_FAILED: ${habitsRes.error.message}`);
+    }
+    if (todosRes.error) {
+      throw new Error(`COMMITMENT_COUNT_FAILED: ${todosRes.error.message}`);
+    }
+
+    const total = (habitsRes.count || 0) + (todosRes.count || 0);
+    this.lastCommitCountAt = now;
+    this.lastCommitCountValue = total;
+    return total;
+  }
+
+  /** List current commitments (merged; newest first). */
+  async listCommitments(): Promise<
+    Array<{
+      id: string;
+      type: 'habit' | 'todo';
+      name: string;
+      commitment_started_at?: string | null;
+      commitment_note?: string | null;
+    }>
+  > {
+    const userId = this.ensureUserId();
+
+    const [habitsRes, todosRes] = await Promise.all([
+      supabase
+        .from('habits')
+        .select('id,name,commitment_started_at,commitment_note,commitment')
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+      supabase
+        .from('todos')
+        .select('id,name,commitment_started_at,commitment_note,commitment')
+        .eq('owner_id', userId)
+        .eq('commitment', true),
+    ]);
+
+    if (habitsRes.error) {
+      throw new Error(`COMMITMENT_LIST_FAILED: ${habitsRes.error.message}`);
+    }
+    if (todosRes.error) {
+      throw new Error(`COMMITMENT_LIST_FAILED: ${todosRes.error.message}`);
+    }
+
+    const habits = (habitsRes.data || [])
+      .filter((h: any) => h.commitment === true)
+      .map((h: any) => ({
+        id: h.id,
+        type: 'habit' as const,
+        name: h.name || '',
+        commitment_started_at: h.commitment_started_at,
+        commitment_note: h.commitment_note,
+      }));
+
+    const todos = (todosRes.data || [])
+      .filter((t: any) => t.commitment === true)
+      .map((t: any) => ({
+        id: t.id,
+        type: 'todo' as const,
+        name: t.name || '',
+        commitment_started_at: t.commitment_started_at,
+        commitment_note: t.commitment_note,
+      }));
+
+    return [...habits, ...todos].sort((a, b) => {
+      const ta = a.commitment_started_at ? new Date(a.commitment_started_at).getTime() : 0;
+      const tb = b.commitment_started_at ? new Date(b.commitment_started_at).getTime() : 0;
+      return tb - ta;
+    });
+  }
+
+  /** Enable commitment for an item (max 3 total). Optionally set note. */
+  async addCommitment(id: string, type: 'habit' | 'todo', note?: string | null): Promise<void> {
+    const current = await this.countActiveCommitments();
+    if (current >= 3) {
+      throw new Error('MAX_COMMITMENTS_REACHED');
+    }
+    const startedAt = new Date().toISOString();
+    const table = type === 'habit' ? 'habits' : 'todos';
+
+    const { error } = await supabase
+      .from(table)
+      .update({
+        commitment: true,
+        commitment_started_at: startedAt,
+        ...(note !== undefined ? { commitment_note: note } : {}),
+      })
+      .eq('id', id)
+      .eq('owner_id', this.ensureUserId());
+
+    if (error) {
+      throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
+    }
+
+    this.lastCommitCountAt = 0;
+  }
+
+  /** Disable commitment (soft remove). Optionally store a reason in note. */
+  async removeCommitment(
+    id: string,
+    type: 'habit' | 'todo',
+    reason?: string | null,
+  ): Promise<void> {
+    const table = type === 'habit' ? 'habits' : 'todos';
+
+    const { error } = await supabase
+      .from(table)
+      .update({
+        commitment: false,
+        commitment_archived_at: new Date().toISOString(),
+        ...(reason ? { commitment_note: reason } : {}),
+      })
+      .eq('id', id)
+      .eq('owner_id', this.ensureUserId());
+
+    if (error) {
+      throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
+    }
+
+    this.lastCommitCountAt = 0;
   }
 
   // ==========================
