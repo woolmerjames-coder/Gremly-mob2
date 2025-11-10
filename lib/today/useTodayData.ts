@@ -53,6 +53,14 @@ export interface EnrichedSuggestion {
   ctaLabel?: string;
 }
 
+export interface TodayCommitment {
+  id: string;
+  type: 'habit' | 'todo';
+  name: string;
+  note?: string | null;
+  started?: string | null;
+}
+
 export interface TodayData {
   timeWindow: TimeWindow;
   header: {
@@ -65,6 +73,7 @@ export interface TodayData {
   habits: EnrichedHabit[];
   todos: EnrichedTodo[];
   suggestions: Suggestion[]; // Changed from EnrichedSuggestion to Suggestion
+  commitments: TodayCommitment[];
   visible: {
     habits: EnrichedHabit[];
     todos: EnrichedTodo[];
@@ -82,6 +91,29 @@ export interface TodayData {
 
 const MAX_VISIBLE = 5;
 const MAX_SUGGESTIONS = 3;
+
+function resolveCurrentHour(): number {
+  const candidate = new Date();
+  if (candidate && typeof (candidate as Date).getHours === 'function') {
+    return (candidate as Date).getHours();
+  }
+
+  if (typeof candidate === 'string' || typeof candidate === 'number') {
+    const parsed = new Date(candidate as unknown as number | string);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.getHours();
+    }
+  }
+
+  if (typeof Date.now === 'function') {
+    const fallback = new Date(Date.now());
+    if (typeof fallback.getHours === 'function') {
+      return fallback.getHours();
+    }
+  }
+
+  return 12;
+}
 
 /**
  * Build lightweight suggestions based on current context
@@ -181,7 +213,7 @@ function getTimeWindow(): TimeWindow {
     return env.todayDebugWindow;
   }
 
-  const hour = new Date().getHours();
+  const hour = resolveCurrentHour();
 
   if (hour >= 6 && hour < 11) {
     return 'morning';
@@ -295,6 +327,7 @@ export function useTodayData() {
     habits: isTestLight ? lightHabits : [],
     todos: isTestLight ? lightTodos : [],
     suggestions: [],
+    commitments: [],
     visible: {
       habits: isTestLight ? lightHabits : [],
       todos: isTestLight ? lightTodos : [],
@@ -355,13 +388,26 @@ export function useTodayData() {
       const nowIso = new Date().toISOString();
 
       // Fetch due today items
-      const dueItems = await repo.listDueToday(nowIso);
-
-      // Fetch stats in parallel
-      const [plannedCount, completedCount] = await Promise.all([
+      const [dueItems, plannedCount, completedCount, commitmentsRaw] = await Promise.all([
+        repo.listDueToday(nowIso),
         repo.countPlannedToday(),
         repo.countCompletedToday(),
+        repo.listCommitments(),
       ]);
+
+      const commitments: TodayCommitment[] = commitmentsRaw.map((commitment) => ({
+        id: commitment.id,
+        type: commitment.type,
+        name: commitment.name,
+        note: commitment.commitment_note ?? null,
+        started: commitment.commitment_started_at ?? null,
+      }));
+
+      commitments.sort((a, b) => {
+        const aTime = a.started ? new Date(a.started).getTime() : Number.POSITIVE_INFINITY;
+        const bTime = b.started ? new Date(b.started).getTime() : Number.POSITIVE_INFINITY;
+        return aTime - bTime;
+      });
 
       // Split items by type
       const habitRecords = dueItems.filter((item): item is Habit => item.type === 'habit');
@@ -470,6 +516,7 @@ export function useTodayData() {
         habits: orderedHabits,
         todos: orderedTodos,
         suggestions,
+        commitments,
         visible: {
           habits: visibleHabits,
           todos: visibleTodos,
@@ -503,6 +550,7 @@ export function useTodayData() {
         habits: [],
         todos: [],
         suggestions: [],
+        commitments: [],
         visible: {
           habits: [],
           todos: [],
