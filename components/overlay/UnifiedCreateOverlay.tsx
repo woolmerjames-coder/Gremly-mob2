@@ -3,6 +3,11 @@
  * UnifiedCreateOverlay - Phase 7 unified create/edit overlay
  * Single overlay for all entity types with type pills, subtypes, and AI freeform mode
  */
+/**
+ * LEGACY OVERLAY
+ * Deprecated in favor of OverlayComponent (V2/V1 gateway).
+ * Do not import this directly. Use `@/components/overlay`.
+ */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Modal,
