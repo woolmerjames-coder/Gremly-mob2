@@ -59,11 +59,11 @@ const QUESTION_PATTERNS = ['what if', 'why do', 'how can', 'should i', 'could i'
 const REFLECTION_PATTERNS = [
   'i think',
   'i feel',
+  'feeling ',
   'realized that',
   'noticed that',
   'wondering if',
   'thoughts on',
-  'idea:',
   'note:',
 ];
 const LIST_MARKERS = ['- ', '* '];
@@ -85,9 +85,19 @@ const STOPWORDS = new Set([
   'remember',
   'tomorrow',
   'today',
+  'after',
+  'yet',
+  'maybe',
+  'could',
+  'what',
+  'how',
+  'our',
+  'felt',
+  'thinking',
   'meeting',
   'idea',
   'list',
+  'reflection',
   'journal',
   'call',
   'email',
@@ -108,9 +118,23 @@ const STOPWORDS = new Set([
   'catchall',
   'task',
   'action',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+  'january',
+  'february',
 ]);
 
 const EMOTION_WORDS = ['anxious', 'grateful', 'excited', 'overwhelmed', 'calm', 'stressed'];
+
+const PERSON_BLOCK_VERBS = ['feeling', 'planning', 'thinking', 'working', 'starting'];
 
 const PERSON_VERB_STARTERS = [
   'Call',
@@ -190,6 +214,8 @@ const PEOPLE_STOPWORDS = new Set([
   'A',
   'An',
   'Meeting',
+  'Journal',
+  'Reflection',
   'Idea',
   'Note',
 ]);
@@ -273,28 +299,56 @@ function generateTags(
   const verbStarterSet = new Set(PERSON_VERB_STARTERS.map((word) => word.toLowerCase()));
   const allowedSingleNameSet = new Set(ALLOWED_SINGLE_NAMES.map((word) => word.toLowerCase()));
   const emotionWordSet = new Set(EMOTION_WORDS.map((word) => word.toLowerCase()));
+  const blockVerbSet = new Set(PERSON_BLOCK_VERBS);
 
-  const tokenInfos = text
-    .split(/\s+/)
-    .map((raw, index) => {
-      const cleaned = raw.replace(/[^A-Za-z]/g, '');
-      if (!cleaned) return null;
+  const rawTokens = text.split(/\s+/);
+  const preliminaryTokens = rawTokens.map((raw, index) => {
+    const cleaned = raw.replace(/[^A-Za-z]/g, '');
+    if (!cleaned) return null;
+    return {
+      cleaned,
+      lower: cleaned.toLowerCase(),
+      isCapitalized: /^[A-Z][a-z]+$/.test(cleaned),
+      index,
+      endsWithColon: /:$/.test(raw),
+      containsApostrophe: raw.includes("'"),
+    };
+  });
+
+  const tokenInfos = preliminaryTokens
+    .map((token, idx) => {
+      if (!token) return null;
+      const prev = preliminaryTokens[idx - 1];
       return {
-        cleaned,
-        lower: cleaned.toLowerCase(),
-        isCapitalized: /^[A-Z][a-z]+$/.test(cleaned),
-        index,
+        ...token,
+        precededByColon: Boolean(prev && prev.endsWithColon),
       };
     })
     .filter(
-      (token): token is { cleaned: string; lower: string; isCapitalized: boolean; index: number } =>
-        Boolean(token),
+      (
+        token,
+      ): token is {
+        cleaned: string;
+        lower: string;
+        isCapitalized: boolean;
+        index: number;
+        endsWithColon: boolean;
+        containsApostrophe: boolean;
+        precededByColon: boolean;
+      } => Boolean(token),
     );
 
   const skipTokenIndexes = new Set<number>();
   const firstToken = tokenInfos[0];
   if (firstToken) {
-    if (verbStarterSet.has(firstToken.lower) || emotionWordSet.has(firstToken.lower)) {
+    if (
+      verbStarterSet.has(firstToken.lower) ||
+      emotionWordSet.has(firstToken.lower) ||
+      blockVerbSet.has(firstToken.lower) ||
+      firstToken.endsWithColon ||
+      firstToken.containsApostrophe ||
+      firstToken.precededByColon
+    ) {
       skipTokenIndexes.add(firstToken.index);
     }
   }
@@ -302,20 +356,34 @@ function generateTags(
   for (let i = 0; i < tokenInfos.length; i += 1) {
     const current = tokenInfos[i];
     if (skipTokenIndexes.has(current.index)) continue;
+    if (current.endsWithColon || current.containsApostrophe || current.precededByColon) {
+      continue;
+    }
+    if (
+      i === 0 &&
+      (verbStarterSet.has(current.lower) ||
+        emotionWordSet.has(current.lower) ||
+        blockVerbSet.has(current.lower))
+    ) {
+      continue;
+    }
     if (!current.isCapitalized) continue;
     if (PEOPLE_STOPWORDS.has(current.cleaned)) continue;
     if (verbStarterSet.has(current.lower)) continue;
     if (emotionWordSet.has(current.lower)) continue;
+    if (blockVerbSet.has(current.lower)) continue;
 
     let j = i;
     const block = [current];
     while (j + 1 < tokenInfos.length) {
       const next = tokenInfos[j + 1];
       if (skipTokenIndexes.has(next.index)) break;
+      if (next.endsWithColon || next.containsApostrophe || next.precededByColon) break;
       if (!next.isCapitalized) break;
       if (PEOPLE_STOPWORDS.has(next.cleaned)) break;
       if (verbStarterSet.has(next.lower)) break;
       if (emotionWordSet.has(next.lower)) break;
+      if (blockVerbSet.has(next.lower)) break;
       block.push(next);
       j += 1;
     }
@@ -374,11 +442,37 @@ function generateTags(
   const dateTag = extractDateTag(text);
   if (dateTag) addTag(dateTag);
 
-  if (resultType === 'note' && (maybeSubtype === 'journal' || containsAny(lower, JOURNAL_WORDS))) {
+  const reflectivePatterns = [/\bi feel\b/i, /\bfeeling\b/i, /\bfelt\b/i, /\btoday\b/i];
+  const selfReflective =
+    containsAny(lower, REFLECTION_PATTERNS) ||
+    reflectivePatterns.some((pattern) => pattern.test(text));
+  const shouldAddEmotions = resultType === 'note' && (maybeSubtype === 'journal' || selfReflective);
+
+  if (shouldAddEmotions) {
+    const sentences = text
+      .split(/[.!?]+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+    const pronounRegex = /\b(i|me|my)\b/i;
+
     for (const emotion of EMOTION_WORDS) {
-      if (lower.includes(emotion)) {
-        addTag(`#${emotion}`);
-      }
+      const emotionTag = `#${emotion}`;
+      if (finalTags.includes(emotionTag)) continue;
+
+      const emotionRegex = new RegExp(`\\b${emotion}\\b`, 'i');
+      const matchingSentence = sentences.find((sentence) => emotionRegex.test(sentence));
+      if (!matchingSentence) continue;
+
+      const hasPronoun = pronounRegex.test(matchingSentence);
+      const words = matchingSentence.split(/\s+/).map((word) => word.replace(/[^A-Za-z]/g, ''));
+      const index = words.findIndex((word) => word.toLowerCase() === emotion);
+      const nextWord = index >= 0 ? (words[index + 1] ?? '') : '';
+      const adjectiveOnly = nextWord.length > 3 && !hasPronoun;
+
+      if (adjectiveOnly) continue;
+      if (!hasPronoun && !containsAny(lower, REFLECTION_PATTERNS)) continue;
+
+      addTag(emotionTag);
     }
   }
 

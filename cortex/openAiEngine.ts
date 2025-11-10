@@ -1,6 +1,7 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
 import { normalizeTag, normalizeTags } from '../lib/tags/normalize';
+import { heuristicEngine } from './heuristicEngine';
 
 interface OpenAiEngineConfig {
   apiKey: string; // Kept for backward compatibility but no longer used
@@ -180,6 +181,54 @@ function sanitizeTags(rawTags: RawClassification['tags']): string[] {
   return normalizeTags([...mentions, ...(chosenType ? [chosenType] : []), ...topics]);
 }
 
+function extractExplicitDateTag(text: string): string | null {
+  const isoMatch = text.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+  if (isoMatch) {
+    const [, year, monthRaw, dayRaw] = isoMatch;
+    const month = monthRaw.padStart(2, '0');
+    const day = dayRaw.padStart(2, '0');
+    return `#${year}-${month}-${day}`;
+  }
+
+  const monthMatch = text.match(
+    /(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{2,4}))?/i,
+  );
+  if (monthMatch) {
+    const [, monthRaw, dayRaw, yearRaw] = monthMatch;
+    if (!yearRaw) return null;
+
+    const monthKey = monthRaw.toLowerCase();
+    const monthIndex = [
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
+    ].findIndex((name) => name.startsWith(monthKey));
+
+    if (monthIndex === -1) return null;
+
+    const day = dayRaw.padStart(2, '0');
+    let year = yearRaw.trim();
+    if (year.length === 2) {
+      year = Number(year) < 50 ? `20${year}` : `19${year}`;
+    }
+    if (!/\d{4}/.test(year)) return null;
+
+    const month = String(monthIndex + 1).padStart(2, '0');
+    return `#${year}-${month}-${day}`;
+  }
+
+  return null;
+}
+
 const EMOTION_WORDS = [
   'anxious',
   'grateful',
@@ -210,6 +259,11 @@ const PERSON_DISALLOWED = new Set([
   'Organize',
   'Write',
   'Prepare',
+  'Feeling',
+  'Planning',
+  'Thinking',
+  'Working',
+  'Starting',
   ...EMOTION_WORDS.map((word) => word.charAt(0).toUpperCase() + word.slice(1)),
 ]);
 const PERSON_ALLOWED_SINGLE = new Set([
@@ -227,12 +281,14 @@ const PERSON_ALLOWED_SINGLE = new Set([
   'Therapist',
   'Doctor',
 ]);
+const PERSON_BLOCK_VERBS = new Set(['feeling', 'planning', 'thinking', 'working', 'starting']);
 const REFLECTION_PATTERNS = ['i feel', 'i think', 'reflection', 'felt ', 'feeling '] as const;
 const IDEA_PATTERNS = ['idea:', 'what if', 'could we', 'maybe we'] as const;
 const LIST_LINE_REGEX = /^\s*(?:[-*]|\d+[.)])\s+/;
 const STOPWORDS = new Set([
   'the',
   'and',
+  'or',
   'for',
   'with',
   'this',
@@ -245,6 +301,14 @@ const STOPWORDS = new Set([
   'i',
   'we',
   'you',
+  'your',
+  'about',
+  'just',
+  'very',
+  'really',
+  'maybe',
+  'get',
+  'got',
   'it',
 ]);
 
@@ -296,14 +360,32 @@ export function buildFallbackTags(
   const capitalizeRegex = /^[A-Z][a-z]{2,}$/;
   for (let i = 0; i < tokens.length && people.size < 2; i += 1) {
     const current = tokens[i].replace(/[^A-Za-z]/g, '');
+    if (!current) continue;
     if (!capitalizeRegex.test(current)) continue;
+
+    const currentLower = current.toLowerCase();
+    if (PERSON_BLOCK_VERBS.has(currentLower)) continue;
     if (PERSON_DISALLOWED.has(current)) continue;
-    if (EMOTION_WORDS.includes(current.toLowerCase() as (typeof EMOTION_WORDS)[number])) continue;
+    if (EMOTION_WORDS.includes(currentLower as (typeof EMOTION_WORDS)[number])) continue;
+    if (
+      i === 0 &&
+      (PERSON_BLOCK_VERBS.has(currentLower) ||
+        PERSON_DISALLOWED.has(current) ||
+        EMOTION_WORDS.includes(currentLower as (typeof EMOTION_WORDS)[number]))
+    ) {
+      continue;
+    }
 
     const nextToken = tokens[i + 1]?.replace(/[^A-Za-z]/g, '') ?? null;
+    const nextLower = nextToken ? nextToken.toLowerCase() : null;
     const nextIsCapitalized = nextToken ? capitalizeRegex.test(nextToken) : false;
 
-    if (nextIsCapitalized && nextToken && !PERSON_DISALLOWED.has(nextToken)) {
+    if (
+      nextIsCapitalized &&
+      nextToken &&
+      !PERSON_DISALLOWED.has(nextToken) &&
+      !(nextLower && PERSON_BLOCK_VERBS.has(nextLower))
+    ) {
       const combined = `${current}${nextToken}`;
       people.add(`@${combined}`);
       i += 1;
@@ -317,23 +399,42 @@ export function buildFallbackTags(
 
   tags.push(...people);
 
-  const topicCandidates: string[] = [];
+  const frequencyMap = new Map<string, number>();
   for (const word of words) {
     const lowerWord = word.toLowerCase();
     if (lowerWord.length < 3) continue;
     if (STOPWORDS.has(lowerWord)) continue;
     if (/^[A-Z]/.test(word) && people.has(`@${word}`)) continue;
-    if (!topicCandidates.includes(lowerWord)) {
-      topicCandidates.push(lowerWord);
-      if (topicCandidates.length >= 3) break;
-    }
+    frequencyMap.set(lowerWord, (frequencyMap.get(lowerWord) ?? 0) + 1);
   }
 
-  for (const topic of topicCandidates) {
-    tags.push(`#${topic}`);
+  const dateTag = extractExplicitDateTag(text);
+  if (dateTag) {
+    tags.push(dateTag);
   }
 
-  return normalizeTags(tags);
+  const sortedTopics = Array.from(frequencyMap.entries())
+    .sort((a, b) => {
+      const freqDiff = b[1] - a[1];
+      if (freqDiff !== 0) return freqDiff;
+      return b[0].length - a[0].length;
+    })
+    .slice(0, 3)
+    .map(([word]) => word);
+
+  for (const word of sortedTopics) {
+    const normalized = `#${word.replace(/\s+/g, '_')}`;
+    tags.push(normalized);
+  }
+
+  const normalized = normalizeTags(tags);
+  const typeTagPrecedence = ['*journal', '*idea', '*list', '*meeting'] as const;
+  const chosenTypeTag = typeTagPrecedence.find((tag) => normalized.includes(tag)) ?? null;
+  const filtered = chosenTypeTag
+    ? normalized.filter((tag) => !tag.startsWith('*') || tag === chosenTypeTag)
+    : normalized.filter((tag, index) => normalized.indexOf(tag) === index);
+
+  return filtered;
 }
 
 function clamp01(n: unknown): number {
@@ -693,4 +794,38 @@ export class OpenAiEngine implements ICortexEngine {
       throw error;
     }
   }
+}
+
+function parseTimeout(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export async function classifyTextForEval(
+  text: string,
+): Promise<{ raw: CortexOutput; finalTags: string[]; latencyMs: number | null }> {
+  const model = process.env.EXPO_PUBLIC_CORTEX_MODEL ?? 'gpt-4o-mini';
+  const timeoutMs = parseTimeout(process.env.EXPO_PUBLIC_CORTEX_TIMEOUT_MS, 2500);
+  const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY || 'proxy';
+  const baseUrl = process.env.EXPO_PUBLIC_OPENAI_BASE_URL;
+  const engineFlag = (process.env.EXPO_PUBLIC_CORTEX_ENGINE ?? 'HEURISTIC').toUpperCase();
+  const hasBackend = Boolean(
+    process.env.EXPO_PUBLIC_CORTEX_URL || process.env.EXPO_PUBLIC_OPENAI_API_KEY,
+  );
+
+  const shouldUseHeuristic = engineFlag !== 'LLM' || !hasBackend;
+
+  const engine = shouldUseHeuristic
+    ? heuristicEngine
+    : new OpenAiEngine({ apiKey, model, timeoutMs, baseUrl });
+  const now =
+    typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? () => performance.now()
+      : () => Date.now();
+  const start = now();
+  const raw = await engine.classify({ text, spaceId: null });
+  const latencyMs = now() - start;
+  const finalTags = normalizeTags(raw.tags ?? []);
+
+  return { raw, finalTags, latencyMs };
 }

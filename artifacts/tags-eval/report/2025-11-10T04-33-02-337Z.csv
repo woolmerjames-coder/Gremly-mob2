@@ -1,0 +1,29 @@
+id,text,type,subtype,typeTag,expectedTypeTag,missingTypeTag,topics,expectedTopics,topicCount,emotions,expectedEmotions,emotionTP,emotionFP,emotionFN,emotionPrecision,emotionRecall,personTags,peopleFalsePositive,latencyMs,error
+sample-1,Feeling anxious about tomorrow's presentation and grateful for the team's support.,note,journal,*journal,*journal,false,#presentation,#presentation; #team,1,#grateful; #anxious,#anxious; #grateful,2,0,0,1,1,,false,0.6835830000000129,
+sample-2,"- milk
+- eggs
+- bread",note,list,*list,*list,false,#milk; #eggs; #bread,#milk; #eggs; #bread,3,,,0,0,0,,,,false,0.21766700000000583,
+sample-3,Meeting with Dr. Smith about lab results,note,catchall,*meeting,*meeting,false,#lab; #results,#lab; #results,2,,,0,0,0,,,@DrSmith,false,0.07737500000000352,
+sample-4,Reflection: I feel calm after the morning yoga session and grateful for the quiet start.,note,journal,*journal,*journal,false,#morning; #yoga,#morning; #yoga; #session,2,#grateful; #calm,#calm; #grateful,2,0,0,1,1,,false,0.11575000000000557,
+sample-5,Idea: Build a shared shopping list app for our roommates to coordinate groceries.,note,catchall,*idea,*idea,false,#build; #shared; #shopping,#build; #shared; #shopping,3,,,0,0,0,,,,false,0.03595800000000793,
+sample-6,Meeting with Coach Taylor to review the training plan.,note,catchall,*meeting,*meeting,false,#review; #training; #plan,#review; #training; #plan,3,,,0,0,0,,,@CoachTaylor,false,0.2107910000000004,
+sample-7,Journal: I felt overwhelmed yet excited about launching the new project this quarter.,note,journal,*journal,*journal,false,#launching,#launching; #new; #project,1,#excited; #overwhelmed,#overwhelmed; #excited,2,0,0,1,1,,false,0.04520800000000236,
+sample-8,"Packing list:
+- passport
+- tickets
+- charger",note,list,*list,*list,false,#packing; #passport; #tickets,#passport; #tickets; #charger,3,,,0,0,0,,,,false,0.027874999999994543,
+sample-9,Reflection: Thinking about how to balance work and family commitments this season.,note,journal,*journal,*journal,false,#balance; #work; #family,#balance; #work; #family,3,,,0,0,0,,,,false,0.029583999999999833,
+sample-10,Reflection: I felt stressed preparing for the budget review with Alex but proud after presenting.,note,journal,*journal,*journal,false,#preparing; #budget,#preparing; #budget; #review,2,#stressed,#stressed,1,0,0,1,1,,false,0.034874999999999545,
+sample-11,What if we organize a community cleanup to engage neighbors next month?,note,catchall,*idea,*idea,false,#organize; #community; #cleanup,#organize; #community; #cleanup,3,,,0,0,0,,,,false,0.029792000000000485,
+sample-12,"Meeting with Dr. Chen on March 12, 2025 about surgery options.",note,catchall,*meeting,*meeting,false,#2025-03-12; #surgery; #options,#2025-03-12; #surgery; #options,3,,,0,0,0,,,@DrChen,false,0.06004199999999571,
+sample-13,Reflection: I feel grateful and calm after the mindfulness retreat this weekend.,note,journal,*journal,*journal,false,#mindfulness,#mindfulness; #retreat; #weekend,1,#grateful; #calm,#grateful; #calm,2,0,0,1,1,,false,0.026458999999988464,
+sample-14,Idea: Maybe we could launch a podcast showcasing creative routines from artists.,note,catchall,*idea,*idea,false,#launch; #podcast; #showcasing,#launch; #podcast; #creative,3,,,0,0,0,,,,false,0.0325419999999923,
+sample-15,"Brainstorm list:
+- potential sponsors
+- outreach strategy
+- timeline",note,list,*list,*list,false,#brainstorm; #potential; #sponsors,#brainstorm; #potential; #sponsors; #outreach,3,,,0,0,0,,,,false,0.02441699999999969,
+sample-16,Reflection: I'm really anxious about the product demo tomorrow but also excited to share our progress.,note,journal,*journal,*journal,false,#really; #product,#product; #demo; #progress,2,#anxious; #excited,#anxious; #excited,2,0,0,1,1,,false,0.03479099999999846,
+sample-17,Meeting with Therapist Maria to discuss progress notes this afternoon.,note,catchall,*meeting,*meeting,false,#discuss; #progress; #notes,#discuss; #progress; #notes,3,,,0,0,0,,,@TherapistMaria,false,0.03412499999998886,
+sample-18,Reflection: Noting that I felt calm during the meditation session today and grateful for the quiet room.,note,journal,*journal,*journal,false,#noting; #during,#meditation; #session; #quiet,2,#grateful; #calm,#calm; #grateful,2,0,0,1,1,,false,0.033124999999998295,
+sample-19,Idea: Could we create a shared assistant to support morning routines?,note,catchall,*idea,*idea,false,#create; #shared; #assistant,#create; #shared; #assistant,3,,,0,0,0,,,,false,0.022125000000002615,
+sample-20,Reflection: Writing about how grateful I am for our small wins this week and excited for the next sprint.,note,journal,*journal,*journal,false,#writing; #small,#writing; #small; #wins,2,#grateful; #excited,#grateful; #excited,2,0,0,1,1,,false,0.03237500000000182,
