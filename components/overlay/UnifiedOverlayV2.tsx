@@ -2,6 +2,11 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { Box, Text, Button } from '../../ui';
+import {
+  lightTokens,
+  spacing as tokenSpacing,
+  borderRadius as tokenRadius,
+} from '../../design/tokens';
 import { useRepo } from '../../providers/RepoProvider';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import type { CanonicalType } from '../../lib/types';
@@ -123,11 +128,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               value={text}
               onChangeText={setText}
               placeholder="Drop your thought…"
-              placeholderTextColor={'#888'}
+              placeholderTextColor={lightTokens.colors.subtle}
               multiline
               autoFocus
               textAlignVertical="top"
-              style={styles.textArea}
+              style={[styles.textArea, { color: lightTokens.colors.text }]}
             />
             {/* Tag row hidden at Level-1; lands in Phase 3 */}
           </Box>
@@ -139,7 +144,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           py={3}
           row
           gap={2}
-          style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E7E2D9' }}
+          style={{
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: lightTokens.colors.border,
+          }}
         >
           <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
           <Box flex={1} />
@@ -165,12 +173,21 @@ function TypePill({
   children: React.ReactNode;
 }) {
   return (
-    <Button
-      size="sm"
-      variant={active ? 'primary' : 'neutral'}
-      onPress={onPress}
-      title={typeof children === 'string' ? children : undefined}
-    />
+    <Box
+      style={{
+        paddingHorizontal: tokenSpacing.md,
+        paddingVertical: tokenSpacing.sm,
+        minHeight: 40,
+        borderRadius: tokenRadius.sm,
+      }}
+    >
+      <Button
+        size="sm"
+        variant={active ? 'primary' : 'neutral'}
+        onPress={onPress}
+        title={typeof children === 'string' ? children : undefined}
+      />
+    </Box>
   );
 }
 
@@ -221,11 +238,13 @@ function buildCreateOrUpdateInput({
 }
 
 const styles = StyleSheet.create({
-  scrollPad: { paddingBottom: 64 },
+  scrollPad: { paddingBottom: tokenSpacing['2xl'] },
   textArea: {
     minHeight: 120,
     maxHeight: 360,
-    fontSize: 16,
+    fontSize: lightTokens.typography.size.md,
     lineHeight: 22,
+    paddingVertical: tokenSpacing.md,
+    paddingHorizontal: tokenSpacing.base,
   },
 });
