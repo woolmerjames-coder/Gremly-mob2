@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo, useCallback } from 'react';
 import { Pressable, Text as RNText } from 'react-native';
 import Animated, {
   Easing,
@@ -19,6 +19,9 @@ import { Dotline } from '../../components/today/Dotline';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useCommitments } from '../../lib/today/hooks/useCommitments';
+import CommitmentsSection from '../today/CommitmentsSection';
+import { eventBus } from '../../lib/events';
 
 const ProgressBar = ({ progress }: { progress: number }) => {
   const pct = Math.max(0, Math.min(1, progress || 0));
@@ -68,6 +71,15 @@ export default function TodayV4LanesView() {
   const { user } = useAuth();
   const repo = useRepo();
   const { openEdit } = useUnifiedOverlayController();
+  const commitmentsEnabled = useMemo(
+    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase(),
+    [],
+  );
+  const showCommitments = useMemo(
+    () => ['on', 'true', '1'].includes(commitmentsEnabled),
+    [commitmentsEnabled],
+  );
+  const { items: commitmentItems } = useCommitments(showCommitments);
   const displayName = (user?.user_metadata?.first_name as string) ?? 'James';
   const todayString = format(new Date(), 'EEEE, MMMM do');
   const verticalGuideColor =
@@ -76,6 +88,13 @@ export default function TodayV4LanesView() {
   const totalCount = left.length + right.length;
   const overallProgress = totalCount ? doneCount / totalCount : 0;
   const openingGuardRef = useRef(false);
+  const handleRemoveCommitment = useCallback(
+    async (id: string, type: 'habit' | 'todo') => {
+      await repo.removeCommitment(id, type);
+      eventBus.emit('CommitmentsChanged', {});
+    },
+    [repo],
+  );
 
   const Checkbox = ({ checked, onToggle }: { checked: boolean; onToggle: () => void }) => (
     <Pressable
@@ -122,6 +141,12 @@ export default function TodayV4LanesView() {
           Focus for today
         </Text>
       </Box>
+
+      {showCommitments ? (
+        <Box px={4} pb={4}>
+          <CommitmentsSection items={commitmentItems} onRemove={handleRemoveCommitment} />
+        </Box>
+      ) : null}
 
       <Box row gap={4} px={4} pb={8} style={{ alignItems: 'flex-start' }}>
         <Box flex={1} gap={3}>

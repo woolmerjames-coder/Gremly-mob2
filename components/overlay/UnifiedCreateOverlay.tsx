@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
  * UnifiedCreateOverlay - Phase 7 unified create/edit overlay
  * Single overlay for all entity types with type pills, subtypes, and AI freeform mode
@@ -23,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import Chip from '../ui/Chip';
+import CommitmentToggleRow from '../CommitmentToggleRow';
 import { Icon } from '../ui/Icon';
 import type { IconName } from '../ui/Icon';
 import { HabitFields, type HabitDetailsState, type BreakHabitState } from './fields/HabitFields';
@@ -67,11 +69,13 @@ import {
 } from './mappers';
 import { env, getOptimisticFlag, getMinThinkMs, getBgTimeoutMs, getEnv } from '../../lib/env';
 import { emitChatEvent } from '../../app/lib/chat/events';
+import { eventBus } from '../../lib/events';
 import type { OverlaySavedPayload } from '../../lib/events/overlaySaved';
 import { combineDueIso, normalizeTimeInput, splitDueParts } from './dueUtils';
 import { canonicalToPersisted } from '../../lib/canonical';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import { convertLogListToTodo, convertTodoToLogList, hasChecklist } from '../../lib/conversion';
+import { shouldAutoCommit } from '../../lib/commitments/auto';
 
 type EntityType = CanonicalType;
 type HydrationState = 'idle' | 'loading' | 'ready' | 'error';
@@ -162,6 +166,7 @@ export type UnifiedCreateOverlayProps = {
   };
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
+  onCommitmentsChanged?: () => void | Promise<void>;
 };
 
 type TypeOption = {
@@ -235,6 +240,7 @@ export function UnifiedCreateOverlay({
   conversionMeta,
   onClose,
   onSaved,
+  onCommitmentsChanged,
 }: UnifiedCreateOverlayProps) {
   const canonicalConversionsEnabled = env.feature.canonicalConversions;
   const { type: normalizedInitialType, logSubtype: normalizedInitialSubtype } = useMemo(
@@ -249,6 +255,10 @@ export function UnifiedCreateOverlay({
   const originalTypeRef = useRef<EntityType | null>(null);
   const originalEntityRef = useRef<AppRecord | null>(null);
   const lastLoadedIdRef = useRef<string | null>(null);
+  const [persistedEntity, setPersistedEntity] = useState<{
+    id: string;
+    type: 'habit' | 'todo';
+  } | null>(null);
 
   // Feature flag checks
   const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
@@ -436,6 +446,32 @@ export function UnifiedCreateOverlay({
   const [commitmentNoteEditing, setCommitmentNoteEditing] = useState(false);
   const [commitmentNoteBusy, setCommitmentNoteBusy] = useState(false);
 
+  const runCommitmentsChangedCallback = useCallback(() => {
+    if (!onCommitmentsChanged) {
+      return;
+    }
+
+    try {
+      const result = onCommitmentsChanged();
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).catch((error) => {
+          if (__DEV__) {
+            console.warn('[UnifiedCreateOverlay] onCommitmentsChanged rejected', error);
+          }
+        });
+      }
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[UnifiedCreateOverlay] onCommitmentsChanged threw', error);
+      }
+    }
+  }, [onCommitmentsChanged]);
+
+  const emitCommitmentsChanged = useCallback(() => {
+    eventBus.emit('CommitmentsChanged', {});
+    runCommitmentsChangedCallback();
+  }, [runCommitmentsChangedCallback]);
+
   // Journal fields
   const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
   const [journalEntry, setJournalEntry] = useState('');
@@ -466,6 +502,14 @@ export function UnifiedCreateOverlay({
     spaceId: null,
     tags: [],
   });
+
+  const entityForCommitment = useMemo(() => {
+    if (initialEntity?.id && (initialEntity.type === 'habit' || initialEntity.type === 'todo')) {
+      return { id: initialEntity.id, type: initialEntity.type as 'habit' | 'todo' };
+    }
+
+    return persistedEntity;
+  }, [initialEntity, persistedEntity]);
 
   const canConvertLogListToTodo = useMemo(() => {
     if (mode !== 'edit') return false;
@@ -1221,6 +1265,7 @@ export function UnifiedCreateOverlay({
     setSelectedType(null); // Reset to no type selected
     setAiMode(false);
     setHydration('idle');
+    setPersistedEntity(null);
     setFreeformText('');
     setSelectedLogSubtype(null);
     setHabitName('');
@@ -1420,6 +1465,7 @@ export function UnifiedCreateOverlay({
           setCommitmentNote(trimmedNote);
           setCommitmentNoteDraft(trimmedNote);
           setCommitmentNoteEditing(false);
+          emitCommitmentsChanged();
           return;
         }
 
@@ -1429,6 +1475,7 @@ export function UnifiedCreateOverlay({
         setCommitmentNoteDraft('');
         setCommitmentNoteEditing(false);
         setCommitmentNoteBusy(false);
+        emitCommitmentsChanged();
       } catch (error) {
         console.error('[UnifiedCreateOverlay] Failed to toggle commitment', error);
         if (error instanceof Error && error.message === 'MAX_COMMITMENTS_REACHED') {
@@ -1450,6 +1497,7 @@ export function UnifiedCreateOverlay({
       commitmentNote,
       showErrorToast,
       todoNotes,
+      emitCommitmentsChanged,
     ],
   );
 
@@ -1505,6 +1553,7 @@ export function UnifiedCreateOverlay({
       } else {
         showToast('Intent cleared.');
       }
+      emitCommitmentsChanged();
     } catch (error) {
       console.error('[UnifiedCreateOverlay] Failed to save commitment note', error);
       showErrorToast('Unable to save intent right now.');
@@ -1515,6 +1564,7 @@ export function UnifiedCreateOverlay({
     commitmentEnabled,
     commitmentNoteDraft,
     initialEntityId,
+    emitCommitmentsChanged,
     repo,
     selectedType,
     showErrorToast,
@@ -2136,6 +2186,33 @@ export function UnifiedCreateOverlay({
 
           const created = await repo.create(convertedInput);
 
+          if (created && (created.type === 'habit' || created.type === 'todo')) {
+            setPersistedEntity({ id: created.id, type: created.type as 'habit' | 'todo' });
+
+            const textBlob =
+              `${(created as any).name || (created as any).title || ''} ${((created as any).body as string | undefined) || ''}`.trim();
+            if (__DEV__) {
+              console.log('[AutoCommitment][candidate]', {
+                textBlob,
+                matched: shouldAutoCommit(textBlob),
+              });
+            }
+            if (shouldAutoCommit(textBlob)) {
+              try {
+                const count = await repo.countActiveCommitments();
+                if (count < 3) {
+                  await repo.addCommitment(created.id, created.type as 'habit' | 'todo');
+                  if (__DEV__) console.log('[AutoCommitment][applied]', created.id);
+                  emitCommitmentsChanged();
+                }
+              } catch (e) {
+                if (__DEV__) console.warn('[AutoCommitment] failed', e);
+              }
+            }
+          } else {
+            setPersistedEntity(null);
+          }
+
           if (created.id) {
             await flushPendingAssociations(created.id);
           }
@@ -2194,6 +2271,33 @@ export function UnifiedCreateOverlay({
 
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
+
+        if (result && (result.type === 'todo' || result.type === 'habit')) {
+          setPersistedEntity({ id: result.id, type: result.type as 'habit' | 'todo' });
+
+          const textBlob =
+            `${(result as any).name || (result as any).title || ''} ${((result as any).body as string | undefined) || ''}`.trim();
+          if (__DEV__) {
+            console.log('[AutoCommitment][candidate]', {
+              textBlob,
+              matched: shouldAutoCommit(textBlob),
+            });
+          }
+          if (shouldAutoCommit(textBlob)) {
+            try {
+              const count = await repo.countActiveCommitments();
+              if (count < 3) {
+                await repo.addCommitment(result.id, result.type as 'habit' | 'todo');
+                if (__DEV__) console.log('[AutoCommitment][applied]', result.id);
+                emitCommitmentsChanged();
+              }
+            } catch (e) {
+              if (__DEV__) console.warn('[AutoCommitment] failed', e);
+            }
+          }
+        } else {
+          setPersistedEntity(null);
+        }
 
         // Phase 8: Flush pending tags and people after successful create
         if (result.id) {
@@ -2926,6 +3030,15 @@ export function UnifiedCreateOverlay({
                       </>
                     )}
                     {COMMITMENTS_FEATURE_ENABLED &&
+                      hydration === 'ready' &&
+                      entityForCommitment && (
+                        <CommitmentToggleRow
+                          entity={entityForCommitment}
+                          onChanged={runCommitmentsChangedCallback}
+                        />
+                      )}
+                    {COMMITMENTS_FEATURE_ENABLED &&
+                      !entityForCommitment &&
                       mode === 'edit' &&
                       hydration === 'ready' &&
                       initialEntity?.id &&

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { isToday, parseISO } from 'date-fns';
 import { Alert, Platform, ToastAndroid } from 'react-native';
 import type { AppRecord, Note, Todo, ID, Space, Tag, Person, EntityType } from '../types';
@@ -504,48 +505,66 @@ export class SupabaseRepo implements IRepo {
 
     const table = tableFor(existing.type);
 
+    const normalizedPatch = { ...patch } as typeof patch;
+    // Defensive: ensure we do not send empty/null tags until column parity is guaranteed
+    if (normalizedPatch && Object.prototype.hasOwnProperty.call(normalizedPatch, 'tags')) {
+      const tagsValue = (normalizedPatch as any).tags;
+      if (tagsValue == null || (Array.isArray(tagsValue) && tagsValue.length === 0)) {
+        delete (normalizedPatch as any).tags;
+      }
+    }
+    console.log('[SupabaseRepo.update] sanitized patch keys:', Object.keys(normalizedPatch));
+
     // Build minimal patch object - never include created_at, owner_id, or id
     // Only include fields that are actually being changed
     const updatePayload: Record<string, unknown> = {};
 
     if (existing.type === 'todo') {
-      if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
-      if ('body' in patch) updatePayload.body = patch.body ?? null;
-      if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('due_date' in patch) {
-        const duePatch = patch.due_date as string | null | undefined;
+      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
+        updatePayload.title = normalizedPatch.title;
+      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+      if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
+      if ('due_date' in normalizedPatch) {
+        const duePatch = normalizedPatch.due_date as string | null | undefined;
         updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
       }
-      if ('due_time' in patch) {
-        const dueTimePatch = patch.due_time as string | null | undefined;
+      if ('due_time' in normalizedPatch) {
+        const dueTimePatch = normalizedPatch.due_time as string | null | undefined;
         updatePayload.due_time = dueTimePatch ?? null;
       }
-      if ('undefined_due' in patch) updatePayload.undefined_due = !!patch.undefined_due;
-      if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
-      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
+      if ('undefined_due' in normalizedPatch)
+        updatePayload.undefined_due = !!normalizedPatch.undefined_due;
+      if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
+      if ('why_string' in normalizedPatch)
+        updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'habit') {
-      if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
-      if ('frequency' in patch && patch.frequency !== undefined)
-        updatePayload.frequency = patch.frequency;
-      if ('subtype' in patch) updatePayload.subtype = patch.subtype ?? null;
-      if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
-      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
+      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
+        updatePayload.title = normalizedPatch.title;
+      if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
+        updatePayload.frequency = normalizedPatch.frequency;
+      if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
+      if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
+      if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
+      if ('why_string' in normalizedPatch)
+        updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'note') {
-      if ('title' in patch) updatePayload.title = patch.title ?? null;
-      if ('body' in patch) updatePayload.body = patch.body ?? null;
-      if ('subtype' in patch && patch.subtype !== undefined) updatePayload.subtype = patch.subtype;
-      if ('space_id' in patch) updatePayload.space_id = patch.space_id ?? null;
-      if ('ai_placed' in patch) updatePayload.ai_placed = !!patch.ai_placed;
-      if ('why_string' in patch) updatePayload.why_string = patch.why_string ?? null;
+      if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
+      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+      if ('subtype' in normalizedPatch && normalizedPatch.subtype !== undefined)
+        updatePayload.subtype = normalizedPatch.subtype;
+      if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
+      if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
+      if ('why_string' in normalizedPatch)
+        updatePayload.why_string = normalizedPatch.why_string ?? null;
     }
 
-    if ('tags' in patch) updatePayload.tags = patch.tags ?? null;
+    if ('tags' in normalizedPatch) updatePayload.tags = normalizedPatch.tags ?? null;
 
-    if ('origin' in patch) updatePayload.origin = patch.origin ?? null;
-    if ('canonicalType' in patch) updatePayload.canonical_type = patch.canonicalType ?? null;
-    if ('labels' in patch) updatePayload.labels = patch.labels ?? null;
-    if ('views' in patch) updatePayload.views = patch.views ?? {};
+    if ('origin' in normalizedPatch) updatePayload.origin = normalizedPatch.origin ?? null;
+    if ('canonicalType' in normalizedPatch)
+      updatePayload.canonical_type = normalizedPatch.canonicalType ?? null;
+    if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
+    if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase

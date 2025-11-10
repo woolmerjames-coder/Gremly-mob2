@@ -100,6 +100,13 @@ function getCommitmentStartedLabel(started?: string | null): string {
 }
 
 export default function TodayScreen() {
+  if (__DEV__) {
+    console.log('[TodayVariant]', {
+      v3: env.feature.today.v3,
+      v4: env.feature.today.v4Lanes,
+      showCommitments: COMMITMENTS_FEATURE_ENABLED,
+    });
+  }
   if (env.feature.today.v4Lanes) {
     return <TodayV4LanesView />;
   }
@@ -129,8 +136,6 @@ function TodayScreenV2() {
   const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
   const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
   const [celebrationVisible, setCelebrationVisible] = useState(false);
-  const [lastCompletedId, setLastCompletedId] = useState<string | null>(null);
-  const [lastCompletedType, setLastCompletedType] = useState<'habit' | 'todo' | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [showAllHabits, setShowAllHabits] = useState(false);
   const [showAllTodos, setShowAllTodos] = useState(false);
@@ -191,8 +196,6 @@ function TodayScreenV2() {
 
     // Optimistic UI
     setCompletedHabitIds((prev) => new Set(prev).add(id));
-    setLastCompletedId(id);
-    setLastCompletedType('habit');
     setUndoState({ id, type: 'habit', label, persisted: false });
 
     if (celebrationEnabled) {
@@ -247,8 +250,6 @@ function TodayScreenV2() {
 
     // Optimistic UI
     setCompletedTodoIds((prev) => new Set(prev).add(id));
-    setLastCompletedId(id);
-    setLastCompletedType('todo');
     setUndoState({ id, type: 'todo', label, persisted: false });
 
     if (celebrationEnabled) {
@@ -347,8 +348,6 @@ function TodayScreenV2() {
       }
 
       setCelebrationVisible(false);
-      setLastCompletedId(null);
-      setLastCompletedType(null);
       setUndoState(null);
 
       eventBus.emit('TodayUndoCompletion', { entityType: type });
@@ -398,6 +397,16 @@ function TodayScreenV2() {
   const handleOverlaySaved = useCallback(async () => {
     // Reload data after overlay save (event bus will also trigger reload)
     await todayData.reload();
+  }, [todayData]);
+
+  const handleCommitmentsChanged = useCallback(async () => {
+    try {
+      await todayData.reload();
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[TodayScreen] Failed to reload after commitment change', error);
+      }
+    }
   }, [todayData]);
 
   // Open journal overlay with evening reflection prompt
@@ -754,6 +763,7 @@ function TodayScreenV2() {
           initialSpaceId={overlayController.state.initialSpaceId}
           onClose={overlayController.close}
           onSaved={handleOverlaySaved}
+          onCommitmentsChanged={handleCommitmentsChanged}
         />
       )}
 
@@ -764,8 +774,6 @@ function TodayScreenV2() {
           onUndo={handleUndo}
           onRequestClose={() => {
             setCelebrationVisible(false);
-            setLastCompletedId(null);
-            setLastCompletedType(null);
           }}
           reducedMotion={todayData.reducedMotion}
         />
