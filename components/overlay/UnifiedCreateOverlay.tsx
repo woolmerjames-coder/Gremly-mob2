@@ -16,6 +16,7 @@ import {
   Animated,
   ToastAndroid,
   Alert,
+  Switch,
   ActionSheetIOS,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -112,6 +113,11 @@ type AnalyticsClient = {
 const TAG_ANALYTICS_FLAG =
   String(process.env.EXPO_PUBLIC_DEBUG_TAG_ANALYTICS ?? 'off').toLowerCase() === 'on';
 
+const COMMITMENTS_FEATURE_ENABLED = (() => {
+  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase();
+  return rawValue === 'on' || rawValue === 'true' || rawValue === '1';
+})();
+
 const resolveTagType = (tag: string): '@' | '*' | '#' => {
   if (tag.startsWith('@')) return '@';
   if (tag.startsWith('*')) return '*';
@@ -131,6 +137,8 @@ const resolveAnalyticsClient = (): AnalyticsClient | null => {
 
   return null;
 };
+
+const COMMITMENT_NOTE_LIMIT = 140;
 
 export type UnifiedCreateOverlayProps = {
   visible: boolean;
@@ -409,6 +417,7 @@ export function UnifiedCreateOverlay({
   const [habitReminders, setHabitReminders] = useState<ReminderRow[]>([]);
   const [habitDetails, setHabitDetails] = useState<HabitDetailsState>({});
   const [habitBreakState, setHabitBreakState] = useState<BreakHabitState>({});
+  const habitNotes = habitDetails?.notes ?? '';
 
   // Todo fields
   const [todoName, setTodoName] = useState('');
@@ -417,7 +426,15 @@ export function UnifiedCreateOverlay({
   const [todoDetails, setTodoDetails] = useState<import('./fields/TodoFields').TodoDetailsState>(
     {},
   );
-  const todoNotes = todoDetails?.notes ?? null;
+  const todoNotes = todoDetails?.notes ?? '';
+
+  // Commitment state
+  const [commitmentEnabled, setCommitmentEnabled] = useState(false);
+  const [commitmentBusy, setCommitmentBusy] = useState(false);
+  const [commitmentNote, setCommitmentNote] = useState('');
+  const [commitmentNoteDraft, setCommitmentNoteDraft] = useState('');
+  const [commitmentNoteEditing, setCommitmentNoteEditing] = useState(false);
+  const [commitmentNoteBusy, setCommitmentNoteBusy] = useState(false);
 
   // Journal fields
   const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
@@ -768,13 +785,21 @@ export function UnifiedCreateOverlay({
   const typePillsDisabled = mode === 'edit' ? !ALLOW_TYPE_CHANGE : false;
 
   // Helper to show success toast cross-platform
-  const showToast = (message: string) => {
+  const showToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(message, ToastAndroid.SHORT);
     } else {
       Alert.alert('Success', message);
     }
-  };
+  }, []);
+
+  const showErrorToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Heads up', message);
+    }
+  }, []);
 
   const loadEntity = React.useCallback(
     async (
@@ -807,6 +832,12 @@ export function UnifiedCreateOverlay({
             setSelectedLogSubtype('person');
             initializeTags(formData.details.tags ?? [], 'log', 'person');
             originalEntityRef.current = null;
+            setCommitmentEnabled(false);
+            setCommitmentBusy(false);
+            setCommitmentNote('');
+            setCommitmentNoteDraft('');
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             setHydration('ready');
             return;
           } catch (error) {
@@ -836,6 +867,18 @@ export function UnifiedCreateOverlay({
             setHabitBreakState(formData.breakState);
             setSelectedType('habit');
             initializeTags(formData.details.tags ?? [], 'habit');
+            if (COMMITMENTS_FEATURE_ENABLED) {
+              setCommitmentEnabled(Boolean(entity.commitment && !entity.commitment_archived_at));
+              setCommitmentNote(entity.commitment_note ?? '');
+              setCommitmentNoteDraft(entity.commitment_note ?? '');
+            } else {
+              setCommitmentEnabled(false);
+              setCommitmentNote('');
+              setCommitmentNoteDraft('');
+            }
+            setCommitmentBusy(false);
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             break;
           }
           case 'todo': {
@@ -846,11 +889,29 @@ export function UnifiedCreateOverlay({
             setTodoDetails(formData.details);
             setSelectedType('todo');
             initializeTags(formData.details.tags ?? [], 'todo');
+            if (COMMITMENTS_FEATURE_ENABLED) {
+              setCommitmentEnabled(Boolean(entity.commitment && !entity.commitment_archived_at));
+              setCommitmentNote(entity.commitment_note ?? '');
+              setCommitmentNoteDraft(entity.commitment_note ?? '');
+            } else {
+              setCommitmentEnabled(false);
+              setCommitmentNote('');
+              setCommitmentNoteDraft('');
+            }
+            setCommitmentBusy(false);
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             break;
           }
           case 'note': {
             const labels = Array.isArray(entity.labels) ? entity.labels : [];
             const isUnsorted = labels.includes(UNSORTED_LABEL);
+            setCommitmentEnabled(false);
+            setCommitmentBusy(false);
+            setCommitmentNote('');
+            setCommitmentNoteDraft('');
+            setCommitmentNoteEditing(false);
+            setCommitmentNoteBusy(false);
             if (entity.subtype === 'journal') {
               const formData = mapJournalToForm(entity);
               setJournalDate(formData.date);
@@ -1194,6 +1255,12 @@ export function UnifiedCreateOverlay({
       spaceId: null,
       tags: [],
     });
+    setCommitmentEnabled(false);
+    setCommitmentBusy(false);
+    setCommitmentNote('');
+    setCommitmentNoteDraft('');
+    setCommitmentNoteEditing(false);
+    setCommitmentNoteBusy(false);
     originalEntityRef.current = null;
     originalTypeRef.current = null;
     lastLoadedIdRef.current = null;
@@ -1319,6 +1386,140 @@ export function UnifiedCreateOverlay({
       useNativeDriver: true,
     }).start();
   };
+
+  const handleCommitmentToggle = useCallback(
+    async (nextValue: boolean) => {
+      if (!COMMITMENTS_FEATURE_ENABLED) return;
+      if (!initialEntityId) return;
+      if (selectedType !== 'habit' && selectedType !== 'todo') return;
+      if (nextValue === commitmentEnabled) return;
+      if (commitmentBusy) return;
+
+      setCommitmentBusy(true);
+      try {
+        if (nextValue) {
+          const activeCount = await repo.countActiveCommitments();
+          if (activeCount >= 3) {
+            showErrorToast('Limit of 3 active commitments reached');
+            return;
+          }
+
+          const noteSource =
+            commitmentNote.trim().length > 0
+              ? commitmentNote
+              : selectedType === 'habit'
+                ? habitNotes
+                : todoNotes;
+          const trimmedNote = noteSource.trim();
+          await repo.addCommitment(
+            initialEntityId,
+            selectedType,
+            trimmedNote.length > 0 ? trimmedNote : null,
+          );
+          setCommitmentEnabled(true);
+          setCommitmentNote(trimmedNote);
+          setCommitmentNoteDraft(trimmedNote);
+          setCommitmentNoteEditing(false);
+          return;
+        }
+
+        await repo.removeCommitment(initialEntityId, selectedType);
+        setCommitmentEnabled(false);
+        setCommitmentNote('');
+        setCommitmentNoteDraft('');
+        setCommitmentNoteEditing(false);
+        setCommitmentNoteBusy(false);
+      } catch (error) {
+        console.error('[UnifiedCreateOverlay] Failed to toggle commitment', error);
+        if (error instanceof Error && error.message === 'MAX_COMMITMENTS_REACHED') {
+          showErrorToast('Limit of 3 active commitments reached');
+        } else {
+          showErrorToast('Unable to update commitment right now.');
+        }
+      } finally {
+        setCommitmentBusy(false);
+      }
+    },
+    [
+      commitmentBusy,
+      commitmentEnabled,
+      habitNotes,
+      initialEntityId,
+      repo,
+      selectedType,
+      commitmentNote,
+      showErrorToast,
+      todoNotes,
+    ],
+  );
+
+  const handleCommitmentNotePress = useCallback(() => {
+    if (!COMMITMENTS_FEATURE_ENABLED) {
+      return;
+    }
+    if (!commitmentEnabled) {
+      showErrorToast('Enable commitment to add an intent.');
+      return;
+    }
+    setCommitmentNoteDraft(commitmentNote);
+    setCommitmentNoteEditing(true);
+  }, [commitmentEnabled, commitmentNote, showErrorToast]);
+
+  const handleCommitmentNoteCancel = useCallback(() => {
+    if (!COMMITMENTS_FEATURE_ENABLED) {
+      return;
+    }
+    setCommitmentNoteDraft(commitmentNote);
+    setCommitmentNoteEditing(false);
+  }, [commitmentNote]);
+
+  const handleCommitmentNoteSave = useCallback(async () => {
+    if (!COMMITMENTS_FEATURE_ENABLED) return;
+    if (!initialEntityId) return;
+    if (selectedType !== 'habit' && selectedType !== 'todo') return;
+    if (!commitmentEnabled) {
+      showErrorToast('Enable commitment to add an intent.');
+      return;
+    }
+
+    const trimmed = commitmentNoteDraft.trim();
+    if (trimmed.length > COMMITMENT_NOTE_LIMIT) {
+      showErrorToast(`Intent must be ${COMMITMENT_NOTE_LIMIT} characters or fewer.`);
+      return;
+    }
+
+    setCommitmentNoteBusy(true);
+    try {
+      const notePatch = {
+        commitment_note: trimmed.length > 0 ? trimmed : null,
+      } as any;
+      await repo.update({
+        id: initialEntityId,
+        patch: notePatch,
+      });
+      setCommitmentNote(trimmed);
+      setCommitmentNoteDraft(trimmed);
+      setCommitmentNoteEditing(false);
+      if (trimmed.length > 0) {
+        showToast('Intent saved.');
+      } else {
+        showToast('Intent cleared.');
+      }
+    } catch (error) {
+      console.error('[UnifiedCreateOverlay] Failed to save commitment note', error);
+      showErrorToast('Unable to save intent right now.');
+    } finally {
+      setCommitmentNoteBusy(false);
+    }
+  }, [
+    commitmentEnabled,
+    commitmentNoteDraft,
+    initialEntityId,
+    repo,
+    selectedType,
+    showErrorToast,
+    showToast,
+  ]);
 
   const flushPendingAssociations = async (
     itemId: string,
@@ -2724,6 +2925,140 @@ export function UnifiedCreateOverlay({
                         />
                       </>
                     )}
+                    {COMMITMENTS_FEATURE_ENABLED &&
+                      mode === 'edit' &&
+                      hydration === 'ready' &&
+                      initialEntity?.id &&
+                      (selectedType === 'habit' || selectedType === 'todo') && (
+                        <View>
+                          <View
+                            style={[
+                              styles.commitmentRow,
+                              { borderColor: theme.colors.border.DEFAULT },
+                            ]}
+                            testID="commitment-toggle-row"
+                          >
+                            <View style={styles.commitmentLabelContainer}>
+                              <Text
+                                style={[
+                                  styles.commitmentLabel,
+                                  { color: theme.colors.text.primary },
+                                ]}
+                              >
+                                Commitment
+                              </Text>
+                              <Pressable
+                                onPress={handleCommitmentNotePress}
+                                disabled={commitmentNoteBusy}
+                                hitSlop={8}
+                                testID="commitment-note-trigger"
+                              >
+                                <Text
+                                  style={[
+                                    styles.commitmentLink,
+                                    {
+                                      color: commitmentEnabled
+                                        ? theme.colors.deepTeal.DEFAULT
+                                        : theme.colors.text.tertiary,
+                                      opacity: commitmentNoteBusy ? 0.4 : 1,
+                                    },
+                                  ]}
+                                >
+                                  {commitmentNote?.length ? 'Edit intent' : 'Add intent'}
+                                </Text>
+                              </Pressable>
+                            </View>
+                            <Switch
+                              value={commitmentEnabled}
+                              onValueChange={handleCommitmentToggle}
+                              disabled={commitmentBusy}
+                              testID="commitment-toggle"
+                              trackColor={{
+                                false: theme.colors.border.DEFAULT,
+                                true: theme.colors.deepTeal.DEFAULT,
+                              }}
+                              thumbColor={
+                                Platform.OS === 'android'
+                                  ? commitmentEnabled
+                                    ? theme.colors.deepTeal.DEFAULT
+                                    : '#f4f3f4'
+                                  : undefined
+                              }
+                              ios_backgroundColor={theme.colors.border.DEFAULT}
+                            />
+                          </View>
+                          {commitmentNoteEditing && commitmentEnabled && (
+                            <View
+                              style={[
+                                styles.commitmentNoteEditor,
+                                { borderColor: theme.colors.border.DEFAULT },
+                              ]}
+                              testID="commitment-note-editor"
+                            >
+                              <TextInput
+                                value={commitmentNoteDraft}
+                                onChangeText={setCommitmentNoteDraft}
+                                placeholder="Why is this important?"
+                                placeholderTextColor={theme.colors.text.tertiary}
+                                style={[
+                                  styles.commitmentNoteInput,
+                                  { color: theme.colors.text.primary },
+                                ]}
+                                maxLength={COMMITMENT_NOTE_LIMIT}
+                                multiline
+                                editable={!commitmentNoteBusy}
+                                testID="commitment-note-input"
+                              />
+                              <View style={styles.commitmentNoteMeta}>
+                                <Text
+                                  style={[
+                                    styles.commitmentNoteCount,
+                                    { color: theme.colors.text.tertiary },
+                                  ]}
+                                >
+                                  {commitmentNoteDraft.length}/{COMMITMENT_NOTE_LIMIT}
+                                </Text>
+                              </View>
+                              <View style={styles.commitmentNoteActions}>
+                                <TouchableOpacity
+                                  onPress={handleCommitmentNoteCancel}
+                                  disabled={commitmentNoteBusy}
+                                  style={styles.commitmentAction}
+                                  testID="commitment-note-cancel"
+                                >
+                                  <Text
+                                    style={[
+                                      styles.commitmentActionButton,
+                                      { color: theme.colors.text.secondary },
+                                    ]}
+                                  >
+                                    Cancel
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={handleCommitmentNoteSave}
+                                  disabled={commitmentNoteBusy}
+                                  style={[styles.commitmentAction, styles.commitmentActionPrimary]}
+                                  testID="commitment-note-save"
+                                >
+                                  <Text
+                                    style={[
+                                      styles.commitmentActionButton,
+                                      {
+                                        color: commitmentNoteBusy
+                                          ? theme.colors.text.tertiary
+                                          : theme.colors.deepTeal.DEFAULT,
+                                      },
+                                    ]}
+                                  >
+                                    Save
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      )}
                   </Animated.View>
                 );
               })()}
@@ -2946,6 +3281,63 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+  },
+  commitmentRow: {
+    marginTop: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  commitmentLabelContainer: {
+    flex: 1,
+  },
+  commitmentLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  commitmentLink: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  commitmentNoteEditor: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  commitmentNoteInput: {
+    minHeight: 80,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  commitmentNoteMeta: {
+    marginTop: 8,
+    alignItems: 'flex-end',
+  },
+  commitmentNoteCount: {
+    fontSize: 12,
+  },
+  commitmentNoteActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  commitmentAction: {
+    paddingHorizontal: 8,
+  },
+  commitmentActionPrimary: {
+    marginLeft: 18,
+  },
+  commitmentActionButton: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   sectionTitle: {
     fontSize: 16,
