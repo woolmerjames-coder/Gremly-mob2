@@ -4,6 +4,7 @@ import { useAuth } from '../providers/AuthProvider';
 import { SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../lib/repo/memory';
 import type { SpaceChat } from '../lib/types';
+import { normalizeSearchTagInput } from '../lib/tags/search';
 
 export type SearchItem = {
   id: string;
@@ -19,8 +20,17 @@ export function useSpaceSearch(spaceId: string) {
 
   const search = useCallback(
     async (q: string, filter: 'chats' | 'notes' | 'habits'): Promise<SearchItem[]> => {
-      const query = q.trim().toLowerCase();
-      if (!query) return [];
+      const trimmed = q.trim();
+      if (!trimmed) return [];
+
+      const query = trimmed.toLowerCase();
+      const isTagSearch = ['#', '*', '@'].includes(trimmed[0]);
+      const tagToken = normalizeSearchTagInput(trimmed);
+      const normalizedTagToken = tagToken.toLowerCase();
+      const hasTag = (tags?: string[]) =>
+        normalizedTagToken.length > 0 &&
+        Array.isArray(tags) &&
+        tags.map((t) => t.toLowerCase()).includes(normalizedTagToken);
 
       try {
         if (filter === 'chats') {
@@ -56,9 +66,13 @@ export function useSpaceSearch(spaceId: string) {
           return items
             .filter((item: any) => {
               if (item.type !== 'note') return false;
+              if (isTagSearch) {
+                return hasTag(item.tags);
+              }
               const titleMatch = (item.title || '').toLowerCase().includes(query);
               const bodyMatch = (item.body || '').toLowerCase().includes(query);
-              return titleMatch || bodyMatch;
+              const tagMatch = hasTag(item.tags);
+              return titleMatch || bodyMatch || tagMatch;
             })
             .map((item: any) => ({
               id: item.id,
@@ -80,8 +94,12 @@ export function useSpaceSearch(spaceId: string) {
           return items
             .filter((item: any) => {
               if (item.type !== 'habit') return false;
+              if (isTagSearch) {
+                return hasTag(item.tags);
+              }
               const titleMatch = (item.title || item.name || '').toLowerCase().includes(query);
-              return titleMatch;
+              const tagMatch = hasTag(item.tags);
+              return titleMatch || tagMatch;
             })
             .map((item: any) => ({
               id: item.id,

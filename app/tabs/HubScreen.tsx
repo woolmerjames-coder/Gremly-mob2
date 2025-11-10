@@ -24,12 +24,13 @@ import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOver
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
-import TagFilterBar from '../../components/filters/TagFilterBar';
+import TagFilterBar from '../../components/tags/TagFilterBar';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
 import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { getNoteLabel } from '../../lib/canonicalTypes';
+import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags/search';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -78,6 +79,14 @@ export default function HubScreen() {
   });
 
   const noteLabelPlural = getNoteLabel({ plural: true });
+
+  const selectedTagNames = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t.name]));
+    const names = selectedTagIds.map((id) => map.get(id)).filter(Boolean) as string[];
+    return normalizeSearchTagArray(names);
+  }, [selectedTagIds, tags]);
+
+  const availableTagNames = useMemo(() => normalizeSearchTagArray(tags.map((t) => t.name)), [tags]);
 
   // Helper to filter out archived items
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
@@ -215,7 +224,7 @@ export default function HubScreen() {
 
       // Add tag filtering if tags are selected
       const filterOpts =
-        selectedTagIds.length > 0 ? { ...scopeOpts, tagIds: selectedTagIds } : scopeOpts;
+        selectedTagNames.length > 0 ? { ...scopeOpts, tagNames: selectedTagNames } : scopeOpts;
 
       // Load data based on current tab
       let data: AppRecord[] | Person[] = [];
@@ -387,7 +396,7 @@ export default function HubScreen() {
     } finally {
       setLoading(false);
     }
-  }, [repo, user, tab, scope, notesSubfilter, selectedTagIds]);
+  }, [repo, user, tab, scope, notesSubfilter, selectedTagNames]);
 
   useEffect(() => {
     void load();
@@ -550,21 +559,6 @@ export default function HubScreen() {
     [items, load],
   );
 
-  const handleToggleTag = useCallback((tagId: string) => {
-    setSelectedTagIds((prev) => {
-      // Phase 8 polish: Prevent duplicates explicitly
-      if (prev.includes(tagId)) {
-        return prev.filter((id) => id !== tagId);
-      }
-      // Guard against accidental duplicates
-      if (prev.find((id) => id === tagId)) {
-        console.warn('Tag already selected:', tagId);
-        return prev;
-      }
-      return [...prev, tagId];
-    });
-  }, []);
-
   const handleConfirmUnsorted = useCallback(
     async (id: string) => {
       try {
@@ -658,10 +652,17 @@ export default function HubScreen() {
             {/* Tag Filter Bar (only for non-People/non-Lists tabs) */}
             {tab !== 'People' && tab !== 'Lists' && (
               <TagFilterBar
-                tags={tags}
-                selectedTagIds={selectedTagIds}
-                onToggleTag={handleToggleTag}
-                onClearAll={() => setSelectedTagIds([])}
+                selected={selectedTagNames}
+                available={availableTagNames}
+                onChange={(nextNames) => {
+                  const normalized = normalizeSearchTagArray(nextNames);
+                  const byName = new Map(tags.map((t) => [normalizeSearchTagInput(t.name), t.id]));
+                  const nextIds = normalized
+                    .map((n) => byName.get(n))
+                    .filter((id): id is string => Boolean(id));
+                  setSelectedTagIds(nextIds);
+                }}
+                loading={loading}
                 testID="tag-filter-bar"
               />
             )}

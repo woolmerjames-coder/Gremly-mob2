@@ -1,4 +1,5 @@
 import { isToday, parseISO } from 'date-fns';
+import { Alert, Platform, ToastAndroid } from 'react-native';
 import type { AppRecord, Note, Todo, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
@@ -38,10 +39,35 @@ import {
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-const hasAll = (itemTags: string[], wanted: string[]) => {
-  const set = new Set(itemTags.map((t) => t.toLowerCase()));
-  return wanted.every((w) => set.has(w.toLowerCase()));
-};
+const TAG_FILTER_TOAST_MESSAGE = 'Tag filter temporarily unavailable';
+let hasShownTagFilterToast = false;
+
+const formatSupabaseError = (error: any) =>
+  error
+    ? {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      }
+    : null;
+
+function notifyTagFilterFallback() {
+  if (hasShownTagFilterToast) {
+    return;
+  }
+  hasShownTagFilterToast = true;
+
+  try {
+    if (Platform?.OS === 'android' && typeof ToastAndroid?.show === 'function') {
+      ToastAndroid.show(TAG_FILTER_TOAST_MESSAGE, ToastAndroid.SHORT);
+    } else if (typeof Alert?.alert === 'function') {
+      Alert.alert('Heads up', TAG_FILTER_TOAST_MESSAGE);
+    }
+  } catch (toastError) {
+    console.warn('[SupabaseRepo] Failed to show tag filter toast', toastError);
+  }
+}
 
 /**
  * Supabase repository implementation.
@@ -614,51 +640,101 @@ export class SupabaseRepo implements IRepo {
    * 10R: Uses idx_notes_created_at, idx_todos_created_at for chronological ordering
    */
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
+    const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
+    const perfLabel = '[PERF][tags] listByType';
+    const perfStart = hasTagFilter ? Date.now() : null;
+    if (hasTagFilter) {
+      console.time(perfLabel);
+    }
+
     const userId = this.ensureUserId();
     const table = tableFor(type);
 
-    let query = supabase.from(table).select('*').eq('owner_id', userId);
+    const runQuery = async (applyTagFilter: boolean) => {
+      let query = supabase.from(table).select('*').eq('owner_id', userId);
 
-    // Apply space filter (uses idx_{table}_space_id)
-    if (opts?.unassignedOnly) {
-      query = query.is('space_id', null);
-    } else if (opts?.spaceId !== undefined) {
-      query = query.eq('space_id', opts.spaceId);
-    }
-    // If spaceId is omitted, no filter (Everywhere)
+      if (opts?.unassignedOnly) {
+        query = query.is('space_id', null);
+      } else if (opts?.spaceId !== undefined) {
+        query = query.eq('space_id', opts.spaceId);
+      }
 
-    // Apply subtype filter (only for notes)
-    if (opts?.subtypes && opts.subtypes.length > 0 && type === 'note') {
-      query = query.in('subtype', opts.subtypes);
-    }
+      if (opts?.subtypes && opts.subtypes.length > 0 && type === 'note') {
+        query = query.in('subtype', opts.subtypes);
+      }
 
-    // TODO: Apply tag filter when tagIds is provided
-    // For now, tagIds is ignored (stub for future implementation)
+      if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
+        query = query.contains('tags', opts.tagNames);
+      }
 
-    // Uses idx_notes_created_at for chronological ordering
-    query = query.order('created_at', { ascending: false });
+      query = query.order('created_at', { ascending: false });
 
-    const { data, error } = await query;
+      const { data, error } = await query;
+      return { data: data ?? [], error };
+    };
 
-    if (error) throw new Error(`Failed to list ${type}s: ${error.message}`);
-    if (!data) return [];
+    try {
+      let rows: any[] = [];
 
-    const items = data.map((item) => {
-      const record = { ...item, type };
-      if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-      if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-      return noteZ.parse(mapNoteFromDb(record));
-    });
+      if (hasTagFilter) {
+        const initial = await runQuery(true);
+        if (initial.error) {
+          console.warn('[SupabaseRepo] Tag filter query failed, falling back without tags', {
+            type,
+            tagNames: opts?.tagNames,
+            error: formatSupabaseError(initial.error),
+          });
+          notifyTagFilterFallback();
 
-    if (opts?.tagNames && opts.tagNames.length > 0) {
-      const wanted = opts.tagNames;
-      return items.filter((r) => {
-        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
-        return hasAll(tags, wanted);
+          const fallback = await runQuery(false);
+          if (fallback.error) {
+            console.warn('[SupabaseRepo] Tag filter fallback failed', {
+              type,
+              tagNames: opts?.tagNames,
+              error: formatSupabaseError(fallback.error),
+            });
+            const err = new Error(`Failed to list ${type}s: ${fallback.error.message}`);
+            (err as any).cause = fallback.error;
+            throw err;
+          }
+
+          rows = fallback.data;
+        } else {
+          rows = initial.data;
+        }
+      } else {
+        const result = await runQuery(false);
+        if (result.error) {
+          const err = new Error(`Failed to list ${type}s: ${result.error.message}`);
+          (err as any).cause = result.error;
+          throw err;
+        }
+        rows = result.data;
+      }
+
+      return rows.map((item) => {
+        const record = { ...item, type };
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
+        return noteZ.parse(mapNoteFromDb(record));
       });
+    } finally {
+      if (hasTagFilter && perfStart !== null) {
+        const elapsed = Date.now() - perfStart;
+        try {
+          console.timeEnd(perfLabel);
+        } catch {
+          // console.timeEnd may throw in non-interactive test environments; ignore.
+        }
+        if (elapsed > 600) {
+          console.warn(`${perfLabel} slow (${elapsed}ms)`, {
+            type,
+            tagCount: opts?.tagNames?.length ?? 0,
+            spaceId: opts?.spaceId ?? null,
+          });
+        }
+      }
     }
-
-    return items;
   }
 
   async countUnsorted(): Promise<number> {
@@ -699,12 +775,13 @@ export class SupabaseRepo implements IRepo {
     // Query all three tables
     for (const type of ['habit', 'todo', 'note'] as const) {
       const table = tableFor(type);
-      const { data, error } = await supabase
-        .from(table)
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false });
+      let query = supabase.from(table).select('*').eq('owner_id', userId).eq('space_id', spaceId);
+
+      if (opts?.tagNames && opts.tagNames.length > 0) {
+        query = query.contains('tags', opts.tagNames);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw new Error(`Failed to list ${type}s in space: ${error.message}`);
 
@@ -718,15 +795,6 @@ export class SupabaseRepo implements IRepo {
         results.push(...parsed);
       }
     }
-
-    if (opts?.tagNames && opts.tagNames.length > 0) {
-      const wanted = opts.tagNames;
-      return results.filter((r) => {
-        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
-        return hasAll(tags, wanted);
-      });
-    }
-
     return results;
   }
 
@@ -1659,53 +1727,120 @@ export class SupabaseRepo implements IRepo {
     spaceId: string,
     opts?: { tagNames?: string[] },
   ): Promise<GroupedByType> {
+    const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
+    const perfLabel = '[PERF][tags] listBySpaceGrouped';
+    const perfStart = hasTagFilter ? Date.now() : null;
+    if (hasTagFilter) {
+      console.time(perfLabel);
+    }
+
     const userId = this.ensureUserId();
 
-    // Query all three tables in parallel
-    const [habitsResult, todosResult, notesResult] = await Promise.all([
-      supabase
-        .from('habits')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('todos')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('notes')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: false }),
-    ]);
+    const runTableQuery = async (table: 'habits' | 'todos' | 'notes', applyTagFilter: boolean) => {
+      let query = supabase.from(table).select('*').eq('owner_id', userId).eq('space_id', spaceId);
 
-    if (habitsResult.error) throw new Error(`Failed to list habits: ${habitsResult.error.message}`);
-    if (todosResult.error) throw new Error(`Failed to list todos: ${todosResult.error.message}`);
-    if (notesResult.error) throw new Error(`Failed to list notes: ${notesResult.error.message}`);
+      if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
+        query = query.contains('tags', opts.tagNames);
+      }
 
-    const applyTagFilter = <T extends AppRecord>(items: T[]): T[] => {
-      if (!opts?.tagNames || opts.tagNames.length === 0) return items;
-      return items.filter((item) => {
-        const tags = Array.isArray((item as any).tags) ? ((item as any).tags as string[]) : [];
-        return hasAll(tags, opts.tagNames!);
-      });
+      const { data, error } = await query.order('created_at', { ascending: false });
+      return { data: data ?? [], error };
     };
 
-    const habits = applyTagFilter(
-      (habitsResult.data ?? []).map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))),
-    );
-    const todos = applyTagFilter(
-      (todosResult.data ?? []).map((t) => todoZ.parse({ ...t, type: 'todo' })),
-    );
-    const notes = applyTagFilter(
-      (notesResult.data ?? []).map((n) => noteZ.parse({ ...n, type: 'note' })),
-    );
+    const runGroupedQuery = async (applyTagFilter: boolean) => {
+      const [habits, todos, notes] = await Promise.all([
+        runTableQuery('habits', applyTagFilter),
+        runTableQuery('todos', applyTagFilter),
+        runTableQuery('notes', applyTagFilter),
+      ]);
 
-    return { habits, todos, notes };
+      return { habits, todos, notes };
+    };
+
+    const ensureNoErrors = ({
+      habits,
+      todos,
+      notes,
+    }: Awaited<ReturnType<typeof runGroupedQuery>>) => {
+      if (habits.error) {
+        const err = new Error(`Failed to list habits: ${habits.error.message}`);
+        (err as any).cause = habits.error;
+        throw err;
+      }
+      if (todos.error) {
+        const err = new Error(`Failed to list todos: ${todos.error.message}`);
+        (err as any).cause = todos.error;
+        throw err;
+      }
+      if (notes.error) {
+        const err = new Error(`Failed to list notes: ${notes.error.message}`);
+        (err as any).cause = notes.error;
+        throw err;
+      }
+
+      return {
+        habits: habits.data,
+        todos: todos.data,
+        notes: notes.data,
+      };
+    };
+
+    try {
+      let groupedRaw: { habits: any[]; todos: any[]; notes: any[] };
+
+      if (hasTagFilter) {
+        const initial = await runGroupedQuery(true);
+        const initialError = initial.habits.error ?? initial.todos.error ?? initial.notes.error;
+
+        if (initialError) {
+          console.warn(
+            '[SupabaseRepo] Tag filter grouped query failed, falling back without tags',
+            {
+              spaceId,
+              tagNames: opts?.tagNames,
+              error: formatSupabaseError(initialError),
+            },
+          );
+          notifyTagFilterFallback();
+
+          const fallback = await runGroupedQuery(false);
+          try {
+            groupedRaw = ensureNoErrors(fallback);
+          } catch (fallbackError) {
+            console.warn('[SupabaseRepo] Tag filter grouped fallback failed', {
+              spaceId,
+              error: formatSupabaseError((fallbackError as Error & { cause?: any })?.cause ?? null),
+            });
+            throw fallbackError;
+          }
+        } else {
+          groupedRaw = ensureNoErrors(initial);
+        }
+      } else {
+        groupedRaw = ensureNoErrors(await runGroupedQuery(false));
+      }
+
+      return {
+        habits: groupedRaw.habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))),
+        todos: groupedRaw.todos.map((t) => todoZ.parse({ ...t, type: 'todo' })),
+        notes: groupedRaw.notes.map((n) => noteZ.parse({ ...n, type: 'note' })),
+      };
+    } finally {
+      if (hasTagFilter && perfStart !== null) {
+        const elapsed = Date.now() - perfStart;
+        try {
+          console.timeEnd(perfLabel);
+        } catch {
+          // console.timeEnd may throw in non-interactive test environments; ignore.
+        }
+        if (elapsed > 600) {
+          console.warn(`${perfLabel} slow (${elapsed}ms)`, {
+            tagCount: opts?.tagNames?.length ?? 0,
+            spaceId,
+          });
+        }
+      }
+    }
   }
 
   // ==========================
