@@ -7,7 +7,8 @@ type Props = {
   selected: string[]; // normalized names (#tag, *tag, @person)
   available: string[]; // names
   onChange: (next: string[]) => void;
-  loading?: boolean;
+  tagLoading?: boolean; // tracks initial tag fetch only
+  stablePlaceholder?: boolean;
   allowSearch?: boolean;
   testID?: string;
 };
@@ -16,11 +17,20 @@ export default function TagFilterBar({
   selected,
   available,
   onChange,
-  loading,
+  tagLoading,
+  stablePlaceholder = true,
   allowSearch = true,
   testID = 'tag-filter-bar',
 }: Props) {
   const [input, setInput] = React.useState('');
+  const [hasLoadedTags, setHasLoadedTags] = React.useState(() => !tagLoading);
+  const isTagLoading = Boolean(tagLoading);
+
+  React.useEffect(() => {
+    if (!isTagLoading) {
+      setHasLoadedTags(true);
+    }
+  }, [isTagLoading]);
 
   const selectedSet = React.useMemo(() => new Set(selected), [selected]);
 
@@ -42,9 +52,14 @@ export default function TagFilterBar({
     onChange(selected.filter((t) => t !== name));
   };
 
+  const placeholder = stablePlaceholder
+    ? 'Filter by tag (#anxious, *journal, @alice)'
+    : isTagLoading && !hasLoadedTags
+      ? 'Loading tags…'
+      : 'Filter by tag (#anxious, *journal, @alice)';
+
   return (
     <View testID={testID} style={styles.root}>
-      {/* Selected */}
       {selected.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.row}>
           {selected.map((name) => (
@@ -53,6 +68,8 @@ export default function TagFilterBar({
               onPress={() => remove(name)}
               style={[styles.chip, styles.chipSelected]}
               testID={`selected-${name}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Selected tag ${name}, tap to remove`}
             >
               <Text style={styles.chipText}>{name}</Text>
               <Text style={[styles.chipText, { marginLeft: 6 }]}>×</Text>
@@ -61,25 +78,29 @@ export default function TagFilterBar({
         </ScrollView>
       )}
 
-      {/* Input */}
       {allowSearch && (
         <View style={styles.inputRow}>
           <TextInput
             style={styles.input}
-            placeholder={loading ? 'Loading tags…' : 'Filter by tag (#anxious, *journal, @alice)'}
+            placeholder={placeholder}
             value={input}
             onChangeText={setInput}
             onSubmitEditing={() => add(input)}
             returnKeyType="done"
-            editable={!loading}
+            accessible
+            accessibilityLabel="Add a tag to filter"
           />
-          <TouchableOpacity onPress={() => add(input)} disabled={!input.trim() || loading}>
-            <Text style={styles.addBtn}>Add</Text>
+          <TouchableOpacity
+            onPress={() => add(input)}
+            disabled={!input.trim()}
+            accessibilityRole="button"
+            accessibilityLabel="Add tag filter"
+          >
+            <Text style={[styles.addBtn, !input.trim() && { opacity: 0.4 }]}>Add</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Available */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.row}>
         {remaining.map((name) => (
           <TouchableOpacity
@@ -87,6 +108,8 @@ export default function TagFilterBar({
             onPress={() => add(name)}
             style={[styles.chip, styles.chipGhost]}
             testID={`available-${name}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Add tag ${name}`}
           >
             <Text style={styles.chipGhostText}>{name}</Text>
           </TouchableOpacity>
@@ -115,12 +138,13 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   input: {
     flex: 1,
-    height: 36,
+    height: 40,
     borderWidth: 1,
     borderColor: '#cfd8dc',
-    borderRadius: 8,
-    paddingHorizontal: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
     backgroundColor: '#fff',
+    fontSize: 14,
   },
   addBtn: { color: '#00695c', fontWeight: '600', padding: 8 },
 });

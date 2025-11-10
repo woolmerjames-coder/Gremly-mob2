@@ -73,8 +73,8 @@ function ensureDay(dateIso: string): string {
   return new Date(dateIso).toISOString().split('T')[0];
 }
 
-const hasAll = (itemTags: string[], wanted: string[]) => {
-  const set = new Set(itemTags.map((t) => t.toLowerCase()));
+const hasAll = (itemTags: string[] | null | undefined, wanted: string[]) => {
+  const set = new Set((itemTags ?? []).map((t) => t.toLowerCase()));
   return wanted.every((w) => set.has(w.toLowerCase()));
 };
 
@@ -299,10 +299,10 @@ export class MemoryRepo implements IRepo {
     }
 
     if (opts?.tagNames && opts.tagNames.length > 0) {
-      results = results.filter((r) => {
-        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
-        return hasAll(tags, opts.tagNames!);
-      });
+      const wanted = opts.tagNames;
+      results = results.filter((r) =>
+        hasAll((r as any).tags as string[] | null | undefined, wanted),
+      );
     }
 
     // TODO: Apply tag filter when tagIds is provided
@@ -322,10 +322,8 @@ export class MemoryRepo implements IRepo {
     );
 
     if (opts?.tagNames && opts.tagNames.length > 0) {
-      items = items.filter((r) => {
-        const tags = Array.isArray((r as any).tags) ? ((r as any).tags as string[]) : [];
-        return hasAll(tags, opts.tagNames!);
-      });
+      const wanted = opts.tagNames;
+      items = items.filter((r) => hasAll((r as any).tags as string[] | null | undefined, wanted));
     }
 
     return items;

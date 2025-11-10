@@ -1,39 +1,65 @@
 import { MemoryRepo } from '../../lib/repo/memory';
-import type { CreateRecordInput } from '../../lib/repo/IRepo';
-import type { AppRecord } from '../../lib/types';
+import type { Note } from '../../lib/types';
 
 describe('MemoryRepo tagNames filtering', () => {
   let repo: MemoryRepo;
-  let focusProject: AppRecord;
-  let focusOnly: AppRecord;
+  let focusProject: Note;
+  let focusOnly: Note;
 
-  const baseNote: CreateRecordInput = {
-    type: 'note',
-    subtype: 'idea',
-    title: 'Temp title',
-    body: 'Body',
-  };
-
-  beforeEach(async () => {
+  beforeEach(() => {
     repo = new MemoryRepo('tag-filter-user');
 
-    focusProject = await repo.create({
-      ...baseNote,
+    const now = new Date().toISOString();
+
+    focusProject = {
+      id: 'note-focus-project',
+      type: 'note',
+      subtype: 'idea',
       title: 'Deep Work Plan',
+      body: 'Plan the week',
+      ai_placed: false,
+      why_string: null,
+      origin: null,
       tags: ['#Focus', '*Project'],
-    });
+      created_at: now,
+      updated_at: now,
+      owner_id: 'tag-filter-user',
+      space_id: null,
+    };
 
-    focusOnly = await repo.create({
-      ...baseNote,
+    focusOnly = {
+      id: 'note-focus-only',
+      type: 'note',
+      subtype: 'idea',
       title: 'Focus Only',
+      body: 'Single tag',
+      ai_placed: false,
+      why_string: null,
+      origin: null,
       tags: ['#focus'],
-    });
+      created_at: now,
+      updated_at: now,
+      owner_id: 'tag-filter-user',
+      space_id: null,
+    };
 
-    await repo.create({
-      ...baseNote,
+    const projectOnly: Note = {
+      id: 'note-project-only',
+      type: 'note',
+      subtype: 'idea',
       title: 'Project Only',
+      body: 'Project tag',
+      ai_placed: false,
+      why_string: null,
+      origin: null,
       tags: ['*project'],
-    });
+      created_at: now,
+      updated_at: now,
+      owner_id: 'tag-filter-user',
+      space_id: null,
+    };
+
+    (repo as unknown as { data: Note[] }).data = [focusProject, focusOnly, projectOnly];
   });
 
   test('matches items containing requested tag name (case-insensitive)', async () => {

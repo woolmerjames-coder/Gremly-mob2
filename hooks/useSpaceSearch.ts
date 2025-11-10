@@ -27,10 +27,34 @@ export function useSpaceSearch(spaceId: string) {
       const isTagSearch = ['#', '*', '@'].includes(trimmed[0]);
       const tagToken = normalizeSearchTagInput(trimmed);
       const normalizedTagToken = tagToken.toLowerCase();
-      const hasTag = (tags?: string[]) =>
-        normalizedTagToken.length > 0 &&
-        Array.isArray(tags) &&
-        tags.map((t) => t.toLowerCase()).includes(normalizedTagToken);
+      const hasTag = (tags?: string[]) => {
+        if (!normalizedTagToken) return false;
+        if (!Array.isArray(tags) || tags.length === 0) return false;
+        return tags.some((tag) => tag.toLowerCase() === normalizedTagToken);
+      };
+
+      const mapNote = (item: any): SearchItem => ({
+        id: item.id,
+        type: 'note' as const,
+        title: item.title || 'Untitled Note',
+        snippet: item.body
+          ? item.body.slice(0, 60) + (item.body.length > 60 ? '...' : '')
+          : undefined,
+        dateLabel: item.date
+          ? new Date(item.date).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            })
+          : undefined,
+      });
+
+      const mapHabit = (item: any): SearchItem => ({
+        id: item.id,
+        type: 'habit' as const,
+        title: item.title || item.name || 'Untitled Habit',
+        snippet: undefined,
+        dateLabel: undefined,
+      });
 
       try {
         if (filter === 'chats') {
@@ -61,53 +85,36 @@ export function useSpaceSearch(spaceId: string) {
                 : undefined,
             }));
         } else if (filter === 'notes') {
-          // Search notes
           const items = await repo.listBySpace(spaceId);
-          return items
-            .filter((item: any) => {
-              if (item.type !== 'note') return false;
-              if (isTagSearch) {
-                return hasTag(item.tags);
-              }
-              const titleMatch = (item.title || '').toLowerCase().includes(query);
-              const bodyMatch = (item.body || '').toLowerCase().includes(query);
-              const tagMatch = hasTag(item.tags);
-              return titleMatch || bodyMatch || tagMatch;
-            })
-            .map((item: any) => ({
-              id: item.id,
-              type: 'note' as const,
-              title: item.title || 'Untitled Note',
-              snippet: item.body
-                ? item.body.slice(0, 60) + (item.body.length > 60 ? '...' : '')
-                : undefined,
-              dateLabel: item.date
-                ? new Date(item.date).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  })
-                : undefined,
-            }));
+
+          const matches = items.filter((item: any) => {
+            if (item.type !== 'note') return false;
+            if (isTagSearch) {
+              return hasTag(item.tags);
+            }
+
+            const titleMatch = (item.title || '').toLowerCase().includes(query);
+            const bodyMatch = (item.body || '').toLowerCase().includes(query);
+            const tagMatch = hasTag(item.tags);
+            return titleMatch || bodyMatch || tagMatch;
+          });
+
+          return matches.map(mapNote);
         } else if (filter === 'habits') {
-          // Search habits
           const items = await repo.listBySpace(spaceId);
-          return items
-            .filter((item: any) => {
-              if (item.type !== 'habit') return false;
-              if (isTagSearch) {
-                return hasTag(item.tags);
-              }
-              const titleMatch = (item.title || item.name || '').toLowerCase().includes(query);
-              const tagMatch = hasTag(item.tags);
-              return titleMatch || tagMatch;
-            })
-            .map((item: any) => ({
-              id: item.id,
-              type: 'habit' as const,
-              title: item.title || item.name || 'Untitled Habit',
-              snippet: undefined,
-              dateLabel: undefined,
-            }));
+
+          const matches = items.filter((item: any) => {
+            if (item.type !== 'habit') return false;
+            if (isTagSearch) {
+              return hasTag(item.tags);
+            }
+
+            const titleMatch = (item.title || item.name || '').toLowerCase().includes(query);
+            const tagMatch = hasTag(item.tags);
+            return titleMatch || tagMatch;
+          });
+
+          return matches.map(mapHabit);
         }
 
         return [];

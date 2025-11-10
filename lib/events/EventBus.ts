@@ -22,6 +22,7 @@ export type EventMap = {
   TodayCompleteTodo: { todoId: string; overdue: boolean };
   TodayUndoCompletion: { entityType: 'habit' | 'todo' };
   TodaySuggestionAccept: { suggestionId: string; type: string };
+  TagFilterApplied: { tagCount: number };
   // Cortex classification events (Phase 10)
   'cortex:classified': { itemId: string; classification: ClassificationResult };
   'cortex:failed': { itemId: string; error: string };

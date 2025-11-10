@@ -641,10 +641,15 @@ export class SupabaseRepo implements IRepo {
    */
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
-    const perfLabel = '[PERF][tags] listByType';
+    const perfLabel = hasTagFilter ? `[PERF][tags] listByType:${type}` : null;
     const perfStart = hasTagFilter ? Date.now() : null;
-    if (hasTagFilter) {
-      console.time(perfLabel);
+
+    if (__DEV__ && hasTagFilter && perfLabel) {
+      try {
+        console.time(perfLabel);
+      } catch {
+        // some environments (tests) may not support console.time; ignore
+      }
     }
 
     const userId = this.ensureUserId();
@@ -677,13 +682,34 @@ export class SupabaseRepo implements IRepo {
       let rows: any[] = [];
 
       if (hasTagFilter) {
-        const initial = await runQuery(true);
-        if (initial.error) {
-          console.warn('[SupabaseRepo] Tag filter query failed, falling back without tags', {
-            type,
-            tagNames: opts?.tagNames,
-            error: formatSupabaseError(initial.error),
-          });
+        try {
+          const initial = await runQuery(true);
+          if (initial.error) {
+            console.warn('[SupabaseRepo] Tag filter query failed, falling back without tags', {
+              type,
+              tagNames: opts?.tagNames,
+              error: formatSupabaseError(initial.error),
+            });
+            notifyTagFilterFallback();
+
+            const fallback = await runQuery(false);
+            if (fallback.error) {
+              console.warn('[SupabaseRepo] Tag filter fallback failed', {
+                type,
+                tagNames: opts?.tagNames,
+                error: formatSupabaseError(fallback.error),
+              });
+              const err = new Error(`Failed to list ${type}s: ${fallback.error.message}`);
+              (err as any).cause = fallback.error;
+              throw err;
+            }
+
+            rows = fallback.data;
+          } else {
+            rows = initial.data;
+          }
+        } catch (error) {
+          console.warn('[tags] contains failed, falling back', error);
           notifyTagFilterFallback();
 
           const fallback = await runQuery(false);
@@ -699,8 +725,6 @@ export class SupabaseRepo implements IRepo {
           }
 
           rows = fallback.data;
-        } else {
-          rows = initial.data;
         }
       } else {
         const result = await runQuery(false);
@@ -719,19 +743,21 @@ export class SupabaseRepo implements IRepo {
         return noteZ.parse(mapNoteFromDb(record));
       });
     } finally {
-      if (hasTagFilter && perfStart !== null) {
+      if (hasTagFilter && perfStart !== null && perfLabel) {
         const elapsed = Date.now() - perfStart;
-        try {
-          console.timeEnd(perfLabel);
-        } catch {
-          // console.timeEnd may throw in non-interactive test environments; ignore.
-        }
-        if (elapsed > 600) {
-          console.warn(`${perfLabel} slow (${elapsed}ms)`, {
-            type,
-            tagCount: opts?.tagNames?.length ?? 0,
-            spaceId: opts?.spaceId ?? null,
-          });
+        if (__DEV__) {
+          try {
+            console.timeEnd(perfLabel);
+          } catch {
+            // console.timeEnd may throw in certain environments; ignore.
+          }
+          if (elapsed > 600) {
+            console.warn('[PERF][tags] slow listByType query', {
+              type,
+              ms: elapsed,
+              tagCount: opts?.tagNames?.length ?? 0,
+            });
+          }
         }
       }
     }
@@ -1789,18 +1815,38 @@ export class SupabaseRepo implements IRepo {
       let groupedRaw: { habits: any[]; todos: any[]; notes: any[] };
 
       if (hasTagFilter) {
-        const initial = await runGroupedQuery(true);
-        const initialError = initial.habits.error ?? initial.todos.error ?? initial.notes.error;
+        try {
+          const initial = await runGroupedQuery(true);
+          const initialError = initial.habits.error ?? initial.todos.error ?? initial.notes.error;
 
-        if (initialError) {
-          console.warn(
-            '[SupabaseRepo] Tag filter grouped query failed, falling back without tags',
-            {
-              spaceId,
-              tagNames: opts?.tagNames,
-              error: formatSupabaseError(initialError),
-            },
-          );
+          if (initialError) {
+            console.warn(
+              '[SupabaseRepo] Tag filter grouped query failed, falling back without tags',
+              {
+                spaceId,
+                tagNames: opts?.tagNames,
+                error: formatSupabaseError(initialError),
+              },
+            );
+            notifyTagFilterFallback();
+
+            const fallback = await runGroupedQuery(false);
+            try {
+              groupedRaw = ensureNoErrors(fallback);
+            } catch (fallbackError) {
+              console.warn('[SupabaseRepo] Tag filter grouped fallback failed', {
+                spaceId,
+                error: formatSupabaseError(
+                  (fallbackError as Error & { cause?: any })?.cause ?? null,
+                ),
+              });
+              throw fallbackError;
+            }
+          } else {
+            groupedRaw = ensureNoErrors(initial);
+          }
+        } catch (error) {
+          console.warn('[tags] contains failed, falling back', error);
           notifyTagFilterFallback();
 
           const fallback = await runGroupedQuery(false);
@@ -1813,8 +1859,6 @@ export class SupabaseRepo implements IRepo {
             });
             throw fallbackError;
           }
-        } else {
-          groupedRaw = ensureNoErrors(initial);
         }
       } else {
         groupedRaw = ensureNoErrors(await runGroupedQuery(false));
@@ -1834,9 +1878,9 @@ export class SupabaseRepo implements IRepo {
           // console.timeEnd may throw in non-interactive test environments; ignore.
         }
         if (elapsed > 600) {
-          console.warn(`${perfLabel} slow (${elapsed}ms)`, {
+          console.warn('[PERF][tags] slow query', {
+            ms: elapsed,
             tagCount: opts?.tagNames?.length ?? 0,
-            spaceId,
           });
         }
       }
