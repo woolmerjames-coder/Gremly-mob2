@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useMemo, useCallback, useReducer, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useCallback, useReducer, useState, useRef } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TextInput,
+  StyleSheet,
+  Animated,
+} from 'react-native';
 import { Box, Text, Button } from '../../ui';
 import {
   lightTokens,
@@ -21,6 +28,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
   const baseType = state.baseType;
   const [isSaving, setIsSaving] = useState(false);
+
+  // cross-fade anim for smooth type switching (best-effort caret preservation)
+  const fade = useRef(new Animated.Value(1)).current;
+  const firstMount = useRef(true);
+  useEffect(() => {
+    if (firstMount.current) {
+      firstMount.current = false;
+      return;
+    }
+    // short cross-fade when switching base type
+    Animated.sequence([
+      Animated.timing(fade, { toValue: 0, duration: 60, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 60, useNativeDriver: true }),
+    ]).start();
+  }, [baseType, fade]);
 
   const draftKey = useMemo(
     () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
@@ -143,56 +165,58 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       behavior={Platform.select({ ios: 'padding', android: undefined })}
       keyboardVerticalOffset={Platform.select({ ios: 64, android: 0 })}
     >
-      <Box flex={1} bg="bg" pt={6}>
-        {/* Header: contextual title + base type pills */}
-        <Box px={4} pb={3}>
-          <Text variant="title">{headerFor(baseType, mode)}</Text>
-          <Box mt={3} row gap={2}>
-            {(['log', 'todo', 'habit'] as BaseType[]).map((t) => (
-              <TypePill
-                key={t}
-                active={baseType === t}
-                onPress={() => dispatch({ type: 'SET_BASE_TYPE', to: t })}
-              >
-                {BASE_LABEL[t]}
-              </TypePill>
-            ))}
+      <Animated.View style={{ flex: 1, opacity: fade }}>
+        <Box flex={1} bg="bg" pt={6}>
+          {/* Header: contextual title + base type pills */}
+          <Box px={4} pb={3}>
+            <Text variant="title">{headerFor(baseType, mode)}</Text>
+            <Box mt={3} row gap={2}>
+              {(['log', 'todo', 'habit'] as BaseType[]).map((t) => (
+                <TypePill
+                  key={t}
+                  active={baseType === t}
+                  onPress={() => dispatch({ type: 'SET_BASE_TYPE', to: t })}
+                >
+                  {BASE_LABEL[t]}
+                </TypePill>
+              ))}
+            </Box>
+          </Box>
+
+          {/* Body: text input only (Level-1) */}
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollPad}>
+            <Box px={4}>
+              <TextInput
+                value={currentText}
+                onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                placeholder="Drop your thought…"
+                placeholderTextColor={lightTokens.colors.subtle}
+                multiline
+                autoFocus
+                textAlignVertical="top"
+                style={[styles.textArea, { color: lightTokens.colors.text }]}
+              />
+              {/* Tag row hidden at Level-1; lands in Phase 3 */}
+            </Box>
+          </ScrollView>
+
+          {/* Save bar (fixed) */}
+          <Box
+            px={4}
+            py={3}
+            row
+            gap={2}
+            style={{
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: lightTokens.colors.border,
+            }}
+          >
+            <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
+            <Box flex={1} />
+            <Button onPress={onSave} disabled={!canSave} title={isSaving ? 'Saving...' : 'Save'} />
           </Box>
         </Box>
-
-        {/* Body: text input only (Level-1) */}
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollPad}>
-          <Box px={4}>
-            <TextInput
-              value={currentText}
-              onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-              placeholder="Drop your thought…"
-              placeholderTextColor={lightTokens.colors.subtle}
-              multiline
-              autoFocus
-              textAlignVertical="top"
-              style={[styles.textArea, { color: lightTokens.colors.text }]}
-            />
-            {/* Tag row hidden at Level-1; lands in Phase 3 */}
-          </Box>
-        </ScrollView>
-
-        {/* Save bar (fixed) */}
-        <Box
-          px={4}
-          py={3}
-          row
-          gap={2}
-          style={{
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: lightTokens.colors.border,
-          }}
-        >
-          <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
-          <Box flex={1} />
-          <Button onPress={onSave} disabled={!canSave} title={isSaving ? 'Saving...' : 'Save'} />
-        </Box>
-      </Box>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }
