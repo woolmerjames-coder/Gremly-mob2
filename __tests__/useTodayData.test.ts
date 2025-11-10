@@ -25,6 +25,8 @@ jest.mock('../design/animations', () => ({
 import { useRepo } from '../providers/RepoProvider';
 import { useAuth } from '../providers/AuthProvider';
 
+const OriginalDate = Date;
+
 // Helper to create minimal valid habit
 const createHabit = (overrides: Partial<Habit> = {}): Habit => ({
   id: 'h1',
@@ -63,9 +65,12 @@ describe('useTodayData', () => {
     getSpaceById: jest.fn(),
     countPlannedToday: jest.fn(),
     countCompletedToday: jest.fn(),
+    listCommitments: jest.fn(),
   };
 
   beforeEach(() => {
+    (global as any).Date = OriginalDate;
+    (global as any).Date.now = OriginalDate.now;
     jest.clearAllMocks();
     (useAuth as jest.Mock).mockReturnValue({ user: mockUser });
     (useRepo as jest.Mock).mockReturnValue(mockRepo);
@@ -76,6 +81,7 @@ describe('useTodayData', () => {
     mockRepo.getSpaceById.mockResolvedValue(null);
     mockRepo.countPlannedToday.mockResolvedValue(0);
     mockRepo.countCompletedToday.mockResolvedValue(0);
+    mockRepo.listCommitments.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -111,7 +117,7 @@ describe('useTodayData', () => {
 
   it('should order todos: overdue → nearDue → dueTime → title', async () => {
     const now = new Date('2025-01-15T12:00:00Z');
-    const RealDate = Date;
+    const RealDate = OriginalDate;
 
     // Mock Date constructor
     (global as any).Date = jest.fn((...args) => {
