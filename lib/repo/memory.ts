@@ -452,6 +452,7 @@ export class MemoryRepo implements IRepo {
           carry_forward?: boolean;
           overdue?: boolean;
           nearDue?: boolean;
+          commitment?: boolean;
         }
       | {
           type: 'habit';
@@ -464,6 +465,7 @@ export class MemoryRepo implements IRepo {
           period_unit?: 'day' | 'week' | 'month';
           time_window?: 'any' | 'morning' | 'midday' | 'evening';
           progress_today?: number;
+          commitment?: boolean;
         }
     >
   > {
@@ -516,6 +518,7 @@ export class MemoryRepo implements IRepo {
         overdue,
         nearDue,
         completed_at: completedAt,
+        commitment: (t as any).commitment === true,
       };
     };
 
@@ -577,6 +580,7 @@ export class MemoryRepo implements IRepo {
         progress_today: done,
         status,
         completed_at: status === 'completed' ? info.latestAt : null,
+        commitment: (h as any).commitment === true,
       };
     });
 
@@ -845,9 +849,9 @@ export class MemoryRepo implements IRepo {
       return;
     }
 
-    const activeCount = await this.countActiveCommitments();
-    if (activeCount >= 3) {
-      throw new Error('Maximum active commitments reached');
+    const current = await this.countActiveCommitments();
+    if (current >= 3) {
+      throw new Error('MAX_COMMITMENTS_REACHED');
     }
 
     const now = nowIso();

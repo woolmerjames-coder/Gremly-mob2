@@ -1081,6 +1081,7 @@ export class SupabaseRepo implements IRepo {
           carry_forward?: boolean;
           overdue?: boolean;
           nearDue?: boolean;
+          commitment?: boolean;
         }
       | {
           type: 'habit';
@@ -1093,13 +1094,14 @@ export class SupabaseRepo implements IRepo {
           period_unit?: 'day' | 'week' | 'month';
           time_window?: 'any' | 'morning' | 'midday' | 'evening';
           progress_today?: number;
+          commitment?: boolean;
         }
     >
   > {
     const userId = this.ensureUserId();
     const day = ensureDay(nowIso);
 
-    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward,tags';
+    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward,tags,commitment';
     const todoFields = `${todoFieldsBase},completed_at`;
 
     let activeTodos: any[] | null = null;
@@ -1167,6 +1169,7 @@ export class SupabaseRepo implements IRepo {
         overdue,
         nearDue,
         completed_at: completedAt,
+        commitment: t.commitment === true,
       };
     };
 
@@ -1176,7 +1179,7 @@ export class SupabaseRepo implements IRepo {
     try {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
-        .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags')
+        .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment')
         .eq('owner_id', userId);
 
       if (habitsErr) throw habitsErr;
@@ -1227,6 +1230,7 @@ export class SupabaseRepo implements IRepo {
             progress_today: done,
             status,
             completed_at: status === 'completed' ? progressInfo.latestAt : null,
+            commitment: h.commitment === true,
           };
         }) ?? [];
     } catch (error) {
@@ -1629,7 +1633,8 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
     }
 
-    this.lastCommitCountAt = 0;
+    this.lastCommitCountAt = Date.now();
+    this.lastCommitCountValue = current + 1;
   }
 
   /** Disable commitment (soft remove). Optionally store a reason in note. */
@@ -1654,7 +1659,8 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
     }
 
-    this.lastCommitCountAt = 0;
+    this.lastCommitCountAt = Date.now();
+    this.lastCommitCountValue = Math.max(0, this.lastCommitCountValue - 1);
   }
 
   // ==========================
