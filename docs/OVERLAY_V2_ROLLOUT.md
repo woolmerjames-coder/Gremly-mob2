@@ -31,6 +31,24 @@ Database / migrations:
 Host integration:
 
 - Piping/host controller flows are untouched — OverlayHost and controller wiring remain the same; this is an additive UI/data refinement behind the feature flag.
+ 
+Phase‑6: AI Prefill & Feedback (notes)
+
+- Prefill suggestions from Cortex (title + tags).
+- Low-confidence suggestions (confidence < 0.8) appear muted in the UI to indicate uncertainty.
+- Feedback events are logged back to Cortex on user interactions:
+  - If the user edits an AI-suggested title, a rejection event is recorded.
+  - If the user accepts the suggestion (title unchanged on save), an acceptance event is recorded.
+  - If the user unchecks a suggested tag, a tag-rejection event is recorded (sent once per suggested tag).
+- This behavior is guarded by `EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL` (on|off). Default: `off`.
+
+Implementation notes:
+
+- The overlay calls a Cortex prefill/classify endpoint to get a suggested title and tags when opening in create mode with an empty body.
+- Tags returned with low confidence (< 0.4) are ignored; tags between 0.4 and 0.8 are suggested but shown as low-confidence; tags >= 0.8 are suggested as confident.
+- Feedback is sent to `cortex.feedbackOverlay` (if available) with payloads indicating type (`title` | `tags`), `accepted: boolean`, `prev`, and `newValue`.
+- All Cortex calls are best-effort and defensive; the overlay falls back to no suggestions if Cortex is unavailable or the call errors.
+
 # Unified Overlay V2 — Rollout Notes
 
 Goal
