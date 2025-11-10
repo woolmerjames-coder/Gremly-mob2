@@ -18,6 +18,7 @@ const raw = {
   CANONICAL_TYPES: process.env.EXPO_PUBLIC_CANONICAL_TYPES ?? 'off',
   CANONICAL_CONVERSIONS: process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS ?? 'off',
   FEATURE_BUDDY: process.env.EXPO_PUBLIC_FEATURE_BUDDY ?? 'off',
+  FEATURE_COMMITMENTS: process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on',
 
   TODAY_SUGGESTIONS: process.env.EXPO_PUBLIC_TODAY_SUGGESTIONS ?? 'on',
   TODAY_CELEBRATION: process.env.EXPO_PUBLIC_TODAY_CELEBRATION ?? 'on',
@@ -57,7 +58,10 @@ const raw = {
 const flag = (v?: string): boolean => {
   if (!v) return false;
   const normalized = v.toLowerCase();
-  return normalized === 'on' || normalized === 'true';
+  if (normalized === 'off' || normalized === 'false' || normalized === '0') {
+    return false;
+  }
+  return normalized === 'on' || normalized === 'true' || normalized === '1';
 };
 
 // Helper: Ensure value is one of allowed options, fallback if not
@@ -138,6 +142,7 @@ export const env = {
     sweep: {
       eveningV1: flag(raw.EVENING_SWEEP_V1),
     },
+    commitments: flag(raw.FEATURE_COMMITMENTS ?? 'on'),
 
     // Mascot feature flags (Phase 10.6)
     mascot: {
