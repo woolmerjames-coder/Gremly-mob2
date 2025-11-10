@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useMemo, useCallback, useReducer, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { Box, Text, Button } from '../../ui';
 import {
@@ -9,10 +9,8 @@ import {
 } from '../../design/tokens';
 import { useRepo } from '../../providers/RepoProvider';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
-import type { CanonicalType } from '../../lib/types';
+import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
-
-type BaseType = 'log' | 'todo' | 'habit';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -20,9 +18,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const { visible, onClose, mode = 'create', initialEntity, initialSpaceId } = props;
 
   const repo = useRepo();
-  const [baseType, setBaseType] = useState<BaseType>('log');
-  const [text, setText] = useState('');
-  const [title, setTitle] = useState<string>('');
+  const [state, dispatch] = useReducer(v2Reducer, initialV2State);
+  const baseType = state.baseType;
   const [isSaving, setIsSaving] = useState(false);
 
   const draftKey = useMemo(
@@ -31,10 +28,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 
   // load existing draft once
+  const currentText =
+    baseType === 'log'
+      ? state.log.body
+      : baseType === 'todo'
+        ? state.todo.details
+        : state.habit.notes;
   useEffect(() => {
     let mounted = true;
     readOverlayV2Draft(draftKey).then((v) => {
-      if (mounted && v && !text) setText(v);
+      if (mounted && v && !currentText) dispatch({ type: 'SET_TEXT', text: v });
     });
     return () => {
       mounted = false;
@@ -43,33 +46,51 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [draftKey]);
 
   // autosave on change
-  useOverlayV2Draft(draftKey, text);
+  useOverlayV2Draft(draftKey, currentText);
 
   // Initial defaults (match brief: text-first; first line becomes title)
   useEffect(() => {
-    if (mode === 'edit' && initialEntity && 'type' in initialEntity) {
-      const et = initialEntity.type;
-      if (et === 'todo' || et === 'habit') setBaseType(et as BaseType);
-      else setBaseType('log');
-      // text/title prefill happens in Phase 2+ (parity), keeping Level-1 lean
+    if (mode === 'edit' && initialEntity) {
+      // Hydrate minimal parity from initialEntity (title/body/details)
+      const t = (initialEntity as any).type;
+      const payload: any = {};
+      if (t === 'todo') payload.baseType = 'todo';
+      else if (t === 'habit') payload.baseType = 'habit';
+      else payload.baseType = 'log';
+      payload.log = {
+        title: (initialEntity as any).title ?? '',
+        body: ((initialEntity as any).body || (initialEntity as any).details || '') ?? '',
+      };
+      payload.todo = {
+        title: (initialEntity as any).title ?? '',
+        details: (initialEntity as any).details ?? '',
+        due_at: (initialEntity as any).due_at ?? null,
+      };
+      payload.habit = {
+        title: (initialEntity as any).title ?? '',
+        notes: (initialEntity as any).notes ?? '',
+        schedule: 'custom',
+      };
+      dispatch({ type: 'HYDRATE_EDIT', payload });
     }
   }, [mode, initialEntity]);
 
-  useEffect(() => {
-    const firstLine = (text || '').split(/\r?\n/)[0] ?? '';
-    setTitle(firstLine.trim().slice(0, 120));
-  }, [text]);
-
-  const canSave = text.trim().length > 0 && !isSaving;
+  const canSave = currentText.trim().length > 0 && !isSaving;
 
   const onSave = useCallback(async () => {
     if (!canSave) return;
     setIsSaving(true);
     try {
+      const title =
+        baseType === 'log'
+          ? state.log.title
+          : baseType === 'todo'
+            ? state.todo.title
+            : state.habit.title;
       const input = buildCreateOrUpdateInput({
         mode,
         baseType,
-        text,
+        text: currentText,
         title,
         spaceId: initialSpaceId ?? null,
         initialEntity: initialEntity as any,
@@ -93,7 +114,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setIsSaving(false);
       // brief: retry inline later; for now we keep content in place and leave draft intact
     }
-  }, [canSave, mode, baseType, text, title, initialSpaceId, initialEntity, repo, onClose]);
+  }, [
+    canSave,
+    mode,
+    baseType,
+    currentText,
+    state,
+    initialSpaceId,
+    initialEntity,
+    repo,
+    onClose,
+    draftKey,
+  ]);
 
   const handleCancel = useCallback(async () => {
     await clearOverlayV2Draft(draftKey);
@@ -114,7 +146,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           <Text variant="title">{headerFor(baseType, mode)}</Text>
           <Box mt={3} row gap={2}>
             {(['log', 'todo', 'habit'] as BaseType[]).map((t) => (
-              <TypePill key={t} active={baseType === t} onPress={() => setBaseType(t)}>
+              <TypePill
+                key={t}
+                active={baseType === t}
+                onPress={() => dispatch({ type: 'SET_BASE_TYPE', to: t })}
+              >
                 {BASE_LABEL[t]}
               </TypePill>
             ))}
@@ -125,8 +161,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollPad}>
           <Box px={4}>
             <TextInput
-              value={text}
-              onChangeText={setText}
+              value={currentText}
+              onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
               placeholder="Drop your thought…"
               placeholderTextColor={lightTokens.colors.subtle}
               multiline
