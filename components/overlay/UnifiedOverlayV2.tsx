@@ -77,55 +77,58 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const canSave = currentText.trim().length > 0 && !isSaving;
 
+  function toCreateOrUpdateInput(
+    baseType: BaseType,
+    s: typeof initialV2State,
+    spaceId: string | null,
+  ) {
+    if (baseType === 'todo') {
+      return {
+        type: 'todo' as const,
+        title: s.todo.title || firstLine(s.todo.details) || 'Untitled',
+        details: s.todo.details || null,
+        due_at: s.todo.due_at ?? null,
+        space_id: spaceId,
+        origin: 'catchall' as const,
+      };
+    }
+    if (baseType === 'habit') {
+      return {
+        type: 'habit' as const,
+        title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
+        notes: s.habit.notes || null,
+        frequency: s.habit.schedule ?? 'custom',
+        space_id: spaceId,
+        origin: 'catchall' as const,
+      };
+    }
+    return {
+      type: 'note' as const,
+      subtype: 'catchall' as const,
+      title: s.log.title || firstLine(s.log.body) || 'Untitled note',
+      body: s.log.body,
+      space_id: spaceId,
+      origin: 'catchall' as const,
+    };
+  }
+
   const onSave = useCallback(async () => {
     if (!canSave) return;
     setIsSaving(true);
     try {
-      const title =
-        baseType === 'log'
-          ? state.log.title
-          : baseType === 'todo'
-            ? state.todo.title
-            : state.habit.title;
-      const input = buildCreateOrUpdateInput({
-        mode,
-        baseType,
-        text: currentText,
-        title,
-        spaceId: initialSpaceId ?? null,
-        initialEntity: initialEntity as any,
-      });
-      if (mode === 'edit' && (initialEntity as any)?.id) {
-        await repo.update({ id: (initialEntity as any).id, patch: input as any });
-      } else {
-        await repo.create(input as any);
-      }
-
-      // clear local draft on success
-      await clearOverlayV2Draft(draftKey);
-
-      // NOTE: overlaySaved / analytics events are emitted by `OverlayHost` when the overlay
-      // is closed (via the `onClose`/`onSaved` plumbing). Do NOT emit analytics or global
-      // saved events from here — keep telemetry centralized in the Host.
+      const input = toCreateOrUpdateInput(baseType, state as any, initialSpaceId ?? null);
+      const result =
+        mode === 'edit' && (initialEntity as any)?.id
+          ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
+          : await repo.create(input as any);
       setIsSaving(false);
+      await clearOverlayV2Draft(draftKey);
       onClose?.();
     } catch (e) {
       console.error('[UnifiedOverlayV2] save failed', e);
       setIsSaving(false);
-      // brief: retry inline later; for now we keep content in place and leave draft intact
     }
-  }, [
-    canSave,
-    mode,
-    baseType,
-    currentText,
-    state,
-    initialSpaceId,
-    initialEntity,
-    repo,
-    onClose,
-    draftKey,
-  ]);
+  }, [canSave, baseType, state, initialSpaceId, mode, initialEntity, repo, draftKey, onClose]);
 
   const handleCancel = useCallback(async () => {
     await clearOverlayV2Draft(draftKey);
