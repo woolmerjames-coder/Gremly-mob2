@@ -1,3 +1,44 @@
+# Overlay V2 — Phase 8 Rollout Notes
+
+This document summarizes the Phase‑8 polish for Overlay V2 (branch: `new-overlay-for-tag-system`).
+
+Summary
+-------
+- Polished UI aligned to the “Harmonic Cortex” palette.
+- Full light/dark token consistency: short-name tokens (`moss`, `sage`, `periwinkle`, `linen`, `deep`, `charcoal`) added and wired to overlay components.
+- Accessibility improvements: focus rings added for keyboard users, accessibilityRole on Buttons, accessibilityLabel on key inputs.
+- Motion: details panel collapse/expand and commitment reveal animated with a short (≈150ms) ease; save-success pulse added (≈400ms total).
+- Tests: added snapshot-style a11y/visual checks that assert roles, labels, contrast (WCAG >= 4.5 for primary input), and focus-ring behavior.
+
+Design & Tokens
+----------------
+- Primary accent: Moss (#2E5540) as `primary` with `onPrimary` set to a warm linen (`#F9F6F1`).
+- Support tokens: `sage` (#BFD8C0) used for input borders and subtle accents; `periwinkle` (#9CA6E0) reserved for neutral highlight states.
+- Backgrounds: `linen` for light-mode input surfaces and `deep` for dark-mode input surfaces.
+
+Motion & Accessibility
+----------------------
+- Animations respect system reduced-motion settings via the project's `useReducedMotion` hook. In tests the hook is forced on, so animations do not run during unit tests.
+- Details panel: opacity + translateY animation to reveal/hide content; avoids animating height to remain robust with dynamic content.
+- Commitment reveal: small scale + fade animation to draw attention when toggled.
+- Save pulse: quick scale pulse on the Save control before closing the overlay, skipped when reduced motion is enabled.
+
+Testing
+-------
+- Added `tests/overlay/UnifiedOverlayV2.a11y.visual.test.tsx` which:
+  - Renders the overlay in mocked light/dark color-scheme and asserts accessibility roles/labels.
+  - Computes WCAG contrast using the design tokens and verifies text/background contrast >= 4.5.
+  - Focus ring check: asserting the input's focused border color and width change to the Golden Pear color (`#E0C47A`) and 2px width.
+  - Emits a snapshot for visual regression.
+
+Rollout & Next Steps
+--------------------
+1. Iterate on animation timing and reimplement with Reanimated worklets if we want GPU-offloaded motion. The code currently uses React Native Animated with reduced‑motion guards for correctness and test stability.
+2. Expand tests to assert more controls have accurate accessibility labels and roles (all interactive elements).
+3. Add visual QA screenshots for designers — consider a Percy/Chromatic job for pixel diffs.
+4. Monitor feedback from the soft rollout (feature flag: `EXPO_PUBLIC_FEATURE_COMMITMENTS`) and adjust commitment UI wording/limits.
+
+If anything in this rollout needs tightening (timing, contrast, or focus styles), I can iterate quickly; the animation changes were implemented incrementally to avoid a large monolithic patch.
 # Overlay V2 rollout notes — Phase 4 (brief)
 
 Phase‑4 introduces a collapsible "Add details" panel on the Overlay V2. It contains:
