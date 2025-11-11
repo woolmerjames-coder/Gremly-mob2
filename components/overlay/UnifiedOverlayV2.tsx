@@ -9,6 +9,7 @@ import {
   Animated,
   useColorScheme,
 } from 'react-native';
+import { useReducedMotion } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays } from 'date-fns';
@@ -104,6 +105,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // cross-fade anim for smooth type switching (best-effort caret preservation)
   const fade = useRef(new Animated.Value(1)).current;
   const firstMount = useRef(true);
+  // reduced motion preference
+  const reduceMotion = useReducedMotion();
+
+  // animation values for details panel, commitment and save pulse
+  const detailsAnim = useRef(new Animated.Value(state.expanded ? 1 : 0)).current;
+  const commitmentAnim = useRef(new Animated.Value(state.commitment ? 1 : 0)).current;
+  const savePulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (firstMount.current) {
       firstMount.current = false;
@@ -115,6 +123,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       Animated.timing(fade, { toValue: 1, duration: 60, useNativeDriver: true }),
     ]).start();
   }, [baseType, fade]);
+
+  // animate details panel expand/collapse
+  useEffect(() => {
+    Animated.timing(detailsAnim, {
+      toValue: state.expanded ? 1 : 0,
+      duration: reduceMotion ? 0 : 150,
+      useNativeDriver: true,
+    }).start();
+  }, [state.expanded, detailsAnim, reduceMotion]);
+
+  // animate commitment reveal/hide
+  useEffect(() => {
+    Animated.timing(commitmentAnim, {
+      toValue: state.commitment ? 1 : 0,
+      duration: reduceMotion ? 0 : 150,
+      useNativeDriver: true,
+    }).start();
+  }, [state.commitment, commitmentAnim, reduceMotion]);
 
   const draftKey = useMemo(
     () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
@@ -393,7 +419,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       setIsSaving(false);
       await clearOverlayV2Draft(draftKey);
-      onClose?.();
+
+      // show a quick save pulse before closing (respect reduced motion)
+      const runClose = () => onClose?.();
+      if (reduceMotion) {
+        runClose();
+      } else {
+        Animated.sequence([
+          Animated.timing(savePulse, { toValue: 1, duration: 200, useNativeDriver: true }),
+          Animated.timing(savePulse, { toValue: 0, duration: 200, useNativeDriver: true }),
+        ]).start(() => {
+          runClose();
+        });
+      }
     } catch (e) {
       console.error('[UnifiedOverlayV2] save failed', e);
       setIsSaving(false);
@@ -692,7 +730,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             </Box>
           </Modal>
           {/* Expanded details panel (Phase-4) */}
-          {state.expanded ? (
+          <Animated.View
+            style={{
+              opacity: detailsAnim,
+              transform: [
+                {
+                  translateY: detailsAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }),
+                },
+              ],
+            }}
+            pointerEvents={state.expanded ? 'auto' : 'none'}
+          >
             <Box px={4} pb={2}>
               <Text variant="label">Details</Text>
               {/* People linker + reminder/todo due + space selector */}
@@ -771,27 +819,45 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         }}
                         title={state.commitment ? 'Committed' : 'Make this a commitment'}
                       />
-                      {state.commitment ? (
-                        <TextInput
-                          placeholder="Why this matters (optional, 140 max)"
-                          accessibilityLabel="Commitment note input"
-                          maxLength={140}
-                          value={state.commitmentNote}
-                          onChangeText={(t) => dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })}
-                          onFocus={() => setCommitmentFocused(true)}
-                          onBlur={() => setCommitmentFocused(false)}
-                          style={[
-                            styles.textArea,
-                            { minHeight: 40, paddingVertical: 8 },
+
+                      {/* Animated reveal for the commitment note */}
+                      <Animated.View
+                        style={{
+                          opacity: commitmentAnim,
+                          transform: [
                             {
-                              borderColor: commitmentFocused
-                                ? '#E0C47A'
-                                : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                              borderWidth: commitmentFocused ? 2 : StyleSheet.hairlineWidth,
+                              scale: commitmentAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0.98, 1],
+                              }),
                             },
-                          ]}
-                        />
-                      ) : null}
+                          ],
+                          flex: 1,
+                        }}
+                        pointerEvents={state.commitment ? 'auto' : 'none'}
+                      >
+                        {state.commitment ? (
+                          <TextInput
+                            placeholder="Why this matters (optional, 140 max)"
+                            accessibilityLabel="Commitment note input"
+                            maxLength={140}
+                            value={state.commitmentNote}
+                            onChangeText={(t) => dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })}
+                            onFocus={() => setCommitmentFocused(true)}
+                            onBlur={() => setCommitmentFocused(false)}
+                            style={[
+                              styles.textArea,
+                              { minHeight: 40, paddingVertical: 8 },
+                              {
+                                borderColor: commitmentFocused
+                                  ? '#E0C47A'
+                                  : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                                borderWidth: commitmentFocused ? 2 : StyleSheet.hairlineWidth,
+                              },
+                            ]}
+                          />
+                        ) : null}
+                      </Animated.View>
                     </Box>
                   </Box>
                 ) : null}
@@ -819,7 +885,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </Box>
               ) : null}
             </Box>
-          ) : null}
+          </Animated.View>
 
           {/* Toggle row for expanded "Add details" panel (Phase-4) */}
           <Box px={4} py={2} row style={{ alignItems: 'center' }}>
@@ -845,7 +911,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           >
             <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
             <Box flex={1} />
-            <Button onPress={onSave} disabled={!canSave} title={isSaving ? 'Saving...' : 'Save'} />
+            <Animated.View
+              style={{
+                transform: [
+                  {
+                    scale: savePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }),
+                  },
+                ],
+              }}
+            >
+              <Button
+                onPress={onSave}
+                disabled={!canSave}
+                title={isSaving ? 'Saving...' : 'Save'}
+              />
+            </Animated.View>
           </Box>
           {/* close the Box opened above via the IIFE */}
         </Box>
