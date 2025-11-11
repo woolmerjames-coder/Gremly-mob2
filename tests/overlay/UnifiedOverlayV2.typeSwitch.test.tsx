@@ -14,7 +14,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
-const { UnifiedOverlayV2 } = require('../../components/overlay/UnifiedOverlayV2');
+const _mod = require('../../components/overlay/UnifiedOverlayV2');
+const UnifiedOverlayV2 = _mod?.default ?? _mod?.UnifiedOverlayV2 ?? _mod;
 
 const base = { visible: true, onClose: jest.fn(), mode: 'create' } as any;
 

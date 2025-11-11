@@ -24,6 +24,11 @@ export type EventMap = {
   TodaySuggestionAccept: { suggestionId: string; type: string };
   TagFilterApplied: { tagCount: number };
   CommitmentsChanged: Record<string, never>;
+  // Overlay funnel / UX telemetry
+  OverlayOpened: { mode: 'create' | 'edit'; baseType: string | null };
+  OverlayTypeChanged: { from: string; to: string };
+  OverlayCommitmentToggled: { on: boolean };
+  OverlaySaved: { id: string; type?: string };
   // Cortex classification events (Phase 10)
   'cortex:classified': { itemId: string; classification: ClassificationResult };
   'cortex:failed': { itemId: string; error: string };

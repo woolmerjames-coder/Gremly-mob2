@@ -6,7 +6,7 @@
 // Expose a single gateway export surface. Callers should import the
 // OverlayComponent from the overlay package root to avoid depending on
 // implementation-specific modules.
-export { default as OverlayComponent } from './gateway';
+export { OverlayComponent } from './gateway';
 export type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 
 // Intentionally do NOT export UnifiedCreateOverlay or UnifiedOverlayV2

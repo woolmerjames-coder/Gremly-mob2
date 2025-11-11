@@ -1,14 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useCallback, useReducer, useState, useRef } from 'react';
 import {
+  Dimensions,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   ScrollView,
   TextInput,
   StyleSheet,
+  UIManager,
   useColorScheme,
+  View,
+  Animated as RNAnimated,
+  Easing,
 } from 'react-native';
-import Animated, {
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
+import Reanimated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
@@ -17,6 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
+import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays } from 'date-fns';
 import {
@@ -35,14 +43,38 @@ import useOverlayPrefill from './useOverlayPrefill';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
 import ToastUndo from './ToastUndo';
-import { toCreateOrUpdateInput, linkSelectedPerson } from './overlayV2.mapping';
+import { linkSelectedPerson } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
+import { eventBus } from '../../lib/events/EventBus';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// Runtime sanity checks (fail fast with clear messages during tests)
+// These run at module-evaluation time to help identify broken imports.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _any: any = {};
+  if (typeof (Box as any) === 'undefined')
+    throw new Error('UnifiedOverlayV2: import `Box` is undefined');
+  if (typeof (Text as any) === 'undefined')
+    throw new Error('UnifiedOverlayV2: import `Text` is undefined');
+  if (typeof (Button as any) === 'undefined')
+    throw new Error('UnifiedOverlayV2: import `Button` is undefined');
+  if (typeof (ScopeSelector as any) === 'undefined')
+    throw new Error('UnifiedOverlayV2: import `ScopeSelector` is undefined');
+} catch (e: any) {
+  // eslint-disable-next-line no-console
+  console.error('UnifiedOverlayV2 sanity check failed:', e && e.message ? e.message : e);
+}
 
 export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
-  const { visible, onClose, mode = 'create', initialEntity, initialSpaceId } = props;
+  const { visible, onClose, mode = 'create', initialEntity, initialSpaceId, onSaved } = props;
 
   const repo = useRepo();
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
@@ -51,6 +83,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showDateModal, setShowDateModal] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
   const [customDate, setCustomDate] = useState('');
+  // save error UI
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // transient UI success pulse
+  const [savedPulse, setSavedPulse] = useState(false);
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
   const [customDateFocused, setCustomDateFocused] = useState(false);
@@ -112,20 +148,65 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
   }, [repo, state.expanded]);
 
-  // cross-fade anim for smooth type switching (best-effort caret preservation)
-  const fade = useSharedValue(1);
-  const firstMount = useRef(true);
+  // Emit an 'opened' funnel event when the overlay becomes visible so analytics
+  // can track funnel starts (best-effort, ignore telemetry errors).
+  useEffect(() => {
+    if (!visible) return;
+    try {
+      eventBus.emit('OverlayOpened', { mode, baseType: state.baseType });
+    } catch (e) {
+      // ignore telemetry errors
+    }
+  }, [visible, mode, state.baseType]);
+
+  // safe area insets (guard when the test harness doesn't provide the hook)
+  let insets = { top: 0, bottom: 0, left: 0, right: 0 };
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    insets = useSafeAreaInsets();
+  } catch (e) {
+    insets = { top: 0, bottom: 0, left: 0, right: 0 };
+  }
+
   // reduced motion preference
   const reduceMotion = useReducedMotion();
+
+  const handleToggleDetails = useCallback(() => {
+    if (!reduceMotion) {
+      try {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      } catch (e) {
+        // no-op if the platform doesn't support LayoutAnimation
+      }
+    }
+    dispatch({ type: 'TOGGLE_EXPANDED' });
+  }, [dispatch, reduceMotion]);
+
+  // Runtime checks for components that must exist at render time.
+  if (typeof Box === 'undefined') throw new Error('UnifiedOverlayV2 render: `Box` is undefined');
+  if (typeof Text === 'undefined') throw new Error('UnifiedOverlayV2 render: `Text` is undefined');
+  if (typeof Button === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `Button` is undefined');
+  if (typeof ScopeSelector === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `ScopeSelector` is undefined');
+  if (typeof ToastUndo === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `ToastUndo` is undefined');
+  if (typeof Reanimated === 'undefined' || typeof (Reanimated as any).View === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `Animated.View` is undefined');
+  if (typeof SafeAreaView === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `SafeAreaView` is undefined');
+  if (typeof PeopleLinker === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `PeopleLinker` is undefined');
+  if (typeof PersonPicker === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `PersonPicker` is undefined');
+  if (typeof Modal === 'undefined')
+    throw new Error('UnifiedOverlayV2 render: `Modal` is undefined');
 
   // animation values for details panel, commitment and save pulse
   const detailsAnim = useSharedValue(state.expanded ? 1 : 0);
   const commitmentAnim = useSharedValue(state.commitment ? 1 : 0);
   const savePulse = useSharedValue(0);
-
-  const fadeStyle = useAnimatedStyle(() => ({
-    opacity: fade.value,
-  }));
+  const sheetTranslateY = useRef(new RNAnimated.Value(16)).current;
 
   const detailsStyle = useAnimatedStyle(() => ({
     opacity: detailsAnim.value,
@@ -140,25 +221,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const saveStyle = useAnimatedStyle(() => ({
     transform: [{ scale: interpolate(savePulse.value, [0, 1], [1, 1.06]) }],
   }));
+
   useEffect(() => {
-    if (firstMount.current) {
-      firstMount.current = false;
+    if (!visible) return;
+    if (reduceMotion) {
+      sheetTranslateY.setValue(0);
       return;
     }
-    // short cross-fade when switching base type
-    if (fade && typeof (fade as any).value !== 'undefined') {
-      try {
-        (fade as any).value = conditionalAnimation(
-          withSequence(withTiming(0, timingConfig.fast), withTiming(1, timingConfig.fast)),
-          1,
-          reduceMotion,
-        );
-      } catch (e) {
-        // Tests may mock reanimated partially; swallow errors here
-      }
-    }
-  }, [baseType, fade]);
-
+    sheetTranslateY.setValue(16);
+    RNAnimated.timing(sheetTranslateY, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, reduceMotion, sheetTranslateY]);
   // animate details panel expand/collapse
   useEffect(() => {
     try {
@@ -339,8 +416,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
-  const bgColor =
-    colorMode === 'dark' ? lightTokens.colors.deepForest : lightTokens.colors.linenCream;
+  const sheetBackground =
+    colorMode === 'dark' ? darkTokens.colors.linen : lightTokens.colors.linenCream;
+  const sheetBorderColor = colorMode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+  const handleColor = colorMode === 'dark' ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.16)';
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   const canSave = currentText.trim().length > 0 && !isSaving;
 
@@ -409,6 +489,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const onSave = useCallback(async () => {
     if (!canSave) return;
+    // If offline, surface a small hint and keep the draft (enqueue behavior no-op here)
+    if (isOffline) {
+      setSaveError("You're offline — Save will keep the draft.");
+      return;
+    }
+    setSaveError(null);
     setIsSaving(true);
     try {
       const input = toCreateOrUpdateInput(baseType, state as any, initialSpaceId ?? null);
@@ -495,6 +581,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setIsSaving(false);
       await clearOverlayV2Draft(draftKey);
 
+      // transient saved pulse and optional haptic feedback
+      setSavedPulse(true);
+      // haptic feedback if available and not reduced motion
+      if (!reduceMotion) {
+        try {
+          // fire a success haptic (non-blocking)
+          Haptics?.notificationAsync?.(Haptics.NotificationFeedbackType?.Success);
+        } catch (err) {
+          // ignore
+        }
+      }
+      // auto-hide the saved pulse indicator after ~1s
+      setTimeout(() => setSavedPulse(false), 1000);
+
+      // Emit overlay saved analytics and call parent onSaved if supplied
+      try {
+        const savedType = (result as any)?.type ?? baseType;
+        eventBus.emit('OverlaySaved', { id: result?.id, type: savedType });
+      } catch (e) {
+        // ignore
+      }
+      try {
+        // Notify parent (OverlayHost) so it can run its saved hooks
+        onSaved?.({ id: result?.id, type: (result as any)?.type ?? baseType } as any);
+      } catch (e) {
+        // ignore
+      }
+
       // show a quick save pulse before closing (respect reduced motion)
       const runClose = () => onClose?.();
       if (reduceMotion) {
@@ -517,9 +631,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       }
     } catch (e) {
       console.error('[UnifiedOverlayV2] save failed', e);
+      // show inline retry bar; do not clear draft
+      setSaveError('Save failed. Retry?');
       setIsSaving(false);
     }
-  }, [canSave, baseType, state, initialSpaceId, mode, initialEntity, repo, draftKey, onClose]);
+  }, [
+    canSave,
+    baseType,
+    state,
+    initialSpaceId,
+    mode,
+    initialEntity,
+    repo,
+    draftKey,
+    onClose,
+    isOffline,
+  ]);
 
   const handleCancel = useCallback(async () => {
     await clearOverlayV2Draft(draftKey);
@@ -534,319 +661,170 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       behavior={Platform.select({ ios: 'padding', android: undefined })}
       keyboardVerticalOffset={Platform.select({ ios: 64, android: 0 })}
     >
-      <Animated.View
+      <View
         style={{
           flex: 1,
-          // Prefer a plain number for opacity in tests where reanimated is mocked.
-          opacity: typeof (fade as any)?.value !== 'undefined' ? (fade as any).value : 1,
+          justifyContent: 'flex-end',
+          alignSelf: 'stretch',
         }}
       >
-        {/* Use theme-aware overlay background, slightly rounded with subtle lg elevation */}
-        <Box
-          flex={1}
-          pt={6}
+        {/* Bottom-anchored sheet: max 80% of viewport, rounded top corners */}
+        <RNAnimated.View
           style={{
-            backgroundColor: bgColor,
-            borderRadius: tokenRadius.md,
-            // spread the token elevation for a subtle shadow
-            ...lightTokens.elevation.lg,
+            width: '100%',
+            transform: [{ translateY: sheetTranslateY }],
           }}
         >
-          {/* Header: contextual title + base type pills */}
-          <Box px={4} pb={3}>
-            <Text variant="title">{headerFor(baseType, mode)}</Text>
-            <Box mt={3} row gap={2}>
-              {(['log', 'todo', 'habit'] as BaseType[]).map((t) => (
-                <TypePill
-                  key={t}
-                  active={baseType === t}
-                  onPress={() => {
-                    // push undo snapshot of relevant state before changing type
-                    pushUndoEntry('type', {
-                      baseType: state.baseType,
-                      log: state.log,
-                      todo: state.todo,
-                      habit: state.habit,
-                    });
-                    dispatch({ type: 'SET_BASE_TYPE', to: t });
-                  }}
-                >
-                  {BASE_LABEL[t]}
-                </TypePill>
-              ))}
-            </Box>
-            {/* Tag chips row under header */}
-            <Box mt={2} row gap={2} px={0} style={{ marginTop: tokenSpacing.md }}>
-              <TagChip
-                label="Journal"
-                active={!!state.tags?.journal}
-                onPress={() => {
-                  pushUndoEntry('tag', { tags: state.tags, list: state.list, mood: state.mood });
-                  dispatch({ type: 'TOGGLE_TAG', tag: 'journal' });
-                }}
-              />
-              <TagChip
-                label="List"
-                active={!!state.tags?.list}
-                onPress={() => {
-                  pushUndoEntry('tag', { tags: state.tags, list: state.list });
-                  dispatch({ type: 'TOGGLE_TAG', tag: 'list' });
-                }}
-              />
-            </Box>
-            {confidence && confidence < 0.8 ? (
-              <Box mt={2}>
-                <Text variant="subtle">AI suggestions (low confidence)</Text>
-              </Box>
-            ) : null}
-          </Box>
-
-          {/* Body: text input only (Level-1) */}
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollPad}>
-            <Box px={4}>
-              <TextInput
-                value={currentText}
-                onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                accessibilityLabel="Overlay content input"
-                onFocus={() => setBodyFocused(true)}
-                onBlur={() => setBodyFocused(false)}
-                placeholder="Drop your thought…"
-                placeholderTextColor={lightTokens.colors.subtle}
-                multiline
-                autoFocus
-                textAlignVertical="top"
-                style={[
-                  styles.textArea,
-                  {
-                    color: lightTokens.colors.text,
-                    backgroundColor:
-                      colorMode === 'dark' ? darkTokens.colors.deep : lightTokens.colors.linen,
-                    borderColor: bodyFocused
-                      ? '#E0C47A'
-                      : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                    borderWidth: bodyFocused ? 2 : StyleSheet.hairlineWidth,
-                  },
-                ]}
-              />
-              {baseType === 'todo' ? (
-                <Box row mt={3} style={{ alignItems: 'center' }}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onPress={() => {
-                      setDateModalTarget('todo');
-                      setShowDateModal(true);
-                    }}
-                    title={
-                      state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
-                    }
-                  />
-                </Box>
-              ) : null}
-              {/* Journal mood row */}
-              {state.tags?.journal ? (
-                <Box mt={3} row gap={2} style={{ marginTop: tokenSpacing.md }}>
-                  <MoodPill
-                    label="😊"
-                    active={state.mood === 'pos'}
-                    onPress={() => dispatch({ type: 'SET_MOOD', mood: 'pos' })}
-                  />
-                  <MoodPill
-                    label="😐"
-                    active={state.mood === 'neu'}
-                    onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neu' })}
-                  />
-                  <MoodPill
-                    label="😔"
-                    active={state.mood === 'neg'}
-                    onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neg' })}
-                  />
-                </Box>
-              ) : null}
-
-              {/* List checkboxes */}
-              {state.tags?.list && state.list ? (
-                <Box mt={3}>
-                  {(state.list.items || []).map((it) => (
-                    <Box
-                      key={it.id}
-                      row
-                      gap={2}
-                      style={{ alignItems: 'center', marginBottom: tokenSpacing.sm }}
-                    >
-                      <Button
-                        size="sm"
-                        variant={it.checked ? 'primary' : 'neutral'}
-                        onPress={() =>
-                          dispatch({ type: 'TOGGLE_LIST_ITEM', id: it.id, checked: !it.checked })
-                        }
-                        title={it.checked ? '✓' : '○'}
-                      />
-                      <Text>{it.text}</Text>
-                    </Box>
-                  ))}
-                </Box>
-              ) : null}
-
-              {/* Mentions / Dates chips (inline suggestions) */}
-              <Box mt={3} row gap={2} style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}>
-                {(state.detected?.mentions || []).map((m) => (
-                  <Chip key={m} label={`@${m}`} />
-                ))}
-                {(state.detected?.dates || []).map((d) => (
-                  <Button
-                    key={d}
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => {
-                      if (d === '__token:today')
-                        dispatch({ type: 'SET_TODO_DUE', due_at: new Date().toISOString() });
-                      else if (d === '__token:tomorrow')
-                        dispatch({
-                          type: 'SET_TODO_DUE',
-                          due_at: addDays(new Date(), 1).toISOString(),
-                        });
-                      else {
-                        // fallback: open custom date modal prefilled (for todo)
-                        setCustomDate(d.replace(/^\D+/g, ''));
-                        setDateModalTarget('todo');
-                        setShowDateModal(true);
-                      }
-                    }}
-                    title={
-                      d === '__token:today'
-                        ? 'Set due: Today'
-                        : d === '__token:tomorrow'
-                          ? 'Set due: Tomorrow'
-                          : d
-                    }
-                  />
-                ))}
-              </Box>
-              {/* Tag row hidden at Level-1; lands in Phase 3 */}
-            </Box>
-          </ScrollView>
-
-          <Modal visible={showDateModal} transparent animationType="fade">
-            <Box
+          <View
+            style={{
+              width: '100%',
+              alignSelf: 'stretch',
+              height: SHEET_H,
+              borderTopLeftRadius: tokenRadius.md,
+              borderTopRightRadius: tokenRadius.md,
+              overflow: 'hidden',
+              backgroundColor: sheetBackground,
+              borderTopWidth: 1,
+              borderColor: 'rgba(34,34,34,0.08)',
+              shadowColor: '#000',
+              shadowOpacity: 0.16,
+              shadowRadius: 14,
+              shadowOffset: { width: 0, height: -6 },
+              elevation: 14,
+            }}
+          >
+            {/* Grab handle for visual separation */}
+            <View
               style={{
-                flex: 1,
-                justifyContent: 'center',
-                paddingHorizontal: tokenSpacing.base * 3,
+                alignItems: 'center',
+                paddingTop: tokenSpacing.sm,
+                paddingBottom: 4,
+                backgroundColor: sheetBackground,
               }}
             >
-              <Box bg="bg" style={{ padding: tokenSpacing.md, borderRadius: tokenRadius.sm }}>
-                <Text variant="title">Set due date</Text>
-                <Box mt={3}>
-                  <Box row gap={2}>
-                    <Button
-                      variant="ghost"
+              <View
+                style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: handleColor }}
+              />
+            </View>
+            {/* Header: contextual title */}
+            <Box
+              px={4}
+              pb={3}
+              style={{
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: lightTokens.colors.border,
+                backgroundColor: sheetBackground,
+              }}
+            >
+              <Text variant="title" style={{ color: lightTokens.colors.text, fontWeight: '600' }}>
+                {headerFor(baseType, mode)}
+              </Text>
+            </Box>
+
+            {/* Body: entire form stack in a single scroll context */}
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120, paddingTop: 16 }}
+            >
+              <Box px={4}>
+                <Box row gap={2} style={{ flexWrap: 'wrap' }}>
+                  {(['log', 'todo', 'habit'] as BaseType[]).map((t) => (
+                    <TypePill
+                      key={t}
+                      active={baseType === t}
                       onPress={() => {
-                        const iso = new Date().toISOString();
-                        if (dateModalTarget === 'reminder')
-                          dispatch({ type: 'SET_REMINDER', when: iso });
-                        else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
-                        setShowDateModal(false);
-                        setDateModalTarget(null);
+                        // push undo snapshot of relevant state before changing type
+                        const prev = state.baseType;
+                        pushUndoEntry('type', {
+                          baseType: state.baseType,
+                          log: state.log,
+                          todo: state.todo,
+                          habit: state.habit,
+                        });
+                        dispatch({ type: 'SET_BASE_TYPE', to: t });
+                        try {
+                          eventBus.emit('OverlayTypeChanged', { from: prev, to: t });
+                        } catch (e) {
+                          // ignore telemetry errors
+                        }
                       }}
-                      title="Today"
-                    />
-                    <Button
-                      variant="ghost"
-                      onPress={() => {
-                        const iso = addDays(new Date(), 1).toISOString();
-                        if (dateModalTarget === 'reminder')
-                          dispatch({ type: 'SET_REMINDER', when: iso });
-                        else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
-                        setShowDateModal(false);
-                        setDateModalTarget(null);
-                      }}
-                      title="Tomorrow"
-                    />
-                    <Button
-                      variant="ghost"
-                      onPress={() => {
-                        if (dateModalTarget === 'reminder')
-                          dispatch({ type: 'SET_REMINDER', when: null });
-                        else dispatch({ type: 'SET_TODO_DUE', due_at: null });
-                        setShowDateModal(false);
-                        setDateModalTarget(null);
-                      }}
-                      title="Clear"
-                    />
-                  </Box>
+                    >
+                      {BASE_LABEL[t]}
+                    </TypePill>
+                  ))}
                 </Box>
+                <Box row gap={2} px={0} style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}>
+                  <TagChip
+                    label="Journal"
+                    active={!!state.tags?.journal}
+                    onPress={() => {
+                      pushUndoEntry('tag', {
+                        tags: state.tags,
+                        list: state.list,
+                        mood: state.mood,
+                      });
+                      dispatch({ type: 'TOGGLE_TAG', tag: 'journal' });
+                    }}
+                  />
+                  <TagChip
+                    label="List"
+                    active={!!state.tags?.list}
+                    onPress={() => {
+                      pushUndoEntry('tag', { tags: state.tags, list: state.list });
+                      dispatch({ type: 'TOGGLE_TAG', tag: 'list' });
+                    }}
+                  />
+                </Box>
+                {confidence && confidence < 0.8 ? (
+                  <Box mt={2}>
+                    <Text variant="subtle">AI suggestions (low confidence)</Text>
+                  </Box>
+                ) : null}
+
                 <Box mt={3}>
-                  <Text variant="label">Custom (YYYY-MM-DD)</Text>
                   <TextInput
-                    value={customDate}
-                    onChangeText={setCustomDate}
-                    placeholder="2023-12-31"
-                    accessibilityLabel="Custom date input (YYYY-MM-DD)"
-                    onFocus={() => setCustomDateFocused(true)}
-                    onBlur={() => setCustomDateFocused(false)}
+                    value={currentText}
+                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                    accessibilityLabel="Overlay content input"
+                    onFocus={() => setBodyFocused(true)}
+                    onBlur={() => setBodyFocused(false)}
+                    placeholder="Drop your thought…"
+                    placeholderTextColor={lightTokens.colors.subtle}
+                    multiline
+                    scrollEnabled={false}
+                    autoFocus
+                    textAlignVertical="top"
                     style={[
                       styles.textArea,
-                      { minHeight: 40, paddingVertical: 8 },
                       {
+                        color: lightTokens.colors.text,
                         backgroundColor:
                           colorMode === 'dark' ? darkTokens.colors.deep : lightTokens.colors.linen,
-                        borderColor: customDateFocused
+                        borderColor: bodyFocused
                           ? '#E0C47A'
                           : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                        borderWidth: customDateFocused ? 2 : StyleSheet.hairlineWidth,
+                        borderWidth: bodyFocused ? 2 : StyleSheet.hairlineWidth,
                       },
                     ]}
                   />
-                  <Box row mt={2}>
+                </Box>
+                {baseType === 'todo' ? (
+                  <Box row mt={2} style={{ alignItems: 'center' }}>
                     <Button
                       variant="ghost"
+                      size="sm"
                       onPress={() => {
-                        setShowDateModal(false);
-                        setDateModalTarget(null);
+                        setDateModalTarget('todo');
+                        setShowDateModal(true);
                       }}
-                      title="Cancel"
-                    />
-                    <Box flex={1} />
-                    <Button
-                      variant="primary"
-                      onPress={() => {
-                        try {
-                          if (customDate.trim().length === 0) return;
-                          const parsed = new Date(`${customDate}T00:00:00`);
-                          if (isNaN(parsed.getTime())) return;
-                          const iso = parsed.toISOString();
-                          if (dateModalTarget === 'reminder')
-                            dispatch({ type: 'SET_REMINDER', when: iso });
-                          else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
-                          setCustomDate('');
-                          setShowDateModal(false);
-                          setDateModalTarget(null);
-                        } catch (e) {
-                          // ignore parse
-                        }
-                      }}
-                      title="Set"
+                      title={
+                        state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
+                      }
                     />
                   </Box>
-                </Box>
-              </Box>
-            </Box>
-          </Modal>
-          {/* Expanded details panel (Phase-4) */}
-          {state.expanded ? (
-            <Animated.View style={detailsStyle}>
-              <Box px={4} pb={2}>
-                <Text variant="label">Details</Text>
-                {/* People linker + reminder/todo due + space selector */}
-                <Box mt={2}>
-                  {/* Thin picker for selecting an existing person (Phase-4) */}
-                  <PersonPicker
-                    value={state.person ?? null}
-                    onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
-                  />
-
-                  <Box row mt={2} gap={2} style={{ alignItems: 'center' }}>
+                ) : null}
+                {baseType === 'log' ? (
+                  <Box row mt={2} style={{ alignItems: 'center' }}>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -860,169 +838,422 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           : 'Add reminder'
                       }
                     />
-                    {baseType === 'todo' ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onPress={() => {
-                          setDateModalTarget('todo');
-                          setShowDateModal(true);
-                        }}
-                        title={
-                          state.todo.due_at
-                            ? `Due: ${safeFormat(state.todo.due_at)}`
-                            : 'Add due date'
-                        }
-                      />
-                    ) : null}
                   </Box>
-
-                  <Box mt={2}>
-                    {/* Space selector: load spaces when expanded */}
-                    <ScopeSelector
-                      selectedScope={
-                        state.spaceId
-                          ? {
-                              type: 'space',
-                              spaceId: state.spaceId,
-                              label: spaces.find((s) => s.id === state.spaceId)?.name ?? 'Space',
-                            }
-                          : { type: 'unassigned', label: 'Unassigned' }
-                      }
-                      spaces={spaces}
-                      onChange={(opt) => {
-                        if (opt.type === 'space')
-                          dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
-                        else dispatch({ type: 'SET_SPACE', spaceId: null });
-                      }}
-                    />
-                  </Box>
-                  {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
-                    <Box mt={2}>
-                      <Text variant="label">Commitment</Text>
-                      <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
-                        <Button
-                          size="sm"
-                          variant={state.commitment ? 'primary' : 'ghost'}
-                          onPress={async () => {
-                            if (!state.commitment) {
-                              const ok = await canEnableCommitment();
-                              if (!ok) {
-                                console.log('[Commitment] Limit reached (3)');
-                                return;
-                              }
-                            }
-                            // push undo snapshot for commitment fields
-                            pushUndoEntry('commitment', {
-                              commitment: state.commitment,
-                              commitmentNote: state.commitmentNote,
-                              commitmentStartedAt: state.commitmentStartedAt,
-                            });
-                            dispatch({ type: 'TOGGLE_COMMITMENT' });
-                          }}
-                          title={state.commitment ? 'Committed' : 'Make this a commitment'}
+                ) : null}
+                <Box mt={3} row style={{ alignItems: 'center' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={handleToggleDetails}
+                    title={state.expanded ? 'Hide details' : 'Add details'}
+                  />
+                  <Box flex={1} />
+                </Box>
+                {state.expanded ? (
+                  <Reanimated.View style={[detailsStyle, { marginTop: tokenSpacing.sm }]}>
+                    <Box pb={2}>
+                      <Text variant="label">Details</Text>
+                      {/* People linker + reminder/todo due + space selector */}
+                      <Box mt={2}>
+                        {/* Thin picker for selecting an existing person (Phase-4) */}
+                        <PersonPicker
+                          value={state.person ?? null}
+                          onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
                         />
 
-                        {/* Animated reveal for the commitment note */}
-                        <Animated.View
-                          style={[commitmentStyle, { flex: 1 }]}
-                          pointerEvents={state.commitment ? 'auto' : 'none'}
-                        >
-                          {state.commitment ? (
-                            <TextInput
-                              placeholder="Why this matters (optional, 140 max)"
-                              accessibilityLabel="Commitment note input"
-                              maxLength={140}
-                              value={state.commitmentNote}
-                              onChangeText={(t) =>
-                                dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })
-                              }
-                              onFocus={() => setCommitmentFocused(true)}
-                              onBlur={() => setCommitmentFocused(false)}
-                              style={[
-                                styles.textArea,
-                                { minHeight: 40, paddingVertical: 8 },
-                                {
-                                  borderColor: commitmentFocused
-                                    ? '#E0C47A'
-                                    : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                                  borderWidth: commitmentFocused ? 2 : StyleSheet.hairlineWidth,
-                                },
-                              ]}
-                            />
-                          ) : null}
-                        </Animated.View>
+                        <Box mt={2}>
+                          {/* Space selector: load spaces when expanded */}
+                          <ScopeSelector
+                            selectedScope={
+                              state.spaceId
+                                ? {
+                                    type: 'space',
+                                    spaceId: state.spaceId,
+                                    label:
+                                      spaces.find((s) => s.id === state.spaceId)?.name ?? 'Space',
+                                  }
+                                : { type: 'unassigned', label: 'Unassigned' }
+                            }
+                            spaces={spaces}
+                            onChange={(opt) => {
+                              if (opt.type === 'space')
+                                dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
+                              else dispatch({ type: 'SET_SPACE', spaceId: null });
+                            }}
+                          />
+                        </Box>
+                        {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
+                          <Box mt={2}>
+                            <Text variant="label">Commitment</Text>
+                            <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
+                              <Button
+                                size="sm"
+                                variant={state.commitment ? 'primary' : 'ghost'}
+                                onPress={async () => {
+                                  if (!state.commitment) {
+                                    const ok = await canEnableCommitment();
+                                    if (!ok) {
+                                      console.log('[Commitment] Limit reached (3)');
+                                      return;
+                                    }
+                                  }
+                                  // push undo snapshot for commitment fields
+                                  const prevOn = !!state.commitment;
+                                  pushUndoEntry('commitment', {
+                                    commitment: state.commitment,
+                                    commitmentNote: state.commitmentNote,
+                                    commitmentStartedAt: state.commitmentStartedAt,
+                                  });
+                                  dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                  try {
+                                    eventBus.emit('OverlayCommitmentToggled', { on: !prevOn });
+                                  } catch (e) {
+                                    // ignore telemetry errors
+                                  }
+                                }}
+                                title={state.commitment ? 'Committed' : 'Make this a commitment'}
+                              />
+
+                              {/* Animated reveal for the commitment note */}
+                              <Reanimated.View
+                                style={[commitmentStyle, { flex: 1 }]}
+                                pointerEvents={state.commitment ? 'auto' : 'none'}
+                              >
+                                {state.commitment ? (
+                                  <TextInput
+                                    placeholder="Why this matters (optional, 140 max)"
+                                    accessibilityLabel="Commitment note input"
+                                    maxLength={140}
+                                    value={state.commitmentNote}
+                                    onChangeText={(t) =>
+                                      dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })
+                                    }
+                                    onFocus={() => setCommitmentFocused(true)}
+                                    onBlur={() => setCommitmentFocused(false)}
+                                    style={[
+                                      styles.textArea,
+                                      { minHeight: 40, paddingVertical: 8 },
+                                      {
+                                        borderColor: commitmentFocused
+                                          ? '#E0C47A'
+                                          : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                                        borderWidth: commitmentFocused
+                                          ? 2
+                                          : StyleSheet.hairlineWidth,
+                                      },
+                                    ]}
+                                  />
+                                ) : null}
+                              </Reanimated.View>
+                            </Box>
+                          </Box>
+                        ) : null}
                       </Box>
+                      {baseType === 'log' ? (
+                        <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
+                          <Button
+                            size="sm"
+                            variant={state.format === 'plain' ? 'primary' : 'ghost'}
+                            onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
+                            title="Plain"
+                          />
+                          <Button
+                            size="sm"
+                            variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
+                            onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
+                            title="Checkboxes"
+                          />
+                          <Button
+                            size="sm"
+                            variant={state.format === 'bullet' ? 'primary' : 'ghost'}
+                            onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
+                            title="Bullet"
+                          />
+                        </Box>
+                      ) : null}
                     </Box>
-                  ) : null}
-                </Box>
-                {baseType === 'log' ? (
-                  <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
-                    <Button
-                      size="sm"
-                      variant={state.format === 'plain' ? 'primary' : 'ghost'}
-                      onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
-                      title="Plain"
+                  </Reanimated.View>
+                ) : null}
+                {/* Journal mood row */}
+                {state.tags?.journal ? (
+                  <Box mt={3} row gap={2} style={{ marginTop: tokenSpacing.md }}>
+                    <MoodPill
+                      label="😊"
+                      active={state.mood === 'pos'}
+                      onPress={() => dispatch({ type: 'SET_MOOD', mood: 'pos' })}
                     />
-                    <Button
-                      size="sm"
-                      variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
-                      onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
-                      title="Checkboxes"
+                    <MoodPill
+                      label="😐"
+                      active={state.mood === 'neu'}
+                      onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neu' })}
                     />
-                    <Button
-                      size="sm"
-                      variant={state.format === 'bullet' ? 'primary' : 'ghost'}
-                      onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
-                      title="Bullet"
+                    <MoodPill
+                      label="😔"
+                      active={state.mood === 'neg'}
+                      onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neg' })}
                     />
                   </Box>
                 ) : null}
+
+                {/* List checkboxes */}
+                {state.tags?.list && state.list ? (
+                  <Box mt={3}>
+                    {(state.list.items || []).map((it) => (
+                      <Box
+                        key={it.id}
+                        row
+                        gap={2}
+                        style={{ alignItems: 'center', marginBottom: tokenSpacing.sm }}
+                      >
+                        <Button
+                          size="sm"
+                          variant={it.checked ? 'primary' : 'neutral'}
+                          onPress={() =>
+                            dispatch({ type: 'TOGGLE_LIST_ITEM', id: it.id, checked: !it.checked })
+                          }
+                          title={it.checked ? '✓' : '○'}
+                        />
+                        <Text>{it.text}</Text>
+                      </Box>
+                    ))}
+                  </Box>
+                ) : null}
+
+                {/* Mentions / Dates chips (inline suggestions) */}
+                <Box mt={3} row gap={2} style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}>
+                  {(state.detected?.mentions || []).map((m) => (
+                    <Chip key={m} label={`@${m}`} />
+                  ))}
+                  {(state.detected?.dates || []).map((d) => (
+                    <Button
+                      key={d}
+                      size="sm"
+                      variant="ghost"
+                      onPress={() => {
+                        if (d === '__token:today')
+                          dispatch({ type: 'SET_TODO_DUE', due_at: new Date().toISOString() });
+                        else if (d === '__token:tomorrow')
+                          dispatch({
+                            type: 'SET_TODO_DUE',
+                            due_at: addDays(new Date(), 1).toISOString(),
+                          });
+                        else {
+                          // fallback: open custom date modal prefilled (for todo)
+                          setCustomDate(d.replace(/^\D+/g, ''));
+                          setDateModalTarget('todo');
+                          setShowDateModal(true);
+                        }
+                      }}
+                      title={
+                        d === '__token:today'
+                          ? 'Set due: Today'
+                          : d === '__token:tomorrow'
+                            ? 'Set due: Tomorrow'
+                            : d
+                      }
+                    />
+                  ))}
+                </Box>
+                {/* Tag row hidden at Level-1; lands in Phase 3 */}
               </Box>
-            </Animated.View>
-          ) : null}
+            </ScrollView>
 
-          {/* Toggle row for expanded "Add details" panel (Phase-4) */}
-          <Box px={4} py={2} row style={{ alignItems: 'center' }}>
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={() => dispatch({ type: 'TOGGLE_EXPANDED' })}
-              title={state.expanded ? 'Hide details' : 'Add details'}
+            <Modal visible={showDateModal} transparent animationType="fade">
+              <Box
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  paddingHorizontal: tokenSpacing.base * 3,
+                }}
+              >
+                <Box bg="bg" style={{ padding: tokenSpacing.md, borderRadius: tokenRadius.sm }}>
+                  <Text variant="title">Set due date</Text>
+                  <Box mt={3}>
+                    <Box row gap={2}>
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          const iso = new Date().toISOString();
+                          if (dateModalTarget === 'reminder')
+                            dispatch({ type: 'SET_REMINDER', when: iso });
+                          else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                          setShowDateModal(false);
+                          setDateModalTarget(null);
+                        }}
+                        title="Today"
+                      />
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          const iso = addDays(new Date(), 1).toISOString();
+                          if (dateModalTarget === 'reminder')
+                            dispatch({ type: 'SET_REMINDER', when: iso });
+                          else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                          setShowDateModal(false);
+                          setDateModalTarget(null);
+                        }}
+                        title="Tomorrow"
+                      />
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          if (dateModalTarget === 'reminder')
+                            dispatch({ type: 'SET_REMINDER', when: null });
+                          else dispatch({ type: 'SET_TODO_DUE', due_at: null });
+                          setShowDateModal(false);
+                          setDateModalTarget(null);
+                        }}
+                        title="Clear"
+                      />
+                    </Box>
+                  </Box>
+                  <Box mt={3}>
+                    <Text variant="label">Custom (YYYY-MM-DD)</Text>
+                    <TextInput
+                      value={customDate}
+                      onChangeText={setCustomDate}
+                      placeholder="2023-12-31"
+                      accessibilityLabel="Custom date input (YYYY-MM-DD)"
+                      onFocus={() => setCustomDateFocused(true)}
+                      onBlur={() => setCustomDateFocused(false)}
+                      style={[
+                        styles.textArea,
+                        { minHeight: 40, paddingVertical: 8 },
+                        {
+                          backgroundColor:
+                            colorMode === 'dark'
+                              ? darkTokens.colors.deep
+                              : lightTokens.colors.linen,
+                          borderColor: customDateFocused
+                            ? '#E0C47A'
+                            : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                          borderWidth: customDateFocused ? 2 : StyleSheet.hairlineWidth,
+                        },
+                      ]}
+                    />
+                    <Box row mt={2}>
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          setShowDateModal(false);
+                          setDateModalTarget(null);
+                        }}
+                        title="Cancel"
+                      />
+                      <Box flex={1} />
+                      <Button
+                        variant="primary"
+                        onPress={() => {
+                          try {
+                            if (customDate.trim().length === 0) return;
+                            const parsed = new Date(`${customDate}T00:00:00`);
+                            if (isNaN(parsed.getTime())) return;
+                            const iso = parsed.toISOString();
+                            if (dateModalTarget === 'reminder')
+                              dispatch({ type: 'SET_REMINDER', when: iso });
+                            else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                            setCustomDate('');
+                            setShowDateModal(false);
+                            setDateModalTarget(null);
+                          } catch (e) {
+                            // ignore parse
+                          }
+                        }}
+                        title="Set"
+                      />
+                    </Box>
+                  </Box>
+                </Box>
+              </Box>
+            </Modal>
+
+            {/* Save bar (fixed within the sheet) */}
+            {/* Inline save error / retry bar (Phase 9) */}
+            {saveError ? (
+              <Box
+                px={4}
+                py={2}
+                style={{ backgroundColor: '#fce8e6', borderTopWidth: StyleSheet.hairlineWidth }}
+              >
+                <Box row style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#7a2719', flex: 1 }}>{saveError}</Text>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => {
+                      // Retry invokes save again
+                      setSaveError(null);
+                      // call onSave again
+                      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                      onSave();
+                    }}
+                    title="Retry"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => setSaveError(null)}
+                    title="Dismiss"
+                  />
+                </Box>
+              </Box>
+            ) : isOffline ? (
+              <Box px={4} py={1}>
+                <Text variant="subtle">You're offline — Save will keep the draft.</Text>
+              </Box>
+            ) : null}
+            <SafeAreaView
+              style={{
+                backgroundColor: sheetBackground,
+                paddingBottom: (insets?.bottom ?? 0) + 12,
+              }}
+            >
+              <Box
+                px={4}
+                py={3}
+                row
+                gap={2}
+                style={{
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: lightTokens.colors.border,
+                  paddingBottom: 0, // handled by SafeAreaView padding
+                  backgroundColor: sheetBackground,
+                }}
+              >
+                <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
+                <Box flex={1} />
+                <Reanimated.View style={saveStyle}>
+                  <Button
+                    onPress={onSave}
+                    disabled={!canSave}
+                    title={isSaving ? 'Saving...' : 'Save'}
+                  />
+                </Reanimated.View>
+                {savedPulse ? (
+                  <Reanimated.View style={[saveStyle, { marginLeft: 8, justifyContent: 'center' }]}>
+                    <Box
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 8,
+                        backgroundColor: lightTokens.colors.surface || '#fff',
+                      }}
+                    >
+                      <Text>✓ Saved</Text>
+                    </Box>
+                  </Reanimated.View>
+                ) : null}
+              </Box>
+            </SafeAreaView>
+            <ToastUndo
+              visible={showUndoToast}
+              onUndo={handleUndo}
+              onHide={() => setShowUndoToast(false)}
+              message="Change saved"
             />
-            <Box flex={1} />
-          </Box>
-
-          {/* Save bar (fixed) */}
-          <Box
-            px={4}
-            py={3}
-            row
-            gap={2}
-            style={{
-              borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: lightTokens.colors.border,
-            }}
-          >
-            <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
-            <Box flex={1} />
-            <Animated.View style={saveStyle}>
-              <Button
-                onPress={onSave}
-                disabled={!canSave}
-                title={isSaving ? 'Saving...' : 'Save'}
-              />
-            </Animated.View>
-          </Box>
-          <ToastUndo
-            visible={showUndoToast}
-            onUndo={handleUndo}
-            onHide={() => setShowUndoToast(false)}
-            message="Change saved"
-          />
-          {/* close the Box opened above via the IIFE */}
-        </Box>
-      </Animated.View>
+          </View>
+        </RNAnimated.View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -1168,10 +1399,8 @@ function buildCreateOrUpdateInput({
 }
 
 const styles = StyleSheet.create({
-  scrollPad: { paddingBottom: tokenSpacing.xl },
   textArea: {
     minHeight: 120,
-    maxHeight: 360,
     fontSize: lightTokens.typography.size.md,
     lineHeight: 22,
     paddingVertical: tokenSpacing.md,
