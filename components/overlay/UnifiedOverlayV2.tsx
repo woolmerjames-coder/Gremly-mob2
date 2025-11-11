@@ -730,162 +730,170 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             </Box>
           </Modal>
           {/* Expanded details panel (Phase-4) */}
-          <Animated.View
-            style={{
-              opacity: detailsAnim,
-              transform: [
-                {
-                  translateY: detailsAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }),
-                },
-              ],
-            }}
-            pointerEvents={state.expanded ? 'auto' : 'none'}
-          >
-            <Box px={4} pb={2}>
-              <Text variant="label">Details</Text>
-              {/* People linker + reminder/todo due + space selector */}
-              <Box mt={2}>
-                {/* Thin picker for selecting an existing person (Phase-4) */}
-                <PersonPicker
-                  value={state.person ?? null}
-                  onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
-                />
-
-                <Box row mt={2} gap={2} style={{ alignItems: 'center' }}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onPress={() => {
-                      setDateModalTarget('reminder');
-                      setShowDateModal(true);
-                    }}
-                    title={
-                      state.reminderAt
-                        ? `Reminder: ${safeFormat(state.reminderAt)}`
-                        : 'Add reminder'
-                    }
+          {state.expanded ? (
+            <Animated.View
+              style={{
+                opacity: detailsAnim,
+                transform: [
+                  {
+                    translateY: detailsAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [8, 0],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <Box px={4} pb={2}>
+                <Text variant="label">Details</Text>
+                {/* People linker + reminder/todo due + space selector */}
+                <Box mt={2}>
+                  {/* Thin picker for selecting an existing person (Phase-4) */}
+                  <PersonPicker
+                    value={state.person ?? null}
+                    onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
                   />
-                  {baseType === 'todo' ? (
+
+                  <Box row mt={2} gap={2} style={{ alignItems: 'center' }}>
                     <Button
                       variant="ghost"
                       size="sm"
                       onPress={() => {
-                        setDateModalTarget('todo');
+                        setDateModalTarget('reminder');
                         setShowDateModal(true);
                       }}
                       title={
-                        state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
+                        state.reminderAt
+                          ? `Reminder: ${safeFormat(state.reminderAt)}`
+                          : 'Add reminder'
                       }
                     />
+                    {baseType === 'todo' ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => {
+                          setDateModalTarget('todo');
+                          setShowDateModal(true);
+                        }}
+                        title={
+                          state.todo.due_at
+                            ? `Due: ${safeFormat(state.todo.due_at)}`
+                            : 'Add due date'
+                        }
+                      />
+                    ) : null}
+                  </Box>
+
+                  <Box mt={2}>
+                    {/* Space selector: load spaces when expanded */}
+                    <ScopeSelector
+                      selectedScope={
+                        state.spaceId
+                          ? {
+                              type: 'space',
+                              spaceId: state.spaceId,
+                              label: spaces.find((s) => s.id === state.spaceId)?.name ?? 'Space',
+                            }
+                          : { type: 'unassigned', label: 'Unassigned' }
+                      }
+                      spaces={spaces}
+                      onChange={(opt) => {
+                        if (opt.type === 'space')
+                          dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
+                        else dispatch({ type: 'SET_SPACE', spaceId: null });
+                      }}
+                    />
+                  </Box>
+                  {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
+                    <Box mt={2}>
+                      <Text variant="label">Commitment</Text>
+                      <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
+                        <Button
+                          size="sm"
+                          variant={state.commitment ? 'primary' : 'ghost'}
+                          onPress={async () => {
+                            if (!state.commitment) {
+                              const ok = await canEnableCommitment();
+                              if (!ok) {
+                                console.log('[Commitment] Limit reached (3)');
+                                return;
+                              }
+                            }
+                            dispatch({ type: 'TOGGLE_COMMITMENT' });
+                          }}
+                          title={state.commitment ? 'Committed' : 'Make this a commitment'}
+                        />
+
+                        {/* Animated reveal for the commitment note */}
+                        <Animated.View
+                          style={{
+                            opacity: commitmentAnim,
+                            transform: [
+                              {
+                                scale: commitmentAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0.98, 1],
+                                }),
+                              },
+                            ],
+                            flex: 1,
+                          }}
+                          pointerEvents={state.commitment ? 'auto' : 'none'}
+                        >
+                          {state.commitment ? (
+                            <TextInput
+                              placeholder="Why this matters (optional, 140 max)"
+                              accessibilityLabel="Commitment note input"
+                              maxLength={140}
+                              value={state.commitmentNote}
+                              onChangeText={(t) =>
+                                dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })
+                              }
+                              onFocus={() => setCommitmentFocused(true)}
+                              onBlur={() => setCommitmentFocused(false)}
+                              style={[
+                                styles.textArea,
+                                { minHeight: 40, paddingVertical: 8 },
+                                {
+                                  borderColor: commitmentFocused
+                                    ? '#E0C47A'
+                                    : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                                  borderWidth: commitmentFocused ? 2 : StyleSheet.hairlineWidth,
+                                },
+                              ]}
+                            />
+                          ) : null}
+                        </Animated.View>
+                      </Box>
+                    </Box>
                   ) : null}
                 </Box>
-
-                <Box mt={2}>
-                  {/* Space selector: load spaces when expanded */}
-                  <ScopeSelector
-                    selectedScope={
-                      state.spaceId
-                        ? {
-                            type: 'space',
-                            spaceId: state.spaceId,
-                            label: spaces.find((s) => s.id === state.spaceId)?.name ?? 'Space',
-                          }
-                        : { type: 'unassigned', label: 'Unassigned' }
-                    }
-                    spaces={spaces}
-                    onChange={(opt) => {
-                      if (opt.type === 'space')
-                        dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
-                      else dispatch({ type: 'SET_SPACE', spaceId: null });
-                    }}
-                  />
-                </Box>
-                {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
-                  <Box mt={2}>
-                    <Text variant="label">Commitment</Text>
-                    <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
-                      <Button
-                        size="sm"
-                        variant={state.commitment ? 'primary' : 'ghost'}
-                        onPress={async () => {
-                          if (!state.commitment) {
-                            const ok = await canEnableCommitment();
-                            if (!ok) {
-                              console.log('[Commitment] Limit reached (3)');
-                              return;
-                            }
-                          }
-                          dispatch({ type: 'TOGGLE_COMMITMENT' });
-                        }}
-                        title={state.commitment ? 'Committed' : 'Make this a commitment'}
-                      />
-
-                      {/* Animated reveal for the commitment note */}
-                      <Animated.View
-                        style={{
-                          opacity: commitmentAnim,
-                          transform: [
-                            {
-                              scale: commitmentAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [0.98, 1],
-                              }),
-                            },
-                          ],
-                          flex: 1,
-                        }}
-                        pointerEvents={state.commitment ? 'auto' : 'none'}
-                      >
-                        {state.commitment ? (
-                          <TextInput
-                            placeholder="Why this matters (optional, 140 max)"
-                            accessibilityLabel="Commitment note input"
-                            maxLength={140}
-                            value={state.commitmentNote}
-                            onChangeText={(t) => dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })}
-                            onFocus={() => setCommitmentFocused(true)}
-                            onBlur={() => setCommitmentFocused(false)}
-                            style={[
-                              styles.textArea,
-                              { minHeight: 40, paddingVertical: 8 },
-                              {
-                                borderColor: commitmentFocused
-                                  ? '#E0C47A'
-                                  : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                                borderWidth: commitmentFocused ? 2 : StyleSheet.hairlineWidth,
-                              },
-                            ]}
-                          />
-                        ) : null}
-                      </Animated.View>
-                    </Box>
+                {baseType === 'log' ? (
+                  <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
+                    <Button
+                      size="sm"
+                      variant={state.format === 'plain' ? 'primary' : 'ghost'}
+                      onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
+                      title="Plain"
+                    />
+                    <Button
+                      size="sm"
+                      variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
+                      onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
+                      title="Checkboxes"
+                    />
+                    <Button
+                      size="sm"
+                      variant={state.format === 'bullet' ? 'primary' : 'ghost'}
+                      onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
+                      title="Bullet"
+                    />
                   </Box>
                 ) : null}
               </Box>
-              {baseType === 'log' ? (
-                <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
-                  <Button
-                    size="sm"
-                    variant={state.format === 'plain' ? 'primary' : 'ghost'}
-                    onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
-                    title="Plain"
-                  />
-                  <Button
-                    size="sm"
-                    variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
-                    onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
-                    title="Checkboxes"
-                  />
-                  <Button
-                    size="sm"
-                    variant={state.format === 'bullet' ? 'primary' : 'ghost'}
-                    onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
-                    title="Bullet"
-                  />
-                </Box>
-              ) : null}
-            </Box>
-          </Animated.View>
+            </Animated.View>
+          ) : null}
 
           {/* Toggle row for expanded "Add details" panel (Phase-4) */}
           <Box px={4} py={2} row style={{ alignItems: 'center' }}>

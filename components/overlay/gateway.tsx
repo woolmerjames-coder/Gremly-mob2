@@ -10,7 +10,7 @@ import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
  * It selects the implementation based on the runtime feature flag
  * `env.features.overlayV2` so callers import a single surface.
  */
-export default function OverlayComponent(props: UnifiedCreateOverlayProps) {
+export function OverlayComponent(props: UnifiedCreateOverlayProps) {
   // Prefer the new V2 overlay when feature gate enabled
   if (env.features?.overlayV2) return <UnifiedOverlayV2 {...props} />;
 
@@ -22,3 +22,5 @@ export default function OverlayComponent(props: UnifiedCreateOverlayProps) {
   // Legacy/manual fallback
   return <ManualAddOverlay {...(props as any)} />;
 }
+
+export default OverlayComponent;
