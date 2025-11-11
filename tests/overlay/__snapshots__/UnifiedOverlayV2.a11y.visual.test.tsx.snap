@@ -15,7 +15,6 @@ exports[`UnifiedOverlayV2 — a11y visual checks (light & dark) matches accessib
   }
 >
   <View
-    collapsable={false}
     style={
       {
         "flex": 1,
@@ -796,18 +795,7 @@ exports[`UnifiedOverlayV2 — a11y visual checks (light & dark) matches accessib
             ]
           }
         />
-        <View
-          collapsable={false}
-          style={
-            {
-              "transform": [
-                {
-                  "scale": 1,
-                },
-              ],
-            }
-          }
-        >
+        <View>
           <View
             accessibilityLabel="Save"
             accessibilityRole="button"
@@ -902,7 +890,6 @@ exports[`UnifiedOverlayV2 — a11y visual checks (light & dark) matches accessib
   }
 >
   <View
-    collapsable={false}
     style={
       {
         "flex": 1,
@@ -1683,18 +1670,7 @@ exports[`UnifiedOverlayV2 — a11y visual checks (light & dark) matches accessib
             ]
           }
         />
-        <View
-          collapsable={false}
-          style={
-            {
-              "transform": [
-                {
-                  "scale": 1,
-                },
-              ],
-            }
-          }
-        >
+        <View>
           <View
             accessibilityLabel="Save"
             accessibilityRole="button"
