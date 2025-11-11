@@ -34,6 +34,7 @@ import PersonPicker from './fields/PersonPicker';
 import useOverlayPrefill from './useOverlayPrefill';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
+import ToastUndo from './ToastUndo';
 import { toCreateOrUpdateInput, linkSelectedPerson } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
@@ -71,6 +72,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
   );
   const [spaces, setSpaces] = useState<any[]>([]);
+  // local UI state for undo toast
+  const [showUndoToast, setShowUndoToast] = useState(false);
+  const undoTimerRef = useRef<number | null>(null);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
 
@@ -210,6 +214,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // autosave on change
   useOverlayV2Draft(draftKey, currentText);
+
+  function pushUndoEntry(kind: 'type' | 'tag' | 'commitment', prev: Partial<any>) {
+    try {
+      dispatch({ type: 'PUSH_UNDO', entry: { kind, prev } } as any);
+    } catch (e) {
+      // ignore dispatch typing in JS/TS mixed environments
+    }
+    setShowUndoToast(true);
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current as any);
+    }
+    // auto hide after 3s
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    undoTimerRef.current = setTimeout(() => setShowUndoToast(false), 3000) as unknown as number;
+  }
+
+  function handleUndo() {
+    try {
+      dispatch({ type: 'UNDO_LAST' } as any);
+    } catch (e) {
+      // ignore
+    }
+    setShowUndoToast(false);
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current as any);
+      undoTimerRef.current = null;
+    }
+  }
 
   function safeFormat(iso: string | null | undefined) {
     try {
@@ -528,7 +560,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 <TypePill
                   key={t}
                   active={baseType === t}
-                  onPress={() => dispatch({ type: 'SET_BASE_TYPE', to: t })}
+                  onPress={() => {
+                    // push undo snapshot of relevant state before changing type
+                    pushUndoEntry('type', {
+                      baseType: state.baseType,
+                      log: state.log,
+                      todo: state.todo,
+                      habit: state.habit,
+                    });
+                    dispatch({ type: 'SET_BASE_TYPE', to: t });
+                  }}
                 >
                   {BASE_LABEL[t]}
                 </TypePill>
@@ -539,12 +580,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               <TagChip
                 label="Journal"
                 active={!!state.tags?.journal}
-                onPress={() => dispatch({ type: 'TOGGLE_TAG', tag: 'journal' })}
+                onPress={() => {
+                  pushUndoEntry('tag', { tags: state.tags, list: state.list, mood: state.mood });
+                  dispatch({ type: 'TOGGLE_TAG', tag: 'journal' });
+                }}
               />
               <TagChip
                 label="List"
                 active={!!state.tags?.list}
-                onPress={() => dispatch({ type: 'TOGGLE_TAG', tag: 'list' })}
+                onPress={() => {
+                  pushUndoEntry('tag', { tags: state.tags, list: state.list });
+                  dispatch({ type: 'TOGGLE_TAG', tag: 'list' });
+                }}
               />
             </Box>
             {confidence && confidence < 0.8 ? (
@@ -865,6 +912,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 return;
                               }
                             }
+                            // push undo snapshot for commitment fields
+                            pushUndoEntry('commitment', {
+                              commitment: state.commitment,
+                              commitmentNote: state.commitmentNote,
+                              commitmentStartedAt: state.commitmentStartedAt,
+                            });
                             dispatch({ type: 'TOGGLE_COMMITMENT' });
                           }}
                           title={state.commitment ? 'Committed' : 'Make this a commitment'}
@@ -961,6 +1014,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               />
             </Animated.View>
           </Box>
+          <ToastUndo
+            visible={showUndoToast}
+            onUndo={handleUndo}
+            onHide={() => setShowUndoToast(false)}
+            message="Change saved"
+          />
           {/* close the Box opened above via the IIFE */}
         </Box>
       </Animated.View>

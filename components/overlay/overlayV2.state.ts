@@ -28,6 +28,8 @@ export type V2State = {
   log: LogState;
   todo: TodoState;
   habit: HabitState;
+  // undo stack for lightweight UI-only undos (Phase 9 QA pack)
+  undoStack?: Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> }>;
 };
 
 export const initialV2State: V2State = {
@@ -47,6 +49,7 @@ export const initialV2State: V2State = {
   log: { title: '', body: '' },
   todo: { title: '', details: '', due_at: null },
   habit: { title: '', notes: '', schedule: 'custom' },
+  undoStack: [],
 };
 
 type Action =
@@ -66,10 +69,26 @@ type Action =
   | { type: 'SET_SPACE'; spaceId: string | null }
   | { type: 'SET_PERSON'; person: PersonLink }
   | { type: 'SET_FORMAT'; fmt: FormatKind }
-  | { type: 'SET_REMINDER'; when: string | null };
+  | { type: 'SET_REMINDER'; when: string | null }
+  | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
+  | { type: 'UNDO_LAST' };
 
 export function v2Reducer(state: V2State, action: Action): V2State {
   switch (action.type) {
+    case 'PUSH_UNDO': {
+      const stack = (state.undoStack ?? []).concat([action.entry]);
+      return { ...state, undoStack: stack };
+    }
+    case 'UNDO_LAST': {
+      const stack = state.undoStack ?? [];
+      if (stack.length === 0) return state;
+      const last = stack[stack.length - 1];
+      const nextStack = stack.slice(0, -1);
+      // Restore the previous partial state (shallow merge)
+      const restored: V2State = { ...state, ...last.prev, undoStack: nextStack } as V2State;
+      return restored;
+    }
+
     case 'SET_BASE_TYPE': {
       // When switching base type, preserve the current input text by
       // copying it into the newly selected type if that field is empty.
