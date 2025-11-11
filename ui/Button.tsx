@@ -89,6 +89,8 @@ export const Button: React.FC<ButtonProps> = ({
   const sizeStyle = getSizeStyle(size);
   const variantStyle = getVariantStyle(variant);
 
+  const [isFocused, setIsFocused] = React.useState(false);
+
   const buttonStyle: ViewStyle = {
     height: sizeStyle.height,
     paddingHorizontal: sizeStyle.paddingHorizontal,
@@ -99,6 +101,9 @@ export const Button: React.FC<ButtonProps> = ({
     justifyContent: 'center',
     gap: t.spacing[2],
     opacity: disabled ? 0.5 : 1,
+    // focus ring for keyboard users
+    borderWidth: isFocused ? 2 : 0,
+    borderColor: isFocused ? '#E0C47A' : 'transparent',
   };
 
   const textStyle: TextStyle = {
@@ -111,6 +116,8 @@ export const Button: React.FC<ButtonProps> = ({
     <Pressable
       accessible
       accessibilityRole="button"
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
       accessibilityLabel={accessibilityLabel ?? buttonLabel}
       style={({ pressed }) => [buttonStyle, pressed && !disabled && { opacity: 0.85 }]}
       onPress={onPress}

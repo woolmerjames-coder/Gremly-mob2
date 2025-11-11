@@ -7,12 +7,14 @@ import {
   TextInput,
   StyleSheet,
   Animated,
+  useColorScheme,
 } from 'react-native';
 import { Box, Text, Button } from '../../ui';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays } from 'date-fns';
 import {
   lightTokens,
+  darkTokens,
   spacing as tokenSpacing,
   borderRadius as tokenRadius,
 } from '../../design/tokens';
@@ -41,6 +43,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showDateModal, setShowDateModal] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
   const [customDate, setCustomDate] = useState('');
+  // focus states for accessibility focus rings
+  const [bodyFocused, setBodyFocused] = useState(false);
+  const [customDateFocused, setCustomDateFocused] = useState(false);
+  const [commitmentFocused, setCommitmentFocused] = useState(false);
   // useAuth may not be available in some test harnesses that mock providers,
   // so guard against the hook throwing by falling back to null.
   let userId: string | null = null;
@@ -230,6 +236,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     });
   }, [state.tags]);
 
+  // theme / background for overlay (phase‑8 visual polish)
+  const colorMode = useColorScheme();
+  const bgColor =
+    colorMode === 'dark' ? lightTokens.colors.deepForest : lightTokens.colors.linenCream;
+
   const canSave = currentText.trim().length > 0 && !isSaving;
 
   function toCreateOrUpdateInput(
@@ -403,7 +414,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       keyboardVerticalOffset={Platform.select({ ios: 64, android: 0 })}
     >
       <Animated.View style={{ flex: 1, opacity: fade }}>
-        <Box flex={1} bg="bg" pt={6}>
+        {/* Use theme-aware overlay background, slightly rounded with subtle lg elevation */}
+        <Box
+          flex={1}
+          pt={6}
+          style={{
+            backgroundColor: bgColor,
+            borderRadius: tokenRadius.md,
+            // spread the token elevation for a subtle shadow
+            ...lightTokens.elevation.lg,
+          }}
+        >
           {/* Header: contextual title + base type pills */}
           <Box px={4} pb={3}>
             <Text variant="title">{headerFor(baseType, mode)}</Text>
@@ -444,12 +465,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               <TextInput
                 value={currentText}
                 onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                accessibilityLabel="Overlay content input"
+                onFocus={() => setBodyFocused(true)}
+                onBlur={() => setBodyFocused(false)}
                 placeholder="Drop your thought…"
                 placeholderTextColor={lightTokens.colors.subtle}
                 multiline
                 autoFocus
                 textAlignVertical="top"
-                style={[styles.textArea, { color: lightTokens.colors.text }]}
+                style={[
+                  styles.textArea,
+                  {
+                    color: lightTokens.colors.text,
+                    backgroundColor:
+                      colorMode === 'dark' ? darkTokens.colors.deep : lightTokens.colors.linen,
+                    borderColor: bodyFocused
+                      ? '#E0C47A'
+                      : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                    borderWidth: bodyFocused ? 2 : StyleSheet.hairlineWidth,
+                  },
+                ]}
               />
               {baseType === 'todo' ? (
                 <Box row mt={3} style={{ alignItems: 'center' }}>
@@ -605,7 +640,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     value={customDate}
                     onChangeText={setCustomDate}
                     placeholder="2023-12-31"
-                    style={[styles.textArea, { minHeight: 40, paddingVertical: 8 }]}
+                    accessibilityLabel="Custom date input (YYYY-MM-DD)"
+                    onFocus={() => setCustomDateFocused(true)}
+                    onBlur={() => setCustomDateFocused(false)}
+                    style={[
+                      styles.textArea,
+                      { minHeight: 40, paddingVertical: 8 },
+                      {
+                        backgroundColor:
+                          colorMode === 'dark' ? darkTokens.colors.deep : lightTokens.colors.linen,
+                        borderColor: customDateFocused
+                          ? '#E0C47A'
+                          : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                        borderWidth: customDateFocused ? 2 : StyleSheet.hairlineWidth,
+                      },
+                    ]}
                   />
                   <Box row mt={2}>
                     <Button
@@ -618,6 +667,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     />
                     <Box flex={1} />
                     <Button
+                      variant="primary"
                       onPress={() => {
                         try {
                           if (customDate.trim().length === 0) return;
@@ -724,10 +774,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       {state.commitment ? (
                         <TextInput
                           placeholder="Why this matters (optional, 140 max)"
+                          accessibilityLabel="Commitment note input"
                           maxLength={140}
                           value={state.commitmentNote}
                           onChangeText={(t) => dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })}
-                          style={[styles.textArea, { minHeight: 40, paddingVertical: 8 }]}
+                          onFocus={() => setCommitmentFocused(true)}
+                          onBlur={() => setCommitmentFocused(false)}
+                          style={[
+                            styles.textArea,
+                            { minHeight: 40, paddingVertical: 8 },
+                            {
+                              borderColor: commitmentFocused
+                                ? '#E0C47A'
+                                : lightTokens.colors.sageMist || lightTokens.colors.sage,
+                              borderWidth: commitmentFocused ? 2 : StyleSheet.hairlineWidth,
+                            },
+                          ]}
                         />
                       ) : null}
                     </Box>
@@ -785,6 +847,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             <Box flex={1} />
             <Button onPress={onSave} disabled={!canSave} title={isSaving ? 'Saving...' : 'Save'} />
           </Box>
+          {/* close the Box opened above via the IIFE */}
         </Box>
       </Animated.View>
     </KeyboardAvoidingView>
@@ -932,7 +995,7 @@ function buildCreateOrUpdateInput({
 }
 
 const styles = StyleSheet.create({
-  scrollPad: { paddingBottom: tokenSpacing['2xl'] },
+  scrollPad: { paddingBottom: tokenSpacing.xl },
   textArea: {
     minHeight: 120,
     maxHeight: 360,
@@ -946,16 +1009,12 @@ const styles = StyleSheet.create({
   detailsContainer: {
     paddingHorizontal: tokenSpacing.base,
     paddingVertical: tokenSpacing.sm,
-    borderRadius: tokenRadius.sm,
+    borderRadius: tokenRadius.md,
     backgroundColor: lightTokens.colors.surface || '#FFFFFF',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: lightTokens.colors.border,
-    // subtle elevation/shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    // use token elevation for a subtle shadow
+    ...lightTokens.elevation.lg,
   },
 
   detailsRow: {
