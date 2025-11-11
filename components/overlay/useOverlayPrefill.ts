@@ -1,45 +1,62 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { callClassify, type CallClassifyResult } from '../../lib/cortex/CortexClient';
 
-type SuggestedTag = { name: string; confidence: number; lowConfidence?: boolean };
+export type SuggestedTag = { name: string; lowConfidence?: boolean };
 
-export function useOverlayPrefill(initialText?: string) {
+type UseOverlayPrefillMode = 'create' | 'edit' | string;
+
+type UseOverlayPrefillOptions = {
+  initialText?: string;
+  mode?: UseOverlayPrefillMode;
+  getText?: () => string;
+  debounceMs?: number;
+};
+
+export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
+  const { initialText = '', mode = 'create', getText, debounceMs = 600 } = options;
+
   const [suggestedTitle, setSuggestedTitle] = useState<string | null>(null);
   const [suggestedTags, setSuggestedTags] = useState<SuggestedTag[]>([]);
-  const [confidence, setConfidence] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const requestIdRef = useRef(0);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastObservedTextRef = useRef<string>(initialText);
 
-    const enabled = (process.env.EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL ?? '').toLowerCase() === 'on';
-    if (!enabled) return;
+  const runPrefill = useCallback(
+    async (rawText?: string) => {
+      const enabled =
+        (process.env.EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL ?? '').toLowerCase() === 'on';
+      const textSource = rawText ?? getText?.() ?? initialText;
+      const text = (textSource ?? '').trim();
 
-    const text = initialText ?? '';
-    if (!text.trim()) return;
+      lastObservedTextRef.current = textSource ?? '';
 
-    setLoading(true);
-    setError(null);
+      if (!enabled || !text) {
+        requestIdRef.current += 1; // invalidate any in-flight work
+        setSuggestedTitle(null);
+        setSuggestedTags([]);
+        setLoading(false);
+        return;
+      }
 
-    (async () => {
+      const currentRequestId = ++requestIdRef.current;
+      setLoading(true);
+      setError(null);
+
       try {
-        // Prefer a dedicated prefill API if available on the cortex module
-        // Dynamically require to allow tests to mock or to avoid static errors
         const cortex: any = await import('../../lib/cortex/CortexClient');
 
-        // Try preferred prefillOverlay shape first
         let res: any = undefined;
         if (typeof cortex.prefillOverlay === 'function') {
-          res = await cortex.prefillOverlay({ text });
+          res = await cortex.prefillOverlay({ text, mode });
         } else if (typeof cortex.callClassify === 'function') {
-          // Fallback: use classify endpoint and attempt to extract title/tags
           const classifyRes: CallClassifyResult = await cortex.callClassify({ text });
           if (classifyRes && (classifyRes as any).ok === true) {
             const classification = (classifyRes as any).classification;
-            // classification may have tags: string[] and confidence
             res = {
-              title: undefined,
+              title: classification?.title,
               tags:
                 Array.isArray(classification?.tags) && classification.tags.length
                   ? classification.tags.map((t: string) => ({
@@ -47,63 +64,104 @@ export function useOverlayPrefill(initialText?: string) {
                       confidence: classification.confidence ?? 1,
                     }))
                   : [],
-              confidence: classification?.confidence ?? null,
             };
           } else {
-            // Try to parse JSON from a legacy content field
             const raw =
               (classifyRes as any)?.data?.content ?? (classifyRes as any)?.data?.passthrough;
             if (typeof raw === 'string') {
               try {
-                const parsed = JSON.parse(raw);
-                res = parsed;
+                res = JSON.parse(raw);
               } catch {
-                // ignore
+                res = undefined;
               }
             }
           }
+        } else if (typeof callClassify === 'function') {
+          const classifyRes: CallClassifyResult = await callClassify({ text });
+          if (classifyRes && (classifyRes as any).ok === true) {
+            const classification = (classifyRes as any).classification;
+            res = {
+              title: classification?.title,
+              tags:
+                Array.isArray(classification?.tags) && classification.tags.length
+                  ? classification.tags.map((t: string) => ({
+                      name: t,
+                      confidence: classification.confidence ?? 1,
+                    }))
+                  : [],
+            };
+          }
         }
 
-        if (!mounted) return;
+        if (requestIdRef.current !== currentRequestId) return;
 
         if (!res) {
-          setLoading(false);
+          setSuggestedTitle(null);
+          setSuggestedTags([]);
           return;
         }
 
-        // Expect shape: { title: string, tags: { name, confidence }[], confidence?: number }
         const title = typeof res.title === 'string' && res.title.trim() ? res.title.trim() : null;
         const rawTags: any[] = Array.isArray(res.tags) ? res.tags : [];
 
         const filtered = rawTags
           .map((t) => {
-            if (typeof t === 'string') return { name: t, confidence: 1 };
+            if (typeof t === 'string') {
+              return { name: t, confidence: 1 };
+            }
             const name = typeof t?.name === 'string' ? t.name : String(t ?? '');
-            const conf = typeof t?.confidence === 'number' ? t.confidence : 1;
-            return { name, confidence: conf };
+            const confidence = typeof t?.confidence === 'number' ? t.confidence : 1;
+            return { name, confidence };
           })
-          .filter((t) => typeof t.confidence === 'number' && t.confidence >= 0.4)
-          .map((t) => ({ ...t, lowConfidence: t.confidence < 0.8 }));
+          .filter((t) => t.name && typeof t.confidence === 'number' && t.confidence >= 0.4)
+          .map((t) => ({ name: t.name.trim(), lowConfidence: t.confidence < 0.8 }));
 
         setSuggestedTitle(title);
         setSuggestedTags(filtered);
-        setConfidence(typeof res.confidence === 'number' ? res.confidence : null);
       } catch (e: any) {
-        if (!mounted) return;
+        if (requestIdRef.current !== currentRequestId) return;
         setError(e?.message ?? String(e));
+        setSuggestedTitle(null);
+        setSuggestedTags([]);
       } finally {
-        if (mounted) setLoading(false);
+        if (requestIdRef.current === currentRequestId) setLoading(false);
       }
-    })();
+    },
+    [getText, initialText, mode],
+  );
 
-    return () => {
-      mounted = false;
-    };
-    // We intentionally only run on mount / initialText
+  useEffect(() => {
+    runPrefill(initialText || getText?.());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { suggestedTitle, suggestedTags, confidence, loading, error } as const;
+  useEffect(() => {
+    if (!getText) return;
+
+    let isMounted = true;
+    const pollInterval = setInterval(() => {
+      if (!isMounted) return;
+      const current = getText() ?? '';
+      if (current === lastObservedTextRef.current) return;
+      lastObservedTextRef.current = current;
+
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => runPrefill(current), debounceMs);
+    }, 200);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [debounceMs, getText, runPrefill]);
+
+  const refresh = useCallback(() => runPrefill(getText?.()), [getText, runPrefill]);
+
+  return { suggestedTitle, suggestedTags, loading, error, refresh } as const;
 }
 
 export default useOverlayPrefill;

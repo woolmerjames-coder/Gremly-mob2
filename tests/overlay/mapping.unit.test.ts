@@ -2,7 +2,7 @@ import { toCreateOrUpdateInput } from '../../components/overlay/overlayV2.mappin
 import { initialV2State } from '../../components/overlay/overlayV2.state';
 
 test('journal tag produces mood', () => {
-  const s = { ...initialV2State, tags: { journal: true }, mood: undefined } as any;
+  const s = { ...initialV2State, tags: ['journal'], mood: undefined } as any;
   s.log.body = 'my journal entry';
   const out = toCreateOrUpdateInput('log', s, null as any);
   expect(out.type).toBe('note');
@@ -10,14 +10,14 @@ test('journal tag produces mood', () => {
 });
 
 test('list tag overrides fmt to checkboxes', () => {
-  const s = { ...initialV2State, tags: { list: true }, format: 'bullet' } as any;
+  const s = { ...initialV2State, tags: ['list'], format: 'bullet' } as any;
   s.log.body = 'my list';
   const out = toCreateOrUpdateInput('log', s, null as any);
   expect(out.fmt).toBe('checkboxes');
 });
 
 test('explicit format preserved when no list tag', () => {
-  const s = { ...initialV2State, tags: {}, format: 'bullet' } as any;
+  const s = { ...initialV2State, tags: [], format: 'bullet' } as any;
   s.log.body = 'bullet note';
   const out = toCreateOrUpdateInput('log', s, null as any);
   expect(out.fmt).toBe('bullet');

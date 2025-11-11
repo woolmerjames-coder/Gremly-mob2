@@ -11,7 +11,7 @@ export type PersonLink = { id: string; display: string } | null;
 
 export type V2State = {
   baseType: BaseType;
-  tags: Partial<Record<TagKey, boolean>>;
+  tags: TagKey[];
   mood?: 'pos' | 'neu' | 'neg' | null;
   list?: { items: { id: string; text: string; checked: boolean }[] } | null;
   detected: { mentions: string[]; dates: string[] };
@@ -34,7 +34,7 @@ export type V2State = {
 
 export const initialV2State: V2State = {
   baseType: 'log',
-  tags: {},
+  tags: [],
   mood: null,
   list: null,
   detected: { mentions: [], dates: [] },
@@ -60,7 +60,8 @@ type Action =
   | { type: 'SET_TODO_DUE'; due_at: string | null }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
-  | { type: 'TOGGLE_TAG'; tag: TagKey; on?: boolean }
+  | { type: 'SET_TAGS'; tags: TagKey[] }
+  | { type: 'TOGGLE_TAG'; tag: TagKey }
   | { type: 'SET_MOOD'; mood: 'pos' | 'neu' | 'neg' | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
   | { type: 'TOGGLE_LIST_ITEM'; id: string; checked: boolean }
@@ -104,18 +105,18 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         next.habit = { ...next.habit, notes: currentText, title: firstLine(currentText) };
       return next;
     }
+    case 'SET_TAGS': {
+      const deduped = Array.from(new Set(action.tags));
+      const { list, mood } = deriveTagSideEffects(state, deduped);
+      return { ...state, tags: deduped, list, mood };
+    }
     case 'TOGGLE_TAG': {
-      const tags = { ...state.tags, [action.tag]: action.on ?? !state.tags[action.tag] };
-      // bootstrap list structure when tag turns on
-      let list = state.list;
-      if (tags.list && !list) {
-        const src = currentTextOf(state);
-        list = { items: parseListLines(src) };
-      }
-      if (!tags.list) list = null;
-      // clear mood when journal off
-      const mood = tags.journal ? (state.mood ?? 'neu') : null;
-      return { ...state, tags, list, mood };
+      const hasTag = state.tags.includes(action.tag);
+      const nextTags = hasTag
+        ? state.tags.filter((t) => t !== action.tag)
+        : [...state.tags, action.tag];
+      const { list, mood } = deriveTagSideEffects(state, nextTags);
+      return { ...state, tags: nextTags, list, mood };
     }
     case 'SET_MOOD':
       return { ...state, mood: action.mood };
@@ -137,7 +138,7 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     case 'SET_TEXT': {
       const next = setTextForCurrent(state, action.text);
       // refresh list items live if list tag on
-      if (next.tags.list) {
+      if (next.tags.includes('list')) {
         const lines = action.text.split(/\r?\n/).filter(Boolean);
         const existing = new Map((next.list?.items ?? []).map((i) => [i.text, i]));
         const items = lines.map(
@@ -210,6 +211,22 @@ function linesToItems(lines: string[]) {
 }
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
+}
+
+function deriveTagSideEffects(state: V2State, tags: TagKey[]) {
+  let list = state.list;
+  if (tags.includes('list')) {
+    if (!list) {
+      const src = currentTextOf(state);
+      list = { items: parseListLines(src) };
+    }
+  } else {
+    list = null;
+  }
+
+  const mood = tags.includes('journal') ? (state.mood ?? 'neu') : null;
+
+  return { list, mood };
 }
 
 // very light inline detection; repo can swap to its NLP later

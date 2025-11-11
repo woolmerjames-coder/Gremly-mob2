@@ -12,6 +12,20 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
+jest.mock('../../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  default: () => ({
+    suggestedTitle: null,
+    suggestedTags: [
+      { name: 'journal', lowConfidence: false },
+      { name: 'list', lowConfidence: false },
+    ],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
+  }),
+}));
+
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
@@ -19,25 +33,31 @@ const { UnifiedOverlayV2 } = require('../../components/overlay/UnifiedOverlayV2'
 
 const base: any = { visible: true, onClose: jest.fn(), mode: 'create' };
 
+beforeAll(() => {
+  process.env.EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL = 'on';
+});
+
 it('shows mood row only when Journal tag is active', () => {
-  const { getByText, queryByText } = render(<UnifiedOverlayV2 {...base} />);
+  const { getByLabelText, getByText, queryByText } = render(<UnifiedOverlayV2 {...base} />);
   expect(queryByText('😊')).toBeNull();
-  fireEvent.press(getByText('Journal'));
+  fireEvent.press(getByLabelText('Journal'));
   expect(getByText('😊')).toBeTruthy();
 });
 
 it('shows list checkboxes only when List tag is active', () => {
-  const { getByText, getByPlaceholderText, queryAllByText } = render(
+  const { getByLabelText, getByPlaceholderText, queryAllByText } = render(
     <UnifiedOverlayV2 {...base} />,
   );
   const input = getByPlaceholderText('Drop your thought…');
   fireEvent.changeText(input, 'one\ntwo');
-  fireEvent.press(getByText('List'));
+  fireEvent.press(getByLabelText('List'));
   expect(queryAllByText('○').length).toBeGreaterThanOrEqual(2);
 });
 
 it('date chips appear from inline tokens and set due date via picker', () => {
-  const { getByPlaceholderText, getByText } = render(<UnifiedOverlayV2 {...base} />);
+  const { getByPlaceholderText, getByLabelText, getByText } = render(
+    <UnifiedOverlayV2 {...base} />,
+  );
   const input = getByPlaceholderText('Drop your thought…');
   fireEvent.press(getByText('To-Do'));
   fireEvent.changeText(input, 'finish tomorrow');

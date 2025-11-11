@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
+  Pressable,
   ScrollView,
   TextInput,
   StyleSheet,
@@ -39,16 +40,58 @@ import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
-import useOverlayPrefill from './useOverlayPrefill';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
-import { v2Reducer, initialV2State, firstLine, type BaseType } from './overlayV2.state';
+import {
+  v2Reducer,
+  initialV2State,
+  firstLine,
+  type BaseType,
+  type TagKey,
+} from './overlayV2.state';
 import ToastUndo from './ToastUndo';
 import { linkSelectedPerson } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
+import { TagsRow } from './fields/TagsRow';
+import useOverlayPrefill from './useOverlayPrefill';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+const SUPPORTED_TAG_NAMES: ReadonlyArray<TagKey> = ['journal', 'list'];
+const SUPPORTED_TAG_SET = new Set(SUPPORTED_TAG_NAMES);
+
+function normalizeTagCandidate(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+/, '');
+}
+
+function normalizeToTagKey(value: unknown): TagKey | null {
+  const slug = normalizeTagCandidate(value);
+  if (!slug) return null;
+  return SUPPORTED_TAG_SET.has(slug as TagKey) ? (slug as TagKey) : null;
+}
+
+function extractTagKeysFromEntity(entity: any): TagKey[] {
+  if (!entity) return [];
+  const raw = entity.tags;
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<TagKey>();
+  for (const entry of raw) {
+    const tag = normalizeToTagKey(entry);
+    if (tag && !seen.has(tag)) seen.add(tag);
+  }
+  return Array.from(seen);
+}
+
+function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
+  if (incoming.length === 0) return base;
+  const next = new Set(base);
+  incoming.forEach((tag) => next.add(tag));
+  return Array.from(next) as TagKey[];
+}
 const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -113,6 +156,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const undoTimerRef = useRef<number | null>(null);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
+  const currentTagsRef = useRef<TagKey[]>(state.tags);
+  useEffect(() => {
+    currentTagsRef.current = state.tags;
+  }, [state.tags]);
+  const hasLoadedEditTagsRef = useRef(false);
 
   async function canEnableCommitment(): Promise<boolean> {
     try {
@@ -181,6 +229,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
     dispatch({ type: 'TOGGLE_EXPANDED' });
   }, [dispatch, reduceMotion]);
+
+  const handleTypeSelect = useCallback(
+    (next: BaseType) => {
+      if (state.baseType === next) return;
+      const prev = state.baseType;
+      pushUndoEntry('type', {
+        baseType: state.baseType,
+        log: state.log,
+        todo: state.todo,
+        habit: state.habit,
+      });
+      dispatch({ type: 'SET_BASE_TYPE', to: next });
+      try {
+        eventBus.emit('OverlayTypeChanged', { from: prev, to: next });
+      } catch (e) {
+        // ignore telemetry errors
+      }
+    },
+    [dispatch, state.baseType, state.habit, state.log, state.todo],
+  );
 
   // Runtime checks for components that must exist at render time.
   if (typeof Box === 'undefined') throw new Error('UnifiedOverlayV2 render: `Box` is undefined');
@@ -356,16 +424,60 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [mode, initialEntity]);
 
+  useEffect(() => {
+    if (mode !== 'edit') return;
+    if (hasLoadedEditTagsRef.current) return;
+
+    const inlineTags = extractTagKeysFromEntity(initialEntity);
+    if (inlineTags.length > 0) {
+      const merged = mergeTagKeys(currentTagsRef.current, inlineTags);
+      if (merged.length !== currentTagsRef.current.length) {
+        dispatch({ type: 'SET_TAGS', tags: merged });
+      }
+      hasLoadedEditTagsRef.current = true;
+      return;
+    }
+
+    const entityId = (initialEntity as any)?.id;
+    const fetchableRepo = repo as any;
+    if (!entityId || typeof fetchableRepo?.getById !== 'function') {
+      hasLoadedEditTagsRef.current = true;
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const entity = await fetchableRepo.getById(entityId);
+        if (cancelled) return;
+        const fetched = extractTagKeysFromEntity(entity);
+        if (fetched.length > 0) {
+          const merged = mergeTagKeys(currentTagsRef.current, fetched);
+          if (merged.length !== currentTagsRef.current.length) {
+            dispatch({ type: 'SET_TAGS', tags: merged });
+          }
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('[UnifiedOverlayV2] failed to preload edit tags', err);
+      } finally {
+        if (!cancelled) hasLoadedEditTagsRef.current = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, initialEntity, repo]);
+
   // AI prefill hook: request suggestions when creating a new item with empty text
-  const { suggestedTitle, suggestedTags, confidence } = useOverlayPrefill('');
+  const { suggestedTitle, suggestedTags: prefillSuggestedTags } = useOverlayPrefill({
+    mode,
+    getText: () => currentText,
+  });
 
   // Track previous title to detect manual edits after an AI suggestion was applied
   const prevTitleRef = useRef<string | null>(null);
   // Track which suggested tag names were offered
-  const suggestedTagNamesRef = useRef<Set<string>>(new Set());
-  // Avoid duplicate feedback for tags
-  const tagsFeedbackSentRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
     // Only apply suggestions for fresh creates with an empty text body
     if (mode !== 'create') return;
@@ -375,16 +487,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // remember that the current title equals the suggestion we applied
       prevTitleRef.current = suggestedTitle;
     }
-    if (suggestedTags?.length) {
-      // remember suggested tag names
-      suggestedTagNamesRef.current = new Set(suggestedTags.map((t) => t.name));
-      suggestedTags.forEach((t) => {
-        if (t.name === 'journal') dispatch({ type: 'TOGGLE_TAG', tag: 'journal', on: true });
-        if (t.name === 'list') dispatch({ type: 'TOGGLE_TAG', tag: 'list', on: true });
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestedTitle, suggestedTags]);
+  }, [currentText, dispatch, mode, state.log.title, suggestedTitle]);
 
   // Detect manual title edits away from an AI suggestion
   useEffect(() => {
@@ -398,21 +501,28 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [state.log.title, suggestedTitle]);
 
-  // Detect user unchecking suggested tags and send feedback once per tag
-  useEffect(() => {
-    const suggestedNames = suggestedTagNamesRef.current;
-    if (!suggestedNames || suggestedNames.size === 0) return;
-    const sent = tagsFeedbackSentRef.current;
-    suggestedNames.forEach((name) => {
-      const key = name as 'journal' | 'list';
-      const isOn = !!(state.tags as any)?.[key];
-      if (!isOn && !sent.has(name)) {
-        // user left the suggested tag toggled off
-        recordOverlayFeedback({ type: 'tags', accepted: false, prev: name, newValue: '' });
-        sent.add(name);
-      }
+  const filteredTagSuggestions = useMemo(() => {
+    if (!prefillSuggestedTags?.length) return [];
+    return prefillSuggestedTags.filter((entry) => {
+      const tagKey = normalizeToTagKey(entry?.name ?? '');
+      if (!tagKey) return false;
+      return !state.tags.includes(tagKey);
     });
-  }, [state.tags]);
+  }, [prefillSuggestedTags, state.tags]);
+
+  const hasLowConfidenceSuggestions = useMemo(
+    () => filteredTagSuggestions.some((tag) => !!tag.lowConfidence),
+    [filteredTagSuggestions],
+  );
+
+  const handleTagToggle = useCallback(
+    (tag: string) => {
+      if (tag !== 'journal' && tag !== 'list') return;
+      pushUndoEntry('tag', { tags: [...state.tags], list: state.list, mood: state.mood });
+      dispatch({ type: 'TOGGLE_TAG', tag: tag as TagKey });
+    },
+    [dispatch, state.list, state.mood, state.tags],
+  );
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
@@ -420,6 +530,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     colorMode === 'dark' ? darkTokens.colors.linen : lightTokens.colors.linenCream;
   const sheetBorderColor = colorMode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
   const handleColor = colorMode === 'dark' ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.16)';
+  const typeTabActiveColor =
+    colorMode === 'dark' ? darkTokens.colors.charcoal : lightTokens.colors.charcoal;
+  const typeTabInactiveColor =
+    colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
+  const typeTabUnderlineColor =
+    colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss;
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   const canSave = currentText.trim().length > 0 && !isSaving;
@@ -473,11 +589,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     } as any;
 
     // mood (Journal)
-    const moodPatch = s.tags?.journal ? { mood: s.mood ?? 'neu' } : { mood: null };
+    const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
 
     // fmt: list tag overrides explicit format
     let fmtVal: any = null;
-    if (s.tags?.list) fmtVal = 'checkboxes';
+    if (s.tags.includes('list')) fmtVal = 'checkboxes';
     else if (s.format) fmtVal = s.format; // 'plain' | 'checkboxes' | 'bullet'
 
     const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
@@ -727,55 +843,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120, paddingTop: 16 }}
             >
               <Box px={4}>
-                <Box row gap={2} style={{ flexWrap: 'wrap' }}>
-                  {(['log', 'todo', 'habit'] as BaseType[]).map((t) => (
-                    <TypePill
-                      key={t}
-                      active={baseType === t}
-                      onPress={() => {
-                        // push undo snapshot of relevant state before changing type
-                        const prev = state.baseType;
-                        pushUndoEntry('type', {
-                          baseType: state.baseType,
-                          log: state.log,
-                          todo: state.todo,
-                          habit: state.habit,
-                        });
-                        dispatch({ type: 'SET_BASE_TYPE', to: t });
-                        try {
-                          eventBus.emit('OverlayTypeChanged', { from: prev, to: t });
-                        } catch (e) {
-                          // ignore telemetry errors
-                        }
-                      }}
-                    >
-                      {BASE_LABEL[t]}
-                    </TypePill>
-                  ))}
-                </Box>
-                <Box row gap={2} px={0} style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}>
-                  <TagChip
-                    label="Journal"
-                    active={!!state.tags?.journal}
-                    onPress={() => {
-                      pushUndoEntry('tag', {
-                        tags: state.tags,
-                        list: state.list,
-                        mood: state.mood,
-                      });
-                      dispatch({ type: 'TOGGLE_TAG', tag: 'journal' });
-                    }}
-                  />
-                  <TagChip
-                    label="List"
-                    active={!!state.tags?.list}
-                    onPress={() => {
-                      pushUndoEntry('tag', { tags: state.tags, list: state.list });
-                      dispatch({ type: 'TOGGLE_TAG', tag: 'list' });
-                    }}
-                  />
-                </Box>
-                {confidence && confidence < 0.8 ? (
+                <View style={[styles.typeTabsRow, { marginBottom: tokenSpacing.md }]}>
+                  {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
+                    const selected = baseType === t;
+                    return (
+                      <Pressable
+                        key={t}
+                        onPress={() => handleTypeSelect(t)}
+                        style={styles.typeTab}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text
+                          style={[
+                            styles.typeTabLabel,
+                            {
+                              color: selected ? typeTabActiveColor : typeTabInactiveColor,
+                              fontWeight: selected ? '600' : '500',
+                            },
+                          ]}
+                        >
+                          {BASE_LABEL[t]}
+                        </Text>
+                        <View
+                          style={[
+                            styles.typeTabUnderline,
+                            {
+                              backgroundColor: selected ? typeTabUnderlineColor : 'transparent',
+                            },
+                          ]}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <TagsRow
+                  tags={state.tags}
+                  suggested={filteredTagSuggestions}
+                  onToggle={handleTagToggle}
+                />
+                {hasLowConfidenceSuggestions ? (
                   <Box mt={2}>
                     <Text variant="subtle">AI suggestions (low confidence)</Text>
                   </Box>
@@ -975,7 +1083,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Reanimated.View>
                 ) : null}
                 {/* Journal mood row */}
-                {state.tags?.journal ? (
+                {state.tags.includes('journal') ? (
                   <Box mt={3} row gap={2} style={{ marginTop: tokenSpacing.md }}>
                     <MoodPill
                       label="😊"
@@ -996,7 +1104,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 ) : null}
 
                 {/* List checkboxes */}
-                {state.tags?.list && state.list ? (
+                {state.tags.includes('list') && state.list ? (
                   <Box mt={3}>
                     {(state.list.items || []).map((it) => (
                       <Box
@@ -1263,57 +1371,6 @@ function headerFor(base: BaseType, mode: 'create' | 'edit') {
   return base === 'log' ? 'New Log' : base === 'todo' ? 'New To-Do' : 'New Habit';
 }
 
-function TypePill({
-  active,
-  onPress,
-  children,
-}: {
-  active: boolean;
-  onPress: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      style={{
-        paddingHorizontal: tokenSpacing.md,
-        paddingVertical: tokenSpacing.sm,
-        minHeight: 40,
-        borderRadius: tokenRadius.sm,
-      }}
-    >
-      <Button
-        size="sm"
-        variant={active ? 'primary' : 'neutral'}
-        onPress={onPress}
-        title={typeof children === 'string' ? children : undefined}
-      />
-    </Box>
-  );
-}
-
-function TagChip({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active?: boolean;
-  onPress?: () => void;
-}) {
-  const _on = onPress ?? (() => {});
-  return (
-    <Box style={styles.chip}>
-      <Button
-        size="sm"
-        variant={active ? 'primary' : 'neutral'}
-        onPress={_on}
-        title={label}
-        accessibilityLabel={`Tag ${label}`}
-      />
-    </Box>
-  );
-}
-
 function MoodPill({
   label,
   active,
@@ -1399,6 +1456,23 @@ function buildCreateOrUpdateInput({
 }
 
 const styles = StyleSheet.create({
+  typeTabsRow: {
+    flexDirection: 'row',
+  },
+  typeTab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: tokenSpacing.sm,
+  },
+  typeTabLabel: {
+    fontSize: lightTokens.typography.size.sm,
+  },
+  typeTabUnderline: {
+    alignSelf: 'stretch',
+    height: 2,
+    marginTop: tokenSpacing.xs,
+    borderRadius: tokenRadius.sm,
+  },
   textArea: {
     minHeight: 120,
     fontSize: lightTokens.typography.size.md,

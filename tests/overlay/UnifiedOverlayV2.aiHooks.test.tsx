@@ -16,22 +16,27 @@ jest.mock('../../providers/RepoProvider', () => ({
 }));
 
 // Mock the prefill hook to return deterministic suggestions
-jest.mock('../../components/overlay/useOverlayPrefill', () => ({
-  __esModule: true,
-  default: () => ({
-    suggestedTitle: 'AI Title',
-    suggestedTags: [{ name: 'journal', confidence: 0.9 }],
-    confidence: 0.9,
-    loading: false,
-    error: null,
-  }),
-}));
+jest.mock('../../components/overlay/useOverlayPrefill', () => {
+  const refreshMock = jest.fn().mockResolvedValue(undefined);
+  return {
+    __esModule: true,
+    default: () => ({
+      suggestedTitle: 'AI Title',
+      suggestedTags: [{ name: 'journal' }],
+      loading: false,
+      error: null,
+      refresh: refreshMock,
+    }),
+  };
+});
 
 // Mock cortex client feedback API
 const mockFeedback = jest.fn().mockResolvedValue(true);
+const mockCallClassify = jest.fn().mockResolvedValue({ ok: false });
 jest.mock('../../lib/cortex/CortexClient', () => ({
   __esModule: true,
   feedbackOverlay: mockFeedback,
+  callClassify: mockCallClassify,
 }));
 
 // Lightweight mock of the full overlay to avoid mounting heavy RN/modal UI in Jest

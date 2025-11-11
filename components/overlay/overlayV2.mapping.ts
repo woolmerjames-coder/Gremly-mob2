@@ -32,10 +32,10 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     origin: 'catchall' as const,
   };
 
-  const moodPatch = s.tags?.journal ? { mood: s.mood ?? 'neu' } : { mood: null };
+  const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
 
   let fmtVal: any = null;
-  if (s.tags?.list) fmtVal = 'checkboxes';
+  if (s.tags.includes('list')) fmtVal = 'checkboxes';
   else if (s.format) fmtVal = s.format;
   const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
 
