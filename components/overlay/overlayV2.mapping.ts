@@ -9,6 +9,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       due_at: s.todo.due_at ?? s.reminderAt ?? null,
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
+      tags: [...s.tags],
     };
   }
   if (baseType === 'habit') {
@@ -19,6 +20,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       frequency: s.habit.schedule ?? 'custom',
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
+      tags: [...s.tags],
     };
   }
 
@@ -30,6 +32,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     body: s.log.body,
     space_id: s.spaceId ?? spaceIdProp ?? null,
     origin: 'catchall' as const,
+    tags: [...s.tags],
   };
 
   const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };

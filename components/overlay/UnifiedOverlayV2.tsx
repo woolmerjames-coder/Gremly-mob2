@@ -553,6 +553,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_at: s.todo.due_at ?? s.reminderAt ?? null,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        tags: [...s.tags],
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -569,6 +570,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        tags: [...s.tags],
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -586,6 +588,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
+      tags: [...s.tags],
     } as any;
 
     // mood (Journal)
