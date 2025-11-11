@@ -180,24 +180,25 @@ type TypeOption = {
   logSubtype?: LogSubtype;
 };
 
+const BASE_TYPE_OPTIONS: TypeOption[] = [
+  { value: 'habit', label: 'Habit', iconName: 'Activity' },
+  { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
+  {
+    value: 'log',
+    label: NOTE_LABEL,
+    iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
+  },
+  { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
+];
+
 const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
-  ? [
-      { value: 'habit', label: 'Habit', iconName: 'Activity' },
-      { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
-      {
-        value: 'log',
-        label: NOTE_LABEL,
-        iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
-      },
-      { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
-    ]
+  ? BASE_TYPE_OPTIONS
   : [
-      { value: 'habit', label: 'Habit', iconName: 'Activity' },
-      { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
-      { value: 'log', label: 'Journal', iconName: 'BookOpen', logSubtype: 'journal' },
-      { value: 'log', label: 'Note', iconName: 'FileText', logSubtype: 'everything_else' },
+      BASE_TYPE_OPTIONS[0],
+      BASE_TYPE_OPTIONS[1],
+      BASE_TYPE_OPTIONS[2],
       { value: 'log', label: 'Person', iconName: 'User', logSubtype: 'person' },
-      { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
+      BASE_TYPE_OPTIONS[3],
     ];
 
 // Star tags now derive log subtype automatically (see deriveLogSubtypeFromTags).

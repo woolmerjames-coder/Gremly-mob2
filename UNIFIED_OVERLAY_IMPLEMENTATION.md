@@ -137,9 +137,9 @@ type UnifiedCreateOverlayProps = {
 **Type Selection**:
 - `type-pill-habit`
 - `type-pill-todo`
-- `type-pill-journal`
-- `type-pill-note`
-- `type-pill-person`
+- `type-pill-log`
+- `type-pill-person` *(non-canonical builds)*
+- `type-pill-unsorted`
 
 **AI Mode**:
 - `ai-mode-button`
@@ -148,8 +148,7 @@ type UnifiedCreateOverlayProps = {
 **Subtype Pills** (dynamic per type):
 - Habit: `subtype-pill-start_habit`, `subtype-pill-break_habit`, `subtype-pill-routine`
 - Todo: `subtype-pill-reminder`, `subtype-pill-microproject`
-- Journal: `subtype-pill-reflection`, `subtype-pill-gratitude`, `subtype-pill-dream`, `subtype-pill-review`
-- Note: `subtype-pill-idea`, `subtype-pill-list`, `subtype-pill-reference`
+- Log: `subtype-pill-idea`, `subtype-pill-list`, `subtype-pill-reference`
 
 **Form Fields**:
 - Habit: `habit-name-input`, `frequency-chip-{daily|weekly|monthly}`
@@ -183,11 +182,11 @@ examples/
 - Easy to test and modify independently
 - Clear separation of concerns
 
-### 2. **Journal as Separate Type**
+### 2. **Journal via Tags**
 - Journal is technically a note with `subtype: 'journal'`
-- Treated as first-class type in UI for better UX
-- Simplified mental model for users
-- Specialized fields (date-focused instead of title)
+- Journal/List selection now happens through tag chips instead of dedicated type pills
+- Simplifies the top-level category selector while keeping specialized fields available
+- Maintains tag-driven mental model for users
 
 ### 3. **Person as Placeholder**
 - Currently stores as note with `subtype: 'reference'`

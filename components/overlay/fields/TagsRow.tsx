@@ -30,11 +30,22 @@ type TagItem = {
 export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
   const colorMode = useColorScheme();
   const palette = colorMode === 'dark' ? darkTokens.colors : lightTokens.colors;
-  const lowConfidenceText = colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
-  const lowConfidenceBorder =
-    colorMode === 'dark' ? 'rgba(248,250,249,0.35)' : 'rgba(34,34,34,0.25)';
-  const inactiveBorder = colorMode === 'dark' ? 'rgba(248,250,249,0.4)' : palette.border;
-  const inactiveText = colorMode === 'dark' ? 'rgba(248,250,249,0.85)' : palette.subtle;
+
+  const toRgba = (hex: string, alpha: number): string => {
+    if (!hex) return `rgba(0,0,0,${alpha})`;
+    const normalized = hex.replace('#', '');
+    const value = normalized.length === 6 ? normalized : normalized.slice(0, 6);
+    const int = Number.parseInt(value, 16);
+    const r = (int >> 16) & 255;
+    const g = (int >> 8) & 255;
+    const b = int & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  const sage = palette.sage;
+  const charcoal = palette.charcoal;
+  const sageOutline = toRgba(sage, 0.6);
+  const charcoalMuted = toRgba(charcoal, colorMode === 'dark' ? 0.75 : 0.7);
 
   const chips = useMemo<TagItem[]>(() => {
     const seen = new Set<string>();
@@ -78,17 +89,9 @@ export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
         {chips.map((chip) => {
           const active = chip.active;
           const lowConfidence = !active && !!chip.lowConfidence;
-          const backgroundColor = active ? palette.moss : 'transparent';
-          const borderColor = active
-            ? palette.moss
-            : lowConfidence
-              ? lowConfidenceBorder
-              : inactiveBorder;
-          const textColor = active
-            ? palette.onPrimary
-            : lowConfidence
-              ? lowConfidenceText
-              : inactiveText;
+          const backgroundColor = active ? sage : 'transparent';
+          const borderColor = active ? sage : sageOutline;
+          const textColor = active ? charcoal : charcoalMuted;
 
           return (
             <Pressable
@@ -123,10 +126,13 @@ const styles = StyleSheet.create({
     marginTop: tokenSpacing.sm,
   },
   label: {
-    marginBottom: tokenSpacing.xs,
+    marginBottom: 6,
+    fontSize: lightTokens.typography.size.xs,
+    lineHeight: lightTokens.typography.size.xs * lightTokens.typography.lineHeight.normal,
+    fontWeight: '500',
   },
   scrollContent: {
-    paddingVertical: 4,
+    paddingVertical: 6,
     paddingRight: tokenSpacing.base,
   },
   chip: {

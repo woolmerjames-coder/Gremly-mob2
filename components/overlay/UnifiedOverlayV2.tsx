@@ -57,8 +57,6 @@ import { TagsRow } from './fields/TagsRow';
 import useOverlayPrefill from './useOverlayPrefill';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
-const SUPPORTED_TAG_NAMES: ReadonlyArray<TagKey> = ['journal', 'list'];
-const SUPPORTED_TAG_SET = new Set(SUPPORTED_TAG_NAMES);
 
 function normalizeTagCandidate(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -70,8 +68,7 @@ function normalizeTagCandidate(value: unknown): string {
 
 function normalizeToTagKey(value: unknown): TagKey | null {
   const slug = normalizeTagCandidate(value);
-  if (!slug) return null;
-  return SUPPORTED_TAG_SET.has(slug as TagKey) ? (slug as TagKey) : null;
+  return slug || null;
 }
 
 function extractTagKeysFromEntity(entity: any): TagKey[] {
@@ -88,8 +85,13 @@ function extractTagKeysFromEntity(entity: any): TagKey[] {
 
 function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
   if (incoming.length === 0) return base;
-  const next = new Set(base);
-  incoming.forEach((tag) => next.add(tag));
+  const next = new Set(base.map((tag) => normalizeToTagKey(tag) ?? tag));
+  incoming.forEach((tag) => {
+    const normalized = normalizeToTagKey(tag);
+    if (normalized) {
+      next.add(normalized);
+    }
+  });
   return Array.from(next) as TagKey[];
 }
 const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
@@ -517,9 +519,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const handleTagToggle = useCallback(
     (tag: string) => {
-      if (tag !== 'journal' && tag !== 'list') return;
+      const normalized = normalizeToTagKey(tag);
+      if (!normalized) return;
       pushUndoEntry('tag', { tags: [...state.tags], list: state.list, mood: state.mood });
-      dispatch({ type: 'TOGGLE_TAG', tag: tag as TagKey });
+      dispatch({ type: 'TOGGLE_TAG', tag: normalized });
     },
     [dispatch, state.list, state.mood, state.tags],
   );

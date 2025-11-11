@@ -1,6 +1,6 @@
 export type BaseType = 'log' | 'todo' | 'habit';
 
-export type TagKey = 'journal' | 'list';
+export type TagKey = string;
 
 export type LogState = { body: string; title: string };
 export type TodoState = { title: string; details: string; due_at?: string | null };
