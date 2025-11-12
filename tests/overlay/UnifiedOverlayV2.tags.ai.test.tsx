@@ -146,10 +146,10 @@ describe('UnifiedOverlayV2 tag suggestions in edit mode', () => {
     const input = getByPlaceholderText('Drop your thought…');
     await waitFor(() => expect(input.props.value).toBe('Existing body'));
 
-    const journalChipLabel = await waitFor(() => getByText('• Journal'));
+    const journalChipLabel = await waitFor(() => getByText('• #journal'));
     const { element: journalChipNode, style: journalStyle } = findChipStyle(journalChipLabel);
     expect(journalStyle?.backgroundColor).toBe('transparent');
-    expect(queryByText('• Work')).toBeNull();
+    expect(queryByText('• #work')).toBeNull();
     expect(getByText('AI suggestions (low confidence)')).toBeTruthy();
     expect(queryByText(/0\.6/)).toBeNull();
 
@@ -157,7 +157,7 @@ describe('UnifiedOverlayV2 tag suggestions in edit mode', () => {
       fireEvent.changeText(input, 'Edited body with more detail');
     });
 
-    const listChipLabel = await waitFor(() => getByText('• List'));
+    const listChipLabel = await waitFor(() => getByText('• #list'));
     const { element: listChipNode, style: listStyle } = findChipStyle(listChipLabel);
     expect(listStyle?.backgroundColor).toBe('transparent');
 
@@ -165,8 +165,8 @@ describe('UnifiedOverlayV2 tag suggestions in edit mode', () => {
       fireEvent.press(journalChipNode as any);
     });
 
-    await waitFor(() => expect(queryByText('• Journal')).toBeNull());
-    expect(getByText('Journal')).toBeTruthy();
+    await waitFor(() => expect(queryByText('• #journal')).toBeNull());
+    expect(getByText('#journal')).toBeTruthy();
 
     const saveButton = getByText('Save');
     await act(async () => {

@@ -82,21 +82,21 @@ describe('UnifiedOverlayV2 suggested tags row', () => {
       <UnifiedOverlayV2 {...baseProps} />,
     );
 
-    const journalLabel = await waitFor(() => getByText('• Journal'));
+    const journalLabel = await waitFor(() => getByText('• #journal'));
     const { style: journalStyle } = findStyleWithColor(journalLabel);
     expect(journalStyle.color).toBe('rgba(34, 34, 34, 0.7)');
 
-    const meetingLabel = await waitFor(() => getByText('• Meeting'));
+    const meetingLabel = await waitFor(() => getByText('• #meeting'));
     const { style: meetingStyle } = findStyleWithColor(meetingLabel);
     expect(meetingStyle.color).toBe('rgba(34, 34, 34, 0.7)');
 
-    const meetingChip = getByLabelText('Meeting');
+    const meetingChip = getByLabelText('#meeting');
     await act(async () => {
       fireEvent.press(meetingChip);
     });
 
     await waitFor(() => {
-      expect(getByText('Meeting')).toBeTruthy();
+      expect(getByText('#meeting')).toBeTruthy();
     });
 
     const input = getByPlaceholderText('Drop your thought…');
@@ -107,7 +107,7 @@ describe('UnifiedOverlayV2 suggested tags row', () => {
       fireEvent.press(todoTab);
     });
 
-    expect(getByText('Meeting')).toBeTruthy();
+    expect(getByText('#meeting')).toBeTruthy();
 
     const saveButton = getByText('Save');
     await act(async () => {
@@ -119,6 +119,6 @@ describe('UnifiedOverlayV2 suggested tags row', () => {
     });
 
     const payload = mockCreate.mock.calls[0][0];
-    expect(payload.tags).toEqual(['meeting']);
+    expect(payload.tags).toEqual(['#meeting']);
   });
 });

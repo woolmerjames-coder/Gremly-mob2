@@ -1,12 +1,7 @@
 import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, useColorScheme, View } from 'react-native';
 import { Text } from '../../../ui/Text';
-import {
-  lightTokens,
-  darkTokens,
-  spacing as tokenSpacing,
-  borderRadius as tokenRadius,
-} from '../../../design/tokens';
+import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../../design/tokens';
 
 type SuggestedTag = {
   name: string;
@@ -17,17 +12,20 @@ type TagsRowProps = {
   tags: string[];
   suggested?: SuggestedTag[];
   onToggle: (tag: string) => void;
+  onRemove?: (tag: string) => void;
+  activeMeta?: Record<string, { label: string; isPerson: boolean }>;
 };
 
 type TagItem = {
   key: string;
-  label: string;
-  accessibilityLabel: string;
+  display: string;
+  baseLabel: string;
   active: boolean;
   lowConfidence?: boolean;
+  isPerson: boolean;
 };
 
-export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
+export function TagsRow({ tags, suggested = [], onToggle, onRemove, activeMeta }: TagsRowProps) {
   const colorMode = useColorScheme();
   const palette = colorMode === 'dark' ? darkTokens.colors : lightTokens.colors;
 
@@ -42,37 +40,61 @@ export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
-  const sage = palette.sage;
   const charcoal = palette.charcoal;
-  const sageOutline = toRgba(sage, 0.6);
-  const charcoalMuted = toRgba(charcoal, colorMode === 'dark' ? 0.75 : 0.7);
+  const charcoalMuted = toRgba(charcoal, colorMode === 'dark' ? 0.8 : 0.7);
+  const selectedTextColor = colorMode === 'dark' ? palette.charcoal : (palette.deep ?? '#1A3328');
+  const personSelectedBackground = '#BFD8C0';
+  const topicSelectedBackground = '#DDE7E1';
+  const chipBorderColor = 'rgba(46,85,64,0.15)';
+
+  const normalizeSlug = (value: string) =>
+    value
+      .replace(/^[#@*]+/, '')
+      .trim()
+      .toLowerCase();
+  const ensureDisplayLabel = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^[#@*]/.test(trimmed)) return trimmed;
+    return `#${trimmed}`;
+  };
 
   const chips = useMemo<TagItem[]>(() => {
     const seen = new Set<string>();
-    const normalized: TagItem[] = [];
+    const list: TagItem[] = [];
 
-    const addTag = (rawName: string, active: boolean, lowConfidence?: boolean) => {
-      const trimmed = rawName.trim();
-      const slug = trimmed.toLowerCase();
-      if (!slug || seen.has(slug)) return;
-      seen.add(slug);
-      const baseLabel =
-        trimmed === slug ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : trimmed;
-      const label = active ? baseLabel : `\u2022 ${baseLabel}`;
-      normalized.push({
+    const push = (rawName: string, active: boolean, lowConfidence?: boolean) => {
+      const trimmed = rawName?.trim() ?? '';
+      if (!trimmed) return;
+      const slug = normalizeSlug(trimmed);
+      if (!slug) return;
+
+      const dedupeKey = `${active ? '1' : '0'}:${slug}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+
+      const meta = active ? activeMeta?.[slug] : undefined;
+      const baseLabel = active
+        ? (meta?.label ?? ensureDisplayLabel(trimmed))
+        : ensureDisplayLabel(trimmed);
+      const cleanLabel = baseLabel.startsWith('• ') ? baseLabel.slice(2) : baseLabel;
+      const display = active ? cleanLabel : `• ${cleanLabel}`;
+
+      list.push({
         key: slug,
-        label,
-        accessibilityLabel: baseLabel,
+        display,
+        baseLabel: cleanLabel,
         active,
         lowConfidence,
+        isPerson: meta?.isPerson ?? cleanLabel.startsWith('@'),
       });
     };
 
-    tags.forEach((name) => addTag(name, true));
-    suggested.forEach((entry) => addTag(entry.name, false, entry.lowConfidence));
+    tags.forEach((name) => push(name, true));
+    suggested.forEach((entry) => push(entry.name, false, entry.lowConfidence));
 
-    return normalized;
-  }, [suggested, tags]);
+    return list;
+  }, [activeMeta, suggested, tags]);
 
   if (chips.length === 0) return null;
 
@@ -87,32 +109,48 @@ export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
         contentContainerStyle={styles.scrollContent}
       >
         {chips.map((chip) => {
-          const active = chip.active;
-          const lowConfidence = !active && !!chip.lowConfidence;
-          const backgroundColor = active ? sage : 'transparent';
-          const borderColor = active ? sage : sageOutline;
-          const textColor = active ? charcoal : charcoalMuted;
+          const backgroundColor = chip.active
+            ? chip.isPerson
+              ? personSelectedBackground
+              : topicSelectedBackground
+            : 'transparent';
+          const textColor = chip.active ? selectedTextColor : charcoalMuted;
+          const opacity = !chip.active && chip.lowConfidence ? 0.7 : 1;
 
           return (
             <Pressable
               key={chip.key}
               accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={chip.accessibilityLabel}
+              accessibilityState={{ selected: chip.active }}
+              accessibilityLabel={chip.baseLabel}
               onPress={() => onToggle(chip.key)}
-              style={[styles.chip, { borderColor, backgroundColor }]}
+              style={[styles.chip, { borderColor: chipBorderColor, backgroundColor, opacity }]}
             >
               <Text
                 style={[
                   styles.chipLabel,
                   {
                     color: textColor,
-                    fontWeight: active ? '600' : '500',
+                    fontWeight: chip.active ? '600' : '500',
                   },
                 ]}
               >
-                {chip.label}
+                {chip.display}
               </Text>
+              {chip.active && onRemove ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${chip.baseLabel}`}
+                  onPress={(event) => {
+                    event.stopPropagation?.();
+                    onRemove(chip.key);
+                  }}
+                  style={styles.removePressable}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.removeIcon}>×</Text>
+                </Pressable>
+              ) : null}
             </Pressable>
           );
         })}
@@ -137,16 +175,25 @@ const styles = StyleSheet.create({
   },
   chip: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: tokenRadius.sm,
-    paddingHorizontal: tokenSpacing.md,
-    paddingVertical: tokenSpacing.xs,
-    marginRight: tokenSpacing.sm,
-    minHeight: 36,
-    justifyContent: 'center',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+    minHeight: 34,
+    flexDirection: 'row',
     alignItems: 'center',
   },
   chipLabel: {
     fontSize: lightTokens.typography.size.sm,
     lineHeight: 18,
+  },
+  removePressable: {
+    marginLeft: 6,
+    padding: 2,
+  },
+  removeIcon: {
+    fontSize: 14,
+    lineHeight: 16,
+    color: 'rgba(26,51,40,0.7)',
   },
 });

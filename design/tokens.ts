@@ -90,6 +90,13 @@ export const lightTokens = {
       shadowRadius: 8,
       elevation: 3,
     },
+    xl: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.3,
+      shadowRadius: 40,
+      elevation: 12,
+    },
     // Chat bubble shadows
     chatUser: {
       shadowColor: '#000',

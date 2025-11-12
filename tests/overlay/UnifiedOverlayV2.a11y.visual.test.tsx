@@ -91,13 +91,13 @@ describe('UnifiedOverlayV2 — a11y visual checks (light & dark)', () => {
       const ratio = contrastRatio(textColorToken, bgToken);
       expect(ratio).toBeGreaterThanOrEqual(4.5);
 
-      // Focus ring appears on focus (borderColor set to golden pear and borderWidth 2)
+      // Focus ring appears on focus (borderColor set to subtle moss and borderWidth 2)
       await act(async () => {
         fireEvent(inputEl, 'focus');
       });
       const focusedStyle = StyleSheet.flatten(input.props.style || {});
       expect(focusedStyle.borderWidth === 2 || focusedStyle.borderWidth === '2').toBe(true);
-      expect(focusedStyle.borderColor).toBe('#E0C47A');
+      expect(focusedStyle.borderColor).toBe('rgba(46,85,64,0.35)');
 
       // Snapshot for visual regression
       expect(toJSON()).toMatchSnapshot();
