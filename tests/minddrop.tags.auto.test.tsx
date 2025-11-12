@@ -62,6 +62,20 @@ jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 const mockDecideWithContext = jest.fn();
 
 jest.mock('../providers/CortexProvider', () => ({
@@ -82,6 +96,17 @@ jest.mock('../src/hooks/useActionToast', () => ({
     showToast: jest.fn(),
     Toast: () => null,
   }),
+}));
+
+jest.mock('../hooks/useUnifiedOverlayController', () => ({
+  __esModule: true,
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../contexts/OverlayContext', () => ({
+  __esModule: true,
+  OverlayProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 describe('Mind Drop classification tag persistence', () => {

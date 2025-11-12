@@ -30,15 +30,30 @@ jest.mock('../lib/env', () => {
   };
 });
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 // Mock dependencies
 jest.mock('../lib/today/useTodayData');
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
-  useUnifiedOverlayController: () => ({
-    openCreate: jest.fn(),
-    openEdit: jest.fn(),
-    close: jest.fn(),
-    state: { visible: false },
-  }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../contexts/OverlayContext', () => ({
+  __esModule: true,
+  OverlayProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 // Mock the provider hooks to use our test context hooks

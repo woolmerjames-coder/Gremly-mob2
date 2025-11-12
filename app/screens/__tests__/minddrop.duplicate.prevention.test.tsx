@@ -52,6 +52,20 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100,
 }));
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 const createAskDecision = () => ({
   mode: 'ask' as const,
   confidence: 0.7,
@@ -87,7 +101,11 @@ jest.mock('../../../providers/ThemeProvider', () => ({
 }));
 
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
-  useUnifiedOverlayController: () => ({ close: jest.fn() }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../../../contexts/OverlayContext', () => ({
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 const mockShowActionToast = jest.fn();

@@ -26,7 +26,12 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
+import { env } from '../../lib/env';
+import { canonicalToPersisted } from '../../lib/canonical';
+import { persistedNoteSubtypeToLogSubtype } from '../../lib/logSubtypes';
+import { deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
 import { firstLine } from '../../lib/text/firstLine';
+import type { CanonicalType, LogSubtype, NoteSubtype } from '../../lib/types';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays } from 'date-fns';
@@ -99,6 +104,77 @@ function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
     }
   });
   return Array.from(next) as TagKey[];
+}
+
+const NEEDS_REVIEW_LABEL = 'needs_review';
+
+function normalizeCanonicalType(value: unknown): CanonicalType | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.toLowerCase();
+  if (
+    normalized === 'habit' ||
+    normalized === 'todo' ||
+    normalized === 'log' ||
+    normalized === 'unsorted'
+  ) {
+    return normalized as CanonicalType;
+  }
+  if (normalized === 'note' || normalized === 'journal') {
+    return 'log';
+  }
+  return null;
+}
+
+function normalizeLogSubtype(value: unknown): LogSubtype | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.toLowerCase();
+  if (
+    normalized === 'journal' ||
+    normalized === 'idea' ||
+    normalized === 'person' ||
+    normalized === 'list' ||
+    normalized === 'everything_else'
+  ) {
+    return normalized as LogSubtype;
+  }
+  return null;
+}
+
+function extractCanonicalMeta(entity: any): {
+  canonicalType: CanonicalType | null;
+  logSubtype: LogSubtype | null;
+  noteSubtype: NoteSubtype | null;
+} {
+  if (!entity) {
+    return { canonicalType: null, logSubtype: null, noteSubtype: null };
+  }
+
+  let canonicalType =
+    normalizeCanonicalType(entity?.canonicalType) ??
+    normalizeCanonicalType(entity?.canonical_type) ??
+    normalizeCanonicalType(entity?.type);
+
+  if (!canonicalType) {
+    const labels = Array.isArray(entity?.labels) ? (entity.labels as string[]) : [];
+    if (labels.includes(NEEDS_REVIEW_LABEL)) {
+      canonicalType = 'unsorted';
+    }
+  }
+
+  if (!canonicalType && typeof entity?.type === 'string' && entity.type.toLowerCase() === 'note') {
+    canonicalType = 'log';
+  }
+
+  const noteSubtype = typeof entity?.subtype === 'string' ? (entity.subtype as NoteSubtype) : null;
+
+  const logSubtype =
+    normalizeLogSubtype(entity?.canonicalSubtype) ??
+    normalizeLogSubtype(entity?.canonical_subtype) ??
+    normalizeLogSubtype(entity?.logSubtype) ??
+    normalizeLogSubtype(entity?.log_subtype) ??
+    (noteSubtype ? persistedNoteSubtypeToLogSubtype(noteSubtype) : null);
+
+  return { canonicalType: canonicalType ?? null, logSubtype, noteSubtype };
 }
 
 function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
@@ -278,8 +354,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [overlayState.tags]);
 
   const hasLoadedEditTagsRef = useRef(false);
+  const canonicalTypesEnabled = env.feature.canonicalTypes;
+
+  const initialCanonicalTypeRef = useRef<CanonicalType | null>(null);
+  const initialLogSubtypeRef = useRef<LogSubtype | null>(null);
+  const initialNoteSubtypeRef = useRef<NoteSubtype | null>(null);
+
+  const captureCanonicalMeta = useCallback((entity: any) => {
+    if (!entity) return;
+    const meta = extractCanonicalMeta(entity);
+    if (meta.canonicalType !== null) {
+      initialCanonicalTypeRef.current = meta.canonicalType;
+    }
+    if (meta.logSubtype !== null) {
+      initialLogSubtypeRef.current = meta.logSubtype;
+    }
+    if (meta.noteSubtype !== null) {
+      initialNoteSubtypeRef.current = meta.noteSubtype;
+    }
+  }, []);
 
   const resetStateFromSource = useCallback(() => {
+    initialCanonicalTypeRef.current = null;
+    initialLogSubtypeRef.current = null;
+    initialNoteSubtypeRef.current = null;
+    if (initialEntity) {
+      captureCanonicalMeta(initialEntity);
+    }
     if (mode === 'edit' && initialEntity) {
       const full = buildStateFromEntity(initialEntity);
       dispatch({ type: 'HYDRATE_EDIT', payload: full });
@@ -301,7 +402,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setIsHydrating(false);
       createPrefillAppliedRef.current = false;
     }
-  }, [mode, initialEntity, dispatch]);
+  }, [mode, initialEntity, dispatch, captureCanonicalMeta]);
 
   const wasVisibleRef = useRef<boolean>(false);
   useEffect(() => {
@@ -660,6 +761,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       try {
         const entity = await fetchableRepo.getById(entityId);
         if (cancelled) return;
+        captureCanonicalMeta(entity);
         const fetched = extractTagKeysFromEntity(entity);
         if (fetched.length > 0) {
           const merged = mergeTagKeys(currentTagsRef.current, fetched);
@@ -677,7 +779,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode, initialEntity, repo, visible]);
+  }, [mode, initialEntity, repo, visible, captureCanonicalMeta]);
 
   useEffect(() => {
     if (!visible) return;
@@ -706,6 +808,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       try {
         const entity = await fetchableRepo.getById(entityId);
         if (!active) return;
+        captureCanonicalMeta(entity);
         const payload = buildDraftPayloadFromEntity(entity);
         if (Object.keys(payload).length > 0) {
           dispatch({ type: 'HYDRATE_EDIT', payload });
@@ -730,7 +833,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return () => {
       active = false;
     };
-  }, [mode, initialEntity, repo, dispatch, visible]);
+  }, [mode, initialEntity, repo, dispatch, visible, captureCanonicalMeta]);
 
   // AI prefill hook: request suggestions when creating a new item with empty text
   const { suggestedTitle, suggestedTags: prefillSuggestedTags } = useOverlayPrefill({
@@ -895,9 +998,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     baseType: BaseType,
     s: typeof initialV2State,
     spaceId: string | null,
+    options: {
+      mode: 'create' | 'edit';
+      canonicalType: CanonicalType | null;
+      canonicalLogSubtype: LogSubtype | null;
+      initialNoteSubtype: NoteSubtype | null;
+    },
   ) {
+    const { mode, canonicalType, canonicalLogSubtype, initialNoteSubtype } = options;
     const sanitized = sanitizeSuggestedTags('', Array.isArray(s.tags) ? s.tags : []);
     const tags = stripJournalTags(sanitized, baseType === 'log');
+    const shouldAnnotateCanonical = Boolean(canonicalType);
+
     if (baseType === 'todo') {
       const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
       const payload = {
@@ -915,7 +1027,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
         },
-      };
+      } as Record<string, unknown>;
       if (!payload.due_at) {
         const candidate = [payload.title || '', s.todo.details || '', s.log.body || '']
           .map((segment) => (typeof segment === 'string' ? segment.trim() : ''))
@@ -934,10 +1046,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       } else {
         (s as V2State).suggestedDue = null;
       }
+      if (shouldAnnotateCanonical) payload.canonicalType = canonicalType as CanonicalType;
       return payload;
     }
     if (baseType === 'habit') {
-      return {
+      const payload = {
         type: 'habit' as const,
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
         notes: s.habit.notes || null,
@@ -951,19 +1064,40 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
         },
-      };
+      } as Record<string, unknown>;
+      if (shouldAnnotateCanonical) payload.canonicalType = canonicalType as CanonicalType;
+      return payload;
     }
 
-    // base note payload
+    const fallbackNoteSubtype = (initialNoteSubtype ?? 'catchall') as NoteSubtype;
+    const resolvedNoteSubtype = (() => {
+      if (canonicalType === 'log') {
+        const mapping = canonicalToPersisted('log', canonicalLogSubtype ?? null);
+        const mapped = (mapping.noteSubtype as NoteSubtype | null) ?? fallbackNoteSubtype;
+        return mapped;
+      }
+      if (canonicalType === 'unsorted') {
+        return 'catchall';
+      }
+      if (mode === 'edit') {
+        return fallbackNoteSubtype;
+      }
+      return fallbackNoteSubtype;
+    })();
+
     const base = {
       type: 'note' as const,
-      subtype: 'catchall' as const,
+      subtype: resolvedNoteSubtype,
       title: s.log.title || firstLine(s.log.body) || 'Untitled note',
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
       tags,
-    } as any;
+    } as Record<string, unknown>;
+
+    if (shouldAnnotateCanonical) {
+      base.canonicalType = canonicalType as CanonicalType;
+    }
 
     // mood (Journal)
     const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
@@ -990,11 +1124,60 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setSaveError(null);
     setIsSaving(true);
     try {
-      const input = toCreateOrUpdateInput(baseType, overlayState as any, initialSpaceId ?? null);
+      const shouldSetCanonical = canonicalTypesEnabled || initialCanonicalTypeRef.current !== null;
+      const canonicalTypeForSave: CanonicalType | null = (() => {
+        const initialCanonical = initialCanonicalTypeRef.current;
+        if (!shouldSetCanonical) {
+          return initialCanonical;
+        }
+        if (mode === 'edit') {
+          if (baseType === 'todo') return 'todo';
+          if (baseType === 'habit') return 'habit';
+          if (baseType === 'log') {
+            if (initialCanonical === 'unsorted') return 'unsorted';
+            return 'log';
+          }
+          return initialCanonical;
+        }
+        if (baseType === 'todo') return 'todo';
+        if (baseType === 'habit') return 'habit';
+        return initialCanonical ?? 'log';
+      })();
+
+      const canonicalLogSubtypeForSave: LogSubtype | null =
+        canonicalTypeForSave === 'log'
+          ? (() => {
+              const derived = deriveLogSubtypeFromTags(overlayState.tags);
+              if (derived && derived !== 'everything_else') {
+                return derived;
+              }
+              if (initialLogSubtypeRef.current) {
+                return initialLogSubtypeRef.current;
+              }
+              return derived ?? null;
+            })()
+          : null;
+
+      const input = toCreateOrUpdateInput(baseType, overlayState as any, initialSpaceId ?? null, {
+        mode,
+        canonicalType: canonicalTypeForSave,
+        canonicalLogSubtype: canonicalLogSubtypeForSave,
+        initialNoteSubtype: initialNoteSubtypeRef.current,
+      });
       const result =
         mode === 'edit' && (initialEntity as any)?.id
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
           : await repo.create(input as any);
+
+      try {
+        const change: 'created' | 'updated' = mode === 'edit' ? 'updated' : 'created';
+        if (result?.id) {
+          eventBus.emit('RecordChanged', { id: result.id, change });
+        }
+      } catch (err) {
+        // non-blocking notification failure
+        if (__DEV__) console.warn('[UnifiedOverlayV2] RecordChanged emit failed', err);
+      }
       // After a successful create/update, link any pending Phase‑8 tags/people
       try {
         const itemType = baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note';

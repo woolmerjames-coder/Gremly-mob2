@@ -10,6 +10,7 @@ export type EventMap = {
   ItemSaved: { id: string };
   ItemCompleted: { id: string; type: 'habit' | 'todo' };
   ItemUpdated: { id: string };
+  RecordChanged: { id: string; change: 'created' | 'updated' };
   FocusCardChanged: {
     entry_id: string | null;
     entry_type: 'todo' | 'habit' | 'note' | null;

@@ -58,6 +58,20 @@ const createAskDecision = (overrides: Partial<MockDecision> = {}): MockDecision 
   ...overrides,
 });
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 const mockDecideWithContext = jest.fn(async () => createAskDecision());
 const mockShowActionToast = jest.fn();
 
@@ -86,7 +100,11 @@ jest.mock('@react-navigation/elements', () => ({
 }));
 
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
-  useUnifiedOverlayController: () => ({ close: jest.fn() }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../../../contexts/OverlayContext', () => ({
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 jest.mock('../../../src/hooks/useActionToast', () => ({

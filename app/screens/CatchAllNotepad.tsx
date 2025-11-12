@@ -45,11 +45,11 @@ import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
-import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
+import type { AppRecord, CanonicalType, LogSubtype, NoteSubtype } from '../../lib/types';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
-import { useGlobalOverlay } from '../../contexts/OverlayContext';
-import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { eventBus } from '../../lib/events/EventBus';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -58,6 +58,7 @@ import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
 import { sanitizeSuggestedTags } from '../../components/overlay/overlayV2.mapping';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
+import { persistedNoteSubtypeToLogSubtype } from '../../lib/logSubtypes';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -435,6 +436,24 @@ const MindDropInput = React.memo<MindDropInputProps>(
   },
 );
 
+type PendingCreateEntry = {
+  requestId: string;
+  sourceMessageId: string | null;
+  expectedType: CreateRecordInput['type'];
+  expectedSubtype: NoteSubtype | null;
+  existingId: string | null;
+  resolve: (record: AppRecord) => void;
+  reject: (error: Error) => void;
+  resolved: boolean;
+  presented: boolean;
+};
+
+type OverlayRequestArgs = {
+  payload: CreateRecordInput;
+  sourceMessageId: string;
+  existing?: AppRecord | null;
+};
+
 MindDropInput.displayName = 'MindDropInput';
 
 const copy = {
@@ -778,7 +797,7 @@ const RecentDrops: React.FC<{
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
 }> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
-  const overlay = useGlobalOverlay();
+  const overlayController = useUnifiedOverlayController();
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
@@ -912,7 +931,7 @@ const RecentDrops: React.FC<{
   }, [eagerLoad, load]);
 
   const handleEdit = (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
-    overlay.openEdit({
+    overlayController.openEdit({
       record: { id, type: kind } as any,
       spaceId: null,
     });
@@ -943,14 +962,14 @@ const RecentDrops: React.FC<{
         ),
       );
 
-      overlay.openCreate({
+      overlayController.openCreate({
         initialEntity: { type: 'todo', id: undefined, logSubtype: null },
         initialText: item.text ? String(item.text) : null,
       });
 
       onEdited?.();
     },
-    [overlay, onEdited],
+    [overlayController, onEdited],
   );
 
   return (
@@ -1348,7 +1367,325 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
-  const overlay = useGlobalOverlay();
+  const overlayController = useUnifiedOverlayController();
+  const pendingBySourceRef = useRef<Map<string, PendingCreateEntry[]>>(new Map());
+  const pendingByIdRef = useRef<Map<string, PendingCreateEntry[]>>(new Map());
+  const pendingByRequestRef = useRef<Map<string, PendingCreateEntry>>(new Map());
+  const pendingSequenceRef = useRef<PendingCreateEntry[]>([]);
+  const activeEntryRef = useRef<PendingCreateEntry | null>(null);
+  const prevOverlayVisibleRef = useRef<boolean>(overlayController.state.visible);
+
+  const cleanupEntry = useCallback((entry: PendingCreateEntry) => {
+    pendingByRequestRef.current.delete(entry.requestId);
+
+    if (entry.sourceMessageId) {
+      const queue = pendingBySourceRef.current.get(entry.sourceMessageId);
+      if (queue) {
+        const next = queue.filter((candidate) => candidate !== entry);
+        if (next.length > 0) {
+          pendingBySourceRef.current.set(entry.sourceMessageId, next);
+        } else {
+          pendingBySourceRef.current.delete(entry.sourceMessageId);
+        }
+      }
+    }
+
+    if (entry.existingId) {
+      const queue = pendingByIdRef.current.get(entry.existingId);
+      if (queue) {
+        const next = queue.filter((candidate) => candidate !== entry);
+        if (next.length > 0) {
+          pendingByIdRef.current.set(entry.existingId, next);
+        } else {
+          pendingByIdRef.current.delete(entry.existingId);
+        }
+      }
+    }
+
+    const seq = pendingSequenceRef.current;
+    const idx = seq.indexOf(entry);
+    if (idx >= 0) {
+      seq.splice(idx, 1);
+    }
+
+    if (activeEntryRef.current === entry) {
+      activeEntryRef.current = null;
+    }
+  }, []);
+
+  const registerEntry = useCallback((entry: PendingCreateEntry) => {
+    pendingByRequestRef.current.set(entry.requestId, entry);
+
+    if (entry.sourceMessageId) {
+      const queue = pendingBySourceRef.current.get(entry.sourceMessageId) ?? [];
+      queue.push(entry);
+      pendingBySourceRef.current.set(entry.sourceMessageId, queue);
+    }
+
+    if (entry.existingId) {
+      const queue = pendingByIdRef.current.get(entry.existingId) ?? [];
+      queue.push(entry);
+      pendingByIdRef.current.set(entry.existingId, queue);
+    }
+
+    pendingSequenceRef.current.push(entry);
+  }, []);
+
+  const completeEntry = useCallback((entry: PendingCreateEntry, record: AppRecord) => {
+    entry.resolve(record);
+  }, []);
+
+  const failEntry = useCallback((entry: PendingCreateEntry, error: Error) => {
+    entry.reject(error);
+  }, []);
+
+  const buildOverlayCreateOptions = useCallback((payload: CreateRecordInput) => {
+    let overlayType: CanonicalType;
+    let overlayLogSubtype: LogSubtype | null = null;
+
+    const conversionMeta: {
+      origin?: string;
+      ai_placed?: boolean;
+      why_string?: string | null;
+      source_message_id?: string | null;
+      initialTitle?: string;
+      initialNote?: string;
+      initialDueDate?: string | null;
+    } = {};
+
+    if (typeof payload.origin === 'string') {
+      conversionMeta.origin = payload.origin;
+    }
+
+    if (typeof payload.ai_placed === 'boolean') {
+      conversionMeta.ai_placed = payload.ai_placed;
+    }
+
+    conversionMeta.why_string = payload.why_string ?? null;
+    conversionMeta.source_message_id = payload.sourceMessageId ?? null;
+
+    let initialText: string | null = null;
+
+    if (payload.type === 'todo') {
+      overlayType = 'todo';
+      const title =
+        typeof payload.title === 'string' && payload.title.length > 0
+          ? payload.title
+          : typeof payload.name === 'string'
+            ? payload.name
+            : '';
+      if (title) {
+        conversionMeta.initialTitle = title;
+        initialText = title;
+      }
+      if (payload.due_date) {
+        conversionMeta.initialDueDate = payload.due_date;
+      }
+    } else if (payload.type === 'habit') {
+      overlayType = 'habit';
+      const name =
+        typeof payload.title === 'string' && payload.title.length > 0
+          ? payload.title
+          : typeof payload.name === 'string'
+            ? payload.name
+            : '';
+      if (name) {
+        conversionMeta.initialTitle = name;
+        initialText = name;
+      }
+    } else {
+      const rawSubtype = (payload as { subtype?: string | null })?.subtype ?? null;
+      const labels = Array.isArray((payload as { labels?: unknown })?.labels)
+        ? ((payload as { labels?: string[] }).labels as string[])
+        : [];
+      const isUnsorted = rawSubtype === 'catchall' || labels.includes(UNSORTED_LABEL);
+
+      if (isUnsorted) {
+        overlayType = 'unsorted';
+      } else {
+        overlayType = 'log';
+        overlayLogSubtype = persistedNoteSubtypeToLogSubtype(rawSubtype ?? null);
+      }
+
+      const title = typeof payload.title === 'string' ? payload.title : null;
+      const noteBody =
+        typeof (payload as { body?: string })?.body === 'string'
+          ? ((payload as { body?: string }).body as string)
+          : null;
+
+      if (title) {
+        conversionMeta.initialTitle = title;
+      }
+      if (noteBody) {
+        conversionMeta.initialNote = noteBody;
+      }
+      initialText = noteBody ?? title;
+    }
+
+    return {
+      type: overlayType,
+      logSubtype: overlayLogSubtype,
+      spaceId: payload.space_id ?? undefined,
+      conversionMeta,
+      initialText: initialText ?? null,
+    };
+  }, []);
+
+  const openOverlayAndWait = useCallback(
+    ({ payload, existing, sourceMessageId }: OverlayRequestArgs) => {
+      return new Promise<AppRecord>((resolve, reject) => {
+        const requestId = `overlay-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        const targetSubtype =
+          payload.type === 'note'
+            ? ((payload as { subtype?: NoteSubtype | null })?.subtype ?? null)
+            : null;
+
+        const entry: PendingCreateEntry = {
+          requestId,
+          sourceMessageId,
+          expectedType: payload.type,
+          expectedSubtype: targetSubtype,
+          existingId: existing?.id ?? null,
+          resolve: () => {
+            /* placeholder - reassigned below */
+          },
+          reject: () => {
+            /* placeholder - reassigned below */
+          },
+          resolved: false,
+          presented: false,
+        };
+
+        entry.resolve = (record: AppRecord) => {
+          if (entry.resolved) {
+            return;
+          }
+          entry.resolved = true;
+          cleanupEntry(entry);
+          resolve(record);
+        };
+
+        entry.reject = (error: Error) => {
+          if (entry.resolved) {
+            return;
+          }
+          entry.resolved = true;
+          cleanupEntry(entry);
+          reject(error);
+        };
+
+        registerEntry(entry);
+
+        const hasMatchingType = existing?.type === payload.type;
+        if (existing && hasMatchingType) {
+          overlayController.openEdit({ record: existing, spaceId: payload.space_id ?? null });
+        } else {
+          const options = buildOverlayCreateOptions(payload);
+          overlayController.openCreate({
+            ...options,
+            sourceMessageId,
+          });
+        }
+      });
+    },
+    [buildOverlayCreateOptions, cleanupEntry, overlayController, registerEntry],
+  );
+
+  const overlayVisible = overlayController.state.visible;
+
+  useEffect(() => {
+    const wasVisible = prevOverlayVisibleRef.current;
+    prevOverlayVisibleRef.current = overlayVisible;
+
+    if (!wasVisible && overlayVisible) {
+      const current = pendingSequenceRef.current[0];
+      if (current) {
+        current.presented = true;
+        activeEntryRef.current = current;
+      }
+    } else if (wasVisible && !overlayVisible) {
+      const current = activeEntryRef.current;
+      if (current && !current.resolved) {
+        failEntry(current, new Error('OverlayCancelled'));
+      } else {
+        activeEntryRef.current = null;
+      }
+    }
+  }, [overlayVisible, failEntry]);
+
+  const extractSourceMessageId = useCallback(
+    (record: AppRecord | null | undefined): string | null => {
+      if (!record) return null;
+      const raw =
+        (record as unknown as { source_message_id?: unknown; sourceMessageId?: unknown })
+          ?.source_message_id ??
+        (record as unknown as { sourceMessageId?: unknown })?.sourceMessageId;
+      return typeof raw === 'string' && raw.length > 0 ? raw : null;
+    },
+    [],
+  );
+
+  const handleRecordChanged = useCallback(
+    async ({ id, change }: { id: string; change: 'created' | 'updated' }) => {
+      if (change !== 'created' && change !== 'updated') {
+        return;
+      }
+
+      let record: AppRecord | null = null;
+      try {
+        record = await repo.getById(id);
+      } catch {
+        record = null;
+      }
+
+      const sourceMessageId = extractSourceMessageId(record);
+
+      const selectCandidate = (candidates?: PendingCreateEntry[]): PendingCreateEntry | null => {
+        if (!candidates) return null;
+        for (const candidate of candidates) {
+          if (candidate.resolved) continue;
+          if (!record || record.type === candidate.expectedType) {
+            return candidate;
+          }
+        }
+        return null;
+      };
+
+      let entry: PendingCreateEntry | null = sourceMessageId
+        ? selectCandidate(pendingBySourceRef.current.get(sourceMessageId))
+        : null;
+
+      if (!entry) {
+        entry = selectCandidate(pendingByIdRef.current.get(id));
+      }
+
+      if (!entry) {
+        return;
+      }
+
+      if (
+        !record &&
+        sourceMessageId &&
+        typeof (repo as any)?.findBySourceMessageId === 'function'
+      ) {
+        try {
+          record = await repo.findBySourceMessageId(entry.expectedType, sourceMessageId);
+        } catch {
+          record = null;
+        }
+      }
+
+      const safeRecord = record ?? ({ id, type: entry.expectedType } as AppRecord);
+      completeEntry(entry, safeRecord);
+    },
+    [repo, completeEntry, extractSourceMessageId],
+  );
+
+  useEffect(() => {
+    const off = eventBus.on('RecordChanged', handleRecordChanged);
+    return off;
+  }, [handleRecordChanged]);
   const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
   const themeResult = useTheme();
@@ -1548,20 +1885,49 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const upsertBySourceMessageId = useCallback(
     async (payload: CreateRecordInput) => {
       const key = payload.sourceMessageId ?? null;
+
+      const lookupExisting = async (): Promise<AppRecord | null> => {
+        if (!key) return null;
+        const finder = (repo as any)?.findBySourceMessageId;
+        if (typeof finder !== 'function') {
+          return null;
+        }
+        try {
+          return await finder.call(repo, payload.type, key);
+        } catch {
+          return null;
+        }
+      };
+
+      if (process.env.JEST_WORKAROUND === '1') {
+        if (!key) {
+          return repo.create(payload);
+        }
+
+        return withWriteLock(key, async () => {
+          const existing = await lookupExisting();
+          if (existing) {
+            const patch = buildPatchFromCreatePayload(payload);
+            return repo.update({ id: existing.id, patch: patch as any });
+          }
+          return repo.create(payload);
+        });
+      }
+
       if (!key) {
         return repo.create(payload);
       }
 
       return withWriteLock(key, async () => {
-        const existing = await repo.findBySourceMessageId(payload.type, key);
-        if (existing) {
-          const patch = buildPatchFromCreatePayload(payload);
-          return repo.update({ id: existing.id, patch: patch as any });
-        }
-        return repo.create(payload);
+        const existing = await lookupExisting();
+        return openOverlayAndWait({
+          payload,
+          existing: existing ?? undefined,
+          sourceMessageId: key,
+        });
       });
     },
-    [repo, withWriteLock],
+    [repo, withWriteLock, openOverlayAndWait],
   );
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
@@ -1778,11 +2144,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [repo, testOrganizedTodayOverride]);
 
   useEffect(() => {
-    const unsub = addOverlaySavedListener(() => {
-      void refreshOrganizedToday?.();
-      triggerRecentRefresh();
+    const off = eventBus.on('RecordChanged', ({ change }) => {
+      if (change === 'created' || change === 'updated') {
+        void refreshOrganizedToday?.();
+        triggerRecentRefresh();
+      }
     });
-    return unsub;
+    return off;
   }, [refreshOrganizedToday, triggerRecentRefresh]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state

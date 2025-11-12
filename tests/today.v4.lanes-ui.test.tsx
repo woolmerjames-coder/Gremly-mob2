@@ -21,7 +21,19 @@ jest.mock('expo-linear-gradient', () => {
 
 const mockUndoCompletion = jest.fn();
 const mockGetById = jest.fn();
-const mockOpenEdit = jest.fn();
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
 
 jest.mock('../providers/AuthProvider', () => ({
   __esModule: true,
@@ -40,9 +52,13 @@ jest.mock('../providers/RepoProvider', () => ({
 
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
   __esModule: true,
-  useUnifiedOverlayController: () => ({
-    openEdit: mockOpenEdit,
-  }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../contexts/OverlayContext', () => ({
+  __esModule: true,
+  OverlayProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 const mockedUseTodayData = useTodayData as jest.MockedFunction<typeof useTodayData>;
@@ -84,7 +100,7 @@ beforeEach(() => {
   mockCompleteItem = jest.fn();
   mockUndoCompletion.mockReset();
   mockGetById.mockResolvedValue(null);
-  mockOpenEdit.mockReset();
+  mockOverlayController.openEdit.mockReset();
 
   const reanimated = require('react-native-reanimated');
   (reanimated.useSharedValue as jest.Mock).mockImplementation(() => ({ value: 0 }));

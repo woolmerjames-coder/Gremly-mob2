@@ -35,6 +35,7 @@ interface CreateOptions {
     logSubtype?: LogSubtype | null;
   };
   initialText?: string | null;
+  sourceMessageId?: string | null;
 }
 
 interface EditOptions {
@@ -110,11 +111,26 @@ export function useUnifiedOverlayController() {
         const inferredType = opts.initialEntity?.type ?? opts.type ?? null;
         const inferredLogSubtype = opts.initialEntity?.logSubtype ?? opts.logSubtype ?? null;
 
+        const conversionMeta: ConversionMeta | undefined = (() => {
+          const base: ConversionMeta = { ...(opts.conversionMeta ?? {}) };
+          const sourceMessageId =
+            opts.sourceMessageId !== undefined ? opts.sourceMessageId : base.source_message_id;
+
+          if (sourceMessageId === undefined) {
+            return Object.keys(base).length ? base : undefined;
+          }
+
+          return {
+            ...base,
+            source_message_id: sourceMessageId,
+          };
+        })();
+
         contextOpenCreate({
           type: inferredType ?? undefined,
           spaceId: opts.spaceId,
           logSubtype: inferredType === 'log' ? (inferredLogSubtype ?? null) : null,
-          conversionMeta: opts.conversionMeta,
+          conversionMeta,
           initialEntity: opts.initialEntity,
           initialText: opts.initialText ?? null,
         });

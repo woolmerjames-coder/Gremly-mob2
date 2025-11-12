@@ -209,6 +209,26 @@ jest.mock('./hooks/useOverlayController', () => {
   };
 });
 
+jest.mock('./hooks/useUnifiedOverlayController', () => {
+  const controller = {
+    state: {
+      visible: false,
+      mode: 'create' as const,
+      initialEntity: undefined,
+      initialSpaceId: null,
+      conversionMeta: undefined,
+    },
+    openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    openView: jest.fn(),
+    close: jest.fn(),
+  };
+
+  return {
+    useUnifiedOverlayController: () => controller,
+  };
+});
+
 // Provide a no-op global overlay context in tests so callers don't need the provider
 jest.mock('./contexts/OverlayContext', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires

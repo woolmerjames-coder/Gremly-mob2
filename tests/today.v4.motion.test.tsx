@@ -3,6 +3,20 @@ import { renderWithProviders, screen } from './utils/renderWithProviders';
 import TodayV4LanesView from '../app/tabs/TodayV4LanesView';
 import { useTodayData } from '../selectors/today/useTodayData';
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 jest.mock('../selectors/today/useTodayData', () => ({
   useTodayData: jest.fn(),
 }));
@@ -24,11 +38,13 @@ jest.mock('../providers/RepoProvider', () => ({
 
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
   ...jest.requireActual('../hooks/useUnifiedOverlayController'),
-  useUnifiedOverlayController: () => ({
-    openEdit: jest.fn(),
-    openCreate: jest.fn(),
-    openView: jest.fn(),
-  }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../contexts/OverlayContext', () => ({
+  ...jest.requireActual('../contexts/OverlayContext'),
+  OverlayProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 const mockedUseTodayData = useTodayData as jest.MockedFunction<typeof useTodayData>;

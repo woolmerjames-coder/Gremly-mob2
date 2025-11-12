@@ -27,12 +27,11 @@ import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
 import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
-import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { getNoteLabel } from '../../lib/canonicalTypes';
 import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags/search';
 import { parseSearchTokens } from '../../lib/tags/parseSearch';
 import TagFilterBar from '../../components/tags/TagFilterBar';
-import { eventBus } from '../../lib/events';
+import { eventBus } from '../../lib/events/EventBus';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -464,8 +463,10 @@ export default function HubScreen() {
   }, [load]);
 
   useEffect(() => {
-    const off = addOverlaySavedListener(() => {
-      void load();
+    const off = eventBus.on('RecordChanged', ({ change }) => {
+      if (change === 'created' || change === 'updated') {
+        void load();
+      }
     });
     return off;
   }, [load]);

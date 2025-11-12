@@ -32,7 +32,6 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
-import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
@@ -77,8 +76,8 @@ import { smartTitle, extractTodoTitle, parseHabit } from './chat/prefillUtils';
 import { computeDuePrefill } from './chat/duePrefill';
 import { Chip } from '../../ui/Chip';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import type { CanonicalType, LogSubtype } from '../../lib/types';
+import { persistedNoteSubtypeToLogSubtype } from '../../lib/logSubtypes';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
 const resolveOverlayCreateParams = (
@@ -1102,7 +1101,7 @@ export default function ChatThreadScreen({ route }: Props) {
           // All action creation now goes through:
           // 1. maybeTriggerActionToast() shows InlineActionConfirmation
           // 2. User clicks "Confirm" button
-          // 3. InlineActionConfirmation calls repo.create()
+          // 3. InlineActionConfirmation routes through unified overlay for final review
           // 4. EntryCard shows success (Phase 11.6)
           //
           // See: components/chat/InlineActionConfirmation.tsx for proper confirmation flow
@@ -1818,133 +1817,97 @@ export default function ChatThreadScreen({ route }: Props) {
                     .catch(() => {});
                 }
 
-                // Create the item directly (don't open overlay for confirmation)
-                if (!actionType || !spaceId) return;
+                // Route creation through overlay controller
+                if (!actionType || !spaceId) {
+                  return;
+                }
 
                 try {
-                  let created: any = null;
+                  const baseContent = pendingActionConfirmation.content.trim();
+                  const sourceMessageId = String(pendingActionConfirmation.id);
+                  const conversionMetaBase = {
+                    origin: 'space_chat' as const,
+                    ai_placed: true,
+                    why_string: metadata?.whyString ?? null,
+                  };
 
-                  // Create based on type using repo.create() with CreateRecordInput
+                  let overlayType: CanonicalType = 'log';
+                  let overlayLogSubtype: LogSubtype | null = null;
+                  let initialTitle = baseContent;
+                  let initialNote: string | undefined;
+                  let initialDueDate: string | null | undefined;
+                  let overlayInitialText = baseContent;
+
                   if (actionType === 'habit') {
-                    // Phase 14: Use conversation context if available
                     const contextValid = conversationContext.contextExpiry > Date.now();
-
-                    let activityName = metadata.activityName || pendingActionConfirmation.content;
-                    let frequency = (metadata.summary?.split(' - ')[1]?.toLowerCase() ||
-                      'daily') as any;
+                    let activityName = metadata.activityName || baseContent;
 
                     if (contextValid) {
-                      // Use remembered context from previous messages
                       if (conversationContext.lastActivity) {
                         activityName = conversationContext.lastActivity;
                       }
                       if (conversationContext.lastFrequency) {
                         const rawFreq = conversationContext.lastFrequency;
-                        // Normalize frequency format
-                        if (rawFreq.includes('3') && rawFreq.includes('week')) {
-                          frequency = '3x/week';
-                        } else if (rawFreq.includes('daily') || rawFreq.includes('every day')) {
-                          frequency = 'daily';
-                        } else if (rawFreq.match(/(\d+)\s*x/i)) {
-                          const match = rawFreq.match(/(\d+)/);
-                          if (match) frequency = `${match[1]}x/week`;
-                        } else {
-                          frequency = rawFreq.toLowerCase();
-                        }
+                        console.log('[Toast] Using conversation context:', {
+                          activity: activityName,
+                          frequency: rawFreq,
+                          contextExpiry: new Date(conversationContext.contextExpiry).toISOString(),
+                        });
                       }
-                      console.log('[Toast] Using conversation context:', {
-                        activity: activityName,
-                        frequency,
-                        contextExpiry: new Date(conversationContext.contextExpiry).toISOString(),
-                      });
                     }
 
-                    const habitData: CreateRecordInput = {
-                      type: 'habit',
-                      name: activityName,
-                      frequency: frequency,
-                      // subtype removed - column doesn't exist in habits table
-                      space_id: spaceId,
-                      origin: 'catchall',
-                    };
-                    created = await repo.create(habitData);
-                    console.log('[Toast] Habit created directly:', created.id);
+                    overlayType = 'habit';
+                    overlayLogSubtype = null;
+                    initialTitle = activityName;
+                    overlayInitialText = activityName;
                   } else if (actionType === 'todo') {
-                    const todoData: CreateRecordInput = {
-                      type: 'todo',
-                      name: pendingActionConfirmation.content,
-                      title: pendingActionConfirmation.content,
-                      due_date: null,
-                      space_id: spaceId,
-                      origin: 'catchall',
-                    };
-                    created = await repo.create(todoData);
-                    console.log('[Toast] Todo created directly:', created.id);
+                    const cleanedTitle = extractActionName(
+                      pendingActionConfirmation.content,
+                      'todo',
+                    );
+                    overlayType = 'todo';
+                    overlayLogSubtype = null;
+                    initialTitle = cleanedTitle;
+                    overlayInitialText = cleanedTitle;
+                    initialDueDate = metadata.dueDate ?? null;
                   } else if (actionType === 'note') {
-                    const noteData: CreateRecordInput = {
-                      type: 'note',
-                      title: pendingActionConfirmation.content.slice(0, 100),
-                      body: pendingActionConfirmation.content,
-                      subtype: 'idea',
-                      space_id: spaceId,
-                      origin: 'catchall',
-                    };
-                    created = await repo.create(noteData);
-                    console.log('[Toast] Note created directly:', created.id);
+                    overlayType = 'log';
+                    overlayLogSubtype = persistedNoteSubtypeToLogSubtype(
+                      metadata.noteSubtype ?? null,
+                    );
+                    initialTitle = baseContent || metadata.noteBody || '';
+                    initialNote =
+                      typeof metadata.noteBody === 'string' ? metadata.noteBody : baseContent;
+                    overlayInitialText = initialNote || initialTitle;
                   }
 
-                  if (created) {
-                    // Remove the toast message
-                    removeMessage(pendingActionConfirmation.id);
+                  overlayController.openCreate({
+                    type: overlayType,
+                    logSubtype: overlayLogSubtype ?? undefined,
+                    spaceId,
+                    initialText: overlayInitialText,
+                    sourceMessageId,
+                    conversionMeta: {
+                      ...conversionMetaBase,
+                      initialTitle,
+                      initialNote,
+                      initialDueDate: initialDueDate ?? null,
+                    },
+                  });
 
-                    // Phase 14: Exit building mode after successful creation
-                    setBuildingMode({ type: null, startedAt: 0 });
-                    if (__DEV__) {
-                      console.log('[BuildingMode] Exited: item created');
-                    }
+                  removeMessage(pendingActionConfirmation.id);
+                  setBuildingMode({ type: null, startedAt: 0 });
+                  if (__DEV__) {
+                    console.log('[BuildingMode] Exited: overlay opening');
+                  }
 
-                    // Add locked confirmation message
-                    await appendAssistantMessage('', {
-                      type: `${actionType}-locked`,
-                      [`${actionType}Name`]:
-                        actionType === 'habit'
-                          ? (created as any).name
-                          : actionType === 'todo'
-                            ? (created as any).title
-                            : 'Item',
-                      frequency: actionType === 'habit' ? (created as any).frequency : undefined,
-                      dueDate: actionType === 'todo' ? (created as any).due_date : undefined,
-                      noteContent: actionType === 'note' ? (created as any).content : undefined,
-                      [`${actionType}Id`]: created.id,
-                      locked: true,
-                      itemType: actionType,
-                    });
-
-                    // Add follow-up message after short delay
-                    setTimeout(async () => {
-                      try {
-                        const itemName =
-                          actionType === 'habit'
-                            ? (created as any).name || 'habit'
-                            : actionType === 'todo'
-                              ? 'task'
-                              : 'note';
-                        const continuationMessage =
-                          actionType === 'habit'
-                            ? `Great! Your ${itemName} is set. What else would you like to work on?`
-                            : actionType === 'todo'
-                              ? 'Task added to your list. Anything else you need to get done?'
-                              : "Got it! Note saved. What's next?";
-                        await appendAssistantMessage(continuationMessage);
-                        console.log('[Chat] Follow-up message added after direct creation');
-                      } catch (err) {
-                        console.error('[Chat] Failed to add follow-up message:', err);
-                      }
-                    }, 1500);
+                  try {
+                    await appendAssistantMessage('Opening the editor so you can finish this item.');
+                  } catch (err) {
+                    console.error('[Chat] Failed to add overlay follow-up message:', err);
                   }
                 } catch (error) {
-                  console.error(`[Toast] Failed to create ${actionType}:`, error);
-                  // TODO: Show error message to user
+                  console.error(`[Toast] Failed to launch overlay for ${actionType}:`, error);
                 }
               };
 

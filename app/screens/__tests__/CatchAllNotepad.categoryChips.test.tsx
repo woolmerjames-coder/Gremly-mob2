@@ -40,6 +40,20 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100,
 }));
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 const mockDecideWithContext = jest.fn();
 jest.mock('../../../providers/CortexProvider', () => ({
   useCortex: () => ({
@@ -56,9 +70,11 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
 }));
 
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
-  useUnifiedOverlayController: () => ({
-    close: jest.fn(),
-  }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../../../contexts/OverlayContext', () => ({
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 import CatchAllNotepad from '../CatchAllNotepad';
@@ -184,19 +200,17 @@ describe('CatchAllNotepad - Category Chips', () => {
     const todoChip = getByText('Add to To-Do List');
     fireEvent.press(todoChip);
 
-    const overlay = useGlobalOverlay();
-    const openCreate = overlay.openCreate as jest.Mock;
-
     await waitFor(() => {
-      expect(openCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          initialEntity: expect.objectContaining({ type: 'todo' }),
-          initialText: 'Maybe schedule meeting',
-        }),
-      );
+      expect(mockRepo.update).toHaveBeenCalledTimes(1);
     });
 
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    const updateCall = mockRepo.update.mock.calls[0]?.[0];
+    expect(updateCall).toBeDefined();
+    expect(updateCall?.id).toBe(createdRecords[0].id);
+    expect(updateCall?.patch).toEqual(expect.objectContaining({ canonicalType: 'todo' }));
+    expect(updateCall?.patch?.why_string).toContain('category chip');
+    expect(updateCall?.patch?.title).toBe('Maybe schedule meeting');
+
     expect(createdRecords.length).toBe(1);
     expect(createdRecords[0].type).toBe('note');
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
@@ -237,15 +251,24 @@ describe('CatchAllNotepad - Category Chips', () => {
     fireEvent.press(logChip);
 
     await waitFor(() => {
-      // Should have created only the unsorted note and updated it
-      expect(createdRecords.length).toBe(1);
-      expect(createdRecords[0].type).toBe('note');
-      expect(createdRecords[0].archived).toBe(false);
-      expect(createdRecords[0].why_string).toContain('Confirmed as log via category chip');
-
-      // Verify no duplicate
-      expect(mockRepo.create).toHaveBeenCalledTimes(1);
+      expect(mockRepo.update).toHaveBeenCalledTimes(1);
     });
+
+    const updateCall = mockRepo.update.mock.calls[0]?.[0];
+    expect(updateCall).toBeDefined();
+    expect(updateCall?.id).toBe(createdRecords[0].id);
+    expect(updateCall?.patch).toEqual(
+      expect.objectContaining({
+        canonicalType: 'log',
+        why_string: expect.stringContaining('category chip'),
+        subtype: expect.any(String),
+      }),
+    );
+
+    // Should have created only the unsorted note and updated it
+    expect(createdRecords.length).toBe(1);
+    expect(createdRecords[0].type).toBe('note');
+    expect(mockRepo.create).toHaveBeenCalledTimes(1);
   });
 
   it('does not show category chips when confidence >= 0.8', async () => {

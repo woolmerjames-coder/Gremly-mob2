@@ -35,6 +35,20 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'user-1' } }),
 }));
 
+const mockOverlayController = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  openView: jest.fn(),
+  close: jest.fn(),
+};
+
 const mockDecideWithContext = jest.fn();
 
 jest.mock('../../../providers/CortexProvider', () => ({
@@ -63,7 +77,11 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
 }));
 
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
-  useUnifiedOverlayController: () => ({ close: jest.fn() }),
+  useUnifiedOverlayController: () => mockOverlayController,
+}));
+
+jest.mock('../../../contexts/OverlayContext', () => ({
+  useGlobalOverlay: () => mockOverlayController,
 }));
 
 jest.mock('@/src/config/featureFlags', () => ({
