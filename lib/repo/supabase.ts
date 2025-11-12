@@ -344,7 +344,9 @@ export class SupabaseRepo implements IRepo {
       }
     } else if (input.type === 'todo') {
       // Database schema truth: todos table has 'name' column (NO 'title' column)
-      if (!input.name) throw new Error('Todo requires name');
+      const coercedName = (input.name ?? input.title ?? '').trim();
+      if (!coercedName) throw new Error('Todo requires name');
+      input = { ...input, name: coercedName };
 
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(

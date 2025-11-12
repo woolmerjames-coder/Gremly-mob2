@@ -1,3 +1,4 @@
+import { firstLine } from '../../lib/text/firstLine';
 import type { V2State, BaseType } from './overlayV2.state';
 
 const STOP_WORDS = new Set([
@@ -13,6 +14,14 @@ const STOP_WORDS = new Set([
   'with',
   'at',
   'on',
+  'love',
+  'loves',
+  'loved',
+  'loving',
+  'like',
+  'likes',
+  'liked',
+  'liking',
 ]);
 
 const DEFAULT_ALLOWED_TAGS = [
@@ -97,97 +106,113 @@ function matchSynonym(candidate: string): string | null {
   return null;
 }
 
-function normalizeCandidate(raw: string): string | null {
-  if (!raw) return null;
-  let trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return null;
-
-  if (trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('@')) {
-    return null;
-  }
-
-  trimmed = trimmed.replace(/^[#*@]+/, '');
-  if (!trimmed) return null;
-
-  if (STOP_WORDS.has(trimmed)) {
-    return null;
-  }
-
-  const synonym = matchSynonym(trimmed);
-  if (synonym) {
-    return synonym;
-  }
-
-  const cleaned = trimmed
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!cleaned) return null;
-
-  const cleanedSynonym = matchSynonym(cleaned);
-  if (cleanedSynonym) {
-    return cleanedSynonym;
-  }
-
-  if (STOP_WORDS.has(cleaned)) {
-    return null;
-  }
-
-  if (ALLOWED_TAGS.has(cleaned)) {
-    return cleaned;
-  }
-
-  const tokens = cleaned.split(' ');
-  for (const token of tokens) {
-    if (!token) continue;
-    if (STOP_WORDS.has(token)) continue;
-    const tokenSynonym = matchSynonym(token);
-    if (tokenSynonym) {
-      return tokenSynonym;
-    }
-    if (ALLOWED_TAGS.has(token)) {
-      return token;
-    }
-  }
-
-  const collapsed = cleaned.replace(/\s+/g, '_');
-  if (!collapsed || STOP_WORDS.has(collapsed)) {
-    return null;
-  }
-
-  if (ALLOWED_TAGS.has(collapsed)) {
-    return collapsed;
-  }
-
-  return null;
-}
+const PROPER_NAME_REGEX = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g;
 
 export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
 
-  const add = (tag: string | null | undefined) => {
+  const push = (tag: string | null | undefined) => {
     if (!tag) return;
-    const slug = tag.trim().toLowerCase();
-    if (!slug || STOP_WORDS.has(slug)) return;
-    if (!ALLOWED_TAGS.has(slug)) return;
-    if (seen.has(slug)) return;
-    seen.add(slug);
-    result.push(slug);
+    const key = tag.toLowerCase();
+    if (!key) return;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(tag);
+  };
+
+  const makeTopicTag = (value: string): string | null => {
+    const normalized = value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!normalized) return null;
+    if (STOP_WORDS.has(normalized)) return null;
+    if (/^\d+$/.test(normalized)) return null;
+    if (normalized.length < 2) return null;
+    if (normalized.length === 2 && !ALLOWED_TAGS.has(normalized)) return null;
+    return `#${normalized}`;
+  };
+
+  const makeMentionTag = (value: string): string | null => {
+    const collapsed = value.replace(/[^A-Za-z0-9]/g, '');
+    if (!collapsed) return null;
+    return `@${collapsed}`;
+  };
+
+  const properNames = new Map<string, string>();
+  if (typeof text === 'string' && text) {
+    let match: RegExpExecArray | null;
+    const regex = new RegExp(PROPER_NAME_REGEX);
+    while ((match = regex.exec(text)) !== null) {
+      const candidate = match[1]?.trim();
+      if (!candidate) continue;
+      const normalized = candidate.toLowerCase();
+      if (!normalized || STOP_WORDS.has(normalized)) continue;
+      properNames.set(normalized, candidate);
+    }
+  }
+
+  const consider = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    const prefix = trimmed[0];
+    const body = trimmed.slice(1);
+
+    if (prefix === '*') {
+      const normalized = body.trim().toLowerCase();
+      if (!normalized || STOP_WORDS.has(normalized)) return;
+      push(`*${normalized}`);
+      return;
+    }
+
+    if (prefix === '#') {
+      push(makeTopicTag(body));
+      return;
+    }
+
+    if (prefix === '@') {
+      push(makeMentionTag(body));
+      return;
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (STOP_WORDS.has(lower)) return;
+    if (/^\d+$/.test(lower)) return;
+
+    const synonym = matchSynonym(trimmed) || matchSynonym(lower);
+    if (synonym) {
+      push(makeTopicTag(synonym));
+      return;
+    }
+
+    const properFromText = properNames.get(lower);
+    if (properFromText) {
+      push(makeMentionTag(properFromText));
+      return;
+    }
+
+    if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/.test(trimmed)) {
+      push(makeMentionTag(trimmed));
+      return;
+    }
+
+    push(makeTopicTag(trimmed));
   };
 
   const lowerText = (text ?? '').toLowerCase();
   if (lowerText) {
     for (const rule of SYNONYM_RULES) {
       if (rule.pattern.test(lowerText)) {
-        add(rule.tag);
+        push(makeTopicTag(rule.tag));
       }
     }
   }
 
   for (const entry of aiTags ?? []) {
-    const normalized = typeof entry === 'string' ? normalizeCandidate(entry) : null;
-    add(normalized);
+    if (typeof entry !== 'string') continue;
+    consider(entry);
   }
 
   return result;
@@ -195,19 +220,30 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
 
 export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdProp: string | null) {
   const sanitized = sanitizeSuggestedTags('', Array.isArray(s.tags) ? s.tags : []);
-  const tagsForSave = baseType === 'log' ? sanitized : sanitized.filter((tag) => tag !== 'journal');
+  const stripPrefix = (tag: string) => tag.replace(/^[#*@]+/, '');
+  const normalizedKeys = sanitized.map(stripPrefix);
+  const tagsForSave =
+    baseType === 'log' ? sanitized : sanitized.filter((tag) => stripPrefix(tag) !== 'journal');
   if (baseType === 'todo') {
-    const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
-    return {
+    const rawTitle = s.todo?.title ?? '';
+    const cleanTitle = rawTitle.trim();
+
+    const payload = {
       type: 'todo' as const,
-      title: derivedTitle,
-      name: derivedTitle,
+      title: cleanTitle,
+      name: cleanTitle,
       details: s.todo.details || null,
       due_at: s.todo.due_at ?? s.reminderAt ?? null,
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
       tags: [...tagsForSave],
     };
+
+    const derived = (s.todo?.title || firstLine(s.todo?.details) || 'Untitled').trim();
+    payload.name = payload.name || derived;
+    payload.title = payload.title || derived;
+
+    return payload;
   }
   if (baseType === 'habit') {
     return {
@@ -232,10 +268,10 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     tags: [...tagsForSave],
   };
 
-  const moodPatch = sanitized.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
+  const moodPatch = normalizedKeys.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
 
   let fmtVal: any = null;
-  if (sanitized.includes('list')) fmtVal = 'checkboxes';
+  if (normalizedKeys.includes('list')) fmtVal = 'checkboxes';
   else if (s.format) fmtVal = s.format;
   const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
 
