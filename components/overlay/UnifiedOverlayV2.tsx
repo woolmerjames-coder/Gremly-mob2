@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useCallback, useReducer, useState, useRef } from 'react';
 import {
+  AccessibilityInfo,
   Dimensions,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -325,6 +326,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [bodyFocused, setBodyFocused] = useState(false);
   const [customDateFocused, setCustomDateFocused] = useState(false);
   const [commitmentFocused, setCommitmentFocused] = useState(false);
+  const announceForAccessibility = useCallback((message: string) => {
+    try {
+      AccessibilityInfo.announceForAccessibility?.(message);
+    } catch (error) {
+      void error;
+    }
+  }, []);
   // useAuth may not be available in some test harnesses that mock providers,
   // so guard against the hook throwing by falling back to null.
   let userId: string | null = null;
@@ -1164,10 +1172,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         canonicalLogSubtype: canonicalLogSubtypeForSave,
         initialNoteSubtype: initialNoteSubtypeRef.current,
       });
+      const previousCanonical = initialCanonicalTypeRef.current;
       const result =
         mode === 'edit' && (initialEntity as any)?.id
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
           : await repo.create(input as any);
+
+      if (mode === 'edit' && canonicalTypeForSave && previousCanonical !== canonicalTypeForSave) {
+        if (canonicalTypeForSave === 'todo') {
+          announceForAccessibility('Moved to To-Do.');
+        } else if (canonicalTypeForSave === 'log') {
+          announceForAccessibility('Logged as Idea.');
+        }
+      }
+      if (mode === 'edit' && canonicalTypeForSave) {
+        initialCanonicalTypeRef.current = canonicalTypeForSave;
+      }
 
       try {
         const change: 'created' | 'updated' = mode === 'edit' ? 'updated' : 'created';
@@ -1322,6 +1342,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     draftKey,
     onClose,
     isOffline,
+    announceForAccessibility,
   ]);
 
   const handleCancel = useCallback(async () => {

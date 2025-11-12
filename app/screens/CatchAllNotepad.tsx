@@ -1802,6 +1802,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const writeLocksRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
+  const [isSubmitLocked, setIsSubmitLocked] = useState(false);
+  const setSubmitLock = useCallback(
+    (value: boolean) => {
+      submitLockRef.current = value;
+      setIsSubmitLocked(value);
+    },
+    [setIsSubmitLocked],
+  );
 
   // Duplicate prevention: track last submitted text and its unsorted ID
   const lastSubmittedTextRef = useRef<string | null>(null);
@@ -2155,8 +2163,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(
-    () => note.trim().length === 0 || isSubmitting || isThinking,
-    [note, isSubmitting, isThinking],
+    () => note.trim().length === 0 || isSubmitting || isThinking || isSubmitLocked,
+    [note, isSubmitting, isThinking, isSubmitLocked],
   );
   const isButtonVisuallyDisabled = note.trim().length === 0;
 
@@ -2322,6 +2330,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, []);
 
+  const announceForAccessibility = useCallback((message: string) => {
+    try {
+      AccessibilityInfo.announceForAccessibility?.(message);
+    } catch (error) {
+      void error;
+    }
+  }, []);
+
   // Shared success toast helper for Mind Drop
   const showMindDropSuccessToast = useCallback(
     (args: MindDropToastArgs = {}) => {
@@ -2461,6 +2477,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 }),
               );
               unsortedIdRef.current = id ?? null;
+              announceForAccessibility("Saved to Unsorted, we'll organize together.");
 
               // Track this submission to prevent duplicates
               lastSubmittedTextRef.current = trimmed;
@@ -2855,6 +2872,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 }),
               );
               unsortedIdRef.current = id ?? null;
+              announceForAccessibility("Saved to Unsorted, we'll organize together.");
 
               // Track this submission to prevent duplicates
               lastSubmittedTextRef.current = trimmed;
@@ -3181,7 +3199,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       end(trace, 'error', { message: String(error) });
       throw error;
     }
-  }, [note, repo, user, userId, decideWithContext, triggerRecentRefresh]);
+  }, [note, repo, user, userId, decideWithContext, triggerRecentRefresh, announceForAccessibility]);
 
   const handleCategoryChipPick = useCallback(
     async (kind: 'todo' | 'log' | 'habit') => {
@@ -3293,6 +3311,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           });
 
           clearState({ todos: [], notes: [existing.id], habits: [] });
+          announceForAccessibility('Logged as Idea.');
           if (TOASTS_ON) {
             showActionToast({ type: 'success', content: 'Saved as note' });
           }
@@ -3330,6 +3349,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           });
 
           clearState({ todos: [existing.id], notes: [], habits: [] });
+          announceForAccessibility('Moved to To-Do.');
           if (TOASTS_ON) {
             showActionToast({ type: 'success', content: 'Added to To-Do List ✓' });
           }
@@ -3403,6 +3423,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       TOASTS_ON,
       showActionToast,
       logMetrics,
+      announceForAccessibility,
     ],
   );
 
@@ -3525,10 +3546,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const onSubmit = useCallback(async () => {
     // Lock immediately to prevent race conditions
     if (submitLockRef.current) return;
-    submitLockRef.current = true;
+    setSubmitLock(true);
 
     if (isSubmitting) {
-      submitLockRef.current = false;
+      setSubmitLock(false);
       return;
     }
     setIsSubmitting(true);
@@ -3538,7 +3559,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     if (!trimmed) {
       setIsSubmitting(false);
-      submitLockRef.current = false;
+      setSubmitLock(false);
       return;
     }
 
@@ -3549,7 +3570,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       trimmed === lastSubmittedTextRef.current
     ) {
       setIsSubmitting(false);
-      submitLockRef.current = false;
+      setSubmitLock(false);
       return;
     }
     lastSubmitAt.current = now;
@@ -3569,7 +3590,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       ]);
       setNote('');
       setIsSubmitting(false);
-      submitLockRef.current = false;
+      setSubmitLock(false);
       return;
     }
 
@@ -3595,13 +3616,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         } catch (e) {
           void e;
         }
-        try {
-          AccessibilityInfo.announceForAccessibility?.(
-            'Saved offline. Will organize when connected.',
-          );
-        } catch (e) {
-          void e;
-        }
+        announceForAccessibility("Saved to Unsorted, we'll organize together.");
         pendingUndo.current = { todos: [], notes: [], habits: [] };
         await refreshOrganizedToday?.();
         triggerRecentRefresh();
@@ -3684,13 +3699,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           } catch (e) {
             void e;
           }
-          try {
-            AccessibilityInfo.announceForAccessibility?.(
-              'Saved offline. Will organize when connected.',
-            );
-          } catch (e) {
-            void e;
-          }
+          announceForAccessibility("Saved to Unsorted, we'll organize together.");
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
           await withWriteLock(submissionId, () =>
@@ -3709,11 +3718,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           } catch (e) {
             void e;
           }
-          try {
-            AccessibilityInfo.announceForAccessibility?.('Saved to Unsorted Tray.');
-          } catch (e) {
-            void e;
-          }
+          announceForAccessibility("Saved to Unsorted, we'll organize together.");
         }
         // Nothing created (no Undo set)
         pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -3761,7 +3766,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       focusGreetingForA11y();
     } finally {
       setIsSubmitting(false);
-      submitLockRef.current = false;
+      setSubmitLock(false);
     }
   }, [
     note,
@@ -3774,11 +3779,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     resetState,
     focusGreetingForA11y,
     triggerRecentRefresh,
+    announceForAccessibility,
     TOASTS_ON,
+    setSubmitLock,
   ]);
 
   const handleSubmit = useCallback(() => {
-    if (isSubmitting || isThinking || !note.trim()) {
+    if (isSubmitting || isThinking || isSubmitLocked || !note.trim()) {
       return;
     }
 
@@ -3797,7 +3804,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } else {
       void onSubmit();
     }
-  }, [isSubmitting, isThinking, uiMode, note, onSubmit]);
+  }, [isSubmitting, isThinking, isSubmitLocked, uiMode, note, onSubmit]);
 
   const legacyUI = React.useMemo(() => {
     const statsVisible = organizedToday > 0;
