@@ -56,6 +56,7 @@ import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import { appendLineageToWhyString, hasChecklist } from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
+import { sanitizeSuggestedTags } from '../../components/overlay/overlayV2.mapping';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 
 export const THINKING_DURATION = 1200;
@@ -2348,8 +2349,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         };
       }
 
-      const normalizedTags = normalizeTags(classifyOut?.tags ?? []);
-      const tags = normalizedTags.length > 0 ? normalizedTags : null;
+      const tagsSanitized = sanitizeSuggestedTags(
+        trimmed,
+        Array.isArray(classifyOut?.tags) ? classifyOut!.tags : [],
+      );
+      const tags = tagsSanitized.length ? tagsSanitized : null;
+      const normalizedTags = tags ?? [];
 
       let payload: CreateRecordInput;
       if (classifyOut?.type === 'todo') {
