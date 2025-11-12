@@ -10,7 +10,7 @@ test('journal tag produces mood', () => {
   const out = toCreateOrUpdateInput('log', s, null as any);
   expect(out.type).toBe('note');
   expect(out.mood).toBe('neu');
-  expect(out.tags).toEqual(['journal']);
+  expect(out.tags).toEqual(['#journal']);
 });
 
 test('list tag overrides fmt to checkboxes', () => {
@@ -18,7 +18,7 @@ test('list tag overrides fmt to checkboxes', () => {
   s.log.body = 'my list';
   const out = toCreateOrUpdateInput('log', s, null as any);
   expect(out.fmt).toBe('checkboxes');
-  expect(out.tags).toEqual(['list']);
+  expect(out.tags).toEqual(['#list']);
 });
 
 test('explicit format preserved when no list tag', () => {
@@ -61,7 +61,7 @@ test('sanitizeSuggestedTags infers running and filters hash noise', () => {
   const text = "See if there's a common running route near here";
   const ai = ['*journal', '#common', '#here', '#near'];
   const result = sanitizeSuggestedTags(text, ai);
-  expect(result).toEqual(['running']);
+  expect(result).toEqual(['#running', '*journal']);
 });
 
 test('todo payload strips stopword tags before save', () => {
@@ -70,6 +70,29 @@ test('todo payload strips stopword tags before save', () => {
   s.todo.details = "See if there's a common running route near here";
   s.tags = ['running', 'common', '*journal'];
   const out = toCreateOrUpdateInput('todo', s, null as any);
-  expect(out.tags).toEqual(['running']);
+  expect(out.tags).toEqual(['#running']);
   expect(out.name).toBe("See if there's a common running route near here");
+});
+
+test('todo without due stores suggestedDue when parsed', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.title = 'Follow up tomorrow at noon';
+  s.todo.details = '';
+  s.todo.due_at = null;
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+  expect(out.due_at).toBeNull();
+  expect(typeof s.suggestedDue === 'string').toBe(true);
+  expect(s.suggestedDue).not.toBeNull();
+});
+
+test('todo with due clears suggestedDue', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.title = 'Follow up tomorrow at noon';
+  s.todo.details = '';
+  s.todo.due_at = '2025-11-15T09:00:00.000Z';
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+  expect(out.due_at).toBe('2025-11-15T09:00:00.000Z');
+  expect(s.suggestedDue).toBeNull();
 });

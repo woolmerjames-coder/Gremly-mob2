@@ -88,6 +88,73 @@ const INPUT_ICON_PADDING_RIGHT = 72;
 const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
 
+const labelIsString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+function normalizeCatchallLabels(labels: unknown): string[] {
+  const base = Array.isArray(labels) ? labels.filter(labelIsString) : [];
+  const sanitized = base.filter((label) => label !== UNSORTED_LABEL);
+  if (!sanitized.includes(CATCHALL_LABEL)) {
+    sanitized.push(CATCHALL_LABEL);
+  }
+  return Array.from(new Set(sanitized));
+}
+
+function extractPrimaryText(record: AppRecord): string {
+  if (record.type === 'note') {
+    return (
+      (typeof record.body === 'string' && record.body.length > 0
+        ? record.body
+        : typeof record.title === 'string'
+          ? record.title
+          : '') ?? ''
+    );
+  }
+
+  if (record.type === 'todo') {
+    return record.name || record.title || '';
+  }
+
+  if (record.type === 'habit') {
+    return record.name || '';
+  }
+
+  return '';
+}
+
+function buildChipWhy(record: AppRecord, reason: string): string | null {
+  const existingWhy =
+    record.type === 'note'
+      ? record.why_string
+      : record.type === 'todo'
+        ? record.why_string
+        : record.type === 'habit'
+          ? record.why_string
+          : null;
+
+  const lineage = appendLineageToWhyString(existingWhy ?? null, {
+    originId: record.id,
+    source: 'ask-chip',
+  });
+  const combined = [lineage, reason].filter(Boolean).join(' | ');
+  return combined || null;
+}
+
+type LowConfidenceChipClassification = {
+  type?: string | null;
+  subtype?: string | null;
+  frequency?: string | null;
+  tags?: string[] | null;
+};
+
+type LowConfidenceChipContext = {
+  text: string;
+  parsedDueIso: string | null;
+  classification?: LowConfidenceChipClassification | null;
+  tags?: string[] | null;
+  submissionId?: string | null;
+};
+
 const CHIPS_AUTO_DISMISS_MS =
   Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
   12000;
@@ -108,6 +175,49 @@ function createSubmissionId(): string {
   const rand = Math.random().toString(36).slice(2, 10);
   const time = Date.now().toString(36);
   return `minddrop-${time}-${rand}`;
+}
+
+function buildPatchFromCreatePayload(payload: CreateRecordInput): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+
+  if (payload.space_id !== undefined) patch.space_id = payload.space_id ?? null;
+  if (payload.ai_placed !== undefined) patch.ai_placed = payload.ai_placed;
+  if (payload.why_string !== undefined) patch.why_string = payload.why_string ?? null;
+  if (payload.origin !== undefined) patch.origin = payload.origin ?? null;
+  if (payload.canonicalType !== undefined) patch.canonicalType = payload.canonicalType;
+  if (payload.labels !== undefined) patch.labels = payload.labels;
+  if (payload.views !== undefined) patch.views = payload.views;
+  if (payload.tags !== undefined) patch.tags = payload.tags ?? null;
+  if (payload.sourceMessageId !== undefined)
+    patch.source_message_id = payload.sourceMessageId ?? null;
+
+  if (payload.type === 'todo') {
+    if (payload.name !== undefined) patch.name = payload.name;
+    if (payload.title !== undefined) patch.title = payload.title;
+    if (payload.body !== undefined) patch.body = payload.body;
+    if (payload.due_date !== undefined) patch.due_date = payload.due_date ?? null;
+    if (payload.due_time !== undefined) patch.due_time = payload.due_time ?? null;
+    if (payload.undefined_due !== undefined) patch.undefined_due = payload.undefined_due;
+    if (payload.subtype !== undefined) patch.subtype = payload.subtype ?? null;
+    if (payload.notes !== undefined) patch.notes = payload.notes ?? null;
+  } else if (payload.type === 'habit') {
+    if (payload.name !== undefined) patch.name = payload.name;
+    if (payload.frequency !== undefined) patch.frequency = payload.frequency;
+    if (payload.subtype !== undefined) patch.subtype = payload.subtype ?? null;
+    if (payload.notes !== undefined) patch.notes = payload.notes ?? null;
+  } else {
+    if (payload.title !== undefined) patch.title = payload.title ?? null;
+    if (payload.body !== undefined) patch.body = payload.body ?? null;
+    if (payload.subtype !== undefined) patch.subtype = payload.subtype ?? null;
+    if (payload.fmt !== undefined) patch.fmt = payload.fmt ?? null;
+    if (payload.date !== undefined) patch.date = payload.date ?? null;
+    if (payload.mood !== undefined) patch.mood = payload.mood ?? null;
+    if (payload.reminders !== undefined) patch.reminders = payload.reminders ?? null;
+    if (payload.journal_subtype !== undefined)
+      patch.journal_subtype = payload.journal_subtype ?? null;
+  }
+
+  return patch;
 }
 
 // Discriminating common errors without coupling too tightly:
@@ -1258,6 +1368,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [categoryChips, setCategoryChips] = useState<CategoryChip[]>([]);
+  const [lowConfidenceChipContext, setLowConfidenceChipContext] =
+    useState<LowConfidenceChipContext | null>(null);
   const [lowConfidenceUnsortedId, setLowConfidenceUnsortedId] = useState<string | null>(null);
   const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
@@ -1266,7 +1378,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Auto-dismiss category chips after configured interval
   useEffect(() => {
     if (!categoryChips?.length) return;
-    const timeout = setTimeout(() => setCategoryChips([]), CHIPS_AUTO_DISMISS_MS);
+    const timeout = setTimeout(() => {
+      setCategoryChips([]);
+      setLowConfidenceChipContext(null);
+    }, CHIPS_AUTO_DISMISS_MS);
     return () => clearTimeout(timeout);
   }, [categoryChips, CHIPS_AUTO_DISMISS_MS]);
 
@@ -1347,6 +1462,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   });
   const unsortedIdRef = useRef<string | null>(null);
   const submissionIdRef = useRef<string | null>(null);
+  const writeLocksRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
 
@@ -1398,6 +1514,55 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       setRecentRefresh((v) => v + 1);
     });
   }, [setRecentRefresh]);
+
+  const withWriteLock = useCallback(async function executeWithWriteLock<T>(
+    key: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    if (!key) {
+      return task();
+    }
+    const locks = writeLocksRef.current;
+    const existing = locks.get(key);
+    if (existing) {
+      try {
+        await existing;
+      } catch {
+        // ignore rejection; allow retry to proceed
+      }
+      return executeWithWriteLock(key, task);
+    }
+
+    const run = (async () => {
+      try {
+        return await task();
+      } finally {
+        locks.delete(key);
+      }
+    })();
+
+    locks.set(key, run);
+    return run;
+  }, []);
+
+  const upsertBySourceMessageId = useCallback(
+    async (payload: CreateRecordInput) => {
+      const key = payload.sourceMessageId ?? null;
+      if (!key) {
+        return repo.create(payload);
+      }
+
+      return withWriteLock(key, async () => {
+        const existing = await repo.findBySourceMessageId(payload.type, key);
+        if (existing) {
+          const patch = buildPatchFromCreatePayload(payload);
+          return repo.update({ id: existing.id, patch: patch as any });
+        }
+        return repo.create(payload);
+      });
+    },
+    [repo, withWriteLock],
+  );
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
@@ -1691,6 +1856,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsSubmitting(false);
     setIsThinking(false);
     setConfirmations([]);
+    setCategoryChips([]);
+    setLowConfidenceUnsortedId(null);
+    setLowConfidenceChipContext(null);
     setInputDynHeight(START_HEIGHT);
     setInputScrollEnabled(false);
     hasTypedRef.current = false;
@@ -1859,6 +2027,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         { kind: 'log', label: 'Just Save It' },
         { kind: 'habit', label: 'Start a Habit' },
       ]);
+      setLowConfidenceChipContext({
+        text: trimmed,
+        parsedDueIso: null,
+        classification: null,
+        tags: null,
+        submissionId: submissionIdRef.current,
+      });
       setNote('');
       end(trace, 'duplicate_prevented', { reusingUnsortedId: lastUnsortedIdRef.current });
       return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
@@ -1874,8 +2049,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const currentUserId = user?.id ?? userId ?? 'anonymous';
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
-      const submissionId = submissionIdRef.current ?? createSubmissionId();
-      submissionIdRef.current = submissionId;
+      const submissionId =
+        submissionIdRef.current ?? (submissionIdRef.current = createSubmissionId());
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
@@ -1903,16 +2078,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
         if (classifyNarrative(trimmed)) {
+          let tagsForContext: string[] | null = null;
           // Save to unsorted tray once if not already saved
           if (unsortedIdRef.current == null) {
             try {
               const narrativeTags = buildFallbackTags(trimmed, 'note', 'journal');
-              const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
-              const id = await saveToUnsortedTray(repo as any, trimmed, {
-                sourceMessageId: submissionId,
-                whyString: 'Narrative text - awaiting category selection',
-                tags: tagsForCreate ?? undefined,
-              });
+              const tagsForSave = narrativeTags.length > 0 ? narrativeTags : null;
+              tagsForContext = tagsForSave;
+              const id = await withWriteLock(submissionId, () =>
+                saveToUnsortedTray(repo as any, trimmed, {
+                  sourceMessageId: submissionId,
+                  whyString: 'Narrative text - awaiting category selection',
+                  tags: tagsForSave ?? undefined,
+                }),
+              );
               unsortedIdRef.current = id ?? null;
 
               // Track this submission to prevent duplicates
@@ -1924,13 +2103,62 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
 
           const savedUnsortedId = unsortedIdRef.current;
+          const classificationMetaRaw = (decision.meta as Record<string, unknown> | undefined)
+            ?.classification;
+          if (!tagsForContext && Array.isArray((classificationMetaRaw as any)?.tags)) {
+            tagsForContext = ((classificationMetaRaw as any).tags as string[]) ?? null;
+          }
+          const classificationForContext: LowConfidenceChipClassification | null =
+            classificationMetaRaw
+              ? {
+                  type:
+                    typeof (classificationMetaRaw as any)?.type === 'string'
+                      ? ((classificationMetaRaw as any).type as string)
+                      : null,
+                  subtype:
+                    typeof (classificationMetaRaw as any)?.subtype === 'string'
+                      ? ((classificationMetaRaw as any).subtype as string)
+                      : null,
+                  frequency:
+                    typeof (classificationMetaRaw as any)?.frequency === 'string'
+                      ? ((classificationMetaRaw as any).frequency as string)
+                      : null,
+                  tags: Array.isArray((classificationMetaRaw as any)?.tags)
+                    ? ((classificationMetaRaw as any).tags as string[])
+                    : null,
+                }
+              : null;
           if (savedUnsortedId) {
+            const manualSuggestions: UISuggestion[] = [
+              {
+                type: 'create.todo',
+                label: 'Add to To-Do List',
+                payload: { title: trimmed, body: trimmed },
+              },
+              {
+                type: 'create.note',
+                label: 'Just Save It',
+                payload: { title: trimmed, body: trimmed, subtype: 'journal' },
+              },
+              {
+                type: 'create.habit',
+                label: 'Start a Habit',
+                payload: { name: trimmed, freq: 'daily' },
+              },
+            ];
             setLowConfidenceUnsortedId(savedUnsortedId);
             setCategoryChips([
               { kind: 'todo', label: 'Add to To-Do List' },
               { kind: 'log', label: 'Just Save It' },
               { kind: 'habit', label: 'Start a Habit' },
             ]);
+            setLowConfidenceChipContext({
+              text: trimmed,
+              parsedDueIso: parsedIso,
+              classification: classificationForContext,
+              tags: tagsForContext,
+              submissionId,
+            });
             setNote('');
             triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -1956,6 +2184,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             return {
               created: { todos: [], notes: [], habits: [] },
               createdDetails: [],
+              suggestions: manualSuggestions,
               decisionMode: 'ask',
               decisionConfidence: decision.confidence ?? 0,
             };
@@ -2125,7 +2354,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             try {
               for (const entry of mapped) {
-                const record = await repo.create(entry.payload);
+                const record = await upsertBySourceMessageId(entry.payload);
                 if (entry.bucket === 'todos') {
                   counts.todos += 1;
                   createdIds.todos.push(record.id);
@@ -2215,9 +2444,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
-          // Duplicate prevention: only save if no existing unsorted note OR text is different
+          // Duplicate prevention: create a new Unsorted note when we don't already have one
+          // or when the user has changed the text since the last submission.
           const shouldSaveNew =
-            unsortedIdRef.current == null && lastSubmittedTextRef.current !== trimmed;
+            unsortedIdRef.current == null || lastSubmittedTextRef.current !== trimmed;
+          let tagsForContext: string[] | null = null;
 
           if (shouldSaveNew) {
             try {
@@ -2247,11 +2478,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ? classificationTags
                   : buildFallbackTags(trimmed, 'note', fallbackSubtype);
               const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
-              const id = await saveToUnsortedTray(repo as any, trimmed, {
-                sourceMessageId: submissionId,
-                whyString: 'Awaiting chip selection',
-                tags: tagsForCreate ?? undefined,
-              });
+              tagsForContext = tagsForCreate;
+              const id = await withWriteLock(submissionId, () =>
+                saveToUnsortedTray(repo as any, trimmed, {
+                  sourceMessageId: submissionId,
+                  whyString: 'Awaiting chip selection',
+                  tags: tagsForCreate ?? undefined,
+                }),
+              );
               unsortedIdRef.current = id ?? null;
 
               // Track this submission to prevent duplicates
@@ -2267,6 +2501,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
           const savedUnsortedId = unsortedIdRef.current;
           const confidence = decision.confidence ?? 0;
+          const classificationMetaRaw = (decision.meta as Record<string, unknown> | undefined)
+            ?.classification;
+          if (!tagsForContext && Array.isArray((classificationMetaRaw as any)?.tags)) {
+            tagsForContext = ((classificationMetaRaw as any).tags as string[]) ?? null;
+          }
+          const classificationForContext: LowConfidenceChipClassification | null =
+            classificationMetaRaw
+              ? {
+                  type:
+                    typeof (classificationMetaRaw as any)?.type === 'string'
+                      ? ((classificationMetaRaw as any).type as string)
+                      : null,
+                  subtype:
+                    typeof (classificationMetaRaw as any)?.subtype === 'string'
+                      ? ((classificationMetaRaw as any).subtype as string)
+                      : null,
+                  frequency:
+                    typeof (classificationMetaRaw as any)?.frequency === 'string'
+                      ? ((classificationMetaRaw as any).frequency as string)
+                      : null,
+                  tags: Array.isArray((classificationMetaRaw as any)?.tags)
+                    ? ((classificationMetaRaw as any).tags as string[])
+                    : null,
+                }
+              : null;
 
           // If low confidence or narrative, show category chips instead of suggestions
           if ((confidence <= 0.85 || classifyNarrative(trimmed)) && savedUnsortedId) {
@@ -2276,6 +2535,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               { kind: 'log', label: 'Just Save It' },
               { kind: 'habit', label: 'Start a Habit' },
             ]);
+            setLowConfidenceChipContext({
+              text: trimmed,
+              parsedDueIso: parsedIso,
+              classification: classificationForContext,
+              tags: tagsForContext,
+              submissionId,
+            });
             setNote('');
             triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -2298,6 +2564,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             return {
               created: { todos: [], notes: [], habits: [] },
               createdDetails: [],
+              suggestions: chipSuggestions,
               decisionMode: decision.mode,
               decisionConfidence: confidence,
             };
@@ -2312,6 +2579,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           return {
             created: { todos: [], notes: [], habits: [] },
             createdDetails: [],
+            suggestions: chipSuggestions,
             decisionMode: decision.mode,
             decisionConfidence: decision.confidence ?? 0,
           };
@@ -2443,7 +2711,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
 
       step(trace, 'payload:final', payload);
-      const rec = await repo.create(payload);
+      const rec = await upsertBySourceMessageId(payload);
 
       if (payload.type === 'todo') {
         counts.todos = 1;
@@ -2549,221 +2817,223 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const handleCategoryChipPick = useCallback(
     async (kind: 'todo' | 'log' | 'habit') => {
-      const unsortedId = lowConfidenceUnsortedId;
+      const unsortedId = lowConfidenceUnsortedId ?? unsortedIdRef.current;
       if (!unsortedId) {
         console.warn('[MindDrop][CategoryChip] No unsorted id available');
         return;
       }
 
-      try {
-        setIsSubmitting(true);
+      setIsSubmitting(true);
+      setCategoryChips([]);
+
+      const context = lowConfidenceChipContext;
+
+      const clearState = (undo: { todos: string[]; notes: string[]; habits: string[] }) => {
+        setLowConfidenceUnsortedId(null);
+        setLowConfidenceChipContext(null);
+        unsortedIdRef.current = null;
+        lastSubmittedTextRef.current = null;
+        lastUnsortedIdRef.current = null;
+        setNote('');
         setCategoryChips([]);
+        pendingUndo.current = undo;
+        metricsRef.current.conversions += 1;
+        setOrganizedToday((prev) => prev + 1);
+        triggerRecentRefresh();
+      };
 
-        if (kind === 'todo') {
+      try {
+        const fallbackSubmissionId =
+          typeof context?.submissionId === 'string' && context.submissionId.trim().length > 0
+            ? context.submissionId
+            : null;
+
+        let existing: AppRecord | null = null;
+        try {
+          existing = await repo.getById(unsortedId);
+        } catch (lookupError) {
+          console.warn('[MindDrop][CategoryChip] Primary lookup failed', lookupError);
+          existing = null;
+        }
+
+        if (!existing && fallbackSubmissionId) {
           try {
-            const originalNote = await repo.getById(unsortedId);
-            if (!originalNote) {
-              throw new Error('Original note not found');
+            const fallback = await repo.findBySourceMessageId('note', fallbackSubmissionId);
+            if (fallback) {
+              existing = fallback;
             }
-
-            const noteText =
-              (originalNote as any).body ||
-              (originalNote as any).title ||
-              (originalNote as any).text ||
-              '';
-
-            overlay.openCreate({
-              initialEntity: { type: 'todo', id: undefined, logSubtype: null },
-              initialText: noteText || null,
-            });
-
-            metricsRef.current.conversions += 1;
-            logMetrics('category_converted_todo', {
-              noteId: unsortedId,
-              via: 'overlay',
-            });
-
-            setLowConfidenceUnsortedId(null);
-            unsortedIdRef.current = null;
-            lastSubmittedTextRef.current = null;
-            lastUnsortedIdRef.current = null;
-
-            if (TOASTS_ON) {
-              showActionToast({
-                type: 'success',
-                content: 'Opening To-Do…',
-              });
-            }
-          } catch (conversionError) {
-            console.error('[MindDrop][CategoryChip] Failed to open To-Do overlay', conversionError);
-          }
-        } else if (kind === 'habit') {
-          // Convert the unsorted note to a habit
-          try {
-            const original = await repo.getById(unsortedId);
-            if (!original) {
-              throw new Error('Original note not found');
-            }
-
-            const firstLine =
-              ((original as any).body || (original as any).title || '')
-                .split('\n')[0]
-                .trim()
-                .slice(0, 80) || 'New habit';
-
-            // Try updating in place
-            try {
-              await repo.update({
-                id: unsortedId,
-                patch: {
-                  type: 'habit',
-                  name: firstLine,
-                  frequency: 'daily',
-                  labels: ((original as any).labels || []).filter(
-                    (l: string) => l !== 'needs_review',
-                  ),
-                  ai_placed: true,
-                  why_string: 'Confirmed as habit via category chip',
-                } as any,
-              });
-
-              setOrganizedToday((prev) => prev + 1);
-              triggerRecentRefresh();
-              setLowConfidenceUnsortedId(null);
-              unsortedIdRef.current = null;
-
-              metricsRef.current.conversions += 1;
-              logMetrics('category_converted_habit', { noteId: unsortedId, habitName: firstLine });
-
-              if (TOASTS_ON) {
-                showActionToast({
-                  type: 'success',
-                  content: 'Started a habit ✓',
-                });
-              }
-            } catch (updateError) {
-              console.warn(
-                '[MindDrop][CategoryChip] repo.update unsupported, using fallback',
-                updateError,
-              );
-
-              // Fallback: create new habit then remove unsorted
-              const newHabit = await repo.create({
-                type: 'habit',
-                name: firstLine,
-                frequency: 'daily',
-                labels: ((original as any).labels || []).filter(
-                  (l: string) => l !== 'needs_review',
-                ),
-                ai_placed: true,
-                origin: 'catchall',
-                why_string: 'Created as habit via category chip (fallback)',
-              } as any);
-
-              // Remove the unsorted note
-              if (unsortedId) {
-                try {
-                  await repo.remove(unsortedId);
-                } catch (deleteErr) {
-                  console.warn(
-                    '[MindDrop][CategoryChip] Failed to delete unsorted after habit creation',
-                    deleteErr,
-                  );
-                }
-              }
-
-              setOrganizedToday((prev) => prev + 1);
-              triggerRecentRefresh();
-              setLowConfidenceUnsortedId(null);
-              unsortedIdRef.current = null;
-
-              metricsRef.current.conversions += 1;
-              logMetrics('category_converted_habit', {
-                noteId: unsortedId,
-                habitId: newHabit?.id,
-                habitName: firstLine,
-                fallback: true,
-              });
-
-              if (TOASTS_ON) {
-                showActionToast({
-                  type: 'success',
-                  content: 'Started a habit ✓',
-                });
-              }
-            }
-          } catch (habitError) {
-            console.error(
-              '[MindDrop][CategoryChip] Habit conversion failed completely',
-              habitError,
-            );
-
-            if (TOASTS_ON) {
-              showActionToast({
-                type: 'success',
-                content: 'Could not create habit',
-              });
-            }
-          }
-        } else {
-          // Just keep as log - promote to canonical "log" subtype
-          const originalNote = await repo.getById(unsortedId);
-          const noteText =
-            (originalNote as any)?.body ||
-            (originalNote as any)?.title ||
-            (originalNote as any)?.text ||
-            '';
-          const narrative = classifyNarrative(noteText);
-          const nextSubtype = narrative ? 'journal' : 'idea';
-          const canonicalType = persistedToCanonical('note', nextSubtype);
-
-          await repo.update({
-            id: unsortedId,
-            patch: {
-              archived: false,
-              ai_placed: true,
-              subtype: nextSubtype,
-              canonicalType,
-              labels: ((originalNote as any)?.labels || []).filter(
-                (l: string) => l !== 'needs_review',
-              ),
-              why_string: 'Confirmed as log via category chip',
-            },
-          });
-
-          setOrganizedToday((prev) => prev + 1);
-          triggerRecentRefresh();
-          setLowConfidenceUnsortedId(null);
-          unsortedIdRef.current = null;
-
-          if (TOASTS_ON) {
-            showActionToast({
-              type: 'success',
-              content: 'Saved as note',
-            });
+          } catch (secondaryError) {
+            console.warn('[MindDrop][CategoryChip] Source message lookup failed', secondaryError);
           }
         }
 
-        setLowConfidenceUnsortedId(null);
-        unsortedIdRef.current = null;
+        if (!existing) {
+          throw new Error('Original unsorted record not found');
+        }
 
-        // Clear duplicate prevention tracking after successful category action
-        lastSubmittedTextRef.current = null;
-        lastUnsortedIdRef.current = null;
+        const primaryText = extractPrimaryText(existing);
+        const sanitizedLabels = normalizeCatchallLabels((existing as any).labels);
+        const sourceMessageId =
+          context?.submissionId ??
+          (typeof (existing as any).source_message_id === 'string'
+            ? ((existing as any).source_message_id as string)
+            : null);
+        const resolvedTags =
+          context?.tags && context.tags.length > 0
+            ? context.tags
+            : Array.isArray((existing as any).tags)
+              ? ((existing as any).tags as string[])
+              : null;
+        const spaceId = (existing as any).space_id ?? null;
+
+        const whyString = (reason: string) => buildChipWhy(existing, reason);
+
+        if (kind === 'log') {
+          const classificationSubtype = context?.classification?.subtype;
+          let nextSubtype: NoteSubtype = 'journal';
+          if (
+            classificationSubtype === 'journal' ||
+            classificationSubtype === 'idea' ||
+            classificationSubtype === 'list'
+          ) {
+            nextSubtype = classificationSubtype;
+          } else if (hasChecklist((existing as any).body)) {
+            nextSubtype = 'list';
+          } else if (classifyNarrative(primaryText)) {
+            nextSubtype = 'journal';
+          } else {
+            nextSubtype = 'idea';
+          }
+
+          const patch: Record<string, unknown> = {
+            subtype: nextSubtype,
+            canonicalType: persistedToCanonical('note', nextSubtype),
+            labels: sanitizedLabels,
+            ai_placed: true,
+            why_string: whyString('Confirmed as note via category chip'),
+            tags: resolvedTags ?? null,
+            source_message_id: sourceMessageId ?? null,
+            views:
+              (existing as any).views && typeof (existing as any).views === 'object'
+                ? (existing as any).views
+                : { alsoShowIn: ['Hub:Catch-All'] },
+          };
+
+          await repo.update({
+            id: existing.id,
+            patch: patch as any,
+          });
+
+          clearState({ todos: [], notes: [existing.id], habits: [] });
+          if (TOASTS_ON) {
+            showActionToast({ type: 'success', content: 'Saved as note' });
+          }
+          logMetrics('category_converted_log', { noteId: existing.id, subtype: nextSubtype });
+          return;
+        }
+
+        if (kind === 'todo') {
+          const dueIso = context?.parsedDueIso ?? null;
+          const todoPatch: Record<string, unknown> = {
+            canonicalType: 'todo',
+            ai_placed: true,
+            labels: sanitizedLabels,
+            why_string: whyString('Confirmed as to-do via category chip'),
+            tags: resolvedTags ?? null,
+            source_message_id: sourceMessageId ?? null,
+            space_id: spaceId,
+            title: clampNoteLength(primaryText || 'Quick task'),
+            body: clampNoteLength(primaryText || 'Quick task'),
+            views:
+              (existing as any).views && typeof (existing as any).views === 'object'
+                ? (existing as any).views
+                : { alsoShowIn: ['Hub:Catch-All'] },
+          };
+          if (dueIso) {
+            todoPatch.views = {
+              ...(todoPatch.views as Record<string, unknown>),
+              dueSuggestion: dueIso,
+            };
+          }
+
+          await repo.update({
+            id: existing.id,
+            patch: todoPatch as any,
+          });
+
+          clearState({ todos: [existing.id], notes: [], habits: [] });
+          if (TOASTS_ON) {
+            showActionToast({ type: 'success', content: 'Added to To-Do List ✓' });
+          }
+          logMetrics('category_converted_todo', {
+            fromId: existing.id,
+            todoId: existing.id,
+            due: dueIso,
+          });
+          return;
+        }
+
+        // kind === 'habit'
+        const freqRaw = context?.classification?.frequency;
+        const frequency: 'daily' | 'weekly' | 'monthly' =
+          freqRaw === 'weekly' ? 'weekly' : freqRaw === 'monthly' ? 'monthly' : 'daily';
+        const habitName = clampNoteLength(primaryText || 'New habit');
+        const habitPatch: Record<string, unknown> = {
+          canonicalType: 'habit',
+          ai_placed: true,
+          labels: sanitizedLabels,
+          why_string: whyString('Confirmed as habit via category chip'),
+          tags: resolvedTags ?? null,
+          source_message_id: sourceMessageId ?? null,
+          space_id: spaceId,
+          title: habitName,
+          body: habitName,
+          views:
+            (existing as any).views && typeof (existing as any).views === 'object'
+              ? (existing as any).views
+              : { alsoShowIn: ['Hub:Catch-All'] },
+        };
+
+        await repo.update({
+          id: existing.id,
+          patch: habitPatch as any,
+        });
+
+        clearState({ todos: [], notes: [], habits: [existing.id] });
+        if (TOASTS_ON) {
+          showActionToast({ type: 'success', content: 'Started a habit ✓' });
+        }
+        logMetrics('category_converted_habit', {
+          fromId: existing.id,
+          habitId: existing.id,
+          frequency,
+        });
       } catch (error) {
-        console.error('[MindDrop][CategoryChip] Failed to process', error);
+        console.error('[MindDrop][CategoryChip] Failed to process selection', error);
+        setCategoryChips([
+          { kind: 'todo', label: 'Add to To-Do List' },
+          { kind: 'log', label: 'Just Save It' },
+          { kind: 'habit', label: 'Start a Habit' },
+        ]);
+        if (TOASTS_ON) {
+          showActionToast({
+            type: 'success',
+            content: 'Could not finish conversion — check Recent',
+          });
+        }
       } finally {
         setIsSubmitting(false);
       }
     },
     [
       lowConfidenceUnsortedId,
+      lowConfidenceChipContext,
       repo,
+      upsertBySourceMessageId,
       setOrganizedToday,
       triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
-      overlay,
       logMetrics,
     ],
   );
@@ -2941,7 +3211,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     try {
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
-        await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
+        await withWriteLock(submissionId, () =>
+          saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId }),
+        );
         resetState();
         if (TOASTS_ON) {
           showActionToast({
@@ -3028,7 +3300,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Primary pipeline failed twice. Decide fallback by error type.
         if (isNetworkError(lastError)) {
           // Offline-ish path — save locally and reassure
-          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
+          await withWriteLock(submissionId, () =>
+            saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId }),
+          );
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -3051,7 +3325,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
-          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
+          await withWriteLock(submissionId, () =>
+            saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId }),
+          );
           resetState();
           if (TOASTS_ON) {
             showActionToast({

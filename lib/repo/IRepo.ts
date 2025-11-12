@@ -109,6 +109,10 @@ export interface IRepo {
   remove(id: ID): Promise<void>;
 
   findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null>;
+  findBySourceMessageId(
+    type: AppRecord['type'],
+    sourceMessageId: string,
+  ): Promise<AppRecord | null>;
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;

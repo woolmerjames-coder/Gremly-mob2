@@ -14,6 +14,7 @@ import {
   View,
   Animated as RNAnimated,
   Easing,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -29,6 +30,7 @@ import { firstLine } from '../../lib/text/firstLine';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays } from 'date-fns';
+import { parseDue } from '../../lib/cortex/entities/datetime';
 import {
   lightTokens,
   darkTokens,
@@ -48,6 +50,7 @@ import {
   type BaseType,
   type TagKey,
   type V2State,
+  type Action,
 } from './overlayV2.state';
 import ToastUndo from './ToastUndo';
 import { linkSelectedPerson, sanitizeSuggestedTags } from './overlayV2.mapping';
@@ -58,6 +61,8 @@ import { TagsRow } from './fields/TagsRow';
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+
+type OverlayDraft = V2State;
 
 function normalizeTagCandidate(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -104,6 +109,82 @@ function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
   return 'log';
 }
 
+function hasEntityContent(entity: any): boolean {
+  if (!entity) return false;
+  return Boolean(entity.body || entity.details || entity.notes || entity.title);
+}
+
+function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
+  if (!entity) return {};
+  const baseType = deriveBaseTypeFromInitial(entity.type) ?? 'log';
+  const title = entity.title ?? entity.name ?? '';
+  const body = (entity.body ?? entity.details ?? entity.notes ?? '') as string;
+  const todoDetails = entity.details ?? entity.body ?? '';
+  const habitNotes = entity.notes ?? entity.body ?? '';
+
+  const payload: Partial<V2State> = {
+    baseType,
+    log: {
+      ...initialV2State.log,
+      title,
+      body,
+    },
+    todo: {
+      ...initialV2State.todo,
+      title,
+      details: todoDetails,
+      due_at: entity.due_at ?? entity.due_date ?? null,
+    },
+    habit: {
+      ...initialV2State.habit,
+      title,
+      notes: habitNotes,
+      schedule: entity.schedule ?? 'custom',
+    },
+    tags: extractTagKeysFromEntity(entity),
+    spaceId: entity.space_id ?? null,
+    reminderAt: (entity.reminder_at ?? entity.reminderAt ?? null) as string | null,
+    suggestedDue: null,
+  };
+
+  if (typeof entity.mood === 'string') {
+    payload.mood = entity.mood as V2State['mood'];
+  }
+
+  if (!payload.todo?.due_at) {
+    const candidate = [title, todoDetails, body]
+      .map((segment) => (typeof segment === 'string' ? segment.trim() : ''))
+      .filter((segment) => segment.length > 0)
+      .join('\n');
+    if (candidate.length > 0) {
+      try {
+        const parsed = parseDue(candidate);
+        if (parsed?.iso) payload.suggestedDue = parsed.iso;
+      } catch (e) {
+        // ignore parse errors; suggestion optional
+      }
+    }
+  }
+
+  return payload;
+}
+
+function mergeStateWithInitial(payload: Partial<V2State>): V2State {
+  return {
+    ...initialV2State,
+    ...payload,
+    log: { ...initialV2State.log, ...(payload.log ?? {}) },
+    todo: { ...initialV2State.todo, ...(payload.todo ?? {}) },
+    habit: { ...initialV2State.habit, ...(payload.habit ?? {}) },
+    tags: payload.tags ?? [],
+    undoStack: [],
+  };
+}
+
+function buildStateFromEntity(entity: any): V2State {
+  return mergeStateWithInitial(buildDraftPayloadFromEntity(entity));
+}
+
 function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
   if (keepJournal) return [...tags];
   return tags.filter((tag) => {
@@ -148,8 +229,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   } = props;
 
   const repo = useRepo();
-  const [state, dispatch] = useReducer(v2Reducer, initialV2State);
-  const baseType = state.baseType;
+  const editHasContent = mode === 'edit' ? hasEntityContent(initialEntity) : false;
+  const [overlayState, dispatch] = useReducer(v2Reducer, initialV2State);
+  const [draft, setDraft] = useState<OverlayDraft | null>(
+    mode === 'edit' && !editHasContent ? null : overlayState,
+  );
+  const [isHydrating, setIsHydrating] = useState(mode === 'edit' && !editHasContent);
+  const viewState = draft ?? overlayState;
+  const baseType = viewState.baseType;
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
@@ -185,11 +272,52 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const createPrefillAppliedRef = useRef(false);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
-  const currentTagsRef = useRef<TagKey[]>(state.tags);
+  const currentTagsRef = useRef<TagKey[]>(overlayState.tags);
   useEffect(() => {
-    currentTagsRef.current = state.tags;
-  }, [state.tags]);
+    currentTagsRef.current = overlayState.tags;
+  }, [overlayState.tags]);
+
   const hasLoadedEditTagsRef = useRef(false);
+
+  const resetStateFromSource = useCallback(() => {
+    if (mode === 'edit' && initialEntity) {
+      const full = buildStateFromEntity(initialEntity);
+      dispatch({ type: 'HYDRATE_EDIT', payload: full });
+      currentTagsRef.current = full.tags;
+      hasLoadedEditTagsRef.current = false;
+      if (hasEntityContent(initialEntity)) {
+        setDraft(full);
+        setIsHydrating(false);
+      } else {
+        setDraft(null);
+        setIsHydrating(true);
+      }
+    } else {
+      const baseline = mergeStateWithInitial({});
+      dispatch({ type: 'HYDRATE_EDIT', payload: baseline });
+      currentTagsRef.current = baseline.tags;
+      hasLoadedEditTagsRef.current = false;
+      setDraft(baseline);
+      setIsHydrating(false);
+      createPrefillAppliedRef.current = false;
+    }
+  }, [mode, initialEntity, dispatch]);
+
+  const wasVisibleRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      resetStateFromSource();
+    }
+    if (!visible && wasVisibleRef.current) {
+      hasLoadedEditTagsRef.current = false;
+    }
+    wasVisibleRef.current = visible;
+  }, [visible, resetStateFromSource]);
+
+  useEffect(() => {
+    if (isHydrating) return;
+    setDraft((current) => (current === overlayState ? current : overlayState));
+  }, [overlayState, isHydrating]);
 
   async function canEnableCommitment(): Promise<boolean> {
     try {
@@ -210,7 +338,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // load spaces when details panel expands so selector can show options
   useEffect(() => {
     let mounted = true;
-    if (!state.expanded) return;
+    if (!viewState.expanded) return;
     (async () => {
       try {
         const s = await repo.listSpaces();
@@ -223,18 +351,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return () => {
       mounted = false;
     };
-  }, [repo, state.expanded]);
+  }, [repo, viewState.expanded]);
 
   // Emit an 'opened' funnel event when the overlay becomes visible so analytics
   // can track funnel starts (best-effort, ignore telemetry errors).
   useEffect(() => {
     if (!visible) return;
     try {
-      eventBus.emit('OverlayOpened', { mode, baseType: state.baseType });
+      eventBus.emit('OverlayOpened', { mode, baseType: viewState.baseType });
     } catch (e) {
       // ignore telemetry errors
     }
-  }, [visible, mode, state.baseType]);
+  }, [visible, mode, viewState.baseType]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -249,10 +377,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const reduceMotion = useReducedMotion();
 
   const currentTitle =
-    state.todo?.title ||
-    state.log?.title ||
-    state.habit?.title ||
-    firstLine(state.todo?.details || state.log?.body || state.habit?.notes || initialText) ||
+    viewState.todo?.title ||
+    viewState.log?.title ||
+    viewState.habit?.title ||
+    firstLine(
+      viewState.todo?.details || viewState.log?.body || viewState.habit?.notes || initialText,
+    ) ||
     (mode === 'edit'
       ? 'Edit'
       : baseType === 'log'
@@ -260,6 +390,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         : baseType === 'todo'
           ? 'New To-Do'
           : 'New Habit');
+  const headerTitle = draft ? currentTitle : 'Loading…';
 
   const handleToggleDetails = useCallback(() => {
     if (!reduceMotion) {
@@ -274,13 +405,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const handleTypeSelect = useCallback(
     (next: BaseType) => {
-      if (state.baseType === next) return;
-      const prev = state.baseType;
+      if (overlayState.baseType === next) return;
+      const prev = overlayState.baseType;
       pushUndoEntry('type', {
-        baseType: state.baseType,
-        log: state.log,
-        todo: state.todo,
-        habit: state.habit,
+        baseType: overlayState.baseType,
+        log: overlayState.log,
+        todo: overlayState.todo,
+        habit: overlayState.habit,
       });
       dispatch({ type: 'SET_BASE_TYPE', to: next });
       try {
@@ -289,7 +420,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // ignore telemetry errors
       }
     },
-    [dispatch, state.baseType, state.habit, state.log, state.todo],
+    [dispatch, overlayState.baseType, overlayState.habit, overlayState.log, overlayState.todo],
   );
 
   // Runtime checks for components that must exist at render time.
@@ -313,8 +444,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     throw new Error('UnifiedOverlayV2 render: `Modal` is undefined');
 
   // animation values for details panel, commitment and save pulse
-  const detailsAnim = useSharedValue(state.expanded ? 1 : 0);
-  const commitmentAnim = useSharedValue(state.commitment ? 1 : 0);
+  const detailsAnim = useSharedValue(overlayState.expanded ? 1 : 0);
+  const commitmentAnim = useSharedValue(overlayState.commitment ? 1 : 0);
   const savePulse = useSharedValue(0);
   const sheetTranslateY = useRef(new RNAnimated.Value(16)).current;
 
@@ -351,30 +482,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     try {
       if (detailsAnim && typeof (detailsAnim as any).value !== 'undefined') {
         (detailsAnim as any).value = conditionalAnimation(
-          withTiming(state.expanded ? 1 : 0, timingConfig.normal),
-          state.expanded ? 1 : 0,
+          withTiming(overlayState.expanded ? 1 : 0, timingConfig.normal),
+          overlayState.expanded ? 1 : 0,
           reduceMotion,
         );
       }
     } catch (e) {
       // In some test environments reanimated is mocked incompletely; ignore
     }
-  }, [state.expanded, detailsAnim, reduceMotion]);
+  }, [overlayState.expanded, detailsAnim, reduceMotion]);
 
   // animate commitment reveal/hide
   useEffect(() => {
     try {
       if (commitmentAnim && typeof (commitmentAnim as any).value !== 'undefined') {
         (commitmentAnim as any).value = conditionalAnimation(
-          withTiming(state.commitment ? 1 : 0, timingConfig.normal),
-          state.commitment ? 1 : 0,
+          withTiming(overlayState.commitment ? 1 : 0, timingConfig.normal),
+          overlayState.commitment ? 1 : 0,
           reduceMotion,
         );
       }
     } catch (e) {
       // ignore incomplete mocks in tests
     }
-  }, [state.commitment, commitmentAnim, reduceMotion]);
+  }, [overlayState.commitment, commitmentAnim, reduceMotion]);
 
   const draftKey = useMemo(
     () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
@@ -384,10 +515,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // load existing draft once
   const currentText =
     baseType === 'log'
-      ? state.log.body
+      ? overlayState.log.body
       : baseType === 'todo'
-        ? state.todo.details
-        : state.habit.notes;
+        ? overlayState.todo.details
+        : overlayState.habit.notes;
+
+  const draftText =
+    draft == null
+      ? ''
+      : baseType === 'log'
+        ? draft.log.body
+        : baseType === 'todo'
+          ? draft.todo.details
+          : draft.habit.notes;
   useEffect(() => {
     let mounted = true;
     readOverlayV2Draft(draftKey).then((v) => {
@@ -439,6 +579,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }
 
+  function formatSuggestedDue(iso: string | null | undefined) {
+    try {
+      if (!iso) return '';
+      const dt = parseISO(iso);
+      const dateLabel = format(dt, 'MMM d');
+      const showTime = dt.getMinutes() !== 0 || ![9, 17].includes(dt.getHours());
+      if (showTime) {
+        return `${dateLabel} at ${format(dt, 'h:mm a')}`;
+      }
+      return dateLabel;
+    } catch (e) {
+      return '';
+    }
+  }
+
   useEffect(() => {
     if (mode !== 'create') return;
     if (createPrefillAppliedRef.current) return;
@@ -471,32 +626,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Initial defaults (match brief: text-first; first line becomes title)
   useEffect(() => {
-    if (mode === 'edit' && initialEntity) {
-      // Hydrate minimal parity from initialEntity (title/body/details)
-      const t = (initialEntity as any).type;
-      const payload: any = {};
-      if (t === 'todo') payload.baseType = 'todo';
-      else if (t === 'habit') payload.baseType = 'habit';
-      else payload.baseType = 'log';
-      payload.log = {
-        title: (initialEntity as any).title ?? '',
-        body: ((initialEntity as any).body || (initialEntity as any).details || '') ?? '',
-      };
-      payload.todo = {
-        title: (initialEntity as any).title ?? '',
-        details: (initialEntity as any).details ?? '',
-        due_at: (initialEntity as any).due_at ?? null,
-      };
-      payload.habit = {
-        title: (initialEntity as any).title ?? '',
-        notes: (initialEntity as any).notes ?? '',
-        schedule: 'custom',
-      };
+    if (mode !== 'edit' || !initialEntity) return;
+    const payload = buildDraftPayloadFromEntity(initialEntity);
+    if (Object.keys(payload).length > 0) {
       dispatch({ type: 'HYDRATE_EDIT', payload });
     }
-  }, [mode, initialEntity]);
+  }, [mode, initialEntity, dispatch]);
 
   useEffect(() => {
+    if (!visible) return;
     if (mode !== 'edit') return;
     if (hasLoadedEditTagsRef.current) return;
 
@@ -539,7 +677,60 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode, initialEntity, repo]);
+  }, [mode, initialEntity, repo, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    if (mode !== 'edit') {
+      setIsHydrating(false);
+      return;
+    }
+
+    const entityId = (initialEntity as any)?.id;
+    const fetchableRepo = repo as any;
+    if (!entityId || typeof fetchableRepo?.getById !== 'function') {
+      setIsHydrating(false);
+      return;
+    }
+
+    if (hasEntityContent(initialEntity)) {
+      setIsHydrating(false);
+      return;
+    }
+
+    let active = true;
+    setIsHydrating(true);
+    setDraft(null);
+
+    (async () => {
+      try {
+        const entity = await fetchableRepo.getById(entityId);
+        if (!active) return;
+        const payload = buildDraftPayloadFromEntity(entity);
+        if (Object.keys(payload).length > 0) {
+          dispatch({ type: 'HYDRATE_EDIT', payload });
+        }
+        const tags = extractTagKeysFromEntity(entity);
+        if (tags.length > 0) {
+          const merged = mergeTagKeys(currentTagsRef.current, tags);
+          if (merged.length !== currentTagsRef.current.length) {
+            dispatch({ type: 'SET_TAGS', tags: merged });
+          }
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('[UnifiedOverlayV2] fetch-by-id hydration failed', err);
+      } finally {
+        if (active) {
+          hasLoadedEditTagsRef.current = true;
+          setIsHydrating(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [mode, initialEntity, repo, dispatch, visible]);
 
   // AI prefill hook: request suggestions when creating a new item with empty text
   const { suggestedTitle, suggestedTags: prefillSuggestedTags } = useOverlayPrefill({
@@ -554,24 +745,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Only apply suggestions for fresh creates with an empty text body
     if (mode !== 'create') return;
     if (currentText && currentText.trim().length > 0) return;
-    if (suggestedTitle && !state.log.title) {
+    if (suggestedTitle && !overlayState.log.title) {
       dispatch({ type: 'SET_TITLE', title: suggestedTitle });
       // remember that the current title equals the suggestion we applied
       prevTitleRef.current = suggestedTitle;
     }
-  }, [currentText, dispatch, mode, state.log.title, suggestedTitle]);
+  }, [currentText, dispatch, mode, overlayState.log.title, suggestedTitle]);
 
   // Detect manual title edits away from an AI suggestion
   useEffect(() => {
     const prev = prevTitleRef.current;
-    const cur = state.log.title;
+    const cur = overlayState.log.title;
     if (prev && prev.trim().length > 0 && cur !== prev && suggestedTitle === prev) {
       // user edited the suggested title -> mark as rejected
       recordOverlayFeedback({ type: 'title', accepted: false, prev, newValue: cur });
       // clear prev so we don't repeatedly send
       prevTitleRef.current = null;
     }
-  }, [state.log.title, suggestedTitle]);
+  }, [overlayState.log.title, suggestedTitle]);
 
   const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
     const rawNames = (prefillSuggestedTags ?? []).map((entry) =>
@@ -599,9 +790,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return sanitizedTagSuggestions.filter((entry) => {
       const normalized = normalizeToTagKey(entry.name);
       if (!normalized) return false;
-      return !state.tags.includes(normalized);
+      return !overlayState.tags.includes(normalized);
     });
-  }, [sanitizedTagSuggestions, state.tags]);
+  }, [sanitizedTagSuggestions, overlayState.tags]);
 
   const suggestionDisplayMap = useMemo(() => {
     const map = new Map<string, { label: string; isPerson: boolean }>();
@@ -619,18 +810,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const mentionLookup = useMemo(() => {
     const map = new Map<string, string>();
-    (state.detected?.mentions ?? []).forEach((mention) => {
+    (overlayState.detected?.mentions ?? []).forEach((mention) => {
       const normalized = normalizeToTagKey(mention);
       if (!normalized || map.has(normalized)) return;
       const sanitized = mention.replace(/^@+/, '');
       map.set(normalized, `@${sanitized}`);
     });
     return map;
-  }, [state.detected?.mentions]);
+  }, [overlayState.detected?.mentions]);
 
   const activeTagMeta = useMemo(() => {
     const meta: Record<string, { label: string; isPerson: boolean }> = {};
-    state.tags.forEach((tag) => {
+    overlayState.tags.forEach((tag) => {
       const mention = mentionLookup.get(tag);
       if (mention) {
         meta[tag] = { label: mention, isPerson: true };
@@ -644,7 +835,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       meta[tag] = { label: `#${tag}`, isPerson: false };
     });
     return meta;
-  }, [mentionLookup, state.tags, suggestionDisplayMap]);
+  }, [mentionLookup, overlayState.tags, suggestionDisplayMap]);
 
   const hasLowConfidenceSuggestions = useMemo(
     () => filteredTagSuggestions.some((tag) => !!tag.lowConfidence),
@@ -655,22 +846,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     (tag: string) => {
       const normalized = normalizeToTagKey(tag);
       if (!normalized) return;
-      pushUndoEntry('tag', { tags: [...state.tags], list: state.list, mood: state.mood });
+      pushUndoEntry('tag', {
+        tags: [...overlayState.tags],
+        list: overlayState.list,
+        mood: overlayState.mood,
+      });
       dispatch({ type: 'TOGGLE_TAG', tag: normalized });
     },
-    [dispatch, state.list, state.mood, state.tags],
+    [dispatch, overlayState.list, overlayState.mood, overlayState.tags],
   );
 
   const handleTagRemove = useCallback(
     (tag: string) => {
       const normalized = normalizeToTagKey(tag);
       if (!normalized) return;
-      if (!state.tags.includes(normalized)) return;
-      pushUndoEntry('tag', { tags: [...state.tags], list: state.list, mood: state.mood });
-      const nextTags = state.tags.filter((t) => t !== normalized);
+      if (!overlayState.tags.includes(normalized)) return;
+      pushUndoEntry('tag', {
+        tags: [...overlayState.tags],
+        list: overlayState.list,
+        mood: overlayState.mood,
+      });
+      const nextTags = overlayState.tags.filter((t) => t !== normalized);
       dispatch({ type: 'SET_TAGS', tags: nextTags });
     },
-    [dispatch, state.list, state.mood, state.tags],
+    [dispatch, overlayState.list, overlayState.mood, overlayState.tags],
   );
 
   // theme / background for overlay (phase‑8 visual polish)
@@ -686,9 +885,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const typeTabInactiveColor =
     colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
   const typeTabUnderlineColor = palette.colors.moss;
+  const spinnerColor = palette.colors.moss ?? lightTokens.colors.moss;
+  const skeletonTextColor = colorMode === 'dark' ? 'rgba(248,250,249,0.7)' : 'rgba(46,85,64,0.6)';
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
-  const canSave = currentText.trim().length > 0 && !isSaving;
+  const canSave = !!draft && currentText.trim().length > 0 && !isSaving;
 
   function toCreateOrUpdateInput(
     baseType: BaseType,
@@ -699,7 +900,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const tags = stripJournalTags(sanitized, baseType === 'log');
     if (baseType === 'todo') {
       const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
-      return {
+      const payload = {
         type: 'todo' as const,
         title: derivedTitle,
         name: derivedTitle,
@@ -715,6 +916,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
         },
       };
+      if (!payload.due_at) {
+        const candidate = [payload.title || '', s.todo.details || '', s.log.body || '']
+          .map((segment) => (typeof segment === 'string' ? segment.trim() : ''))
+          .filter((segment) => segment.length > 0)
+          .join('\n');
+        if (candidate.length > 0) {
+          try {
+            const parsed = parseDue(candidate);
+            (s as V2State).suggestedDue = parsed?.iso ?? null;
+          } catch (e) {
+            (s as V2State).suggestedDue = null;
+          }
+        } else {
+          (s as V2State).suggestedDue = null;
+        }
+      } else {
+        (s as V2State).suggestedDue = null;
+      }
+      return payload;
     }
     if (baseType === 'habit') {
       return {
@@ -770,7 +990,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setSaveError(null);
     setIsSaving(true);
     try {
-      const input = toCreateOrUpdateInput(baseType, state as any, initialSpaceId ?? null);
+      const input = toCreateOrUpdateInput(baseType, overlayState as any, initialSpaceId ?? null);
       const result =
         mode === 'edit' && (initialEntity as any)?.id
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
@@ -846,7 +1066,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       }
       // Attempt to link the explicitly selected person (non-blocking)
       try {
-        await linkSelectedPerson(repo, result?.id, (state as any).person?.id);
+        await linkSelectedPerson(repo, result?.id, (overlayState as any).person?.id);
       } catch (err) {
         console.error('[UnifiedOverlayV2] person link failed', err);
       }
@@ -911,7 +1131,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [
     canSave,
     baseType,
-    state,
+    overlayState,
     initialSpaceId,
     mode,
     initialEntity,
@@ -922,9 +1142,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   ]);
 
   const handleCancel = useCallback(async () => {
+    resetStateFromSource();
     await clearOverlayV2Draft(draftKey);
     onClose?.();
-  }, [draftKey, onClose]);
+  }, [draftKey, onClose, resetStateFromSource]);
 
   if (!visible) return null;
 
@@ -1009,360 +1230,422 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     variant="title"
                     style={{ color: lightTokens.colors.text, fontWeight: '600' }}
                   >
-                    {currentTitle}
+                    {headerTitle}
                   </Text>
                 </Box>
 
                 {/* Body: entire form stack in a single scroll context */}
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={{
-                    paddingHorizontal: 16,
-                    paddingBottom: 120,
-                    paddingTop: 16,
-                  }}
-                >
-                  <Box px={4}>
-                    <View style={[styles.typeTabsRow, { marginBottom: tokenSpacing.md }]}>
-                      {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
-                        const selected = baseType === t;
-                        return (
-                          <Pressable
-                            key={t}
-                            onPress={() => handleTypeSelect(t)}
-                            style={styles.typeTab}
-                            accessibilityRole="tab"
-                            accessibilityState={{ selected }}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Text
-                              style={[
-                                styles.typeTabLabel,
-                                {
-                                  color: selected ? typeTabActiveColor : typeTabInactiveColor,
-                                  fontWeight: selected ? '600' : '500',
-                                },
-                              ]}
+                {draft ? (
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{
+                      paddingHorizontal: 16,
+                      paddingBottom: 120,
+                      paddingTop: 16,
+                    }}
+                  >
+                    <Box px={4}>
+                      <View style={[styles.typeTabsRow, { marginBottom: tokenSpacing.md }]}>
+                        {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
+                          const selected = baseType === t;
+                          return (
+                            <Pressable
+                              key={t}
+                              onPress={() => handleTypeSelect(t)}
+                              style={styles.typeTab}
+                              accessibilityRole="tab"
+                              accessibilityState={{ selected }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                              {BASE_LABEL[t]}
-                            </Text>
-                            <View
-                              style={[
-                                styles.typeTabUnderline,
-                                {
-                                  backgroundColor: selected ? typeTabUnderlineColor : 'transparent',
-                                },
-                              ]}
-                            />
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                    <TagsRow
-                      tags={state.tags}
-                      suggested={filteredTagSuggestions}
-                      onToggle={handleTagToggle}
-                      onRemove={handleTagRemove}
-                      activeMeta={activeTagMeta}
-                    />
-                    {hasLowConfidenceSuggestions ? (
-                      <Box mt={2}>
-                        <Text variant="subtle">AI suggestions (low confidence)</Text>
-                      </Box>
-                    ) : null}
-
-                    <Box mt={3}>
-                      <TextInput
-                        value={currentText}
-                        onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                        accessibilityLabel="Overlay content input"
-                        onFocus={() => setBodyFocused(true)}
-                        onBlur={() => setBodyFocused(false)}
-                        placeholder="Drop your thought…"
-                        placeholderTextColor={lightTokens.colors.subtle}
-                        multiline
-                        scrollEnabled={false}
-                        autoFocus
-                        textAlignVertical="top"
-                        style={[
-                          styles.textArea,
-                          {
-                            color: lightTokens.colors.text,
-                            backgroundColor:
-                              colorMode === 'dark'
-                                ? darkTokens.colors.deep
-                                : lightTokens.colors.linen,
-                            borderColor: bodyFocused
-                              ? 'rgba(46,85,64,0.35)'
-                              : 'rgba(46,85,64,0.18)',
-                            borderWidth: bodyFocused ? 2 : StyleSheet.hairlineWidth,
-                          },
-                        ]}
-                      />
-                    </Box>
-                    {baseType === 'todo' ? (
-                      <Box row mt={2} style={{ alignItems: 'center' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onPress={() => {
-                            setDateModalTarget('todo');
-                            setShowDateModal(true);
-                          }}
-                          title={
-                            state.todo.due_at
-                              ? `Due: ${safeFormat(state.todo.due_at)}`
-                              : 'Add due date'
-                          }
-                        />
-                      </Box>
-                    ) : null}
-                    {baseType === 'log' ? (
-                      <Box row mt={2} style={{ alignItems: 'center' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onPress={() => {
-                            setDateModalTarget('reminder');
-                            setShowDateModal(true);
-                          }}
-                          title={
-                            state.reminderAt
-                              ? `Reminder: ${safeFormat(state.reminderAt)}`
-                              : 'Add reminder'
-                          }
-                        />
-                      </Box>
-                    ) : null}
-                    <Box mt={3} row style={{ alignItems: 'center' }}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onPress={handleToggleDetails}
-                        title={state.expanded ? 'Hide details' : 'Add details'}
-                      />
-                      <Box flex={1} />
-                    </Box>
-                    {state.expanded ? (
-                      <Reanimated.View style={[detailsStyle, { marginTop: tokenSpacing.sm }]}>
-                        <Box pb={2}>
-                          <Text variant="label">Details</Text>
-                          {/* People linker + reminder/todo due + space selector */}
-                          <Box mt={2}>
-                            {/* Thin picker for selecting an existing person (Phase-4) */}
-                            <PersonPicker
-                              value={state.person ?? null}
-                              onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
-                            />
-
-                            <Box mt={2}>
-                              {/* Space selector: load spaces when expanded */}
-                              <ScopeSelector
-                                selectedScope={
-                                  state.spaceId
-                                    ? {
-                                        type: 'space',
-                                        spaceId: state.spaceId,
-                                        label:
-                                          spaces.find((s) => s.id === state.spaceId)?.name ??
-                                          'Space',
-                                      }
-                                    : { type: 'unassigned', label: 'Unassigned' }
-                                }
-                                spaces={spaces}
-                                onChange={(opt) => {
-                                  if (opt.type === 'space')
-                                    dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
-                                  else dispatch({ type: 'SET_SPACE', spaceId: null });
-                                }}
+                              <Text
+                                style={[
+                                  styles.typeTabLabel,
+                                  {
+                                    color: selected ? typeTabActiveColor : typeTabInactiveColor,
+                                    fontWeight: selected ? '600' : '500',
+                                  },
+                                ]}
+                              >
+                                {BASE_LABEL[t]}
+                              </Text>
+                              <View
+                                style={[
+                                  styles.typeTabUnderline,
+                                  {
+                                    backgroundColor: selected
+                                      ? typeTabUnderlineColor
+                                      : 'transparent',
+                                  },
+                                ]}
                               />
-                            </Box>
-                            {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
-                              <Box mt={2}>
-                                <Text variant="label">Commitment</Text>
-                                <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
-                                  <Button
-                                    size="sm"
-                                    variant={state.commitment ? 'primary' : 'ghost'}
-                                    onPress={async () => {
-                                      if (!state.commitment) {
-                                        const ok = await canEnableCommitment();
-                                        if (!ok) {
-                                          console.log('[Commitment] Limit reached (3)');
-                                          return;
-                                        }
-                                      }
-                                      // push undo snapshot for commitment fields
-                                      const prevOn = !!state.commitment;
-                                      pushUndoEntry('commitment', {
-                                        commitment: state.commitment,
-                                        commitmentNote: state.commitmentNote,
-                                        commitmentStartedAt: state.commitmentStartedAt,
-                                      });
-                                      dispatch({ type: 'TOGGLE_COMMITMENT' });
-                                      try {
-                                        eventBus.emit('OverlayCommitmentToggled', { on: !prevOn });
-                                      } catch (e) {
-                                        // ignore telemetry errors
-                                      }
-                                    }}
-                                    title={
-                                      state.commitment ? 'Committed' : 'Make this a commitment'
-                                    }
-                                  />
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      <TagsRow
+                        tags={viewState.tags}
+                        suggested={filteredTagSuggestions}
+                        onToggle={handleTagToggle}
+                        onRemove={handleTagRemove}
+                        activeMeta={activeTagMeta}
+                      />
+                      {hasLowConfidenceSuggestions ? (
+                        <Box mt={2}>
+                          <Text variant="subtle">AI suggestions (low confidence)</Text>
+                        </Box>
+                      ) : null}
 
-                                  {/* Animated reveal for the commitment note */}
-                                  <Reanimated.View
-                                    style={[commitmentStyle, { flex: 1 }]}
-                                    pointerEvents={state.commitment ? 'auto' : 'none'}
-                                  >
-                                    {state.commitment ? (
-                                      <TextInput
-                                        placeholder="Why this matters (optional, 140 max)"
-                                        accessibilityLabel="Commitment note input"
-                                        maxLength={140}
-                                        value={state.commitmentNote}
-                                        onChangeText={(t) =>
-                                          dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })
+                      <Box mt={3}>
+                        <TextInput
+                          value={draftText}
+                          onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                          accessibilityLabel="Overlay content input"
+                          onFocus={() => setBodyFocused(true)}
+                          onBlur={() => setBodyFocused(false)}
+                          placeholder="Drop your thought…"
+                          placeholderTextColor={lightTokens.colors.subtle}
+                          multiline
+                          scrollEnabled={false}
+                          autoFocus
+                          textAlignVertical="top"
+                          style={[
+                            styles.textArea,
+                            {
+                              color: lightTokens.colors.text,
+                              backgroundColor:
+                                colorMode === 'dark'
+                                  ? darkTokens.colors.deep
+                                  : lightTokens.colors.linen,
+                              borderColor: bodyFocused
+                                ? 'rgba(46,85,64,0.35)'
+                                : 'rgba(46,85,64,0.18)',
+                              borderWidth: bodyFocused ? 2 : StyleSheet.hairlineWidth,
+                            },
+                          ]}
+                        />
+                      </Box>
+                      {baseType === 'todo' ? (
+                        <Box mt={2}>
+                          <Box row style={{ alignItems: 'center' }}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onPress={() => {
+                                setDateModalTarget('todo');
+                                setShowDateModal(true);
+                              }}
+                              title={
+                                viewState.todo.due_at
+                                  ? `Due: ${safeFormat(viewState.todo.due_at)}`
+                                  : 'Add due date'
+                              }
+                            />
+                          </Box>
+                          {!viewState.todo.due_at && viewState.suggestedDue ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityHint="Apply suggested due date"
+                              onPress={() =>
+                                dispatch({ type: 'SET_TODO_DUE', due_at: viewState.suggestedDue })
+                              }
+                              style={{ marginTop: 6 }}
+                            >
+                              <Text
+                                variant="subtle"
+                                style={{
+                                  color:
+                                    colorMode === 'dark'
+                                      ? 'rgba(248,250,249,0.75)'
+                                      : 'rgba(46,85,64,0.7)',
+                                }}
+                              >
+                                Suggested due: {formatSuggestedDue(viewState.suggestedDue)} (tap to
+                                apply)
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </Box>
+                      ) : null}
+                      {baseType === 'log' ? (
+                        <Box row mt={2} style={{ alignItems: 'center' }}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={() => {
+                              setDateModalTarget('reminder');
+                              setShowDateModal(true);
+                            }}
+                            title={
+                              viewState.reminderAt
+                                ? `Reminder: ${safeFormat(viewState.reminderAt)}`
+                                : 'Add reminder'
+                            }
+                          />
+                        </Box>
+                      ) : null}
+                      <Box mt={3} row style={{ alignItems: 'center' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onPress={handleToggleDetails}
+                          title={viewState.expanded ? 'Hide details' : 'Add details'}
+                        />
+                        <Box flex={1} />
+                      </Box>
+                      {viewState.expanded ? (
+                        <Reanimated.View style={[detailsStyle, { marginTop: tokenSpacing.sm }]}>
+                          <Box pb={2}>
+                            <Text variant="label">Details</Text>
+                            {/* People linker + reminder/todo due + space selector */}
+                            <Box mt={2}>
+                              {/* Thin picker for selecting an existing person (Phase-4) */}
+                              <PersonPicker
+                                value={viewState.person ?? null}
+                                onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
+                              />
+
+                              <Box mt={2}>
+                                {/* Space selector: load spaces when expanded */}
+                                <ScopeSelector
+                                  selectedScope={
+                                    viewState.spaceId
+                                      ? {
+                                          type: 'space',
+                                          spaceId: viewState.spaceId,
+                                          label:
+                                            spaces.find((s) => s.id === viewState.spaceId)?.name ??
+                                            'Space',
                                         }
-                                        onFocus={() => setCommitmentFocused(true)}
-                                        onBlur={() => setCommitmentFocused(false)}
-                                        style={[
-                                          styles.textArea,
-                                          { minHeight: 40, paddingVertical: 8 },
-                                          {
-                                            borderColor: commitmentFocused
-                                              ? 'rgba(46,85,64,0.35)'
-                                              : 'rgba(46,85,64,0.18)',
-                                            borderWidth: commitmentFocused
-                                              ? 2
-                                              : StyleSheet.hairlineWidth,
-                                          },
-                                        ]}
-                                      />
-                                    ) : null}
-                                  </Reanimated.View>
+                                      : { type: 'unassigned', label: 'Unassigned' }
+                                  }
+                                  spaces={spaces}
+                                  onChange={(opt) => {
+                                    if (opt.type === 'space')
+                                      dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
+                                    else dispatch({ type: 'SET_SPACE', spaceId: null });
+                                  }}
+                                />
+                              </Box>
+                              {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
+                                <Box mt={2}>
+                                  <Text variant="label">Commitment</Text>
+                                  <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
+                                    <Button
+                                      size="sm"
+                                      variant={viewState.commitment ? 'primary' : 'ghost'}
+                                      onPress={async () => {
+                                        if (!overlayState.commitment) {
+                                          const ok = await canEnableCommitment();
+                                          if (!ok) {
+                                            console.log('[Commitment] Limit reached (3)');
+                                            return;
+                                          }
+                                        }
+                                        // push undo snapshot for commitment fields
+                                        const prevOn = !!overlayState.commitment;
+                                        pushUndoEntry('commitment', {
+                                          commitment: overlayState.commitment,
+                                          commitmentNote: overlayState.commitmentNote,
+                                          commitmentStartedAt: overlayState.commitmentStartedAt,
+                                        });
+                                        dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                        try {
+                                          eventBus.emit('OverlayCommitmentToggled', {
+                                            on: !prevOn,
+                                          });
+                                        } catch (e) {
+                                          // ignore telemetry errors
+                                        }
+                                      }}
+                                      title={
+                                        overlayState.commitment
+                                          ? 'Committed'
+                                          : 'Make this a commitment'
+                                      }
+                                    />
+
+                                    {/* Animated reveal for the commitment note */}
+                                    <Reanimated.View
+                                      style={[commitmentStyle, { flex: 1 }]}
+                                      pointerEvents={viewState.commitment ? 'auto' : 'none'}
+                                    >
+                                      {viewState.commitment ? (
+                                        <TextInput
+                                          placeholder="Why this matters (optional, 140 max)"
+                                          accessibilityLabel="Commitment note input"
+                                          maxLength={140}
+                                          value={draft?.commitmentNote ?? ''}
+                                          onChangeText={(t) =>
+                                            dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })
+                                          }
+                                          onFocus={() => setCommitmentFocused(true)}
+                                          onBlur={() => setCommitmentFocused(false)}
+                                          style={[
+                                            styles.textArea,
+                                            { minHeight: 40, paddingVertical: 8 },
+                                            {
+                                              borderColor: commitmentFocused
+                                                ? 'rgba(46,85,64,0.35)'
+                                                : 'rgba(46,85,64,0.18)',
+                                              borderWidth: commitmentFocused
+                                                ? 2
+                                                : StyleSheet.hairlineWidth,
+                                            },
+                                          ]}
+                                        />
+                                      ) : null}
+                                    </Reanimated.View>
+                                  </Box>
                                 </Box>
+                              ) : null}
+                            </Box>
+                            {baseType === 'log' ? (
+                              <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
+                                <Button
+                                  size="sm"
+                                  variant={viewState.format === 'plain' ? 'primary' : 'ghost'}
+                                  onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
+                                  title="Plain"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant={viewState.format === 'checkboxes' ? 'primary' : 'ghost'}
+                                  onPress={() =>
+                                    dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })
+                                  }
+                                  title="Checkboxes"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant={viewState.format === 'bullet' ? 'primary' : 'ghost'}
+                                  onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
+                                  title="Bullet"
+                                />
                               </Box>
                             ) : null}
                           </Box>
-                          {baseType === 'log' ? (
-                            <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
-                              <Button
-                                size="sm"
-                                variant={state.format === 'plain' ? 'primary' : 'ghost'}
-                                onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
-                                title="Plain"
-                              />
-                              <Button
-                                size="sm"
-                                variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
-                                onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
-                                title="Checkboxes"
-                              />
-                              <Button
-                                size="sm"
-                                variant={state.format === 'bullet' ? 'primary' : 'ghost'}
-                                onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
-                                title="Bullet"
-                              />
-                            </Box>
-                          ) : null}
+                        </Reanimated.View>
+                      ) : null}
+                      {/* Journal mood row */}
+                      {viewState.tags.includes('journal') ? (
+                        <Box mt={3} row gap={2} style={{ marginTop: tokenSpacing.md }}>
+                          <MoodPill
+                            label="😊"
+                            active={viewState.mood === 'pos'}
+                            onPress={() => dispatch({ type: 'SET_MOOD', mood: 'pos' })}
+                          />
+                          <MoodPill
+                            label="😐"
+                            active={viewState.mood === 'neu'}
+                            onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neu' })}
+                          />
+                          <MoodPill
+                            label="😔"
+                            active={viewState.mood === 'neg'}
+                            onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neg' })}
+                          />
                         </Box>
-                      </Reanimated.View>
-                    ) : null}
-                    {/* Journal mood row */}
-                    {state.tags.includes('journal') ? (
-                      <Box mt={3} row gap={2} style={{ marginTop: tokenSpacing.md }}>
-                        <MoodPill
-                          label="😊"
-                          active={state.mood === 'pos'}
-                          onPress={() => dispatch({ type: 'SET_MOOD', mood: 'pos' })}
-                        />
-                        <MoodPill
-                          label="😐"
-                          active={state.mood === 'neu'}
-                          onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neu' })}
-                        />
-                        <MoodPill
-                          label="😔"
-                          active={state.mood === 'neg'}
-                          onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neg' })}
-                        />
-                      </Box>
-                    ) : null}
+                      ) : null}
 
-                    {/* List checkboxes */}
-                    {state.tags.includes('list') && state.list ? (
-                      <Box mt={3}>
-                        {(state.list.items || []).map((it) => (
-                          <Box
-                            key={it.id}
-                            row
-                            gap={2}
-                            style={{ alignItems: 'center', marginBottom: tokenSpacing.sm }}
-                          >
-                            <Button
-                              size="sm"
-                              variant={it.checked ? 'primary' : 'neutral'}
-                              onPress={() =>
+                      {/* List checkboxes */}
+                      {viewState.tags.includes('list') && viewState.list ? (
+                        <Box mt={3}>
+                          {(viewState.list.items || []).map(
+                            (it: { id: string; text: string; checked: boolean }) => (
+                              <Box
+                                key={it.id}
+                                row
+                                gap={2}
+                                style={{ alignItems: 'center', marginBottom: tokenSpacing.sm }}
+                              >
+                                <Button
+                                  size="sm"
+                                  variant={it.checked ? 'primary' : 'neutral'}
+                                  onPress={() =>
+                                    dispatch({
+                                      type: 'TOGGLE_LIST_ITEM',
+                                      id: it.id,
+                                      checked: !it.checked,
+                                    })
+                                  }
+                                  title={it.checked ? '✓' : '○'}
+                                />
+                                <Text>{it.text}</Text>
+                              </Box>
+                            ),
+                          )}
+                        </Box>
+                      ) : null}
+
+                      {/* Mentions / Dates chips (inline suggestions) */}
+                      <Box
+                        mt={3}
+                        row
+                        gap={2}
+                        style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
+                      >
+                        {(viewState.detected?.mentions || []).map((m: string) => (
+                          <Chip key={m} label={`@${m}`} />
+                        ))}
+                        {(viewState.detected?.dates || []).map((d: string) => (
+                          <Button
+                            key={d}
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => {
+                              if (d === '__token:today')
                                 dispatch({
-                                  type: 'TOGGLE_LIST_ITEM',
-                                  id: it.id,
-                                  checked: !it.checked,
-                                })
+                                  type: 'SET_TODO_DUE',
+                                  due_at: new Date().toISOString(),
+                                });
+                              else if (d === '__token:tomorrow')
+                                dispatch({
+                                  type: 'SET_TODO_DUE',
+                                  due_at: addDays(new Date(), 1).toISOString(),
+                                });
+                              else {
+                                // fallback: open custom date modal prefilled (for todo)
+                                setCustomDate(d.replace(/^\D+/g, ''));
+                                setDateModalTarget('todo');
+                                setShowDateModal(true);
                               }
-                              title={it.checked ? '✓' : '○'}
-                            />
-                            <Text>{it.text}</Text>
-                          </Box>
+                            }}
+                            title={
+                              d === '__token:today'
+                                ? 'Set due: Today'
+                                : d === '__token:tomorrow'
+                                  ? 'Set due: Tomorrow'
+                                  : d
+                            }
+                          />
                         ))}
                       </Box>
-                    ) : null}
-
-                    {/* Mentions / Dates chips (inline suggestions) */}
-                    <Box
-                      mt={3}
-                      row
-                      gap={2}
-                      style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
-                    >
-                      {(state.detected?.mentions || []).map((m) => (
-                        <Chip key={m} label={`@${m}`} />
-                      ))}
-                      {(state.detected?.dates || []).map((d) => (
-                        <Button
-                          key={d}
-                          size="sm"
-                          variant="ghost"
-                          onPress={() => {
-                            if (d === '__token:today')
-                              dispatch({ type: 'SET_TODO_DUE', due_at: new Date().toISOString() });
-                            else if (d === '__token:tomorrow')
-                              dispatch({
-                                type: 'SET_TODO_DUE',
-                                due_at: addDays(new Date(), 1).toISOString(),
-                              });
-                            else {
-                              // fallback: open custom date modal prefilled (for todo)
-                              setCustomDate(d.replace(/^\D+/g, ''));
-                              setDateModalTarget('todo');
-                              setShowDateModal(true);
-                            }
-                          }}
-                          title={
-                            d === '__token:today'
-                              ? 'Set due: Today'
-                              : d === '__token:tomorrow'
-                                ? 'Set due: Tomorrow'
-                                : d
-                          }
-                        />
-                      ))}
+                      {/* Tag row hidden at Level-1; lands in Phase 3 */}
                     </Box>
-                    {/* Tag row hidden at Level-1; lands in Phase 3 */}
-                  </Box>
-                </ScrollView>
+                  </ScrollView>
+                ) : (
+                  <View
+                    testID="overlay-hydrating"
+                    style={{
+                      flex: 1,
+                      flexGrow: 1,
+                      paddingHorizontal: 16,
+                      paddingVertical: 64,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <ActivityIndicator size="small" color={spinnerColor} />
+                    <Text
+                      style={{
+                        marginTop: tokenSpacing.sm,
+                        color: skeletonTextColor,
+                      }}
+                    >
+                      Loading your drop…
+                    </Text>
+                  </View>
+                )}
 
                 <Modal visible={showDateModal} transparent animationType="fade">
                   <Box

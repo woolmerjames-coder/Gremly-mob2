@@ -38,8 +38,6 @@ import {
   type EntityPeopleInsert as DBEntityPeopleInsert,
 } from '../supabase/mappers';
 
-const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
 const TAG_FILTER_TOAST_MESSAGE = 'Tag filter temporarily unavailable';
 let hasShownTagFilterToast = false;
 
@@ -197,6 +195,7 @@ function mapHabitFromDb(dbRecord: any): any {
     reminders: dbRecord.reminders_json,
     triggers: dbRecord.triggers_json,
     tags: dbRecord.tags ?? null,
+    source_message_id: dbRecord.source_message_id ?? null,
   };
 }
 
@@ -217,6 +216,7 @@ function mapTodoFromDb(dbRecord: any): any {
     // Map jsonb column to TS field
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
+    source_message_id: dbRecord.source_message_id ?? null,
   };
 }
 
@@ -275,6 +275,31 @@ export class SupabaseRepo implements IRepo {
   async create(input: CreateRecordInput): Promise<AppRecord> {
     this.ensureUserId();
 
+    const sourceMessageId =
+      typeof input.sourceMessageId === 'string' && input.sourceMessageId.trim().length > 0
+        ? input.sourceMessageId.trim()
+        : null;
+
+    if (sourceMessageId) {
+      try {
+        const existing = await this.findBySourceMessageId(input.type, sourceMessageId);
+        if (existing) {
+          if (__DEV__) {
+            console.info(
+              `[SupabaseRepo.create] Reusing existing ${input.type} ${existing.id} for source_message_id=${sourceMessageId}.`,
+            );
+          }
+          return existing;
+        }
+      } catch (lookupError) {
+        console.warn('[SupabaseRepo.create] Pre-insert lookup failed', {
+          type: input.type,
+          sourceMessageId,
+          error: formatSupabaseError(lookupError),
+        });
+      }
+    }
+
     // SpaceId integrity: warn when creating from app without explicit space_id
     // Undefined means omitted (likely a bug in space context), null means intentionally unassigned
     if (process.env.NODE_ENV !== 'test' && input.space_id === undefined) {
@@ -316,7 +341,7 @@ export class SupabaseRepo implements IRepo {
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
-          source_message_id: input.sourceMessageId ?? undefined,
+          source_message_id: sourceMessageId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
           // Extended habit fields - map to jsonb columns
@@ -365,7 +390,7 @@ export class SupabaseRepo implements IRepo {
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
-          source_message_id: input.sourceMessageId ?? undefined,
+          source_message_id: sourceMessageId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
         }),
@@ -392,7 +417,7 @@ export class SupabaseRepo implements IRepo {
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
-          source_message_id: input.sourceMessageId ?? undefined,
+          source_message_id: sourceMessageId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
           // Journal-specific fields (from generated schema - notes table has these)
@@ -448,6 +473,25 @@ export class SupabaseRepo implements IRepo {
       .single();
 
     if (error) {
+      if (sourceMessageId && error.code === '23505') {
+        try {
+          const existing = await this.findBySourceMessageId(input.type, sourceMessageId);
+          if (existing) {
+            if (__DEV__) {
+              console.info(
+                `[SupabaseRepo.create] Duplicate ${input.type} detected for source_message_id=${sourceMessageId}; returning existing record ${existing.id}.`,
+              );
+            }
+            return existing;
+          }
+        } catch (lookupError) {
+          console.warn('[SupabaseRepo.create] Duplicate detected but lookup failed', {
+            type: input.type,
+            sourceMessageId,
+            error: formatSupabaseError(lookupError),
+          });
+        }
+      }
       logSupabaseError(
         `${input.type}.insert`,
         error,
@@ -522,6 +566,8 @@ export class SupabaseRepo implements IRepo {
     const updatePayload: Record<string, unknown> = {};
 
     if (existing.type === 'todo') {
+      if ('name' in normalizedPatch && normalizedPatch.name !== undefined)
+        updatePayload.name = normalizedPatch.name;
       if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
         updatePayload.title = normalizedPatch.title;
       if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
@@ -539,12 +585,15 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+      if ('subtype' in normalizedPatch && normalizedPatch.subtype !== undefined)
+        updatePayload.subtype = normalizedPatch.subtype ?? null;
     } else if (existing.type === 'habit') {
       if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
         updatePayload.title = normalizedPatch.title;
       if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
         updatePayload.frequency = normalizedPatch.frequency;
-      if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
+      if ('subtype' in normalizedPatch && normalizedPatch.subtype !== undefined)
+        updatePayload.subtype = normalizedPatch.subtype ?? null;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
@@ -563,10 +612,12 @@ export class SupabaseRepo implements IRepo {
     if ('tags' in normalizedPatch) updatePayload.tags = normalizedPatch.tags ?? null;
 
     if ('origin' in normalizedPatch) updatePayload.origin = normalizedPatch.origin ?? null;
-    if ('canonicalType' in normalizedPatch)
+    if ('canonicalType' in normalizedPatch && normalizedPatch.canonicalType !== undefined)
       updatePayload.canonical_type = normalizedPatch.canonicalType ?? null;
     if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
     if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
+    if ('source_message_id' in normalizedPatch)
+      updatePayload.source_message_id = (normalizedPatch as any).source_message_id ?? null;
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
@@ -634,14 +685,20 @@ export class SupabaseRepo implements IRepo {
   }
 
   async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
+    const match = await this.findBySourceMessageId('note', sourceMessageId);
+    return (match as Note | null) ?? null;
+  }
+
+  async findBySourceMessageId(
+    type: AppRecord['type'],
+    sourceMessageId: string,
+  ): Promise<AppRecord | null> {
     const userId = this.ensureUserId();
     if (!sourceMessageId) return null;
-    if (!UUID_REGEX.test(sourceMessageId)) {
-      return null;
-    }
 
+    const table = tableFor(type);
     const { data, error } = await supabase
-      .from('notes')
+      .from(table)
       .select('*')
       .eq('owner_id', userId)
       .eq('source_message_id', sourceMessageId)
@@ -652,13 +709,15 @@ export class SupabaseRepo implements IRepo {
       if (error.code === 'PGRST116') {
         return null;
       }
-      logSupabaseError('notes.findBySourceMessageId', error);
-      throw new Error(`Failed to find note: ${getUserFriendlyErrorMessage(error)}`);
+      logSupabaseError(`${table}.findBySourceMessageId`, error);
+      throw new Error(`Failed to find record: ${getUserFriendlyErrorMessage(error)}`);
     }
 
     if (!data) return null;
 
-    const record = { ...data, type: 'note' as const };
+    const record = { ...data, type } as const;
+    if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
+    if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
     return noteZ.parse(mapNoteFromDb(record));
   }
 

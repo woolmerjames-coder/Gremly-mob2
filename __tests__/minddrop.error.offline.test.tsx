@@ -33,6 +33,11 @@ const mockCreate = jest.fn();
 const mockNotesCreate = jest.fn();
 const mockNotesList = jest.fn(async () => []);
 const mockWriteEvent = jest.fn();
+const mockFindBySourceMessageId = jest.fn();
+const mockFindNoteBySourceMessageId = jest.fn();
+const mockUpdate = jest.fn();
+const mockRemove = jest.fn();
+const mockGetById = jest.fn();
 const mockDecideWithContext = jest.fn().mockResolvedValue({
   mode: 'auto',
   actions: [
@@ -50,6 +55,11 @@ jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
     create: mockCreate,
     writeEvent: mockWriteEvent,
+    findBySourceMessageId: mockFindBySourceMessageId,
+    findNoteBySourceMessageId: mockFindNoteBySourceMessageId,
+    update: mockUpdate,
+    remove: mockRemove,
+    getById: mockGetById,
     notes: { list: mockNotesList, create: mockNotesCreate },
   }),
 }));
@@ -71,6 +81,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockDecideWithContext.mockClear();
   process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+
+  mockFindBySourceMessageId.mockResolvedValue(null);
+  mockFindNoteBySourceMessageId.mockResolvedValue(null);
+  mockUpdate.mockImplementation(async ({ id, patch }) => ({ id, ...patch }));
+  mockRemove.mockResolvedValue(undefined);
+  mockGetById.mockResolvedValue(null);
 });
 
 afterEach(() => {

@@ -10,6 +10,17 @@ const mockRepo = {
   remove: jest.fn(),
   getById: jest.fn(),
   query: jest.fn(() => Promise.resolve([])),
+  findBySourceMessageId: jest.fn(() => Promise.resolve(null)),
+  findNoteBySourceMessageId: jest.fn(() => Promise.resolve(null)),
+  notes: {
+    list: jest.fn(() => Promise.resolve([])),
+  },
+  todos: {
+    list: jest.fn(() => Promise.resolve([])),
+  },
+  habits: {
+    list: jest.fn(() => Promise.resolve([])),
+  },
 };
 
 jest.mock('../../../providers/RepoProvider', () => ({
@@ -56,6 +67,12 @@ describe('Mind Drop Narrative Classification', () => {
     }));
     mockRepo.update.mockResolvedValue(null);
     mockRepo.remove.mockResolvedValue(undefined);
+    mockRepo.findBySourceMessageId.mockResolvedValue(null);
+    mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
+    mockRepo.getById.mockResolvedValue(null);
+    mockRepo.notes.list.mockResolvedValue([]);
+    mockRepo.todos.list.mockResolvedValue([]);
+    mockRepo.habits.list.mockResolvedValue([]);
   });
 
   it('narrative journal text does NOT produce todo classification', async () => {

@@ -33,6 +33,7 @@ export interface Habit {
   views?: {
     alsoShowIn?: string[];
   };
+  source_message_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID

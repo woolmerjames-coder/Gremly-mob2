@@ -1,3 +1,4 @@
+import { parseDue } from '../../lib/cortex/entities/datetime';
 import { firstLine } from '../../lib/text/firstLine';
 import type { V2State, BaseType } from './overlayV2.state';
 
@@ -242,6 +243,26 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     const derived = (s.todo?.title || firstLine(s.todo?.details) || 'Untitled').trim();
     payload.name = payload.name || derived;
     payload.title = payload.title || derived;
+
+    if (!payload.due_at) {
+      const titleForParse = payload.title || '';
+      const detailsForParse = s.todo?.details || '';
+      const bodyForParse = s.log?.body || '';
+      const candidate = [titleForParse, detailsForParse, bodyForParse]
+        .map((segment) => (typeof segment === 'string' ? segment.trim() : ''))
+        .filter((segment) => segment.length > 0)
+        .join('\n');
+
+      if (candidate.length > 0) {
+        const parsed = parseDue(candidate);
+        const iso = parsed?.iso ?? null;
+        (s as V2State).suggestedDue = iso;
+      } else {
+        (s as V2State).suggestedDue = null;
+      }
+    } else {
+      (s as V2State).suggestedDue = null;
+    }
 
     return payload;
   }

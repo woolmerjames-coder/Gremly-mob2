@@ -13,6 +13,7 @@ const mockRepo = {
   update: jest.fn(),
   getById: jest.fn(),
   remove: jest.fn(),
+  findBySourceMessageId: jest.fn(),
   findNoteBySourceMessageId: jest.fn(),
 };
 
@@ -67,6 +68,7 @@ describe('CatchAllNotepad - Narrative Detection', () => {
       type: 'note',
       created_at: new Date().toISOString(),
     });
+    mockRepo.findBySourceMessageId.mockResolvedValue(null);
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   });
 

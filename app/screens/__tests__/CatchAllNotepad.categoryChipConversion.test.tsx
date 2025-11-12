@@ -12,6 +12,7 @@ const mockRepo = {
   update: jest.fn(),
   getById: jest.fn(),
   remove: jest.fn(),
+  findBySourceMessageId: jest.fn(),
   findNoteBySourceMessageId: jest.fn(),
 };
 
@@ -98,6 +99,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
       return Promise.resolve(undefined);
     });
 
+    mockRepo.findBySourceMessageId.mockResolvedValue(null);
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   });
 
@@ -105,7 +107,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
   const overlayController = useGlobalOverlay();
   const openCreateMock = overlayController.openCreate as jest.Mock;
 
-  it('opens overlay with todo override when selecting "Add to To-Do List"', async () => {
+  it('converts unsorted note to todo when selecting "Add to To-Do List"', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.65,
@@ -158,34 +160,41 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
       { timeout: 3000 },
     );
 
-    // Verify one unsorted note was created
     expect(createdRecords.length).toBe(1);
     const originalId = createdRecords[0].id;
     expect(createdRecords[0].type).toBe('note');
     expect(createdRecords[0].body).toContain('Buy groceries');
 
-    // Click "Add to To-Do List" chip
     fireEvent.press(getByText('Add to To-Do List'));
 
     await waitFor(() => {
-      expect(openCreateMock).toHaveBeenCalledTimes(1);
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: originalId,
+        patch: expect.objectContaining({
+          canonicalType: 'todo',
+          ai_placed: true,
+          labels: ['catchall'],
+          why_string: expect.stringContaining('Confirmed as to-do via category chip'),
+        }),
+      });
     });
 
-    const [callArgs] = openCreateMock.mock.calls;
-    expect(callArgs[0]).toEqual(
-      expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: 'Buy groceries for the week',
-      }),
-    );
-
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(openCreateMock).not.toHaveBeenCalled();
+    expect(mockRepo.create).toHaveBeenCalledTimes(1);
     expect(mockRepo.remove).not.toHaveBeenCalled();
-    expect(createdRecords.length).toBe(1);
-    expect(createdRecords[0].id).toBe(originalId);
+    expect(createdRecords).toHaveLength(1);
+
+    const todoRecord = createdRecords[0];
+    expect(todoRecord.type).toBe('note');
+    expect(todoRecord.canonicalType).toBe('todo');
+    expect(todoRecord.title).toBe('Buy groceries for the week');
+    expect(todoRecord.body).toBe('Buy groceries for the week');
+    expect(todoRecord.labels).toEqual(['catchall']);
+    expect(todoRecord.ai_placed).toBe(true);
+    expect(todoRecord.why_string).toContain('Confirmed as to-do via category chip');
   });
 
-  it('passes full multiline text to overlay without truncation', async () => {
+  it('preserves full multiline text when converting to todo', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.7,
@@ -238,21 +247,28 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     fireEvent.press(getByText('Add to To-Do List'));
 
     await waitFor(() => {
-      expect(openCreateMock).toHaveBeenCalled();
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: expect.any(String),
+        patch: expect.objectContaining({
+          canonicalType: 'todo',
+          title: longText,
+          body: longText,
+        }),
+      });
     });
 
-    const [callArgs] = openCreateMock.mock.calls.slice(-1);
-    expect(callArgs[0]).toEqual(
-      expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: longText,
-      }),
-    );
+    expect(openCreateMock).not.toHaveBeenCalled();
+    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockRepo.remove).not.toHaveBeenCalled();
 
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    const todoRecord = createdRecords[0];
+    expect(todoRecord.type).toBe('note');
+    expect(todoRecord.canonicalType).toBe('todo');
+    expect(todoRecord.body).toBe(longText);
+    expect(todoRecord.title).toBe(longText);
   });
 
-  it('does not mutate labels when opening todo overlay', async () => {
+  it('drops needs_review label when promoting to todo', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.6,
@@ -299,20 +315,29 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
       { timeout: 3000 },
     );
 
-    // Manually add needs_review label to simulate initial state
     createdRecords[0].labels = ['needs_review', 'catchall'];
 
     fireEvent.press(getByText('Add to To-Do List'));
 
     await waitFor(() => {
-      expect(openCreateMock).toHaveBeenCalled();
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: expect.any(String),
+        patch: expect.objectContaining({
+          canonicalType: 'todo',
+          labels: ['catchall'],
+        }),
+      });
     });
 
-    expect(createdRecords[0].labels).toEqual(['needs_review', 'catchall']);
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    const todoRecord = createdRecords[0];
+    expect(todoRecord.type).toBe('note');
+    expect(todoRecord.labels).toEqual(['catchall']);
+    expect(openCreateMock).not.toHaveBeenCalled();
+    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockRepo.remove).not.toHaveBeenCalled();
   });
 
-  it('confirms log without creating duplicate', async () => {
+  it('confirms log in place without creating duplicate', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.7,
@@ -362,23 +387,34 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     expect(createdRecords.length).toBe(1);
     const originalId = createdRecords[0].id;
 
+    createdRecords[0].tags = ['#day', '#great', '#had'];
+
     fireEvent.press(getByText('Just Save It'));
 
     await waitFor(() => {
-      expect(mockRepo.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: originalId,
-          patch: expect.objectContaining({
-            archived: false,
-            why_string: 'Confirmed as log via category chip',
-          }),
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: originalId,
+        patch: expect.objectContaining({
+          ai_placed: true,
+          canonicalType: 'log',
+          labels: ['catchall'],
+          subtype: 'idea',
+          tags: ['#day', '#great', '#had'],
+          views: { alsoShowIn: ['Hub:Catch-All'] },
+          why_string: expect.stringContaining('Confirmed as note via category chip'),
         }),
-      );
+      });
     });
 
-    // Still only one record
     expect(createdRecords.length).toBe(1);
     expect(createdRecords[0].id).toBe(originalId);
+    expect(createdRecords[0].labels).toEqual(['catchall']);
+    expect(createdRecords[0].why_string).toContain('Confirmed as note via category chip');
+    expect(createdRecords[0].tags).toEqual(['#day', '#great', '#had']);
+    expect(createdRecords[0].canonicalType).toBe('log');
     expect(mockRepo.remove).not.toHaveBeenCalled();
+    expect(openCreateMock).not.toHaveBeenCalled();
+    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockRepo.update).toHaveBeenCalledTimes(1);
   });
 });

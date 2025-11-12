@@ -74,12 +74,20 @@ jest.mock('../lib/cortex/router', () => ({
 const mockCreate = jest.fn();
 const mockRemove = jest.fn();
 const mockWriteEvent = jest.fn();
+const mockFindBySourceMessageId = jest.fn();
+const mockFindNoteBySourceMessageId = jest.fn();
+const mockUpdate = jest.fn();
+const mockGetById = jest.fn();
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
     create: mockCreate,
     remove: mockRemove,
     writeEvent: mockWriteEvent,
+    findBySourceMessageId: mockFindBySourceMessageId,
+    findNoteBySourceMessageId: mockFindNoteBySourceMessageId,
+    update: mockUpdate,
+    getById: mockGetById,
     getOrCreateList: jest.fn(async (key: string) => ({ id: key, name: key })),
     addListItem: jest.fn(),
     listByType: jest.fn(),
@@ -98,6 +106,11 @@ beforeEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
   process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+  mockFindBySourceMessageId.mockResolvedValue(null);
+  mockFindNoteBySourceMessageId.mockResolvedValue(null);
+  mockUpdate.mockImplementation(async ({ id, patch }) => ({ id, ...patch }));
+  mockGetById.mockResolvedValue(null);
+  mockRemove.mockResolvedValue(undefined);
   // Configure createMock to return IDs based on the type and call count
   let todoCount = 0;
   mockCreate.mockImplementation(async (input: any) => {

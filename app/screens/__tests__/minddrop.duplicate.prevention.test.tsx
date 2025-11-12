@@ -17,6 +17,7 @@ const mockRepo = {
   create: jest.fn(),
   delete: jest.fn(),
   getAll: jest.fn(() => Promise.resolve([])),
+  findBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   findNoteBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   notes: {
     list: jest.fn(() => Promise.resolve([])),
@@ -108,6 +109,7 @@ const resetRepoMocks = () => {
   mockRepo.create.mockReset();
   mockRepo.delete.mockReset();
   mockRepo.getAll.mockReset();
+  mockRepo.findBySourceMessageId.mockReset();
   mockRepo.findNoteBySourceMessageId.mockReset();
   mockRepo.notes.list.mockReset();
   mockRepo.todos.list.mockReset();
@@ -118,6 +120,7 @@ const resetRepoMocks = () => {
   mockRepo.update.mockResolvedValue(undefined);
   mockRepo.delete.mockResolvedValue(undefined);
   mockRepo.getAll.mockResolvedValue([]);
+  mockRepo.findBySourceMessageId.mockResolvedValue(null);
   mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   mockRepo.notes.list.mockResolvedValue([]);
   mockRepo.todos.list.mockResolvedValue([]);
@@ -236,13 +239,18 @@ describe('Mind Drop - Duplicate Prevention', () => {
     }
     fireEvent.press(todoChip);
 
-    await waitFor(() => expect(openCreate).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(openCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: 'exercise daily',
-      }),
+    await waitFor(
+      () =>
+        expect(mockRepo.update).toHaveBeenCalledWith({
+          id: 'unsorted-1',
+          patch: expect.objectContaining({
+            canonicalType: 'todo',
+            labels: ['catchall'],
+          }),
+        }),
+      { timeout: 4000 },
     );
+    expect(openCreate).not.toHaveBeenCalled();
 
     fireEvent.changeText(input, 'exercise daily');
     fireEvent.press(submitButton);

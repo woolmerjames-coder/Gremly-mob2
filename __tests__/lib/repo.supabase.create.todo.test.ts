@@ -6,6 +6,7 @@
  */
 
 import { SupabaseRepo } from '../../lib/repo/supabase';
+import type { AppRecord } from '../../lib/types';
 
 // Mock the Supabase client
 jest.mock('../../lib/supabase/client', () => ({
@@ -26,6 +27,7 @@ describe('SupabaseRepo.create - Todo', () => {
   let mockInsert: jest.Mock;
   let mockSelect: jest.Mock;
   let mockSingle: jest.Mock;
+  let findSpy: jest.SpyInstance<Promise<AppRecord | null>>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -43,6 +45,13 @@ describe('SupabaseRepo.create - Todo', () => {
 
     // Create repo with authenticated user
     repo = new SupabaseRepo('test-user-id');
+    findSpy = jest
+      .spyOn(repo, 'findBySourceMessageId')
+      .mockResolvedValue(null as unknown as AppRecord | null);
+  });
+
+  afterEach(() => {
+    findSpy.mockRestore();
   });
 
   it('should NOT include id, owner_id, created_at, or updated_at in insert payload', async () => {
@@ -73,7 +82,7 @@ describe('SupabaseRepo.create - Todo', () => {
     // Assert: from() was called with correct table
     expect(mockFrom).toHaveBeenCalledWith('todos');
 
-    // Assert: insert() was called
+    // Assert: insert() was called because no existing record found
     expect(mockInsert).toHaveBeenCalledTimes(1);
 
     // Get the actual payload sent to insert()
@@ -139,6 +148,68 @@ describe('SupabaseRepo.create - Todo', () => {
     expect(insertPayload).toHaveProperty('owner_id'); // This IS included now
     expect(insertPayload).not.toHaveProperty('created_at');
     expect(insertPayload).not.toHaveProperty('updated_at');
+  });
+
+  it('should reuse existing record when sourceMessageId already exists', async () => {
+    const existingRecord = {
+      id: 'todo-existing',
+      type: 'todo' as const,
+      name: 'Existing todo',
+      title: 'Existing todo',
+      ai_placed: false,
+      owner_id: 'test-user-id',
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+      source_message_id: 'source-123',
+    };
+
+    findSpy.mockResolvedValueOnce(existingRecord as AppRecord);
+
+    const result = await repo.create({
+      type: 'todo',
+      name: 'Should reuse existing',
+      sourceMessageId: 'source-123',
+    });
+
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(result).toBe(existingRecord);
+  });
+
+  it('should return existing record when unique constraint races the insert', async () => {
+    const duplicateError = {
+      message:
+        'duplicate key value violates unique constraint "todos_source_message_owner_unique_idx"',
+      code: '23505',
+      details: 'Key (owner_id, source_message_id)=(test-user-id, source-123) already exists.',
+    };
+
+    mockSingle.mockResolvedValueOnce({ data: null, error: duplicateError });
+
+    const existingRecord = {
+      id: 'todo-existing',
+      type: 'todo' as const,
+      name: 'Existing todo',
+      title: 'Existing todo',
+      ai_placed: false,
+      owner_id: 'test-user-id',
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+      source_message_id: 'source-123',
+    };
+
+    findSpy.mockResolvedValueOnce(null as unknown as AppRecord | null);
+    findSpy.mockResolvedValueOnce(existingRecord as AppRecord);
+
+    const result = await repo.create({
+      type: 'todo',
+      name: 'Should reuse existing',
+      sourceMessageId: 'source-123',
+    });
+
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    expect(findSpy).toHaveBeenCalledWith('todo', 'source-123');
+    expect(findSpy).toHaveBeenCalledTimes(2);
+    expect(result).toBe(existingRecord);
   });
 
   it('should throw error if input contains created_at', async () => {

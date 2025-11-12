@@ -1,3 +1,5 @@
+import { parseDue } from '../../lib/cortex/entities/datetime';
+
 export type BaseType = 'log' | 'todo' | 'habit';
 
 export type TagKey = string;
@@ -21,6 +23,7 @@ export type V2State = {
   person: PersonLink;
   format: FormatKind; // notes only
   reminderAt: string | null; // ISO-ish
+  suggestedDue: string | null;
   // Commitment fields (Phase X)
   commitment: boolean;
   commitmentNote: string;
@@ -43,6 +46,7 @@ export const initialV2State: V2State = {
   person: null,
   format: 'plain',
   reminderAt: null,
+  suggestedDue: null,
   commitment: false,
   commitmentNote: '',
   commitmentStartedAt: null,
@@ -52,7 +56,7 @@ export const initialV2State: V2State = {
   undoStack: [],
 };
 
-type Action =
+export type Action =
   | { type: 'SET_BASE_TYPE'; to: BaseType }
   | { type: 'SET_TEXT'; text: string } // applies to current type
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
@@ -103,7 +107,7 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         next.todo = { ...next.todo, details: currentText, title: firstLine(currentText) };
       if (action.to === 'habit' && !next.habit.notes)
         next.habit = { ...next.habit, notes: currentText, title: firstLine(currentText) };
-      return next;
+      return applySuggestedDue(next);
     }
     case 'SET_TAGS': {
       const deduped = Array.from(new Set(action.tags));
@@ -149,16 +153,26 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       // lightweight detection
       const { mentions, dates } = detectInline(action.text);
       next.detected = { mentions, dates };
-      return next;
+      return applySuggestedDue(next);
     }
     case 'SET_TITLE': {
       if (state.baseType === 'log') return { ...state, log: { ...state.log, title: action.title } };
       if (state.baseType === 'todo')
-        return { ...state, todo: { ...state.todo, title: action.title } };
+        return applySuggestedDue({
+          ...state,
+          todo: { ...state.todo, title: action.title },
+        });
       return { ...state, habit: { ...state.habit, title: action.title } };
     }
     case 'SET_TODO_DUE':
-      return { ...state, todo: { ...state.todo, due_at: action.due_at } };
+      if (action.due_at) {
+        return { ...state, todo: { ...state.todo, due_at: action.due_at }, suggestedDue: null };
+      }
+      return applySuggestedDue({
+        ...state,
+        todo: { ...state.todo, due_at: action.due_at },
+        suggestedDue: null,
+      });
     case 'TOGGLE_COMMITMENT': {
       const turningOn = !state.commitment;
       // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.
@@ -174,7 +188,7 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     case 'SET_COMMITMENT_NOTE':
       return { ...state, commitmentNote: action.note };
     case 'HYDRATE_EDIT':
-      return { ...state, ...action.payload } as V2State;
+      return applySuggestedDue({ ...state, ...action.payload } as V2State);
     case 'TOGGLE_EXPANDED':
       return { ...state, expanded: !state.expanded };
     case 'SET_SPACE':
@@ -187,6 +201,30 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, reminderAt: action.when };
     default:
       return state;
+  }
+}
+
+function applySuggestedDue(next: V2State): V2State {
+  const suggested = deriveSuggestedDue(next);
+  if (next.suggestedDue === suggested) return next;
+  return { ...next, suggestedDue: suggested };
+}
+
+function deriveSuggestedDue(state: V2State): string | null {
+  if (state.baseType !== 'todo') return null;
+  if (state.todo?.due_at) return null;
+
+  const segments = [state.todo?.title ?? '', state.todo?.details ?? '', state.log?.body ?? '']
+    .map((segment) => (typeof segment === 'string' ? segment.trim() : ''))
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) return null;
+
+  try {
+    const parsed = parseDue(segments.join('\n'));
+    return parsed?.iso ?? null;
+  } catch (e) {
+    return null;
   }
 }
 

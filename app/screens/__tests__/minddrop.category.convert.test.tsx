@@ -22,6 +22,7 @@ const mockRepo = {
   create: jest.fn(),
   delete: jest.fn(),
   getAll: jest.fn(() => Promise.resolve([])),
+  findBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   findNoteBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   notes: {
     list: jest.fn(() => Promise.resolve([])),
@@ -103,6 +104,7 @@ const resetRepo = () => {
   mockRepo.create.mockReset();
   mockRepo.delete.mockReset();
   mockRepo.getAll.mockReset();
+  mockRepo.findBySourceMessageId.mockReset();
   mockRepo.findNoteBySourceMessageId.mockReset();
   mockRepo.remove.mockReset();
   mockRepo.query.mockReset();
@@ -114,6 +116,7 @@ const resetRepo = () => {
   mockRepo.update.mockResolvedValue(undefined);
   mockRepo.delete.mockResolvedValue(undefined);
   mockRepo.getAll.mockResolvedValue([]);
+  mockRepo.findBySourceMessageId.mockResolvedValue(null);
   mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   mockRepo.remove.mockResolvedValue(undefined);
   mockRepo.query.mockResolvedValue([]);
@@ -169,34 +172,45 @@ describe('Mind Drop Category Chip Conversion', () => {
     mockRepo.getById.mockResolvedValue(mockUnsortedNote);
     mockRepo.update.mockResolvedValue({ id: 'unsorted-123' });
 
-    const { getByTestId, findByTestId } = render(<CatchAllNotepad />);
+    const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, 'Buy groceries and milk');
-    fireEvent.press(submitButton);
-
     await act(async () => {
-      await Promise.resolve();
+      fireEvent.press(submitButton);
     });
 
-    const todoChip = await findByTestId('minddrop-category-todo', {}, { timeout: 3000 });
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+
+    await waitFor(() => expect(queryByTestId('minddrop-category-todo')).toBeTruthy(), {
+      timeout: 4000,
+    });
+
+    const todoChip = queryByTestId('minddrop-category-todo');
+    if (!todoChip) {
+      throw new Error('Category chip did not render');
+    }
     fireEvent.press(todoChip);
+
+    await waitFor(() => {
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: 'unsorted-123',
+        patch: expect.objectContaining({
+          canonicalType: 'todo',
+          ai_placed: true,
+          labels: expect.arrayContaining(['catchall']),
+          why_string: expect.stringContaining('Confirmed as to-do via category chip'),
+          title: 'Buy groceries and milk',
+          body: 'Buy groceries and milk',
+        }),
+      });
+    });
 
     const overlay = useGlobalOverlay();
     const openCreate = overlay.openCreate as jest.Mock;
-
-    await waitFor(() => {
-      expect(openCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          initialEntity: expect.objectContaining({ type: 'todo' }),
-          initialText: 'Buy groceries and milk',
-        }),
-      );
-    });
-
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(openCreate).not.toHaveBeenCalled();
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
     expect(mockRepo.remove).not.toHaveBeenCalled();
     expect(mockRepo.getById).toHaveBeenCalledWith('unsorted-123');
@@ -204,7 +218,7 @@ describe('Mind Drop Category Chip Conversion', () => {
 
   it('prefills overlay with the original note text for manual todo conversion', async () => {
     const longText =
-      'This is a very long first line that exceeds eighty characters and should be truncated properly\nSecond line here';
+      'Plan the entire quarterly roadmap agenda with stakeholder updates and detailed timelines so nothing slips through the cracks this week\nSecond line here';
     const mockUnsortedNote = {
       id: 'unsorted-456',
       type: 'note',
@@ -221,33 +235,50 @@ describe('Mind Drop Category Chip Conversion', () => {
     mockRepo.getById.mockResolvedValue(mockUnsortedNote);
     mockRepo.update.mockResolvedValue({ id: 'unsorted-456' });
 
-    const { getByTestId, findByTestId } = render(<CatchAllNotepad />);
+    const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
 
     fireEvent.changeText(input, longText);
-    fireEvent.press(submitButton);
-
     await act(async () => {
-      await Promise.resolve();
+      fireEvent.press(submitButton);
     });
 
-    const todoChip = await findByTestId('minddrop-category-todo', {}, { timeout: 3000 });
+    await waitFor(() => expect(mockDecideWithContext).toHaveBeenCalledTimes(1), {
+      timeout: 4000,
+    });
+
+    const decision = await mockDecideWithContext.mock.results[0].value;
+    expect(Array.isArray(decision?.suggestions) ? decision.suggestions.length : 0).toBeGreaterThan(
+      0,
+    );
+
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+
+    await waitFor(() => expect(queryByTestId('minddrop-category-todo')).toBeTruthy(), {
+      timeout: 4000,
+    });
+
+    const todoChip = queryByTestId('minddrop-category-todo');
+    if (!todoChip) {
+      throw new Error('Category chip did not render');
+    }
     fireEvent.press(todoChip);
+
+    await waitFor(() => {
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: 'unsorted-456',
+        patch: expect.objectContaining({
+          canonicalType: 'todo',
+          title: longText,
+          body: longText,
+        }),
+      });
+    });
 
     const overlay = useGlobalOverlay();
     const openCreate = overlay.openCreate as jest.Mock;
-
-    await waitFor(() => {
-      expect(openCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          initialEntity: expect.objectContaining({ type: 'todo' }),
-          initialText: longText,
-        }),
-      );
-    });
-
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(openCreate).not.toHaveBeenCalled();
   });
 });

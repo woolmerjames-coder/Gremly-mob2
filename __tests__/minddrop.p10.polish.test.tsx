@@ -36,6 +36,7 @@ const mockCreate = jest.fn();
 const mockRemove = jest.fn();
 const mockWriteEvent = jest.fn();
 const mockNotesList = jest.fn();
+const mockFindBySourceMessageId = jest.fn().mockResolvedValue(null);
 const mockDecideWithContext = jest.fn().mockResolvedValue({
   mode: 'auto',
   actions: [
@@ -55,6 +56,7 @@ jest.mock('../providers/RepoProvider', () => ({
     remove: mockRemove,
     writeEvent: mockWriteEvent,
     notes: { list: mockNotesList },
+    findBySourceMessageId: mockFindBySourceMessageId,
   }),
 }));
 
@@ -86,7 +88,7 @@ describe('Mind Drop P10 Polish', () => {
       .spyOn(RN.AccessibilityInfo, 'isReduceMotionEnabled')
       .mockImplementation(() => Promise.resolve(true));
 
-    render(<CatchAllNotepad />);
+    render(<CatchAllNotepad networkIsOnline={true} />);
 
     // Advance timers enough to rotate placeholder a couple times; with reduced motion,
     // animation code paths are skipped, so we just ensure no exceptions are thrown.
@@ -102,7 +104,7 @@ describe('Mind Drop P10 Polish', () => {
     const spyScheme = jest.spyOn(RN, 'useColorScheme');
     spyScheme.mockReturnValue('dark');
 
-    render(<CatchAllNotepad />);
+    render(<CatchAllNotepad networkIsOnline={true} />);
 
     // Smoke checks: core nodes render
     expect(screen.getByTestId('minddrop-screen')).toBeTruthy();
@@ -118,7 +120,7 @@ describe('Mind Drop P10 Polish', () => {
     // Make create succeed (free mode path)
     mockCreate.mockResolvedValue({ id: 'n-polish', type: 'note' });
 
-    render(<CatchAllNotepad />);
+    render(<CatchAllNotepad networkIsOnline={true} />);
 
     const input = screen.getByTestId('minddrop-input');
     fireEvent.changeText(input, 'hello gremly');

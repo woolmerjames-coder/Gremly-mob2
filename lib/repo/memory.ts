@@ -105,6 +105,18 @@ export class MemoryRepo implements IRepo {
   }
 
   async create(input: CreateRecordInput): Promise<AppRecord> {
+    const sourceMessageId =
+      typeof input.sourceMessageId === 'string' && input.sourceMessageId.trim().length > 0
+        ? input.sourceMessageId.trim()
+        : null;
+
+    if (sourceMessageId) {
+      const existing = await this.findBySourceMessageId(input.type, sourceMessageId);
+      if (existing) {
+        return existing;
+      }
+    }
+
     const now = nowIso();
     // Use provided owner_id or fall back to currentUserId
     const ownerId = input.owner_id || this.currentUserId;
@@ -146,6 +158,7 @@ export class MemoryRepo implements IRepo {
         triggers: input.triggers ?? null,
         replacement_habit_id: input.replacement_habit_id ?? null,
         replacement_text: input.replacement_text ?? null,
+        source_message_id: sourceMessageId,
       };
     } else if (input.type === 'todo') {
       // Phase 7+: name is the primary required field
@@ -173,6 +186,7 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        source_message_id: sourceMessageId,
       };
     } else {
       // note
@@ -200,7 +214,7 @@ export class MemoryRepo implements IRepo {
         reminders: input.reminders ?? null,
         tags: input.tags ?? null,
         journal_subtype: input.journal_subtype ?? null,
-        source_message_id: input.sourceMessageId ?? null,
+        source_message_id: sourceMessageId,
       };
     }
 
@@ -269,12 +283,21 @@ export class MemoryRepo implements IRepo {
   }
 
   async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
-    if (!sourceMessageId) return null;
-    const match = this.data.find((r): r is Note => {
-      if (r.type !== 'note' || r.owner_id !== this.currentUserId) return false;
-      return ((r as any).source_message_id ?? null) === sourceMessageId;
-    });
+    const match = (await this.findBySourceMessageId('note', sourceMessageId)) as Note | null;
     return match ?? null;
+  }
+
+  async findBySourceMessageId(
+    type: AppRecord['type'],
+    sourceMessageId: string,
+  ): Promise<AppRecord | null> {
+    if (!sourceMessageId) return null;
+    return (
+      this.data.find((r) => {
+        if (r.type !== type || r.owner_id !== this.currentUserId) return false;
+        return ((r as any).source_message_id ?? null) === sourceMessageId;
+      }) ?? null
+    );
   }
 
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {

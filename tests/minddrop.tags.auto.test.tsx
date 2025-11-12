@@ -40,6 +40,7 @@ const mockRepo = {
   update: jest.fn(),
   remove: jest.fn(),
   getById: jest.fn(),
+  findBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   findNoteBySourceMessageId: jest.fn(),
   addUnsorted: jest.fn(),
   notes: {
@@ -90,6 +91,9 @@ describe('Mind Drop classification tag persistence', () => {
       id: `record-${Date.now()}`,
       ...payload,
     }));
+    mockRepo.findBySourceMessageId.mockResolvedValue(null);
+    mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
+    mockRepo.getById.mockResolvedValue(null);
     mockDecideWithContext.mockResolvedValue(null);
   });
 

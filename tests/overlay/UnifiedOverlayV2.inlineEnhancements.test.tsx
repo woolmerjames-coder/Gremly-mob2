@@ -40,7 +40,7 @@ beforeAll(() => {
 it('shows mood row only when Journal tag is active', () => {
   const { getByLabelText, getByText, queryByText } = render(<UnifiedOverlayV2 {...base} />);
   expect(queryByText('😊')).toBeNull();
-  fireEvent.press(getByLabelText('Journal'));
+  fireEvent.press(getByLabelText('#journal'));
   expect(getByText('😊')).toBeTruthy();
 });
 
@@ -50,7 +50,7 @@ it('shows list checkboxes only when List tag is active', () => {
   );
   const input = getByPlaceholderText('Drop your thought…');
   fireEvent.changeText(input, 'one\ntwo');
-  fireEvent.press(getByLabelText('List'));
+  fireEvent.press(getByLabelText('#list'));
   expect(queryAllByText('○').length).toBeGreaterThanOrEqual(2);
 });
 

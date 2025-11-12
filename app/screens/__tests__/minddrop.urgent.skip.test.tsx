@@ -14,6 +14,7 @@ const mockRepo = {
   create: jest.fn(),
   delete: jest.fn(),
   getAll: jest.fn(() => Promise.resolve([])),
+  findBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   findNoteBySourceMessageId: jest.fn(() => Promise.resolve(null)),
   notes: {
     list: jest.fn(() => Promise.resolve([])),
@@ -120,6 +121,7 @@ const resetRepo = () => {
   mockRepo.create.mockReset();
   mockRepo.delete.mockReset();
   mockRepo.getAll.mockReset();
+  mockRepo.findBySourceMessageId.mockReset();
   mockRepo.findNoteBySourceMessageId.mockReset();
   mockRepo.remove.mockReset();
   mockRepo.query.mockReset();
@@ -131,6 +133,7 @@ const resetRepo = () => {
   mockRepo.update.mockResolvedValue(undefined);
   mockRepo.delete.mockResolvedValue(undefined);
   mockRepo.getAll.mockResolvedValue([]);
+  mockRepo.findBySourceMessageId.mockResolvedValue(null);
   mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   mockRepo.remove.mockResolvedValue(undefined);
   mockRepo.query.mockResolvedValue([]);
