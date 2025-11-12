@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 
 let unsortedIdCounter = 0;
 
@@ -213,6 +214,9 @@ describe('Mind Drop - Duplicate Prevention', () => {
     mockRepo.update.mockResolvedValue({ id: 'unsorted-1' });
 
     const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
+    const overlay = useGlobalOverlay();
+    const openCreate = overlay.openCreate as jest.Mock;
+    openCreate.mockClear();
 
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
@@ -222,12 +226,23 @@ describe('Mind Drop - Duplicate Prevention', () => {
 
     await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
 
-    const todoChip = queryByTestId('minddrop-category-todo');
-    if (todoChip) {
-      fireEvent.press(todoChip);
-    }
+    await waitFor(() => expect(queryByTestId('minddrop-category-todo')).toBeTruthy(), {
+      timeout: 4000,
+    });
 
-    await waitFor(() => expect(mockRepo.update).toHaveBeenCalled(), { timeout: 4000 });
+    const todoChip = queryByTestId('minddrop-category-todo');
+    if (!todoChip) {
+      throw new Error('Category chip did not render');
+    }
+    fireEvent.press(todoChip);
+
+    await waitFor(() => expect(openCreate).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(openCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialEntity: expect.objectContaining({ type: 'todo' }),
+        initialText: 'exercise daily',
+      }),
+    );
 
     fireEvent.changeText(input, 'exercise daily');
     fireEvent.press(submitButton);

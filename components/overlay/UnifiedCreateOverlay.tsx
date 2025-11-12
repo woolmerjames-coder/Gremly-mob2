@@ -168,6 +168,7 @@ export type UnifiedCreateOverlayProps = {
     // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
     initialDueDate?: string | null;
   };
+  initialText?: string | null;
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
   onCommitmentsChanged?: () => void | Promise<void>;

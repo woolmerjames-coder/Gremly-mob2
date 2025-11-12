@@ -53,7 +53,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
-import { appendLineageToWhyString, convertLogListToTodo, hasChecklist } from '../../lib/conversion';
+import { appendLineageToWhyString, hasChecklist } from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
@@ -560,6 +560,8 @@ type UnifiedDrop = {
   unsorted?: boolean; // for notes carrying the needs_review label
   noteSubtype?: string | null;
   due_date?: string | null; // ISO timestamp for todos
+  tags?: string[];
+  optimisticKind?: 'note' | 'todo' | 'habit';
 };
 
 const relativeTime = (iso: string) => {
@@ -718,6 +720,13 @@ const RecentDrops: React.FC<{
       const start = startOfTodayLocal();
       const cutoff = start.getTime();
 
+      const toTagList = (raw: unknown): string[] => {
+        if (!Array.isArray(raw)) return [];
+        return raw
+          .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+          .filter((tag) => tag.length > 0);
+      };
+
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
           (n) =>
@@ -737,6 +746,7 @@ const RecentDrops: React.FC<{
             created_at: n.created_at,
             unsorted,
             noteSubtype,
+            tags: toTagList((n as any)?.tags),
           };
         });
 
@@ -748,6 +758,7 @@ const RecentDrops: React.FC<{
           text: t.name || t.title || '',
           created_at: t.created_at,
           due_date: t.due_date ?? null,
+          tags: toTagList((t as any)?.tags),
         }));
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
@@ -757,6 +768,7 @@ const RecentDrops: React.FC<{
           kind: 'habit' as const,
           text: h.name || '',
           created_at: h.created_at,
+          tags: toTagList((h as any)?.tags),
         }));
 
       let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
@@ -805,6 +817,30 @@ const RecentDrops: React.FC<{
       // optional: error UI
     }
   };
+
+  const handleAddToTodo = useCallback(
+    (item: UnifiedDrop) => {
+      setItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                optimisticKind: 'todo',
+                unsorted: false,
+              }
+            : entry,
+        ),
+      );
+
+      overlay.openCreate({
+        initialEntity: { type: 'todo', id: undefined, logSubtype: null },
+        initialText: item.text ? String(item.text) : null,
+      });
+
+      onEdited?.();
+    },
+    [overlay, onEdited],
+  );
 
   return (
     <View style={styles.recentRoot}>
@@ -856,13 +892,20 @@ const RecentDrops: React.FC<{
               showsVerticalScrollIndicator
             >
               {items.map((item) => {
+                const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = kindToDisplayLabel(
-                  item.kind,
-                  item.noteSubtype ?? null,
+                  effectiveKind,
+                  effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
                   canonicalTypesOn,
                 );
                 const showLegacyUnsortedBadge =
-                  !canonicalTypesOn && item.kind === 'note' && item.unsorted;
+                  !canonicalTypesOn && effectiveKind === 'note' && item.unsorted;
+                const badgeStyleKey =
+                  effectiveKind === 'todo'
+                    ? 'badge_todo'
+                    : effectiveKind === 'habit'
+                      ? 'badge_habit'
+                      : 'badge_note';
 
                 return (
                   <View
@@ -879,13 +922,13 @@ const RecentDrops: React.FC<{
 
                     <View style={styles.recentMetaRow}>
                       <View style={styles.recentBadgeRow}>
-                        <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
+                        <Text style={[styles.recentBadge, styles[badgeStyleKey]]}>
                           {displayKind}
                         </Text>
                         {showLegacyUnsortedBadge ? (
                           <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
                         ) : null}
-                        {item.kind === 'todo' ? (
+                        {effectiveKind === 'todo' ? (
                           <Text
                             testID={`minddrop-recent-todo-due-${item.id}`}
                             style={styles.recentDueBadge}
@@ -896,6 +939,18 @@ const RecentDrops: React.FC<{
                       </View>
 
                       <View style={styles.recentActions}>
+                        {item.kind === 'note' && item.unsorted && !item.optimisticKind ? (
+                          <>
+                            <Pressable
+                              onPress={() => handleAddToTodo(item)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                            >
+                              <Text style={styles.recentAction}>Add to To-Dos</Text>
+                            </Pressable>
+                            <Text style={styles.recentDot}>•</Text>
+                          </>
+                        ) : null}
                         <Pressable
                           onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
                           hitSlop={8}
@@ -913,6 +968,17 @@ const RecentDrops: React.FC<{
                         </Pressable>
                       </View>
                     </View>
+                    {effectiveKind === 'todo' &&
+                    Array.isArray(item.tags) &&
+                    item.tags.length > 0 ? (
+                      <View style={styles.recentTagsRow}>
+                        {item.tags.slice(0, 6).map((tag) => (
+                          <View key={`${item.id}-${tag}`} style={styles.recentTagPill}>
+                            <Text style={styles.recentTagText}>{`#${tag}`}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
@@ -1171,6 +1237,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
+  const overlay = useGlobalOverlay();
   const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
   const themeResult = useTheme();
@@ -2488,77 +2555,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setCategoryChips([]);
 
         if (kind === 'todo') {
-          // Convert the unsorted note to a todo using repo.update
           try {
-            // Get the original note to extract text
             const originalNote = await repo.getById(unsortedId);
             if (!originalNote) {
               throw new Error('Original note not found');
             }
 
-            // Extract first line for todo name (truncate to 80 chars)
             const noteText =
               (originalNote as any).body ||
               (originalNote as any).title ||
               (originalNote as any).text ||
               '';
-            const firstLine = noteText.split('\n')[0].trim();
-            const todoName = firstLine.substring(0, 80);
 
-            // Use repo.update to patch the record in place
-            await repo.update({
-              id: unsortedId,
-              patch: {
-                type: 'todo',
-                name: todoName,
-                ai_placed: true, // Mark as AI-placed after category selection
-                // Remove needs_review label
-                labels: ((originalNote as any).labels || []).filter(
-                  (l: string) => l !== 'needs_review',
-                ),
-              } as any,
+            overlay.openCreate({
+              initialEntity: { type: 'todo', id: undefined, logSubtype: null },
+              initialText: noteText || null,
             });
 
-            setOrganizedToday((prev) => prev + 1);
-            triggerRecentRefresh();
+            metricsRef.current.conversions += 1;
+            logMetrics('category_converted_todo', {
+              noteId: unsortedId,
+              via: 'overlay',
+            });
+
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
-
-            // Track category conversion
-            metricsRef.current.conversions += 1;
-            logMetrics('category_converted_todo', { noteId: unsortedId, todoName });
+            lastSubmittedTextRef.current = null;
+            lastUnsortedIdRef.current = null;
 
             if (TOASTS_ON) {
               showActionToast({
                 type: 'success',
-                content: 'Added to To-Do List',
+                content: 'Opening To-Do…',
               });
             }
           } catch (conversionError) {
-            console.error(
-              '[MindDrop][CategoryChip] Conversion failed, using fallback',
-              conversionError,
-            );
-            // Fallback: use convertLogListToTodo which creates new record and deletes old
-            const { todo } = await convertLogListToTodo(repo, unsortedId, {
-              preserveState: true,
-            });
-
-            setOrganizedToday((prev) => prev + 1);
-            triggerRecentRefresh();
-            setLowConfidenceUnsortedId(null);
-            unsortedIdRef.current = null;
-
-            // Track category conversion (fallback path)
-            metricsRef.current.conversions += 1;
-            logMetrics('category_converted_todo', { noteId: unsortedId, fallback: true });
-
-            if (TOASTS_ON) {
-              showActionToast({
-                type: 'success',
-                content: 'Added to To-Do List',
-              });
-            }
+            console.error('[MindDrop][CategoryChip] Failed to open To-Do overlay', conversionError);
           }
         } else if (kind === 'habit') {
           // Convert the unsorted note to a habit
@@ -2726,6 +2758,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
+      overlay,
+      logMetrics,
     ],
   );
 
@@ -3886,6 +3920,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+    },
+    recentTagsRow: {
+      marginTop: 8,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    recentTagPill: {
+      backgroundColor: '#E6F0FF',
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    recentTagText: {
+      color: c.mossGreen,
+      fontSize: 11,
+      fontFamily: 'Inter-Medium',
     },
     recentActions: {
       flexDirection: 'row',

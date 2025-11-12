@@ -31,6 +31,7 @@ interface OverlayState {
   };
   initialSpaceId?: string | null;
   conversionMeta?: ConversionMeta;
+  initialText?: string | null;
 }
 
 interface CreateOptions {
@@ -38,6 +39,8 @@ interface CreateOptions {
   spaceId?: string | null;
   logSubtype?: LogSubtype | null;
   conversionMeta?: ConversionMeta;
+  initialEntity?: OverlayState['initialEntity'];
+  initialText?: string | null;
 }
 
 interface EditOptions {
@@ -64,21 +67,37 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const openCreate = useCallback(
-    ({ type, spaceId, logSubtype, conversionMeta }: CreateOptions = {}) => {
+    ({
+      type,
+      spaceId,
+      logSubtype,
+      conversionMeta,
+      initialEntity,
+      initialText,
+    }: CreateOptions = {}) => {
       if (isOpeningRef.current) {
         console.log('[GlobalOverlay] open already in progress, ignoring');
         return;
       }
 
       isOpeningRef.current = true;
+      const resolvedEntity = initialEntity
+        ? initialEntity
+        : type
+          ? {
+              type,
+              id: undefined,
+              logSubtype: type === 'log' ? (logSubtype ?? null) : null,
+            }
+          : undefined;
+      const resolvedText = initialText ?? conversionMeta?.initialNote ?? null;
       setState({
         visible: true,
         mode: 'create',
-        initialEntity: type
-          ? { type, id: undefined, logSubtype: type === 'log' ? (logSubtype ?? null) : null }
-          : undefined,
+        initialEntity: resolvedEntity,
         initialSpaceId: spaceId,
         conversionMeta,
+        initialText: resolvedText,
       });
 
       if (debounceTimerRef.current) {
@@ -112,8 +131,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         entityType = 'unsorted';
         logSubtype = null;
       } else {
-  entityType = 'log';
-  logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
+        entityType = 'log';
+        logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
       }
     } else {
       entityType = 'log';
@@ -129,6 +148,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         logSubtype,
       },
       initialSpaceId: spaceId,
+      initialText: null,
     };
 
     console.log('[GlobalOverlay] openEdit called with state:', newState);
@@ -151,6 +171,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialEntity: undefined,
       initialSpaceId: undefined,
       conversionMeta: undefined,
+      initialText: undefined,
     });
     isOpeningRef.current = false;
     if (debounceTimerRef.current) {

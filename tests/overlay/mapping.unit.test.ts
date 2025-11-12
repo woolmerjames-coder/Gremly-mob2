@@ -1,4 +1,7 @@
-import { toCreateOrUpdateInput } from '../../components/overlay/overlayV2.mapping';
+import {
+  toCreateOrUpdateInput,
+  sanitizeSuggestedTags,
+} from '../../components/overlay/overlayV2.mapping';
 import { initialV2State } from '../../components/overlay/overlayV2.state';
 
 test('journal tag produces mood', () => {
@@ -41,14 +44,32 @@ test('todo due or reminder maps to due_at', () => {
   s.reminderAt = '2025-11-11T08:00:00.000Z';
   const out = toCreateOrUpdateInput('todo', s, null as any);
   expect(out.due_at).toBe('2025-11-11T08:00:00.000Z');
+  expect(out.name).toBe('do this');
   expect(out.tags).toEqual([]);
 });
 
-test('habit payload carries selected tags', () => {
+test('habit payload strips journal tag', () => {
   const s = { ...initialV2State } as any;
   s.baseType = 'habit';
   s.habit.notes = 'read daily';
   s.tags = ['journal'];
   const out = toCreateOrUpdateInput('habit', s, null as any);
-  expect(out.tags).toEqual(['journal']);
+  expect(out.tags).toEqual([]);
+});
+
+test('sanitizeSuggestedTags infers running and filters hash noise', () => {
+  const text = "See if there's a common running route near here";
+  const ai = ['*journal', '#common', '#here', '#near'];
+  const result = sanitizeSuggestedTags(text, ai);
+  expect(result).toEqual(['running']);
+});
+
+test('todo payload strips stopword tags before save', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.details = "See if there's a common running route near here";
+  s.tags = ['running', 'common', '*journal'];
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+  expect(out.tags).toEqual(['running']);
+  expect(out.name).toBe("See if there's a common running route near here");
 });

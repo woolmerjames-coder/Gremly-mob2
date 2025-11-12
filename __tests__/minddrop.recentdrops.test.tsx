@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react-native';
 import { act } from 'react-test-renderer';
 import { env } from '../lib/env';
+import { useGlobalOverlay } from '../contexts/OverlayContext';
 
 // Feature flag for Mind Drop v2 path (currently renders legacy UI content)
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
@@ -83,6 +84,7 @@ function makeTodo(id: string, name: string, createdAt: Date) {
     name,
     created_at: createdAt.toISOString(),
     origin: 'catchall',
+    tags: [],
   } as any;
 }
 
@@ -103,6 +105,7 @@ describe('RecentDrops in Mind Drop', () => {
     mockNotesList.mockResolvedValue([]);
     mockTodosList.mockResolvedValue([]);
     mockHabitsList.mockResolvedValue([]);
+    (useGlobalOverlay().openCreate as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -191,6 +194,31 @@ describe('RecentDrops in Mind Drop', () => {
     } finally {
       (env.feature as any).canonicalTypes = originalCanonical;
     }
+  });
+
+  test('Add to To-Dos opens a todo overlay and flips the lane label', async () => {
+    const now = new Date();
+    mockNotesList.mockResolvedValue([makeNote('n1', 'convert me', now, true)]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
+
+    render(<CatchAllNotepad />);
+
+    const card = await screen.findByTestId('minddrop-recent-note-n1');
+    expect(within(card).getByText('note')).toBeTruthy();
+    expect(within(card).getByText('Unsorted')).toBeTruthy();
+    const convertButton = within(card).getByText('Add to To-Dos');
+    fireEvent.press(convertButton);
+
+    const overlay = useGlobalOverlay();
+    expect(overlay.openCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialEntity: expect.objectContaining({ type: 'todo' }),
+        initialText: 'convert me',
+      }),
+    );
+
+    await waitFor(() => expect(within(card).getByText('todo')).toBeTruthy());
   });
 
   test('Recent drop badges fall back to legacy note labels when canonical types are disabled', async () => {

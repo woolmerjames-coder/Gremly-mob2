@@ -34,6 +34,7 @@ interface CreateOptions {
     id?: string;
     logSubtype?: LogSubtype | null;
   };
+  initialText?: string | null;
 }
 
 interface EditOptions {
@@ -84,8 +85,8 @@ export function useUnifiedOverlayController() {
         entityType = 'unsorted';
         logSubtype = null;
       } else {
-  entityType = 'log';
-  logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
+        entityType = 'log';
+        logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
       }
     } else {
       entityType = 'log';
@@ -114,6 +115,8 @@ export function useUnifiedOverlayController() {
           spaceId: opts.spaceId,
           logSubtype: inferredType === 'log' ? (inferredLogSubtype ?? null) : null,
           conversionMeta: opts.conversionMeta,
+          initialEntity: opts.initialEntity,
+          initialText: opts.initialText ?? null,
         });
       } else {
         const { record, spaceId } = request.options;

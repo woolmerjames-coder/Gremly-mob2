@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
 
 type ButtonNode = { props: { accessibilityState?: { disabled?: boolean } } };
@@ -67,6 +68,10 @@ describe('CatchAllNotepad - Category Chips', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     createdRecords = [];
+
+    const overlay = useGlobalOverlay();
+    (overlay.openCreate as jest.Mock).mockClear();
+    (overlay.openEdit as jest.Mock).mockClear();
 
     mockRepo.create.mockImplementation((input) => {
       const record = {
@@ -177,21 +182,22 @@ describe('CatchAllNotepad - Category Chips', () => {
     const todoChip = getByText('Add to To-Do List');
     fireEvent.press(todoChip);
 
+    const overlay = useGlobalOverlay();
+    const openCreate = overlay.openCreate as jest.Mock;
+
     await waitFor(() => {
-      expect(mockRepo.update).toHaveBeenCalledWith(
+      expect(openCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: createdRecords[0].id,
-          patch: expect.objectContaining({
-            type: 'todo',
-            ai_placed: true,
-          }),
+          initialEntity: expect.objectContaining({ type: 'todo' }),
+          initialText: 'Maybe schedule meeting',
         }),
       );
     });
 
+    expect(mockRepo.update).not.toHaveBeenCalled();
     expect(createdRecords.length).toBe(1);
-    expect(createdRecords[0].type).toBe('todo');
-    expect(createdRecords[0].ai_placed).toBe(true);
+    expect(createdRecords[0].type).toBe('note');
+    expect(mockRepo.create).toHaveBeenCalledTimes(1);
   });
 
   it('confirms as log without creating duplicate when "Just Save It" is selected', async () => {

@@ -214,7 +214,13 @@ jest.mock('./contexts/OverlayContext', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const React = require('react');
   const contextValue = {
-    state: { visible: false, mode: 'create', initialEntity: undefined, initialSpaceId: undefined },
+    state: {
+      visible: false,
+      mode: 'create',
+      initialEntity: undefined,
+      initialSpaceId: undefined,
+      initialText: undefined,
+    },
     openCreate: jest.fn(),
     openEdit: jest.fn(),
     close: jest.fn(),

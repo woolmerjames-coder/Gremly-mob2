@@ -47,14 +47,15 @@ import {
   firstLine,
   type BaseType,
   type TagKey,
+  type V2State,
 } from './overlayV2.state';
 import ToastUndo from './ToastUndo';
-import { linkSelectedPerson } from './overlayV2.mapping';
+import { linkSelectedPerson, sanitizeSuggestedTags } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow } from './fields/TagsRow';
-import useOverlayPrefill from './useOverlayPrefill';
+import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -94,6 +95,22 @@ function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
   });
   return Array.from(next) as TagKey[];
 }
+
+function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
+  if (!type) return null;
+  const normalized = String(type).toLowerCase();
+  if (normalized === 'todo') return 'todo';
+  if (normalized === 'habit') return 'habit';
+  return 'log';
+}
+
+function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
+  if (keepJournal) return [...tags];
+  return tags.filter((tag) => {
+    const slug = tag.trim().toLowerCase();
+    return slug !== 'journal' && slug !== '*journal';
+  });
+}
 const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -119,7 +136,15 @@ try {
 }
 
 export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
-  const { visible, onClose, mode = 'create', initialEntity, initialSpaceId, onSaved } = props;
+  const {
+    visible,
+    onClose,
+    mode = 'create',
+    initialEntity,
+    initialSpaceId,
+    onSaved,
+    initialText,
+  } = props;
 
   const repo = useRepo();
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
@@ -156,6 +181,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // local UI state for undo toast
   const [showUndoToast, setShowUndoToast] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
+  const createPrefillAppliedRef = useRef(false);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
   const currentTagsRef = useRef<TagKey[]>(state.tags);
@@ -399,6 +425,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }
 
+  useEffect(() => {
+    if (mode !== 'create') return;
+    if (createPrefillAppliedRef.current) return;
+
+    const override = deriveBaseTypeFromInitial((initialEntity as any)?.type);
+    const rawText = typeof initialText === 'string' ? initialText : '';
+    const hasText = rawText.trim().length > 0;
+
+    if (!override && !hasText) {
+      createPrefillAppliedRef.current = true;
+      return;
+    }
+
+    const payload: Partial<V2State> = {};
+    if (override) payload.baseType = override;
+
+    if (hasText) {
+      const title = firstLine(rawText);
+      payload.log = { ...initialV2State.log, body: rawText, title };
+      payload.todo = { ...initialV2State.todo, details: rawText, title };
+      payload.habit = { ...initialV2State.habit, notes: rawText, title };
+    }
+
+    if (Object.keys(payload).length > 0) {
+      dispatch({ type: 'HYDRATE_EDIT', payload });
+    }
+
+    createPrefillAppliedRef.current = true;
+  }, [mode, initialEntity, initialText, dispatch]);
+
   // Initial defaults (match brief: text-first; first line becomes title)
   useEffect(() => {
     if (mode === 'edit' && initialEntity) {
@@ -503,14 +559,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [state.log.title, suggestedTitle]);
 
-  const filteredTagSuggestions = useMemo(() => {
-    if (!prefillSuggestedTags?.length) return [];
-    return prefillSuggestedTags.filter((entry) => {
-      const tagKey = normalizeToTagKey(entry?.name ?? '');
-      if (!tagKey) return false;
-      return !state.tags.includes(tagKey);
+  const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
+    const rawNames = (prefillSuggestedTags ?? []).map((entry) =>
+      typeof entry?.name === 'string' ? entry.name : '',
+    );
+    const sanitizedNames = sanitizeSuggestedTags(currentText, rawNames);
+    if (sanitizedNames.length === 0) return [];
+
+    const lowConfidenceLookup = new Map<string, boolean>();
+    (prefillSuggestedTags ?? []).forEach((entry) => {
+      const key = normalizeToTagKey(entry?.name ?? '');
+      if (!key || lowConfidenceLookup.has(key)) return;
+      lowConfidenceLookup.set(key, !!entry.lowConfidence);
     });
-  }, [prefillSuggestedTags, state.tags]);
+
+    return sanitizedNames.map((name) => ({
+      name,
+      lowConfidence: lowConfidenceLookup.get(name) ?? false,
+    }));
+  }, [currentText, prefillSuggestedTags]);
+
+  const filteredTagSuggestions = useMemo(() => {
+    if (sanitizedTagSuggestions.length === 0) return [];
+    return sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
+  }, [sanitizedTagSuggestions, state.tags]);
 
   const hasLowConfidenceSuggestions = useMemo(
     () => filteredTagSuggestions.some((tag) => !!tag.lowConfidence),
@@ -548,15 +620,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     s: typeof initialV2State,
     spaceId: string | null,
   ) {
+    const sanitized = sanitizeSuggestedTags('', Array.isArray(s.tags) ? s.tags : []);
+    const tags = stripJournalTags(sanitized, baseType === 'log');
     if (baseType === 'todo') {
+      const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
       return {
         type: 'todo' as const,
-        title: s.todo.title || firstLine(s.todo.details) || 'Untitled',
+        title: derivedTitle,
+        name: derivedTitle,
         details: s.todo.details || null,
         due_at: s.todo.due_at ?? s.reminderAt ?? null,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
-        tags: [...s.tags],
+        tags,
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -573,7 +649,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
-        tags: [...s.tags],
+        tags,
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -591,7 +667,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
-      tags: [...s.tags],
+      tags,
     } as any;
 
     // mood (Journal)
