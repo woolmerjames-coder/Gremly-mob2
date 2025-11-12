@@ -1,3 +1,5 @@
+import { addDays, setHours, setMinutes, startOfDay } from 'date-fns';
+
 /**
  * parseDue - lightweight natural language due date/time parser
  *
@@ -190,6 +192,34 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     confidence = 0.9;
     granularity = 'time';
     return finish(rm(inRel[0]));
+  }
+
+  // --- Noon / Midday support ---
+  const middayMatch = /\b(noon|midday)\b/i.exec(low);
+  if (middayMatch) {
+    const tomorrowWordMatch = /\btomorrow\b/i.exec(low);
+    const todayWordMatch = /\btoday\b/i.exec(low);
+    const baseDate = tomorrowWordMatch ? addDays(startOfDay(now), 1) : startOfDay(now);
+    const dt = setHours(setMinutes(baseDate, 0), 12);
+    d = new Date(dt.getTime());
+    confidence = 0.86;
+    granularity = 'time';
+
+    const middayStart = middayMatch.index ?? low.indexOf(middayMatch[0]);
+    let removeStart = middayStart;
+    let removeEnd = middayStart + middayMatch[0].length;
+
+    if (tomorrowWordMatch) {
+      const tomorrowStart = tomorrowWordMatch.index ?? low.indexOf(tomorrowWordMatch[0]);
+      removeStart = Math.min(removeStart, tomorrowStart);
+      removeEnd = Math.max(removeEnd, tomorrowStart + tomorrowWordMatch[0].length);
+    } else if (todayWordMatch) {
+      const todayStart = todayWordMatch.index ?? low.indexOf(todayWordMatch[0]);
+      removeStart = Math.min(removeStart, todayStart);
+      removeEnd = Math.max(removeEnd, todayStart + todayWordMatch[0].length);
+    }
+
+    return finish(removeSpan(removeStart, removeEnd));
   }
 
   // today / tomorrow
