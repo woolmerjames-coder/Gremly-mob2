@@ -7,13 +7,13 @@ describe('Datetime parser – midday/noon', () => {
     const res = parseDue('Need to check out at midday tomorrow', now)!;
     expect(res.granularity).toBe('time');
     expect(res.confidence).toBeGreaterThan(0.8);
-    const iso = new Date(res.iso);
-    expect(iso.getUTCHours()).toBe(12);
+    expect(res.time).toBe('12:00');
+    expect(res.date).toBe('2025-11-12');
   });
 
   it('parses "meet at noon" as 12:00 today', () => {
     const res = parseDue('Meet at noon', now)!;
-    const iso = new Date(res.iso);
-    expect(iso.getUTCHours()).toBe(12);
+    expect(res.time).toBe('12:00');
+    expect(res.date).toBe('2025-11-11');
   });
 });

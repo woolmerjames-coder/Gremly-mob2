@@ -186,6 +186,19 @@ function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
   return 'log';
 }
 
+function canonicalToBaseType(canonical: CanonicalType | null): BaseType | null {
+  if (!canonical) return null;
+  if (canonical === 'todo') return 'todo';
+  if (canonical === 'habit') return 'habit';
+  return 'log';
+}
+
+function baseTypeToCanonical(baseType: BaseType): CanonicalType {
+  if (baseType === 'todo') return 'todo';
+  if (baseType === 'habit') return 'habit';
+  return 'log';
+}
+
 function hasEntityContent(entity: any): boolean {
   if (!entity) return false;
   return Boolean(entity.body || entity.details || entity.notes || entity.title);
@@ -193,7 +206,9 @@ function hasEntityContent(entity: any): boolean {
 
 function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   if (!entity) return {};
-  const baseType = deriveBaseTypeFromInitial(entity.type) ?? 'log';
+  const meta = extractCanonicalMeta(entity);
+  const baseType =
+    canonicalToBaseType(meta.canonicalType) ?? deriveBaseTypeFromInitial(entity.type) ?? 'log';
   const title = entity.title ?? entity.name ?? '';
   const body = (entity.body ?? entity.details ?? entity.notes ?? '') as string;
   const todoDetails = entity.details ?? entity.body ?? '';
@@ -367,6 +382,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const initialCanonicalTypeRef = useRef<CanonicalType | null>(null);
   const initialLogSubtypeRef = useRef<LogSubtype | null>(null);
   const initialNoteSubtypeRef = useRef<NoteSubtype | null>(null);
+  const initialBaseTypeRef = useRef<BaseType | null>(null);
 
   const captureCanonicalMeta = useCallback((entity: any) => {
     if (!entity) return;
@@ -380,12 +396,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (meta.noteSubtype !== null) {
       initialNoteSubtypeRef.current = meta.noteSubtype;
     }
+    const canonicalBase = canonicalToBaseType(meta.canonicalType);
+    if (canonicalBase !== null) {
+      initialBaseTypeRef.current = canonicalBase;
+    }
+    if (initialBaseTypeRef.current == null) {
+      const derived = deriveBaseTypeFromInitial(entity?.type);
+      if (derived) {
+        initialBaseTypeRef.current = derived;
+      }
+    }
   }, []);
 
   const resetStateFromSource = useCallback(() => {
     initialCanonicalTypeRef.current = null;
     initialLogSubtypeRef.current = null;
     initialNoteSubtypeRef.current = null;
+    initialBaseTypeRef.current = null;
     if (initialEntity) {
       captureCanonicalMeta(initialEntity);
     }
@@ -1132,28 +1159,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setSaveError(null);
     setIsSaving(true);
     try {
-      const shouldSetCanonical = canonicalTypesEnabled || initialCanonicalTypeRef.current !== null;
-      const canonicalTypeForSave: CanonicalType | null = (() => {
-        const initialCanonical = initialCanonicalTypeRef.current;
-        if (!shouldSetCanonical) {
-          return initialCanonical;
+      const initialCanonical = initialCanonicalTypeRef.current;
+      const initialBaseType = initialBaseTypeRef.current;
+      const userChangedBaseType =
+        mode === 'edit' && initialBaseType !== null && overlayState.baseType !== initialBaseType;
+
+      const canonicalTypeForSaveRaw: CanonicalType = (() => {
+        if (mode === 'create') {
+          return baseTypeToCanonical(baseType);
         }
-        if (mode === 'edit') {
-          if (baseType === 'todo') return 'todo';
-          if (baseType === 'habit') return 'habit';
-          if (baseType === 'log') {
-            if (initialCanonical === 'unsorted') return 'unsorted';
-            return 'log';
-          }
-          return initialCanonical;
+        if (userChangedBaseType || initialCanonical == null) {
+          return baseTypeToCanonical(baseType);
         }
-        if (baseType === 'todo') return 'todo';
-        if (baseType === 'habit') return 'habit';
-        return initialCanonical ?? 'log';
+        return initialCanonical ?? baseTypeToCanonical(baseType);
       })();
 
+      const shouldWriteCanonical =
+        canonicalTypesEnabled ||
+        mode === 'create' ||
+        userChangedBaseType ||
+        initialCanonical != null;
+
       const canonicalLogSubtypeForSave: LogSubtype | null =
-        canonicalTypeForSave === 'log'
+        shouldWriteCanonical && canonicalTypeForSaveRaw === 'log'
           ? (() => {
               const derived = deriveLogSubtypeFromTags(overlayState.tags);
               if (derived && derived !== 'everything_else') {
@@ -1168,7 +1196,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       const input = toCreateOrUpdateInput(baseType, overlayState as any, initialSpaceId ?? null, {
         mode,
-        canonicalType: canonicalTypeForSave,
+        canonicalType: shouldWriteCanonical ? canonicalTypeForSaveRaw : null,
         canonicalLogSubtype: canonicalLogSubtypeForSave,
         initialNoteSubtype: initialNoteSubtypeRef.current,
       });
@@ -1178,16 +1206,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
           : await repo.create(input as any);
 
-      if (mode === 'edit' && canonicalTypeForSave && previousCanonical !== canonicalTypeForSave) {
-        if (canonicalTypeForSave === 'todo') {
+      if (
+        mode === 'edit' &&
+        shouldWriteCanonical &&
+        previousCanonical !== canonicalTypeForSaveRaw
+      ) {
+        if (canonicalTypeForSaveRaw === 'todo') {
           announceForAccessibility('Moved to To-Do.');
-        } else if (canonicalTypeForSave === 'log') {
+        } else if (canonicalTypeForSaveRaw === 'log') {
           announceForAccessibility('Logged as Idea.');
         }
       }
-      if (mode === 'edit' && canonicalTypeForSave) {
-        initialCanonicalTypeRef.current = canonicalTypeForSave;
+      if (mode === 'edit' && shouldWriteCanonical) {
+        initialCanonicalTypeRef.current = canonicalTypeForSaveRaw;
       }
+      initialBaseTypeRef.current = baseType;
 
       try {
         const change: 'created' | 'updated' = mode === 'edit' ? 'updated' : 'created';

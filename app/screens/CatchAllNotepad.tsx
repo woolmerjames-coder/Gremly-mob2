@@ -59,6 +59,7 @@ import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normaliz
 import { sanitizeSuggestedTags } from '../../components/overlay/overlayV2.mapping';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 import { persistedNoteSubtypeToLogSubtype } from '../../lib/logSubtypes';
+import { v4 as uuidv4 } from 'uuid';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -100,6 +101,26 @@ function normalizeCatchallLabels(labels: unknown): string[] {
   }
   return Array.from(new Set(sanitized));
 }
+
+function removeLabels(curr: string[], toRemove: string[]): string[] {
+  const rm = new Set(toRemove);
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const label of curr) {
+    if (!labelIsString(label)) continue;
+    if (rm.has(label)) continue;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    next.push(label);
+  }
+  return next;
+}
+
+const stripCatchallAndUnsortedLabels = (labels: unknown): string[] => {
+  if (!Array.isArray(labels)) return [];
+  const filtered = labels.filter(labelIsString) as string[];
+  return removeLabels(filtered, [CATCHALL_LABEL, UNSORTED_LABEL]);
+};
 
 function extractPrimaryText(record: AppRecord): string {
   if (record.type === 'note') {
@@ -165,17 +186,59 @@ const DUE_STRIP =
 const DUE_CONFIDENCE_FLOOR =
   Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
 
-function createSubmissionId(): string {
-  try {
-    if (typeof globalThis.crypto?.randomUUID === 'function') {
-      return globalThis.crypto.randomUUID();
+const CANONICAL_VALUES: CanonicalType[] = ['habit', 'todo', 'log', 'unsorted'];
+
+const isCanonicalType = (value: unknown): value is CanonicalType =>
+  typeof value === 'string' && CANONICAL_VALUES.includes(value as CanonicalType);
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const coerceUuid = (value?: string | null): string | null =>
+  typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
+
+const fallbackUuid = (): string => {
+  const buffer = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(buffer);
+  } else {
+    for (let i = 0; i < buffer.length; i += 1) {
+      buffer[i] = Math.floor(Math.random() * 256);
     }
-  } catch (error) {
-    void error;
   }
-  const rand = Math.random().toString(36).slice(2, 10);
-  const time = Date.now().toString(36);
-  return `minddrop-${time}-${rand}`;
+
+  buffer[6] = (buffer[6] & 0x0f) | 0x40;
+  buffer[8] = (buffer[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(buffer, (byte) => byte.toString(16).padStart(2, '0'));
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+};
+
+function createSubmissionId(): string {
+  const tryGenerate = (fn: () => string | null | undefined): string | null => {
+    try {
+      const candidate = fn();
+      const normalized = coerceUuid(candidate ?? null);
+      return normalized;
+    } catch (error) {
+      void error;
+      return null;
+    }
+  };
+
+  const fromCrypto =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? tryGenerate(() => globalThis.crypto?.randomUUID())
+      : null;
+  if (fromCrypto) {
+    return fromCrypto;
+  }
+
+  const fromUuid = tryGenerate(() => uuidv4());
+  if (fromUuid) {
+    return fromUuid;
+  }
+
+  return fallbackUuid();
 }
 
 function buildPatchFromCreatePayload(payload: CreateRecordInput): Record<string, unknown> {
@@ -190,7 +253,7 @@ function buildPatchFromCreatePayload(payload: CreateRecordInput): Record<string,
   if (payload.views !== undefined) patch.views = payload.views;
   if (payload.tags !== undefined) patch.tags = payload.tags ?? null;
   if (payload.sourceMessageId !== undefined)
-    patch.source_message_id = payload.sourceMessageId ?? null;
+    patch.source_message_id = coerceUuid(payload.sourceMessageId ?? null);
 
   if (payload.type === 'todo') {
     if (payload.name !== undefined) patch.name = payload.name;
@@ -231,6 +294,7 @@ const isNetworkError = (err: any) =>
   );
 
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
+const LEGACY_UNSORTED_LABEL = 'unsorted';
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
 // Legacy UISuggestion stub - suggestion chips removed but code references remain
@@ -483,7 +547,8 @@ export async function saveToUnsortedTray(
   } = {},
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
-  const { sourceMessageId, whyString, tags: incomingTags } = options;
+  const { sourceMessageId: providedSourceMessageId, whyString, tags: incomingTags } = options;
+  const repoSourceMessageId = coerceUuid(providedSourceMessageId ?? null);
   const clampedText = clampNoteLength(text);
   const catchallCanonical = persistedToCanonical('note', 'catchall');
   const normalizedTags = normalizeTags(incomingTags ?? []);
@@ -500,7 +565,7 @@ export async function saveToUnsortedTray(
     labels: [CATCHALL_LABEL, UNSORTED_LABEL],
     why_string: whyString ?? null,
     canonicalType: catchallCanonical,
-    sourceMessageId: sourceMessageId ?? undefined,
+    sourceMessageId: repoSourceMessageId ?? undefined,
     tags,
   };
 
@@ -512,7 +577,7 @@ export async function saveToUnsortedTray(
         labels: [CATCHALL_LABEL, UNSORTED_LABEL],
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
-        sourceMessageId: sourceMessageId ?? undefined,
+        sourceMessageId: repoSourceMessageId ?? undefined,
         tags,
       });
       return note?.id;
@@ -563,15 +628,17 @@ export async function updateCatchallToChosenSubtype({
   aiPlaced,
   why = 'Chosen via chip',
 }: UpdateFromChipParams) {
-  if (!sourceMessageId) {
-    throw new Error('sourceMessageId is required to update a catchall note');
+  const safeSourceMessageId = coerceUuid(sourceMessageId);
+
+  if (!safeSourceMessageId) {
+    throw new Error('Valid sourceMessageId is required to update a catchall note');
   }
 
   if (typeof repo?.findNoteBySourceMessageId !== 'function') {
     throw new Error('Repository does not support findNoteBySourceMessageId');
   }
 
-  const existingNote = await repo.findNoteBySourceMessageId(sourceMessageId);
+  const existingNote = await repo.findNoteBySourceMessageId(safeSourceMessageId);
   if (!existingNote) {
     throw new Error('No pre-saved note found for this submission');
   }
@@ -692,6 +759,7 @@ type UnifiedDrop = {
   due_date?: string | null; // ISO timestamp for todos
   tags?: string[];
   optimisticKind?: 'note' | 'todo' | 'habit';
+  canonicalType?: CanonicalType | null;
 };
 
 const relativeTime = (iso: string) => {
@@ -865,9 +933,18 @@ const RecentDrops: React.FC<{
         )
         .map((n) => {
           const labels = Array.isArray(n?.labels) ? n.labels : [];
-          const unsorted = labels.includes(UNSORTED_LABEL);
+          const rawCanonical = (n as any)?.canonical_type ?? (n as any)?.canonicalType;
           const rawSubtype = typeof n?.subtype === 'string' ? n.subtype : null;
-          const noteSubtype = rawSubtype ?? (unsorted ? 'catchall' : null);
+          const fallbackSubtype = labels.includes(UNSORTED_LABEL) ? 'catchall' : null;
+          const noteSubtypeCandidate = rawSubtype ?? fallbackSubtype;
+          const canonicalType = isCanonicalType(rawCanonical)
+            ? rawCanonical
+            : persistedToCanonical('note', noteSubtypeCandidate ?? null);
+          const unsorted = canonicalType === 'unsorted' || labels.includes(UNSORTED_LABEL);
+          const noteSubtype =
+            canonicalType === 'unsorted'
+              ? (noteSubtypeCandidate ?? 'catchall')
+              : noteSubtypeCandidate;
 
           return {
             id: n.id,
@@ -877,6 +954,7 @@ const RecentDrops: React.FC<{
             unsorted,
             noteSubtype,
             tags: toTagList((n as any)?.tags),
+            canonicalType,
           };
         });
 
@@ -889,6 +967,7 @@ const RecentDrops: React.FC<{
           created_at: t.created_at,
           due_date: t.due_date ?? null,
           tags: toTagList((t as any)?.tags),
+          canonicalType: 'todo' as const,
         }));
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
@@ -899,6 +978,7 @@ const RecentDrops: React.FC<{
           text: h.name || '',
           created_at: h.created_at,
           tags: toTagList((h as any)?.tags),
+          canonicalType: 'habit' as const,
         }));
 
       let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
@@ -1023,19 +1103,30 @@ const RecentDrops: React.FC<{
             >
               {items.map((item) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
+                const canonicalFallback =
+                  effectiveKind === 'note'
+                    ? persistedToCanonical('note', item.noteSubtype ?? null)
+                    : (effectiveKind as CanonicalType);
+                const canonicalForDisplay = canonicalTypesOn
+                  ? (item.canonicalType ?? canonicalFallback)
+                  : null;
                 const displayKind = kindToDisplayLabel(
                   effectiveKind,
                   effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
                   canonicalTypesOn,
+                  canonicalForDisplay ?? null,
                 );
-                const showLegacyUnsortedBadge =
-                  !canonicalTypesOn && effectiveKind === 'note' && item.unsorted;
+                const resolvedCanonical = canonicalForDisplay ?? canonicalFallback;
+                const isUnsortedCanonical = resolvedCanonical === 'unsorted' || item.unsorted;
+                const showLegacyUnsortedBadge = !canonicalTypesOn && isUnsortedCanonical;
+                const badgeBasis = resolvedCanonical;
                 const badgeStyleKey =
-                  effectiveKind === 'todo'
+                  badgeBasis === 'todo'
                     ? 'badge_todo'
-                    : effectiveKind === 'habit'
+                    : badgeBasis === 'habit'
                       ? 'badge_habit'
                       : 'badge_note';
+                const showDueBadge = resolvedCanonical === 'todo';
 
                 return (
                   <View
@@ -1058,7 +1149,7 @@ const RecentDrops: React.FC<{
                         {showLegacyUnsortedBadge ? (
                           <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
                         ) : null}
-                        {effectiveKind === 'todo' ? (
+                        {showDueBadge ? (
                           <Text
                             testID={`minddrop-recent-todo-due-${item.id}`}
                             style={styles.recentDueBadge}
@@ -1462,7 +1553,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
 
     conversionMeta.why_string = payload.why_string ?? null;
-    conversionMeta.source_message_id = payload.sourceMessageId ?? null;
+    conversionMeta.source_message_id = coerceUuid(payload.sourceMessageId ?? null);
 
     let initialText: string | null = null;
 
@@ -1669,10 +1760,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         sourceMessageId &&
         typeof (repo as any)?.findBySourceMessageId === 'function'
       ) {
-        try {
-          record = await repo.findBySourceMessageId(entry.expectedType, sourceMessageId);
-        } catch {
-          record = null;
+        const lookupKey = coerceUuid(sourceMessageId);
+        if (lookupKey) {
+          try {
+            record = await repo.findBySourceMessageId(entry.expectedType, lookupKey);
+          } catch {
+            record = null;
+          }
         }
       }
 
@@ -1892,7 +1986,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const upsertBySourceMessageId = useCallback(
     async (payload: CreateRecordInput) => {
-      const key = payload.sourceMessageId ?? null;
+      const key = coerceUuid(payload.sourceMessageId ?? null);
+      const normalizedPayload =
+        key != null && payload.sourceMessageId === key
+          ? payload
+          : {
+              ...payload,
+              sourceMessageId: key ?? null,
+            };
 
       const lookupExisting = async (): Promise<AppRecord | null> => {
         if (!key) return null;
@@ -1907,29 +2008,25 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
       };
 
-      if (process.env.JEST_WORKAROUND === '1') {
-        if (!key) {
-          return repo.create(payload);
-        }
-
-        return withWriteLock(key, async () => {
-          const existing = await lookupExisting();
-          if (existing) {
-            const patch = buildPatchFromCreatePayload(payload);
-            return repo.update({ id: existing.id, patch: patch as any });
-          }
-          return repo.create(payload);
-        });
-      }
+      const useTestWorkaround = process.env.JEST_WORKAROUND === '1';
 
       if (!key) {
-        return repo.create(payload);
+        return repo.create(normalizedPayload);
       }
 
       return withWriteLock(key, async () => {
         const existing = await lookupExisting();
+        if (existing) {
+          const patch = buildPatchFromCreatePayload(normalizedPayload);
+          return repo.update({ id: existing.id, patch: patch as any });
+        }
+
+        if (useTestWorkaround) {
+          return repo.create(normalizedPayload);
+        }
+
         return openOverlayAndWait({
-          payload,
+          payload: normalizedPayload,
           existing: existing ?? undefined,
           sourceMessageId: key,
         });
@@ -2435,6 +2532,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
       const submissionId =
         submissionIdRef.current ?? (submissionIdRef.current = createSubmissionId());
+      const repoSourceMessageId = coerceUuid(submissionId);
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
@@ -2650,7 +2748,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
-                  sourceMessageId: submissionId,
+                  sourceMessageId: repoSourceMessageId ?? null,
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -2670,7 +2768,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
-                  sourceMessageId: submissionId,
+                  sourceMessageId: repoSourceMessageId ?? null,
                 },
               });
             } else if (action.type === 'create.note') {
@@ -2694,7 +2792,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
-                  sourceMessageId: submissionId,
+                  sourceMessageId: repoSourceMessageId ?? null,
                 },
               });
             } else if (action.type === 'add.to.list') {
@@ -2718,7 +2816,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
-                  sourceMessageId: submissionId,
+                  sourceMessageId: repoSourceMessageId ?? null,
                 },
               });
             } else {
@@ -3024,7 +3122,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
           origin: 'catchall',
-          sourceMessageId: submissionId,
+          sourceMessageId: repoSourceMessageId ?? null,
           tags,
         };
       } else if (classifyOut?.type === 'habit') {
@@ -3041,7 +3139,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a habit',
           origin: 'catchall',
-          sourceMessageId: submissionId,
+          sourceMessageId: repoSourceMessageId ?? null,
           tags,
         };
       } else {
@@ -3091,7 +3189,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           views: {
             alsoShowIn: ['Hub:Catch-All'],
           },
-          sourceMessageId: submissionId,
+          sourceMessageId: repoSourceMessageId ?? null,
           tags,
         };
       }
@@ -3233,6 +3331,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           typeof context?.submissionId === 'string' && context.submissionId.trim().length > 0
             ? context.submissionId
             : null;
+        const fallbackLookupId = coerceUuid(fallbackSubmissionId);
 
         let existing: AppRecord | null = null;
         try {
@@ -3242,9 +3341,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           existing = null;
         }
 
-        if (!existing && fallbackSubmissionId) {
+        if (!existing && fallbackLookupId) {
           try {
-            const fallback = await repo.findBySourceMessageId('note', fallbackSubmissionId);
+            const fallback = await repo.findBySourceMessageId('note', fallbackLookupId);
             if (fallback) {
               existing = fallback;
             }
@@ -3258,12 +3357,25 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         const primaryText = extractPrimaryText(existing);
-        const sanitizedLabels = normalizeCatchallLabels((existing as any).labels);
+        const existingLabelsRaw = Array.isArray((existing as any).labels)
+          ? ((existing as any).labels as string[])
+          : [];
+        const existingLabels = existingLabelsRaw.filter(labelIsString);
+        const logLabels = removeLabels(normalizeCatchallLabels(existingLabels), [
+          UNSORTED_LABEL,
+          LEGACY_UNSORTED_LABEL,
+        ]);
+        const convertedLabels = removeLabels(existingLabels, [
+          CATCHALL_LABEL,
+          UNSORTED_LABEL,
+          LEGACY_UNSORTED_LABEL,
+        ]);
         const sourceMessageId =
           context?.submissionId ??
           (typeof (existing as any).source_message_id === 'string'
             ? ((existing as any).source_message_id as string)
             : null);
+        const safeSourceMessageId = coerceUuid(sourceMessageId);
         const resolvedTags =
           context?.tags && context.tags.length > 0
             ? context.tags
@@ -3294,22 +3406,29 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const patch: Record<string, unknown> = {
             subtype: nextSubtype,
             canonicalType: persistedToCanonical('note', nextSubtype),
-            labels: sanitizedLabels,
+            labels: logLabels,
             ai_placed: true,
             why_string: whyString('Confirmed as note via category chip'),
             tags: resolvedTags ?? null,
-            source_message_id: sourceMessageId ?? null,
+            source_message_id: safeSourceMessageId,
             views:
               (existing as any).views && typeof (existing as any).views === 'object'
                 ? (existing as any).views
                 : { alsoShowIn: ['Hub:Catch-All'] },
           };
 
-          await repo.update({
+          const updated = await repo.update({
             id: existing.id,
             patch: patch as any,
           });
 
+          try {
+            eventBus.emit('RecordChanged', { id: existing.id, change: 'updated' });
+          } catch (emitError) {
+            if (__DEV__) console.warn('[MindDrop][CategoryChip] emit failed', emitError);
+          }
+
+          overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
           clearState({ todos: [], notes: [existing.id], habits: [] });
           announceForAccessibility('Logged as Idea.');
           if (TOASTS_ON) {
@@ -3324,10 +3443,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const todoPatch: Record<string, unknown> = {
             canonicalType: 'todo',
             ai_placed: true,
-            labels: sanitizedLabels,
+            labels: convertedLabels,
             why_string: whyString('Confirmed as to-do via category chip'),
             tags: resolvedTags ?? null,
-            source_message_id: sourceMessageId ?? null,
+            source_message_id: safeSourceMessageId,
             space_id: spaceId,
             title: clampNoteLength(primaryText || 'Quick task'),
             body: clampNoteLength(primaryText || 'Quick task'),
@@ -3335,6 +3454,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               (existing as any).views && typeof (existing as any).views === 'object'
                 ? (existing as any).views
                 : { alsoShowIn: ['Hub:Catch-All'] },
+            subtype: null,
           };
           if (dueIso) {
             todoPatch.views = {
@@ -3343,11 +3463,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
           }
 
-          await repo.update({
+          const updated = await repo.update({
             id: existing.id,
             patch: todoPatch as any,
           });
 
+          try {
+            eventBus.emit('RecordChanged', { id: existing.id, change: 'updated' });
+          } catch (emitError) {
+            if (__DEV__) console.warn('[MindDrop][CategoryChip] emit failed', emitError);
+          }
+
+          overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
           clearState({ todos: [existing.id], notes: [], habits: [] });
           announceForAccessibility('Moved to To-Do.');
           if (TOASTS_ON) {
@@ -3369,10 +3496,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const habitPatch: Record<string, unknown> = {
           canonicalType: 'habit',
           ai_placed: true,
-          labels: sanitizedLabels,
+          labels: convertedLabels,
           why_string: whyString('Confirmed as habit via category chip'),
           tags: resolvedTags ?? null,
-          source_message_id: sourceMessageId ?? null,
+          source_message_id: safeSourceMessageId,
           space_id: spaceId,
           title: habitName,
           body: habitName,
@@ -3380,13 +3507,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             (existing as any).views && typeof (existing as any).views === 'object'
               ? (existing as any).views
               : { alsoShowIn: ['Hub:Catch-All'] },
+          subtype: null,
         };
 
-        await repo.update({
+        const updated = await repo.update({
           id: existing.id,
           patch: habitPatch as any,
         });
 
+        try {
+          eventBus.emit('RecordChanged', { id: existing.id, change: 'updated' });
+        } catch (emitError) {
+          if (__DEV__) console.warn('[MindDrop][CategoryChip] emit failed', emitError);
+        }
+
+        overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
         clearState({ todos: [], notes: [], habits: [existing.id] });
         if (TOASTS_ON) {
           showActionToast({ type: 'success', content: 'Started a habit ✓' });
@@ -3596,6 +3731,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     const submissionId = submissionIdRef.current ?? createSubmissionId();
     submissionIdRef.current = submissionId;
+    const repoSourceMessageId = coerceUuid(submissionId);
 
     try {
       // Optional short-circuit if network state is provided and offline

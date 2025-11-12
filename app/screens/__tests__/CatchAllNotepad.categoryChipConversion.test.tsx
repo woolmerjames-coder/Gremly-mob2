@@ -173,7 +173,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
         patch: expect.objectContaining({
           canonicalType: 'todo',
           ai_placed: true,
-          labels: ['catchall'],
+          labels: [],
           why_string: expect.stringContaining('Confirmed as to-do via category chip'),
         }),
       });
@@ -189,7 +189,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     expect(todoRecord.canonicalType).toBe('todo');
     expect(todoRecord.title).toBe('Buy groceries for the week');
     expect(todoRecord.body).toBe('Buy groceries for the week');
-    expect(todoRecord.labels).toEqual(['catchall']);
+    expect(todoRecord.labels).toEqual([]);
     expect(todoRecord.ai_placed).toBe(true);
     expect(todoRecord.why_string).toContain('Confirmed as to-do via category chip');
   });
@@ -324,14 +324,14 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
         id: expect.any(String),
         patch: expect.objectContaining({
           canonicalType: 'todo',
-          labels: ['catchall'],
+          labels: [],
         }),
       });
     });
 
     const todoRecord = createdRecords[0];
     expect(todoRecord.type).toBe('note');
-    expect(todoRecord.labels).toEqual(['catchall']);
+    expect(todoRecord.labels).toEqual([]);
     expect(openCreateMock).not.toHaveBeenCalled();
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
     expect(mockRepo.remove).not.toHaveBeenCalled();

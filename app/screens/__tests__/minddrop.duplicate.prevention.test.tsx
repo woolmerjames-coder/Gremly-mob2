@@ -263,7 +263,7 @@ describe('Mind Drop - Duplicate Prevention', () => {
           id: 'unsorted-1',
           patch: expect.objectContaining({
             canonicalType: 'todo',
-            labels: ['catchall'],
+            labels: [],
           }),
         }),
       { timeout: 4000 },

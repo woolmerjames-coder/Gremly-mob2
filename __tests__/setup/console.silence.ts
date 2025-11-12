@@ -19,15 +19,19 @@ const originalConsole = {
 // Store original methods for potential restore
 (global as Record<string, unknown>).originalConsole = originalConsole;
 
-// Silence console methods during tests
-global.console = {
-  ...console,
-  log: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  info: jest.fn(),
-  debug: jest.fn(),
-};
+const shouldSilence = process.env.DEBUG_TEST_LOGS !== '1';
+
+if (shouldSilence) {
+  // Silence console methods during tests unless debugging is requested
+  global.console = {
+    ...console,
+    log: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+  };
+}
 
 // Export restore function for tests that need console output
 export function restoreConsole() {

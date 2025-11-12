@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import { act } from 'react-test-renderer';
 import { env } from '../lib/env';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
+import { useUnifiedOverlayController } from '../hooks/useUnifiedOverlayController';
 
 // Feature flag for Mind Drop v2 path (currently renders legacy UI content)
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
@@ -106,6 +107,7 @@ describe('RecentDrops in Mind Drop', () => {
     mockTodosList.mockResolvedValue([]);
     mockHabitsList.mockResolvedValue([]);
     (useGlobalOverlay().openCreate as jest.Mock).mockClear();
+    (useUnifiedOverlayController().openCreate as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -164,7 +166,7 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.getAllByText('note').length).toBeGreaterThan(0);
     expect(screen.getByText('todo')).toBeTruthy();
     expect(screen.getByText('habit')).toBeTruthy();
-    expect(screen.getByText('Unsorted')).toBeTruthy();
+    expect(screen.getAllByText('Unsorted').length).toBeGreaterThan(0);
   });
 
   test('Recent drop badges surface canonical labels when canonical types are enabled', async () => {
@@ -210,8 +212,8 @@ describe('RecentDrops in Mind Drop', () => {
     const convertButton = within(card).getByText('Add to To-Dos');
     fireEvent.press(convertButton);
 
-    const overlay = useGlobalOverlay();
-    expect(overlay.openCreate).toHaveBeenCalledWith(
+    const controller = useUnifiedOverlayController();
+    expect(controller.openCreate as jest.Mock).toHaveBeenCalledWith(
       expect.objectContaining({
         initialEntity: expect.objectContaining({ type: 'todo' }),
         initialText: 'convert me',

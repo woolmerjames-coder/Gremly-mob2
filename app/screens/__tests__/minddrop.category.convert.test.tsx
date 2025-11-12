@@ -218,7 +218,7 @@ describe('Mind Drop Category Chip Conversion', () => {
         patch: expect.objectContaining({
           canonicalType: 'todo',
           ai_placed: true,
-          labels: expect.arrayContaining(['catchall']),
+          labels: expect.not.arrayContaining(['catchall', 'unsorted', 'needs_review']),
           why_string: expect.stringContaining('Confirmed as to-do via category chip'),
           title: 'Buy groceries and milk',
           body: 'Buy groceries and milk',

@@ -117,9 +117,47 @@ function compact<T extends Record<string, unknown>>(obj: T): Record<string, unkn
 
 // Helper to remove null and undefined values (prevents schema cache errors)
 function stripNulls<T extends Record<string, any>>(obj: T) {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => v !== null && v !== undefined),
-  ) as T;
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
+}
+
+const PATCH_FIELD_ALIASES: Record<string, string> = {
+  canonicalType: 'canonical_type',
+  canonical_type: 'canonical_type',
+  sourceMessageId: 'source_message_id',
+  source_message_id: 'source_message_id',
+  dueAt: 'due_at',
+  logSubtype: 'subtype',
+  spaceId: 'space_id',
+  ownerId: 'owner_id',
+  aiPlaced: 'ai_placed',
+  whyString: 'why_string',
+};
+
+const UPPERCASE_PATTERN = /[A-Z]/;
+const CAMEL_CACHE = new Map<string, string>();
+
+function camelToSnake(key: string): string {
+  if (!UPPERCASE_PATTERN.test(key)) return key;
+  const cached = CAMEL_CACHE.get(key);
+  if (cached) return cached;
+  const value = key
+    .replace(/([a-z\d])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .toLowerCase();
+  CAMEL_CACHE.set(key, value);
+  return value;
+}
+
+function mapPatchToDb(patch: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!patch) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (key === 'type') continue;
+    const mappedKey = PATCH_FIELD_ALIASES[key] ?? camelToSnake(key);
+    out[mappedKey] = value;
+  }
+  return out;
 }
 
 const TZ_OFFSET_SUFFIX = /[+-]\d{2}:?\d{2}$/;
@@ -186,6 +224,12 @@ const tableFor = (type: AppRecord['type']): string => {
 // TypeScript has: name, frequency_value, reminders, triggers (fields)
 // Schema truth: habits table has BOTH name AND title columns
 function mapHabitFromDb(dbRecord: any): any {
+  const canonicalType =
+    typeof dbRecord.canonical_type === 'string'
+      ? dbRecord.canonical_type
+      : typeof dbRecord.canonicalType === 'string'
+        ? dbRecord.canonicalType
+        : undefined;
   return {
     ...dbRecord,
     // Database has both 'name' and 'title' - keep name as primary
@@ -196,6 +240,7 @@ function mapHabitFromDb(dbRecord: any): any {
     triggers: dbRecord.triggers_json,
     tags: dbRecord.tags ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
+    canonicalType,
   };
 }
 
@@ -208,6 +253,12 @@ function mapHabitFromDb(dbRecord: any): any {
  * - owner_id (string) - RLS key
  */
 function mapTodoFromDb(dbRecord: any): any {
+  const canonicalType =
+    typeof dbRecord.canonical_type === 'string'
+      ? dbRecord.canonical_type
+      : typeof dbRecord.canonicalType === 'string'
+        ? dbRecord.canonicalType
+        : undefined;
   return {
     ...dbRecord,
     // Map database 'name' to both name and title for backwards compatibility
@@ -217,6 +268,7 @@ function mapTodoFromDb(dbRecord: any): any {
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
+    canonicalType,
   };
 }
 
@@ -225,12 +277,19 @@ function mapTodoFromDb(dbRecord: any): any {
  * - reminders_json (jsonb) -> reminders (ReminderRow[]) for journal entries
  */
 function mapNoteFromDb(dbRecord: any): any {
+  const canonicalType =
+    typeof dbRecord.canonical_type === 'string'
+      ? dbRecord.canonical_type
+      : typeof dbRecord.canonicalType === 'string'
+        ? dbRecord.canonicalType
+        : undefined;
   return {
     ...dbRecord,
     // Map jsonb column to TS field (used for journal entries)
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
+    canonicalType,
   };
 }
 
@@ -457,18 +516,19 @@ export class SupabaseRepo implements IRepo {
       ...cleanPayload,
       owner_id: this.ensureUserId(),
     };
+    const dbPayload = mapPatchToDb(payloadWithOwnerId);
 
     if (__DEV__) {
       console.log(
         `[SupabaseRepo.create] Final ${input.type} payload:`,
-        JSON.stringify(payloadWithOwnerId, null, 2),
+        JSON.stringify(dbPayload, null, 2),
       );
     }
 
     // Database will auto-generate: id (uuid), created_at, updated_at
     const { data: result, error } = await supabase
       .from(table)
-      .insert(payloadWithOwnerId)
+      .insert(dbPayload)
       .select('*')
       .single();
 
@@ -492,16 +552,11 @@ export class SupabaseRepo implements IRepo {
           });
         }
       }
-      logSupabaseError(
-        `${input.type}.insert`,
-        error,
-        payloadWithOwnerId,
-        this.currentUserId ?? undefined,
-      );
+      logSupabaseError(`${input.type}.insert`, error, dbPayload, this.currentUserId ?? undefined);
       if (__DEV__) {
         console.error(
           `[SupabaseRepo.create] Payload that failed:`,
-          JSON.stringify(payloadWithOwnerId, null, 2),
+          JSON.stringify(dbPayload, null, 2),
         );
       }
       const friendlyMsg = getUserFriendlyErrorMessage(error);
@@ -552,6 +607,9 @@ export class SupabaseRepo implements IRepo {
     const table = tableFor(existing.type);
 
     const normalizedPatch = { ...patch } as typeof patch;
+    if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'type')) {
+      delete (normalizedPatch as Record<string, unknown>).type;
+    }
     // Defensive: ensure we do not send empty/null tags until column parity is guaranteed
     if (normalizedPatch && Object.prototype.hasOwnProperty.call(normalizedPatch, 'tags')) {
       const tagsValue = (normalizedPatch as any).tags;
@@ -619,10 +677,20 @@ export class SupabaseRepo implements IRepo {
     if ('source_message_id' in normalizedPatch)
       updatePayload.source_message_id = (normalizedPatch as any).source_message_id ?? null;
 
+    const dbPatch = mapPatchToDb(updatePayload);
+
+    if (__DEV__) {
+      console.log('[SupabaseRepo.update] mapped patch keys:', Object.keys(dbPatch));
+    }
+
+    if (Object.keys(dbPatch).length === 0) {
+      return existing;
+    }
+
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
       .from(table)
-      .update(updatePayload)
+      .update(dbPatch)
       .eq('id', id)
       .select('*')
       .single();

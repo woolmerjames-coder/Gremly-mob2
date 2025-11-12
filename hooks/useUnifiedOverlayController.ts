@@ -9,6 +9,11 @@ import { useGlobalOverlay } from '../contexts/OverlayContext';
 
 type EntityType = CanonicalType;
 
+const CANONICAL_TYPES: CanonicalType[] = ['habit', 'todo', 'log', 'unsorted'];
+
+const isCanonicalType = (value: unknown): value is CanonicalType =>
+  typeof value === 'string' && CANONICAL_TYPES.includes(value as CanonicalType);
+
 const CATCHALL_LABEL = 'catchall';
 const NEEDS_REVIEW_LABEL = 'needs_review';
 
@@ -69,7 +74,13 @@ export function useUnifiedOverlayController() {
     let entityType: EntityType;
     let logSubtype: LogSubtype | null = null;
 
-    if (record.type === 'habit') {
+    const rawCanonical = (record as any)?.canonicalType ?? (record as any)?.canonical_type;
+    const canonical = isCanonicalType(rawCanonical) ? rawCanonical : null;
+
+    if (canonical) {
+      entityType = canonical;
+      logSubtype = null;
+    } else if (record.type === 'habit') {
       entityType = 'habit';
     } else if (record.type === 'todo') {
       entityType = 'todo';
@@ -137,17 +148,6 @@ export function useUnifiedOverlayController() {
       } else {
         const { record, spaceId } = request.options;
         const { entityType, logSubtype } = resolveEntityFromRecord(record);
-        console.log('[OverlayController] openEdit called with state:', {
-          visible: true,
-          mode: request.mode,
-          initialEntity: {
-            type: entityType,
-            id: record.id,
-            logSubtype,
-          },
-          initialSpaceId: spaceId,
-        });
-
         contextOpenEdit({ record, spaceId });
       }
 

@@ -10,9 +10,14 @@ export function kindToDisplayLabel(
   recordType: RecordType,
   noteSubtype: NoteSubtype,
   canonicalTypesOn: boolean,
+  canonicalOverride?: CanonicalType | null,
 ): DisplayLabel {
   if (!canonicalTypesOn) {
     return recordType ?? 'note';
+  }
+
+  if (canonicalOverride) {
+    return canonicalOverride;
   }
 
   return persistedToCanonical(recordType, noteSubtype ?? null);

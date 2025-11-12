@@ -1,3 +1,5 @@
+jest.unmock('../useUnifiedOverlayController');
+
 jest.mock('../../contexts/OverlayContext', () => {
   const React = require('react');
   const { persistedNoteSubtypeToLogSubtype } = require('../../lib/logSubtypes');
