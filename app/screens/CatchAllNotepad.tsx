@@ -185,6 +185,8 @@ const DUE_STRIP =
   String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
 const DUE_CONFIDENCE_FLOOR =
   Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
+const SHOULD_AUTO_OPEN_OVERLAY =
+  String(process.env.EXPO_PUBLIC_MINDDROP_AUTO_OPEN_OVERLAY ?? 'false').toLowerCase() === 'true';
 
 const CANONICAL_VALUES: CanonicalType[] = ['habit', 'todo', 'log', 'unsorted'];
 
@@ -195,6 +197,14 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 const coerceUuid = (value?: string | null): string | null =>
   typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
+
+const ensureSubmissionId = (value?: string | null): string => {
+  const normalized = coerceUuid(value ?? null);
+  if (normalized) {
+    return normalized;
+  }
+  return createSubmissionId();
+};
 
 const fallbackUuid = (): string => {
   const buffer = new Uint8Array(16);
@@ -548,7 +558,7 @@ export async function saveToUnsortedTray(
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
   const { sourceMessageId: providedSourceMessageId, whyString, tags: incomingTags } = options;
-  const repoSourceMessageId = coerceUuid(providedSourceMessageId ?? null);
+  const repoSourceMessageId = ensureSubmissionId(providedSourceMessageId ?? null);
   const clampedText = clampNoteLength(text);
   const catchallCanonical = persistedToCanonical('note', 'catchall');
   const normalizedTags = normalizeTags(incomingTags ?? []);
@@ -565,7 +575,7 @@ export async function saveToUnsortedTray(
     labels: [CATCHALL_LABEL, UNSORTED_LABEL],
     why_string: whyString ?? null,
     canonicalType: catchallCanonical,
-    sourceMessageId: repoSourceMessageId ?? undefined,
+    sourceMessageId: repoSourceMessageId,
     tags,
   };
 
@@ -577,7 +587,7 @@ export async function saveToUnsortedTray(
         labels: [CATCHALL_LABEL, UNSORTED_LABEL],
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
-        sourceMessageId: repoSourceMessageId ?? undefined,
+        sourceMessageId: repoSourceMessageId,
         tags,
       });
       return note?.id;
@@ -603,6 +613,16 @@ export async function saveToUnsortedTray(
     return undefined;
   }
 }
+
+const emitRecordEvent = (payload: { id: string; change: 'updated' | 'created' }) => {
+  try {
+    eventBus.emit('RecordChanged', payload);
+  } catch (emitError) {
+    if (__DEV__) {
+      console.warn('[MindDrop][RecordEvent] emit failed', emitError);
+    }
+  }
+};
 
 type UpdateFromChipParams = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1987,16 +2007,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const upsertBySourceMessageId = useCallback(
     async (payload: CreateRecordInput) => {
       const key = coerceUuid(payload.sourceMessageId ?? null);
+      if (!key) {
+        const generatedKey = ensureSubmissionId();
+        return repo.create({ ...payload, sourceMessageId: generatedKey });
+      }
+
       const normalizedPayload =
-        key != null && payload.sourceMessageId === key
+        payload.sourceMessageId === key
           ? payload
           : {
               ...payload,
-              sourceMessageId: key ?? null,
+              sourceMessageId: key,
             };
 
       const lookupExisting = async (): Promise<AppRecord | null> => {
-        if (!key) return null;
         const finder = (repo as any)?.findBySourceMessageId;
         if (typeof finder !== 'function') {
           return null;
@@ -2009,10 +2033,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       };
 
       const useTestWorkaround = process.env.JEST_WORKAROUND === '1';
-
-      if (!key) {
-        return repo.create(normalizedPayload);
-      }
 
       return withWriteLock(key, async () => {
         const existing = await lookupExisting();
@@ -2530,9 +2550,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const currentUserId = user?.id ?? userId ?? 'anonymous';
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
-      const submissionId =
-        submissionIdRef.current ?? (submissionIdRef.current = createSubmissionId());
-      const repoSourceMessageId = coerceUuid(submissionId);
+      const submissionId = ensureSubmissionId(submissionIdRef.current);
+      submissionIdRef.current = submissionId;
+      const repoSourceMessageId = submissionId;
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
@@ -2748,7 +2768,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
-                  sourceMessageId: repoSourceMessageId ?? null,
+                  sourceMessageId: repoSourceMessageId,
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -2768,7 +2788,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
-                  sourceMessageId: repoSourceMessageId ?? null,
+                  sourceMessageId: repoSourceMessageId,
                 },
               });
             } else if (action.type === 'create.note') {
@@ -2792,7 +2812,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
-                  sourceMessageId: repoSourceMessageId ?? null,
+                  sourceMessageId: repoSourceMessageId,
                 },
               });
             } else if (action.type === 'add.to.list') {
@@ -2816,7 +2836,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
-                  sourceMessageId: repoSourceMessageId ?? null,
+                  sourceMessageId: repoSourceMessageId,
                 },
               });
             } else {
@@ -3122,7 +3142,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
           origin: 'catchall',
-          sourceMessageId: repoSourceMessageId ?? null,
+          sourceMessageId: repoSourceMessageId,
           tags,
         };
       } else if (classifyOut?.type === 'habit') {
@@ -3139,7 +3159,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a habit',
           origin: 'catchall',
-          sourceMessageId: repoSourceMessageId ?? null,
+          sourceMessageId: repoSourceMessageId,
           tags,
         };
       } else {
@@ -3189,7 +3209,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           views: {
             alsoShowIn: ['Hub:Catch-All'],
           },
-          sourceMessageId: repoSourceMessageId ?? null,
+          sourceMessageId: repoSourceMessageId,
           tags,
         };
       }
@@ -3422,13 +3442,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             patch: patch as any,
           });
 
-          try {
-            eventBus.emit('RecordChanged', { id: existing.id, change: 'updated' });
-          } catch (emitError) {
-            if (__DEV__) console.warn('[MindDrop][CategoryChip] emit failed', emitError);
+          emitRecordEvent({ id: existing.id, change: 'updated' });
+          if (SHOULD_AUTO_OPEN_OVERLAY) {
+            overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
           }
-
-          overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
           clearState({ todos: [], notes: [existing.id], habits: [] });
           announceForAccessibility('Logged as Idea.');
           if (TOASTS_ON) {
@@ -3468,13 +3485,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             patch: todoPatch as any,
           });
 
-          try {
-            eventBus.emit('RecordChanged', { id: existing.id, change: 'updated' });
-          } catch (emitError) {
-            if (__DEV__) console.warn('[MindDrop][CategoryChip] emit failed', emitError);
+          emitRecordEvent({ id: existing.id, change: 'updated' });
+          if (SHOULD_AUTO_OPEN_OVERLAY) {
+            overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
           }
-
-          overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
           clearState({ todos: [existing.id], notes: [], habits: [] });
           announceForAccessibility('Moved to To-Do.');
           if (TOASTS_ON) {
@@ -3515,13 +3529,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           patch: habitPatch as any,
         });
 
-        try {
-          eventBus.emit('RecordChanged', { id: existing.id, change: 'updated' });
-        } catch (emitError) {
-          if (__DEV__) console.warn('[MindDrop][CategoryChip] emit failed', emitError);
+        emitRecordEvent({ id: existing.id, change: 'updated' });
+        if (SHOULD_AUTO_OPEN_OVERLAY) {
+          overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
         }
-
-        overlayController.openEdit({ record: updated, spaceId: spaceId ?? null });
         clearState({ todos: [], notes: [], habits: [existing.id] });
         if (TOASTS_ON) {
           showActionToast({ type: 'success', content: 'Started a habit ✓' });
@@ -3729,9 +3740,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
-    const submissionId = submissionIdRef.current ?? createSubmissionId();
+    const submissionId = ensureSubmissionId(submissionIdRef.current);
     submissionIdRef.current = submissionId;
-    const repoSourceMessageId = coerceUuid(submissionId);
 
     try {
       // Optional short-circuit if network state is provided and offline
