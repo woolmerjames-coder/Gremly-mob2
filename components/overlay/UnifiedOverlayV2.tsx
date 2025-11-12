@@ -25,6 +25,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
+import { firstLine } from '../../lib/text/firstLine';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays } from 'date-fns';
@@ -44,7 +45,6 @@ import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import {
   v2Reducer,
   initialV2State,
-  firstLine,
   type BaseType,
   type TagKey,
   type V2State,
@@ -108,7 +108,8 @@ function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
   if (keepJournal) return [...tags];
   return tags.filter((tag) => {
     const slug = tag.trim().toLowerCase();
-    return slug !== 'journal' && slug !== '*journal';
+    const withoutPrefix = slug.replace(/^[#*@]+/, '');
+    return withoutPrefix !== 'journal';
   });
 }
 const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
@@ -246,6 +247,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // reduced motion preference
   const reduceMotion = useReducedMotion();
+
+  const currentTitle =
+    state.todo?.title ||
+    state.log?.title ||
+    state.habit?.title ||
+    firstLine(state.todo?.details || state.log?.body || state.habit?.notes || initialText) ||
+    (mode === 'edit'
+      ? 'Edit'
+      : baseType === 'log'
+        ? 'New Log'
+        : baseType === 'todo'
+          ? 'New To-Do'
+          : 'New Habit');
 
   const handleToggleDetails = useCallback(() => {
     if (!reduceMotion) {
@@ -573,15 +587,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       lowConfidenceLookup.set(key, !!entry.lowConfidence);
     });
 
-    return sanitizedNames.map((name) => ({
-      name,
-      lowConfidence: lowConfidenceLookup.get(name) ?? false,
-    }));
+    return sanitizedNames.map((name) => {
+      const normalized = normalizeToTagKey(name);
+      const lowConfidence = normalized ? (lowConfidenceLookup.get(normalized) ?? false) : false;
+      return { name, lowConfidence };
+    });
   }, [currentText, prefillSuggestedTags]);
 
   const filteredTagSuggestions = useMemo(() => {
     if (sanitizedTagSuggestions.length === 0) return [];
-    return sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
+    return sanitizedTagSuggestions.filter((entry) => {
+      const normalized = normalizeToTagKey(entry.name);
+      if (!normalized) return false;
+      return !state.tags.includes(normalized);
+    });
   }, [sanitizedTagSuggestions, state.tags]);
 
   const hasLowConfidenceSuggestions = useMemo(
@@ -915,7 +934,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               }}
             >
               <Text variant="title" style={{ color: lightTokens.colors.text, fontWeight: '600' }}>
-                {headerFor(baseType, mode)}
+                {currentTitle}
               </Text>
             </Box>
 
@@ -1446,11 +1465,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       </View>
     </KeyboardAvoidingView>
   );
-}
-
-function headerFor(base: BaseType, mode: 'create' | 'edit') {
-  if (mode === 'edit') return 'Edit';
-  return base === 'log' ? 'New Log' : base === 'todo' ? 'New To-Do' : 'New Habit';
 }
 
 function MoodPill({
