@@ -985,7 +985,7 @@ const RecentDrops: React.FC<{
           kind: 'todo' as const,
           text: t.name || t.title || '',
           created_at: t.created_at,
-          due_date: t.due_date ?? null,
+          due_date: (t as any)?.due_at ?? t.due_date ?? null, // Normalize Supabase due_at vs legacy due_date so downstream formatting stays aligned
           tags: toTagList((t as any)?.tags),
           canonicalType: 'todo' as const,
         }));

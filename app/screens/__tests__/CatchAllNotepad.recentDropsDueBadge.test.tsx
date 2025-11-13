@@ -107,7 +107,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
         name: 'Finish report',
         origin: 'catchall',
         created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-08T00:00:00').toISOString(),
+        due_at: new Date('2025-11-08T00:00:00').toISOString(),
+        due_date: null,
       },
     ]);
 
@@ -126,7 +127,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
         name: 'Fix urgent bug asap',
         origin: 'catchall',
         created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-08T17:00:00').toISOString(),
+        due_at: new Date('2025-11-08T17:00:00').toISOString(),
+        due_date: null,
       },
     ]);
 
@@ -247,14 +249,16 @@ describe('RecentDrops - Todo Due Date Badges', () => {
         name: 'Todo 2',
         origin: 'catchall',
         created_at: new Date('2025-11-08T08:00:00').toISOString(),
-        due_date: new Date('2025-11-08T17:00:00').toISOString(),
+        due_at: new Date('2025-11-08T17:00:00').toISOString(),
+        due_date: null,
       },
       {
         id: 'todo-11',
         name: 'Todo 3',
         origin: 'catchall',
         created_at: new Date('2025-11-08T07:00:00').toISOString(),
-        due_date: new Date('2025-11-12T10:00:00').toISOString(),
+        due_at: new Date('2025-11-12T10:00:00').toISOString(),
+        due_date: new Date('2025-11-12T00:00:00').toISOString(),
       },
     ]);
 
@@ -268,6 +272,26 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       expect(getByTestId('minddrop-recent-todo-due-todo-11').props.children).toBe(
         'due Wed @ 10:00',
       );
+    });
+  });
+
+  it('prefers due_at when both due_at and due_date are provided', async () => {
+    mockRepo.todos.list.mockResolvedValue([
+      {
+        id: 'todo-12',
+        name: 'Sync with design',
+        origin: 'catchall',
+        created_at: new Date('2025-11-08T06:00:00').toISOString(),
+        due_at: new Date('2025-11-08T12:00:00').toISOString(),
+        due_date: new Date('2025-11-10T00:00:00').toISOString(),
+      },
+    ]);
+
+    const { getByTestId } = renderRecentDrops();
+
+    await waitFor(() => {
+      const dueBadge = getByTestId('minddrop-recent-todo-due-todo-12');
+      expect(dueBadge.props.children).toBe('due Today @ 12:00');
     });
   });
 
