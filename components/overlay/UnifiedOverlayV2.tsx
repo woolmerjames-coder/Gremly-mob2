@@ -1374,7 +1374,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       }
       try {
         // Notify parent (OverlayHost) so it can run its saved hooks
-        onSaved?.({ id: result?.id, type: (result as any)?.type ?? baseType } as any);
+        onSaved?.({
+          id: result?.id,
+          type: (result as any)?.type ?? baseType,
+          savedEntity: result,
+        } as any);
       } catch (e) {
         // ignore
       }

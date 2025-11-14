@@ -2,7 +2,7 @@
  * Test suite for formatDue - human-friendly due date formatting
  */
 
-import { formatDue } from '../CatchAllNotepad';
+import { formatDue } from '../../../lib/date/formatDue';
 
 describe('formatDue', () => {
   beforeEach(() => {

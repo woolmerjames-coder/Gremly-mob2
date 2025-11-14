@@ -1,6 +1,6 @@
 import { toCreateOrUpdateInput } from '../components/overlay/overlayV2.mapping';
 import { initialV2State } from '../components/overlay/overlayV2.state';
-import { formatDue } from '../app/screens/CatchAllNotepad';
+import { formatDue } from '../lib/date/formatDue';
 
 describe('Mind Drop — Due date round-trip', () => {
   beforeAll(() => {
