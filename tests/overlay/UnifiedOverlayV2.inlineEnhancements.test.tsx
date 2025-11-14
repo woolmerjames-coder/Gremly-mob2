@@ -26,6 +26,8 @@ jest.mock('../../components/overlay/useOverlayPrefill', () => ({
   }),
 }));
 
+jest.setTimeout(750);
+
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 

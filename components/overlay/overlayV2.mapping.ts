@@ -194,8 +194,53 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
 }
 
 export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdProp: string | null) {
-  const sanitized = sanitizeSuggestedTags('', Array.isArray(s.tags) ? s.tags : []);
-  const tagsForSave = baseType === 'log' ? sanitized : sanitized.filter((tag) => tag !== 'journal');
+  const textForTags =
+    baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
+  const normalizeMetaValues = (values: string[] | undefined | null): string[] => {
+    if (!Array.isArray(values)) return [];
+    const normalized = values
+      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
+      .filter(Boolean);
+    return Array.from(new Set(normalized));
+  };
+  const normalizedStickyMeta = normalizeMetaValues(s.stickyTags);
+  const normalizedTombstonesMeta = normalizeMetaValues(s.tagTombstones);
+
+  const manualStickyKeys = normalizedStickyMeta
+    .map((value) => {
+      if (!value) return null;
+      if (value.startsWith('#') || value.startsWith('@') || value.startsWith('*')) {
+        const stripped = value.replace(/^[#@*]+/, '');
+        return stripped || null;
+      }
+      return value;
+    })
+    .filter((value): value is string => !!value);
+
+  const sanitized = sanitizeSuggestedTags(textForTags ?? '', Array.isArray(s.tags) ? s.tags : []);
+  const combined = new Map<string, string>();
+  sanitized.forEach((tag) => {
+    const key = tag.toLowerCase();
+    if (!combined.has(key)) combined.set(key, tag);
+  });
+  manualStickyKeys.forEach((tag) => {
+    const key = tag.toLowerCase();
+    if (!combined.has(key)) combined.set(key, tag);
+  });
+
+  const combinedTags = Array.from(combined.values());
+  const tagsForSave =
+    baseType === 'log'
+      ? combinedTags
+      : combinedTags.filter((tag) => {
+          const normalized = tag.startsWith('#') ? tag.slice(1) : tag;
+          return normalized !== 'journal';
+        });
+
+  const tagsMeta = {
+    sticky: normalizedStickyMeta,
+    tombstones: normalizedTombstonesMeta,
+  };
   if (baseType === 'todo') {
     const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
     return {
@@ -207,6 +252,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
       tags: [...tagsForSave],
+      tags_meta: tagsMeta,
     };
   }
   if (baseType === 'habit') {
@@ -218,6 +264,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
       tags: [...tagsForSave],
+      tags_meta: tagsMeta,
     };
   }
 
@@ -230,6 +277,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     space_id: s.spaceId ?? spaceIdProp ?? null,
     origin: 'catchall' as const,
     tags: [...tagsForSave],
+    tags_meta: tagsMeta,
   };
 
   const moodPatch = sanitized.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };

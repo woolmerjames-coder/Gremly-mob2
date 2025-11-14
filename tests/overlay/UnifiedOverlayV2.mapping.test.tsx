@@ -1,5 +1,7 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { toCreateOrUpdateInput } from '../../components/overlay/overlayV2.mapping';
+import { initialV2State } from '../../components/overlay/overlayV2.state';
 
 // Lightweight integration test that avoids modals by mocking PersonPicker
 jest.mock('../../components/overlay/fields/PersonPicker', () => {
@@ -29,4 +31,24 @@ it.skip('links selected person after save (skipped: causes heavy render/OOM in C
   // behaviors are exercised in the unit tests `mapping.unit.test.ts` and
   // `linking.unit.test.ts` which cover the core mapping and repo-linking
   // logic in isolation.
+});
+
+it('serializes sticky and tombstone tags into tags_meta', () => {
+  const draft: any = {
+    ...initialV2State,
+    log: { ...initialV2State.log, body: 'Note body', title: 'Note body' },
+    todo: { ...initialV2State.todo },
+    habit: { ...initialV2State.habit },
+    tags: ['focus', 'list'],
+    stickyTags: ['#Focus', '@Alice'],
+    tagTombstones: ['#Backlog', '@Bob'],
+  };
+
+  const input = toCreateOrUpdateInput('log', draft, null);
+
+  expect(input.tags).toEqual(expect.arrayContaining(['focus', 'list', 'alice']));
+  expect(input.tags_meta).toEqual({
+    sticky: ['#focus', '@alice'],
+    tombstones: ['#backlog', '@bob'],
+  });
 });

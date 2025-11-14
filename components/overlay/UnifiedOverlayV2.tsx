@@ -56,6 +56,7 @@ import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './us
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow } from './fields/TagsRow';
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
+import { normalizeTag } from '../../lib/tags/normalize';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -110,6 +111,107 @@ function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
     const slug = tag.trim().toLowerCase();
     return slug !== 'journal' && slug !== '*journal';
   });
+}
+
+function mergeSuggestionEntries(
+  base: PrefillSuggestedTag[],
+  incoming: PrefillSuggestedTag[],
+): PrefillSuggestedTag[] {
+  if (incoming.length === 0 && base.length === 0) return base;
+  const map = new Map<string, PrefillSuggestedTag>();
+
+  const upsert = (entry: PrefillSuggestedTag | undefined | null) => {
+    if (!entry || typeof entry.name !== 'string') return;
+    const key = normalizeToTagKey(entry.name);
+    if (!key) return;
+    map.set(key, { name: key, lowConfidence: !!entry.lowConfidence });
+  };
+
+  base.forEach(upsert);
+  incoming.forEach(upsert);
+
+  return Array.from(map.values());
+}
+
+function areSuggestionListsEqual(
+  a: PrefillSuggestedTag[] | null | undefined,
+  b: PrefillSuggestedTag[] | null | undefined,
+): boolean {
+  if (a === b) return true;
+  const arrA = Array.isArray(a) ? a : [];
+  const arrB = Array.isArray(b) ? b : [];
+  if (arrA.length !== arrB.length) return false;
+  if (arrA.length === 0) return true;
+  for (let i = 0; i < arrA.length; i += 1) {
+    const left = arrA[i];
+    const right = arrB[i];
+    if (left?.name !== right?.name) return false;
+    if (!!left?.lowConfidence !== !!right?.lowConfidence) return false;
+  }
+  return true;
+}
+
+function normalizePrefillSuggestions(
+  text: string,
+  entries: PrefillSuggestedTag[] | null | undefined,
+  tombstones: Set<string>,
+): PrefillSuggestedTag[] {
+  if (!entries || entries.length === 0) return [];
+
+  const lookup = new Map<string, boolean>();
+  entries.forEach((entry) => {
+    if (!entry || typeof entry.name !== 'string') return;
+    const key = normalizeToTagKey(entry.name);
+    if (!key) return;
+    if (!lookup.has(key)) lookup.set(key, !!entry.lowConfidence);
+  });
+
+  const sanitized = sanitizeSuggestedTags(
+    text,
+    entries.map((entry) => (typeof entry?.name === 'string' ? entry.name : '')),
+  );
+
+  const result: PrefillSuggestedTag[] = [];
+  const seen = new Set<string>();
+  for (const name of sanitized) {
+    const key = normalizeToTagKey(name);
+    if (!key) continue;
+    if (tombstones.has(key)) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ name: key, lowConfidence: lookup.get(key) ?? false });
+  }
+
+  return result;
+}
+
+function toMetaCanonical(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const { tag } = normalizeTag(value);
+  if (!tag) return null;
+  return tag;
+}
+
+function addMetaTag(list: string[] | undefined | null, value: string | null | undefined): string[] {
+  const canonical = toMetaCanonical(value ?? null);
+  const base = Array.isArray(list) ? [...list] : [];
+  if (!canonical) return base;
+  const key = canonical.toLowerCase();
+  if (base.some((entry) => typeof entry === 'string' && entry.toLowerCase() === key)) {
+    return base;
+  }
+  return [...base, canonical];
+}
+
+function removeMetaTag(
+  list: string[] | undefined | null,
+  value: string | null | undefined,
+): string[] {
+  if (!Array.isArray(list)) return [];
+  const canonical = toMetaCanonical(value ?? null);
+  if (!canonical) return [...list];
+  const key = canonical.toLowerCase();
+  return list.filter((entry) => typeof entry === 'string' && entry.toLowerCase() !== key);
 }
 const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
 
@@ -178,6 +280,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
   );
   const [spaces, setSpaces] = useState<any[]>([]);
+  const [suggestedTags, setSuggestedTags] = useState<PrefillSuggestedTag[]>([]);
+  const [isResuggestingTags, setIsResuggestingTags] = useState(false);
   // local UI state for undo toast
   const [showUndoToast, setShowUndoToast] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
@@ -458,27 +562,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Initial defaults (match brief: text-first; first line becomes title)
   useEffect(() => {
     if (mode === 'edit' && initialEntity) {
-      // Hydrate minimal parity from initialEntity (title/body/details)
-      const t = (initialEntity as any).type;
-      const payload: any = {};
-      if (t === 'todo') payload.baseType = 'todo';
-      else if (t === 'habit') payload.baseType = 'habit';
-      else payload.baseType = 'log';
-      payload.log = {
-        title: (initialEntity as any).title ?? '',
-        body: ((initialEntity as any).body || (initialEntity as any).details || '') ?? '',
-      };
-      payload.todo = {
-        title: (initialEntity as any).title ?? '',
-        details: (initialEntity as any).details ?? '',
-        due_at: (initialEntity as any).due_at ?? null,
-      };
-      payload.habit = {
-        title: (initialEntity as any).title ?? '',
-        notes: (initialEntity as any).notes ?? '',
-        schedule: 'custom',
-      };
-      dispatch({ type: 'HYDRATE_EDIT', payload });
+      const payload = buildDraftPayloadFromEntity(initialEntity);
+      dispatch({ type: 'HYDRATE_EDIT', payload } as any);
     }
   }, [mode, initialEntity]);
 
@@ -515,6 +600,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             dispatch({ type: 'SET_TAGS', tags: merged });
           }
         }
+        const metaPayload = buildDraftPayloadFromEntity(entity);
+        if (
+          Array.isArray((metaPayload as any).stickyTags) ||
+          Array.isArray((metaPayload as any).tagTombstones)
+        ) {
+          dispatch({
+            type: 'HYDRATE_EDIT',
+            payload: {
+              stickyTags: (metaPayload as any).stickyTags ?? [],
+              tagTombstones: (metaPayload as any).tagTombstones ?? [],
+            },
+          } as any);
+        }
       } catch (err) {
         if (__DEV__) console.warn('[UnifiedOverlayV2] failed to preload edit tags', err);
       } finally {
@@ -528,10 +626,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [mode, initialEntity, repo]);
 
   // AI prefill hook: request suggestions when creating a new item with empty text
-  const { suggestedTitle, suggestedTags: prefillSuggestedTags } = useOverlayPrefill({
+  const {
+    suggestedTitle,
+    suggestedTags: prefillSuggestedTags,
+    refresh: refreshPrefill,
+  } = useOverlayPrefill({
     mode,
     getText: () => currentText,
   });
+
+  const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
+  useEffect(() => {
+    prefillSuggestionsRef.current = prefillSuggestedTags ?? [];
+  }, [prefillSuggestedTags]);
 
   // Track previous title to detect manual edits after an AI suggestion was applied
   const prevTitleRef = useRef<string | null>(null);
@@ -559,25 +666,67 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [state.log.title, suggestedTitle]);
 
-  const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
-    const rawNames = (prefillSuggestedTags ?? []).map((entry) =>
-      typeof entry?.name === 'string' ? entry.name : '',
+  const tagTombstoneSet = useMemo(() => {
+    const set = new Set<string>();
+    (state.tagTombstones ?? []).forEach((entry) => {
+      const key = normalizeToTagKey(entry);
+      if (key) set.add(key);
+    });
+    return set;
+  }, [state.tagTombstones]);
+
+  useEffect(() => {
+    if (mode !== 'create') return;
+
+    const normalized = normalizePrefillSuggestions(
+      currentText,
+      prefillSuggestedTags,
+      tagTombstoneSet,
     );
-    const sanitizedNames = sanitizeSuggestedTags(currentText, rawNames);
-    if (sanitizedNames.length === 0) return [];
+
+    setSuggestedTags((prev) => {
+      let next: PrefillSuggestedTag[] = prev;
+
+      if (normalized.length === 0) {
+        if (Array.isArray(prefillSuggestedTags) && prefillSuggestedTags.length === 0) {
+          next = [];
+        }
+      } else {
+        next = mergeSuggestionEntries(prev, normalized);
+      }
+
+      if (areSuggestionListsEqual(prev, next)) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [currentText, mode, prefillSuggestedTags, tagTombstoneSet]);
+
+  const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
+    if (suggestedTags.length === 0) return [];
 
     const lowConfidenceLookup = new Map<string, boolean>();
-    (prefillSuggestedTags ?? []).forEach((entry) => {
+    suggestedTags.forEach((entry) => {
       const key = normalizeToTagKey(entry?.name ?? '');
       if (!key || lowConfidenceLookup.has(key)) return;
       lowConfidenceLookup.set(key, !!entry.lowConfidence);
     });
 
-    return sanitizedNames.map((name) => ({
-      name,
-      lowConfidence: lowConfidenceLookup.get(name) ?? false,
-    }));
-  }, [currentText, prefillSuggestedTags]);
+    const sanitizedNames = sanitizeSuggestedTags(
+      currentText,
+      suggestedTags.map((entry) => (typeof entry?.name === 'string' ? entry.name : '')),
+    );
+    if (sanitizedNames.length === 0) return [];
+
+    const results: PrefillSuggestedTag[] = [];
+    for (const name of sanitizedNames) {
+      const key = normalizeToTagKey(name);
+      if (!key || tagTombstoneSet.has(key)) continue;
+      results.push({ name: key, lowConfidence: lowConfidenceLookup.get(key) ?? false });
+    }
+    return results;
+  }, [currentText, suggestedTags, tagTombstoneSet]);
 
   const filteredTagSuggestions = useMemo(() => {
     if (sanitizedTagSuggestions.length === 0) return [];
@@ -593,11 +742,108 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     (tag: string) => {
       const normalized = normalizeToTagKey(tag);
       if (!normalized) return;
-      pushUndoEntry('tag', { tags: [...state.tags], list: state.list, mood: state.mood });
-      dispatch({ type: 'TOGGLE_TAG', tag: normalized });
+
+      const stickySnapshot = Array.isArray(state.stickyTags) ? [...state.stickyTags] : [];
+      const tombstoneSnapshot = Array.isArray(state.tagTombstones) ? [...state.tagTombstones] : [];
+
+      pushUndoEntry('tag', {
+        tags: [...state.tags],
+        list: state.list,
+        mood: state.mood,
+        stickyTags: stickySnapshot,
+        tagTombstones: tombstoneSnapshot,
+      });
+
+      const isActive = state.tags.includes(normalized);
+      const metaSource = tag;
+
+      if (isActive) {
+        const nextTags = state.tags.filter((t) => t !== normalized);
+        const nextSticky = removeMetaTag(stickySnapshot, metaSource);
+        const nextTombstones = addMetaTag(tombstoneSnapshot, metaSource);
+        dispatch({ type: 'SET_TAGS', tags: nextTags });
+        dispatch({
+          type: 'HYDRATE_EDIT',
+          payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
+        } as any);
+        return;
+      }
+
+      const nextTags = [...state.tags, normalized];
+      const nextSticky = stickySnapshot;
+      const nextTombstones = removeMetaTag(tombstoneSnapshot, metaSource);
+      dispatch({ type: 'SET_TAGS', tags: nextTags });
+      dispatch({
+        type: 'HYDRATE_EDIT',
+        payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
+      } as any);
     },
-    [dispatch, state.list, state.mood, state.tags],
+    [dispatch, state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
   );
+
+  const handleTagAdd = useCallback(
+    (raw: string) => {
+      const { tag: canonical } = normalizeTag(typeof raw === 'string' ? raw : '');
+      if (!canonical) return;
+      const normalized = normalizeToTagKey(canonical);
+      if (!normalized) return;
+
+      const stickySnapshot = Array.isArray(state.stickyTags) ? [...state.stickyTags] : [];
+      const tombstoneSnapshot = Array.isArray(state.tagTombstones) ? [...state.tagTombstones] : [];
+
+      pushUndoEntry('tag', {
+        tags: [...state.tags],
+        list: state.list,
+        mood: state.mood,
+        stickyTags: stickySnapshot,
+        tagTombstones: tombstoneSnapshot,
+      });
+
+      const exists = state.tags.includes(normalized);
+      const nextTags = exists ? [...state.tags] : [...state.tags, normalized];
+      const nextSticky = addMetaTag(stickySnapshot, canonical);
+      const nextTombstones = removeMetaTag(tombstoneSnapshot, canonical);
+
+      dispatch({ type: 'SET_TAGS', tags: nextTags });
+      dispatch({
+        type: 'HYDRATE_EDIT',
+        payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
+      } as any);
+
+      setSuggestedTags((prev) =>
+        prev.filter((entry) => normalizeToTagKey(entry.name) !== normalized),
+      );
+    },
+    [
+      dispatch,
+      state.list,
+      state.mood,
+      state.tags,
+      state.stickyTags,
+      state.tagTombstones,
+      setSuggestedTags,
+    ],
+  );
+
+  const handleResuggestTags = useCallback(async () => {
+    if (!refreshPrefill || isResuggestingTags) return;
+    setIsResuggestingTags(true);
+    try {
+      await refreshPrefill();
+      const normalized = normalizePrefillSuggestions(
+        currentText,
+        prefillSuggestionsRef.current,
+        tagTombstoneSet,
+      );
+      if (normalized.length === 0) return;
+
+      setSuggestedTags((prev) => mergeSuggestionEntries(prev, normalized));
+    } catch (err) {
+      if (__DEV__) console.error('[UnifiedOverlayV2] re-suggest tags failed', err);
+    } finally {
+      setIsResuggestingTags(false);
+    }
+  }, [refreshPrefill, isResuggestingTags, currentText, tagTombstoneSet]);
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
@@ -620,8 +866,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     s: typeof initialV2State,
     spaceId: string | null,
   ) {
-    const sanitized = sanitizeSuggestedTags('', Array.isArray(s.tags) ? s.tags : []);
-    const tags = stripJournalTags(sanitized, baseType === 'log');
+    const textForTags =
+      baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
+    const normalizeMetaValues = (values: string[] | undefined | null): string[] => {
+      if (!Array.isArray(values)) return [];
+      const normalized = values
+        .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
+        .filter(Boolean);
+      return Array.from(new Set(normalized));
+    };
+    const normalizedStickyMeta = normalizeMetaValues(s.stickyTags);
+    const normalizedTombstonesMeta = normalizeMetaValues(s.tagTombstones);
+
+    const manualStickyKeys = normalizedStickyMeta
+      .map((value) => {
+        if (!value) return null;
+        if (value.startsWith('#') || value.startsWith('@') || value.startsWith('*')) {
+          const stripped = value.replace(/^[#@*]+/, '');
+          return stripped || null;
+        }
+        return value;
+      })
+      .filter((value): value is string => !!value);
+
+    const sanitized = sanitizeSuggestedTags(textForTags ?? '', Array.isArray(s.tags) ? s.tags : []);
+    const combined = new Map<string, string>();
+    sanitized.forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (!combined.has(key)) combined.set(key, tag);
+    });
+    manualStickyKeys.forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (!combined.has(key)) combined.set(key, tag);
+    });
+
+    const combinedTags = Array.from(combined.values());
+    const tags = stripJournalTags(combinedTags, baseType === 'log');
+    const tagsMeta = {
+      sticky: normalizedStickyMeta,
+      tombstones: normalizedTombstonesMeta,
+    };
     if (baseType === 'todo') {
       const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
       return {
@@ -633,6 +917,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         tags,
+        tags_meta: tagsMeta,
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -650,6 +935,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         tags,
+        tags_meta: tagsMeta,
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -668,6 +954,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
       tags,
+      tags_meta: tagsMeta,
     } as any;
 
     // mood (Journal)
@@ -964,6 +1251,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   tags={state.tags}
                   suggested={filteredTagSuggestions}
                   onToggle={handleTagToggle}
+                  onResuggest={handleResuggestTags}
+                  resuggesting={isResuggestingTags}
+                  onAdd={handleTagAdd}
                 />
                 {hasLowConfidenceSuggestions ? (
                   <Box mt={2}>
@@ -1446,6 +1736,45 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
+  if (!entity) return {};
+
+  const type = (entity as any)?.type;
+  const baseType: BaseType = type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log';
+
+  const payload: Partial<V2State> = {
+    baseType,
+    log: {
+      title: (entity as any)?.title ?? '',
+      body: ((entity as any)?.body || (entity as any)?.details || '') ?? '',
+    },
+    todo: {
+      title: (entity as any)?.title ?? '',
+      details: (entity as any)?.details ?? '',
+      due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
+    },
+    habit: {
+      title: (entity as any)?.title ?? '',
+      notes: (entity as any)?.notes ?? '',
+      schedule: 'custom',
+    },
+  };
+
+  const normalizeMetaValues = (values: unknown): string[] => {
+    if (!Array.isArray(values)) return [];
+    const normalized = values
+      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
+      .filter(Boolean);
+    return Array.from(new Set(normalized));
+  };
+
+  const tagsMeta = (entity as any)?.tags_meta ?? {};
+  (payload as any).stickyTags = normalizeMetaValues(tagsMeta?.sticky);
+  (payload as any).tagTombstones = normalizeMetaValues(tagsMeta?.tombstones);
+
+  return payload;
 }
 
 function headerFor(base: BaseType, mode: 'create' | 'edit') {

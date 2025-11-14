@@ -12,6 +12,8 @@ export type PersonLink = { id: string; display: string } | null;
 export type V2State = {
   baseType: BaseType;
   tags: TagKey[];
+  stickyTags: TagKey[];
+  tagTombstones: TagKey[];
   mood?: 'pos' | 'neu' | 'neg' | null;
   list?: { items: { id: string; text: string; checked: boolean }[] } | null;
   detected: { mentions: string[]; dates: string[] };
@@ -35,6 +37,8 @@ export type V2State = {
 export const initialV2State: V2State = {
   baseType: 'log',
   tags: [],
+  stickyTags: [],
+  tagTombstones: [],
   mood: null,
   list: null,
   detected: { mentions: [], dates: [] },

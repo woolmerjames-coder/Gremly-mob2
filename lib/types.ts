@@ -14,6 +14,11 @@ export type Frequency = string; // Changed from strict enum to string - supports
 export type Cadence = 'daily' | 'weekly' | 'monthly';
 export type EntityType = 'habit' | 'todo' | 'note' | 'space';
 
+export interface TagsMeta {
+  sticky?: string[];
+  tombstones?: string[];
+}
+
 /**
  * Habit - recurring activity tracked by user (tags stored as searchable, AI/editable JSON array)
  */
@@ -55,6 +60,7 @@ export interface Habit {
   reminders?: any[] | null; // ReminderRow[] JSON (nullable in DB)
   notes?: string | null;
   tags?: string[] | null; // Searchable, AI-editable JSON array persisted in DB
+  tags_meta?: TagsMeta | null;
   buddy_id?: ID | null;
   buddy_email?: string | null;
   stack_with_id?: ID | null;
@@ -106,6 +112,8 @@ export interface Todo {
   commitment_started_at?: string | null;
   commitment_note?: string | null;
   commitment_archived_at?: string | null;
+
+  tags_meta?: TagsMeta | null;
 }
 
 /**
@@ -143,6 +151,7 @@ export interface Note {
   mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
   reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
+  tags_meta?: TagsMeta | null;
 }
 
 /**

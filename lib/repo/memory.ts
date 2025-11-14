@@ -1,5 +1,16 @@
 import { isToday, parseISO } from 'date-fns';
-import type { AppRecord, Habit, Todo, Note, ID, Space, Tag, Person, EntityType } from '../types';
+import type {
+  AppRecord,
+  Habit,
+  Todo,
+  Note,
+  ID,
+  Space,
+  Tag,
+  Person,
+  EntityType,
+  TagsMeta,
+} from '../types';
 import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
 import { eventBus } from '../events';
@@ -30,6 +41,7 @@ const seed = (ownerId: string): AppRecord[] => {
     why_string: null,
     origin: null,
     tags: null,
+    tags_meta: { sticky: [], tombstones: [] },
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -46,6 +58,7 @@ const seed = (ownerId: string): AppRecord[] => {
     why_string: null,
     origin: null,
     tags: null,
+    tags_meta: { sticky: [], tombstones: [] },
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -61,6 +74,7 @@ const seed = (ownerId: string): AppRecord[] => {
     why_string: null,
     origin: null,
     tags: null,
+    tags_meta: { sticky: [], tombstones: [] },
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
@@ -76,6 +90,24 @@ function ensureDay(dateIso: string): string {
 const hasAll = (itemTags: string[] | null | undefined, wanted: string[]) => {
   const set = new Set((itemTags ?? []).map((t) => t.toLowerCase()));
   return wanted.every((w) => set.has(w.toLowerCase()));
+};
+
+const normalizeTagsMeta = (meta?: TagsMeta | null): TagsMeta => {
+  const toArray = (values?: string[] | null): string[] =>
+    Array.isArray(values)
+      ? Array.from(
+          new Set(
+            values
+              .map((entry) => (typeof entry === 'string' ? entry.trim().toLowerCase() : ''))
+              .filter(Boolean),
+          ),
+        )
+      : [];
+
+  return {
+    sticky: toArray(meta?.sticky ?? null),
+    tombstones: toArray(meta?.tombstones ?? null),
+  };
 };
 
 export class MemoryRepo implements IRepo {
@@ -134,6 +166,7 @@ export class MemoryRepo implements IRepo {
         reminders: input.reminders,
         notes: input.notes ?? null,
         tags: input.tags ?? null,
+        tags_meta: normalizeTagsMeta(input.tags_meta ?? null),
         buddy_id: input.buddy_id ?? null,
         buddy_email: input.buddy_email ?? null,
         stack_with_id: input.stack_with_id ?? null,
@@ -164,6 +197,7 @@ export class MemoryRepo implements IRepo {
         reminders: input.reminders ?? null, // ReminderRow[] JSON
         notes: input.notes ?? null, // Additional notes
         tags: input.tags ?? null, // Categories
+        tags_meta: normalizeTagsMeta(input.tags_meta ?? null),
         ai_placed: !!input.ai_placed,
         why_string: input.why_string ?? null,
         created_at: now,
@@ -199,6 +233,7 @@ export class MemoryRepo implements IRepo {
         fmt: input.fmt ?? null,
         reminders: input.reminders ?? null,
         tags: input.tags ?? null,
+        tags_meta: normalizeTagsMeta(input.tags_meta ?? null),
         journal_subtype: input.journal_subtype ?? null,
         source_message_id: input.sourceMessageId ?? null,
       };
@@ -228,6 +263,11 @@ export class MemoryRepo implements IRepo {
     const merged = { ...original, ...patch, updated_at: nowIso() } as AppRecord;
     if ('tags' in patch) {
       (merged as AppRecord & { tags?: string[] | null }).tags = patch.tags ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'tags_meta')) {
+      (merged as AppRecord & { tags_meta?: TagsMeta | null }).tags_meta = normalizeTagsMeta(
+        (patch as any).tags_meta ?? null,
+      );
     }
     this.commit(merged);
     this.data[idx] = merged;

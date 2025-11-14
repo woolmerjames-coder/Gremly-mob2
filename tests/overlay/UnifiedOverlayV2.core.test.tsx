@@ -1,16 +1,51 @@
 import React from 'react';
-import { render, fireEvent, act } from '@testing-library/react-native';
+import { render, fireEvent, act, waitFor } from '@testing-library/react-native';
+
+const mockCreate = jest.fn().mockResolvedValue({ id: 'x1', type: 'note' });
+const mockUpdate = jest.fn().mockResolvedValue({ id: 'x1', type: 'note' });
+
 // Mock provider before importing the component
 jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({
-    create: jest.fn().mockResolvedValue({ id: 'x1', type: 'note' }),
-    update: jest.fn().mockResolvedValue({ id: 'x1', type: 'note' }),
+    create: mockCreate,
+    update: mockUpdate,
   }),
 }));
 
+jest.mock('../../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+
+import useOverlayPrefill from '../../components/overlay/useOverlayPrefill';
 import { UnifiedOverlayV2 } from '../../components/overlay/UnifiedOverlayV2';
 
+const mockUseOverlayPrefill = useOverlayPrefill as jest.MockedFunction<typeof useOverlayPrefill>;
+
 const baseProps: any = { visible: true, onClose: jest.fn(), mode: 'create' };
+
+let currentSuggestedTags: Array<{ name: string; lowConfidence?: boolean }> = [];
+const refreshPrefillMock = jest.fn(async () => undefined);
+
+const setSuggestedTags = (tags: Array<{ name: string; lowConfidence?: boolean }>) => {
+  currentSuggestedTags = Array.isArray(tags) ? tags : [];
+};
+
+beforeEach(() => {
+  mockCreate.mockClear();
+  mockUpdate.mockClear();
+  refreshPrefillMock.mockClear();
+  refreshPrefillMock.mockResolvedValue(undefined);
+  currentSuggestedTags = [];
+  mockUseOverlayPrefill.mockReset();
+  mockUseOverlayPrefill.mockImplementation(() => ({
+    suggestedTitle: null,
+    suggestedTags: currentSuggestedTags,
+    loading: false,
+    error: null,
+    refresh: refreshPrefillMock,
+  }));
+});
 
 it('disables Save until text entered; first line becomes title', () => {
   const { getByPlaceholderText, getByText } = render(<UnifiedOverlayV2 {...baseProps} />);
@@ -35,4 +70,107 @@ it('saves note (log default) with title from first line', async () => {
   await act(() => Promise.resolve());
   fireEvent.press(getByText('Save'));
   // create called is asserted via mock in real harness (extend to check payload)
+});
+
+it('removing an existing tag records a tombstone meta entry and suppresses future suggestions', async () => {
+  const props: any = {
+    visible: true,
+    onClose: jest.fn(),
+    mode: 'edit' as const,
+    initialEntity: {
+      id: 'note-1',
+      type: 'note' as const,
+      title: 'Existing note',
+      body: 'Existing body',
+      tags: ['focus'],
+      tags_meta: { sticky: ['#focus'], tombstones: [] },
+    },
+  };
+
+  const utils = render(<UnifiedOverlayV2 {...props} />);
+  const { getByText } = utils;
+
+  const tagChip = getByText('Focus');
+  await act(async () => {
+    fireEvent.press((tagChip.parent as any) ?? tagChip);
+  });
+
+  const saveButton = getByText('Save');
+  await act(async () => {
+    fireEvent.press(saveButton);
+  });
+
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
+  const [updatePayload] = mockUpdate.mock.calls[0];
+  expect(updatePayload).toMatchObject({
+    id: 'note-1',
+    patch: expect.objectContaining({
+      tags_meta: {
+        sticky: [],
+        tombstones: ['#focus'],
+      },
+    }),
+  });
+
+  utils.unmount();
+  mockUpdate.mockClear();
+
+  setSuggestedTags([{ name: 'focus', lowConfidence: false }]);
+
+  const reopenProps: any = {
+    visible: true,
+    onClose: jest.fn(),
+    mode: 'edit' as const,
+    initialEntity: {
+      id: 'note-1',
+      type: 'note' as const,
+      title: 'Existing note',
+      body: 'Existing body',
+      tags: [],
+      tags_meta: { sticky: [], tombstones: ['#focus'] },
+    },
+  };
+
+  const reopen = render(<UnifiedOverlayV2 {...reopenProps} />);
+  await act(async () => {
+    fireEvent.press(reopen.getByTestId('resuggest-tags-action'));
+  });
+
+  await waitFor(() => expect(reopen.queryByText('• Focus')).toBeNull());
+  reopen.unmount();
+});
+
+it('adds a sticky meta entry when using the + Add tag chip', async () => {
+  const { getByPlaceholderText, getByText, getByTestId } = render(
+    <UnifiedOverlayV2 {...baseProps} />,
+  );
+
+  fireEvent.changeText(getByPlaceholderText('Drop your thought…'), 'Brain dump');
+
+  await act(async () => {
+    fireEvent.press(getByTestId('add-tag-trigger'));
+  });
+  const addInput = getByTestId('add-tag-input');
+  await act(async () => {
+    fireEvent.changeText(addInput, 'Strategy');
+  });
+  await act(async () => {
+    fireEvent(addInput, 'submitEditing');
+  });
+
+  await waitFor(() => expect(getByText('Strategy')).toBeTruthy());
+
+  await act(async () => {
+    fireEvent.press(getByText('Save'));
+  });
+
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  const [createPayload] = mockCreate.mock.calls[0];
+  expect(createPayload).toMatchObject({
+    tags: expect.arrayContaining(['strategy']),
+    tags_meta: {
+      sticky: ['#strategy'],
+      tombstones: [],
+    },
+  });
 });

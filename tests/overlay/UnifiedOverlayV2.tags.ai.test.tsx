@@ -139,12 +139,19 @@ describe('UnifiedOverlayV2 tag suggestions in edit mode', () => {
       } as any,
     };
 
-    const { getByText, queryByText, getByPlaceholderText } = render(
+    const { getByText, queryByText, getByPlaceholderText, getByTestId } = render(
       <UnifiedOverlayV2 {...props} />,
     );
 
     const input = getByPlaceholderText('Drop your thought…');
     await waitFor(() => expect(input.props.value).toBe('Existing body'));
+
+    const resuggestAction = getByTestId('resuggest-tags-action');
+    expect(queryByText('• Journal')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(resuggestAction);
+    });
 
     const journalChipLabel = await waitFor(() => getByText('• Journal'));
     const { element: journalChipNode, style: journalStyle } = findChipStyle(journalChipLabel);
@@ -157,12 +164,19 @@ describe('UnifiedOverlayV2 tag suggestions in edit mode', () => {
       fireEvent.changeText(input, 'Edited body with more detail');
     });
 
+    await act(async () => {
+      fireEvent.press(resuggestAction);
+    });
+
     const listChipLabel = await waitFor(() => getByText('• List'));
     const { element: listChipNode, style: listStyle } = findChipStyle(listChipLabel);
     expect(listStyle?.backgroundColor).toBe('transparent');
 
+    const updatedJournalChipLabel = getByText('• Journal');
+    const { element: updatedJournalChipNode } = findChipStyle(updatedJournalChipLabel);
+
     await act(async () => {
-      fireEvent.press(journalChipNode as any);
+      fireEvent.press(updatedJournalChipNode as any);
     });
 
     await waitFor(() => expect(queryByText('• Journal')).toBeNull());

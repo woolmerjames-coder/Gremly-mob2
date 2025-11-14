@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, useColorScheme, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, TextInput, useColorScheme, View } from 'react-native';
 import { Text } from '../../../ui/Text';
 import {
   lightTokens,
@@ -7,6 +7,7 @@ import {
   spacing as tokenSpacing,
   borderRadius as tokenRadius,
 } from '../../../design/tokens';
+import { normalizeTag } from '../../../lib/tags/normalize';
 
 type SuggestedTag = {
   name: string;
@@ -17,6 +18,9 @@ type TagsRowProps = {
   tags: string[];
   suggested?: SuggestedTag[];
   onToggle: (tag: string) => void;
+  onResuggest?: (() => void) | null;
+  resuggesting?: boolean;
+  onAdd?: ((tag: string) => void) | null;
 };
 
 type TagItem = {
@@ -27,9 +31,19 @@ type TagItem = {
   lowConfidence?: boolean;
 };
 
-export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
+export function TagsRow({
+  tags,
+  suggested = [],
+  onToggle,
+  onResuggest,
+  resuggesting,
+  onAdd,
+}: TagsRowProps) {
   const colorMode = useColorScheme();
   const palette = colorMode === 'dark' ? darkTokens.colors : lightTokens.colors;
+  const [adding, setAdding] = useState(false);
+  const [draftTag, setDraftTag] = useState('');
+  const inputRef = useRef<TextInput | null>(null);
 
   const toRgba = (hex: string, alpha: number): string => {
     if (!hex) return `rgba(0,0,0,${alpha})`;
@@ -74,13 +88,74 @@ export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
     return normalized;
   }, [suggested, tags]);
 
-  if (chips.length === 0) return null;
+  const shouldRender = chips.length > 0 || typeof onAdd === 'function';
+  if (!shouldRender) return null;
+
+  const scheduleFocus = () => {
+    const focus = () => inputRef.current?.focus();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(focus);
+    } else {
+      setTimeout(focus, 0);
+    }
+  };
+
+  const handleBeginAdd = () => {
+    if (!onAdd && !onToggle) return;
+    setAdding(true);
+    scheduleFocus();
+  };
+
+  const handleResetDraft = () => {
+    setAdding(false);
+    setDraftTag('');
+  };
+
+  const commitDraft = () => {
+    const trimmed = draftTag.trim();
+    if (!trimmed) {
+      handleResetDraft();
+      return;
+    }
+
+    const { tag: normalized } = normalizeTag(trimmed);
+    if (!normalized) {
+      handleResetDraft();
+      return;
+    }
+
+    if (typeof onAdd === 'function') {
+      onAdd(normalized);
+    } else {
+      onToggle(normalized);
+    }
+
+    handleResetDraft();
+  };
 
   return (
     <View style={styles.container}>
-      <Text variant="label" style={styles.label}>
-        Tags
-      </Text>
+      <View style={styles.header}>
+        <Text variant="label" style={styles.label}>
+          Tags
+        </Text>
+        {typeof onResuggest === 'function' ? (
+          <Pressable
+            onPress={onResuggest}
+            disabled={!!resuggesting}
+            accessibilityRole="button"
+            accessibilityLabel="Re-suggest tags"
+            testID="resuggest-tags-action"
+            style={({ pressed }) => [
+              styles.resuggestButton,
+              pressed && !resuggesting ? styles.resuggestButtonPressed : null,
+              resuggesting ? styles.resuggestDisabled : null,
+            ]}
+          >
+            <Text style={[styles.resuggestLabel, { color: palette.sage }]}>Re-suggest tags</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -116,6 +191,37 @@ export function TagsRow({ tags, suggested = [], onToggle }: TagsRowProps) {
             </Pressable>
           );
         })}
+        {typeof onAdd === 'function' ? (
+          adding ? (
+            <TextInput
+              ref={inputRef}
+              style={[styles.addInput, { color: palette.charcoal, borderColor: palette.sage }]}
+              value={draftTag}
+              onChangeText={setDraftTag}
+              placeholder="#tag or @person"
+              placeholderTextColor={charcoalMuted}
+              returnKeyType="done"
+              onSubmitEditing={commitDraft}
+              blurOnSubmit
+              onBlur={commitDraft}
+              autoCorrect={false}
+              autoCapitalize="none"
+              testID="add-tag-input"
+            />
+          ) : (
+            <Pressable
+              onPress={handleBeginAdd}
+              accessibilityRole="button"
+              accessibilityLabel="Add tag"
+              style={[styles.chip, styles.addChip]}
+              testID="add-tag-trigger"
+            >
+              <Text style={[styles.chipLabel, { color: palette.sage, fontWeight: '500' }]}>
+                + Add tag
+              </Text>
+            </Pressable>
+          )
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -125,11 +231,32 @@ const styles = StyleSheet.create({
   container: {
     marginTop: tokenSpacing.sm,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   label: {
     marginBottom: 6,
     fontSize: lightTokens.typography.size.xs,
     lineHeight: lightTokens.typography.size.xs * lightTokens.typography.lineHeight.normal,
     fontWeight: '500',
+  },
+  resuggestButton: {
+    paddingHorizontal: tokenSpacing.xs,
+    paddingVertical: 4,
+    borderRadius: tokenRadius.sm,
+  },
+  resuggestButtonPressed: {
+    opacity: 0.7,
+  },
+  resuggestLabel: {
+    fontSize: lightTokens.typography.size.xs,
+    lineHeight: lightTokens.typography.size.xs * lightTokens.typography.lineHeight.normal,
+    fontWeight: '500',
+  },
+  resuggestDisabled: {
+    opacity: 0.6,
   },
   scrollContent: {
     paddingVertical: 6,
@@ -146,6 +273,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chipLabel: {
+    fontSize: lightTokens.typography.size.sm,
+    lineHeight: 18,
+  },
+  addChip: {
+    borderStyle: 'dashed',
+  },
+  addInput: {
+    minWidth: 120,
+    paddingHorizontal: tokenSpacing.sm,
+    paddingVertical: tokenSpacing.xs,
+    borderRadius: tokenRadius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginRight: tokenSpacing.sm,
     fontSize: lightTokens.typography.size.sm,
     lineHeight: 18,
   },

@@ -412,6 +412,206 @@ exports[`UnifiedOverlayV2 — a11y visual checks (light & dark) matches accessib
               </View>
               <View
                 style={
+                  {
+                    "marginTop": 8,
+                  }
+                }
+              >
+                <View
+                  style={
+                    {
+                      "alignItems": "center",
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      [
+                        {
+                          "color": "#F8FAF9",
+                          "fontFamily": "Inter-Medium",
+                          "fontSize": 14,
+                          "fontWeight": "500",
+                          "lineHeight": 17.5,
+                        },
+                        {
+                          "fontSize": 12,
+                          "fontWeight": "500",
+                          "lineHeight": 16.799999999999997,
+                          "marginBottom": 6,
+                        },
+                      ]
+                    }
+                  >
+                    Tags
+                  </Text>
+                  <View
+                    accessibilityLabel="Re-suggest tags"
+                    accessibilityRole="button"
+                    accessibilityState={
+                      {
+                        "busy": undefined,
+                        "checked": undefined,
+                        "disabled": false,
+                        "expanded": undefined,
+                        "selected": undefined,
+                      }
+                    }
+                    accessibilityValue={
+                      {
+                        "max": undefined,
+                        "min": undefined,
+                        "now": undefined,
+                        "text": undefined,
+                      }
+                    }
+                    accessible={true}
+                    collapsable={false}
+                    focusable={true}
+                    onBlur={[Function]}
+                    onClick={[Function]}
+                    onFocus={[Function]}
+                    onResponderGrant={[Function]}
+                    onResponderMove={[Function]}
+                    onResponderRelease={[Function]}
+                    onResponderTerminate={[Function]}
+                    onResponderTerminationRequest={[Function]}
+                    onStartShouldSetResponder={[Function]}
+                    style={
+                      [
+                        {
+                          "borderRadius": 8,
+                          "paddingHorizontal": 4,
+                          "paddingVertical": 4,
+                        },
+                        null,
+                        null,
+                      ]
+                    }
+                    testID="resuggest-tags-action"
+                  >
+                    <Text
+                      style={
+                        [
+                          {
+                            "color": "#F8FAF9",
+                            "fontFamily": "Inter-Regular",
+                            "fontSize": 16,
+                            "fontWeight": "400",
+                            "lineHeight": 22.4,
+                          },
+                          [
+                            {
+                              "fontSize": 12,
+                              "fontWeight": "500",
+                              "lineHeight": 16.799999999999997,
+                            },
+                            {
+                              "color": "#BFD8C0",
+                            },
+                          ],
+                        ]
+                      }
+                    >
+                      Re-suggest tags
+                    </Text>
+                  </View>
+                </View>
+                <RCTScrollView
+                  contentContainerStyle={
+                    {
+                      "paddingRight": 16,
+                      "paddingVertical": 6,
+                    }
+                  }
+                  horizontal={true}
+                  showsHorizontalScrollIndicator={false}
+                >
+                  <View>
+                    <View
+                      accessibilityLabel="Add tag"
+                      accessibilityRole="button"
+                      accessibilityState={
+                        {
+                          "busy": undefined,
+                          "checked": undefined,
+                          "disabled": undefined,
+                          "expanded": undefined,
+                          "selected": undefined,
+                        }
+                      }
+                      accessibilityValue={
+                        {
+                          "max": undefined,
+                          "min": undefined,
+                          "now": undefined,
+                          "text": undefined,
+                        }
+                      }
+                      accessible={true}
+                      collapsable={false}
+                      focusable={true}
+                      onBlur={[Function]}
+                      onClick={[Function]}
+                      onFocus={[Function]}
+                      onResponderGrant={[Function]}
+                      onResponderMove={[Function]}
+                      onResponderRelease={[Function]}
+                      onResponderTerminate={[Function]}
+                      onResponderTerminationRequest={[Function]}
+                      onStartShouldSetResponder={[Function]}
+                      style={
+                        [
+                          {
+                            "alignItems": "center",
+                            "borderRadius": 8,
+                            "borderWidth": 0.5,
+                            "justifyContent": "center",
+                            "marginRight": 8,
+                            "minHeight": 36,
+                            "paddingHorizontal": 12,
+                            "paddingVertical": 4,
+                          },
+                          {
+                            "borderStyle": "dashed",
+                          },
+                        ]
+                      }
+                      testID="add-tag-trigger"
+                    >
+                      <Text
+                        style={
+                          [
+                            {
+                              "color": "#F8FAF9",
+                              "fontFamily": "Inter-Regular",
+                              "fontSize": 16,
+                              "fontWeight": "400",
+                              "lineHeight": 22.4,
+                            },
+                            [
+                              {
+                                "fontSize": 14,
+                                "lineHeight": 18,
+                              },
+                              {
+                                "color": "#BFD8C0",
+                                "fontWeight": "500",
+                              },
+                            ],
+                          ]
+                        }
+                      >
+                        + Add tag
+                      </Text>
+                    </View>
+                  </View>
+                </RCTScrollView>
+              </View>
+              <View
+                style={
                   [
                     {
                       "marginTop": 12,
@@ -1250,6 +1450,206 @@ exports[`UnifiedOverlayV2 — a11y visual checks (light & dark) matches accessib
                     }
                   />
                 </View>
+              </View>
+              <View
+                style={
+                  {
+                    "marginTop": 8,
+                  }
+                }
+              >
+                <View
+                  style={
+                    {
+                      "alignItems": "center",
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                    }
+                  }
+                >
+                  <Text
+                    style={
+                      [
+                        {
+                          "color": "#0E1116",
+                          "fontFamily": "Inter-Medium",
+                          "fontSize": 14,
+                          "fontWeight": "500",
+                          "lineHeight": 17.5,
+                        },
+                        {
+                          "fontSize": 12,
+                          "fontWeight": "500",
+                          "lineHeight": 16.799999999999997,
+                          "marginBottom": 6,
+                        },
+                      ]
+                    }
+                  >
+                    Tags
+                  </Text>
+                  <View
+                    accessibilityLabel="Re-suggest tags"
+                    accessibilityRole="button"
+                    accessibilityState={
+                      {
+                        "busy": undefined,
+                        "checked": undefined,
+                        "disabled": false,
+                        "expanded": undefined,
+                        "selected": undefined,
+                      }
+                    }
+                    accessibilityValue={
+                      {
+                        "max": undefined,
+                        "min": undefined,
+                        "now": undefined,
+                        "text": undefined,
+                      }
+                    }
+                    accessible={true}
+                    collapsable={false}
+                    focusable={true}
+                    onBlur={[Function]}
+                    onClick={[Function]}
+                    onFocus={[Function]}
+                    onResponderGrant={[Function]}
+                    onResponderMove={[Function]}
+                    onResponderRelease={[Function]}
+                    onResponderTerminate={[Function]}
+                    onResponderTerminationRequest={[Function]}
+                    onStartShouldSetResponder={[Function]}
+                    style={
+                      [
+                        {
+                          "borderRadius": 8,
+                          "paddingHorizontal": 4,
+                          "paddingVertical": 4,
+                        },
+                        null,
+                        null,
+                      ]
+                    }
+                    testID="resuggest-tags-action"
+                  >
+                    <Text
+                      style={
+                        [
+                          {
+                            "color": "#0E1116",
+                            "fontFamily": "Inter-Regular",
+                            "fontSize": 16,
+                            "fontWeight": "400",
+                            "lineHeight": 22.4,
+                          },
+                          [
+                            {
+                              "fontSize": 12,
+                              "fontWeight": "500",
+                              "lineHeight": 16.799999999999997,
+                            },
+                            {
+                              "color": "#BFD8C0",
+                            },
+                          ],
+                        ]
+                      }
+                    >
+                      Re-suggest tags
+                    </Text>
+                  </View>
+                </View>
+                <RCTScrollView
+                  contentContainerStyle={
+                    {
+                      "paddingRight": 16,
+                      "paddingVertical": 6,
+                    }
+                  }
+                  horizontal={true}
+                  showsHorizontalScrollIndicator={false}
+                >
+                  <View>
+                    <View
+                      accessibilityLabel="Add tag"
+                      accessibilityRole="button"
+                      accessibilityState={
+                        {
+                          "busy": undefined,
+                          "checked": undefined,
+                          "disabled": undefined,
+                          "expanded": undefined,
+                          "selected": undefined,
+                        }
+                      }
+                      accessibilityValue={
+                        {
+                          "max": undefined,
+                          "min": undefined,
+                          "now": undefined,
+                          "text": undefined,
+                        }
+                      }
+                      accessible={true}
+                      collapsable={false}
+                      focusable={true}
+                      onBlur={[Function]}
+                      onClick={[Function]}
+                      onFocus={[Function]}
+                      onResponderGrant={[Function]}
+                      onResponderMove={[Function]}
+                      onResponderRelease={[Function]}
+                      onResponderTerminate={[Function]}
+                      onResponderTerminationRequest={[Function]}
+                      onStartShouldSetResponder={[Function]}
+                      style={
+                        [
+                          {
+                            "alignItems": "center",
+                            "borderRadius": 8,
+                            "borderWidth": 0.5,
+                            "justifyContent": "center",
+                            "marginRight": 8,
+                            "minHeight": 36,
+                            "paddingHorizontal": 12,
+                            "paddingVertical": 4,
+                          },
+                          {
+                            "borderStyle": "dashed",
+                          },
+                        ]
+                      }
+                      testID="add-tag-trigger"
+                    >
+                      <Text
+                        style={
+                          [
+                            {
+                              "color": "#0E1116",
+                              "fontFamily": "Inter-Regular",
+                              "fontSize": 16,
+                              "fontWeight": "400",
+                              "lineHeight": 22.4,
+                            },
+                            [
+                              {
+                                "fontSize": 14,
+                                "lineHeight": 18,
+                              },
+                              {
+                                "color": "#BFD8C0",
+                                "fontWeight": "500",
+                              },
+                            ],
+                          ]
+                        }
+                      >
+                        + Add tag
+                      </Text>
+                    </View>
+                  </View>
+                </RCTScrollView>
               </View>
               <View
                 style={
