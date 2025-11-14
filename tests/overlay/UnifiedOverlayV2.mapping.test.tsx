@@ -52,3 +52,40 @@ it('serializes sticky and tombstone tags into tags_meta', () => {
     tombstones: ['#backlog', '@bob'],
   });
 });
+
+it('prefers @ mentions when AI suggestions align with people references', () => {
+  const draft: any = {
+    ...initialV2State,
+    log: {
+      ...initialV2State.log,
+      body: 'Catch up with @Dave about the roadmap',
+      title: 'Sync with Dave',
+    },
+    todo: { ...initialV2State.todo },
+    habit: { ...initialV2State.habit },
+    tags: ['dave'],
+  };
+
+  const input = toCreateOrUpdateInput('log', draft, null);
+
+  expect(input.tags).toContain('@dave');
+  expect(input.tags).not.toContain('dave');
+});
+
+it('drops vague AI suggestions that map to stop words', () => {
+  const draft: any = {
+    ...initialV2State,
+    log: {
+      ...initialV2State.log,
+      body: 'It was a great session today',
+      title: 'Great session',
+    },
+    todo: { ...initialV2State.todo },
+    habit: { ...initialV2State.habit },
+    tags: ['great'],
+  };
+
+  const input = toCreateOrUpdateInput('log', draft, null);
+
+  expect(input.tags).not.toContain('great');
+});

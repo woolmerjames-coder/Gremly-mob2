@@ -1,18 +1,37 @@
 import type { V2State, BaseType } from './overlayV2.state';
 
+// Common filler words that we discard from AI tag suggestions so only meaningful tags persist.
 const STOP_WORDS = new Set([
-  'here',
-  'near',
-  'common',
-  'the',
   'a',
   'an',
-  'to',
-  'of',
-  'for',
-  'with',
   'at',
+  'awesome',
+  'common',
+  'cool',
+  'find',
+  'for',
+  'found',
+  'fun',
+  'get',
+  'good',
+  'got',
+  'great',
+  'here',
+  'make',
+  'made',
+  'near',
+  'nice',
+  'of',
   'on',
+  'stuff',
+  'the',
+  'thing',
+  'think',
+  'to',
+  'today',
+  'tomorrow',
+  'with',
+  'yesterday',
 ]);
 
 const DEFAULT_ALLOWED_TAGS = [
@@ -169,8 +188,17 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
   const add = (tag: string | null | undefined) => {
     if (!tag) return;
     const slug = tag.trim().toLowerCase();
-    if (!slug || STOP_WORDS.has(slug)) return;
-    if (!ALLOWED_TAGS.has(slug)) return;
+    if (!slug) return;
+
+    const isMention = slug.startsWith('@');
+    if (isMention) {
+      const mentionSubject = slug.slice(1);
+      if (!mentionSubject || STOP_WORDS.has(mentionSubject)) return;
+    } else {
+      if (STOP_WORDS.has(slug)) return;
+      if (!ALLOWED_TAGS.has(slug)) return;
+    }
+
     if (seen.has(slug)) return;
     seen.add(slug);
     result.push(slug);
@@ -185,8 +213,28 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
     }
   }
 
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   for (const entry of aiTags ?? []) {
-    const normalized = typeof entry === 'string' ? normalizeCandidate(entry) : null;
+    if (typeof entry !== 'string') continue;
+    const raw = entry.trim();
+    if (!raw) continue;
+
+    const baseCandidate = raw
+      .replace(/^[#@*]+/, '')
+      .trim()
+      .toLowerCase();
+    if (baseCandidate) {
+      const mentionPattern = new RegExp(
+        `(^|[^a-z0-9_])@${escapeRegExp(baseCandidate)}($|[^a-z0-9_])`,
+      );
+      if (mentionPattern.test(lowerText)) {
+        add(`@${baseCandidate}`);
+        continue;
+      }
+    }
+
+    const normalized = normalizeCandidate(raw);
     add(normalized);
   }
 
@@ -194,8 +242,17 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
 }
 
 export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdProp: string | null) {
-  const textForTags =
-    baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
+  const textForTags = (() => {
+    const logText = `${s.log.title ?? ''}\n${s.log.body ?? ''}`;
+    if (baseType === 'log') return logText;
+
+    if (baseType === 'todo') {
+      const todoDetails = s.todo.details || s.log.body || '';
+      return `${s.todo.title ?? ''}\n${todoDetails}`;
+    }
+
+    return `${s.habit.title ?? ''}\n${s.habit.notes ?? ''}`;
+  })();
   const normalizeMetaValues = (values: string[] | undefined | null): string[] => {
     if (!Array.isArray(values)) return [];
     const normalized = values
