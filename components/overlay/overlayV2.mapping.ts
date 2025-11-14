@@ -211,6 +211,26 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
         add(`@${baseCandidate}`);
         continue;
       }
+
+      const namePattern = new RegExp(
+        `(^|[^a-z0-9_])${escapeRegExp(baseCandidate)}($|[^a-z0-9_])`,
+        'i',
+      );
+      if (namePattern.test(text)) {
+        const matches = text
+          ? (text.match(new RegExp(`\\b${escapeRegExp(baseCandidate)}\\b`, 'gi')) ?? [])
+          : [];
+        const hasProperCasing = matches.some(
+          (token) => token && token[0] === token[0].toUpperCase(),
+        );
+        const tagIsLikelyPerson =
+          raw.startsWith('#') || raw.startsWith('@') || !ALLOWED_TAGS.has(baseCandidate);
+        if (hasProperCasing && tagIsLikelyPerson) {
+          // console.debug('[sanitizeSuggestedTags] promoting person mention', { raw, baseCandidate, text });
+          add(`@${baseCandidate}`);
+          continue;
+        }
+      }
     }
 
     const normalized = normalizeCandidate(raw);

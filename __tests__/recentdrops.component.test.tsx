@@ -29,6 +29,20 @@ jest.mock('../providers/RepoProvider', () => ({
 
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';
 
+const overlayStub = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+    initialText: null,
+  },
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  close: jest.fn(),
+};
+
 function makeNote(id: string, text: string, createdAt: Date) {
   return {
     id,
@@ -57,7 +71,7 @@ describe('RecentDrops component (isolated)', () => {
       makeNote('n4', 'yesterday', new Date(now - 48 * 60 * 60 * 1000)),
     ]);
 
-    render(<RecentDrops initiallyOpen eagerLoad />);
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy());
@@ -83,7 +97,7 @@ describe('RecentDrops component (isolated)', () => {
   test('shows relative timestamp (ago) within a card', async () => {
     const now = Date.now();
     mockNotesList.mockResolvedValue([makeNote('n1', 'one', new Date(now - 1500))]);
-    render(<RecentDrops initiallyOpen eagerLoad />);
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
     const card = await screen.findByTestId('minddrop-recent-note-n1');
@@ -98,7 +112,7 @@ describe('RecentDrops component (isolated)', () => {
       makeNote('n3', 'three', new Date(now - 2000)),
     ]);
 
-    render(<RecentDrops initiallyOpen eagerLoad />);
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
     await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
     const listCallsBefore = mockNotesList.mock.calls.length;
@@ -125,7 +139,7 @@ describe('RecentDrops component (isolated)', () => {
       },
     ]);
 
-    render(<RecentDrops initiallyOpen eagerLoad />);
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
     const todoCard = await screen.findByTestId('minddrop-recent-todo-t1');
     expect(within(todoCard).getByText('#running')).toBeTruthy();

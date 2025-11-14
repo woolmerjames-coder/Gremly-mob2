@@ -132,6 +132,29 @@ function createDropId(): string {
   });
 }
 
+const DEBUG_MINDDROP_LOGS =
+  (typeof __DEV__ !== 'undefined' && __DEV__) ||
+  String(process.env.FF_DEBUG_OVERLAY ?? '').toLowerCase() === 'on';
+
+const fingerprintTitle = (value?: string | null): string | null => {
+  if (!value || !value.length) return null;
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 33 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+};
+
+const logMindDropDebug = (label: string, fields: Record<string, unknown>) => {
+  if (!DEBUG_MINDDROP_LOGS) return;
+  const sanitized: Record<string, unknown> = {};
+  Object.entries(fields).forEach(([key, value]) => {
+    sanitized[key] = value ?? null;
+  });
+  // eslint-disable-next-line no-console
+  console.debug(`[MindDrop][Debug][${label}]`, sanitized);
+};
+
 // Collapse concurrent Mind Drop work per dropId.
 const inFlightByDrop = new Map<string, Promise<unknown>>();
 
@@ -152,6 +175,8 @@ async function withDropLock<T>(dropId: string, fn: () => Promise<T>): Promise<T>
   inFlightByDrop.set(dropId, promise);
   return promise;
 }
+
+export const __mindDropTestHooks = { withDropLock };
 
 // Discriminating common errors without coupling too tightly:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -419,6 +444,14 @@ export async function saveToUnsortedTray(
     dropId: dropId ?? undefined,
     tags,
   };
+
+  logMindDropDebug('provisional-create', {
+    dropId: dropId ?? null,
+    titleFingerprint: fingerprintTitle(clampedText),
+    titleLocked: false,
+    tagsCount: Array.isArray(tags) ? tags.length : 0,
+    tagMetaPresent: false,
+  });
 
   // If notes.create exists (future), prefer it; otherwise use addUnsorted/create
   try {
@@ -701,14 +734,34 @@ export const formatDue = (dueIso?: string | null): string => {
   return `due ${month} ${day}${timeStr}`;
 };
 
+type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
+type GlobalOverlayController = Pick<OverlayContextValue, 'openCreate' | 'openEdit' | 'close'>;
+
+const noopOverlayController: GlobalOverlayController = {
+  openCreate: () => {},
+  openEdit: () => {},
+  close: () => {},
+};
+
+function useMaybeGlobalOverlay(): GlobalOverlayController | null {
+  try {
+    return useGlobalOverlay();
+  } catch (error) {
+    if (process.env.NODE_ENV === 'test') {
+      return null;
+    }
+    throw error;
+  }
+}
+
 const RecentDrops: React.FC<{
+  overlay: GlobalOverlayController;
   onEdited?: () => void;
   onDeleted?: () => void;
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
-}> = ({ onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
-  const overlay = useGlobalOverlay();
+}> = ({ overlay, onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
@@ -1287,10 +1340,16 @@ export type CatchAllNotepadProps = {
   networkIsOnline?: boolean;
   // Test hook: override organized today count directly to simplify deterministic assertions
   testOrganizedTodayOverride?: number;
+  overlayController?: GlobalOverlayController;
 };
 
 export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
-  const { trustRefreshMs = 60000, networkIsOnline, testOrganizedTodayOverride } = props;
+  const {
+    trustRefreshMs = 60000,
+    networkIsOnline,
+    testOrganizedTodayOverride,
+    overlayController,
+  } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const repo = useRepo();
   const { decideWithContext } = useCortex();
@@ -1298,7 +1357,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
-  const overlay = useGlobalOverlay();
+  const overlayFromContext = useMaybeGlobalOverlay();
+  const overlay = overlayController ?? overlayFromContext ?? noopOverlayController;
   const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
   const themeResult = useTheme();
@@ -2819,12 +2879,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             } as const;
 
             await withDropLock(dropId, async () => {
-              const { data, error } = await supabase.rpc('convert_or_create_from_drop', {
+              logMindDropDebug('rpc-convert:start', {
+                dropId,
+                titleFingerprint: fingerprintTitle(payload.name),
+                dueDatePresent: Boolean(payload.due_date),
+                dueTimePresent: Boolean(payload.due_time),
+                tagsCount: Array.isArray(payload.tags) ? payload.tags.length : 0,
+                stickyCount: Array.isArray((payload as any)?.tags_meta?.sticky)
+                  ? ((payload as any).tags_meta.sticky as unknown[]).length
+                  : 0,
+                tombstoneCount: Array.isArray((payload as any)?.tags_meta?.tombstones)
+                  ? ((payload as any).tags_meta.tombstones as unknown[]).length
+                  : 0,
+              });
+
+              const rpcArgs = {
                 p_owner: ownerId,
                 p_drop_id: dropId,
                 p_target: 'todo',
                 p_payload: payload,
-              });
+              } as const;
+
+              const { data, error } = await supabase.rpc('convert_or_create_from_drop', rpcArgs);
 
               if (error) {
                 throw new Error(error.message ?? 'convert_or_create_from_drop failed');
@@ -2834,6 +2910,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               if (!todoId) {
                 throw new Error('convert_or_create_from_drop returned no id');
               }
+
+              logMindDropDebug('rpc-convert:result', {
+                dropId,
+                todoIdFingerprint: fingerprintTitle(todoId),
+              });
 
               metricsRef.current.conversions += 1;
               logMetrics('category_converted_todo', {
@@ -3638,6 +3719,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
         {/* Recent Drops section */}
         <RecentDropsMemo
+          overlay={overlay}
           refreshSignal={recentRefresh}
           onEdited={noopCallback}
           onDeleted={noopCallback}

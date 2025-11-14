@@ -14,6 +14,7 @@ import {
   View,
   Animated as RNAnimated,
   Easing,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -278,8 +279,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [customDate, setCustomDate] = useState('');
   // save error UI
   const [saveError, setSaveError] = useState<string | null>(null);
-  // transient UI success pulse
-  const [savedPulse, setSavedPulse] = useState(false);
+  const [showSaveToast, setShowSaveToast] = useState(false);
+  const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
   const [customDateFocused, setCustomDateFocused] = useState(false);
@@ -303,9 +304,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [spaces, setSpaces] = useState<any[]>([]);
   const [suggestedTags, setSuggestedTags] = useState<PrefillSuggestedTag[]>([]);
   const [isResuggestingTags, setIsResuggestingTags] = useState(false);
+  const [isResummarizingTitle, setIsResummarizingTitle] = useState(false);
   // local UI state for undo toast
   const [showUndoToast, setShowUndoToast] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
+  const saveToastTimerRef = useRef<number | null>(null);
+  const dueToastTimerRef = useRef<number | null>(null);
   const createPrefillAppliedRef = useRef(false);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
@@ -358,7 +362,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     } catch (e) {
       // ignore telemetry errors
     }
+    overlayEntryTypeRef.current = state.baseType;
+    if (!openTelemetrySentRef.current) {
+      openTelemetrySentRef.current = true;
+      void emitOverlayEvent({ type: 'overlay_open', mode, entryType: overlayEntryTypeRef.current });
+    }
   }, [visible, mode, state.baseType]);
+
+  useEffect(() => {
+    overlayEntryTypeRef.current = baseType;
+  }, [baseType]);
+
+  useEffect(() => {
+    if (!visible) {
+      openTelemetrySentRef.current = false;
+      if (showSaveToast) setShowSaveToast(false);
+    }
+  }, [visible, showSaveToast]);
+
+  useEffect(() => {
+    if (baseType !== 'todo' && dueToastMessage) {
+      setDueToastMessage(null);
+    }
+  }, [baseType, dueToastMessage]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -427,7 +453,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const detailsAnim = useSharedValue(state.expanded ? 1 : 0);
   const commitmentAnim = useSharedValue(state.commitment ? 1 : 0);
   const savePulse = useSharedValue(0);
+  const headerPulse = useSharedValue(0);
   const sheetTranslateY = useRef(new RNAnimated.Value(16)).current;
+  const sheetOpacity = useRef(new RNAnimated.Value(0)).current;
+  const overlayEntryTypeRef = useRef<BaseType>(baseType);
+  const openTelemetrySentRef = useRef(false);
 
   const detailsStyle = useAnimatedStyle(() => ({
     opacity: detailsAnim.value,
@@ -443,20 +473,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     transform: [{ scale: interpolate(savePulse.value, [0, 1], [1, 1.06]) }],
   }));
 
+  const headerPulseStyle = useAnimatedStyle(() => ({
+    opacity: headerPulse.value,
+  }));
+
   useEffect(() => {
     if (!visible) return;
+    const delay = 24;
     if (reduceMotion) {
       sheetTranslateY.setValue(0);
+      sheetOpacity.setValue(1);
       return;
     }
     sheetTranslateY.setValue(16);
-    RNAnimated.timing(sheetTranslateY, {
-      toValue: 0,
-      duration: 160,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [visible, reduceMotion, sheetTranslateY]);
+    sheetOpacity.setValue(0);
+    RNAnimated.parallel([
+      RNAnimated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: 160,
+        delay,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(sheetOpacity, {
+        toValue: 1,
+        duration: 150,
+        delay,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [visible, reduceMotion, sheetTranslateY, sheetOpacity]);
   // animate details panel expand/collapse
   useEffect(() => {
     try {
@@ -592,6 +639,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [mode, initialEntity]);
 
   useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current as any);
+        undoTimerRef.current = null;
+      }
+      if (saveToastTimerRef.current) {
+        clearTimeout(saveToastTimerRef.current as any);
+        saveToastTimerRef.current = null;
+      }
+      if (dueToastTimerRef.current) {
+        clearTimeout(dueToastTimerRef.current as any);
+        dueToastTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (mode !== 'edit') return;
     if (hasLoadedEditTagsRef.current) return;
 
@@ -664,6 +728,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   useEffect(() => {
     prefillSuggestionsRef.current = prefillSuggestedTags ?? [];
   }, [prefillSuggestedTags]);
+  const suggestedTitleRef = useRef<string | null>(suggestedTitle ?? null);
+  useEffect(() => {
+    suggestedTitleRef.current = suggestedTitle ?? null;
+  }, [suggestedTitle]);
 
   // Track previous title to detect manual edits after an AI suggestion was applied
   const prevTitleRef = useRef<string | null>(null);
@@ -930,6 +998,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const requestId = resuggestRequestIdRef.current + 1;
     resuggestRequestIdRef.current = requestId;
     setIsResuggestingTags(true);
+    void emitOverlayEvent({ type: 'overlay_tags_resuggest' });
     try {
       await refreshPrefill();
       const compute = (source: PrefillSuggestedTag[] | null | undefined) =>
@@ -955,6 +1024,50 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setIsResuggestingTags(false);
     }
   }, [refreshPrefill, isResuggestingTags, currentText, tagTombstoneSet, prefillSuggestedTags]);
+
+  const handleResummarizeTitle = useCallback(async () => {
+    if (!refreshPrefill || isResummarizingTitle) return;
+    setIsResummarizingTitle(true);
+    void emitOverlayEvent({ type: 'overlay_title_resummarize' });
+    try {
+      await refreshPrefill();
+      const latest = suggestedTitleRef.current;
+      if (latest && !state.userEditedTitle) {
+        dispatch({ type: 'SET_TITLE', title: latest });
+        prevTitleRef.current = latest;
+      }
+    } catch (err) {
+      if (__DEV__) console.error('[UnifiedOverlayV2] re-summarize title failed', err);
+    } finally {
+      setIsResummarizingTitle(false);
+    }
+  }, [refreshPrefill, isResummarizingTitle, state.userEditedTitle, dispatch]);
+
+  const showDueToast = useCallback((message: string) => {
+    setDueToastMessage(message);
+    if (dueToastTimerRef.current) {
+      clearTimeout(dueToastTimerRef.current as any);
+    }
+    dueToastTimerRef.current = setTimeout(() => {
+      setDueToastMessage(null);
+      dueToastTimerRef.current = null;
+    }, 1000) as unknown as number;
+  }, []);
+
+  const handleTodoDueChange = useCallback(
+    (iso: string | null, options?: { label?: string }) => {
+      dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+      if (iso) {
+        const formatted = options?.label ?? (safeFormat(iso) || 'selected date');
+        showDueToast(`Due set for ${formatted}`);
+        void emitOverlayEvent({ type: 'overlay_due_set' });
+      } else {
+        showDueToast('Due cleared');
+        void emitOverlayEvent({ type: 'overlay_due_clear' });
+      }
+    },
+    [dispatch, showDueToast],
+  );
 
   useEffect(() => {
     if (mode === 'create') return;
@@ -991,6 +1104,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
   const typeTabUnderlineColor =
     colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss;
+  const headerPulseColor =
+    colorMode === 'dark' ? 'rgba(94, 160, 138, 0.35)' : 'rgba(46, 125, 106, 0.18)';
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   const overlaySubtitle = state.compactTitle?.trim() ?? '';
@@ -1121,6 +1236,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setIsSaving(true);
     try {
       const input = toCreateOrUpdateInput(baseType, state as any, initialSpaceId ?? null);
+      const telemetryTitle =
+        typeof (input as any)?.title === 'string'
+          ? ((input as any).title as string)
+          : typeof (input as any)?.name === 'string'
+            ? ((input as any).name as string)
+            : state.compactTitle || '';
+      const telemetryTagCount = Array.isArray((input as any)?.tags)
+        ? (input as any).tags.length
+        : state.tags.length;
+      const telemetryDueAt = baseType === 'todo' ? ((input as any)?.due_at ?? null) : null;
       const result =
         mode === 'edit' && (initialEntity as any)?.id
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
@@ -1204,9 +1329,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setIsSaving(false);
       await clearOverlayV2Draft(draftKey);
 
-      // transient saved pulse and optional haptic feedback
-      setSavedPulse(true);
-      // haptic feedback if available and not reduced motion
+      // Fire a subtle header pulse and toast success without blocking the close flow
       if (!reduceMotion) {
         try {
           // fire a success haptic (non-blocking)
@@ -1214,9 +1337,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         } catch (err) {
           // ignore
         }
+        try {
+          headerPulse.value = conditionalAnimation(
+            withSequence(withTiming(1, { duration: 140 }), withTiming(0, { duration: 220 })),
+            0,
+            reduceMotion,
+          );
+        } catch (err) {
+          // ignore mocked reanimated environments
+        }
       }
-      // auto-hide the saved pulse indicator after ~1s
-      setTimeout(() => setSavedPulse(false), 1000);
+
+      setShowSaveToast(true);
+      if (saveToastTimerRef.current) {
+        clearTimeout(saveToastTimerRef.current as any);
+      }
+      saveToastTimerRef.current = setTimeout(() => {
+        setShowSaveToast(false);
+        saveToastTimerRef.current = null;
+      }, 1500) as unknown as number;
+
+      void emitOverlayEvent({
+        type: 'overlay_save',
+        entryType: baseType,
+        titleLen: telemetryTitle.length,
+        tagCount: telemetryTagCount,
+        dueAt: telemetryDueAt ?? null,
+      });
 
       // Emit overlay saved analytics and call parent onSaved if supplied
       try {
@@ -1269,6 +1416,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     draftKey,
     onClose,
     isOffline,
+    reduceMotion,
+    headerPulse,
   ]);
 
   const handleCancel = useCallback(async () => {
@@ -1295,6 +1444,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         <RNAnimated.View
           style={{
             width: '100%',
+            opacity: sheetOpacity,
             transform: [{ translateY: sheetTranslateY }],
           }}
         >
@@ -1316,6 +1466,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               elevation: 14,
             }}
           >
+            {showSaveToast ? (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: tokenSpacing.sm,
+                  right: tokenSpacing.base,
+                  backgroundColor:
+                    colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(46, 125, 106, 0.12)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 12,
+                  zIndex: 2,
+                }}
+              >
+                <Text
+                  style={{
+                    color: typeTabUnderlineColor,
+                    fontWeight: '600',
+                    fontSize: lightTokens.typography.size.sm,
+                  }}
+                >
+                  Saved
+                </Text>
+              </View>
+            ) : null}
             {/* Grab handle for visual separation */}
             <View
               style={{
@@ -1339,23 +1515,82 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 backgroundColor: sheetBackground,
               }}
             >
-              <Text variant="title" style={{ color: lightTokens.colors.text, fontWeight: '600' }}>
-                {headerFor(baseType, mode)}
-              </Text>
-              {overlaySubtitle ? (
-                <Text
-                  testID="overlay-compact-title"
-                  numberOfLines={1}
+              <View style={{ position: 'relative' }}>
+                <Reanimated.View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    { backgroundColor: headerPulseColor, borderRadius: 12 },
+                    headerPulseStyle,
+                  ]}
+                />
+                <View
                   style={{
-                    marginTop: 4,
-                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(34,34,34,0.65)',
-                    fontSize: lightTokens.typography.size.sm,
-                    fontWeight: '500',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
                   }}
                 >
-                  {overlaySubtitle}
-                </Text>
-              ) : null}
+                  <Text
+                    variant="title"
+                    style={{ color: lightTokens.colors.text, fontWeight: '600', flex: 1 }}
+                    numberOfLines={1}
+                  >
+                    {headerFor(baseType, mode)}
+                  </Text>
+                  <Pressable
+                    onPress={handleResummarizeTitle}
+                    disabled={isResummarizingTitle}
+                    accessibilityRole="button"
+                    accessibilityLabel="Re-summarize title"
+                    testID="resummarize-title-action"
+                    style={({ pressed }) => [
+                      {
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor:
+                          pressed && !isResummarizingTitle ? 'rgba(0,0,0,0.06)' : 'transparent',
+                      },
+                      isResummarizingTitle ? { opacity: 0.65 } : null,
+                    ]}
+                  >
+                    {isResummarizingTitle ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={typeTabUnderlineColor}
+                        style={{ marginRight: 6 }}
+                      />
+                    ) : null}
+                    <Text
+                      style={{
+                        color: typeTabUnderlineColor,
+                        fontSize: lightTokens.typography.size.xs,
+                        fontWeight: '600',
+                      }}
+                    >
+                      Re-summarize title
+                    </Text>
+                  </Pressable>
+                </View>
+                {overlaySubtitle ? (
+                  <Text
+                    testID="overlay-compact-title"
+                    numberOfLines={1}
+                    style={{
+                      marginTop: 4,
+                      color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(34,34,34,0.65)',
+                      fontSize: lightTokens.typography.size.sm,
+                      fontWeight: '500',
+                    }}
+                  >
+                    {overlaySubtitle}
+                  </Text>
+                ) : null}
+              </View>
             </Box>
 
             {/* Body: entire form stack in a single scroll context */}
@@ -1455,6 +1690,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
                       }
                     />
+                    {dueToastMessage ? (
+                      <View
+                        style={{
+                          marginLeft: tokenSpacing.sm,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          backgroundColor:
+                            colorMode === 'dark'
+                              ? 'rgba(255,255,255,0.08)'
+                              : 'rgba(46,125,106,0.12)',
+                        }}
+                        pointerEvents="none"
+                      >
+                        <Text
+                          style={{
+                            color: typeTabUnderlineColor,
+                            fontSize: lightTokens.typography.size.xs,
+                            fontWeight: '600',
+                          }}
+                        >
+                          {dueToastMessage}
+                        </Text>
+                      </View>
+                    ) : null}
                   </Box>
                 ) : null}
                 {baseType === 'log' ? (
@@ -1664,14 +1924,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       size="sm"
                       variant="ghost"
                       onPress={() => {
-                        if (d === '__token:today')
-                          dispatch({ type: 'SET_TODO_DUE', due_at: new Date().toISOString() });
-                        else if (d === '__token:tomorrow')
-                          dispatch({
-                            type: 'SET_TODO_DUE',
-                            due_at: addDays(new Date(), 1).toISOString(),
+                        if (d === '__token:today') {
+                          handleTodoDueChange(new Date().toISOString(), { label: 'Today' });
+                        } else if (d === '__token:tomorrow') {
+                          handleTodoDueChange(addDays(new Date(), 1).toISOString(), {
+                            label: 'Tomorrow',
                           });
-                        else {
+                        } else {
                           // fallback: open custom date modal prefilled (for todo)
                           setCustomDate(d.replace(/^\D+/g, ''));
                           setDateModalTarget('todo');
@@ -1710,7 +1969,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           const iso = new Date().toISOString();
                           if (dateModalTarget === 'reminder')
                             dispatch({ type: 'SET_REMINDER', when: iso });
-                          else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                          else handleTodoDueChange(iso, { label: 'Today' });
                           setShowDateModal(false);
                           setDateModalTarget(null);
                         }}
@@ -1722,7 +1981,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           const iso = addDays(new Date(), 1).toISOString();
                           if (dateModalTarget === 'reminder')
                             dispatch({ type: 'SET_REMINDER', when: iso });
-                          else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                          else handleTodoDueChange(iso, { label: 'Tomorrow' });
                           setShowDateModal(false);
                           setDateModalTarget(null);
                         }}
@@ -1733,7 +1992,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         onPress={() => {
                           if (dateModalTarget === 'reminder')
                             dispatch({ type: 'SET_REMINDER', when: null });
-                          else dispatch({ type: 'SET_TODO_DUE', due_at: null });
+                          else handleTodoDueChange(null);
                           setShowDateModal(false);
                           setDateModalTarget(null);
                         }}
@@ -1785,7 +2044,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             const iso = parsed.toISOString();
                             if (dateModalTarget === 'reminder')
                               dispatch({ type: 'SET_REMINDER', when: iso });
-                            else dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+                            else
+                              handleTodoDueChange(iso, {
+                                label: safeFormat(iso) || customDate || 'selected date',
+                              });
                             setCustomDate('');
                             setShowDateModal(false);
                             setDateModalTarget(null);
@@ -1863,20 +2125,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     title={isSaving ? 'Saving...' : 'Save'}
                   />
                 </Reanimated.View>
-                {savedPulse ? (
-                  <Reanimated.View style={[saveStyle, { marginLeft: 8, justifyContent: 'center' }]}>
-                    <Box
-                      style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                        backgroundColor: lightTokens.colors.surface || '#fff',
-                      }}
-                    >
-                      <Text>✓ Saved</Text>
-                    </Box>
-                  </Reanimated.View>
-                ) : null}
               </Box>
             </SafeAreaView>
             <ToastUndo

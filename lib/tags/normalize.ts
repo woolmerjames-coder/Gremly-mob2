@@ -184,6 +184,7 @@ export function filterAndNormalizeTags(input: string[]): string[] {
     if (tag.startsWith('@')) {
       const base = tag.slice(1).toLowerCase();
       if (!base) continue;
+      if (mentions.has(base)) continue;
       mentions.set(base, tag);
       continue;
     }

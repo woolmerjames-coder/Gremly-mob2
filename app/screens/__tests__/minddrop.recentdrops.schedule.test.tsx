@@ -40,11 +40,33 @@ jest.mock('@react-navigation/elements', () => ({
 
 jest.mock('../../../contexts/OverlayContext', () => ({
   useGlobalOverlay: () => ({
+    state: {
+      visible: false,
+      mode: 'create' as const,
+      initialEntity: undefined,
+      initialSpaceId: null,
+      conversionMeta: undefined,
+      initialText: null,
+    },
     openEdit: jest.fn(),
     openCreate: jest.fn(),
     close: jest.fn(),
   }),
 }));
+
+const overlayStub = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+    initialText: null,
+  },
+  openEdit: jest.fn(),
+  openCreate: jest.fn(),
+  close: jest.fn(),
+};
 
 jest.mock('../../../providers/ThemeProvider', () => ({
   useTheme: () => ({
@@ -64,7 +86,8 @@ const fixedNow = new Date('2025-11-08T10:00:00.000Z');
 const RealDate = Date;
 
 describe('Mind Drop Recent Drops Schedule Display', () => {
-  const renderRecentDrops = () => render(<RecentDrops initiallyOpen eagerLoad />);
+  const renderRecentDrops = () =>
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
   beforeEach(() => {
     jest.clearAllMocks();

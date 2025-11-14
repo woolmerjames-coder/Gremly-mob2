@@ -1,5 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, useColorScheme, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  useColorScheme,
+  View,
+} from 'react-native';
 import { Text } from '../../../ui/Text';
 import {
   lightTokens,
@@ -177,7 +185,16 @@ export function TagsRow({
               resuggesting ? styles.resuggestDisabled : null,
             ]}
           >
-            <Text style={[styles.resuggestLabel, { color: palette.sage }]}>Re-suggest tags</Text>
+            <View style={styles.resuggestContent}>
+              {resuggesting ? (
+                <ActivityIndicator
+                  size="small"
+                  color={palette.sage}
+                  style={styles.resuggestSpinner}
+                />
+              ) : null}
+              <Text style={[styles.resuggestLabel, { color: palette.sage }]}>Re-suggest tags</Text>
+            </View>
           </Pressable>
         ) : null}
       </View>
@@ -304,6 +321,14 @@ const styles = StyleSheet.create({
   },
   resuggestDisabled: {
     opacity: 0.6,
+  },
+  resuggestContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokenSpacing.xs,
+  },
+  resuggestSpinner: {
+    transform: [{ scale: 0.8 }],
   },
   scrollContent: {
     paddingVertical: 6,

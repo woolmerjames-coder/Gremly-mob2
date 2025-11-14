@@ -6,6 +6,20 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import { RecentDropsTestable as RecentDrops } from '../CatchAllNotepad';
 
+const overlayStub = {
+  state: {
+    visible: false,
+    mode: 'create' as const,
+    initialEntity: undefined,
+    initialSpaceId: null,
+    conversionMeta: undefined,
+    initialText: null,
+  },
+  openEdit: jest.fn(),
+  openCreate: jest.fn(),
+  close: jest.fn(),
+};
+
 // Mock dependencies
 const mockRepo = {
   notes: {
@@ -50,7 +64,8 @@ const fixedNow = new Date('2025-11-08T10:00:00.000Z');
 const RealDate = Date;
 
 describe('RecentDrops - Todo Due Date Badges', () => {
-  const renderRecentDrops = () => render(<RecentDrops initiallyOpen eagerLoad />);
+  const renderRecentDrops = () =>
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
   beforeEach(() => {
     jest.clearAllMocks();
