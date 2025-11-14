@@ -133,6 +133,16 @@ function createDropId(): string {
   });
 }
 
+/**
+ * Check if a string is a valid UUID (8-4-4-4-12 format)
+ */
+function isValidUuid(value: string | null | undefined): boolean {
+  if (!value || typeof value !== 'string') return false;
+  // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
+}
+
 const DEBUG_MINDDROP_LOGS =
   (typeof __DEV__ !== 'undefined' && __DEV__) ||
   String(process.env.FF_DEBUG_OVERLAY ?? '').toLowerCase() === 'on';
@@ -430,6 +440,10 @@ export async function saveToUnsortedTray(
   const normalizedTags = normalizeTags(incomingTags ?? []);
   const tags = normalizedTags.length > 0 ? normalizedTags : undefined;
 
+  // Only use sourceMessageId if it's a valid UUID; otherwise set to null
+  // This keeps the notes.source_message_id column as uuid (not "minddrop-..." strings)
+  const validSourceMessageId = isValidUuid(sourceMessageId) ? sourceMessageId : null;
+
   // Base create payload for our repos
   const baseInput = {
     type: 'note' as const,
@@ -441,7 +455,7 @@ export async function saveToUnsortedTray(
     labels: [CATCHALL_LABEL, UNSORTED_LABEL],
     why_string: whyString ?? null,
     canonicalType: catchallCanonical,
-    sourceMessageId: sourceMessageId ?? undefined,
+    sourceMessageId: validSourceMessageId ?? undefined,
     dropId: dropId ?? undefined,
     tags,
   };
@@ -462,7 +476,7 @@ export async function saveToUnsortedTray(
         labels: [CATCHALL_LABEL, UNSORTED_LABEL],
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
-        sourceMessageId: sourceMessageId ?? undefined,
+        sourceMessageId: validSourceMessageId ?? undefined,
         dropId: dropId ?? undefined,
         tags,
       });
@@ -1948,6 +1962,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
       const { submissionId, dropId } = ensureSubmissionAndDropIds();
 
+      // Only use submissionId if it's a valid UUID; otherwise use null for source_message_id
+      // This keeps the database column as uuid type (not "minddrop-..." strings)
+      const validSourceMessageId = isValidUuid(submissionId) ? submissionId : null;
+
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
       const cleanedSourceRaw =
@@ -1980,7 +1998,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const narrativeTags = buildFallbackTags(trimmed, 'note', 'journal');
               const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
               const id = await saveToUnsortedTray(repo as any, trimmed, {
-                sourceMessageId: submissionId,
+                sourceMessageId: validSourceMessageId,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
                 dropId,
@@ -2116,7 +2134,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
-                  sourceMessageId: submissionId,
+                  sourceMessageId: validSourceMessageId,
                   dropId,
                 },
               });
@@ -2137,7 +2155,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
-                  sourceMessageId: submissionId,
+                  sourceMessageId: validSourceMessageId,
                   dropId,
                 },
               });
@@ -2162,7 +2180,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
-                  sourceMessageId: submissionId,
+                  sourceMessageId: validSourceMessageId,
                   dropId,
                 },
               });
@@ -2187,7 +2205,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalType,
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
-                  sourceMessageId: submissionId,
+                  sourceMessageId: validSourceMessageId,
                   dropId,
                 },
               });
@@ -2384,7 +2402,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   : buildFallbackTags(trimmed, 'note', fallbackSubtype);
               const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
               const id = await saveToUnsortedTray(repo as any, trimmed, {
-                sourceMessageId: submissionId,
+                sourceMessageId: validSourceMessageId,
                 whyString: 'Awaiting chip selection',
                 tags: tagsForCreate ?? undefined,
                 dropId,
@@ -2469,7 +2487,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (unsortedIdRef.current == null) {
           try {
             const id = await saveToUnsortedTray(repo as any, trimmed, {
-              sourceMessageId: submissionId,
+              sourceMessageId: validSourceMessageId,
               whyString: 'Awaiting manual review',
               dropId,
             });
@@ -2552,7 +2570,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
           origin: 'catchall',
-          sourceMessageId: submissionId,
+          sourceMessageId: validSourceMessageId,
           dropId,
           tags,
         };
@@ -2570,7 +2588,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ai_placed: true,
           why_string: classifyOut?.whyString || 'Auto-classified as a habit',
           origin: 'catchall',
-          sourceMessageId: submissionId,
+          sourceMessageId: validSourceMessageId,
           dropId,
           tags,
         };
@@ -2621,7 +2639,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           views: {
             alsoShowIn: ['Hub:Catch-All'],
           },
-          sourceMessageId: submissionId,
+          sourceMessageId: validSourceMessageId,
           dropId,
           tags,
         };
@@ -3242,7 +3260,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
         const offlineId = await saveToUnsortedTray(repo, trimmed, {
-          sourceMessageId: submissionId,
+          sourceMessageId: validSourceMessageId,
           dropId,
         });
         if (offlineId) {
@@ -3339,7 +3357,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (isNetworkError(lastError)) {
           // Offline-ish path — save locally and reassure
           const offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
-            sourceMessageId: submissionId,
+            sourceMessageId: validSourceMessageId,
             dropId,
           });
           if (offlineRetryId) {
@@ -3372,7 +3390,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
           const unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
-            sourceMessageId: submissionId,
+            sourceMessageId: validSourceMessageId,
             dropId,
           });
           if (unsortedFallbackId) {
