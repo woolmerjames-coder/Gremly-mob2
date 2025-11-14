@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react-native';
+import { ActionSheetIOS } from 'react-native';
 // Mock provider before importing the component
 jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({
@@ -35,4 +36,38 @@ it('saves note (log default) with title from first line', async () => {
   await act(() => Promise.resolve());
   fireEvent.press(getByText('Save'));
   // create called is asserted via mock in real harness (extend to check payload)
+});
+
+it('Resummarize title action updates title only when pressed', async () => {
+  const actionSheetSpy = jest
+    .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
+    .mockImplementation((_options, callback) => {
+      callback?.(0);
+    });
+
+  const { getByPlaceholderText, getByTestId, getByLabelText } = render(
+    <UnifiedOverlayV2 {...baseProps} />,
+  );
+
+  const bodyInput = getByPlaceholderText('Drop your thought…');
+  fireEvent.changeText(bodyInput, 'First body line');
+  await act(() => Promise.resolve());
+
+  const titleInput = getByTestId('overlay-title-input');
+  expect(titleInput.props.value).toBe('First body line');
+
+  fireEvent.changeText(titleInput, 'Manual Title');
+  fireEvent.changeText(bodyInput, 'Updated body content that needs summary');
+  await act(() => Promise.resolve());
+
+  expect(getByTestId('overlay-title-input').props.value).toBe('Manual Title');
+
+  fireEvent.press(getByLabelText('More actions'));
+  await act(() => Promise.resolve());
+
+  expect(getByTestId('overlay-title-input').props.value).toBe(
+    'Updated body content that needs summary',
+  );
+
+  actionSheetSpy.mockRestore();
 });

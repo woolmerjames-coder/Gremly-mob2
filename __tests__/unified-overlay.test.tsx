@@ -11,6 +11,7 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { UnifiedCreateOverlay } from '../components/overlay/UnifiedCreateOverlay';
+import { UnifiedOverlayV2 } from '../components/overlay/UnifiedOverlayV2';
 import { useRepo } from '../providers/RepoProvider';
 import type { AppRecord } from '../lib/types';
 
@@ -84,6 +85,30 @@ jest.mock('../providers/ThemeProvider', () => ({
   }),
 }));
 
+type MockPrefillResult = {
+  suggestedTitle: string | null;
+  suggestedTags: any[];
+  loading: boolean;
+  error: string | null;
+  refresh: jest.Mock;
+};
+
+const mockUseOverlayPrefill = jest.fn(
+  (_options?: any): MockPrefillResult => ({
+    suggestedTitle: null,
+    suggestedTags: [],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
+  }),
+);
+
+jest.mock('../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  useOverlayPrefill: (options?: any) => mockUseOverlayPrefill(options),
+  default: (options?: any) => mockUseOverlayPrefill(options),
+}));
+
 const mockRepo = {
   create: jest.fn(),
   update: jest.fn(),
@@ -106,11 +131,73 @@ const renderWithProviders = (component: React.ReactElement) => {
   );
 };
 
-describe('UnifiedCreateOverlay - Critical Flows', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
+describe('UnifiedOverlayV2 title persistence', () => {
+  it('keeps the user-edited title after reopening overlay post-save', async () => {
+    mockUseOverlayPrefill.mockImplementation((_options?: any) => ({
+      suggestedTitle: 'AI Summary',
+      suggestedTags: [],
+      loading: false,
+      error: null,
+      refresh: jest.fn(),
+    }));
+
+    const onClose = jest.fn();
+    const { getByTestId, getByPlaceholderText, unmount } = renderWithProviders(
+      <UnifiedOverlayV2 visible={true} mode="create" onClose={onClose} />,
+    );
+
+    await waitFor(() => {
+      expect(getByTestId('overlay-title-input').props.value).toBe('AI Summary');
+    });
+
+    const titleInput = getByTestId('overlay-title-input');
+    fireEvent.changeText(titleInput, 'Manual Title');
+
+    const bodyInput = getByPlaceholderText('Drop your thought…');
+    fireEvent.changeText(bodyInput, 'Manual body text that will be saved.');
+
+    await waitFor(() => {
+      expect(getByTestId('overlay-title-input').props.value).toBe('Manual Title');
+    });
+
+    unmount();
+
+    mockUseOverlayPrefill.mockImplementation((_options?: any) => ({
+      suggestedTitle: 'New AI Suggestion',
+      suggestedTags: [],
+      loading: false,
+      error: null,
+      refresh: jest.fn(),
+    }));
+
+    const reopened = renderWithProviders(
+      <UnifiedOverlayV2
+        visible={true}
+        mode="edit"
+        initialEntity={
+          {
+            id: 'rec-1',
+            type: 'log',
+            title: 'Manual Title',
+            body: 'Manual body text that will be saved.',
+            origin: 'catchall',
+          } as any
+        }
+        onClose={jest.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reopened.getByTestId('overlay-title-input').props.value).toBe('Manual Title');
+    });
+  });
+});
+
+describe('UnifiedCreateOverlay - Critical Flows', () => {
   describe('1. Create Habit Flow', () => {
     it.skip('should select habit → enter name → pick frequency → save', async () => {
       const onClose = jest.fn();

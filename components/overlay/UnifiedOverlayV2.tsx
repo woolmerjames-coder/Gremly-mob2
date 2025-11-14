@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useCallback, useReducer, useState, useRef } from 'react';
 import {
   AccessibilityInfo,
+  ActionSheetIOS,
+  Alert,
   Dimensions,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -27,11 +29,13 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
+import { Icon } from '../ui/Icon';
 import { env } from '../../lib/env';
 import { canonicalToPersisted } from '../../lib/canonical';
 import { persistedNoteSubtypeToLogSubtype } from '../../lib/logSubtypes';
 import { deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
 import { firstLine } from '../../lib/text/firstLine';
+import { compactTitle } from '../../lib/text/compactTitle';
 import type { CanonicalType, LogSubtype, NoteSubtype } from '../../lib/types';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
@@ -262,15 +266,21 @@ function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 }
 
 function mergeStateWithInitial(payload: Partial<V2State>): V2State {
-  return {
+  const merged: V2State = {
     ...initialV2State,
     ...payload,
     log: { ...initialV2State.log, ...(payload.log ?? {}) },
     todo: { ...initialV2State.todo, ...(payload.todo ?? {}) },
     habit: { ...initialV2State.habit, ...(payload.habit ?? {}) },
     tags: payload.tags ?? [],
+    stickyTags: Array.isArray(payload.stickyTags) ? [...payload.stickyTags] : [],
+    tagTombstones: Array.isArray(payload.tagTombstones) ? [...payload.tagTombstones] : [],
     undoStack: [],
   };
+
+  merged.titleLocked = typeof payload.titleLocked === 'boolean' ? payload.titleLocked : false;
+
+  return merged;
 }
 
 function buildStateFromEntity(entity: any): V2State {
@@ -338,6 +348,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // transient UI success pulse
   const [savedPulse, setSavedPulse] = useState(false);
   // focus states for accessibility focus rings
+  const [titleFocused, setTitleFocused] = useState(false);
   const [bodyFocused, setBodyFocused] = useState(false);
   const [customDateFocused, setCustomDateFocused] = useState(false);
   const [commitmentFocused, setCommitmentFocused] = useState(false);
@@ -512,13 +523,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // reduced motion preference
   const reduceMotion = useReducedMotion();
 
-  const currentTitle =
-    viewState.todo?.title ||
-    viewState.log?.title ||
-    viewState.habit?.title ||
-    firstLine(
-      viewState.todo?.details || viewState.log?.body || viewState.habit?.notes || initialText,
-    ) ||
+  const baseTypeTitle =
+    baseType === 'todo'
+      ? (viewState.todo?.title ?? '')
+      : baseType === 'habit'
+        ? (viewState.habit?.title ?? '')
+        : (viewState.log?.title ?? '');
+
+  const titleSourceText =
+    viewState.todo?.details || viewState.log?.body || viewState.habit?.notes || initialText || '';
+
+  const fallbackTitle =
+    compactTitle(titleSourceText) ||
+    firstLine(titleSourceText) ||
     (mode === 'edit'
       ? 'Edit'
       : baseType === 'log'
@@ -526,6 +543,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         : baseType === 'todo'
           ? 'New To-Do'
           : 'New Habit');
+
+  const currentTitle =
+    baseTypeTitle && baseTypeTitle.trim().length > 0 ? baseTypeTitle : fallbackTitle;
+  const titleValue = baseTypeTitle ?? '';
+  const titlePlaceholder =
+    baseType === 'todo'
+      ? 'Add a task title...'
+      : baseType === 'habit'
+        ? 'Add a habit title...'
+        : 'Add a title...';
   const headerTitle = draft ? currentTitle : 'Loading…';
 
   const handleToggleDetails = useCallback(() => {
@@ -651,10 +678,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // load existing draft once
   const currentText =
     baseType === 'log'
-      ? overlayState.log.body
+      ? (overlayState.log.body ?? '')
       : baseType === 'todo'
-        ? overlayState.todo.details
-        : overlayState.habit.notes;
+        ? (overlayState.todo.details ?? '')
+        : (overlayState.habit.notes ?? '');
 
   const draftText =
     draft == null
@@ -664,6 +691,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         : baseType === 'todo'
           ? draft.todo.details
           : draft.habit.notes;
+  const hasOverflowActions = currentText.trim().length > 0;
   useEffect(() => {
     let mounted = true;
     readOverlayV2Draft(draftKey).then((v) => {
@@ -705,6 +733,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       undoTimerRef.current = null;
     }
   }
+
+  const handleOverflowPress = useCallback(() => {
+    if (!currentText.trim()) return;
+
+    const actions: Array<{ label: string; handler: () => void }> = [
+      {
+        label: 'Re-summarize title',
+        handler: () => {
+          const summarized = compactTitle(currentText);
+          const fallback = summarized || (baseType === 'log' ? 'Untitled note' : 'Untitled');
+          dispatch({ type: 'SET_TITLE_USER', title: fallback });
+        },
+      },
+    ];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...actions.map((action) => action.label), 'Cancel'],
+          cancelButtonIndex: actions.length,
+        },
+        (index) => {
+          if (typeof index === 'number' && index >= 0 && index < actions.length) {
+            actions[index].handler();
+          }
+        },
+      );
+      return;
+    }
+
+    Alert.alert(
+      'More actions',
+      undefined,
+      [
+        ...actions.map((action) => ({ text: action.label, onPress: action.handler })),
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true },
+    );
+  }, [baseType, currentText, dispatch]);
 
   function safeFormat(iso: string | null | undefined) {
     try {
@@ -883,24 +951,55 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Only apply suggestions for fresh creates with an empty text body
     if (mode !== 'create') return;
     if (currentText && currentText.trim().length > 0) return;
-    if (suggestedTitle && !overlayState.log.title) {
-      dispatch({ type: 'SET_TITLE', title: suggestedTitle });
+    if (!suggestedTitle) return;
+    if (overlayState.titleLocked) return;
+
+    const activeTitle =
+      overlayState.baseType === 'todo'
+        ? overlayState.todo.title
+        : overlayState.baseType === 'habit'
+          ? overlayState.habit.title
+          : overlayState.log.title;
+
+    if (!activeTitle || activeTitle.trim().length === 0) {
+      dispatch({ type: 'SET_TITLE_AI', title: suggestedTitle });
       // remember that the current title equals the suggestion we applied
       prevTitleRef.current = suggestedTitle;
     }
-  }, [currentText, dispatch, mode, overlayState.log.title, suggestedTitle]);
+  }, [
+    currentText,
+    dispatch,
+    mode,
+    overlayState.baseType,
+    overlayState.habit.title,
+    overlayState.log.title,
+    overlayState.titleLocked,
+    overlayState.todo.title,
+    suggestedTitle,
+  ]);
 
   // Detect manual title edits away from an AI suggestion
   useEffect(() => {
     const prev = prevTitleRef.current;
-    const cur = overlayState.log.title;
+    const cur =
+      overlayState.baseType === 'todo'
+        ? overlayState.todo.title
+        : overlayState.baseType === 'habit'
+          ? overlayState.habit.title
+          : overlayState.log.title;
     if (prev && prev.trim().length > 0 && cur !== prev && suggestedTitle === prev) {
       // user edited the suggested title -> mark as rejected
       recordOverlayFeedback({ type: 'title', accepted: false, prev, newValue: cur });
       // clear prev so we don't repeatedly send
       prevTitleRef.current = null;
     }
-  }, [overlayState.log.title, suggestedTitle]);
+  }, [
+    overlayState.baseType,
+    overlayState.habit.title,
+    overlayState.log.title,
+    overlayState.todo.title,
+    suggestedTitle,
+  ]);
 
   const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
     const rawNames = (prefillSuggestedTags ?? []).map((entry) =>
@@ -988,10 +1087,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         tags: [...overlayState.tags],
         list: overlayState.list,
         mood: overlayState.mood,
+        stickyTags: [...overlayState.stickyTags],
+        tagTombstones: [...overlayState.tagTombstones],
       });
       dispatch({ type: 'TOGGLE_TAG', tag: normalized });
     },
-    [dispatch, overlayState.list, overlayState.mood, overlayState.tags],
+    [
+      dispatch,
+      overlayState.list,
+      overlayState.mood,
+      overlayState.tagTombstones,
+      overlayState.tags,
+      overlayState.stickyTags,
+    ],
   );
 
   const handleTagRemove = useCallback(
@@ -1003,11 +1111,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         tags: [...overlayState.tags],
         list: overlayState.list,
         mood: overlayState.mood,
+        stickyTags: [...overlayState.stickyTags],
+        tagTombstones: [...overlayState.tagTombstones],
       });
-      const nextTags = overlayState.tags.filter((t) => t !== normalized);
-      dispatch({ type: 'SET_TAGS', tags: nextTags });
+      dispatch({ type: 'REMOVE_TAG', tag: normalized });
     },
-    [dispatch, overlayState.list, overlayState.mood, overlayState.tags],
+    [
+      dispatch,
+      overlayState.list,
+      overlayState.mood,
+      overlayState.tagTombstones,
+      overlayState.tags,
+      overlayState.stickyTags,
+    ],
   );
 
   // theme / background for overlay (phase‑8 visual polish)
@@ -1194,7 +1310,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             })()
           : null;
 
-      const input = toCreateOrUpdateInput(baseType, overlayState as any, initialSpaceId ?? null, {
+      const fallbackTitleForBase =
+        compactTitle(currentText) || (baseType === 'log' ? 'Untitled note' : 'Untitled');
+
+      let stateForSave: V2State = overlayState;
+      if (baseType === 'todo') {
+        const existing = overlayState.todo.title?.trim();
+        if (!existing) {
+          stateForSave = {
+            ...overlayState,
+            todo: { ...overlayState.todo, title: fallbackTitleForBase },
+          };
+        }
+      } else if (baseType === 'habit') {
+        const existing = overlayState.habit.title?.trim();
+        if (!existing) {
+          stateForSave = {
+            ...overlayState,
+            habit: { ...overlayState.habit, title: fallbackTitleForBase },
+          };
+        }
+      } else {
+        const existing = overlayState.log.title?.trim();
+        if (!existing) {
+          stateForSave = {
+            ...overlayState,
+            log: { ...overlayState.log, title: fallbackTitleForBase },
+          };
+        }
+      }
+
+      const input = toCreateOrUpdateInput(baseType, stateForSave as any, initialSpaceId ?? null, {
         mode,
         canonicalType: shouldWriteCanonical ? canonicalTypeForSaveRaw : null,
         canonicalLogSubtype: canonicalLogSubtypeForSave,
@@ -1375,6 +1521,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     draftKey,
     onClose,
     isOffline,
+    currentText,
     announceForAccessibility,
   ]);
 
@@ -1463,12 +1610,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     backgroundColor: sheetBackground,
                   }}
                 >
-                  <Text
-                    variant="title"
-                    style={{ color: lightTokens.colors.text, fontWeight: '600' }}
-                  >
-                    {headerTitle}
-                  </Text>
+                  <Box row style={{ alignItems: 'center' }}>
+                    <Text
+                      variant="title"
+                      style={{
+                        color: lightTokens.colors.text,
+                        fontWeight: '600',
+                        flex: 1,
+                      }}
+                    >
+                      {headerTitle}
+                    </Text>
+                    {hasOverflowActions ? (
+                      <Pressable
+                        onPress={handleOverflowPress}
+                        accessibilityRole="button"
+                        accessibilityLabel="More actions"
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.headerIconButton}
+                      >
+                        <Icon name="MoreHorizontal" size="sm" color={lightTokens.colors.text} />
+                      </Pressable>
+                    ) : null}
+                  </Box>
                 </Box>
 
                 {/* Body: entire form stack in a single scroll context */}
@@ -1519,6 +1683,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           );
                         })}
                       </View>
+                      <Box>
+                        <Text variant="label">Title</Text>
+                        <TextInput
+                          value={titleValue}
+                          onChangeText={(text) => dispatch({ type: 'SET_TITLE_USER', title: text })}
+                          accessibilityLabel="Overlay title input"
+                          onFocus={() => setTitleFocused(true)}
+                          onBlur={() => setTitleFocused(false)}
+                          placeholder={titlePlaceholder}
+                          placeholderTextColor={lightTokens.colors.subtle}
+                          style={[
+                            styles.titleInput,
+                            {
+                              color: lightTokens.colors.text,
+                              backgroundColor:
+                                colorMode === 'dark'
+                                  ? darkTokens.colors.deep
+                                  : lightTokens.colors.linen,
+                              borderColor: titleFocused
+                                ? 'rgba(46,85,64,0.35)'
+                                : 'rgba(46,85,64,0.18)',
+                              borderWidth: titleFocused ? 2 : StyleSheet.hairlineWidth,
+                            },
+                          ]}
+                          returnKeyType="next"
+                          testID="overlay-title-input"
+                        />
+                      </Box>
                       <TagsRow
                         tags={viewState.tags}
                         suggested={filteredTagSuggestions}
@@ -2195,6 +2387,19 @@ const styles = StyleSheet.create({
     height: 2,
     marginTop: tokenSpacing.xs,
     borderRadius: tokenRadius.sm,
+  },
+  titleInput: {
+    minHeight: 48,
+    fontSize: lightTokens.typography.size.md,
+    paddingVertical: tokenSpacing.sm,
+    paddingHorizontal: tokenSpacing.base,
+    borderRadius: tokenRadius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  headerIconButton: {
+    padding: tokenSpacing.xs,
+    borderRadius: tokenRadius.sm,
+    marginLeft: tokenSpacing.sm,
   },
   textArea: {
     minHeight: 120,

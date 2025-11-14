@@ -252,6 +252,25 @@ describe('RecentDrops in Mind Drop', () => {
     }
   });
 
+  test('shows edited overlay title from persisted record in Recent Drops', async () => {
+    const now = new Date();
+    mockNotesList.mockResolvedValue([]);
+    const baseTodo = makeTodo('t-edited', '', now);
+    mockTodosList.mockResolvedValue([
+      {
+        ...baseTodo,
+        name: '',
+        title: 'Manual overlay title',
+      },
+    ]);
+    mockHabitsList.mockResolvedValue([]);
+
+    render(<CatchAllNotepad />);
+
+    const card = await screen.findByTestId('minddrop-recent-todo-t-edited');
+    expect(within(card).getByText('Manual overlay title')).toBeTruthy();
+  });
+
   test('shows singular stats copy when exactly one item is organized today', async () => {
     const now = new Date();
     mockNotesList.mockResolvedValue([makeNote('n-single', 'single note', now)]);

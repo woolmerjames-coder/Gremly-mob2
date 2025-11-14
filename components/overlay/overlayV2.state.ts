@@ -24,11 +24,14 @@ export type V2State = {
   format: FormatKind; // notes only
   reminderAt: string | null; // ISO-ish
   suggestedDue: string | null;
+  stickyTags: string[];
+  tagTombstones: string[];
   // Commitment fields (Phase X)
   commitment: boolean;
   commitmentNote: string;
   commitmentStartedAt: string | null;
   log: LogState;
+  titleLocked: boolean;
   todo: TodoState;
   habit: HabitState;
   // undo stack for lightweight UI-only undos (Phase 9 QA pack)
@@ -47,10 +50,13 @@ export const initialV2State: V2State = {
   format: 'plain',
   reminderAt: null,
   suggestedDue: null,
+  stickyTags: [],
+  tagTombstones: [],
   commitment: false,
   commitmentNote: '',
   commitmentStartedAt: null,
   log: { title: '', body: '' },
+  titleLocked: false,
   todo: { title: '', details: '', due_at: null },
   habit: { title: '', notes: '', schedule: 'custom' },
   undoStack: [],
@@ -60,11 +66,14 @@ export type Action =
   | { type: 'SET_BASE_TYPE'; to: BaseType }
   | { type: 'SET_TEXT'; text: string } // applies to current type
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
-  | { type: 'SET_TITLE'; title: string }
+  | { type: 'SET_TITLE_AI'; title: string }
+  | { type: 'SET_TITLE_USER'; title: string }
   | { type: 'SET_TODO_DUE'; due_at: string | null }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
+  | { type: 'ADD_TAG'; tag: TagKey }
+  | { type: 'REMOVE_TAG'; tag: TagKey }
   | { type: 'TOGGLE_TAG'; tag: TagKey }
   | { type: 'SET_MOOD'; mood: 'pos' | 'neu' | 'neg' | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
@@ -112,15 +121,37 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     case 'SET_TAGS': {
       const deduped = Array.from(new Set(action.tags));
       const { list, mood } = deriveTagSideEffects(state, deduped);
-      return { ...state, tags: deduped, list, mood };
+      const stickyTags = state.stickyTags.filter((tag) => deduped.includes(tag));
+      const tagTombstones = state.tagTombstones.filter((tag) => !deduped.includes(tag));
+      return { ...state, tags: deduped, list, mood, stickyTags, tagTombstones };
+    }
+    case 'ADD_TAG': {
+      if (state.tags.includes(action.tag)) {
+        const { list, mood } = deriveTagSideEffects(state, state.tags);
+        return { ...state, list, mood };
+      }
+      const tags = [...state.tags, action.tag];
+      const { list, mood } = deriveTagSideEffects(state, tags);
+      const stickyTags = state.stickyTags.includes(action.tag)
+        ? state.stickyTags
+        : [...state.stickyTags, action.tag];
+      const tagTombstones = state.tagTombstones.filter((tag) => tag !== action.tag);
+      return { ...state, tags, list, mood, stickyTags, tagTombstones };
+    }
+    case 'REMOVE_TAG': {
+      if (!state.tags.includes(action.tag)) return state;
+      const tags = state.tags.filter((tag) => tag !== action.tag);
+      const { list, mood } = deriveTagSideEffects(state, tags);
+      const stickyTags = state.stickyTags.filter((tag) => tag !== action.tag);
+      const tagTombstones = state.tagTombstones.includes(action.tag)
+        ? state.tagTombstones
+        : [...state.tagTombstones, action.tag];
+      return { ...state, tags, list, mood, stickyTags, tagTombstones };
     }
     case 'TOGGLE_TAG': {
       const hasTag = state.tags.includes(action.tag);
-      const nextTags = hasTag
-        ? state.tags.filter((t) => t !== action.tag)
-        : [...state.tags, action.tag];
-      const { list, mood } = deriveTagSideEffects(state, nextTags);
-      return { ...state, tags: nextTags, list, mood };
+      if (hasTag) return v2Reducer(state, { type: 'REMOVE_TAG', tag: action.tag });
+      return v2Reducer(state, { type: 'ADD_TAG', tag: action.tag });
     }
     case 'SET_MOOD':
       return { ...state, mood: action.mood };
@@ -155,14 +186,28 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       next.detected = { mentions, dates };
       return applySuggestedDue(next);
     }
-    case 'SET_TITLE': {
-      if (state.baseType === 'log') return { ...state, log: { ...state.log, title: action.title } };
+    case 'SET_TITLE_AI': {
+      if (state.titleLocked) return state;
+      if (state.baseType === 'log')
+        return { ...state, titleLocked: false, log: { ...state.log, title: action.title } };
       if (state.baseType === 'todo')
         return applySuggestedDue({
           ...state,
+          titleLocked: false,
           todo: { ...state.todo, title: action.title },
         });
-      return { ...state, habit: { ...state.habit, title: action.title } };
+      return { ...state, titleLocked: false, habit: { ...state.habit, title: action.title } };
+    }
+    case 'SET_TITLE_USER': {
+      if (state.baseType === 'log')
+        return { ...state, titleLocked: true, log: { ...state.log, title: action.title } };
+      if (state.baseType === 'todo')
+        return applySuggestedDue({
+          ...state,
+          titleLocked: true,
+          todo: { ...state.todo, title: action.title },
+        });
+      return { ...state, titleLocked: true, habit: { ...state.habit, title: action.title } };
     }
     case 'SET_TODO_DUE':
       if (action.due_at) {
@@ -237,9 +282,17 @@ function currentTextOf(s: V2State) {
   return s.baseType === 'log' ? s.log.body : s.baseType === 'todo' ? s.todo.details : s.habit.notes;
 }
 function setTextForCurrent(s: V2State, t: string): V2State {
-  if (s.baseType === 'log') return { ...s, log: { ...s.log, body: t, title: firstLine(t) } };
-  if (s.baseType === 'todo') return { ...s, todo: { ...s.todo, details: t, title: firstLine(t) } };
-  return { ...s, habit: { ...s.habit, notes: t, title: firstLine(t) } };
+  if (s.baseType === 'log') {
+    const nextTitle = s.titleLocked ? s.log.title : firstLine(t);
+    return { ...s, log: { ...s.log, body: t, title: nextTitle } };
+  }
+  if (s.baseType === 'todo') {
+    const nextTitle = s.titleLocked ? s.todo.title : firstLine(t);
+    const nextState = { ...s, todo: { ...s.todo, details: t, title: nextTitle } };
+    return applySuggestedDue(nextState);
+  }
+  const nextTitle = s.titleLocked ? s.habit.title : firstLine(t);
+  return { ...s, habit: { ...s.habit, notes: t, title: nextTitle } };
 }
 function parseListLines(src: string) {
   return linesToItems(src.split(/\r?\n/).filter(Boolean));
