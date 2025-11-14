@@ -349,7 +349,7 @@ export function UnifiedCreateOverlay({
         // Fetch based on type
         if (type === 'person') {
           const people = await repo.listPeople();
-          const person = people.find((p) => p.id === id);
+          const person = people.find((p: any) => p.id === id);
           if (!person) {
             setHydration('error');
             return;
@@ -857,7 +857,7 @@ export function UnifiedCreateOverlay({
                   if (classification.spaceName) {
                     const spaces = await repo.listSpaces();
                     let space = spaces.find(
-                      (s) => s.name.toLowerCase() === classification.spaceName.toLowerCase(),
+                      (s: any) => s.name.toLowerCase() === classification.spaceName.toLowerCase(),
                     );
 
                     if (!space) {

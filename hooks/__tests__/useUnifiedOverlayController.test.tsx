@@ -11,6 +11,7 @@ jest.mock('../../contexts/OverlayContext', () => {
     initialEntity: undefined,
     initialSpaceId: null,
     conversionMeta: undefined,
+    initialText: undefined,
   });
 
   const OverlayContext = React.createContext(undefined);
@@ -42,39 +43,47 @@ jest.mock('../../contexts/OverlayContext', () => {
   const OverlayProvider = ({ children }: { children: React.ReactNode }) => {
     const [state, setState] = React.useState(createDefaultState());
 
-    const openCreate = React.useCallback((options: any = {}) => {
-      const { type, spaceId, logSubtype } = options;
-      setState({
-        visible: true,
-        mode: 'create',
-        initialEntity: type
-          ? {
-              type,
-              id: undefined,
-              logSubtype: type === 'log' ? logSubtype ?? null : null,
-            }
-          : undefined,
-        initialSpaceId: spaceId ?? null,
-        conversionMeta: undefined,
-      });
-    }, [setState]);
+    const openCreate = React.useCallback(
+      (options: any = {}) => {
+        const { type, spaceId, logSubtype } = options;
+        setState({
+          visible: true,
+          mode: 'create',
+          initialEntity: type
+            ? {
+                type,
+                id: undefined,
+                logSubtype: type === 'log' ? (logSubtype ?? null) : null,
+              }
+            : undefined,
+          initialSpaceId: spaceId ?? null,
+          conversionMeta: undefined,
+          initialText: options?.initialText ?? null,
+        });
+      },
+      [setState],
+    );
 
-    const openEdit = React.useCallback((options: any) => {
-      const { record, spaceId } = options;
-      const { entityType, logSubtype } = resolveEntityFromRecord(record);
+    const openEdit = React.useCallback(
+      (options: any) => {
+        const { record, spaceId } = options;
+        const { entityType, logSubtype } = resolveEntityFromRecord(record);
 
-      setState({
-        visible: true,
-        mode: 'edit',
-        initialEntity: {
-          type: entityType,
-          id: record.id,
-          logSubtype,
-        },
-        initialSpaceId: spaceId ?? null,
-        conversionMeta: undefined,
-      });
-    }, [setState]);
+        setState({
+          visible: true,
+          mode: 'edit',
+          initialEntity: {
+            type: entityType,
+            id: record.id,
+            logSubtype,
+          },
+          initialSpaceId: spaceId ?? null,
+          conversionMeta: undefined,
+          initialText: undefined,
+        });
+      },
+      [setState],
+    );
 
     const close = React.useCallback(() => {
       setState(createDefaultState());

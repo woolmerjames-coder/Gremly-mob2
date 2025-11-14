@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 
 type MockDecision = {
   mode: 'auto' | 'ask';
@@ -144,6 +145,10 @@ describe('Mind Drop Category Chip Conversion', () => {
     jest.clearAllMocks();
     resetRepo();
     resetOtherMocks();
+
+    const overlay = useGlobalOverlay();
+    (overlay.openCreate as jest.Mock).mockClear();
+    (overlay.openEdit as jest.Mock).mockClear();
   });
 
   it('converts low-confidence note to todo via category chip - ONE entry only', async () => {
@@ -179,26 +184,25 @@ describe('Mind Drop Category Chip Conversion', () => {
     const todoChip = await findByTestId('minddrop-category-todo', {}, { timeout: 3000 });
     fireEvent.press(todoChip);
 
+    const overlay = useGlobalOverlay();
+    const openCreate = overlay.openCreate as jest.Mock;
+
     await waitFor(() => {
-      expect(mockRepo.update).toHaveBeenCalledWith(
+      expect(openCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'unsorted-123',
-          patch: expect.objectContaining({
-            type: 'todo',
-            name: 'Buy groceries and milk',
-          }),
+          initialEntity: expect.objectContaining({ type: 'todo' }),
+          initialText: 'Buy groceries and milk',
         }),
       );
     });
 
+    expect(mockRepo.update).not.toHaveBeenCalled();
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
     expect(mockRepo.remove).not.toHaveBeenCalled();
-
-    const updateCall = mockRepo.update.mock.calls[0][0] as { patch: { labels: string[] } };
-    expect(updateCall.patch.labels).not.toContain('needs_review');
+    expect(mockRepo.getById).toHaveBeenCalledWith('unsorted-123');
   });
 
-  it('truncates first line to 80 chars for todo name', async () => {
+  it('prefills overlay with the original note text for manual todo conversion', async () => {
     const longText =
       'This is a very long first line that exceeds eighty characters and should be truncated properly\nSecond line here';
     const mockUnsortedNote = {
@@ -232,12 +236,18 @@ describe('Mind Drop Category Chip Conversion', () => {
     const todoChip = await findByTestId('minddrop-category-todo', {}, { timeout: 3000 });
     fireEvent.press(todoChip);
 
+    const overlay = useGlobalOverlay();
+    const openCreate = overlay.openCreate as jest.Mock;
+
     await waitFor(() => {
-      const updateCall = mockRepo.update.mock.calls[0][0] as {
-        patch: { name: string };
-      };
-      expect(updateCall.patch.name).toBe(longText.split('\n')[0].substring(0, 80));
-      expect(updateCall.patch.name.length).toBeLessThanOrEqual(80);
+      expect(openCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialEntity: expect.objectContaining({ type: 'todo' }),
+          initialText: longText,
+        }),
+      );
     });
+
+    expect(mockRepo.update).not.toHaveBeenCalled();
   });
 });

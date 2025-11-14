@@ -1,6 +1,6 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
-import { normalizeTag, normalizeTags } from '../lib/tags/normalize';
+import { filterAndNormalizeTags, normalizeTag } from '../lib/tags/normalize';
 import { heuristicEngine } from './heuristicEngine';
 
 interface OpenAiEngineConfig {
@@ -178,7 +178,7 @@ function sanitizeTags(rawTags: RawClassification['tags']): string[] {
     topics.push(tag);
   }
 
-  return normalizeTags([...mentions, ...(chosenType ? [chosenType] : []), ...topics]);
+  return filterAndNormalizeTags([...mentions, ...(chosenType ? [chosenType] : []), ...topics]);
 }
 
 function extractExplicitDateTag(text: string): string | null {
@@ -427,7 +427,7 @@ export function buildFallbackTags(
     tags.push(normalized);
   }
 
-  const normalized = normalizeTags(tags);
+  const normalized = filterAndNormalizeTags(tags);
   const typeTagPrecedence = ['*journal', '*idea', '*list', '*meeting'] as const;
   const chosenTypeTag = typeTagPrecedence.find((tag) => normalized.includes(tag)) ?? null;
   const filtered = chosenTypeTag
@@ -825,7 +825,7 @@ export async function classifyTextForEval(
   const start = now();
   const raw = await engine.classify({ text, spaceId: null });
   const latencyMs = now() - start;
-  const finalTags = normalizeTags(raw.tags ?? []);
+  const finalTags = filterAndNormalizeTags(raw.tags ?? []);
 
   return { raw, finalTags, latencyMs };
 }

@@ -1,19 +1,20 @@
 import * as React from 'react';
 import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
-import { Pressable, StyleSheet, ScrollView } from 'react-native';
+import { Pressable, StyleSheet, ScrollView, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import NewSpaceModal from './NewSpaceModal';
-import { UnifiedCreateOverlay } from './overlay/UnifiedCreateOverlay';
+import { OverlayComponent } from './overlay';
+import { eventBus } from '../lib/events/EventBus';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
 import { useRepo } from '../providers/RepoProvider';
 import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
-import { emitOverlaySaved } from '../lib/events/overlaySaved';
+import { emitOverlaySaved, type OverlaySavedPayload } from '../lib/events/overlaySaved';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -361,25 +362,70 @@ function DestinationPickerSheet({
 export const OverlayHost = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const overlay = useGlobalOverlay();
+  const {
+    state: { visible, mode, initialEntity, initialSpaceId, conversionMeta, initialText },
+    close,
+  } = overlay;
+
+  const canTapOutsideToClose = (overlay.state as any)?.canTapOutsideToClose ?? false;
+
+  const handleClose = React.useCallback(() => {
+    if (!visible) return;
+    close();
+  }, [close, visible]);
+
+  const handleSaved = React.useCallback(
+    async (result: OverlaySavedPayload) => {
+      emitOverlaySaved(result);
+      try {
+        eventBus.emit('OverlaySaved', { id: result.id, type: (result as any).type });
+      } catch (e) {
+        // ignore telemetry failures
+      }
+      close();
+    },
+    [close],
+  );
 
   return (
     <>
       <NewSpaceModal />
 
-      {/* Global Unified Overlay - single instance for entire app */}
-      <UnifiedCreateOverlay
-        visible={overlay.state.visible}
-        mode={overlay.state.mode}
-        initialEntity={overlay.state.initialEntity}
-        initialSpaceId={overlay.state.initialSpaceId}
-        conversionMeta={overlay.state.conversionMeta}
-        onClose={overlay.close}
-        onSaved={async (result) => {
-          emitOverlaySaved(result);
-          // Refresh handled by individual screens
-          overlay.close();
-        }}
-      />
+      {/* Global Unified Overlay - single instance for entire app
+          Mount the overlay into a top-level absolute container so it renders
+          above app content without dimming or modal backdrop. The overlay
+          itself controls its internal layout (height/scrollable) and should
+          not rely on Modal transparency. */}
+      {visible ? (
+        <View
+          pointerEvents="box-none"
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000 }}
+        >
+          <Pressable
+            onPress={canTapOutsideToClose ? handleClose : undefined}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              backgroundColor: 'transparent',
+            }}
+          />
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+            <OverlayComponent
+              visible={visible}
+              mode={mode}
+              initialEntity={initialEntity}
+              initialSpaceId={initialSpaceId}
+              conversionMeta={conversionMeta}
+              initialText={initialText ?? undefined}
+              onClose={handleClose}
+              onSaved={handleSaved}
+            />
+          </View>
+        </View>
+      ) : null}
 
       {__DEV__ && (
         <Pressable

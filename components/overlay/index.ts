@@ -3,12 +3,12 @@
  * Centralized export for the new unified overlay and its field components
  */
 
-export { UnifiedCreateOverlay } from './UnifiedCreateOverlay';
+// Expose a single gateway export surface. Callers should import the
+// OverlayComponent from the overlay package root to avoid depending on
+// implementation-specific modules.
+export { OverlayComponent } from './gateway';
 export type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 
-// Field components (internal use)
-export { HabitFields } from './fields/HabitFields';
-export { TodoFields } from './fields/TodoFields';
-export { JournalFields } from './fields/JournalFields';
-export { NoteFields } from './fields/NoteFields';
-export { PersonFields } from './fields/PersonFields';
+// Intentionally do NOT export UnifiedCreateOverlay or UnifiedOverlayV2
+// directly — those are implementation details and should be reached via
+// the gateway when needed for storybooks or dev previews.

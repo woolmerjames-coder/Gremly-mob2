@@ -44,6 +44,13 @@ export const habitSubtypeZ = z.union([
 export const frequencyZ = z.string().min(1) as z.ZodType<Frequency>;
 
 const tagsZ = z.array(z.string()).nullable().optional();
+const tagsMetaZ = z
+  .object({
+    sticky: z.array(z.string()).optional(),
+    tombstones: z.array(z.string()).optional(),
+  })
+  .nullable()
+  .optional();
 
 // ==========================
 // ROW SCHEMAS (from database)
@@ -64,6 +71,7 @@ const baseRecordZ = z.object({
     })
     .optional(),
   source_message_id: z.string().optional().nullable(),
+  tags_meta: tagsMetaZ,
   created_at: z.string(), // Accept any string format from DB
   updated_at: z.string(), // Accept any string format from DB
   owner_id: z.string().min(1),
@@ -165,6 +173,7 @@ export const habitInsertSchema = z
         alsoShowIn: z.array(z.string()).optional(),
       })
       .optional(),
+    tags_meta: tagsMetaZ,
     // Extended habit fields (Phase 7+) - using database column names (_json suffix for jsonb)
     frequency_json: z.any().optional().nullable(), // Maps to frequency_json column (jsonb)
     reminders_json: z.array(z.any()).optional().nullable(), // Maps to reminders_json column (jsonb)
@@ -209,6 +218,7 @@ export const todoInsertSchema = z.object({
       alsoShowIn: z.array(z.string()).optional(),
     })
     .optional(),
+  tags_meta: tagsMetaZ,
 });
 
 export const noteInsertSchema = z.object({
@@ -226,6 +236,7 @@ export const noteInsertSchema = z.object({
       alsoShowIn: z.array(z.string()).optional(),
     })
     .optional(),
+  tags_meta: tagsMetaZ,
   // Journal-specific fields (from generated schema - notes table has these)
   date: z.string().nullable().optional(), // ISO date for journal entry
   mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),

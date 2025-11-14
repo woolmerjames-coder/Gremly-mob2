@@ -78,13 +78,12 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
       await waitFor(() => {
         expect(screen.getByTestId('type-pill-habit')).toBeTruthy();
         expect(screen.getByTestId('type-pill-todo')).toBeTruthy();
-        expect(screen.getByTestId('type-pill-journal')).toBeTruthy();
-        expect(screen.getByTestId('type-pill-note')).toBeTruthy();
+        expect(screen.getByTestId('type-pill-log')).toBeTruthy();
         expect(screen.getByTestId('type-pill-person')).toBeTruthy();
       });
     });
 
-    it('allows selecting journal type and renders journal form', async () => {
+    it('allows selecting log type and renders log form', async () => {
       renderWithProviders(
         <UnifiedCreateOverlay
           visible={true}
@@ -96,12 +95,12 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
 
       // Journal type should be selected
       await waitFor(() => {
-        expect(screen.getByTestId('type-pill-journal')).toBeTruthy();
+        expect(screen.getByTestId('type-pill-log')).toBeTruthy();
       });
 
-      // Journal form should appear
+      // Log form should appear (journal subtype handled via tags)
       await waitFor(() => {
-        expect(screen.getByTestId('fields-journal')).toBeTruthy();
+        expect(screen.getByTestId('fields-note')).toBeTruthy();
       });
     });
 
@@ -121,12 +120,12 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         expect(screen.getByTestId('fields-habit')).toBeTruthy();
       });
 
-      // Tap journal chip
-      fireEvent.press(screen.getByTestId('type-pill-journal'));
+      // Tap log chip
+      fireEvent.press(screen.getByTestId('type-pill-log'));
 
-      // Journal form should appear
+      // Log form should appear
       await waitFor(() => {
-        expect(screen.getByTestId('fields-journal')).toBeTruthy();
+        expect(screen.getByTestId('fields-note')).toBeTruthy();
       });
     });
   });
@@ -201,15 +200,15 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         expect(screen.getByTestId('fields-habit')).toBeTruthy();
       });
 
-      // Chips should be tappable - tap journal
-      const journalChip = screen.getByTestId('type-pill-journal');
-      expect(journalChip).toBeTruthy();
+      // Chips should be tappable - tap log
+      const logChip = screen.getByTestId('type-pill-log');
+      expect(logChip).toBeTruthy();
 
-      fireEvent.press(journalChip);
+      fireEvent.press(logChip);
 
       // Should switch to journal form
       await waitFor(() => {
-        expect(screen.getByTestId('fields-journal')).toBeTruthy();
+        expect(screen.getByTestId('fields-note')).toBeTruthy();
       });
     });
 
@@ -282,10 +281,10 @@ describe.skip('UnifiedCreateOverlay - Edit & Create Modes', () => {
         expect(habitForm).toBeTruthy();
       });
 
-      // Switch to note
-      fireEvent.press(screen.getByTestId('type-pill-note'));
+      // Switch to log
+      fireEvent.press(screen.getByTestId('type-pill-log'));
 
-      // Note form should render (habit form should be gone)
+      // Log form should render (habit form should be gone)
       await waitFor(() => {
         expect(screen.queryByTestId('fields-habit')).toBeNull();
         expect(screen.getByTestId('fields-note')).toBeTruthy();

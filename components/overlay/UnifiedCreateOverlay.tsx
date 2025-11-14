@@ -3,9 +3,13 @@
  * UnifiedCreateOverlay - Phase 7 unified create/edit overlay
  * Single overlay for all entity types with type pills, subtypes, and AI freeform mode
  */
+/**
+ * LEGACY OVERLAY
+ * Deprecated in favor of OverlayComponent (V2/V1 gateway).
+ * Do not import this directly. Use `@/components/overlay`.
+ */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Modal,
   View,
   ScrollView,
   StyleSheet,
@@ -52,6 +56,7 @@ import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
 import type { ItemType, Tag } from '../../lib/repo/types';
 import {
+  filterAndNormalizeTags,
   normalizeTags,
   getTagIdentifier,
   recordRemovedTags,
@@ -164,6 +169,7 @@ export type UnifiedCreateOverlayProps = {
     // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
     initialDueDate?: string | null;
   };
+  initialText?: string | null;
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
   onCommitmentsChanged?: () => void | Promise<void>;
@@ -176,24 +182,25 @@ type TypeOption = {
   logSubtype?: LogSubtype;
 };
 
+const BASE_TYPE_OPTIONS: TypeOption[] = [
+  { value: 'habit', label: 'Habit', iconName: 'Activity' },
+  { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
+  {
+    value: 'log',
+    label: NOTE_LABEL,
+    iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
+  },
+  { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
+];
+
 const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
-  ? [
-      { value: 'habit', label: 'Habit', iconName: 'Activity' },
-      { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
-      {
-        value: 'log',
-        label: NOTE_LABEL,
-        iconName: CANONICAL_TYPES_ENABLED ? 'BookOpen' : 'FileText',
-      },
-      { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
-    ]
+  ? BASE_TYPE_OPTIONS
   : [
-      { value: 'habit', label: 'Habit', iconName: 'Activity' },
-      { value: 'todo', label: 'To-Do', iconName: 'CheckCircle2' },
-      { value: 'log', label: 'Journal', iconName: 'BookOpen', logSubtype: 'journal' },
-      { value: 'log', label: 'Note', iconName: 'FileText', logSubtype: 'everything_else' },
+      BASE_TYPE_OPTIONS[0],
+      BASE_TYPE_OPTIONS[1],
+      BASE_TYPE_OPTIONS[2],
       { value: 'log', label: 'Person', iconName: 'User', logSubtype: 'person' },
-      { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
+      BASE_TYPE_OPTIONS[3],
     ];
 
 // Star tags now derive log subtype automatically (see deriveLogSubtypeFromTags).
@@ -1793,7 +1800,7 @@ export function UnifiedCreateOverlay({
             // Derive tags NOW (same normalization semantics as background finalize)
             const manualTagsSnapshot = normalizeTags(latestTagsRef.current);
             const removedTagsSnapshot = new Set<string>(removedTagsRef.current);
-            const classificationTags = normalizeTags(classification.tags ?? []);
+            const classificationTags = filterAndNormalizeTags(classification.tags ?? []);
             const filteredClassificationTags = classificationTags.filter(
               (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
             );
@@ -1890,7 +1897,7 @@ export function UnifiedCreateOverlay({
                   const classification = finalResult.classification;
                   const originalNoteId = newItem.id;
                   const originalText = noteText;
-                  const classificationTags = normalizeTags(classification.tags ?? []);
+                  const classificationTags = filterAndNormalizeTags(classification.tags ?? []);
                   const filteredClassificationTags = classificationTags.filter(
                     (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
                   );
@@ -2609,407 +2616,376 @@ export function UnifiedCreateOverlay({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={handleClose}
-      statusBarTranslucent
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={[styles.container, { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }]}
+      pointerEvents="box-none"
       testID={mode === 'edit' ? 'overlay-mode-edit' : 'unified-overlay'}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.container}
-        pointerEvents="box-none"
+      <View
+        style={[
+          styles.card,
+          {
+            paddingBottom: insets.bottom + 20,
+            backgroundColor: theme.colors.cream,
+          },
+        ]}
       >
-        <Pressable style={styles.backdrop} onPress={handleClose} testID="overlay-backdrop" />
-        <View
-          style={[
-            styles.card,
-            {
-              paddingBottom: insets.bottom + 20,
-              backgroundColor: theme.colors.cream,
-            },
-          ]}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <Text variant="title" style={{ color: theme.colors.text.primary }}>
-              Add or Edit Item
-            </Text>
-            <View style={styles.headerActions}>
-              {hasOverflowActions ? (
-                <TouchableOpacity
-                  onPress={handleOpenOverflowMenu}
-                  disabled={submitting}
-                  testID="overlay-overflow-button"
-                  style={styles.headerIconButton}
-                >
-                  <Icon name="MoreHorizontal" size="sm" color={theme.colors.text.secondary} />
-                </TouchableOpacity>
-              ) : null}
+        {/* Header */}
+        <View style={styles.header}>
+          <Text variant="title" style={{ color: theme.colors.text.primary }}>
+            Add or Edit Item
+          </Text>
+          <View style={styles.headerActions}>
+            {hasOverflowActions ? (
               <TouchableOpacity
-                onPress={handleClose}
-                testID="close-button"
-                style={[
-                  styles.headerIconButton,
-                  !hasOverflowActions && styles.headerIconButtonNoOffset,
-                ]}
+                onPress={handleOpenOverflowMenu}
+                disabled={submitting}
+                testID="overlay-overflow-button"
+                style={styles.headerIconButton}
               >
-                <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
+                <Icon name="MoreHorizontal" size="sm" color={theme.colors.text.secondary} />
               </TouchableOpacity>
-            </View>
+            ) : null}
+            <TouchableOpacity
+              onPress={handleClose}
+              testID="close-button"
+              style={[
+                styles.headerIconButton,
+                !hasOverflowActions && styles.headerIconButtonNoOffset,
+              ]}
+            >
+              <Text style={[styles.closeButton, { color: theme.colors.text.tertiary }]}>✕</Text>
+            </TouchableOpacity>
           </View>
+        </View>
 
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {showAiBanner && (
-              <View style={[styles.section, styles.aiBanner]} testID="ai-unavailable-banner">
-                <Text style={[styles.aiBannerText, { color: theme.colors.text.secondary }]}>
-                  {aiBannerMessage}
-                </Text>
-              </View>
-            )}
-
-            {/* Type row */}
-            <View style={styles.section}>
-              <View style={styles.chipRow}>
-                {TYPE_OPTIONS.map((opt) => {
-                  const isSelected =
-                    selectedType === opt.value &&
-                    (!opt.logSubtype || selectedLogSubtype === opt.logSubtype) &&
-                    !aiMode;
-                  const chipStyle = isSelected
-                    ? {
-                        backgroundColor: theme.colors.mint,
-                        borderColor: theme.colors.deepTeal.DEFAULT,
-                      }
-                    : {
-                        backgroundColor: 'transparent',
-                        borderColor: theme.colors.border.DEFAULT,
-                      };
-                  const chipTextStyle = isSelected
-                    ? { color: theme.colors.deepTeal.DEFAULT }
-                    : { color: theme.colors.text.secondary };
-                  const iconColor = isSelected
-                    ? theme.colors.deepTeal.DEFAULT
-                    : theme.colors.text.secondary;
-                  const nextSubtypeForOpt =
-                    opt.logSubtype ?? (opt.value === 'log' ? DEFAULT_LOG_SUBTYPE : null);
-                  const disabled =
-                    typePillsDisabled ||
-                    (isEditingPerson &&
-                      (opt.value !== 'log' ||
-                        (nextSubtypeForOpt ?? DEFAULT_LOG_SUBTYPE) !== 'person'));
-                  const chipKey = opt.logSubtype ? `${opt.value}-${opt.logSubtype}` : opt.value;
-                  const chipTestId = opt.logSubtype
-                    ? `type-pill-${opt.logSubtype}`
-                    : `type-pill-${opt.value}`;
-
-                  return (
-                    <Chip
-                      key={chipKey}
-                      label={opt.label}
-                      selected={isSelected}
-                      onPress={() => handleTypeSelect(opt.value, opt.logSubtype)}
-                      testID={chipTestId}
-                      disabled={disabled}
-                      style={{
-                        ...styles.typeChip,
-                        ...chipStyle,
-                        ...(disabled ? styles.typeChipDisabled : {}),
-                      }}
-                      textStyle={{
-                        ...chipTextStyle,
-                        ...(disabled ? styles.typeChipTextDisabled : {}),
-                      }}
-                      leadingIcon={<Icon name={opt.iconName} size="xs" color={iconColor} />}
-                    />
-                  );
-                })}
-              </View>
-              {/* Log subtype chips intentionally removed (selectedLogSubtype state retained for compatibility) */}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {showAiBanner && (
+            <View style={[styles.section, styles.aiBanner]} testID="ai-unavailable-banner">
+              <Text style={[styles.aiBannerText, { color: theme.colors.text.secondary }]}>
+                {aiBannerMessage}
+              </Text>
             </View>
+          )}
 
-            {/* AI mode button */}
-            {mode === 'create' && (
-              <View style={styles.section}>
-                <Pressable
-                  onPress={handleAiModeToggle}
-                  style={[
-                    styles.aiButton,
-                    aiMode && {
+          {/* Type row */}
+          <View style={styles.section}>
+            <View style={styles.chipRow}>
+              {TYPE_OPTIONS.map((opt) => {
+                const isSelected =
+                  selectedType === opt.value &&
+                  (!opt.logSubtype || selectedLogSubtype === opt.logSubtype) &&
+                  !aiMode;
+                const chipStyle = isSelected
+                  ? {
                       backgroundColor: theme.colors.mint,
                       borderColor: theme.colors.deepTeal.DEFAULT,
-                    },
-                  ]}
-                  testID="ai-mode-button"
-                >
-                  <Icon
-                    name="Sparkles"
-                    size="xs"
-                    color={aiMode ? theme.colors.deepTeal.DEFAULT : theme.colors.text.primary}
-                    strokeWidth={2}
-                  />
-                  <Text
-                    style={[
-                      styles.aiButtonText,
-                      { color: theme.colors.text.primary },
-                      aiMode && { color: theme.colors.deepTeal.DEFAULT },
-                    ]}
-                  >
-                    Not sure? Let Gremly decide
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {/* AI freeform input - Robust guard: only show in AI mode */}
-            {aiMode && (
-              <Animated.View
-                style={[
-                  styles.section,
-                  {
-                    opacity: fadeAnim,
-                    transform: [
-                      {
-                        translateY: fadeAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [20, 0],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                  <View style={{ marginRight: 6 }}>
-                    <Icon name="Sparkles" size="xs" color={theme.colors.text.secondary} />
-                  </View>
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      color: theme.colors.text.secondary,
-                      lineHeight: 20,
-                    }}
-                  >
-                    Not sure? Let Gremly decide
-                  </Text>
-                </View>
-                <TextInput
-                  value={freeformText}
-                  onChangeText={setFreeformText}
-                  placeholder="Tell me what's on your mind…"
-                  placeholderTextColor={theme.colors.text.tertiary}
-                  multiline
-                  numberOfLines={8}
-                  testID="freeform-input"
-                  autoFocus
-                  style={[
-                    styles.freeformInput,
-                    {
-                      backgroundColor: theme.colors.white,
+                    }
+                  : {
+                      backgroundColor: 'transparent',
                       borderColor: theme.colors.border.DEFAULT,
-                      color: theme.colors.text.primary,
-                    },
-                  ]}
-                />
-              </Animated.View>
-            )}
-
-            {/* Structured fields - Guard logic: show skeleton while loading, then fields when ready */}
-            {!aiMode &&
-              selectedType &&
-              (() => {
-                // Guard: If in edit mode and still loading, show skeleton
-                if (mode === 'edit' && hydration === 'loading') {
-                  return (
-                    <View style={styles.fieldsContainer} testID="loading-skeleton">
-                      <View style={[styles.skeletonInput, { backgroundColor: '#F3F4F6' }]} />
-                      <View
-                        style={[
-                          styles.skeletonInput,
-                          { backgroundColor: '#F3F4F6', marginTop: 12 },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.skeletonInput,
-                          { backgroundColor: '#F3F4F6', marginTop: 12, height: 100 },
-                        ]}
-                      />
-                      <Text
-                        style={{
-                          textAlign: 'center',
-                          color: theme.colors.text.tertiary,
-                          marginTop: 20,
-                        }}
-                      >
-                        Loading...
-                      </Text>
-                    </View>
-                  );
-                }
-
-                // Guard: If in edit mode and errored, show error
-                if (mode === 'edit' && hydration === 'error') {
-                  return (
-                    <View style={styles.fieldsContainer} testID="error-state">
-                      <Text
-                        style={{
-                          textAlign: 'center',
-                          color: theme.colors.error,
-                          marginTop: 20,
-                        }}
-                      >
-                        Failed to load entity. Please try again.
-                      </Text>
-                    </View>
-                  );
-                }
-
-                // Render fields only when ready (or in create mode which is always ready)
-                const canRenderFields =
-                  mode === 'create' || (mode === 'edit' && hydration === 'ready');
-
-                if (!canRenderFields) {
-                  return null;
-                }
+                    };
+                const chipTextStyle = isSelected
+                  ? { color: theme.colors.deepTeal.DEFAULT }
+                  : { color: theme.colors.text.secondary };
+                const iconColor = isSelected
+                  ? theme.colors.deepTeal.DEFAULT
+                  : theme.colors.text.secondary;
+                const nextSubtypeForOpt =
+                  opt.logSubtype ?? (opt.value === 'log' ? DEFAULT_LOG_SUBTYPE : null);
+                const disabled =
+                  typePillsDisabled ||
+                  (isEditingPerson &&
+                    (opt.value !== 'log' ||
+                      (nextSubtypeForOpt ?? DEFAULT_LOG_SUBTYPE) !== 'person'));
+                const chipKey = opt.logSubtype ? `${opt.value}-${opt.logSubtype}` : opt.value;
+                const chipTestId = opt.logSubtype
+                  ? `type-pill-${opt.logSubtype}`
+                  : `type-pill-${opt.value}`;
 
                 return (
-                  <Animated.View
-                    style={[
-                      styles.fieldsContainer,
-                      {
-                        opacity: fadeAnim,
-                        transform: [
-                          {
-                            translateY: fadeAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [20, 0],
-                            }),
-                          },
-                        ],
-                      },
-                    ]}
-                    testID={`fields-${selectedType}`}
-                  >
-                    {selectedType === 'habit' && (
-                      <>
-                        <HabitFields
-                          name={habitName}
-                          onNameChange={setHabitName}
-                          frequency={habitFrequency}
-                          onFrequencyChange={setHabitFrequency}
-                          subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
-                          onSubtypeChange={setHabitSubtype}
-                          disabled={false}
-                          frequencyValue={habitFrequencyValue}
-                          onFrequencyValueChange={setHabitFrequencyValue}
-                          reminders={habitReminders}
-                          onRemindersChange={setHabitReminders}
-                          details={habitDetails}
-                          onDetailsChange={setHabitDetails}
-                          breakHabitState={habitBreakState}
-                          onBreakHabitStateChange={setHabitBreakState}
-                        />
-                        <TagsField
-                          value={tagsState}
-                          onChange={handleTagsChange}
-                          disabled={submitting}
-                          testID="overlay-tags-field"
-                          removedRef={removedTagsRef}
-                        />
-                      </>
-                    )}
-                    {selectedType === 'todo' && (
-                      <>
-                        <TodoFields
-                          name={todoName}
-                          onNameChange={setTodoName}
-                          dueDate={todoDueDate}
-                          onDueDateChange={setTodoDueDate}
-                          dueTime={todoDueTime}
-                          onDueTimeChange={setTodoDueTime}
-                          details={todoDetails}
-                          onDetailsChange={setTodoDetails}
-                          disabled={false}
-                        />
-                        <TagsField
-                          value={tagsState}
-                          onChange={handleTagsChange}
-                          disabled={submitting}
-                          testID="overlay-tags-field"
-                          removedRef={removedTagsRef}
-                        />
-                      </>
-                    )}
-                    {selectedType === 'log' && selectedLogSubtype === 'journal' && (
-                      <>
-                        <JournalFields
-                          date={journalDate}
-                          onDateChange={setJournalDate}
-                          entry={journalEntry}
-                          onEntryChange={setJournalEntry}
-                          mood={journalMood}
-                          onMoodChange={setJournalMood}
-                          details={journalDetails}
-                          onDetailsChange={setJournalDetails}
-                          disabled={false}
-                        />
-                        <TagsField
-                          value={tagsState}
-                          onChange={handleTagsChange}
-                          disabled={submitting}
-                          testID="overlay-tags-field"
-                          removedRef={removedTagsRef}
-                        />
-                      </>
-                    )}
-                    {selectedType === 'log' && selectedLogSubtype === 'person' && (
-                      <>
-                        <PersonFields
-                          name={personName}
-                          onNameChange={setPersonName}
-                          details={personDetails}
-                          onDetailsChange={setPersonDetails}
-                          disabled={false}
-                        />
-                        <TagsField
-                          value={tagsState}
-                          onChange={handleTagsChange}
-                          disabled={submitting}
-                          testID="overlay-tags-field"
-                          removedRef={removedTagsRef}
-                        />
-                      </>
-                    )}
-                    {selectedType === 'log' &&
-                      selectedLogSubtype !== 'journal' &&
-                      selectedLogSubtype !== 'person' && (
-                        <>
-                          <NoteFields
-                            title={noteTitle}
-                            onTitleChange={setNoteTitle}
-                            body={noteBody}
-                            onBodyChange={setNoteBody}
-                            details={noteDetails}
-                            onDetailsChange={setNoteDetails}
-                            disabled={false}
-                          />
-                          <TagsField
-                            value={tagsState}
-                            onChange={handleTagsChange}
-                            disabled={submitting}
-                            testID="overlay-tags-field"
-                            removedRef={removedTagsRef}
-                          />
-                        </>
-                      )}
-                    {selectedType === 'unsorted' && (
+                  <Chip
+                    key={chipKey}
+                    label={opt.label}
+                    selected={isSelected}
+                    onPress={() => handleTypeSelect(opt.value, opt.logSubtype)}
+                    testID={chipTestId}
+                    disabled={disabled}
+                    style={{
+                      ...styles.typeChip,
+                      ...chipStyle,
+                      ...(disabled ? styles.typeChipDisabled : {}),
+                    }}
+                    textStyle={{
+                      ...chipTextStyle,
+                      ...(disabled ? styles.typeChipTextDisabled : {}),
+                    }}
+                    leadingIcon={<Icon name={opt.iconName} size="xs" color={iconColor} />}
+                  />
+                );
+              })}
+            </View>
+            {/* Log subtype chips intentionally removed (selectedLogSubtype state retained for compatibility) */}
+          </View>
+
+          {/* AI mode button */}
+          {mode === 'create' && (
+            <View style={styles.section}>
+              <Pressable
+                onPress={handleAiModeToggle}
+                style={[
+                  styles.aiButton,
+                  aiMode && {
+                    backgroundColor: theme.colors.mint,
+                    borderColor: theme.colors.deepTeal.DEFAULT,
+                  },
+                ]}
+                testID="ai-mode-button"
+              >
+                <Icon
+                  name="Sparkles"
+                  size="xs"
+                  color={aiMode ? theme.colors.deepTeal.DEFAULT : theme.colors.text.primary}
+                  strokeWidth={2}
+                />
+                <Text
+                  style={[
+                    styles.aiButtonText,
+                    { color: theme.colors.text.primary },
+                    aiMode && { color: theme.colors.deepTeal.DEFAULT },
+                  ]}
+                >
+                  Not sure? Let Gremly decide
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* AI freeform input - Robust guard: only show in AI mode */}
+          {aiMode && (
+            <Animated.View
+              style={[
+                styles.section,
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    {
+                      translateY: fadeAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ marginRight: 6 }}>
+                  <Icon name="Sparkles" size="xs" color={theme.colors.text.secondary} />
+                </View>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    color: theme.colors.text.secondary,
+                    lineHeight: 20,
+                  }}
+                >
+                  Not sure? Let Gremly decide
+                </Text>
+              </View>
+              <TextInput
+                value={freeformText}
+                onChangeText={setFreeformText}
+                placeholder="Tell me what's on your mind…"
+                placeholderTextColor={theme.colors.text.tertiary}
+                multiline
+                numberOfLines={8}
+                testID="freeform-input"
+                autoFocus
+                style={[
+                  styles.freeformInput,
+                  {
+                    backgroundColor: theme.colors.white,
+                    borderColor: theme.colors.border.DEFAULT,
+                    color: theme.colors.text.primary,
+                  },
+                ]}
+              />
+            </Animated.View>
+          )}
+
+          {/* Structured fields - Guard logic: show skeleton while loading, then fields when ready */}
+          {!aiMode &&
+            selectedType &&
+            (() => {
+              // Guard: If in edit mode and still loading, show skeleton
+              if (mode === 'edit' && hydration === 'loading') {
+                return (
+                  <View style={styles.fieldsContainer} testID="loading-skeleton">
+                    <View style={[styles.skeletonInput, { backgroundColor: '#F3F4F6' }]} />
+                    <View
+                      style={[styles.skeletonInput, { backgroundColor: '#F3F4F6', marginTop: 12 }]}
+                    />
+                    <View
+                      style={[
+                        styles.skeletonInput,
+                        { backgroundColor: '#F3F4F6', marginTop: 12, height: 100 },
+                      ]}
+                    />
+                    <Text
+                      style={{
+                        textAlign: 'center',
+                        color: theme.colors.text.tertiary,
+                        marginTop: 20,
+                      }}
+                    >
+                      Loading...
+                    </Text>
+                  </View>
+                );
+              }
+
+              // Guard: If in edit mode and errored, show error
+              if (mode === 'edit' && hydration === 'error') {
+                return (
+                  <View style={styles.fieldsContainer} testID="error-state">
+                    <Text
+                      style={{
+                        textAlign: 'center',
+                        color: theme.colors.error,
+                        marginTop: 20,
+                      }}
+                    >
+                      Failed to load entity. Please try again.
+                    </Text>
+                  </View>
+                );
+              }
+
+              // Render fields only when ready (or in create mode which is always ready)
+              const canRenderFields =
+                mode === 'create' || (mode === 'edit' && hydration === 'ready');
+
+              if (!canRenderFields) {
+                return null;
+              }
+
+              return (
+                <Animated.View
+                  style={[
+                    styles.fieldsContainer,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        {
+                          translateY: fadeAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [20, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                  testID={`fields-${selectedType}`}
+                >
+                  {selectedType === 'habit' && (
+                    <>
+                      <HabitFields
+                        name={habitName}
+                        onNameChange={setHabitName}
+                        frequency={habitFrequency}
+                        onFrequencyChange={setHabitFrequency}
+                        subtype={habitSubtype as 'start_habit' | 'break_habit' | 'routine' | null}
+                        onSubtypeChange={setHabitSubtype}
+                        disabled={false}
+                        frequencyValue={habitFrequencyValue}
+                        onFrequencyValueChange={setHabitFrequencyValue}
+                        reminders={habitReminders}
+                        onRemindersChange={setHabitReminders}
+                        details={habitDetails}
+                        onDetailsChange={setHabitDetails}
+                        breakHabitState={habitBreakState}
+                        onBreakHabitStateChange={setHabitBreakState}
+                      />
+                      <TagsField
+                        value={tagsState}
+                        onChange={handleTagsChange}
+                        disabled={submitting}
+                        testID="overlay-tags-field"
+                        removedRef={removedTagsRef}
+                      />
+                    </>
+                  )}
+                  {selectedType === 'todo' && (
+                    <>
+                      <TodoFields
+                        name={todoName}
+                        onNameChange={setTodoName}
+                        dueDate={todoDueDate}
+                        onDueDateChange={setTodoDueDate}
+                        dueTime={todoDueTime}
+                        onDueTimeChange={setTodoDueTime}
+                        details={todoDetails}
+                        onDetailsChange={setTodoDetails}
+                        disabled={false}
+                      />
+                      <TagsField
+                        value={tagsState}
+                        onChange={handleTagsChange}
+                        disabled={submitting}
+                        testID="overlay-tags-field"
+                        removedRef={removedTagsRef}
+                      />
+                    </>
+                  )}
+                  {selectedType === 'log' && selectedLogSubtype === 'journal' && (
+                    <>
+                      <JournalFields
+                        date={journalDate}
+                        onDateChange={setJournalDate}
+                        entry={journalEntry}
+                        onEntryChange={setJournalEntry}
+                        mood={journalMood}
+                        onMoodChange={setJournalMood}
+                        details={journalDetails}
+                        onDetailsChange={setJournalDetails}
+                        disabled={false}
+                      />
+                      <TagsField
+                        value={tagsState}
+                        onChange={handleTagsChange}
+                        disabled={submitting}
+                        testID="overlay-tags-field"
+                        removedRef={removedTagsRef}
+                      />
+                    </>
+                  )}
+                  {selectedType === 'log' && selectedLogSubtype === 'person' && (
+                    <>
+                      <PersonFields
+                        name={personName}
+                        onNameChange={setPersonName}
+                        details={personDetails}
+                        onDetailsChange={setPersonDetails}
+                        disabled={false}
+                      />
+                      <TagsField
+                        value={tagsState}
+                        onChange={handleTagsChange}
+                        disabled={submitting}
+                        testID="overlay-tags-field"
+                        removedRef={removedTagsRef}
+                      />
+                    </>
+                  )}
+                  {selectedType === 'log' &&
+                    selectedLogSubtype !== 'journal' &&
+                    selectedLogSubtype !== 'person' && (
                       <>
                         <NoteFields
                           title={noteTitle}
@@ -3029,239 +3005,253 @@ export function UnifiedCreateOverlay({
                         />
                       </>
                     )}
-                    {COMMITMENTS_FEATURE_ENABLED &&
-                      hydration === 'ready' &&
-                      entityForCommitment && (
-                        <CommitmentToggleRow
-                          entity={entityForCommitment}
-                          onChanged={runCommitmentsChangedCallback}
-                        />
-                      )}
-                    {COMMITMENTS_FEATURE_ENABLED &&
-                      !entityForCommitment &&
-                      mode === 'edit' &&
-                      hydration === 'ready' &&
-                      initialEntity?.id &&
-                      (selectedType === 'habit' || selectedType === 'todo') && (
-                        <View>
-                          <View
-                            style={[
-                              styles.commitmentRow,
-                              { borderColor: theme.colors.border.DEFAULT },
-                            ]}
-                            testID="commitment-toggle-row"
-                          >
-                            <View style={styles.commitmentLabelContainer}>
+                  {selectedType === 'unsorted' && (
+                    <>
+                      <NoteFields
+                        title={noteTitle}
+                        onTitleChange={setNoteTitle}
+                        body={noteBody}
+                        onBodyChange={setNoteBody}
+                        details={noteDetails}
+                        onDetailsChange={setNoteDetails}
+                        disabled={false}
+                      />
+                      <TagsField
+                        value={tagsState}
+                        onChange={handleTagsChange}
+                        disabled={submitting}
+                        testID="overlay-tags-field"
+                        removedRef={removedTagsRef}
+                      />
+                    </>
+                  )}
+                  {COMMITMENTS_FEATURE_ENABLED && hydration === 'ready' && entityForCommitment && (
+                    <CommitmentToggleRow
+                      entity={entityForCommitment}
+                      onChanged={runCommitmentsChangedCallback}
+                    />
+                  )}
+                  {COMMITMENTS_FEATURE_ENABLED &&
+                    !entityForCommitment &&
+                    mode === 'edit' &&
+                    hydration === 'ready' &&
+                    initialEntity?.id &&
+                    (selectedType === 'habit' || selectedType === 'todo') && (
+                      <View>
+                        <View
+                          style={[
+                            styles.commitmentRow,
+                            { borderColor: theme.colors.border.DEFAULT },
+                          ]}
+                          testID="commitment-toggle-row"
+                        >
+                          <View style={styles.commitmentLabelContainer}>
+                            <Text
+                              style={[styles.commitmentLabel, { color: theme.colors.text.primary }]}
+                            >
+                              Commitment
+                            </Text>
+                            <Pressable
+                              onPress={handleCommitmentNotePress}
+                              disabled={commitmentNoteBusy}
+                              hitSlop={8}
+                              testID="commitment-note-trigger"
+                            >
                               <Text
                                 style={[
-                                  styles.commitmentLabel,
-                                  { color: theme.colors.text.primary },
+                                  styles.commitmentLink,
+                                  {
+                                    color: commitmentEnabled
+                                      ? theme.colors.deepTeal.DEFAULT
+                                      : theme.colors.text.tertiary,
+                                    opacity: commitmentNoteBusy ? 0.4 : 1,
+                                  },
                                 ]}
                               >
-                                Commitment
+                                {commitmentNote?.length ? 'Edit intent' : 'Add intent'}
                               </Text>
-                              <Pressable
-                                onPress={handleCommitmentNotePress}
+                            </Pressable>
+                          </View>
+                          <Switch
+                            value={commitmentEnabled}
+                            onValueChange={handleCommitmentToggle}
+                            disabled={commitmentBusy}
+                            testID="commitment-toggle"
+                            trackColor={{
+                              false: theme.colors.border.DEFAULT,
+                              true: theme.colors.deepTeal.DEFAULT,
+                            }}
+                            thumbColor={
+                              Platform.OS === 'android'
+                                ? commitmentEnabled
+                                  ? theme.colors.deepTeal.DEFAULT
+                                  : '#f4f3f4'
+                                : undefined
+                            }
+                            ios_backgroundColor={theme.colors.border.DEFAULT}
+                          />
+                        </View>
+                        {commitmentNoteEditing && commitmentEnabled && (
+                          <View
+                            style={[
+                              styles.commitmentNoteEditor,
+                              { borderColor: theme.colors.border.DEFAULT },
+                            ]}
+                            testID="commitment-note-editor"
+                          >
+                            <TextInput
+                              value={commitmentNoteDraft}
+                              onChangeText={setCommitmentNoteDraft}
+                              placeholder="Why is this important?"
+                              placeholderTextColor={theme.colors.text.tertiary}
+                              style={[
+                                styles.commitmentNoteInput,
+                                { color: theme.colors.text.primary },
+                              ]}
+                              maxLength={COMMITMENT_NOTE_LIMIT}
+                              multiline
+                              editable={!commitmentNoteBusy}
+                              testID="commitment-note-input"
+                            />
+                            <View style={styles.commitmentNoteMeta}>
+                              <Text
+                                style={[
+                                  styles.commitmentNoteCount,
+                                  { color: theme.colors.text.tertiary },
+                                ]}
+                              >
+                                {commitmentNoteDraft.length}/{COMMITMENT_NOTE_LIMIT}
+                              </Text>
+                            </View>
+                            <View style={styles.commitmentNoteActions}>
+                              <TouchableOpacity
+                                onPress={handleCommitmentNoteCancel}
                                 disabled={commitmentNoteBusy}
-                                hitSlop={8}
-                                testID="commitment-note-trigger"
+                                style={styles.commitmentAction}
+                                testID="commitment-note-cancel"
                               >
                                 <Text
                                   style={[
-                                    styles.commitmentLink,
+                                    styles.commitmentActionButton,
+                                    { color: theme.colors.text.secondary },
+                                  ]}
+                                >
+                                  Cancel
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={handleCommitmentNoteSave}
+                                disabled={commitmentNoteBusy}
+                                style={[styles.commitmentAction, styles.commitmentActionPrimary]}
+                                testID="commitment-note-save"
+                              >
+                                <Text
+                                  style={[
+                                    styles.commitmentActionButton,
                                     {
-                                      color: commitmentEnabled
-                                        ? theme.colors.deepTeal.DEFAULT
-                                        : theme.colors.text.tertiary,
-                                      opacity: commitmentNoteBusy ? 0.4 : 1,
+                                      color: commitmentNoteBusy
+                                        ? theme.colors.text.tertiary
+                                        : theme.colors.deepTeal.DEFAULT,
                                     },
                                   ]}
                                 >
-                                  {commitmentNote?.length ? 'Edit intent' : 'Add intent'}
+                                  Save
                                 </Text>
-                              </Pressable>
+                              </TouchableOpacity>
                             </View>
-                            <Switch
-                              value={commitmentEnabled}
-                              onValueChange={handleCommitmentToggle}
-                              disabled={commitmentBusy}
-                              testID="commitment-toggle"
-                              trackColor={{
-                                false: theme.colors.border.DEFAULT,
-                                true: theme.colors.deepTeal.DEFAULT,
-                              }}
-                              thumbColor={
-                                Platform.OS === 'android'
-                                  ? commitmentEnabled
-                                    ? theme.colors.deepTeal.DEFAULT
-                                    : '#f4f3f4'
-                                  : undefined
-                              }
-                              ios_backgroundColor={theme.colors.border.DEFAULT}
-                            />
                           </View>
-                          {commitmentNoteEditing && commitmentEnabled && (
-                            <View
-                              style={[
-                                styles.commitmentNoteEditor,
-                                { borderColor: theme.colors.border.DEFAULT },
-                              ]}
-                              testID="commitment-note-editor"
-                            >
-                              <TextInput
-                                value={commitmentNoteDraft}
-                                onChangeText={setCommitmentNoteDraft}
-                                placeholder="Why is this important?"
-                                placeholderTextColor={theme.colors.text.tertiary}
-                                style={[
-                                  styles.commitmentNoteInput,
-                                  { color: theme.colors.text.primary },
-                                ]}
-                                maxLength={COMMITMENT_NOTE_LIMIT}
-                                multiline
-                                editable={!commitmentNoteBusy}
-                                testID="commitment-note-input"
-                              />
-                              <View style={styles.commitmentNoteMeta}>
-                                <Text
-                                  style={[
-                                    styles.commitmentNoteCount,
-                                    { color: theme.colors.text.tertiary },
-                                  ]}
-                                >
-                                  {commitmentNoteDraft.length}/{COMMITMENT_NOTE_LIMIT}
-                                </Text>
-                              </View>
-                              <View style={styles.commitmentNoteActions}>
-                                <TouchableOpacity
-                                  onPress={handleCommitmentNoteCancel}
-                                  disabled={commitmentNoteBusy}
-                                  style={styles.commitmentAction}
-                                  testID="commitment-note-cancel"
-                                >
-                                  <Text
-                                    style={[
-                                      styles.commitmentActionButton,
-                                      { color: theme.colors.text.secondary },
-                                    ]}
-                                  >
-                                    Cancel
-                                  </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                  onPress={handleCommitmentNoteSave}
-                                  disabled={commitmentNoteBusy}
-                                  style={[styles.commitmentAction, styles.commitmentActionPrimary]}
-                                  testID="commitment-note-save"
-                                >
-                                  <Text
-                                    style={[
-                                      styles.commitmentActionButton,
-                                      {
-                                        color: commitmentNoteBusy
-                                          ? theme.colors.text.tertiary
-                                          : theme.colors.deepTeal.DEFAULT,
-                                      },
-                                    ]}
-                                  >
-                                    Save
-                                  </Text>
-                                </TouchableOpacity>
-                              </View>
-                            </View>
-                          )}
-                        </View>
-                      )}
-                  </Animated.View>
-                );
-              })()}
-
-            {/* Phase 8: Tags & People linking */}
-            {(() => {
-              if (aiMode || !selectedType) return null;
-
-              const itemType = getItemType();
-              if (!itemType) return null;
-
-              const showTagEditor = usePhase8Features;
-              const showPeopleLinker = allowPeopleLinking;
-
-              if (!showTagEditor && !showPeopleLinker) return null;
-
-              return (
-                <View style={styles.relationshipsSection}>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
-                    Tags & People
-                  </Text>
-                  {showTagEditor && (
-                    <TagEditor
-                      userId={userId || ''}
-                      itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                      itemType={itemType}
-                      currentTags={tagEditorTags}
-                      allTags={phase8Links.allTags}
-                      onTagsChange={(tags) => {
-                        setTagEditorTags(tags);
-                      }}
-                      onAddTag={phase8Links.addTag}
-                      onLinkTag={phase8Links.linkTag}
-                      onUnlinkTag={phase8Links.unlinkTag}
-                    />
-                  )}
-                  {showPeopleLinker && (
-                    <PeopleLinker
-                      userId={userId || ''}
-                      itemId={mode === 'edit' ? initialEntity?.id || null : null}
-                      itemType={itemType}
-                      linkedPeople={phase8Links.linkedPeople}
-                      onPeopleChange={(_people) => {
-                        // People are managed by the hook; this is just for UI sync if needed
-                      }}
-                      onLinkPerson={phase8Links.linkPerson}
-                      onUnlinkPerson={phase8Links.unlinkPerson}
-                    />
-                  )}
-                </View>
+                        )}
+                      </View>
+                    )}
+                </Animated.View>
               );
             })()}
 
-            {/* Space selector placeholder */}
-            {/* TODO: Add ScopeSelector integration */}
-          </ScrollView>
+          {/* Phase 8: Tags & People linking */}
+          {(() => {
+            if (aiMode || !selectedType) return null;
 
-          {/* Validation hint */}
-          {validation.hint && (
-            <View style={styles.validationHint}>
-              <Text style={[styles.validationHintText, { color: theme.colors.text.secondary }]}>
-                {validation.hint}
-              </Text>
-            </View>
-          )}
+            const itemType = getItemType();
+            if (!itemType) return null;
 
-          {/* Cortex status */}
-          {cortexStatus && (
-            <View style={styles.cortexStatusHint}>
-              <Text style={[styles.cortexStatusText, { color: theme.colors.text.secondary }]}>
-                {cortexStatus === 'thinking' && '✨ Thinking…'}
-                {cortexStatus === 'timeout' && '⏱️ AI temporarily unavailable'}
-                {cortexStatus === 'busy' && '⏳ AI temporarily unavailable'}
-              </Text>
-            </View>
-          )}
+            const showTagEditor = usePhase8Features;
+            const showPeopleLinker = allowPeopleLinking;
 
-          {/* CTA bar */}
-          <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
-            <Button
-              label={thinking ? 'Thinking…' : isLoading ? 'Saving...' : 'Save to Hub'}
-              onPress={handleSave}
-              disabled={isSaveDisabled() || cortexInFlight || submitting || thinking}
-              fullWidth
-              testID="save-to-hub"
-            />
+            if (!showTagEditor && !showPeopleLinker) return null;
+
+            return (
+              <View style={styles.relationshipsSection}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text.primary }]}>
+                  Tags & People
+                </Text>
+                {showTagEditor && (
+                  <TagEditor
+                    userId={userId || ''}
+                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                    itemType={itemType}
+                    currentTags={tagEditorTags}
+                    allTags={phase8Links.allTags}
+                    onTagsChange={(tags) => {
+                      setTagEditorTags(tags);
+                    }}
+                    onAddTag={phase8Links.addTag}
+                    onLinkTag={phase8Links.linkTag}
+                    onUnlinkTag={phase8Links.unlinkTag}
+                  />
+                )}
+                {showPeopleLinker && (
+                  <PeopleLinker
+                    userId={userId || ''}
+                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                    itemType={itemType}
+                    linkedPeople={phase8Links.linkedPeople}
+                    onPeopleChange={(_people) => {
+                      // People are managed by the hook; this is just for UI sync if needed
+                    }}
+                    onLinkPerson={phase8Links.linkPerson}
+                    onUnlinkPerson={phase8Links.unlinkPerson}
+                  />
+                )}
+              </View>
+            );
+          })()}
+
+          {/* Space selector placeholder */}
+          {/* TODO: Add ScopeSelector integration */}
+        </ScrollView>
+
+        {/* Validation hint */}
+        {validation.hint && (
+          <View style={styles.validationHint}>
+            <Text style={[styles.validationHintText, { color: theme.colors.text.secondary }]}>
+              {validation.hint}
+            </Text>
           </View>
+        )}
+
+        {/* Cortex status */}
+        {cortexStatus && (
+          <View style={styles.cortexStatusHint}>
+            <Text style={[styles.cortexStatusText, { color: theme.colors.text.secondary }]}>
+              {cortexStatus === 'thinking' && '✨ Thinking…'}
+              {cortexStatus === 'timeout' && '⏱️ AI temporarily unavailable'}
+              {cortexStatus === 'busy' && '⏳ AI temporarily unavailable'}
+            </Text>
+          </View>
+        )}
+
+        {/* CTA bar */}
+        <View style={[styles.footer, { borderTopColor: theme.colors.border.DEFAULT }]}>
+          <Button
+            label={thinking ? 'Thinking…' : isLoading ? 'Saving...' : 'Save to Hub'}
+            onPress={handleSave}
+            disabled={isSaveDisabled() || cortexInFlight || submitting || thinking}
+            fullWidth
+            testID="save-to-hub"
+          />
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -3282,7 +3272,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF9F0', // cream - will be overridden by theme
     borderTopLeftRadius: 24, // Rounded top corners
     borderTopRightRadius: 24,
-    height: '85%', // Fixed height instead of maxHeight
+    height: '80%', // Fixed height instead of maxHeight
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,

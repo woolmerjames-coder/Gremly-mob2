@@ -54,15 +54,23 @@ module.exports = [
           message: 'Use StyleSheet or DS primitives instead of className in React Native files.',
         },
       ],
-      // Phase 7: Prevent imports from legacy/** except in tests
+      // Phase 7: Prevent imports from legacy/** and direct UnifiedCreateOverlay imports
       'no-restricted-imports': [
         'error',
         {
+          // Disallow direct imports from the legacy folder patterns
           patterns: [
             {
               group: ['**/legacy/**', '../legacy/**', '../../legacy/**'],
               message:
-                'Importing from legacy/ is deprecated. Use UnifiedCreateOverlay instead. (Allowed in tests only)',
+                'Importing from legacy/ is deprecated. Use OverlayComponent from the gateway instead. (Allowed in tests only)',
+            },
+          ],
+          // Disallow importing UnifiedCreateOverlay directly — enforce gateway surface
+          paths: [
+            {
+              name: '@/components/overlay/UnifiedCreateOverlay',
+              message: "Import OverlayComponent from '@/components/overlay' instead.",
             },
           ],
         },

@@ -1,4 +1,5 @@
 import type { LogSubtype } from '../types';
+import { TAG_STOP_WORDS } from './constants';
 
 const STAR_TAGS = ['*journal', '*list', '*meeting', '*idea'] as const;
 
@@ -137,6 +138,77 @@ export function normalizeTags(input: string[]): string[] {
   }
 
   return Array.from(dedupe.values());
+}
+
+function toJunkKey(tag: string): string {
+  return tag
+    .replace(/^[#@*]+/, '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isJunkNormalizedTag(tag: string): boolean {
+  if (!tag) return true;
+  if (tag.startsWith('*')) return false;
+
+  const key = toJunkKey(tag);
+  if (!key) return true;
+  if (TAG_STOP_WORDS.has(key)) return true;
+
+  const tokens = key.split(' ').filter(Boolean);
+  if (tokens.length === 0) return true;
+  if (tokens.some((token) => !TAG_STOP_WORDS.has(token))) {
+    return false;
+  }
+
+  return true;
+}
+
+export function filterAndNormalizeTags(input: string[]): string[] {
+  if (!Array.isArray(input)) return [];
+
+  const mentions = new Map<string, string>();
+  const collected: string[] = [];
+
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+
+    const { tag } = normalizeTag(trimmed);
+    if (!tag) continue;
+    if (isJunkNormalizedTag(tag)) continue;
+
+    if (tag.startsWith('@')) {
+      const base = tag.slice(1).toLowerCase();
+      if (!base) continue;
+      mentions.set(base, tag);
+      continue;
+    }
+
+    collected.push(tag);
+  }
+
+  const filtered = [
+    ...mentions.values(),
+    ...collected.filter((tag) => {
+      if (tag.startsWith('#')) {
+        const base = tag.slice(1).toLowerCase();
+        return base ? !mentions.has(base) : false;
+      }
+
+      if (tag.startsWith('@')) {
+        const base = tag.slice(1).toLowerCase();
+        return base ? mentions.get(base) === tag : false;
+      }
+
+      return true;
+    }),
+  ];
+
+  return normalizeTags(filtered);
 }
 
 export function addTag(current: string[], next: string): string[] {

@@ -12,6 +12,7 @@ import type {
   Person,
   EntityType,
   LegacyCanonicalType,
+  TagsMeta,
 } from '../types';
 import type { SpaceInsert } from '../schemas';
 
@@ -36,6 +37,7 @@ export interface CreateRecordInput {
   sourceMessageId?: string | null; // For chat conversion tracking
   labels?: string[];
   tags?: string[] | null; // Searchable tag slugs persisted with record
+  tags_meta?: TagsMeta | null;
   views?: {
     alsoShowIn?: string[];
   };

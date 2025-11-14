@@ -339,9 +339,9 @@ describe('UnifiedCreateOverlay - Core Tests', () => {
       // Should have type selector pills
       expect(getByText('Habit')).toBeTruthy();
       expect(getByText('To-Do')).toBeTruthy();
-      expect(getByText('Journal')).toBeTruthy();
       expect(getByText('Note')).toBeTruthy();
       expect(getByText('Person')).toBeTruthy();
+      expect(getByText('Unsorted')).toBeTruthy();
     });
   });
 });

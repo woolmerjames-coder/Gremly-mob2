@@ -124,6 +124,26 @@ function stripNulls<T extends Record<string, any>>(obj: T) {
   ) as T;
 }
 
+type TagsMetaPayload = {
+  sticky?: string[] | null;
+  tombstones?: string[] | null;
+} | null;
+
+function normalizeTagsMeta(meta?: TagsMetaPayload): { sticky: string[]; tombstones: string[] } {
+  const toArray = (value?: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    const normalized = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim().toLowerCase() : ''))
+      .filter(Boolean);
+    return Array.from(new Set(normalized));
+  };
+
+  const sticky = toArray(meta?.sticky);
+  const tombstones = toArray(meta?.tombstones);
+
+  return { sticky, tombstones };
+}
+
 const TZ_OFFSET_SUFFIX = /[+-]\d{2}:?\d{2}$/;
 
 function normalizeIsoDatetime(value?: string | null): string | null | undefined {
@@ -197,6 +217,7 @@ function mapHabitFromDb(dbRecord: any): any {
     reminders: dbRecord.reminders_json,
     triggers: dbRecord.triggers_json,
     tags: dbRecord.tags ?? null,
+    tags_meta: dbRecord.tags_meta ?? null,
   };
 }
 
@@ -217,6 +238,7 @@ function mapTodoFromDb(dbRecord: any): any {
     // Map jsonb column to TS field
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
+    tags_meta: dbRecord.tags_meta ?? null,
   };
 }
 
@@ -230,6 +252,7 @@ function mapNoteFromDb(dbRecord: any): any {
     // Map jsonb column to TS field (used for journal entries)
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
+    tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
   };
 }
@@ -294,6 +317,7 @@ export class SupabaseRepo implements IRepo {
 
     const table = tableFor(input.type);
     let payload: Record<string, unknown>;
+    const tagsMeta = normalizeTagsMeta((input as any).tags_meta ?? null);
 
     if (input.type === 'habit') {
       if (!input.frequency) throw new Error('Habit requires frequency');
@@ -324,6 +348,7 @@ export class SupabaseRepo implements IRepo {
           reminders_json: input.reminders ?? undefined,
           notes: input.notes ?? null,
           tags: input.tags ?? null,
+          tags_meta: tagsMeta,
           buddy_id: input.buddy_id ?? null,
           buddy_email: input.buddy_email ?? null,
           stack_with_id: input.stack_with_id ?? null,
@@ -359,6 +384,7 @@ export class SupabaseRepo implements IRepo {
           reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
           notes: input.notes ?? null, // Additional notes
           tags: input.tags ?? null, // Categories array
+          tags_meta: tagsMeta,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
@@ -399,6 +425,7 @@ export class SupabaseRepo implements IRepo {
           fmt: input.fmt ?? null,
           reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
           tags: input.tags ?? null,
+          tags_meta: tagsMeta,
           journal_subtype: input.journal_subtype ?? null, // AI-only
         }),
       );
@@ -559,6 +586,8 @@ export class SupabaseRepo implements IRepo {
     }
 
     if ('tags' in normalizedPatch) updatePayload.tags = normalizedPatch.tags ?? null;
+    if ('tags_meta' in normalizedPatch)
+      updatePayload.tags_meta = normalizeTagsMeta((normalizedPatch as any).tags_meta ?? null);
 
     if ('origin' in normalizedPatch) updatePayload.origin = normalizedPatch.origin ?? null;
     if ('canonicalType' in normalizedPatch)

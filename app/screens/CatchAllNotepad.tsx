@@ -50,12 +50,17 @@ import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cort
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
-import { appendLineageToWhyString, convertLogListToTodo, hasChecklist } from '../../lib/conversion';
+import { appendLineageToWhyString, hasChecklist } from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
-import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
+import {
+  filterAndNormalizeTags,
+  normalizeTags,
+  deriveLogSubtypeFromTags,
+} from '../../lib/tags/normalize';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 
 export const THINKING_DURATION = 1200;
@@ -555,11 +560,14 @@ function startOfTodayLocal() {
 type UnifiedDrop = {
   id: string;
   kind: 'note' | 'todo' | 'habit';
+  title: string;
   text: string;
   created_at: string;
   unsorted?: boolean; // for notes carrying the needs_review label
   noteSubtype?: string | null;
   due_date?: string | null; // ISO timestamp for todos
+  tags?: string[];
+  optimisticKind?: 'note' | 'todo' | 'habit';
 };
 
 const relativeTime = (iso: string) => {
@@ -718,6 +726,13 @@ const RecentDrops: React.FC<{
       const start = startOfTodayLocal();
       const cutoff = start.getTime();
 
+      const toTagList = (raw: unknown): string[] => {
+        if (!Array.isArray(raw)) return [];
+        return raw
+          .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+          .filter((tag) => tag.length > 0);
+      };
+
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
           (n) =>
@@ -729,35 +744,58 @@ const RecentDrops: React.FC<{
           const unsorted = labels.includes(UNSORTED_LABEL);
           const rawSubtype = typeof n?.subtype === 'string' ? n.subtype : null;
           const noteSubtype = rawSubtype ?? (unsorted ? 'catchall' : null);
+          const rawText = n.body || n.title || n.text || n.content || '';
+          const { compact: derivedTitle } = deriveCompactTitle(
+            [n.title, n.body, n.text, n.content, rawText],
+            { fallback: rawText },
+          );
 
           return {
             id: n.id,
             kind: 'note' as const,
+            title: derivedTitle || rawText || 'Untitled note',
             text: n.body || n.title || n.text || n.content || '',
             created_at: n.created_at,
             unsorted,
             noteSubtype,
+            tags: toTagList((n as any)?.tags),
           };
         });
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
         .filter((t) => t?.origin === 'catchall')
-        .map((t) => ({
-          id: t.id,
-          kind: 'todo' as const,
-          text: t.name || t.title || '',
-          created_at: t.created_at,
-          due_date: t.due_date ?? null,
-        }));
+        .map((t) => {
+          const rawText = t.name || t.title || '';
+          const { compact: derivedTitle } = deriveCompactTitle([t.title, t.name, rawText], {
+            fallback: rawText,
+          });
+          return {
+            id: t.id,
+            kind: 'todo' as const,
+            title: derivedTitle || rawText || 'Untitled',
+            text: rawText,
+            created_at: t.created_at,
+            due_date: t.due_date ?? null,
+            tags: toTagList((t as any)?.tags),
+          };
+        });
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
         .filter((h) => h?.origin === 'catchall')
-        .map((h) => ({
-          id: h.id,
-          kind: 'habit' as const,
-          text: h.name || '',
-          created_at: h.created_at,
-        }));
+        .map((h) => {
+          const rawText = h.name || '';
+          const { compact: derivedTitle } = deriveCompactTitle([h.name, rawText], {
+            fallback: rawText,
+          });
+          return {
+            id: h.id,
+            kind: 'habit' as const,
+            title: derivedTitle || rawText || 'Untitled',
+            text: rawText,
+            created_at: h.created_at,
+            tags: toTagList((h as any)?.tags),
+          };
+        });
 
       let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
         (i) => i.text && i.created_at,
@@ -805,6 +843,30 @@ const RecentDrops: React.FC<{
       // optional: error UI
     }
   };
+
+  const handleAddToTodo = useCallback(
+    (item: UnifiedDrop) => {
+      setItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                optimisticKind: 'todo',
+                unsorted: false,
+              }
+            : entry,
+        ),
+      );
+
+      overlay.openCreate({
+        initialEntity: { type: 'todo', id: undefined, logSubtype: null },
+        initialText: item.text ? String(item.text) : null,
+      });
+
+      onEdited?.();
+    },
+    [overlay, onEdited],
+  );
 
   return (
     <View style={styles.recentRoot}>
@@ -856,13 +918,20 @@ const RecentDrops: React.FC<{
               showsVerticalScrollIndicator
             >
               {items.map((item) => {
+                const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = kindToDisplayLabel(
-                  item.kind,
-                  item.noteSubtype ?? null,
+                  effectiveKind,
+                  effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
                   canonicalTypesOn,
                 );
                 const showLegacyUnsortedBadge =
-                  !canonicalTypesOn && item.kind === 'note' && item.unsorted;
+                  !canonicalTypesOn && effectiveKind === 'note' && item.unsorted;
+                const badgeStyleKey =
+                  effectiveKind === 'todo'
+                    ? 'badge_todo'
+                    : effectiveKind === 'habit'
+                      ? 'badge_habit'
+                      : 'badge_note';
 
                 return (
                   <View
@@ -872,20 +941,20 @@ const RecentDrops: React.FC<{
                   >
                     <View style={styles.recentTopRow}>
                       <Text numberOfLines={1} style={styles.recentText}>
-                        {item.text || '—'}
+                        {item.title || item.text || '—'}
                       </Text>
                       <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
                     </View>
 
                     <View style={styles.recentMetaRow}>
                       <View style={styles.recentBadgeRow}>
-                        <Text style={[styles.recentBadge, styles[`badge_${item.kind}` as const]]}>
+                        <Text style={[styles.recentBadge, styles[badgeStyleKey]]}>
                           {displayKind}
                         </Text>
                         {showLegacyUnsortedBadge ? (
                           <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
                         ) : null}
-                        {item.kind === 'todo' ? (
+                        {effectiveKind === 'todo' ? (
                           <Text
                             testID={`minddrop-recent-todo-due-${item.id}`}
                             style={styles.recentDueBadge}
@@ -896,6 +965,18 @@ const RecentDrops: React.FC<{
                       </View>
 
                       <View style={styles.recentActions}>
+                        {item.kind === 'note' && item.unsorted && !item.optimisticKind ? (
+                          <>
+                            <Pressable
+                              onPress={() => handleAddToTodo(item)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                            >
+                              <Text style={styles.recentAction}>Add to To-Dos</Text>
+                            </Pressable>
+                            <Text style={styles.recentDot}>•</Text>
+                          </>
+                        ) : null}
                         <Pressable
                           onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
                           hitSlop={8}
@@ -913,6 +994,17 @@ const RecentDrops: React.FC<{
                         </Pressable>
                       </View>
                     </View>
+                    {effectiveKind === 'todo' &&
+                    Array.isArray(item.tags) &&
+                    item.tags.length > 0 ? (
+                      <View style={styles.recentTagsRow}>
+                        {item.tags.slice(0, 6).map((tag) => (
+                          <View key={`${item.id}-${tag}`} style={styles.recentTagPill}>
+                            <Text style={styles.recentTagText}>{`#${tag}`}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
@@ -1171,6 +1263,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
+  const overlay = useGlobalOverlay();
   const TOASTS_ON = String(process.env.EXPO_PUBLIC_MINDDROP_TOASTS ?? 'off').toLowerCase() === 'on';
   const insets = useSafeAreaInsets();
   const themeResult = useTheme();
@@ -2057,7 +2150,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             try {
               for (const entry of mapped) {
-                const record = await repo.create(entry.payload);
+                // Check if a note with this sourceMessageId already exists (for conversion scenarios)
+                let record: any;
+                const sourceMessageId = (entry.payload as any)?.sourceMessageId;
+                let existingNote: any = null;
+
+                if (
+                  sourceMessageId &&
+                  entry.bucket !== 'notes' &&
+                  typeof repo?.findNoteBySourceMessageId === 'function'
+                ) {
+                  try {
+                    existingNote = await repo.findNoteBySourceMessageId(sourceMessageId);
+                  } catch (e) {
+                    // If lookup fails, proceed with create
+                  }
+                }
+
+                if (existingNote) {
+                  // Convert existing note to the target type via update
+                  const { sourceMessageId: _unused, ...patchFields } = entry.payload as any;
+                  record = await repo.update({
+                    id: existingNote.id,
+                    patch: patchFields,
+                  });
+                } else {
+                  // Create new record
+                  record = await repo.create(entry.payload);
+                }
+
                 if (entry.bucket === 'todos') {
                   counts.todos += 1;
                   createdIds.todos.push(record.id);
@@ -2166,7 +2287,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const classificationTagsMeta = Array.isArray(decisionMeta?.classification?.tags)
                 ? (decisionMeta?.classification?.tags as string[])
                 : [];
-              const classificationTags = normalizeTags([...engineTags, ...classificationTagsMeta]);
+              const classificationTags = filterAndNormalizeTags([
+                ...engineTags,
+                ...classificationTagsMeta,
+              ]);
               const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
               const fallbackSubtype =
                 canonicalSubtypeMeta === 'journal' ||
@@ -2281,7 +2405,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         };
       }
 
-      const normalizedTags = normalizeTags(classifyOut?.tags ?? []);
+      const normalizedTags = filterAndNormalizeTags(classifyOut?.tags ?? []);
       const tags = normalizedTags.length > 0 ? normalizedTags : null;
 
       let payload: CreateRecordInput;
@@ -2488,77 +2612,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setCategoryChips([]);
 
         if (kind === 'todo') {
-          // Convert the unsorted note to a todo using repo.update
           try {
-            // Get the original note to extract text
             const originalNote = await repo.getById(unsortedId);
             if (!originalNote) {
               throw new Error('Original note not found');
             }
 
-            // Extract first line for todo name (truncate to 80 chars)
             const noteText =
               (originalNote as any).body ||
               (originalNote as any).title ||
               (originalNote as any).text ||
               '';
-            const firstLine = noteText.split('\n')[0].trim();
-            const todoName = firstLine.substring(0, 80);
 
-            // Use repo.update to patch the record in place
-            await repo.update({
-              id: unsortedId,
-              patch: {
-                type: 'todo',
-                name: todoName,
-                ai_placed: true, // Mark as AI-placed after category selection
-                // Remove needs_review label
-                labels: ((originalNote as any).labels || []).filter(
-                  (l: string) => l !== 'needs_review',
-                ),
-              } as any,
+            overlay.openCreate({
+              initialEntity: { type: 'todo', id: undefined, logSubtype: null },
+              initialText: noteText || null,
             });
 
-            setOrganizedToday((prev) => prev + 1);
-            triggerRecentRefresh();
+            metricsRef.current.conversions += 1;
+            logMetrics('category_converted_todo', {
+              noteId: unsortedId,
+              via: 'overlay',
+            });
+
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
-
-            // Track category conversion
-            metricsRef.current.conversions += 1;
-            logMetrics('category_converted_todo', { noteId: unsortedId, todoName });
+            lastSubmittedTextRef.current = null;
+            lastUnsortedIdRef.current = null;
 
             if (TOASTS_ON) {
               showActionToast({
                 type: 'success',
-                content: 'Added to To-Do List',
+                content: 'Opening To-Do…',
               });
             }
           } catch (conversionError) {
-            console.error(
-              '[MindDrop][CategoryChip] Conversion failed, using fallback',
-              conversionError,
-            );
-            // Fallback: use convertLogListToTodo which creates new record and deletes old
-            const { todo } = await convertLogListToTodo(repo, unsortedId, {
-              preserveState: true,
-            });
-
-            setOrganizedToday((prev) => prev + 1);
-            triggerRecentRefresh();
-            setLowConfidenceUnsortedId(null);
-            unsortedIdRef.current = null;
-
-            // Track category conversion (fallback path)
-            metricsRef.current.conversions += 1;
-            logMetrics('category_converted_todo', { noteId: unsortedId, fallback: true });
-
-            if (TOASTS_ON) {
-              showActionToast({
-                type: 'success',
-                content: 'Added to To-Do List',
-              });
-            }
+            console.error('[MindDrop][CategoryChip] Failed to open To-Do overlay', conversionError);
           }
         } else if (kind === 'habit') {
           // Convert the unsorted note to a habit
@@ -2726,6 +2815,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
+      overlay,
+      logMetrics,
     ],
   );
 
@@ -3886,6 +3977,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+    },
+    recentTagsRow: {
+      marginTop: 8,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    recentTagPill: {
+      backgroundColor: '#E6F0FF',
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    recentTagText: {
+      color: c.mossGreen,
+      fontSize: 11,
+      fontFamily: 'Inter-Medium',
     },
     recentActions: {
       flexDirection: 'row',

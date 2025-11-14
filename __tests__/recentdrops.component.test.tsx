@@ -18,10 +18,12 @@ const mockNotesList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => [])
 const mockNotesDelete: jest.Mock<Promise<void>, [string]> = jest.fn(
   async (_id: string) => undefined as unknown as void,
 );
+const mockTodosList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
     notes: { list: mockNotesList, delete: mockNotesDelete },
+    todos: { list: mockTodosList },
   }),
 }));
 
@@ -43,6 +45,7 @@ describe('RecentDrops component (isolated)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([]);
   });
 
   test('filters to today by default and toggles older items', async () => {
@@ -106,5 +109,26 @@ describe('RecentDrops component (isolated)', () => {
 
     await waitFor(() => expect(mockNotesDelete).toHaveBeenCalledWith('n1'));
     await waitFor(() => expect(mockNotesList.mock.calls.length).toBeGreaterThan(listCallsBefore));
+  });
+
+  test('renders todo tags when available', async () => {
+    const now = Date.now();
+    mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([
+      {
+        id: 't1',
+        type: 'todo',
+        name: 'tagged task',
+        created_at: new Date(now - 500).toISOString(),
+        origin: 'catchall',
+        tags: ['running', 'focus'],
+      },
+    ]);
+
+    render(<RecentDrops initiallyOpen eagerLoad />);
+
+    const todoCard = await screen.findByTestId('minddrop-recent-todo-t1');
+    expect(within(todoCard).getByText('#running')).toBeTruthy();
+    expect(within(todoCard).getByText('#focus')).toBeTruthy();
   });
 });
