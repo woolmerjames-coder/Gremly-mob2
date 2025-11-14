@@ -1,8 +1,20 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import './__testutils__/mockUnifiedOverlayDeps';
 
 jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({ create: jest.fn().mockResolvedValue({ id: 'x' }) }),
+}));
+
+jest.mock('../../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  default: () => ({
+    suggestedTitle: null,
+    suggestedTags: [],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
+  }),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({

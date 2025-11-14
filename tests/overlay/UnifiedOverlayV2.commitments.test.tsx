@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import './__testutils__/mockUnifiedOverlayDeps';
 
 // Feature flag for commitments
 process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS = 'on';
@@ -16,12 +17,16 @@ jest.mock('../../providers/RepoProvider', () => ({
   }),
 }));
 
-// Mock PersonPicker to avoid modal/UI complexity
-jest.mock('../../components/overlay/fields/PersonPicker', () => {
-  const React = require('react');
-  const Comp = () => null;
-  return { __esModule: true, default: Comp };
-});
+jest.mock('../../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  default: () => ({
+    suggestedTitle: null,
+    suggestedTags: [],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
+  }),
+}));
 
 import { UnifiedOverlayV2 } from '../../components/overlay/UnifiedOverlayV2';
 

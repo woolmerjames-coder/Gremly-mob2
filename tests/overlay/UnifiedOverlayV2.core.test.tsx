@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, act, waitFor } from '@testing-library/react-native';
+import './__testutils__/mockUnifiedOverlayDeps';
 
 const mockCreate = jest.fn().mockResolvedValue({ id: 'x1', type: 'note' });
 const mockUpdate = jest.fn().mockResolvedValue({ id: 'x1', type: 'note' });

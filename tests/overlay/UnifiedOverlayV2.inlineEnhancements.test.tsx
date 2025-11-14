@@ -30,6 +30,7 @@ jest.setTimeout(750);
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
+import './__testutils__/mockUnifiedOverlayDeps';
 
 const { UnifiedOverlayV2 } = require('../../components/overlay/UnifiedOverlayV2');
 

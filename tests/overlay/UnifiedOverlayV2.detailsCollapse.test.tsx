@@ -1,12 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-
-// Mock PersonPicker to avoid modal/UI complexity — render nothing
-jest.mock('../../components/overlay/fields/PersonPicker', () => {
-  const React = require('react');
-  const Comp = () => null;
-  return { __esModule: true, default: Comp };
-});
+import './__testutils__/mockUnifiedOverlayDeps';
 
 // Lightweight repo mock
 jest.mock('../../providers/RepoProvider', () => ({
@@ -14,6 +8,17 @@ jest.mock('../../providers/RepoProvider', () => ({
     create: jest.fn().mockResolvedValue({ id: 'x1', type: 'note' }),
     update: jest.fn().mockResolvedValue({ id: 'x1', type: 'note' }),
     listSpaces: jest.fn().mockResolvedValue([{ id: 'space-home', name: 'Home' }]),
+  }),
+}));
+
+jest.mock('../../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  default: () => ({
+    suggestedTitle: null,
+    suggestedTags: [],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
   }),
 }));
 

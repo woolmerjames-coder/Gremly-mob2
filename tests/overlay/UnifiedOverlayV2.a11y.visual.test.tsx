@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
+import './__testutils__/mockUnifiedOverlayDeps';
 
 // Mock minimal providers used by the component
 jest.mock('../../providers/RepoProvider', () => ({
@@ -8,6 +9,17 @@ jest.mock('../../providers/RepoProvider', () => ({
     create: jest.fn().mockResolvedValue({ id: 'x1', type: 'note' }),
     update: jest.fn().mockResolvedValue({ id: 'x1', type: 'note' }),
     listSpaces: jest.fn().mockResolvedValue([]),
+  }),
+}));
+
+jest.mock('../../components/overlay/useOverlayPrefill', () => ({
+  __esModule: true,
+  default: () => ({
+    suggestedTitle: null,
+    suggestedTags: [],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
   }),
 }));
 
