@@ -160,6 +160,16 @@ Key patterns:
 
 ---
 
+## Telemetry & Concurrency Checks (2025-01)
+
+- `logMetrics('minddrop_unsorted_created')` now emits `noteId`, `dropId`, and `mode` for every unsorted save (narrative guard, ask chips, offline fallbacks).
+- `logMetrics('minddrop_auto_created')` captures `dropId`, decision mode, and created entity counts across primary and fallback pipelines.
+- Category chip conversions (`todo`/`habit`) include `dropId` + `mode: 'ask'` telemetry and execute inside `withDropLock` to prevent duplicate work.
+- Verify QA dashboards confirm one unsorted record per submission and matching `dropId` across conversion events.
+- Smoke check `logCatchallDecision` payloads to ensure `dropId` is preserved for every decision branch (ask, auto, fallback).
+
+---
+
 ## Test Execution Commands
 
 ```bash

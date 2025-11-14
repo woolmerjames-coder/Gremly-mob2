@@ -41,6 +41,7 @@ interface CreateOptions {
   conversionMeta?: ConversionMeta;
   initialEntity?: OverlayState['initialEntity'];
   initialText?: string | null;
+  suppressOverlayOpen?: boolean;
 }
 
 interface EditOptions {
@@ -74,7 +75,11 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       conversionMeta,
       initialEntity,
       initialText,
+      suppressOverlayOpen,
     }: CreateOptions = {}) => {
+      if (suppressOverlayOpen) {
+        return;
+      }
       if (isOpeningRef.current) {
         console.log('[GlobalOverlay] open already in progress, ignoring');
         return;

@@ -55,13 +55,22 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
 
 const openCreateMock = jest.fn();
 const openEditMock = jest.fn();
-const useGlobalOverlayMock = jest.fn(() => ({
+const mockUseGlobalOverlay = jest.fn(() => ({
   openCreate: openCreateMock,
   openEdit: openEditMock,
 }));
-jest.mock('../../../contexts/OverlayContext', () => ({
-  useGlobalOverlay: useGlobalOverlayMock,
-}));
+jest.mock(
+  '../../contexts/OverlayContext',
+  () => {
+    const actual = jest.requireActual('../../../contexts/OverlayContext');
+    return {
+      __esModule: true,
+      ...actual,
+      useGlobalOverlay: mockUseGlobalOverlay,
+    };
+  },
+  { virtual: true },
+);
 
 jest.mock('../../../lib/conversion', () => ({
   ...jest.requireActual('../../../lib/conversion'),
@@ -86,7 +95,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
     openCreateMock.mockClear();
     openEditMock.mockClear();
-    useGlobalOverlayMock.mockClear();
+    mockUseGlobalOverlay.mockClear();
 
     mockRepo.create.mockImplementation((input) => {
       const record = {

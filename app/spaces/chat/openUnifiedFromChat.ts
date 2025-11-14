@@ -40,6 +40,7 @@ export function openUnifiedFromChat(
   initial: OverlayInitial,
   meta: ChatConversionMeta,
   overlayController: ReturnType<typeof useUnifiedOverlayController>,
+  options?: { suppressOverlayOpen?: boolean },
 ) {
   const entityType = kindToType[kind];
   const logSubtype = kindToLogSubtype[kind];
@@ -59,5 +60,6 @@ export function openUnifiedFromChat(
       initialNote: initial.note || '',
       initialDueDate: initial.dueDate ?? null,
     },
+    suppressOverlayOpen: options?.suppressOverlayOpen,
   });
 }

@@ -184,7 +184,7 @@ describe('Mind Drop Category Chip Conversion', () => {
     delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
   });
 
-  it('converts low-confidence note to todo via category chip - ONE entry only', async () => {
+  it('converts low-confidence note to todo via category chip without opening overlay', async () => {
     const mockUnsortedNote = {
       id: 'unsorted-123',
       type: 'note',
@@ -311,5 +311,59 @@ describe('Mind Drop Category Chip Conversion', () => {
 
     expect(mockRepo.update).not.toHaveBeenCalled();
     expect(openCreate).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates rapid todo chip presses for the same drop', async () => {
+    const mockUnsortedNote = {
+      id: 'unsorted-777',
+      type: 'note',
+      body: 'File quarterly taxes',
+      labels: ['needs_review', 'unsorted'],
+      drop_id: 'drop-777',
+      dropId: 'drop-777',
+      source_message_id: 'source-777',
+    };
+
+    mockRepo.create.mockResolvedValue({
+      id: 'unsorted-777',
+      type: 'note',
+      body: 'File quarterly taxes',
+      labels: ['needs_review', 'unsorted'],
+      drop_id: 'drop-777',
+      dropId: 'drop-777',
+      source_message_id: 'source-777',
+    });
+    mockRepo.getById.mockResolvedValue(mockUnsortedNote);
+    mockRepo.update.mockResolvedValue({ id: 'unsorted-777' });
+
+    mockSupabaseRpc.mockImplementation(async () => ({ data: 'todo-rapid', error: null }));
+
+    const { getByTestId, findByTestId } = render(<CatchAllNotepad />);
+
+    const input = getByTestId('minddrop-input');
+    const submitButton = getByTestId('minddrop-submit-button');
+
+    fireEvent.changeText(input, 'File quarterly taxes');
+    fireEvent.press(submitButton);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const todoChip = await findByTestId('minddrop-category-todo', {}, { timeout: 3000 });
+
+    await act(async () => {
+      fireEvent.press(todoChip);
+      fireEvent.press(todoChip);
+    });
+
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1));
+    expect(mockShowActionToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', content: 'Converted to To-Do ✓' }),
+    );
+    expect(mockRepo.update).not.toHaveBeenCalled();
+
+    const overlay = useGlobalOverlay();
+    expect(overlay.openCreate as jest.Mock).not.toHaveBeenCalled();
   });
 });

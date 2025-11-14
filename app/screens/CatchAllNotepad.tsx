@@ -570,18 +570,11 @@ const LIST_TOOLBAR_OPTIONS: Array<{ key: ListStyle; label: string; testID: strin
   { key: 'checklist', label: 'Checklist', testID: 'ca-toolbar-list-checklist' },
 ];
 
-function mapDecisionOutcome(mode: 'auto' | 'ask' | 'keep' | 'unsorted') {
-  switch (mode) {
-    case 'auto':
-      return 'auto_create' as const;
-    case 'ask':
-      return 'ask_chip' as const;
-    case 'keep':
-      return 'keep_note' as const;
-    default:
-      return 'unsorted' as const;
-  }
-}
+type DecisionLike = { mode: 'ask' | 'auto' | 'none' | 'keep' | 'unsorted' | 'reply' };
+
+const shouldAutoCreate = (d: DecisionLike): boolean => d.mode === 'auto';
+const allowsFallbackCreation = (d: DecisionLike): boolean =>
+  d.mode === 'auto' || d.mode === 'keep' || d.mode === 'none';
 
 // Removed legacy hex placeholder color; placeholderTextColor now uses themed c.mutedText
 
@@ -1992,6 +1985,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 tags: tagsForCreate ?? undefined,
                 dropId,
               });
+              if (id) {
+                logMetrics('minddrop_unsorted_created', {
+                  noteId: id,
+                  dropId,
+                  mode: decision?.mode ?? 'narrative_guard',
+                });
+              }
               unsortedIdRef.current = id ?? null;
 
               // Track this submission to prevent duplicates
@@ -2022,11 +2022,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               modelVersion,
               intent: 'narrative',
               confidence: decision.confidence ?? 0,
-              mode: 'ask',
-              decision: mapDecisionOutcome('ask'),
+              mode: decision.mode,
+              decision: 'ask_chips',
               createdTodos: 0,
               createdNotes: 0,
               createdHabits: 0,
+              dropId,
             });
 
             step(trace, 'narrative:forced-category-chips', { unsortedId: savedUnsortedId });
@@ -2091,7 +2092,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             )
           : [];
 
-        if (decision.mode === 'auto' && actions.length > 0) {
+        if (shouldAutoCreate(decision) && actions.length > 0) {
           const mapped: Array<{
             bucket: 'todos' | 'notes' | 'habits';
             payload: CreateRecordInput;
@@ -2293,6 +2294,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     ? 'habit'
                     : 'note';
 
+              const autoCreatedCount = counts.todos + counts.notes + counts.habits;
+              const didAutoCreate = autoCreatedCount > 0;
+              const decisionModeForLog = decision.mode;
+              const decisionOutcomeForLog =
+                shouldAutoCreate(decision) && didAutoCreate
+                  ? 'auto_create'
+                  : decision.mode === 'ask'
+                    ? 'ask_chip'
+                    : 'unsorted';
+
+              if (didAutoCreate) {
+                logMetrics('minddrop_auto_created', {
+                  dropId,
+                  mode: decision.mode,
+                  createdTodos: counts.todos,
+                  createdNotes: counts.notes,
+                  createdHabits: counts.habits,
+                });
+              }
+
               void logCatchallDecision({
                 userId: currentUserId,
                 text: trimmed,
@@ -2301,11 +2322,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 modelVersion,
                 intent: probableIntent,
                 confidence: decision.confidence ?? 0,
-                mode: decision.mode,
-                decision: mapDecisionOutcome(decision.mode),
+                mode: decisionModeForLog,
+                decision: decisionOutcomeForLog,
                 createdTodos: counts.todos,
                 createdNotes: counts.notes,
                 createdHabits: counts.habits,
+                dropId,
               });
 
               end(trace, 'saved', {
@@ -2367,6 +2389,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 tags: tagsForCreate ?? undefined,
                 dropId,
               });
+              if (id) {
+                logMetrics('minddrop_unsorted_created', {
+                  noteId: id,
+                  dropId,
+                  mode: decision.mode,
+                });
+              }
               unsortedIdRef.current = id ?? null;
 
               // Track this submission to prevent duplicates
@@ -2404,10 +2433,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               intent: decision.meta?.intent?.kind ?? 'ambiguous',
               confidence,
               mode: decision.mode,
-              decision: mapDecisionOutcome('ask'),
+              decision: 'ask_chip',
               createdTodos: 0,
               createdNotes: 0,
               createdHabits: 0,
+              dropId,
             });
 
             return {
@@ -2431,6 +2461,47 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             decisionConfidence: decision.confidence ?? 0,
           };
         }
+      }
+
+      const allowFallbackAutoCreate = !decision || allowsFallbackCreation(decision);
+
+      if (decision && !allowFallbackAutoCreate) {
+        if (unsortedIdRef.current == null) {
+          try {
+            const id = await saveToUnsortedTray(repo as any, trimmed, {
+              sourceMessageId: submissionId,
+              whyString: 'Awaiting manual review',
+              dropId,
+            });
+            if (id) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: id,
+                dropId,
+                mode: decision.mode,
+              });
+            }
+            unsortedIdRef.current = id ?? null;
+            lastSubmittedTextRef.current = trimmed;
+            lastUnsortedIdRef.current = unsortedIdRef.current;
+          } catch (e) {
+            console.warn('[MindDrop][Fallback] failed to save unsorted note', e);
+          }
+        }
+
+        if (unsortedIdRef.current) {
+          setLowConfidenceUnsortedId(unsortedIdRef.current);
+        }
+
+        setNote('');
+        triggerRecentRefresh();
+        pendingUndo.current = { todos: [], notes: [], habits: [] };
+
+        return {
+          created: { todos: [], notes: [], habits: [] },
+          createdDetails: [],
+          decisionMode: decision.mode,
+          decisionConfidence: decision.confidence,
+        };
       }
 
       step(trace, 'classify:start', { excerpt: trimmed.slice(0, 120) });
@@ -2620,8 +2691,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const probableIntent =
         payload.type === 'todo' ? 'todo' : payload.type === 'habit' ? 'habit' : 'note';
-      const decisionMode = payload.type === 'note' ? 'keep' : 'auto';
-      const decisionOutcome = payload.type === 'note' ? 'unsorted' : 'auto_create';
+      const fallbackDecisionMode = decision?.mode ?? 'auto';
+      const autoCreatedCount = counts.todos + counts.notes + counts.habits;
+      const fallbackDecisionOutcome =
+        (!decision || allowsFallbackCreation(decision)) && autoCreatedCount > 0
+          ? 'auto_create'
+          : fallbackDecisionMode === 'ask'
+            ? 'ask_chip'
+            : 'unsorted';
+
+      if (autoCreatedCount > 0) {
+        logMetrics('minddrop_auto_created', {
+          dropId,
+          mode: fallbackDecisionMode,
+          createdTodos: counts.todos,
+          createdNotes: counts.notes,
+          createdHabits: counts.habits,
+        });
+      }
 
       void logCatchallDecision({
         userId: currentUserId,
@@ -2634,11 +2721,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           typeof classifyOut?.confidence === 'number' && Number.isFinite(classifyOut.confidence)
             ? classifyOut.confidence
             : 0,
-        mode: decisionMode,
-        decision: decisionOutcome,
+        mode: fallbackDecisionMode,
+        decision: fallbackDecisionOutcome,
         createdTodos: counts.todos,
         createdNotes: counts.notes,
         createdHabits: counts.habits,
+        dropId,
       });
 
       end(trace, 'saved', {
@@ -2650,7 +2738,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return {
         created: createdIds,
         createdDetails,
-        decisionMode,
+        decisionMode: fallbackDecisionMode,
         decisionConfidence:
           typeof classifyOut?.confidence === 'number' ? classifyOut.confidence : undefined,
       };
@@ -2752,6 +2840,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 noteId: unsortedId,
                 todoId,
                 via: 'rpc_minddrop',
+                dropId,
+                mode: 'ask',
               });
 
               setOrganizedToday((prev) => prev + 1);
@@ -2782,6 +2872,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               throw new Error('Original note not found');
             }
 
+            const dropId =
+              (typeof (original as any)?.drop_id === 'string' && (original as any).drop_id) ||
+              dropIdRef.current ||
+              null;
+
             const firstLine =
               ((original as any).body || (original as any).title || '')
                 .split('\n')[0]
@@ -2810,7 +2905,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               unsortedIdRef.current = null;
 
               metricsRef.current.conversions += 1;
-              logMetrics('category_converted_habit', { noteId: unsortedId, habitName: firstLine });
+              logMetrics('category_converted_habit', {
+                noteId: unsortedId,
+                habitName: firstLine,
+                dropId,
+                mode: 'ask',
+              });
 
               if (TOASTS_ON) {
                 showActionToast({
@@ -2860,6 +2960,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 habitId: newHabit?.id,
                 habitName: firstLine,
                 fallback: true,
+                dropId,
+                mode: 'ask',
               });
 
               if (TOASTS_ON) {
@@ -3118,7 +3220,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     try {
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
-        await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId, dropId });
+        const offlineId = await saveToUnsortedTray(repo, trimmed, {
+          sourceMessageId: submissionId,
+          dropId,
+        });
+        if (offlineId) {
+          logMetrics('minddrop_unsorted_created', {
+            noteId: offlineId,
+            dropId,
+            mode: 'offline_short_circuit',
+          });
+        }
         resetState();
         if (TOASTS_ON) {
           showActionToast({
@@ -3205,7 +3317,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Primary pipeline failed twice. Decide fallback by error type.
         if (isNetworkError(lastError)) {
           // Offline-ish path — save locally and reassure
-          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId, dropId });
+          const offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
+            sourceMessageId: submissionId,
+            dropId,
+          });
+          if (offlineRetryId) {
+            logMetrics('minddrop_unsorted_created', {
+              noteId: offlineRetryId,
+              dropId,
+              mode: 'offline_retry',
+            });
+          }
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -3228,7 +3350,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
-          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId, dropId });
+          const unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
+            sourceMessageId: submissionId,
+            dropId,
+          });
+          if (unsortedFallbackId) {
+            logMetrics('minddrop_unsorted_created', {
+              noteId: unsortedFallbackId,
+              dropId,
+              mode: 'fallback_unsorted',
+            });
+          }
           resetState();
           if (TOASTS_ON) {
             showActionToast({
