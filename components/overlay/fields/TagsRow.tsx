@@ -9,27 +9,57 @@ import {
 } from '../../../design/tokens';
 import { normalizeTag } from '../../../lib/tags/normalize';
 
-type SuggestedTag = {
-  name: string;
+type TagProvenance = 'AI' | 'You' | string;
+
+export type TagsRowTag = {
+  canonical: string;
+  slug: string;
+  provenance?: TagProvenance;
+  locked?: boolean;
+};
+
+export type TagsRowSuggestion = TagsRowTag & {
   lowConfidence?: boolean;
 };
 
 type TagsRowProps = {
-  tags: string[];
-  suggested?: SuggestedTag[];
-  onToggle: (tag: string) => void;
+  tags: TagsRowTag[];
+  suggested?: TagsRowSuggestion[];
+  onToggle: (slug: string) => void;
   onResuggest?: (() => void) | null;
   resuggesting?: boolean;
   onAdd?: ((tag: string) => void) | null;
+  onUserAdd?: ((canonical: string) => void) | null;
+  onUserRemove?: ((canonical: string, wasAi: boolean) => void) | null;
 };
 
 type TagItem = {
   key: string;
-  label: string;
-  accessibilityLabel: string;
+  canonical: string;
+  display: string;
   active: boolean;
+  provenance?: TagProvenance;
+  locked?: boolean;
   lowConfidence?: boolean;
 };
+
+function formatTagDisplay(canonical: string): string {
+  const trimmed = canonical.trim();
+  if (!trimmed) return '';
+  if (/^[#@*]/.test(trimmed)) {
+    if (trimmed.startsWith('#')) return `#${trimmed.slice(1)}`;
+    if (trimmed.startsWith('@')) return `@${trimmed.slice(1)}`;
+    return trimmed;
+  }
+  return `#${trimmed}`;
+}
+
+function toSlug(value: string): string {
+  return value
+    .replace(/^[#@*]+/, '')
+    .trim()
+    .toLowerCase();
+}
 
 export function TagsRow({
   tags,
@@ -38,52 +68,45 @@ export function TagsRow({
   onResuggest,
   resuggesting,
   onAdd,
+  onUserAdd,
+  onUserRemove,
 }: TagsRowProps) {
   const colorMode = useColorScheme();
   const palette = colorMode === 'dark' ? darkTokens.colors : lightTokens.colors;
+  const placeholderColor = colorMode === 'dark' ? 'rgba(255,255,255,0.55)' : 'rgba(34,34,34,0.45)';
+  const metadataColor = colorMode === 'dark' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)';
   const [adding, setAdding] = useState(false);
   const [draftTag, setDraftTag] = useState('');
   const inputRef = useRef<TextInput | null>(null);
-
-  const toRgba = (hex: string, alpha: number): string => {
-    if (!hex) return `rgba(0,0,0,${alpha})`;
-    const normalized = hex.replace('#', '');
-    const value = normalized.length === 6 ? normalized : normalized.slice(0, 6);
-    const int = Number.parseInt(value, 16);
-    const r = (int >> 16) & 255;
-    const g = (int >> 8) & 255;
-    const b = int & 255;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
-
-  const sage = palette.sage;
-  const charcoal = palette.charcoal;
-  const sageOutline = toRgba(sage, 0.6);
-  const charcoalMuted = toRgba(charcoal, colorMode === 'dark' ? 0.75 : 0.7);
 
   const chips = useMemo<TagItem[]>(() => {
     const seen = new Set<string>();
     const normalized: TagItem[] = [];
 
-    const addTag = (rawName: string, active: boolean, lowConfidence?: boolean) => {
-      const trimmed = rawName.trim();
-      const slug = trimmed.toLowerCase();
-      if (!slug || seen.has(slug)) return;
-      seen.add(slug);
-      const baseLabel =
-        trimmed === slug ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : trimmed;
-      const label = active ? baseLabel : `\u2022 ${baseLabel}`;
+    const addTag = (
+      descriptor: TagsRowTag | TagsRowSuggestion,
+      active: boolean,
+      lowConfidence?: boolean,
+    ) => {
+      const canonical = descriptor.canonical?.trim();
+      if (!canonical) return;
+      const key = (descriptor.slug ?? toSlug(canonical)).trim().toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+
       normalized.push({
-        key: slug,
-        label,
-        accessibilityLabel: baseLabel,
+        key,
+        canonical,
+        display: formatTagDisplay(canonical),
         active,
+        provenance: descriptor.provenance,
+        locked: descriptor.locked,
         lowConfidence,
       });
     };
 
-    tags.forEach((name) => addTag(name, true));
-    suggested.forEach((entry) => addTag(entry.name, false, entry.lowConfidence));
+    tags.forEach((entry) => addTag(entry, true));
+    suggested.forEach((entry) => addTag(entry, false, entry.lowConfidence));
 
     return normalized;
   }, [suggested, tags]);
@@ -124,10 +147,12 @@ export function TagsRow({
       return;
     }
 
+    onUserAdd?.(normalized);
+
     if (typeof onAdd === 'function') {
       onAdd(normalized);
     } else {
-      onToggle(normalized);
+      onToggle(toSlug(normalized));
     }
 
     handleResetDraft();
@@ -163,31 +188,53 @@ export function TagsRow({
       >
         {chips.map((chip) => {
           const active = chip.active;
-          const lowConfidence = !active && !!chip.lowConfidence;
-          const backgroundColor = active ? sage : 'transparent';
-          const borderColor = active ? sage : sageOutline;
-          const textColor = active ? charcoal : charcoalMuted;
+          const textColor = palette.charcoal;
+          const provenance = chip.provenance;
 
           return (
             <Pressable
               key={chip.key}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
-              accessibilityLabel={chip.accessibilityLabel}
-              onPress={() => onToggle(chip.key)}
-              style={[styles.chip, { borderColor, backgroundColor }]}
+              accessibilityLabel={chip.display}
+              onPress={() => {
+                if (active) {
+                  onUserRemove?.(chip.canonical, String(provenance).toLowerCase() === 'ai');
+                } else {
+                  onUserAdd?.(chip.canonical);
+                }
+                onToggle(chip.key);
+              }}
+              style={({ pressed }) => [
+                styles.chip,
+                {
+                  borderColor: palette.sage,
+                  backgroundColor: 'transparent',
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
             >
-              <Text
-                style={[
-                  styles.chipLabel,
-                  {
-                    color: textColor,
-                    fontWeight: active ? '600' : '500',
-                  },
-                ]}
-              >
-                {chip.label}
-              </Text>
+              <View style={styles.chipContent}>
+                <Text
+                  style={[
+                    styles.chipLabel,
+                    {
+                      color: textColor,
+                      fontWeight: active ? '600' : '500',
+                    },
+                  ]}
+                >
+                  {chip.display}
+                  {provenance ? (
+                    <Text style={[styles.provenance, { color: metadataColor }]}>
+                      {typeof provenance === 'string' ? provenance : ''}
+                    </Text>
+                  ) : null}
+                </Text>
+                {chip.locked ? (
+                  <Text style={[styles.lockDot, { color: metadataColor }]}>●</Text>
+                ) : null}
+              </View>
             </Pressable>
           );
         })}
@@ -199,7 +246,7 @@ export function TagsRow({
               value={draftTag}
               onChangeText={setDraftTag}
               placeholder="#tag or @person"
-              placeholderTextColor={charcoalMuted}
+              placeholderTextColor={placeholderColor}
               returnKeyType="done"
               onSubmitEditing={commitDraft}
               blurOnSubmit
@@ -272,9 +319,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  chipContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   chipLabel: {
     fontSize: lightTokens.typography.size.sm,
     lineHeight: 18,
+  },
+  provenance: {
+    fontSize: lightTokens.typography.size.sm * 0.7,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  lockDot: {
+    marginLeft: 6,
+    fontSize: lightTokens.typography.size.xs,
   },
   addChip: {
     borderStyle: 'dashed',

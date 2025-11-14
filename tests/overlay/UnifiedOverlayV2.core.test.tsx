@@ -89,11 +89,11 @@ it('removing an existing tag records a tombstone meta entry and suppresses futur
   };
 
   const utils = render(<UnifiedOverlayV2 {...props} />);
-  const { getByText } = utils;
+  const { getByLabelText, getByText } = utils;
 
-  const tagChip = getByText('Focus');
+  const tagChip = getByLabelText('#focus');
   await act(async () => {
-    fireEvent.press((tagChip.parent as any) ?? tagChip);
+    fireEvent.press(tagChip);
   });
 
   const saveButton = getByText('Save');
@@ -137,12 +137,12 @@ it('removing an existing tag records a tombstone meta entry and suppresses futur
     fireEvent.press(reopen.getByTestId('resuggest-tags-action'));
   });
 
-  await waitFor(() => expect(reopen.queryByText('• Focus')).toBeNull());
+  await waitFor(() => expect(reopen.queryByLabelText('#focus')).toBeNull());
   reopen.unmount();
 });
 
 it('adds a sticky meta entry when using the + Add tag chip', async () => {
-  const { getByPlaceholderText, getByText, getByTestId } = render(
+  const { getByPlaceholderText, getByText, getByTestId, getByLabelText } = render(
     <UnifiedOverlayV2 {...baseProps} />,
   );
 
@@ -159,7 +159,7 @@ it('adds a sticky meta entry when using the + Add tag chip', async () => {
     fireEvent(addInput, 'submitEditing');
   });
 
-  await waitFor(() => expect(getByText('Strategy')).toBeTruthy());
+  await waitFor(() => expect(getByLabelText('#strategy')).toBeTruthy());
 
   await act(async () => {
     fireEvent.press(getByText('Save'));

@@ -54,9 +54,10 @@ import { linkSelectedPerson, sanitizeSuggestedTags } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
-import { TagsRow } from './fields/TagsRow';
+import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag } from '../../lib/tags/normalize';
+import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -71,6 +72,17 @@ function normalizeTagCandidate(value: unknown): string {
 function normalizeToTagKey(value: unknown): TagKey | null {
   const slug = normalizeTagCandidate(value);
   return slug || null;
+}
+
+function toCanonicalParts(value: string | null | undefined): { canonical: string; slug: string } {
+  if (!value) return { canonical: '', slug: '' };
+  let trimmed = String(value).trim().toLowerCase();
+  if (!trimmed) return { canonical: '', slug: '' };
+  if (!/^[#@*]/.test(trimmed)) {
+    trimmed = `#${trimmed}`;
+  }
+  const slug = trimmed.replace(/^[#@*]+/, '');
+  return { canonical: trimmed, slug };
 }
 
 function extractTagKeysFromEntity(entity: any): TagKey[] {
@@ -734,10 +746,72 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
   }, [sanitizedTagSuggestions, state.tags]);
 
+  const suggestionChips = useMemo((): TagsRowSuggestion[] => {
+    if (filteredTagSuggestions.length === 0) return [];
+    const entries: TagsRowSuggestion[] = [];
+    filteredTagSuggestions.forEach((entry) => {
+      const { canonical, slug } = toCanonicalParts(entry.name);
+      if (!canonical || !slug) return;
+      entries.push({
+        canonical,
+        slug,
+        provenance: 'AI',
+        lowConfidence: entry.lowConfidence,
+      });
+    });
+    return entries;
+  }, [filteredTagSuggestions]);
+
   const hasLowConfidenceSuggestions = useMemo(
-    () => filteredTagSuggestions.some((tag) => !!tag.lowConfidence),
-    [filteredTagSuggestions],
+    () => suggestionChips.some((tag) => !!tag.lowConfidence),
+    [suggestionChips],
   );
+
+  const stickyCanonicalMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (state.stickyTags ?? []).forEach((entry) => {
+      if (typeof entry !== 'string') return;
+      const { canonical, slug } = toCanonicalParts(entry);
+      if (!canonical || !slug) return;
+      if (!map.has(slug)) {
+        map.set(slug, canonical);
+      }
+    });
+    return map;
+  }, [state.stickyTags]);
+
+  const suggestionCanonicalMap = useMemo(() => {
+    const map = new Map<string, string>();
+    suggestionChips.forEach((chip) => {
+      if (!map.has(chip.slug)) {
+        map.set(chip.slug, chip.canonical);
+      }
+    });
+    return map;
+  }, [suggestionChips]);
+
+  const activeTagChips = useMemo((): TagsRowTag[] => {
+    if (!Array.isArray(state.tags)) return [];
+    const entries: TagsRowTag[] = [];
+    state.tags.forEach((slug) => {
+      const canonicalCandidate =
+        stickyCanonicalMap.get(slug) ??
+        suggestionCanonicalMap.get(slug) ??
+        toCanonicalParts(slug).canonical;
+      if (!canonicalCandidate) return;
+      const provenance = stickyCanonicalMap.has(slug)
+        ? 'You'
+        : suggestionCanonicalMap.has(slug)
+          ? 'AI'
+          : undefined;
+      entries.push({
+        canonical: canonicalCandidate,
+        slug,
+        provenance,
+      });
+    });
+    return entries;
+  }, [state.tags, stickyCanonicalMap, suggestionCanonicalMap]);
 
   const handleTagToggle = useCallback(
     (tag: string) => {
@@ -825,6 +899,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setSuggestedTags,
     ],
   );
+
+  const handleTelemetryTagAdd = useCallback((canonical: string) => {
+    if (!canonical) return;
+    void emitOverlayEvent({ type: 'overlay_tag_user_add', label: canonical });
+  }, []);
+
+  const handleTelemetryTagRemove = useCallback((canonical: string, wasAi: boolean) => {
+    if (!canonical) return;
+    void emitOverlayEvent({ type: 'overlay_tag_user_remove', label: canonical, wasAi });
+  }, []);
 
   const handleResuggestTags = useCallback(async () => {
     if (!refreshPrefill || isResuggestingTags) return;
@@ -1265,12 +1349,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   })}
                 </View>
                 <TagsRow
-                  tags={state.tags}
-                  suggested={filteredTagSuggestions}
+                  tags={activeTagChips}
+                  suggested={suggestionChips}
                   onToggle={handleTagToggle}
                   onResuggest={handleResuggestTags}
                   resuggesting={isResuggestingTags}
                   onAdd={handleTagAdd}
+                  onUserAdd={handleTelemetryTagAdd}
+                  onUserRemove={handleTelemetryTagRemove}
                 />
                 {hasLowConfidenceSuggestions ? (
                   <Box mt={2}>

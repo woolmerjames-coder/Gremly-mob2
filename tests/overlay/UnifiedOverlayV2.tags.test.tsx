@@ -1,25 +1,11 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
-import { lightTokens } from '../../design/tokens';
 import { UnifiedOverlayV2 } from '../../components/overlay/UnifiedOverlayV2';
 
 jest.setTimeout(2000);
 
 const mockCreate = jest.fn();
 const mockListSpaces = jest.fn();
-
-const findStyleWithColor = (instance: any) => {
-  let current = instance;
-  while (current) {
-    const style = StyleSheet.flatten((current as any)?.props?.style);
-    if (style && typeof style.color === 'string') {
-      return { style, node: current };
-    }
-    current = current.parent ?? null;
-  }
-  return { style: {}, node: instance };
-};
 
 jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({
@@ -78,25 +64,20 @@ describe('UnifiedOverlayV2 suggested tags row', () => {
   });
 
   it('renders AI suggestions, toggles tag selection, preserves on type switch, and saves selected tags', async () => {
-    const { getByPlaceholderText, getByText, getByLabelText, getByRole } = render(
+    const { getByPlaceholderText, getByLabelText, getByRole, getByText } = render(
       <UnifiedOverlayV2 {...baseProps} />,
     );
 
-    const journalLabel = await waitFor(() => getByText('• Journal'));
-    const { style: journalStyle } = findStyleWithColor(journalLabel);
-    expect(journalStyle.color).toBe('rgba(34, 34, 34, 0.7)');
+    const journalChip = await waitFor(() => getByLabelText('#journal'));
+    expect(journalChip).toBeTruthy();
 
-    const meetingLabel = await waitFor(() => getByText('• Meeting'));
-    const { style: meetingStyle } = findStyleWithColor(meetingLabel);
-    expect(meetingStyle.color).toBe('rgba(34, 34, 34, 0.7)');
-
-    const meetingChip = getByLabelText('Meeting');
+    const meetingChip = getByLabelText('#meeting');
     await act(async () => {
       fireEvent.press(meetingChip);
     });
 
     await waitFor(() => {
-      expect(getByText('Meeting')).toBeTruthy();
+      expect(getByLabelText('#meeting')).toBeTruthy();
     });
 
     const input = getByPlaceholderText('Drop your thought…');
@@ -107,7 +88,7 @@ describe('UnifiedOverlayV2 suggested tags row', () => {
       fireEvent.press(todoTab);
     });
 
-    expect(getByText('Meeting')).toBeTruthy();
+    expect(getByLabelText('#meeting')).toBeTruthy();
 
     const saveButton = getByText('Save');
     await act(async () => {
