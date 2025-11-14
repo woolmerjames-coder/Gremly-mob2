@@ -41,6 +41,7 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
+import { supabase } from '../../lib/supabase/client';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
@@ -112,6 +113,44 @@ function createSubmissionId(): string {
   const rand = Math.random().toString(36).slice(2, 10);
   const time = Date.now().toString(36);
   return `minddrop-${time}-${rand}`;
+}
+
+function createDropId(): string {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch (error) {
+    void error;
+  }
+
+  // RFC4122-ish fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    if (c === 'x') return r.toString(16);
+    return ((r & 0x3) | 0x8).toString(16);
+  });
+}
+
+// Collapse concurrent Mind Drop work per dropId.
+const inFlightByDrop = new Map<string, Promise<unknown>>();
+
+async function withDropLock<T>(dropId: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlightByDrop.get(dropId);
+  if (existing) {
+    return existing as Promise<T>;
+  }
+
+  const promise = (async () => {
+    try {
+      return await fn();
+    } finally {
+      inFlightByDrop.delete(dropId);
+    }
+  })();
+
+  inFlightByDrop.set(dropId, promise);
+  return promise;
 }
 
 // Discriminating common errors without coupling too tightly:
@@ -355,10 +394,11 @@ export async function saveToUnsortedTray(
     sourceMessageId?: string;
     whyString?: string;
     tags?: string[] | null | undefined;
+    dropId?: string;
   } = {},
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
-  const { sourceMessageId, whyString, tags: incomingTags } = options;
+  const { sourceMessageId, whyString, tags: incomingTags, dropId } = options;
   const clampedText = clampNoteLength(text);
   const catchallCanonical = persistedToCanonical('note', 'catchall');
   const normalizedTags = normalizeTags(incomingTags ?? []);
@@ -376,6 +416,7 @@ export async function saveToUnsortedTray(
     why_string: whyString ?? null,
     canonicalType: catchallCanonical,
     sourceMessageId: sourceMessageId ?? undefined,
+    dropId: dropId ?? undefined,
     tags,
   };
 
@@ -388,6 +429,7 @@ export async function saveToUnsortedTray(
         // pending_sync is optional; if unsupported downstream, it will be ignored
         pending_sync: true,
         sourceMessageId: sourceMessageId ?? undefined,
+        dropId: dropId ?? undefined,
         tags,
       });
       return note?.id;
@@ -1372,6 +1414,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   });
   const unsortedIdRef = useRef<string | null>(null);
   const submissionIdRef = useRef<string | null>(null);
+  const dropIdRef = useRef<string | null>(null);
   const lastSubmitAt = useRef<number>(0);
   const submitLockRef = useRef(false);
 
@@ -1712,6 +1755,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
     unsortedIdRef.current = null;
     submissionIdRef.current = null;
+    dropIdRef.current = null;
     setNote('');
     setIsSubmitting(false);
     setIsThinking(false);
@@ -1858,6 +1902,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [TOASTS_ON, showActionToast, handleUndoCreated, handleViewDetails],
   );
 
+  const ensureSubmissionAndDropIds = useCallback((): { submissionId: string; dropId: string } => {
+    const submissionId = submissionIdRef.current ?? createSubmissionId();
+    submissionIdRef.current = submissionId;
+
+    const dropId = dropIdRef.current ?? createDropId();
+    dropIdRef.current = dropId;
+
+    return { submissionId, dropId };
+  }, []);
+
   type SaveResult = {
     created: { todos: string[]; notes: string[]; habits: string[] };
     createdDetails: OrganizedDetail[];
@@ -1899,8 +1953,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const currentUserId = user?.id ?? userId ?? 'anonymous';
       const engineMode: 'LLM' | 'HEURISTIC' | 'DISABLED' = 'LLM';
       const modelVersion = process.env.EXPO_PUBLIC_CORTEX_MODEL || 'gpt-4o-mini';
-      const submissionId = submissionIdRef.current ?? createSubmissionId();
-      submissionIdRef.current = submissionId;
+      const { submissionId, dropId } = ensureSubmissionAndDropIds();
 
       const parsed = parseDue(trimmed);
       const hasConfidentDue = !!parsed && parsed.confidence >= DUE_CONFIDENCE_FLOOR;
@@ -1937,6 +1990,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 sourceMessageId: submissionId,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
+                dropId,
               });
               unsortedIdRef.current = id ?? null;
 
@@ -2062,6 +2116,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
                   sourceMessageId: submissionId,
+                  dropId,
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -2082,6 +2137,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
                   sourceMessageId: submissionId,
+                  dropId,
                 },
               });
             } else if (action.type === 'create.note') {
@@ -2106,6 +2162,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: submissionId,
+                  dropId,
                 },
               });
             } else if (action.type === 'add.to.list') {
@@ -2130,6 +2187,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: submissionId,
+                  dropId,
                 },
               });
             } else {
@@ -2307,6 +2365,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 sourceMessageId: submissionId,
                 whyString: 'Awaiting chip selection',
                 tags: tagsForCreate ?? undefined,
+                dropId,
               });
               unsortedIdRef.current = id ?? null;
 
@@ -2423,6 +2482,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           why_string: classifyOut?.whyString || 'Auto-classified as a task',
           origin: 'catchall',
           sourceMessageId: submissionId,
+          dropId,
           tags,
         };
       } else if (classifyOut?.type === 'habit') {
@@ -2440,6 +2500,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           why_string: classifyOut?.whyString || 'Auto-classified as a habit',
           origin: 'catchall',
           sourceMessageId: submissionId,
+          dropId,
           tags,
         };
       } else {
@@ -2490,6 +2551,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             alsoShowIn: ['Hub:Catch-All'],
           },
           sourceMessageId: submissionId,
+          dropId,
           tags,
         };
       }
@@ -2597,7 +2659,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       end(trace, 'error', { message: String(error) });
       throw error;
     }
-  }, [note, repo, user, userId, decideWithContext, triggerRecentRefresh]);
+  }, [
+    note,
+    repo,
+    user,
+    userId,
+    decideWithContext,
+    triggerRecentRefresh,
+    ensureSubmissionAndDropIds,
+  ]);
 
   const handleCategoryChipPick = useCallback(
     async (kind: 'todo' | 'log' | 'habit') => {
@@ -2613,41 +2683,96 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         if (kind === 'todo') {
           try {
-            const originalNote = await repo.getById(unsortedId);
-            if (!originalNote) {
+            const originalRecord = await repo.getById(unsortedId);
+            if (!originalRecord) {
               throw new Error('Original note not found');
             }
 
-            const noteText =
-              (originalNote as any).body ||
-              (originalNote as any).title ||
-              (originalNote as any).text ||
-              '';
+            const originalNote = originalRecord as any;
+            const dropId =
+              (typeof originalNote?.drop_id === 'string' && originalNote.drop_id) ||
+              dropIdRef.current ||
+              null;
+            if (!dropId) {
+              throw new Error('Missing dropId for unsorted note');
+            }
 
-            overlay.openCreate({
-              initialEntity: { type: 'todo', id: undefined, logSubtype: null },
-              initialText: noteText || null,
+            const ownerId = user?.id ?? userId ?? null;
+            if (!ownerId) {
+              throw new Error('Missing owner id for conversion');
+            }
+
+            const rawBody = String(
+              originalNote?.body ?? originalNote?.title ?? originalNote?.text ?? '',
+            );
+            const boundedBody = clampNoteLength(rawBody);
+            const trimmedBody = boundedBody.trim();
+            const titleSource = trimmedBody || boundedBody || 'Quick task';
+            const { compact: compactTitleValue } = deriveCompactTitle([titleSource], {
+              fallback: 'Quick task',
             });
+            const todoTitle = clampNoteLength(compactTitleValue || 'Quick task');
 
-            metricsRef.current.conversions += 1;
-            logMetrics('category_converted_todo', {
-              noteId: unsortedId,
-              via: 'overlay',
+            const parsedDue = parseDue(boundedBody);
+            const confidentDue =
+              parsedDue && parsedDue.confidence >= DUE_CONFIDENCE_FLOOR ? parsedDue : null;
+
+            const payload = {
+              name: todoTitle,
+              body: boundedBody,
+              due_date: confidentDue?.date ?? null,
+              due_time: confidentDue?.time ?? null,
+              origin: 'catchall',
+              ai_placed: true,
+              tags: Array.isArray(originalNote?.tags) ? originalNote.tags : null,
+              tags_meta: originalNote?.tags_meta ?? null,
+              why_string: 'Converted via Mind Drop chip',
+              source_message_id: originalNote?.source_message_id ?? null,
+            } as const;
+
+            await withDropLock(dropId, async () => {
+              const { data, error } = await supabase.rpc('convert_or_create_from_drop', {
+                p_owner: ownerId,
+                p_drop_id: dropId,
+                p_target: 'todo',
+                p_payload: payload,
+              });
+
+              if (error) {
+                throw new Error(error.message ?? 'convert_or_create_from_drop failed');
+              }
+
+              const todoId = (data as string | null) ?? null;
+              if (!todoId) {
+                throw new Error('convert_or_create_from_drop returned no id');
+              }
+
+              metricsRef.current.conversions += 1;
+              logMetrics('category_converted_todo', {
+                noteId: unsortedId,
+                todoId,
+                via: 'rpc_minddrop',
+              });
+
+              setOrganizedToday((prev) => prev + 1);
+              triggerRecentRefresh();
+
+              if (TOASTS_ON) {
+                showActionToast({
+                  type: 'success',
+                  content: 'Converted to To-Do ✓',
+                });
+              }
             });
-
-            setLowConfidenceUnsortedId(null);
-            unsortedIdRef.current = null;
-            lastSubmittedTextRef.current = null;
-            lastUnsortedIdRef.current = null;
+          } catch (conversionError) {
+            console.error('[MindDrop][CategoryChip] Failed to convert via RPC', conversionError);
 
             if (TOASTS_ON) {
               showActionToast({
                 type: 'success',
-                content: 'Opening To-Do…',
+                content: 'Could not convert to To-Do',
               });
             }
-          } catch (conversionError) {
-            console.error('[MindDrop][CategoryChip] Failed to open To-Do overlay', conversionError);
           }
         } else if (kind === 'habit') {
           // Convert the unsorted note to a habit
@@ -2815,8 +2940,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
-      overlay,
       logMetrics,
+      user,
+      userId,
     ],
   );
 
@@ -2987,13 +3113,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
-    const submissionId = submissionIdRef.current ?? createSubmissionId();
-    submissionIdRef.current = submissionId;
+    const { submissionId, dropId } = ensureSubmissionAndDropIds();
 
     try {
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
-        await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
+        await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId, dropId });
         resetState();
         if (TOASTS_ON) {
           showActionToast({
@@ -3080,7 +3205,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Primary pipeline failed twice. Decide fallback by error type.
         if (isNetworkError(lastError)) {
           // Offline-ish path — save locally and reassure
-          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
+          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId, dropId });
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -3103,7 +3228,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         } else {
           // Non-network error: save to Unsorted Tray for manual follow-up
-          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId });
+          await saveToUnsortedTray(repo, trimmed, { sourceMessageId: submissionId, dropId });
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -3183,6 +3308,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     focusGreetingForA11y,
     triggerRecentRefresh,
     TOASTS_ON,
+    ensureSubmissionAndDropIds,
   ]);
 
   const handleSubmit = useCallback(() => {

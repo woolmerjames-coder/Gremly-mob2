@@ -9,6 +9,16 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    rpc: jest.fn(),
+  },
+}));
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { supabase } = require('../../../lib/supabase/client');
+const mockSupabaseRpc = supabase.rpc as jest.Mock;
+
 let unsortedIdCounter = 0;
 
 const mockRepo = {
@@ -144,6 +154,13 @@ describe('Mind Drop - Duplicate Prevention', () => {
     jest.clearAllMocks();
     resetRepoMocks();
     resetOtherMocks();
+    mockSupabaseRpc.mockReset();
+    mockSupabaseRpc.mockResolvedValue({ data: 'todo-123', error: null });
+    process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+  });
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
   });
 
   it('prevents duplicate unsorted notes when same text submitted twice quickly', async () => {
@@ -210,7 +227,13 @@ describe('Mind Drop - Duplicate Prevention', () => {
   });
 
   it('clears duplicate tracking after category chip action', async () => {
-    mockRepo.getById.mockResolvedValue({ id: 'unsorted-1', body: 'exercise daily' });
+    mockRepo.getById.mockResolvedValue({
+      id: 'unsorted-1',
+      body: 'exercise daily',
+      drop_id: 'a1e8f2c0-1234-4bcd-9abc-1234567890ab',
+      source_message_id: 'minddrop-test',
+      tags: ['catchall'],
+    });
     mockRepo.update.mockResolvedValue({ id: 'unsorted-1' });
 
     const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
@@ -236,11 +259,26 @@ describe('Mind Drop - Duplicate Prevention', () => {
     }
     fireEvent.press(todoChip);
 
-    await waitFor(() => expect(openCreate).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(openCreate).toHaveBeenCalledWith(
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(mockSupabaseRpc).toHaveBeenCalledWith(
+      'convert_or_create_from_drop',
       expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: 'exercise daily',
+        p_owner: 'test-user',
+        p_target: 'todo',
+        p_drop_id: expect.any(String),
+        p_payload: expect.objectContaining({
+          name: 'Exercise daily',
+          body: 'exercise daily',
+          origin: 'catchall',
+        }),
+      }),
+    );
+
+    expect(openCreate).not.toHaveBeenCalled();
+    expect(mockShowActionToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'success',
+        content: 'Converted to To-Do ✓',
       }),
     );
 

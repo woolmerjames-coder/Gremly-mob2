@@ -161,6 +161,7 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        drop_id: input.dropId ?? null,
         // Extended habit fields (Phase 7+)
         frequency_value: input.frequency_value,
         reminders: input.reminders,
@@ -207,6 +208,7 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        drop_id: input.dropId ?? null,
       };
     } else {
       // note
@@ -236,6 +238,7 @@ export class MemoryRepo implements IRepo {
         tags_meta: normalizeTagsMeta(input.tags_meta ?? null),
         journal_subtype: input.journal_subtype ?? null,
         source_message_id: input.sourceMessageId ?? null,
+        drop_id: input.dropId ?? null,
       };
     }
 
@@ -261,6 +264,10 @@ export class MemoryRepo implements IRepo {
 
     const original = this.data[idx];
     const merged = { ...original, ...patch, updated_at: nowIso() } as AppRecord;
+    if (Object.prototype.hasOwnProperty.call(patch, 'dropId')) {
+      (merged as AppRecord & { drop_id?: string | null }).drop_id = (patch as any).dropId ?? null;
+      delete (merged as any).dropId;
+    }
     if ('tags' in patch) {
       (merged as AppRecord & { tags?: string[] | null }).tags = patch.tags ?? null;
     }

@@ -218,6 +218,7 @@ function mapHabitFromDb(dbRecord: any): any {
     triggers: dbRecord.triggers_json,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
+    drop_id: dbRecord.drop_id ?? null,
   };
 }
 
@@ -239,6 +240,7 @@ function mapTodoFromDb(dbRecord: any): any {
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
+    drop_id: dbRecord.drop_id ?? null,
   };
 }
 
@@ -254,6 +256,7 @@ function mapNoteFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
+    drop_id: dbRecord.drop_id ?? null,
   };
 }
 
@@ -341,6 +344,7 @@ export class SupabaseRepo implements IRepo {
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
           // Extended habit fields - map to jsonb columns
@@ -390,6 +394,7 @@ export class SupabaseRepo implements IRepo {
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
         }),
@@ -417,6 +422,7 @@ export class SupabaseRepo implements IRepo {
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
           // Journal-specific fields (from generated schema - notes table has these)
@@ -594,6 +600,7 @@ export class SupabaseRepo implements IRepo {
       updatePayload.canonical_type = normalizedPatch.canonicalType ?? null;
     if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
     if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
+    if ('dropId' in normalizedPatch) updatePayload.drop_id = normalizedPatch.dropId ?? null;
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase

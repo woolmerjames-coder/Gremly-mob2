@@ -60,6 +60,12 @@ const createAskDecision = (overrides: Partial<MockDecision> = {}): MockDecision 
 const mockDecideWithContext = jest.fn(async () => createAskDecision());
 const mockShowActionToast = jest.fn();
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    rpc: jest.fn(),
+  },
+}));
+
 jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
@@ -121,10 +127,26 @@ const resetRepo = () => {
   mockRepo.todos.list.mockResolvedValue([]);
   mockRepo.habits.list.mockResolvedValue([]);
 
-  mockRepo.create.mockImplementation(async (payload: Record<string, unknown>) => ({
-    id: `unsorted-${++repoCreateCounter}`,
-    ...payload,
-  }));
+  mockRepo.create.mockImplementation(async (payload: Record<string, unknown>) => {
+    const dropId =
+      typeof payload?.dropId === 'string'
+        ? (payload.dropId as string)
+        : '11111111-1111-1111-1111-111111111111';
+
+    return {
+      id: `unsorted-${++repoCreateCounter}`,
+      ...payload,
+      dropId,
+      drop_id: dropId,
+      source_message_id:
+        typeof payload?.sourceMessageId === 'string'
+          ? (payload.sourceMessageId as string)
+          : 'minddrop-test-id',
+      labels: Array.isArray(payload?.labels)
+        ? (payload.labels as string[])
+        : ['catchall', 'needs_review'],
+    };
+  });
 };
 
 const resetOtherMocks = () => {
@@ -132,6 +154,10 @@ const resetOtherMocks = () => {
   mockDecideWithContext.mockImplementation(async () => createAskDecision());
   mockShowActionToast.mockReset();
 };
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { supabase } = require('../../../lib/supabase/client');
+const mockSupabaseRpc = supabase.rpc as jest.Mock;
 
 let CatchAllNotepad: React.ComponentType;
 
@@ -145,10 +171,17 @@ describe('Mind Drop Category Chip Conversion', () => {
     jest.clearAllMocks();
     resetRepo();
     resetOtherMocks();
+    mockSupabaseRpc.mockReset();
+    mockSupabaseRpc.mockResolvedValue({ data: 'todo-123', error: null });
+    process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
 
     const overlay = useGlobalOverlay();
     (overlay.openCreate as jest.Mock).mockClear();
     (overlay.openEdit as jest.Mock).mockClear();
+  });
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
   });
 
   it('converts low-confidence note to todo via category chip - ONE entry only', async () => {
@@ -158,6 +191,9 @@ describe('Mind Drop Category Chip Conversion', () => {
       body: 'Buy groceries and milk',
       labels: ['needs_review', 'unsorted'],
       created_at: new Date().toISOString(),
+      drop_id: 'drop-123',
+      dropId: 'drop-123',
+      source_message_id: 'source-123',
     };
 
     mockRepo.create.mockResolvedValue({
@@ -165,6 +201,9 @@ describe('Mind Drop Category Chip Conversion', () => {
       type: 'note',
       body: 'Buy groceries and milk',
       labels: ['needs_review', 'unsorted'],
+      drop_id: 'drop-123',
+      dropId: 'drop-123',
+      source_message_id: 'source-123',
     });
     mockRepo.getById.mockResolvedValue(mockUnsortedNote);
     mockRepo.update.mockResolvedValue({ id: 'unsorted-123' });
@@ -187,14 +226,26 @@ describe('Mind Drop Category Chip Conversion', () => {
     const overlay = useGlobalOverlay();
     const openCreate = overlay.openCreate as jest.Mock;
 
-    await waitFor(() => {
-      expect(openCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          initialEntity: expect.objectContaining({ type: 'todo' }),
-          initialText: 'Buy groceries and milk',
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1));
+
+    expect(mockSupabaseRpc).toHaveBeenCalledWith(
+      'convert_or_create_from_drop',
+      expect.objectContaining({
+        p_owner: 'test-user',
+        p_drop_id: 'drop-123',
+        p_target: 'todo',
+        p_payload: expect.objectContaining({
+          body: 'Buy groceries and milk',
+          origin: 'catchall',
+          why_string: 'Converted via Mind Drop chip',
         }),
-      );
-    });
+      }),
+    );
+
+    expect(openCreate).not.toHaveBeenCalled();
+    expect(mockShowActionToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', content: 'Converted to To-Do ✓' }),
+    );
 
     expect(mockRepo.update).not.toHaveBeenCalled();
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
@@ -202,7 +253,7 @@ describe('Mind Drop Category Chip Conversion', () => {
     expect(mockRepo.getById).toHaveBeenCalledWith('unsorted-123');
   });
 
-  it('prefills overlay with the original note text for manual todo conversion', async () => {
+  it('passes original note text to RPC payload for manual todo conversion', async () => {
     const longText =
       'This is a very long first line that exceeds eighty characters and should be truncated properly\nSecond line here';
     const mockUnsortedNote = {
@@ -210,6 +261,9 @@ describe('Mind Drop Category Chip Conversion', () => {
       type: 'note',
       body: longText,
       labels: ['needs_review'],
+      drop_id: 'drop-456',
+      dropId: 'drop-456',
+      source_message_id: 'source-456',
     };
 
     mockRepo.create.mockResolvedValue({
@@ -217,6 +271,9 @@ describe('Mind Drop Category Chip Conversion', () => {
       type: 'note',
       body: longText,
       labels: ['needs_review'],
+      drop_id: 'drop-456',
+      dropId: 'drop-456',
+      source_message_id: 'source-456',
     });
     mockRepo.getById.mockResolvedValue(mockUnsortedNote);
     mockRepo.update.mockResolvedValue({ id: 'unsorted-456' });
@@ -239,15 +296,20 @@ describe('Mind Drop Category Chip Conversion', () => {
     const overlay = useGlobalOverlay();
     const openCreate = overlay.openCreate as jest.Mock;
 
-    await waitFor(() => {
-      expect(openCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          initialEntity: expect.objectContaining({ type: 'todo' }),
-          initialText: longText,
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalled());
+
+    const rpcArgs = mockSupabaseRpc.mock.calls.slice(-1)[0][1];
+    expect(rpcArgs).toEqual(
+      expect.objectContaining({
+        p_drop_id: 'drop-456',
+        p_payload: expect.objectContaining({
+          body: longText,
+          origin: 'catchall',
         }),
-      );
-    });
+      }),
+    );
 
     expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(openCreate).not.toHaveBeenCalled();
   });
 });

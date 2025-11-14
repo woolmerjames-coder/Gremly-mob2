@@ -35,6 +35,7 @@ export interface CreateRecordInput {
   origin?: 'catchall' | 'space_chat' | 'manual';
   canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
+  dropId?: string | null; // Mind Drop identifier for idempotent conversions
   labels?: string[];
   tags?: string[] | null; // Searchable tag slugs persisted with record
   tags_meta?: TagsMeta | null;

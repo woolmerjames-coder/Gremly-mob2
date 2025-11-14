@@ -23,6 +23,12 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user-123' } }),
 }));
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    rpc: jest.fn(),
+  },
+}));
+
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
   return {
@@ -47,12 +53,26 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
   }),
 }));
 
+const openCreateMock = jest.fn();
+const openEditMock = jest.fn();
+const useGlobalOverlayMock = jest.fn(() => ({
+  openCreate: openCreateMock,
+  openEdit: openEditMock,
+}));
+jest.mock('../../../contexts/OverlayContext', () => ({
+  useGlobalOverlay: useGlobalOverlayMock,
+}));
+
 jest.mock('../../../lib/conversion', () => ({
   ...jest.requireActual('../../../lib/conversion'),
   convertLogListToTodo: jest.fn(),
 }));
 
 import CatchAllNotepad from '../CatchAllNotepad';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { supabase } = require('../../../lib/supabase/client');
+const mockSupabaseRpc = supabase.rpc as jest.Mock;
 
 describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
   let createdRecords: any[];
@@ -61,12 +81,26 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     jest.clearAllMocks();
     createdRecords = [];
 
+    mockSupabaseRpc.mockReset();
+    mockSupabaseRpc.mockResolvedValue({ data: 'todo-xyz', error: null });
+    process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+    openCreateMock.mockClear();
+    openEditMock.mockClear();
+    useGlobalOverlayMock.mockClear();
+
     mockRepo.create.mockImplementation((input) => {
       const record = {
         id: `record-${Date.now()}-${Math.random()}`,
         ...input,
+        dropId: input?.dropId ?? '11111111-1111-1111-1111-111111111111',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        drop_id:
+          typeof input?.dropId === 'string' ? input.dropId : '11111111-1111-1111-1111-111111111111',
+        source_message_id:
+          typeof input?.sourceMessageId === 'string' ? input.sourceMessageId : 'minddrop-test-id',
+        sourceMessageId: input?.sourceMessageId ?? 'minddrop-test-id',
+        labels: Array.isArray(input?.labels) ? input.labels : ['catchall', 'needs_review'],
       };
       createdRecords.push(record);
       return Promise.resolve(record);
@@ -101,11 +135,11 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
   });
 
-  const { useGlobalOverlay } = require('../../../contexts/OverlayContext');
-  const overlayController = useGlobalOverlay();
-  const openCreateMock = overlayController.openCreate as jest.Mock;
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
+  });
 
-  it('opens overlay with todo override when selecting "Add to To-Do List"', async () => {
+  it('converts to todo via Supabase RPC when selecting "Add to To-Do List"', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.65,
@@ -167,16 +201,25 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     // Click "Add to To-Do List" chip
     fireEvent.press(getByText('Add to To-Do List'));
 
-    await waitFor(() => {
-      expect(openCreateMock).toHaveBeenCalledTimes(1);
-    });
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1));
 
-    const [callArgs] = openCreateMock.mock.calls;
-    expect(callArgs[0]).toEqual(
+    expect(mockSupabaseRpc).toHaveBeenCalledWith(
+      'convert_or_create_from_drop',
       expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: 'Buy groceries for the week',
+        p_owner: 'test-user-123',
+        p_target: 'todo',
+        p_drop_id: expect.any(String),
+        p_payload: expect.objectContaining({
+          body: 'Buy groceries for the week',
+          origin: 'catchall',
+          why_string: 'Converted via Mind Drop chip',
+        }),
       }),
+    );
+
+    expect(openCreateMock).not.toHaveBeenCalled();
+    expect(mockShowToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', content: 'Converted to To-Do ✓' }),
     );
 
     expect(mockRepo.update).not.toHaveBeenCalled();
@@ -185,7 +228,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
     expect(createdRecords[0].id).toBe(originalId);
   });
 
-  it('passes full multiline text to overlay without truncation', async () => {
+  it('passes full multiline text to RPC payload without truncation', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.7,
@@ -237,22 +280,23 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
 
     fireEvent.press(getByText('Add to To-Do List'));
 
-    await waitFor(() => {
-      expect(openCreateMock).toHaveBeenCalled();
-    });
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalled());
 
-    const [callArgs] = openCreateMock.mock.calls.slice(-1);
-    expect(callArgs[0]).toEqual(
+    const rpcArgs = mockSupabaseRpc.mock.calls.slice(-1)[0][1];
+    expect(rpcArgs).toEqual(
       expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: longText,
+        p_payload: expect.objectContaining({
+          body: longText,
+          origin: 'catchall',
+        }),
       }),
     );
 
     expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(openCreateMock).not.toHaveBeenCalled();
   });
 
-  it('does not mutate labels when opening todo overlay', async () => {
+  it('does not mutate labels when converting to todo via RPC', async () => {
     const lowConfidenceResponse: CortexResponse = {
       mode: 'ask',
       confidence: 0.6,
@@ -304,12 +348,11 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
 
     fireEvent.press(getByText('Add to To-Do List'));
 
-    await waitFor(() => {
-      expect(openCreateMock).toHaveBeenCalled();
-    });
+    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalled());
 
     expect(createdRecords[0].labels).toEqual(['needs_review', 'catchall']);
     expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(openCreateMock).not.toHaveBeenCalled();
   });
 
   it('confirms log without creating duplicate', async () => {

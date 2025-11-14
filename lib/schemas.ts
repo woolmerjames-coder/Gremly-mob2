@@ -71,6 +71,7 @@ const baseRecordZ = z.object({
     })
     .optional(),
   source_message_id: z.string().optional().nullable(),
+  drop_id: z.string().uuid().nullable().optional(),
   tags_meta: tagsMetaZ,
   created_at: z.string(), // Accept any string format from DB
   updated_at: z.string(), // Accept any string format from DB
@@ -212,6 +213,8 @@ export const todoInsertSchema = z.object({
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
+  source_message_id: z.string().min(1).optional(),
+  drop_id: z.string().uuid().nullable().optional(),
   labels: z.array(z.string()).optional(),
   views: z
     .object({
@@ -230,6 +233,8 @@ export const noteInsertSchema = z.object({
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
+  source_message_id: z.string().min(1).optional(),
+  drop_id: z.string().uuid().nullable().optional(),
   labels: z.array(z.string()).optional(),
   views: z
     .object({

@@ -38,6 +38,7 @@ export interface Habit {
   views?: {
     alsoShowIn?: string[];
   };
+  drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID
@@ -104,6 +105,7 @@ export interface Todo {
     alsoShowIn?: string[];
   };
   source_message_id?: string | null;
+  drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
@@ -138,6 +140,7 @@ export interface Note {
     alsoShowIn?: string[];
   };
   source_message_id?: string | null;
+  drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
