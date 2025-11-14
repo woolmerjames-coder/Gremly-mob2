@@ -860,6 +860,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss;
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
+  const overlaySubtitle = state.compactTitle?.trim() ?? '';
+
   const canSave = currentText.trim().length > 0 && !isSaving;
 
   function toCreateOrUpdateInput(
@@ -1205,6 +1207,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               <Text variant="title" style={{ color: lightTokens.colors.text, fontWeight: '600' }}>
                 {headerFor(baseType, mode)}
               </Text>
+              {overlaySubtitle ? (
+                <Text
+                  testID="overlay-compact-title"
+                  numberOfLines={1}
+                  style={{
+                    marginTop: 4,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(34,34,34,0.65)',
+                    fontSize: lightTokens.typography.size.sm,
+                    fontWeight: '500',
+                  }}
+                >
+                  {overlaySubtitle}
+                </Text>
+              ) : null}
             </Box>
 
             {/* Body: entire form stack in a single scroll context */}

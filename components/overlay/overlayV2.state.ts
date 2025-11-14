@@ -1,3 +1,5 @@
+import { deriveCompactTitle } from '../../lib/text/compactTitle';
+
 export type BaseType = 'log' | 'todo' | 'habit';
 
 export type TagKey = string;
@@ -27,6 +29,9 @@ export type V2State = {
   commitment: boolean;
   commitmentNote: string;
   commitmentStartedAt: string | null;
+  compactTitle: string;
+  compactTitleSource: string;
+  userEditedTitle: boolean;
   log: LogState;
   todo: TodoState;
   habit: HabitState;
@@ -50,6 +55,9 @@ export const initialV2State: V2State = {
   commitment: false,
   commitmentNote: '',
   commitmentStartedAt: null,
+  compactTitle: '',
+  compactTitleSource: '',
+  userEditedTitle: false,
   log: { title: '', body: '' },
   todo: { title: '', details: '', due_at: null },
   habit: { title: '', notes: '', schedule: 'custom' },
@@ -100,14 +108,15 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       const prev = state.baseType;
       if (action.to === prev) return state;
       const currentText = currentTextOf(state);
-      const next: V2State = { ...state, baseType: action.to };
-      if (action.to === 'log' && !next.log.body)
-        next.log = { ...next.log, body: currentText, title: firstLine(currentText) };
-      if (action.to === 'todo' && !next.todo.details)
-        next.todo = { ...next.todo, details: currentText, title: firstLine(currentText) };
-      if (action.to === 'habit' && !next.habit.notes)
-        next.habit = { ...next.habit, notes: currentText, title: firstLine(currentText) };
-      return next;
+      let next: V2State = { ...state, baseType: action.to };
+      if (action.to === 'log' && !next.log.body) {
+        next = { ...next, log: { ...next.log, body: currentText } };
+      } else if (action.to === 'todo' && !next.todo.details) {
+        next = { ...next, todo: { ...next.todo, details: currentText } };
+      } else if (action.to === 'habit' && !next.habit.notes) {
+        next = { ...next, habit: { ...next.habit, notes: currentText } };
+      }
+      return syncCompactTitle(next, []);
     }
     case 'SET_TAGS': {
       const deduped = Array.from(new Set(action.tags));
@@ -140,26 +149,45 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     case 'SET_DETECTED':
       return { ...state, detected: { mentions: action.mentions, dates: action.dates } };
     case 'SET_TEXT': {
-      const next = setTextForCurrent(state, action.text);
-      // refresh list items live if list tag on
+      const text = action.text ?? '';
+      const trimmed = text.trim();
+      let next = setTextForCurrent(state, text);
+      next = syncCompactTitle(next, [text]);
+
+      const prevList = next.list;
+      let list = next.list;
       if (next.tags.includes('list')) {
-        const lines = action.text.split(/\r?\n/).filter(Boolean);
-        const existing = new Map((next.list?.items ?? []).map((i) => [i.text, i]));
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        const existing = new Map((prevList?.items ?? []).map((i) => [i.text, i]));
         const items = lines.map(
           (tx) => existing.get(tx) ?? { id: makeId(), text: tx, checked: false },
         );
-        next.list = { items };
+        list = { items };
+      } else {
+        list = null;
       }
-      // lightweight detection
-      const { mentions, dates } = detectInline(action.text);
-      next.detected = { mentions, dates };
-      return next;
+
+      const { mentions, dates } = detectInline(text);
+
+      return {
+        ...next,
+        list,
+        detected: { mentions, dates },
+        userEditedTitle: trimmed.length > 0,
+      };
     }
     case 'SET_TITLE': {
-      if (state.baseType === 'log') return { ...state, log: { ...state.log, title: action.title } };
-      if (state.baseType === 'todo')
-        return { ...state, todo: { ...state.todo, title: action.title } };
-      return { ...state, habit: { ...state.habit, title: action.title } };
+      if (state.userEditedTitle) {
+        return state;
+      }
+      let next: V2State;
+      if (state.baseType === 'log') next = { ...state, log: { ...state.log, title: action.title } };
+      else if (state.baseType === 'todo')
+        next = { ...state, todo: { ...state.todo, title: action.title } };
+      else next = { ...state, habit: { ...state.habit, title: action.title } };
+
+      next = { ...next, userEditedTitle: false };
+      return syncCompactTitle(next, [action.title]);
     }
     case 'SET_TODO_DUE':
       return { ...state, todo: { ...state.todo, due_at: action.due_at } };
@@ -177,8 +205,15 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     }
     case 'SET_COMMITMENT_NOTE':
       return { ...state, commitmentNote: action.note };
-    case 'HYDRATE_EDIT':
-      return { ...state, ...action.payload } as V2State;
+    case 'HYDRATE_EDIT': {
+      const merged = { ...state, ...action.payload } as V2State;
+      const hydrated = syncCompactTitle(merged, [
+        action.payload?.compactTitle,
+        action.payload?.compactTitleSource,
+      ]);
+      const text = currentTextOf(hydrated).trim();
+      return { ...hydrated, userEditedTitle: text.length > 0 };
+    }
     case 'TOGGLE_EXPANDED':
       return { ...state, expanded: !state.expanded };
     case 'SET_SPACE':
@@ -196,16 +231,16 @@ export function v2Reducer(state: V2State, action: Action): V2State {
 
 // helpers
 export function firstLine(t: string) {
-  return (t ?? '').split(/\r?\n/)[0]?.trim().slice(0, 120) ?? '';
+  return deriveCompactTitle([t ?? '']).compact;
 }
 
 function currentTextOf(s: V2State) {
   return s.baseType === 'log' ? s.log.body : s.baseType === 'todo' ? s.todo.details : s.habit.notes;
 }
 function setTextForCurrent(s: V2State, t: string): V2State {
-  if (s.baseType === 'log') return { ...s, log: { ...s.log, body: t, title: firstLine(t) } };
-  if (s.baseType === 'todo') return { ...s, todo: { ...s.todo, details: t, title: firstLine(t) } };
-  return { ...s, habit: { ...s.habit, notes: t, title: firstLine(t) } };
+  if (s.baseType === 'log') return { ...s, log: { ...s.log, body: t } };
+  if (s.baseType === 'todo') return { ...s, todo: { ...s.todo, details: t } };
+  return { ...s, habit: { ...s.habit, notes: t } };
 }
 function parseListLines(src: string) {
   return linesToItems(src.split(/\r?\n/).filter(Boolean));
@@ -243,4 +278,42 @@ function detectInline(t: string) {
   if (/\btomorrow\b/i.test(t)) dates.push('__token:tomorrow');
   if (/\btoday\b/i.test(t)) dates.push('__token:today');
   return { mentions, dates };
+}
+
+function syncCompactTitle(state: V2State, priority: Array<string | null | undefined>): V2State {
+  const base = state.baseType;
+  const body =
+    base === 'log' ? state.log.body : base === 'todo' ? state.todo.details : state.habit.notes;
+  const baseTitle =
+    base === 'log' ? state.log.title : base === 'todo' ? state.todo.title : state.habit.title;
+
+  const candidates = [...priority, baseTitle, body, state.compactTitle, state.compactTitleSource];
+  const { compact, source } = deriveCompactTitle(candidates, {
+    fallback: baseTitle || body || state.compactTitle || '',
+  });
+
+  if (base === 'log') {
+    return {
+      ...state,
+      compactTitle: compact,
+      compactTitleSource: source,
+      log: { ...state.log, title: compact },
+    };
+  }
+
+  if (base === 'todo') {
+    return {
+      ...state,
+      compactTitle: compact,
+      compactTitleSource: source,
+      todo: { ...state.todo, title: compact },
+    };
+  }
+
+  return {
+    ...state,
+    compactTitle: compact,
+    compactTitleSource: source,
+    habit: { ...state.habit, title: compact },
+  };
 }

@@ -56,6 +56,7 @@ import type { FrequencyValue } from './fields/HabitFrequency';
 import type { ReminderRow } from './fields/RemindersList';
 import type { ItemType, Tag } from '../../lib/repo/types';
 import {
+  filterAndNormalizeTags,
   normalizeTags,
   getTagIdentifier,
   recordRemovedTags,
@@ -1799,7 +1800,7 @@ export function UnifiedCreateOverlay({
             // Derive tags NOW (same normalization semantics as background finalize)
             const manualTagsSnapshot = normalizeTags(latestTagsRef.current);
             const removedTagsSnapshot = new Set<string>(removedTagsRef.current);
-            const classificationTags = normalizeTags(classification.tags ?? []);
+            const classificationTags = filterAndNormalizeTags(classification.tags ?? []);
             const filteredClassificationTags = classificationTags.filter(
               (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
             );
@@ -1896,7 +1897,7 @@ export function UnifiedCreateOverlay({
                   const classification = finalResult.classification;
                   const originalNoteId = newItem.id;
                   const originalText = noteText;
-                  const classificationTags = normalizeTags(classification.tags ?? []);
+                  const classificationTags = filterAndNormalizeTags(classification.tags ?? []);
                   const filteredClassificationTags = classificationTags.filter(
                     (tag) => !removedTagsSnapshot.has(tag.toLowerCase()),
                   );

@@ -50,12 +50,17 @@ import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cort
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import { appendLineageToWhyString, hasChecklist } from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
-import { normalizeTags, deriveLogSubtypeFromTags } from '../../lib/tags/normalize';
+import {
+  filterAndNormalizeTags,
+  normalizeTags,
+  deriveLogSubtypeFromTags,
+} from '../../lib/tags/normalize';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 
 export const THINKING_DURATION = 1200;
@@ -555,6 +560,7 @@ function startOfTodayLocal() {
 type UnifiedDrop = {
   id: string;
   kind: 'note' | 'todo' | 'habit';
+  title: string;
   text: string;
   created_at: string;
   unsorted?: boolean; // for notes carrying the needs_review label
@@ -738,10 +744,16 @@ const RecentDrops: React.FC<{
           const unsorted = labels.includes(UNSORTED_LABEL);
           const rawSubtype = typeof n?.subtype === 'string' ? n.subtype : null;
           const noteSubtype = rawSubtype ?? (unsorted ? 'catchall' : null);
+          const rawText = n.body || n.title || n.text || n.content || '';
+          const { compact: derivedTitle } = deriveCompactTitle(
+            [n.title, n.body, n.text, n.content, rawText],
+            { fallback: rawText },
+          );
 
           return {
             id: n.id,
             kind: 'note' as const,
+            title: derivedTitle || rawText || 'Untitled note',
             text: n.body || n.title || n.text || n.content || '',
             created_at: n.created_at,
             unsorted,
@@ -752,24 +764,38 @@ const RecentDrops: React.FC<{
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
         .filter((t) => t?.origin === 'catchall')
-        .map((t) => ({
-          id: t.id,
-          kind: 'todo' as const,
-          text: t.name || t.title || '',
-          created_at: t.created_at,
-          due_date: t.due_date ?? null,
-          tags: toTagList((t as any)?.tags),
-        }));
+        .map((t) => {
+          const rawText = t.name || t.title || '';
+          const { compact: derivedTitle } = deriveCompactTitle([t.title, t.name, rawText], {
+            fallback: rawText,
+          });
+          return {
+            id: t.id,
+            kind: 'todo' as const,
+            title: derivedTitle || rawText || 'Untitled',
+            text: rawText,
+            created_at: t.created_at,
+            due_date: t.due_date ?? null,
+            tags: toTagList((t as any)?.tags),
+          };
+        });
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
         .filter((h) => h?.origin === 'catchall')
-        .map((h) => ({
-          id: h.id,
-          kind: 'habit' as const,
-          text: h.name || '',
-          created_at: h.created_at,
-          tags: toTagList((h as any)?.tags),
-        }));
+        .map((h) => {
+          const rawText = h.name || '';
+          const { compact: derivedTitle } = deriveCompactTitle([h.name, rawText], {
+            fallback: rawText,
+          });
+          return {
+            id: h.id,
+            kind: 'habit' as const,
+            title: derivedTitle || rawText || 'Untitled',
+            text: rawText,
+            created_at: h.created_at,
+            tags: toTagList((h as any)?.tags),
+          };
+        });
 
       let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
         (i) => i.text && i.created_at,
@@ -915,7 +941,7 @@ const RecentDrops: React.FC<{
                   >
                     <View style={styles.recentTopRow}>
                       <Text numberOfLines={1} style={styles.recentText}>
-                        {item.text || '—'}
+                        {item.title || item.text || '—'}
                       </Text>
                       <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
                     </View>
@@ -2233,7 +2259,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const classificationTagsMeta = Array.isArray(decisionMeta?.classification?.tags)
                 ? (decisionMeta?.classification?.tags as string[])
                 : [];
-              const classificationTags = normalizeTags([...engineTags, ...classificationTagsMeta]);
+              const classificationTags = filterAndNormalizeTags([
+                ...engineTags,
+                ...classificationTagsMeta,
+              ]);
               const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
               const fallbackSubtype =
                 canonicalSubtypeMeta === 'journal' ||
@@ -2348,7 +2377,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         };
       }
 
-      const normalizedTags = normalizeTags(classifyOut?.tags ?? []);
+      const normalizedTags = filterAndNormalizeTags(classifyOut?.tags ?? []);
       const tags = normalizedTags.length > 0 ? normalizedTags : null;
 
       let payload: CreateRecordInput;

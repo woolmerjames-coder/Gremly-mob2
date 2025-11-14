@@ -1,38 +1,8 @@
 import type { V2State, BaseType } from './overlayV2.state';
+import { TAG_STOP_WORDS } from '../../lib/tags/constants';
 
 // Common filler words that we discard from AI tag suggestions so only meaningful tags persist.
-const STOP_WORDS = new Set([
-  'a',
-  'an',
-  'at',
-  'awesome',
-  'common',
-  'cool',
-  'find',
-  'for',
-  'found',
-  'fun',
-  'get',
-  'good',
-  'got',
-  'great',
-  'here',
-  'make',
-  'made',
-  'near',
-  'nice',
-  'of',
-  'on',
-  'stuff',
-  'the',
-  'thing',
-  'think',
-  'to',
-  'today',
-  'tomorrow',
-  'with',
-  'yesterday',
-]);
+const STOP_WORDS = TAG_STOP_WORDS;
 
 const DEFAULT_ALLOWED_TAGS = [
   'running',
