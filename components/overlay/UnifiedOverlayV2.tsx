@@ -74,6 +74,15 @@ function normalizeToTagKey(value: unknown): TagKey | null {
   return slug || null;
 }
 
+function coerceIsoTimestamp(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ms = Date.parse(trimmed);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
 function toCanonicalParts(value: string | null | undefined): { canonical: string; slug: string } {
   if (!value) return { canonical: '', slug: '' };
   let trimmed = String(value).trim().toLowerCase();
@@ -490,6 +499,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       : baseType === 'todo'
         ? state.todo.details
         : state.habit.notes;
+  const currentTextRef = useRef(currentText);
+  currentTextRef.current = currentText;
+  const getPrefillText = useCallback(() => currentTextRef.current, []);
   useEffect(() => {
     let mounted = true;
     readOverlayV2Draft(draftKey).then((v) => {
@@ -644,7 +656,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     refresh: refreshPrefill,
   } = useOverlayPrefill({
     mode,
-    getText: () => currentText,
+    getText: getPrefillText,
     onlyWhenEmpty: true,
   });
 
@@ -687,6 +699,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     });
     return set;
   }, [state.tagTombstones]);
+
+  const resuggestRequestIdRef = useRef(0);
+  const resuggestAppliedIdRef = useRef(0);
 
   useEffect(() => {
     if (mode !== 'create') return;
@@ -912,23 +927,57 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const handleResuggestTags = useCallback(async () => {
     if (!refreshPrefill || isResuggestingTags) return;
+    const requestId = resuggestRequestIdRef.current + 1;
+    resuggestRequestIdRef.current = requestId;
     setIsResuggestingTags(true);
     try {
       await refreshPrefill();
-      const normalized = normalizePrefillSuggestions(
-        currentText,
-        prefillSuggestionsRef.current,
-        tagTombstoneSet,
-      );
+      const compute = (source: PrefillSuggestedTag[] | null | undefined) =>
+        normalizePrefillSuggestions(currentText, source, tagTombstoneSet);
+
+      let normalized = compute(prefillSuggestionsRef.current);
+      if (normalized.length === 0 && prefillSuggestedTags?.length) {
+        normalized = compute(prefillSuggestedTags);
+      }
       if (normalized.length === 0) return;
 
-      setSuggestedTags((prev) => mergeSuggestionEntries(prev, normalized));
+      setSuggestedTags((prev) => {
+        const next = mergeSuggestionEntries(prev, normalized);
+        if (areSuggestionListsEqual(prev, next)) {
+          return prev;
+        }
+        resuggestAppliedIdRef.current = requestId;
+        return next;
+      });
     } catch (err) {
       if (__DEV__) console.error('[UnifiedOverlayV2] re-suggest tags failed', err);
     } finally {
       setIsResuggestingTags(false);
     }
-  }, [refreshPrefill, isResuggestingTags, currentText, tagTombstoneSet]);
+  }, [refreshPrefill, isResuggestingTags, currentText, tagTombstoneSet, prefillSuggestedTags]);
+
+  useEffect(() => {
+    if (mode === 'create') return;
+    const requestId = resuggestRequestIdRef.current;
+    if (!requestId) return;
+    if (resuggestAppliedIdRef.current >= requestId) return;
+
+    const normalized = normalizePrefillSuggestions(
+      currentText,
+      prefillSuggestedTags,
+      tagTombstoneSet,
+    );
+    if (normalized.length === 0) return;
+
+    setSuggestedTags((prev) => {
+      const next = mergeSuggestionEntries(prev, normalized);
+      if (areSuggestionListsEqual(prev, next)) {
+        return prev;
+      }
+      resuggestAppliedIdRef.current = requestId;
+      return next;
+    });
+  }, [mode, currentText, prefillSuggestedTags, tagTombstoneSet]);
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
@@ -995,12 +1044,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
     if (baseType === 'todo') {
       const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
+      const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
       return {
         type: 'todo' as const,
         title: derivedTitle,
         name: derivedTitle,
         details: s.todo.details || null,
-        due_at: s.todo.due_at ?? s.reminderAt ?? null,
+        due_at: dueAt,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         tags,
@@ -1009,7 +1059,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...{
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
-          commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
+          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
       };
     }
@@ -1027,7 +1077,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...{
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
-          commitment_started_at: s.commitment ? s.commitmentStartedAt : null,
+          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
       };
     }
@@ -1054,7 +1104,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
 
-    const datePatch = s.reminderAt ? { date: s.reminderAt } : {};
+    const reminderIso = coerceIsoTimestamp(s.reminderAt);
+    const datePatch = reminderIso ? { date: reminderIso } : {};
 
     return { ...base, ...moodPatch, ...fmtPatch, ...datePatch };
   }

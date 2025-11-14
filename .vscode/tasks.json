@@ -11,6 +11,28 @@
 				"app/screens/__tests__/CatchAllNotepad.greeting.placeholder.test.tsx",
 				"-u"
 			]
+		},
+		{
+			"label": "npm test",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"test"
+			],
+			"problemMatcher": [
+				"$jest-stare"
+			]
+		},
+		{
+			"label": "npm test",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"test"
+			],
+			"problemMatcher": [
+				"$jest-stare"
+			]
 		}
 	]
 }

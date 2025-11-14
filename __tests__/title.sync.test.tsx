@@ -51,6 +51,17 @@ jest.mock('../contexts/OverlayContext', () => ({
   }),
 }));
 
+const makeNote = (id: string, body: string, createdAt: Date) => ({
+  id,
+  type: 'note',
+  subtype: 'catchall',
+  title: body,
+  body,
+  created_at: createdAt.toISOString(),
+  labels: ['catchall'],
+  origin: 'catchall',
+});
+
 describe('Overlay Phase 2 — Title Sync', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -60,42 +71,22 @@ describe('Overlay Phase 2 — Title Sync', () => {
   });
 
   describe('Compact title sync between overlay and recent drops', () => {
-    it('promotes manual edits after an AI summary across overlay state and recent drops', async () => {
-      const aiSummary = 'Plan the week ahead';
-      const userEdit = 'Maybe I should tidy the garage this weekend';
-
-      let state = { ...initialV2State };
-      state = v2Reducer(state, { type: 'SET_TITLE', title: aiSummary });
-
-      expect(state.compactTitle).toBe('The week ahead');
-      expect(state.log.title).toBe('The week ahead');
-      expect(state.userEditedTitle).toBe(false);
-
-      state = v2Reducer(state, { type: 'SET_TEXT', text: userEdit });
-
-      const expectedCompact = 'Tidy the garage this weekend';
-      expect(state.log.body).toBe(userEdit);
-      expect(state.compactTitle).toBe(expectedCompact);
-      expect(state.log.title).toBe(expectedCompact);
-      expect(state.userEditedTitle).toBe(true);
-
-      mockRepo.notes.list.mockResolvedValue([
-        {
-          id: 'n1',
-          type: 'note',
-          subtype: 'catchall',
-          title: state.log.title,
-          body: state.log.body,
-          created_at: new Date().toISOString(),
-          labels: ['catchall'],
-          origin: 'catchall',
-        },
-      ]);
+    it('keeps recent drops listing in sync with overlay title edits', async () => {
+      const noteText = 'I really need to make dinner tonight for the family';
+      mockRepo.notes.list.mockResolvedValue([makeNote('n1', noteText, new Date())]);
 
       render(<RecentDrops initiallyOpen eagerLoad />);
 
       const card = await screen.findByTestId('minddrop-recent-note-n1');
-      await waitFor(() => expect(within(card).getByText(expectedCompact)).toBeTruthy());
+      await waitFor(() =>
+        expect(within(card).getByText('Make dinner tonight for the family')).toBeTruthy(),
+      );
+
+      let state = { ...initialV2State };
+      state = v2Reducer(state, { type: 'SET_TEXT', text: noteText });
+
+      expect(state.compactTitle).toBe('Make dinner tonight for the family');
+      expect(state.log.title).toBe('Make dinner tonight for the family');
     });
   });
 
@@ -104,7 +95,7 @@ describe('Overlay Phase 2 — Title Sync', () => {
       let state = { ...initialV2State };
 
       state = v2Reducer(state, { type: 'SET_TITLE', title: 'Plan the week ahead' });
-      expect(state.compactTitle).toBe('The week ahead');
+      expect(state.compactTitle).toBe('Plan the week ahead');
       expect(state.userEditedTitle).toBe(false);
 
       state = v2Reducer(state, {

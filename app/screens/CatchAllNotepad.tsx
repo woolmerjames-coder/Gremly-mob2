@@ -2150,7 +2150,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             try {
               for (const entry of mapped) {
-                const record = await repo.create(entry.payload);
+                // Check if a note with this sourceMessageId already exists (for conversion scenarios)
+                let record: any;
+                const sourceMessageId = (entry.payload as any)?.sourceMessageId;
+                let existingNote: any = null;
+
+                if (
+                  sourceMessageId &&
+                  entry.bucket !== 'notes' &&
+                  typeof repo?.findNoteBySourceMessageId === 'function'
+                ) {
+                  try {
+                    existingNote = await repo.findNoteBySourceMessageId(sourceMessageId);
+                  } catch (e) {
+                    // If lookup fails, proceed with create
+                  }
+                }
+
+                if (existingNote) {
+                  // Convert existing note to the target type via update
+                  const { sourceMessageId: _unused, ...patchFields } = entry.payload as any;
+                  record = await repo.update({
+                    id: existingNote.id,
+                    patch: patchFields,
+                  });
+                } else {
+                  // Create new record
+                  record = await repo.create(entry.payload);
+                }
+
                 if (entry.bucket === 'todos') {
                   counts.todos += 1;
                   createdIds.todos.push(record.id);

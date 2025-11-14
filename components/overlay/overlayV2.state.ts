@@ -186,8 +186,13 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         next = { ...state, todo: { ...state.todo, title: action.title } };
       else next = { ...state, habit: { ...state.habit, title: action.title } };
 
-      next = { ...next, userEditedTitle: false };
-      return syncCompactTitle(next, [action.title]);
+      // Use the title as-is for compactTitle without running through compacting logic
+      return {
+        ...next,
+        compactTitle: action.title,
+        compactTitleSource: action.title,
+        userEditedTitle: false,
+      };
     }
     case 'SET_TODO_DUE':
       return { ...state, todo: { ...state.todo, due_at: action.due_at } };

@@ -48,6 +48,15 @@ test('todo due or reminder maps to due_at', () => {
   expect(out.tags).toEqual([]);
 });
 
+test('invalid reminder strings are dropped', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.details = 'call mom';
+  s.reminderAt = '09:00';
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+  expect(out.due_at).toBeNull();
+});
+
 test('habit payload strips journal tag', () => {
   const s = { ...initialV2State } as any;
   s.baseType = 'habit';

@@ -77,6 +77,15 @@ const SYNONYM_RULES: Array<{ pattern: RegExp; tag: string }> = [
   { pattern: /\b(run(?:ning)?|jog(?:ging)?|route)\b/i, tag: 'running' },
 ];
 
+function coerceIsoTimestamp(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ms = Date.parse(trimmed);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
 function matchSynonym(candidate: string): string | null {
   for (const rule of SYNONYM_RULES) {
     if (rule.pattern.test(candidate)) {
@@ -270,12 +279,13 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
   };
   if (baseType === 'todo') {
     const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
+    const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
     return {
       type: 'todo' as const,
       title: derivedTitle,
       name: derivedTitle,
       details: s.todo.details || null,
-      due_at: s.todo.due_at ?? s.reminderAt ?? null,
+      due_at: dueAt,
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
       tags: [...tagsForSave],
@@ -314,7 +324,8 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
   else if (s.format) fmtVal = s.format;
   const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
 
-  const datePatch = s.reminderAt ? { date: s.reminderAt } : {};
+  const reminderIso = coerceIsoTimestamp(s.reminderAt);
+  const datePatch = reminderIso ? { date: reminderIso } : {};
 
   return { ...base, ...moodPatch, ...fmtPatch, ...datePatch };
 }
