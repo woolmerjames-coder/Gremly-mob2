@@ -188,3 +188,27 @@ it('sends feedback when user edits suggested title and on save when accepted', a
     { timeout: 1500 },
   );
 });
+
+it('does not run prefill classify when rendered in edit mode', async () => {
+  mockCallClassify.mockClear();
+  process.env.EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL = 'on';
+
+  const { default: actualUseOverlayPrefill } = jest.requireActual(
+    '../../components/overlay/useOverlayPrefill',
+  );
+
+  const Harness = () => {
+    actualUseOverlayPrefill({ mode: 'edit', getText: () => '', debounceMs: 25 });
+    return null;
+  };
+
+  const { unmount } = render(<Harness />);
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  expect(mockCallClassify).not.toHaveBeenCalled();
+
+  unmount();
+});

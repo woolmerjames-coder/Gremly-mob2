@@ -633,6 +633,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   } = useOverlayPrefill({
     mode,
     getText: () => currentText,
+    onlyWhenEmpty: true,
   });
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);

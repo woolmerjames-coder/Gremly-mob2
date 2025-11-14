@@ -10,10 +10,19 @@ type UseOverlayPrefillOptions = {
   mode?: UseOverlayPrefillMode;
   getText?: () => string;
   debounceMs?: number;
+  onlyWhenEmpty?: boolean;
 };
 
 export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
-  const { initialText = '', mode = 'create', getText, debounceMs = 600 } = options;
+  const {
+    initialText = '',
+    mode = 'create',
+    getText,
+    debounceMs = 600,
+    onlyWhenEmpty = false,
+  } = options;
+
+  const isCreateMode = mode === 'create';
 
   const [suggestedTitle, setSuggestedTitle] = useState<string | null>(null);
   const [suggestedTags, setSuggestedTags] = useState<SuggestedTag[]>([]);
@@ -25,7 +34,12 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
   const lastObservedTextRef = useRef<string>(initialText);
 
   const runPrefill = useCallback(
-    async (rawText?: string) => {
+    async (rawText?: string, opts?: { force?: boolean }) => {
+      const force = opts?.force ?? false;
+      if (!isCreateMode && !force) {
+        return;
+      }
+
       const enabled =
         (process.env.EXPO_PUBLIC_FEATURE_OVERLAY_PREFILL ?? '').toLowerCase() === 'on';
       const textSource = rawText ?? getText?.() ?? initialText;
@@ -38,6 +52,16 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
         setSuggestedTitle(null);
         setSuggestedTags([]);
         setLoading(false);
+        setError(null);
+        return;
+      }
+
+      if (onlyWhenEmpty && !force && text.length > 0) {
+        requestIdRef.current += 1;
+        setSuggestedTitle(null);
+        setSuggestedTags([]);
+        setLoading(false);
+        setError(null);
         return;
       }
 
@@ -127,15 +151,16 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
         if (requestIdRef.current === currentRequestId) setLoading(false);
       }
     },
-    [getText, initialText, mode],
+    [getText, initialText, isCreateMode, mode, onlyWhenEmpty],
   );
 
   useEffect(() => {
+    if (!isCreateMode) return;
     runPrefill(initialText || getText?.());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [getText, initialText, isCreateMode, runPrefill]);
 
   useEffect(() => {
+    if (!isCreateMode) return;
     if (!getText) return;
 
     let isMounted = true;
@@ -157,9 +182,12 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
         debounceTimerRef.current = null;
       }
     };
-  }, [debounceMs, getText, runPrefill]);
+  }, [debounceMs, getText, isCreateMode, runPrefill]);
 
-  const refresh = useCallback(() => runPrefill(getText?.()), [getText, runPrefill]);
+  const refresh = useCallback(
+    () => runPrefill(getText?.(), { force: true }),
+    [getText, runPrefill],
+  );
 
   return { suggestedTitle, suggestedTags, loading, error, refresh } as const;
 }
