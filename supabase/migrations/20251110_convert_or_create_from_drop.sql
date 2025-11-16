@@ -2,6 +2,27 @@
 -- Creates or reuses todos derived from Mind Drop items in an idempotent way
 -- Archives the provisional Mind Drop note after conversion
 
+-- COPILOT TASK: Update convert_or_create_from_drop to stop manipulating labels and just archive the provisional note.
+--
+-- Context:
+-- - This function is called when a Mind Drop note is converted to a To-Do via the chip.
+-- - Schema details:
+--     notes.owner_id :: uuid
+--     notes.drop_id  :: text
+--     notes.archived :: boolean (soft-delete flag)  -- if not present, just ignore and only set updated_at
+--     todos.owner_id :: uuid
+--     todos.drop_id  :: text
+-- - In Mind Drop, "unsorted" status for notes is derived from labels including 'needs_review',
+--   but labels is stored as jsonb in the DB, so array_remove(labels, 'needs_review') is causing
+--   the error: function array_remove(jsonb, unknown) does not exist.
+--
+-- Requirements:
+-- ✅ 1) Do NOT call array_remove on labels - completely removed
+-- ✅ 2) Todo idempotency by drop_id - proper uuid/text type matching, no casting
+-- ✅ 3) Archive note WITHOUT touching labels - dynamic column detection for archived boolean
+-- ✅ 4) Return todo id correctly
+-- ✅ 5) All other behavior preserved (due date, tags, etc.)
+
 CREATE OR REPLACE FUNCTION public.convert_or_create_from_drop(
   p_owner uuid,
   p_drop_id text,
@@ -103,7 +124,7 @@ BEGIN
     END;
   END IF;
 
-  -- STEP 3: Archive or clean up the provisional Mind Drop note
+  -- STEP 3: Archive the provisional Mind Drop note WITHOUT touching labels
   -- Find the note with matching owner and drop_id (both correct types)
   SELECT id
     INTO v_note_id
@@ -123,16 +144,15 @@ BEGIN
     ) INTO v_has_archived_column;
 
     IF v_has_archived_column THEN
-      -- Preferred: mark the note as archived
+      -- Preferred: mark the note as archived (soft delete)
       UPDATE public.notes
          SET archived = true,
              updated_at = timezone('utc', now())
        WHERE id = v_note_id;
     ELSE
-      -- Fallback: remove 'needs_review' label and update timestamp
+      -- Fallback: just update timestamp (no labels manipulation)
       UPDATE public.notes
-         SET labels = array_remove(labels, 'needs_review'),
-             updated_at = timezone('utc', now())
+         SET updated_at = timezone('utc', now())
        WHERE id = v_note_id;
     END IF;
   END IF;
