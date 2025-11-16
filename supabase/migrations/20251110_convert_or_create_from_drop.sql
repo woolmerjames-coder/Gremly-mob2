@@ -13,7 +13,6 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_drop_uuid uuid;
   v_existing_id uuid;
   v_note_id uuid;
   v_new_id uuid;
@@ -29,18 +28,18 @@ BEGIN
     RAISE EXCEPTION 'convert_or_create_from_drop requires a non-empty drop id';
   END IF;
 
-  v_drop_uuid := p_drop_id::uuid;
-
   IF lower(p_target) <> 'todo' THEN
     RAISE EXCEPTION 'Unsupported target for convert_or_create_from_drop: %', p_target
       USING HINT = 'Only the ''todo'' target is supported.';
   END IF;
 
+  -- Check for existing active todo with same owner and drop_id
+  -- p_owner is uuid, p_drop_id is text
   SELECT id
     INTO v_existing_id
   FROM public.todos
   WHERE owner_id = p_owner
-    AND drop_id = v_drop_uuid
+    AND drop_id = p_drop_id
     AND status = 'active'
   LIMIT 1;
 
@@ -48,11 +47,13 @@ BEGIN
     RETURN v_existing_id;
   END IF;
 
+  -- Check for existing note with same owner and drop_id
+  -- If found, archive it before creating the todo
   SELECT id
     INTO v_note_id
   FROM public.notes
   WHERE owner_id = p_owner
-    AND drop_id = v_drop_uuid
+    AND drop_id = p_drop_id
     AND COALESCE(archived_reason, '') = ''
     AND (archived_at IS NULL)
   LIMIT 1;
@@ -90,7 +91,7 @@ BEGIN
     )
     VALUES (
       p_owner,
-      v_drop_uuid,
+      p_drop_id,
       COALESCE(p_payload->>'name', ''),
       p_payload->>'body',
       v_due_date,
@@ -109,7 +110,7 @@ BEGIN
         INTO v_new_id
       FROM public.todos
       WHERE owner_id = p_owner
-        AND drop_id = v_drop_uuid
+        AND drop_id = p_drop_id
         AND status = 'active'
       LIMIT 1;
 
