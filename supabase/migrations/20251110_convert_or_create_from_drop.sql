@@ -48,21 +48,19 @@ BEGIN
   END IF;
 
   -- Check for existing note with same owner and drop_id
-  -- If found, archive it before creating the todo
+  -- If found, mark it as updated (notes table has no archived_at/archived_reason columns)
   SELECT id
     INTO v_note_id
   FROM public.notes
   WHERE owner_id = p_owner
     AND drop_id = p_drop_id
-    AND COALESCE(archived_reason, '') = ''
-    AND (archived_at IS NULL)
   LIMIT 1;
 
   IF v_note_id IS NOT NULL THEN
+    -- Simply update the timestamp to indicate the note has been processed
+    -- The note remains in place; the new todo becomes the active representation
     UPDATE public.notes
-       SET archived_at = timezone('utc', now()),
-           archived_reason = 'converted_to_todo',
-           updated_at = timezone('utc', now())
+       SET updated_at = timezone('utc', now())
      WHERE id = v_note_id;
   END IF;
 
