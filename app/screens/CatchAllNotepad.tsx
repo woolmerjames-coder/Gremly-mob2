@@ -2896,12 +2896,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           } catch (conversionError) {
             console.error('[MindDrop][CategoryChip] Failed to convert via RPC', conversionError);
 
+            // Leave the note as unsorted (labels: ['catchall', 'needs_review'])
+            // so the user can try again later
             if (TOASTS_ON) {
               showActionToast({
-                type: 'success',
-                content: 'Could not convert to To-Do',
+                type: 'error',
+                content: 'Sorry, failed to create To-Do. Please try again.',
               });
             }
+
+            // Don't clear the unsorted state - let the user retry
+            setLowConfidenceUnsortedId(null);
+            unsortedIdRef.current = null;
+            setIsSubmitting(false);
+            return;
           }
         } else if (kind === 'habit') {
           // Convert the unsorted note to a habit
