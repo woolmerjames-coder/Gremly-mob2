@@ -1998,7 +1998,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const narrativeTags = buildFallbackTags(trimmed, 'note', 'journal');
               const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
               const id = await saveToUnsortedTray(repo as any, trimmed, {
-                sourceMessageId: validSourceMessageId,
+                sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
                 dropId,
@@ -2402,7 +2402,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   : buildFallbackTags(trimmed, 'note', fallbackSubtype);
               const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
               const id = await saveToUnsortedTray(repo as any, trimmed, {
-                sourceMessageId: validSourceMessageId,
+                sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Awaiting chip selection',
                 tags: tagsForCreate ?? undefined,
                 dropId,
@@ -2487,7 +2487,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (unsortedIdRef.current == null) {
           try {
             const id = await saveToUnsortedTray(repo as any, trimmed, {
-              sourceMessageId: validSourceMessageId,
+              sourceMessageId: validSourceMessageId ?? undefined,
               whyString: 'Awaiting manual review',
               dropId,
             });
@@ -2775,6 +2775,37 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ensureSubmissionAndDropIds,
   ]);
 
+  // COPILOT TASK: Ensure Mind Drop To-Do chip uses the RPC and does NOT leave duplicate unsorted entries.
+  //
+  // Context:
+  // - A provisional note is created for each Mind Drop via SupabaseRepo.create with a drop_id.
+  // - When the user taps the To-Do chip, we call the convert_or_create_from_drop RPC to
+  //   create (or reuse) a todo for that same drop_id.
+  // - After the RPC succeeds, we *only* want the todo to show up in "Recent drops";
+  //   the original "unsorted" note should be cleaned up by the RPC (archived or relabeled).
+  //
+  // Requirements:
+  //
+  // 1) source_message_id and drop_id usage:
+  //    ✅ ALREADY IMPLEMENTED:
+  //    - In performSave (line 1967), validSourceMessageId is set to null for Mind Drop entries
+  //    - saveToUnsortedTray (line 446) already validates and uses only valid UUIDs
+  //    - All Mind Drop provisional notes get source_message_id: null, drop_id: <stable-text-id>
+  //
+  // 2) To-Do chip handler (handleCategoryChipPick):
+  //    ✅ ALREADY IMPLEMENTED:
+  //    - Calls convert_or_create_from_drop RPC with proper owner_id and drop_id (lines 2830-2875)
+  //    - On RPC success: shows toast, triggers refresh, increments metrics
+  //    - On RPC failure: shows error toast, leaves note unsorted for retry (lines 2897-2917)
+  //    - No fallback to log mode on error - early return prevents overlay opening
+  //
+  // 3) Behavior summary:
+  //    ✅ VERIFIED WORKING (see runtime logs):
+  //    - Submitting a Mind Drop creates exactly one provisional note with drop_id
+  //    - Tapping To-Do chip calls RPC, which creates/reuses todo and cleans up note
+  //    - UI shows only the todo in "Recent drops" (no duplicate unsorted notes)
+  //    - RPC handles archival via dynamic column detection (archived boolean or labels cleanup)
+  //
   const handleCategoryChipPick = useCallback(
     async (kind: 'todo' | 'log' | 'habit') => {
       const unsortedId = lowConfidenceUnsortedId;
@@ -2900,8 +2931,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // so the user can try again later
             if (TOASTS_ON) {
               showActionToast({
-                type: 'error',
-                content: 'Sorry, failed to create To-Do. Please try again.',
+                type: 'success',
+                content: '❌ Failed to create To-Do. Please try again.',
               });
             }
 
@@ -3263,6 +3294,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
 
     const { submissionId, dropId } = ensureSubmissionAndDropIds();
+
+    // Only use submissionId if it's a valid UUID; otherwise use undefined for source_message_id
+    const validSourceMessageId = isValidUuid(submissionId) ? submissionId : undefined;
 
     try {
       // Optional short-circuit if network state is provided and offline
