@@ -730,6 +730,12 @@ export class SupabaseRepo implements IRepo {
         query = query.in('subtype', opts.subtypes);
       }
 
+      // COPILOT: Exclude archived notes from notes.list for Mind Drop Recent Drops
+      // Provisional notes are soft-deleted by convert_or_create_from_drop RPC
+      if (type === 'note') {
+        query = query.eq('archived', false);
+      }
+
       if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
         query = query.contains('tags', opts.tagNames);
       }
