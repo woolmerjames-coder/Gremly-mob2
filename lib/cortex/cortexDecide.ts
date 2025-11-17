@@ -594,6 +594,11 @@ export async function cortexDecide(
       },
     };
 
+    // Extract classification tags from engineOutput if available
+    const classificationTags = engineOutput?.classification?.tags
+      ? coerceEngineTags(engineOutput.classification.tags)
+      : undefined;
+
     const result: CortexResponse = {
       ...safeResult,
       actions: mode === 'auto' ? candidateActions : [],
@@ -613,6 +618,12 @@ export async function cortexDecide(
         ideaHeuristicTriggered: ideaHeuristicApplied,
         heuristics: heuristicsMeta,
         canonicalHint: canonicalHint ?? undefined,
+        engineOutputTags: engineTags,
+        ...(classificationTags && {
+          classification: {
+            tags: classificationTags,
+          },
+        }),
       },
       engineTags,
     };
