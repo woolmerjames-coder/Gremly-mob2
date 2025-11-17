@@ -153,7 +153,13 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       const text = action.text ?? '';
       const trimmed = text.trim();
       let next = setTextForCurrent(state, text);
-      next = syncCompactTitle(next, [text]);
+
+      // For todos: SET_TEXT only updates details, NOT title
+      // Title is only updated via SET_TITLE/SET_COMPACT_TITLE or HYDRATE_EDIT
+      // For logs/habits: syncCompactTitle derives title from body/notes
+      if (state.baseType !== 'todo') {
+        next = syncCompactTitle(next, [text]);
+      }
 
       const prevList = next.list;
       let list = next.list;
@@ -314,11 +320,13 @@ function syncCompactTitle(state: V2State, priority: Array<string | null | undefi
   }
 
   if (base === 'todo') {
+    // For todos: only update compactTitle/compactTitleSource, NOT todo.title
+    // todo.title is only updated via SET_TITLE/SET_COMPACT_TITLE or HYDRATE_EDIT
     return {
       ...state,
       compactTitle: compact,
       compactTitleSource: source,
-      todo: { ...state.todo, title: compact },
+      // Preserve existing todo.title
     };
   }
 

@@ -2282,9 +2282,11 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     (entity as any)?.details ?? (entity as any)?.body ?? (entity as any)?.notes ?? '';
   const title = (entity as any)?.title ?? '';
 
-  // For todos, if rawDetails is empty but title is non-empty, use title as the details
-  // This ensures overlay prefill always has real text in edit mode
-  const todoDetails = rawDetails && String(rawDetails).trim().length > 0 ? rawDetails : title;
+  // For todos: details and title are strictly separate fields
+  // - details comes from entity.details (the long text field)
+  // - title comes from entity.title (the short label, possibly AI-generated)
+  // Do NOT fallback from title to details or vice versa
+  const todoDetails = rawDetails;
 
   const payload: Partial<V2State> = {
     baseType,
