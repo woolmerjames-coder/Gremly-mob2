@@ -2917,6 +2917,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               setOrganizedToday((prev) => prev + 1);
               triggerRecentRefresh();
 
+              // DO NOT auto-open overlay - user must explicitly tap Edit on the todo
+              // The overlay should only open via handleEdit in RecentDrops
+
               if (TOASTS_ON) {
                 showActionToast({
                   type: 'success',
