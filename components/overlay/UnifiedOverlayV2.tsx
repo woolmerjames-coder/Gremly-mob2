@@ -1288,12 +1288,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const tagsPayload = shouldIncludeTags ? { tags, tags_meta: tagsMeta } : {};
 
     if (baseType === 'todo') {
-      const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
+      // For todos: title and details are strictly separate
+      // - title should be the explicitly set short label (or empty)
+      // - details is the long text field
+      // Do NOT derive title from details (no firstLine fallback)
+      const todoTitle = s.todo.title || '';
       const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
       return {
         type: 'todo' as const,
-        title: derivedTitle,
-        name: derivedTitle,
+        title: todoTitle,
+        name: todoTitle,
         details: s.todo.details || null,
         due_at: dueAt,
         space_id: s.spaceId ?? spaceId ?? null,
@@ -2281,12 +2285,14 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const rawDetails =
     (entity as any)?.details ?? (entity as any)?.body ?? (entity as any)?.notes ?? '';
   const title = (entity as any)?.title ?? '';
+  const name = (entity as any)?.name ?? '';
 
-  // For todos: details and title are strictly separate fields
-  // - details comes from entity.details (the long text field)
-  // - title comes from entity.title (the short label, possibly AI-generated)
-  // Do NOT fallback from title to details or vice versa
-  const todoDetails = rawDetails;
+  // For todos: handle Mind Drop items that only have 'name' but no 'details'
+  // - If details exists, use it (user has edited the long text)
+  // - If no details but has name/title, populate details with name/title
+  //   (so user can edit the original Mind Drop text)
+  // - title remains as the short label (possibly AI-generated)
+  const todoDetails = rawDetails || name || title || '';
 
   const payload: Partial<V2State> = {
     baseType,
