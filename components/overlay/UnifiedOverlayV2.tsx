@@ -2150,6 +2150,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const type = (entity as any)?.type;
   const baseType: BaseType = type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log';
 
+  // For todos, prefer body/notes for details field since todos don't have a 'details' column
+  const todoDetails =
+    (entity as any)?.details ?? (entity as any)?.body ?? (entity as any)?.notes ?? '';
+
   const payload: Partial<V2State> = {
     baseType,
     log: {
@@ -2158,7 +2162,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     },
     todo: {
       title: (entity as any)?.title ?? '',
-      details: (entity as any)?.details ?? '',
+      details: todoDetails,
       due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
     },
     habit: {
