@@ -2005,7 +2005,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           uiSurface: 'overlay',
           lane: 'catchall',
         };
-        decision = await decideWithContext({ text: trimmed }, ctx);
+        decision = await decideWithContext({ text: cleanedText }, ctx);
         step(trace, 'decide:result', {
           mode: decision.mode,
           confidence: decision.confidence,
@@ -2014,13 +2014,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         });
 
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
-        if (classifyNarrative(trimmed)) {
+        if (classifyNarrative(cleanedText)) {
           // Save to unsorted tray once if not already saved
           if (unsortedIdRef.current == null) {
             try {
-              const narrativeTags = buildFallbackTags(trimmed, 'note', 'journal');
+              const narrativeTags = buildFallbackTags(cleanedText, 'note', 'journal');
               const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
-              const id = await saveToUnsortedTray(repo as any, trimmed, {
+              const id = await saveToUnsortedTray(repo as any, cleanedText, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
@@ -2057,7 +2057,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             void logCatchallDecision({
               userId: currentUserId,
-              text: trimmed,
+              text: cleanedText,
               surface: 'catchall',
               engine: engineMode,
               modelVersion,
@@ -2084,7 +2084,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         // Apply narrative detection guard to avoid prompting conversion for journaling text
-        if (decision && classifyNarrative(trimmed)) {
+        if (decision && classifyNarrative(cleanedText)) {
           const hasTodoAction = Array.isArray(decision.actions)
             ? decision.actions.some((a: any) => a.type === 'create.todo')
             : false;
@@ -2104,8 +2104,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   type: 'create.note',
                   label: env.feature.canonicalTypes ? 'Save as log' : 'Save as note',
                   payload: {
-                    title: trimmed,
-                    body: trimmed,
+                    title: cleanedText,
+                    body: cleanedText,
                     subtype: 'journal',
                   },
                 },
@@ -2310,7 +2310,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               if (
                 firstTodoId &&
                 (decision.confidence ?? 0) >= 0.8 &&
-                !isUrgent(trimmed) &&
+                !isUrgent(cleanedText) &&
                 !parsedIso &&
                 timingAskedRef.current !== submissionIdRef.current
               ) {
@@ -2357,7 +2357,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
               void logCatchallDecision({
                 userId: currentUserId,
-                text: trimmed,
+                text: cleanedText,
                 surface: 'catchall',
                 engine: engineMode,
                 modelVersion,
@@ -2391,7 +2391,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
           // Duplicate prevention: only save if no existing unsorted note OR text is different
           const shouldSaveNew =
-            unsortedIdRef.current == null && lastSubmittedTextRef.current !== trimmed;
+            unsortedIdRef.current == null && lastSubmittedTextRef.current !== cleanedText;
 
           if (shouldSaveNew) {
             try {
@@ -2422,9 +2422,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const fallbackTags =
                 classificationTags.length > 0
                   ? classificationTags
-                  : buildFallbackTags(trimmed, 'note', fallbackSubtype);
+                  : buildFallbackTags(cleanedText, 'note', fallbackSubtype);
               const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
-              const id = await saveToUnsortedTray(repo as any, trimmed, {
+              const id = await saveToUnsortedTray(repo as any, cleanedText, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Awaiting chip selection',
                 tags: tagsForCreate ?? undefined,
@@ -2467,7 +2467,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             void logCatchallDecision({
               userId: currentUserId,
-              text: trimmed,
+              text: cleanedText,
               surface: 'catchall',
               engine: engineMode,
               modelVersion,
@@ -2504,284 +2504,97 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
       }
 
-      const allowFallbackAutoCreate = !decision || allowsFallbackCreation(decision);
+      // If decision is null or has no actions, fall back to ask mode with Unsorted
+      if (!decision || !Array.isArray(decision.actions) || decision.actions.length === 0) {
+        step(trace, 'no-decision-or-actions', {
+          hasDecision: !!decision,
+          actionsCount: decision?.actions?.length ?? 0,
+        });
 
-      if (decision && !allowFallbackAutoCreate) {
+        // Save to Unsorted tray if not already saved
         if (unsortedIdRef.current == null) {
           try {
+            const fallbackTags = buildFallbackTags(trimmed, 'note');
+            const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
+
             const id = await saveToUnsortedTray(repo as any, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
-              whyString: 'Awaiting manual review',
+              whyString: 'Awaiting chip selection',
+              tags: tagsForCreate ?? undefined,
               dropId,
             });
+
             if (id) {
               logMetrics('minddrop_unsorted_created', {
                 noteId: id,
                 dropId,
-                mode: decision.mode,
+                mode: decision?.mode ?? 'ask',
+                reason: 'no_actions',
               });
             }
+
             unsortedIdRef.current = id ?? null;
             lastSubmittedTextRef.current = trimmed;
             lastUnsortedIdRef.current = unsortedIdRef.current;
           } catch (e) {
-            console.warn('[MindDrop][Fallback] failed to save unsorted note', e);
+            console.warn('[MindDrop][NoActions] failed to save unsorted note', e);
           }
         }
 
-        if (unsortedIdRef.current) {
-          setLowConfidenceUnsortedId(unsortedIdRef.current);
-        }
+        const savedUnsortedId = unsortedIdRef.current;
+        if (savedUnsortedId) {
+          setLowConfidenceUnsortedId(savedUnsortedId);
+          setCategoryChips([
+            { kind: 'todo', label: 'Add to To-Do List' },
+            { kind: 'log', label: 'Just Save It' },
+            { kind: 'habit', label: 'Start a Habit' },
+          ]);
+          setNote('');
+          triggerRecentRefresh();
+          pendingUndo.current = { todos: [], notes: [], habits: [] };
 
-        setNote('');
-        triggerRecentRefresh();
-        pendingUndo.current = { todos: [], notes: [], habits: [] };
-
-        return {
-          created: { todos: [], notes: [], habits: [] },
-          createdDetails: [],
-          decisionMode: decision.mode,
-          decisionConfidence: decision.confidence,
-        };
-      }
-
-      step(trace, 'classify:start', { excerpt: trimmed.slice(0, 120) });
-      let classifyOut: any = null;
-      try {
-        const engine = createCortexEngine();
-        classifyOut = await engine.classify({ text: trimmed, spaceId: null });
-        step(trace, 'classify:result', classifyOut);
-      } catch (err) {
-        console.warn('[MindDrop][Classify] error', String(err));
-        step(trace, 'classify:error', { error: String(err) });
-      }
-
-      const createdIds = {
-        todos: [] as string[],
-        notes: [] as string[],
-        habits: [] as string[],
-      };
-      const counts = { todos: 0, notes: 0, habits: 0 };
-      const createdDetails: OrganizedDetail[] = [];
-
-      const looksLikeIdeas =
-        /\bideas?\b|brainstorm|wish\s*list|packing\s*list|itinerary|list/i.test(trimmed);
-      if (looksLikeIdeas && classifyOut?.type === 'todo') {
-        classifyOut = {
-          ...classifyOut,
-          type: 'note',
-          subtype: 'list',
-          aiPlaced: true,
-          whyString: 'Ideas/list capture',
-        };
-      }
-
-      const normalizedTags = filterAndNormalizeTags(classifyOut?.tags ?? []);
-      const tags = normalizedTags.length > 0 ? normalizedTags : null;
-
-      let payload: CreateRecordInput;
-      if (classifyOut?.type === 'todo') {
-        const due = parsedIso ?? null;
-        const todoTitle = clampNoteLength(cleanedText || trimmed || 'Quick task');
-        payload = {
-          type: 'todo',
-          title: todoTitle,
-          name: todoTitle,
-          due_date: due,
-          undefined_due: !due,
-          space_id: null,
-          ai_placed: true,
-          why_string: classifyOut?.whyString || 'Auto-classified as a task',
-          origin: 'catchall',
-          sourceMessageId: validSourceMessageId,
-          dropId,
-          tags,
-        };
-      } else if (classifyOut?.type === 'habit') {
-        const freqRaw = typeof classifyOut?.frequency === 'string' ? classifyOut.frequency : null;
-        const frequency: 'daily' | 'weekly' | 'monthly' =
-          freqRaw === 'weekly' ? 'weekly' : freqRaw === 'monthly' ? 'monthly' : 'daily';
-        const habitName = clampNoteLength(cleanedText || trimmed);
-
-        payload = {
-          type: 'habit',
-          name: habitName,
-          frequency,
-          space_id: null,
-          ai_placed: true,
-          why_string: classifyOut?.whyString || 'Auto-classified as a habit',
-          origin: 'catchall',
-          sourceMessageId: validSourceMessageId,
-          dropId,
-          tags,
-        };
-      } else {
-        const derivedLogSubtype = deriveLogSubtypeFromTags(normalizedTags);
-        const derivedNoteSubtype: NoteSubtype | null = (() => {
-          switch (derivedLogSubtype) {
-            case 'journal':
-              return 'journal';
-            case 'list':
-              return 'list';
-            case 'idea':
-              return 'idea';
-            default:
-              return null;
-          }
-        })();
-
-        const classificationSubtype: NoteSubtype | null =
-          classifyOut?.type === 'note' &&
-          (classifyOut?.subtype === 'journal' ||
-            classifyOut?.subtype === 'list' ||
-            classifyOut?.subtype === 'idea')
-            ? (classifyOut.subtype as NoteSubtype)
-            : null;
-
-        const subtype = derivedNoteSubtype ?? classificationSubtype ?? 'catchall';
-        const canonicalType = persistedToCanonical('note', subtype);
-        const noteTitle = clampNoteLength(cleanedText || trimmed || 'Quick note');
-        const noteBody = clampNoteLength(cleanedText || trimmed);
-
-        payload = {
-          type: 'note',
-          title: noteTitle,
-          body: noteBody,
-          subtype,
-          origin: 'catchall',
-          ai_placed:
-            classifyOut?.aiPlaced !== undefined
-              ? classifyOut?.aiPlaced
-                ? subtype !== 'catchall'
-                : false
-              : subtype !== 'catchall',
-          space_id: null,
-          why_string: classifyOut?.whyString || 'Saved from Catch-All Notepad',
-          canonicalType,
-          labels: [CATCHALL_LABEL],
-          views: {
-            alsoShowIn: ['Hub:Catch-All'],
-          },
-          sourceMessageId: validSourceMessageId,
-          dropId,
-          tags,
-        };
-      }
-
-      step(trace, 'payload:final', payload);
-      const rec = await repo.create(payload);
-
-      if (payload.type === 'todo') {
-        counts.todos = 1;
-        createdIds.todos.push(rec.id);
-        createdDetails.push({ kind: 'todo' });
-
-        // Check if todo is urgent
-        if (isUrgent(trimmed)) {
-          // Auto-assign urgent todos to Today
-          const today = new Date();
-          today.setHours(17, 0, 0, 0); // Today at 17:00 local
-          await repo.update({
-            id: rec.id,
-            patch: {
-              due_date: today.toISOString(),
-              undefined_due: false,
-            } as any,
+          void logCatchallDecision({
+            userId: currentUserId,
+            text: cleanedText,
+            surface: 'catchall',
+            engine: engineMode,
+            modelVersion,
+            intent: 'none',
+            confidence: decision?.confidence ?? 0,
+            mode: decision?.mode ?? 'ask',
+            decision: 'ask_chip',
+            createdTodos: 0,
+            createdNotes: 0,
+            createdHabits: 0,
+            dropId,
           });
-          showActionToast({ type: 'success', content: 'Added to Today ✓' });
 
-          // Track urgent bypass
-          metricsRef.current.urgentBypass += 1;
-          logMetrics('urgent_bypass', { todoId: rec.id, input: trimmed });
+          step(trace, 'fallback-to-ask', { unsortedId: savedUnsortedId });
+          end(trace, 'ask-chips', { confidence: decision?.confidence ?? 0 });
 
-          // timingAskedRef remains false - no timing chips shown
-        } else {
-          // Check if we should show timing chips for non-urgent todos
-          const confidence =
-            typeof classifyOut?.confidence === 'number' && Number.isFinite(classifyOut.confidence)
-              ? classifyOut.confidence
-              : 0;
-          const shouldShowTiming =
-            confidence >= 0.8 && timingAskedRef.current !== submissionId && !parsedIso; // Don't ask if we already parsed a due date
-
-          if (shouldShowTiming) {
-            timingAskedRef.current = submissionId;
-            setPendingTodoId(rec.id);
-            setTimingChips(getTimingChips());
-
-            // Track timing options shown
-            metricsRef.current.timingShown += 1;
-            logMetrics('timing_options_shown', {
-              todoId: rec.id,
-              confidence,
-              timingOptions: getTimingChips().map((c) => c.option),
-            });
-          }
+          return {
+            created: { todos: [], notes: [], habits: [] },
+            createdDetails: [],
+            decisionMode: decision?.mode ?? 'ask',
+            decisionConfidence: decision?.confidence ?? 0,
+          };
         }
-      } else if (payload.type === 'habit') {
-        counts.habits = 1;
-        createdIds.habits.push(rec.id);
-        createdDetails.push({ kind: 'habit' });
-      } else {
-        counts.notes = 1;
-        createdIds.notes.push(rec.id);
-        const subtypeValue =
-          typeof (payload as any)?.subtype === 'string' ? (payload as any).subtype : null;
-        createdDetails.push({ kind: 'note', noteSubtype: subtypeValue });
       }
 
-      const probableIntent =
-        payload.type === 'todo' ? 'todo' : payload.type === 'habit' ? 'habit' : 'note';
-      const fallbackDecisionMode = decision?.mode ?? 'auto';
-      const autoCreatedCount = counts.todos + counts.notes + counts.habits;
-      const fallbackDecisionOutcome =
-        (!decision || allowsFallbackCreation(decision)) && autoCreatedCount > 0
-          ? 'auto_create'
-          : fallbackDecisionMode === 'ask'
-            ? 'ask_chip'
-            : 'unsorted';
-
-      if (autoCreatedCount > 0) {
-        logMetrics('minddrop_auto_created', {
-          dropId,
-          mode: fallbackDecisionMode,
-          createdTodos: counts.todos,
-          createdNotes: counts.notes,
-          createdHabits: counts.habits,
-        });
-      }
-
-      void logCatchallDecision({
-        userId: currentUserId,
-        text: trimmed,
-        surface: 'catchall',
-        engine: engineMode,
-        modelVersion,
-        intent: probableIntent,
-        confidence:
-          typeof classifyOut?.confidence === 'number' && Number.isFinite(classifyOut.confidence)
-            ? classifyOut.confidence
-            : 0,
-        mode: fallbackDecisionMode,
-        decision: fallbackDecisionOutcome,
-        createdTodos: counts.todos,
-        createdNotes: counts.notes,
-        createdHabits: counts.habits,
-        dropId,
+      // If we reach here without returning, decision.mode is 'ask' but chips weren't shown
+      // This shouldn't happen in normal flow, but handle it gracefully
+      step(trace, 'unexpected-fallthrough', {
+        mode: decision?.mode,
+        hasUnsortedId: !!unsortedIdRef.current,
       });
 
-      end(trace, 'saved', {
-        id: rec?.id,
-        type: payload.type,
-        subtype: (payload as any)?.subtype,
-      });
+      end(trace, 'no-action-taken', {});
 
       return {
-        created: createdIds,
-        createdDetails,
-        decisionMode: fallbackDecisionMode,
-        decisionConfidence:
-          typeof classifyOut?.confidence === 'number' ? classifyOut.confidence : undefined,
+        created: { todos: [], notes: [], habits: [] },
+        createdDetails: [],
+        decisionMode: decision?.mode ?? 'ask',
+        decisionConfidence: decision?.confidence ?? 0,
       };
     } catch (error) {
       console.error('[CatchAllNotepad] Failed to capture note', error);
