@@ -553,8 +553,15 @@ export class SupabaseRepo implements IRepo {
     const updatePayload: Record<string, unknown> = {};
 
     if (existing.type === 'todo') {
-      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
-        updatePayload.title = normalizedPatch.title;
+      // DATABASE TRUTH: todos table has 'name' column (NO 'title' column)
+      // Handle name/title mapping: prefer 'name', treat 'title' as alias for backwards compatibility
+      if ('name' in normalizedPatch && normalizedPatch.name !== undefined) {
+        updatePayload.name = normalizedPatch.name;
+      } else if ('title' in normalizedPatch && normalizedPatch.title !== undefined) {
+        // Map 'title' to 'name' for backwards compatibility with overlay code
+        updatePayload.name = normalizedPatch.title;
+      }
+
       if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('due_date' in normalizedPatch) {
