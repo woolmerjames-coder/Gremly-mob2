@@ -744,6 +744,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
   }, [mode, initialEntity, repo]);
 
+  // Detect if item already has AI-generated content from Mind Drop
+  const hasAiTags = useMemo(() => {
+    const entity = initialEntity as any;
+    return Array.isArray(entity?.tags) && entity.tags.length > 0;
+  }, [initialEntity]);
+
+  const hasAiTitle = useMemo(() => {
+    const entity = initialEntity as any;
+    return typeof entity?.title === 'string' && entity.title.trim().length > 0;
+  }, [initialEntity]);
+
+  const isAiPlaced = useMemo(() => {
+    const entity = initialEntity as any;
+    return entity?.ai_placed === true;
+  }, [initialEntity]);
+
+  // Only auto-run prefill for legacy items or items without AI content
+  const shouldSkipAutoPrefill = hasAiTags || hasAiTitle || isAiPlaced;
+
+  console.log('[OverlayV2] Prefill detection', {
+    mode,
+    hasAiTags,
+    hasAiTitle,
+    isAiPlaced,
+    shouldSkipAutoPrefill,
+  });
+
   // AI prefill hook: request suggestions when creating a new item with empty text
   const {
     suggestedTitle,
@@ -752,6 +779,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   } = useOverlayPrefill({
     mode,
     getText: getPrefillText,
+    skipAutoRun: shouldSkipAutoPrefill,
   });
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);

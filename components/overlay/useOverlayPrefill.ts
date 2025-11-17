@@ -273,6 +273,8 @@ type UseOverlayPrefillOptions = {
   getText?: () => string;
   debounceMs?: number;
   onlyWhenEmpty?: boolean;
+  /** Skip automatic prefill on mount (e.g., for AI-placed items) */
+  skipAutoRun?: boolean;
 };
 
 export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
@@ -282,6 +284,7 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
     getText,
     debounceMs = 600,
     onlyWhenEmpty = false,
+    skipAutoRun = false,
   } = options;
 
   const isCreateMode = mode === 'create';
@@ -491,14 +494,18 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
     [getText, initialText, isCreateMode, mode, onlyWhenEmpty],
   );
 
+  // Auto-run on mount (unless skipAutoRun is true)
   useEffect(() => {
     if (!isCreateMode) return;
+    if (skipAutoRun) return;
     runPrefill(initialText || getText?.());
-  }, [getText, initialText, isCreateMode, runPrefill]);
+  }, [getText, initialText, isCreateMode, runPrefill, skipAutoRun]);
 
+  // Auto-run on text changes (unless skipAutoRun is true)
   useEffect(() => {
     if (!isCreateMode) return;
     if (!getText) return;
+    if (skipAutoRun) return;
 
     let isMounted = true;
     const pollInterval = setInterval(() => {
@@ -519,7 +526,7 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
         debounceTimerRef.current = null;
       }
     };
-  }, [debounceMs, getText, isCreateMode, runPrefill]);
+  }, [debounceMs, getText, isCreateMode, runPrefill, skipAutoRun]);
 
   const refresh = useCallback(
     () => runPrefill(getText?.(), { force: true }),
