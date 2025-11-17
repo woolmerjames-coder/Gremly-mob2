@@ -315,6 +315,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const dueToastTimerRef = useRef<number | null>(null);
   const createPrefillAppliedRef = useRef(false);
   const editAutoPrefillRanRef = useRef(false);
+  const aiTitlePersistedRef = useRef(false);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
   const currentTagsRef = useRef<TagKey[]>(state.tags);
@@ -1174,6 +1175,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     prevTitleRef.current = nextTitle;
 
+    // In edit mode, persist the AI title to the backend once so Recent Drops and future opens see it.
+    if (
+      mode === 'edit' &&
+      !aiTitlePersistedRef.current &&
+      (initialEntity as any)?.id &&
+      baseType === 'todo'
+    ) {
+      aiTitlePersistedRef.current = true;
+      const id = (initialEntity as any).id;
+      // Fire-and-forget; don't block the UI.
+      (async () => {
+        try {
+          await repo.update({
+            id,
+            patch: {
+              type: 'todo',
+              // UnifiedOverlayV2 uses name as the canonical title for todos
+              name: nextTitle,
+              title: nextTitle,
+            } as any,
+          });
+        } catch (err) {
+          if (__DEV__) {
+            console.warn('[UnifiedOverlayV2] failed to persist AI title', err);
+          }
+          // Allow a retry on next open
+          aiTitlePersistedRef.current = false;
+        }
+      })();
+    }
+
     // In edit mode, also refresh suggested tags from the AI prefill
     if (mode === 'edit') {
       const normalized = normalizePrefillSuggestions(
@@ -1202,6 +1234,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     currentText,
     prefillSuggestedTags,
     tagTombstoneSet,
+    initialEntity,
+    baseType,
+    repo,
   ]);
 
   const showDueToast = useCallback((message: string) => {
