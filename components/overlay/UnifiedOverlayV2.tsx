@@ -314,6 +314,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const saveToastTimerRef = useRef<number | null>(null);
   const dueToastTimerRef = useRef<number | null>(null);
   const createPrefillAppliedRef = useRef(false);
+  const editAutoPrefillRanRef = useRef(false);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
   const currentTagsRef = useRef<TagKey[]>(state.tags);
@@ -797,6 +798,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     getText: getPrefillText,
     skipAutoRun: shouldSkipAutoPrefill,
   });
+
+  // Auto-run prefill for Mind Drop todos with raw sentence titles on first edit open
+  useEffect(() => {
+    if (mode !== 'edit') return;
+    if (!visible) return;
+    if (!isMindDropTodo || !isRawSentenceTitle) return;
+    if (editAutoPrefillRanRef.current) return;
+    if (!refreshPrefill) return;
+
+    console.log('[OverlayV2] auto prefill for Mind Drop todo on edit open', {
+      isMindDropTodo,
+      isRawSentenceTitle,
+    });
+
+    editAutoPrefillRanRef.current = true;
+    setPendingTitleResummarize(true);
+    void refreshPrefill();
+  }, [mode, visible, isMindDropTodo, isRawSentenceTitle, refreshPrefill]);
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
   useEffect(() => {
