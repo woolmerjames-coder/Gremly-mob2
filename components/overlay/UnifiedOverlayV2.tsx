@@ -306,6 +306,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [isResuggestingTags, setIsResuggestingTags] = useState(false);
   const [isResummarizingTitle, setIsResummarizingTitle] = useState(false);
   const [pendingTitleResummarize, setPendingTitleResummarize] = useState(false);
+  // Track whether user has modified tags (to avoid overwriting Mind Drop AI tags on edit)
+  const [tagsDirty, setTagsDirty] = useState(false);
   // local UI state for undo toast
   const [showUndoToast, setShowUndoToast] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
@@ -991,6 +993,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           type: 'HYDRATE_EDIT',
           payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
         } as any);
+        setTagsDirty(true); // Mark tags as user-modified
         return;
       }
 
@@ -1002,6 +1005,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         type: 'HYDRATE_EDIT',
         payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
       } as any);
+      setTagsDirty(true); // Mark tags as user-modified
     },
     [dispatch, state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
   );
@@ -1038,6 +1042,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setSuggestedTags((prev) =>
         prev.filter((entry) => normalizeToTagKey(entry.name) !== normalized),
       );
+
+      setTagsDirty(true); // Mark tags as user-modified
     },
     [
       dispatch,
@@ -1273,6 +1279,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       sticky: normalizedStickyMeta,
       tombstones: normalizedTombstonesMeta,
     };
+
+    // Conditionally include tags/tags_meta:
+    // - Create mode: always include (mode !== 'edit')
+    // - Edit mode: only include if user modified tags (tagsDirty === true)
+    // This preserves Mind Drop AI-generated tags when user only edits title/due date
+    const shouldIncludeTags = mode !== 'edit' || tagsDirty;
+    const tagsPayload = shouldIncludeTags ? { tags, tags_meta: tagsMeta } : {};
+
     if (baseType === 'todo') {
       const derivedTitle = s.todo.title || firstLine(s.todo.details) || 'Untitled';
       const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
@@ -1284,8 +1298,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_at: dueAt,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
-        tags,
-        tags_meta: tagsMeta,
+        ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -1302,8 +1315,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
-        tags,
-        tags_meta: tagsMeta,
+        ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
           commitment: s.commitment,
@@ -1321,8 +1333,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
-      tags,
-      tags_meta: tagsMeta,
+      ...tagsPayload, // Conditionally include tags/tags_meta
     } as any;
 
     // mood (Journal)
