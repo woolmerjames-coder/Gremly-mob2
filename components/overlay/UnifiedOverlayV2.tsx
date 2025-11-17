@@ -807,15 +807,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (editAutoPrefillRanRef.current) return;
     if (!refreshPrefill) return;
 
+    // Wait until the main text/details have been hydrated
+    if (!currentText || !currentText.trim().length) {
+      return;
+    }
+
     console.log('[OverlayV2] auto prefill for Mind Drop todo on edit open', {
       isMindDropTodo,
       isRawSentenceTitle,
+      textLen: currentText.length,
     });
 
     editAutoPrefillRanRef.current = true;
     setPendingTitleResummarize(true);
     void refreshPrefill();
-  }, [mode, visible, isMindDropTodo, isRawSentenceTitle, refreshPrefill]);
+  }, [mode, visible, isMindDropTodo, isRawSentenceTitle, refreshPrefill, currentText]);
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
   useEffect(() => {
