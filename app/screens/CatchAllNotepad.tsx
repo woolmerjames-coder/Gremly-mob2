@@ -2140,11 +2140,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }> = [];
           let unsupported = false;
 
+          // Compute combined AI tags from cortexDecide response
+          const engineTags = Array.isArray(decision.engineTags) ? decision.engineTags : [];
+          const classificationTagsRaw = Array.isArray(decision.meta?.classification?.tags)
+            ? (decision.meta?.classification?.tags as string[])
+            : [];
+          const combinedTags = filterAndNormalizeTags([...engineTags, ...classificationTagsRaw]);
+
           for (const action of actions) {
             if (action.type === 'create.todo') {
               const rawTitle = (action.payload.title?.trim() || cleanedText).trim() || 'Quick task';
               const title = clampNoteLength(rawTitle);
               const due = action.payload.due ?? parsedIso ?? null;
+
+              // Use AI tags or fallback to locally generated tags
+              const todoTags =
+                combinedTags.length > 0 ? combinedTags : buildFallbackTags(cleanedText, 'todo');
+
               mapped.push({
                 bucket: 'todos',
                 payload: {
@@ -2159,6 +2171,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   origin: 'catchall',
                   sourceMessageId: validSourceMessageId,
                   dropId,
+                  ...(todoTags.length > 0 && { tags: todoTags }),
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -2167,6 +2180,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const freqRaw = action.payload.freq;
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
+
+              // Use AI tags or fallback to locally generated tags
+              const habitTags =
+                combinedTags.length > 0 ? combinedTags : buildFallbackTags(cleanedText, 'habit');
 
               mapped.push({
                 bucket: 'habits',
@@ -2180,6 +2197,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   origin: 'catchall',
                   sourceMessageId: validSourceMessageId,
                   dropId,
+                  ...(habitTags.length > 0 && { tags: habitTags }),
                 },
               });
             } else if (action.type === 'create.note') {
@@ -2188,6 +2206,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const rawSubtype = action.payload.subtype;
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
               const canonicalType = persistedToCanonical('note', subtype);
+
+              // Use AI tags or fallback to locally generated tags for this note subtype
+              const noteTags =
+                combinedTags.length > 0
+                  ? combinedTags
+                  : buildFallbackTags(cleanedText, 'note', subtype);
 
               mapped.push({
                 bucket: 'notes',
@@ -2205,6 +2229,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: validSourceMessageId,
                   dropId,
+                  ...(noteTags.length > 0 && { tags: noteTags }),
                 },
               });
             } else if (action.type === 'add.to.list') {
@@ -2213,6 +2238,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const rawListTitle = cleanedText || itemText || trimmed || 'Quick list';
               const listTitle = clampNoteLength(rawListTitle);
               const canonicalType = persistedToCanonical('note', 'list');
+
+              // Use AI tags or fallback to locally generated tags for list notes
+              const listTags =
+                combinedTags.length > 0
+                  ? combinedTags
+                  : buildFallbackTags(cleanedText, 'note', 'list');
 
               mapped.push({
                 bucket: 'notes',
@@ -2230,6 +2261,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: validSourceMessageId,
                   dropId,
+                  ...(listTags.length > 0 && { tags: listTags }),
                 },
               });
             } else {
