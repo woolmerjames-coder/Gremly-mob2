@@ -762,8 +762,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return entity?.ai_placed === true;
   }, [initialEntity]);
 
-  // Only auto-run prefill for legacy items or items without AI content
-  const shouldSkipAutoPrefill = hasAiTags || hasAiTitle || isAiPlaced;
+  // Detect Mind Drop todos that need automatic title suggestion
+  const isMindDropTodo =
+    mode === 'edit' &&
+    (initialEntity as any)?.type === 'todo' &&
+    (initialEntity as any)?.origin === 'catchall';
+
+  // Detect if title is still a raw sentence (not yet condensed by AI)
+  const isRawSentenceTitle =
+    isMindDropTodo &&
+    typeof (initialEntity as any)?.title === 'string' &&
+    (initialEntity as any).title === (initialEntity as any).name &&
+    (initialEntity as any).title.trim().split(/\s+/).length >= 5;
+
+  // Skip auto-prefill for items that already have AI content,
+  // EXCEPT for Mind Drop todos with raw sentence titles (allow one auto-suggestion)
+  const shouldSkipAutoPrefill = !isRawSentenceTitle && (hasAiTags || hasAiTitle || isAiPlaced);
 
   console.log('[OverlayV2] Prefill detection', {
     mode,
