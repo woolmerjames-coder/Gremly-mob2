@@ -868,12 +868,35 @@ const RecentDrops: React.FC<{
     return unsub;
   }, [load]);
 
-  const handleEdit = (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
-    overlay.openEdit({
-      record: { id, type: kind } as any,
-      spaceId: null,
-    });
-    onEdited?.();
+  const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
+    try {
+      // Fetch the full record so overlay can pre-fill all fields
+      const record = await repo.getById(id);
+
+      if (record && record.type === kind) {
+        overlay.openEdit({
+          record: record as any,
+          spaceId: (record as any).space_id ?? null,
+        });
+        onEdited?.();
+      } else {
+        console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
+        // Fallback to minimal record if fetch fails
+        overlay.openEdit({
+          record: { id, type: kind } as any,
+          spaceId: null,
+        });
+        onEdited?.();
+      }
+    } catch (error) {
+      console.error('[RecentDrops] handleEdit: failed to fetch record', error);
+      // Fallback to minimal record if fetch fails
+      overlay.openEdit({
+        record: { id, type: kind } as any,
+        spaceId: null,
+      });
+      onEdited?.();
+    }
   };
 
   const handleDelete = async (id: string, kind: UnifiedDrop['kind']) => {
