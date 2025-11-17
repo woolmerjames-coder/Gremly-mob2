@@ -3011,7 +3011,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         const dueDate = timingOptionToDate(option);
 
-        // Update the todo with the selected due date
+        // Mind Drop timing chip path: PARTIAL update for due date only.
+        // This is intentionally separate from UnifiedOverlayV2's toCreateOrUpdateInput().
+        // Do NOT include title, name, tags, or other fields here — those remain controlled by:
+        // 1. Initial Mind Drop create (auto-actions path with AI tags)
+        // 2. Overlay edits via UnifiedOverlayV2 (user-initiated changes)
         await repo.update({
           id: todoId,
           patch: {
