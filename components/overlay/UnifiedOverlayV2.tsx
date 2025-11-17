@@ -305,6 +305,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [suggestedTags, setSuggestedTags] = useState<PrefillSuggestedTag[]>([]);
   const [isResuggestingTags, setIsResuggestingTags] = useState(false);
   const [isResummarizingTitle, setIsResummarizingTitle] = useState(false);
+  const [pendingTitleResummarize, setPendingTitleResummarize] = useState(false);
   // local UI state for undo toast
   const [showUndoToast, setShowUndoToast] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
@@ -546,9 +547,39 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       : baseType === 'todo'
         ? state.todo.details
         : state.habit.notes;
-  const currentTextRef = useRef(currentText);
-  currentTextRef.current = currentText;
-  const getPrefillText = useCallback(() => currentTextRef.current, []);
+
+  const getPrefillText = useCallback(() => {
+    // Prefer the main text field if present
+    const bodyText =
+      baseType === 'log'
+        ? state.log.body
+        : baseType === 'todo'
+          ? state.todo.details
+          : state.habit.notes;
+
+    if (bodyText && bodyText.trim().length > 0) {
+      return bodyText;
+    }
+
+    // Fallback to the title if body/details/notes is empty
+    const titleText =
+      baseType === 'log'
+        ? state.log.title
+        : baseType === 'todo'
+          ? state.todo.title
+          : state.habit.title;
+
+    return titleText || '';
+  }, [
+    baseType,
+    state.log.body,
+    state.log.title,
+    state.todo.details,
+    state.todo.title,
+    state.habit.notes,
+    state.habit.title,
+  ]);
+
   useEffect(() => {
     let mounted = true;
     readOverlayV2Draft(draftKey).then((v) => {
@@ -721,7 +752,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   } = useOverlayPrefill({
     mode,
     getText: getPrefillText,
-    onlyWhenEmpty: true,
   });
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
@@ -732,6 +762,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   useEffect(() => {
     suggestedTitleRef.current = suggestedTitle ?? null;
   }, [suggestedTitle]);
+
+  // COPILOT TASK: Log suggestedTitle changes for debugging
+  useEffect(() => {
+    console.log('[OverlayV2] suggestedTitle', {
+      mode,
+      suggestedTitle,
+      currentText: currentText?.slice(0, 100) ?? null,
+    });
+  }, [suggestedTitle, mode, currentText]);
 
   // Track previous title to detect manual edits after an AI suggestion was applied
   const prevTitleRef = useRef<string | null>(null);
@@ -1028,20 +1067,69 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleResummarizeTitle = useCallback(async () => {
     if (!refreshPrefill || isResummarizingTitle) return;
     setIsResummarizingTitle(true);
+    setPendingTitleResummarize(true);
     void emitOverlayEvent({ type: 'overlay_title_resummarize' });
+    console.log('[OverlayV2] handleResummarizeTitle', { mode });
     try {
       await refreshPrefill();
-      const latest = suggestedTitleRef.current;
-      if (latest && !state.userEditedTitle) {
-        dispatch({ type: 'SET_TITLE', title: latest });
-        prevTitleRef.current = latest;
-      }
+      // Do not read suggestedTitle here; it may not have updated yet.
     } catch (err) {
       if (__DEV__) console.error('[UnifiedOverlayV2] re-summarize title failed', err);
+      setPendingTitleResummarize(false);
     } finally {
       setIsResummarizingTitle(false);
     }
-  }, [refreshPrefill, isResummarizingTitle, state.userEditedTitle, dispatch]);
+  }, [refreshPrefill, isResummarizingTitle, mode]);
+
+  // Apply the resummarized title when it becomes available
+  useEffect(() => {
+    if (!pendingTitleResummarize) return;
+    if (!suggestedTitle || !suggestedTitle.trim().length) return;
+
+    console.log('[OverlayV2] applyResummarizedTitle', {
+      mode,
+      suggestedTitle,
+    });
+
+    const nextTitle = suggestedTitle.trim();
+
+    // Update the main title used when saving
+    dispatch({ type: 'SET_TITLE', title: nextTitle });
+
+    // ALSO update the compactTitle used as overlaySubtitle in the header
+    dispatch({ type: 'SET_COMPACT_TITLE', title: nextTitle });
+
+    prevTitleRef.current = nextTitle;
+
+    // In edit mode, also refresh suggested tags from the AI prefill
+    if (mode === 'edit') {
+      const normalized = normalizePrefillSuggestions(
+        currentText,
+        prefillSuggestedTags,
+        tagTombstoneSet,
+      );
+
+      if (normalized.length > 0) {
+        setSuggestedTags((prev) => {
+          const next = mergeSuggestionEntries(prev, normalized);
+          if (areSuggestionListsEqual(prev, next)) {
+            return prev;
+          }
+          return next;
+        });
+      }
+    }
+
+    setPendingTitleResummarize(false);
+  }, [
+    pendingTitleResummarize,
+    suggestedTitle,
+    mode,
+    dispatch,
+    currentText,
+    prefillSuggestedTags,
+    tagTombstoneSet,
+  ]);
 
   const showDueToast = useCallback((message: string) => {
     setDueToastMessage(message);
@@ -2150,23 +2238,28 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const type = (entity as any)?.type;
   const baseType: BaseType = type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log';
 
-  // For todos, prefer body/notes for details field since todos don't have a 'details' column
-  const todoDetails =
+  // Extract raw details and title
+  const rawDetails =
     (entity as any)?.details ?? (entity as any)?.body ?? (entity as any)?.notes ?? '';
+  const title = (entity as any)?.title ?? '';
+
+  // For todos, if rawDetails is empty but title is non-empty, use title as the details
+  // This ensures overlay prefill always has real text in edit mode
+  const todoDetails = rawDetails && String(rawDetails).trim().length > 0 ? rawDetails : title;
 
   const payload: Partial<V2State> = {
     baseType,
     log: {
-      title: (entity as any)?.title ?? '',
-      body: ((entity as any)?.body || (entity as any)?.details || '') ?? '',
+      title,
+      body: (entity as any)?.body || (entity as any)?.details || title || '',
     },
     todo: {
-      title: (entity as any)?.title ?? '',
+      title,
       details: todoDetails,
       due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
     },
     habit: {
-      title: (entity as any)?.title ?? '',
+      title,
       notes: (entity as any)?.notes ?? '',
       schedule: 'custom',
     },

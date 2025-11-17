@@ -276,6 +276,7 @@ export type ClassificationResult = {
   tags: string[];
   spaceName: string | null;
   confidence: number;
+  title: string | null;
 };
 
 export type CallClassifyResult =
@@ -388,7 +389,7 @@ export async function callClassify(opts: {
     }
 
     // Primary format: Cloudflare Worker response
-    // { id: "cmpl-...", classification: { category, tags, spaceName, confidence } }
+    // { id: "cmpl-...", classification: { category, tags, spaceName, confidence, title } }
     if (data.id && data.classification) {
       const classification = data.classification;
 
@@ -400,6 +401,12 @@ export async function callClassify(opts: {
         (classification.spaceName === null || typeof classification.spaceName === 'string') &&
         typeof classification.confidence === 'number'
       ) {
+        // Parse title field: use if non-empty string, otherwise null
+        const title =
+          typeof classification.title === 'string' && classification.title.trim().length > 0
+            ? classification.title.trim()
+            : null;
+
         log('OK', data.id);
         return {
           ok: true,
@@ -409,6 +416,7 @@ export async function callClassify(opts: {
             tags: classification.tags,
             spaceName: classification.spaceName,
             confidence: classification.confidence,
+            title,
           },
         };
       }
@@ -427,6 +435,12 @@ export async function callClassify(opts: {
           (parsed.spaceName === null || typeof parsed.spaceName === 'string') &&
           typeof parsed.confidence === 'number'
         ) {
+          // Parse title field: use if non-empty string, otherwise null
+          const title =
+            typeof parsed.title === 'string' && parsed.title.trim().length > 0
+              ? parsed.title.trim()
+              : null;
+
           const id = String(data.id || 'classify-' + Math.random().toString(36).slice(2));
           log('OK', id, '(fallback format)');
           return {
@@ -437,6 +451,7 @@ export async function callClassify(opts: {
               tags: parsed.tags,
               spaceName: parsed.spaceName,
               confidence: parsed.confidence,
+              title,
             },
           };
         }

@@ -312,6 +312,53 @@ const STOPWORDS = new Set([
   'it',
 ]);
 
+// COPILOT TASK: Time reference phrases mapped to slug tags
+const TIME_REFERENCES = new Map<RegExp, string>([
+  [/\btonight\b/i, 'tonight'],
+  [/\bthis\s+evening\b/i, 'thisevening'],
+  [/\bthis\s+afternoon\b/i, 'thisafternoon'],
+  [/\bthis\s+morning\b/i, 'thismorning'],
+  [/\btomorrow\b/i, 'tomorrow'],
+  [/\bnext\s+week\b/i, 'nextweek'],
+  [/\bthis\s+weekend\b/i, 'thisweekend'],
+  [/\bnext\s+weekend\b/i, 'nextweekend'],
+  [/\bthis\s+week\b/i, 'thisweek'],
+]);
+
+// COPILOT TASK: Common verbs that should not be tagged as locations
+const LOCATION_EXCLUDE_VERBS = new Set([
+  'Find',
+  'Call',
+  'Email',
+  'Schedule',
+  'Book',
+  'Plan',
+  'Meet',
+  'Send',
+  'Pay',
+  'Pick',
+  'Follow',
+  'Check',
+  'Draft',
+  'Review',
+  'Remind',
+  'Tell',
+  'Ask',
+  'Bring',
+  'Buy',
+  'Organize',
+  'Write',
+  'Prepare',
+  'Start',
+  'Remember',
+  'Need',
+  'Make',
+  'Get',
+  'Take',
+  'Give',
+  'Show',
+]);
+
 export function buildFallbackTags(
   text: string,
   type: 'habit' | 'todo' | 'note',
@@ -398,6 +445,55 @@ export function buildFallbackTags(
   }
 
   tags.push(...people);
+
+  // COPILOT TASK: Extract time reference tags
+  for (const [pattern, slug] of TIME_REFERENCES) {
+    if (pattern.test(text)) {
+      tags.push(`#${slug}`);
+    }
+  }
+
+  // COPILOT TASK: Extract location candidates (capitalized words not identified as people)
+  const locations = new Set<string>();
+  const peopleWords = new Set<string>();
+  for (const person of people) {
+    // Extract word(s) from @Person tag
+    const personWord = person.slice(1); // Remove @
+    peopleWords.add(personWord.toLowerCase());
+  }
+
+  for (let i = 0; i < tokens.length && locations.size < 2; i += 1) {
+    const current = tokens[i].replace(/[^A-Za-z]/g, '');
+    if (!current) continue;
+    if (!capitalizeRegex.test(current)) continue;
+
+    const currentLower = current.toLowerCase();
+
+    // Skip if already identified as a person
+    if (peopleWords.has(currentLower)) continue;
+
+    // Skip if it's at the start of the sentence (likely subject/verb)
+    if (i === 0) continue;
+
+    // Skip verbs and known excluded words
+    if (LOCATION_EXCLUDE_VERBS.has(current)) continue;
+    if (PERSON_DISALLOWED.has(current)) continue;
+    if (PERSON_BLOCK_VERBS.has(currentLower)) continue;
+
+    // Skip emotion words
+    if (EMOTION_WORDS.includes(currentLower as (typeof EMOTION_WORDS)[number])) continue;
+
+    // Check if preceded by location prepositions (strong signal)
+    const prevToken = i > 0 ? tokens[i - 1]?.toLowerCase() : '';
+    const isAfterLocationPrep = ['in', 'at', 'to', 'from', 'near'].includes(prevToken);
+
+    // Accept if after location preposition, or if it's a longer proper noun (4+ chars)
+    if (isAfterLocationPrep || current.length >= 4) {
+      locations.add(`#${currentLower}`);
+    }
+  }
+
+  tags.push(...locations);
 
   const frequencyMap = new Map<string, number>();
   for (const word of words) {

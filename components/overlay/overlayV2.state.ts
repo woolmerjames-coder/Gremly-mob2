@@ -69,6 +69,7 @@ type Action =
   | { type: 'SET_TEXT'; text: string } // applies to current type
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
   | { type: 'SET_TITLE'; title: string }
+  | { type: 'SET_COMPACT_TITLE'; title: string }
   | { type: 'SET_TODO_DUE'; due_at: string | null }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
@@ -192,6 +193,12 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         compactTitle: action.title,
         compactTitleSource: action.title,
         userEditedTitle: false,
+      };
+    }
+    case 'SET_COMPACT_TITLE': {
+      return {
+        ...state,
+        compactTitle: action.title,
       };
     }
     case 'SET_TODO_DUE':
