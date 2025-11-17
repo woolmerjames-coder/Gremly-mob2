@@ -369,6 +369,10 @@ export const OverlayHost = () => {
 
   const canTapOutsideToClose = (overlay.state as any)?.canTapOutsideToClose ?? false;
 
+  // Extract full entity for edit mode pre-fill
+  const fullEntity = (overlay.state as any).entity ?? null;
+  const effectiveInitialEntity = fullEntity || initialEntity;
+
   const handleClose = React.useCallback(() => {
     if (!visible) return;
     close();
@@ -416,7 +420,7 @@ export const OverlayHost = () => {
             <OverlayComponent
               visible={visible}
               mode={mode}
-              initialEntity={initialEntity}
+              initialEntity={effectiveInitialEntity}
               initialSpaceId={initialSpaceId}
               conversionMeta={conversionMeta}
               initialText={initialText ?? undefined}

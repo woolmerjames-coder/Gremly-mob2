@@ -32,6 +32,7 @@ interface OverlayState {
   initialSpaceId?: string | null;
   conversionMeta?: ConversionMeta;
   initialText?: string | null;
+  entity?: AppRecord; // Full record for edit mode pre-fill
 }
 
 interface CreateOptions {
@@ -62,6 +63,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<OverlayState>({
     visible: false,
     mode: 'create',
+    entity: undefined,
   });
 
   const isOpeningRef = useRef(false);
@@ -154,6 +156,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       },
       initialSpaceId: spaceId,
       initialText: null,
+      entity: record, // Store full record for pre-fill
     };
 
     console.log('[GlobalOverlay] openEdit called with state:', newState);
@@ -177,6 +180,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialSpaceId: undefined,
       conversionMeta: undefined,
       initialText: undefined,
+      entity: undefined,
     });
     isOpeningRef.current = false;
     if (debounceTimerRef.current) {
