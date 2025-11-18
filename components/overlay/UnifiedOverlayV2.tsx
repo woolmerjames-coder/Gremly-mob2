@@ -1085,6 +1085,27 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Detect Mind Drop entities (todos, habits, notes) that need automatic title suggestion
   const isMindDrop = useMemo(() => isMindDropEntity(initialEntity, mode), [initialEntity, mode]);
 
+  // NEW Mind Drop Prefill System: Check if entity needs one-time AI enrichment
+  // This is the SINGLE owner of AI titles + tags for Mind Drop-created items
+  // Prefill runs once when: ai_placed=true && origin='catchall' && !views.minddrop_prefilled_v1
+  const shouldRunMindDropPrefill = useMemo(() => {
+    const entity = fullEntity || initialEntity;
+    if (!entity) return false;
+
+    // Check if this is a Mind Drop entity
+    const isFromMindDrop = entity.ai_placed === true && entity.origin === 'catchall';
+    if (!isFromMindDrop) return false;
+
+    // Check if already prefilled (views.minddrop_prefilled_v1 === true)
+    const alreadyPrefilled = entity.views?.minddrop_prefilled_v1 === true;
+    if (alreadyPrefilled) return false;
+
+    // Only run for edit mode (not create mode)
+    if (mode !== 'edit') return false;
+
+    return true;
+  }, [initialEntity, fullEntity, mode]);
+
   // Detect if title is still a raw sentence (not yet condensed by AI)
   // Pass fullEntity for complete data access in edit mode
   const rawSentence = useMemo(
@@ -1094,7 +1115,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Skip auto-prefill for items that already have AI content,
   // EXCEPT for Mind Drop entities with raw sentence titles (allow one auto-suggestion)
-  const shouldSkipAutoPrefill = !rawSentence && (hasAiTags || hasAiTitle || isAiPlaced);
+  // OR Mind Drop entities that need one-time prefill (new system)
+  const shouldSkipAutoPrefill =
+    !shouldRunMindDropPrefill && !rawSentence && (hasAiTags || hasAiTitle || isAiPlaced);
 
   console.log('[OverlayV2] Prefill detection', {
     mode,
@@ -1103,6 +1126,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     isAiPlaced,
     isMindDrop,
     rawSentence,
+    shouldRunMindDropPrefill,
     shouldSkipAutoPrefill,
   });
 
@@ -1117,11 +1141,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     skipAutoRun: shouldSkipAutoPrefill,
   });
 
-  // Auto-run prefill for Mind Drop entities with raw sentence titles on first edit open
+  // Auto-run prefill for Mind Drop entities:
+  // 1. NEW SYSTEM: One-time prefill for items with !views.minddrop_prefilled_v1
+  // 2. LEGACY: Raw sentence titles (backwards compatibility)
   useEffect(() => {
     if (mode !== 'edit') return;
     if (!visible) return;
-    if (!isMindDrop || !rawSentence) return;
+
+    // Check if we should run Mind Drop prefill
+    const needsPrefill = shouldRunMindDropPrefill || (isMindDrop && rawSentence);
+    if (!needsPrefill) return;
+
     if (editAutoPrefillRanRef.current) return;
     if (!refreshPrefill) return;
 
@@ -1134,13 +1164,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       type: (initialEntity as any)?.type,
       isMindDrop,
       rawSentence,
+      shouldRunMindDropPrefill,
       textLen: currentText.length,
     });
 
     editAutoPrefillRanRef.current = true;
     setPendingTitleResummarize(true);
     void refreshPrefill();
-  }, [mode, visible, isMindDrop, rawSentence, refreshPrefill, currentText, initialEntity]);
+  }, [
+    mode,
+    visible,
+    isMindDrop,
+    rawSentence,
+    shouldRunMindDropPrefill,
+    refreshPrefill,
+    currentText,
+    initialEntity,
+  ]);
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
   useEffect(() => {
@@ -1266,8 +1306,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return filtered;
   }, [sanitizedTagSuggestions, state.tags, baseType]);
 
-  // AI Tag Override for Mind Drop narrative items
-  // Replace hash noise tags with quality AI tags on first edit open
+  // AI Tag Override for Mind Drop items
+  // NEW SYSTEM: Apply tags on one-time prefill (views.minddrop_prefilled_v1 check)
+  // LEGACY: Also support raw sentence detection for backwards compatibility
   const aiTagOverrideAppliedRef = useRef(false);
   useEffect(() => {
     // Only apply in edit mode
@@ -1279,8 +1320,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Don't override if user has already edited tags
     if (tagsDirty) return;
 
-    // Only for Mind Drop narrative items (unsorted with raw sentence)
-    if (!isMindDrop || !rawSentence) return;
+    // Only for Mind Drop items that need prefill OR have raw sentences
+    const needsTagOverride = shouldRunMindDropPrefill || (isMindDrop && rawSentence);
+    if (!needsTagOverride) return;
 
     // Wait for AI tags to be available
     if (!sanitizedTagSuggestions || sanitizedTagSuggestions.length === 0) return;
@@ -1294,10 +1336,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     if (!isCatchall && !hasUnsortedLabels) return;
 
-    console.log('[OverlayV2] Applying AI tag override for Mind Drop narrative item', {
+    console.log('[OverlayV2] Applying AI tag override for Mind Drop item', {
       entityId: entity?.id,
       entityType: entity?.type,
       baseType,
+      shouldRunMindDropPrefill,
+      rawSentence,
       oldTags: state.tags,
       aiTags: sanitizedTagSuggestions.map((t) => t.name),
     });
@@ -1365,6 +1409,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     tagsDirty,
     isMindDrop,
     rawSentence,
+    shouldRunMindDropPrefill,
     sanitizedTagSuggestions,
     initialEntity,
     baseType,
@@ -1605,18 +1650,42 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     console.log('[OverlayV2] applyResummarizedTitle', {
       mode,
       suggestedTitle,
+      shouldRunMindDropPrefill,
     });
 
     const nextTitle = suggestedTitle.trim();
 
-    // Update the main title used when saving (force=true to bypass userEditedTitle guard)
-    // This ensures AI title updates state.todo.title even if user has typed text
-    dispatch({ type: 'SET_TITLE', title: nextTitle, force: true });
+    // Determine if we should auto-apply the title or just suggest it
+    // Auto-apply when:
+    // 1. Running Mind Drop one-time prefill (new system)
+    // 2. Title is empty
+    // 3. Title equals the raw body text (not user-edited)
+    const entity = fullEntity || initialEntity;
+    const currentTitle = state.todo.title || state.habit.title || state.log.title || '';
+    const rawBody = entity?.body || entity?.details || entity?.notes || '';
 
-    // ALSO update the compactTitle used as overlaySubtitle in the header
-    dispatch({ type: 'SET_COMPACT_TITLE', title: nextTitle });
+    const titleIsEmpty = !currentTitle || currentTitle.trim().length === 0;
+    const titleEqualsBody = currentTitle.trim() === rawBody.trim();
+    const shouldAutoApply = shouldRunMindDropPrefill || titleIsEmpty || titleEqualsBody;
 
-    prevTitleRef.current = nextTitle;
+    if (shouldAutoApply) {
+      // Update the main title used when saving (force=true to bypass userEditedTitle guard)
+      // This ensures AI title updates state.todo.title even if user has typed text
+      dispatch({ type: 'SET_TITLE', title: nextTitle, force: true });
+
+      // ALSO update the compactTitle used as overlaySubtitle in the header
+      dispatch({ type: 'SET_COMPACT_TITLE', title: nextTitle });
+
+      prevTitleRef.current = nextTitle;
+    } else {
+      // User has edited title - don't auto-apply, just make it available for "Re-summarize" action
+      console.log('[OverlayV2] Title already edited by user, not auto-applying', {
+        currentTitle,
+        suggestedTitle: nextTitle,
+      });
+      prevTitleRef.current = nextTitle;
+      // The suggested title is still available via suggestedTitle state for manual application
+    }
 
     // In edit mode, persist the AI title to the backend once so Recent Drops and future opens see it.
     if (
@@ -1672,12 +1741,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [
     pendingTitleResummarize,
     suggestedTitle,
+    shouldRunMindDropPrefill,
     mode,
     dispatch,
     currentText,
     prefillSuggestedTags,
     tagTombstoneSet,
     initialEntity,
+    fullEntity,
+    state.todo.title,
+    state.habit.title,
+    state.log.title,
     baseType,
     repo,
   ]);
@@ -1804,6 +1878,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const shouldIncludeTags = mode !== 'edit' || tagsDirty;
     const tagsPayload = shouldIncludeTags ? { tags, tags_meta: tagsMeta } : {};
 
+    // NEW Mind Drop Prefill System: Mark views.minddrop_prefilled_v1 = true after first prefill
+    // This prevents re-running prefill on subsequent opens
+    const entity = fullEntity || initialEntity;
+    const isMindDropPrefillNeeded = shouldRunMindDropPrefill && mode === 'edit';
+    const shouldMarkPrefilled =
+      isMindDropPrefillNeeded && (aiTagOverrideAppliedRef.current || pendingTitleResummarize);
+
+    // Build views object with minddrop_prefilled_v1 flag
+    const existingViews = entity?.views || {};
+    const viewsWithPrefillFlag = shouldMarkPrefilled
+      ? { ...existingViews, minddrop_prefilled_v1: true }
+      : existingViews;
+
     if (baseType === 'todo') {
       // For Mind Drop edits, use canonical mapper for consistency
       const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
@@ -1825,6 +1912,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           due_at: dueAt,
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
+          views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -1846,6 +1934,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_at: dueAt,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -1875,6 +1964,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           frequency: s.habit.schedule ?? 'custom',
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
+          views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -1889,6 +1979,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -1939,6 +2030,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...logConfirmationPatch, // Override with confirmed log status
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
+        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
         ...moodPatch,
         ...fmtPatch,
         ...datePatch,
@@ -1953,6 +2045,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
+      views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
       ...tagsPayload, // Conditionally include tags/tags_meta
     } as any;
 
