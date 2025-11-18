@@ -57,7 +57,7 @@ import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './us
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
-import { normalizeTag } from '../../lib/tags/normalize';
+import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
@@ -101,8 +101,13 @@ function extractTagKeysFromEntity(entity: any): TagKey[] {
   if (!entity) return [];
   const raw = entity.tags;
   if (!Array.isArray(raw)) return [];
+
+  // For Mind Drop todos (origin='catchall'), apply tag quality filtering
+  const isMindDropTodo = entity.type === 'todo' && entity.origin === 'catchall';
+  const tagsToProcess = isMindDropTodo ? filterAndNormalizeTags(raw) : raw;
+
   const seen = new Set<TagKey>();
-  for (const entry of raw) {
+  for (const entry of tagsToProcess) {
     const tag = normalizeToTagKey(entry);
     if (tag && !seen.has(tag)) seen.add(tag);
   }
@@ -216,8 +221,25 @@ function getEntityShortTitle(entity: any): string {
  * Returns true when:
  * - Title has 5+ words, AND
  * - Title matches the original raw Mind Drop text
+ *
+ * Special case for Mind Drop todos:
+ * - If todo has origin='catchall' and a body field, treat it as a raw sentence
+ * - This allows OverlayPrefill to run on first edit, even if the title was already compacted
  */
-function isRawSentenceTitle(entity: any): boolean {
+function isRawSentenceTitle(entity: any, fullEntity?: any): boolean {
+  // Special handling for Mind Drop todos with body field
+  // Check fullEntity first (has complete data in edit mode), then fall back to entity
+  const entityToCheck = fullEntity || entity;
+
+  if (entityToCheck?.type === 'todo' && entityToCheck?.origin === 'catchall') {
+    const body = entityToCheck.body?.trim();
+    // If todo has a body (details field), treat it as a raw sentence
+    // This enables prefill on first edit for todos with compacted titles
+    if (body && body.length > 0) {
+      return true;
+    }
+  }
+
   const shortTitle = getEntityShortTitle(entity);
   if (!shortTitle || shortTitle.trim().length === 0) return false;
 
@@ -331,6 +353,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     onSaved,
     initialText,
   } = props;
+
+  // Extract full entity from props (passed by OverlayHost in edit mode)
+  const fullEntity = (props as any).entity ?? null;
 
   const repo = useRepo();
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
@@ -830,7 +855,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isMindDrop = useMemo(() => isMindDropEntity(initialEntity, mode), [initialEntity, mode]);
 
   // Detect if title is still a raw sentence (not yet condensed by AI)
-  const rawSentence = useMemo(() => isRawSentenceTitle(initialEntity), [initialEntity]);
+  // Pass fullEntity for complete data access in edit mode
+  const rawSentence = useMemo(
+    () => isRawSentenceTitle(initialEntity, fullEntity),
+    [initialEntity, fullEntity],
+  );
 
   // Skip auto-prefill for items that already have AI content,
   // EXCEPT for Mind Drop entities with raw sentence titles (allow one auto-suggestion)

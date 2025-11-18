@@ -9,6 +9,7 @@ export const TAG_STOP_WORDS = new Set<string>([
   'at',
   'awesome',
   'before',
+  'book',
   'common',
   'cool',
   'daily',
