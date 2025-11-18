@@ -126,6 +126,37 @@ function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
   return Array.from(next) as TagKey[];
 }
 
+/**
+ * Filter habit tags to keep only single-word, concrete activity tags (max 2).
+ *
+ * For Mind Drop → habit conversions, AI often returns multi-word phrases like
+ * "morning routine" or generic tags. We want to keep only concrete, single-word
+ * activity tags like "yoga", "exercise", "meditation".
+ *
+ * Rules:
+ * - Keep only single-word tags (no spaces)
+ * - Prioritize tags earlier in the list (AI confidence ordering)
+ * - Maximum 2 tags to keep habits focused
+ *
+ * Example: ["yoga", "morning routine", "exercise"] → ["yoga", "exercise"]
+ */
+function filterHabitTags(tags: string[]): string[] {
+  if (!tags || tags.length === 0) return [];
+
+  const singleWordTags = tags
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => {
+      // Remove tags with spaces (multi-word phrases)
+      if (tag.includes(' ')) return false;
+      // Remove empty tags
+      if (!tag) return false;
+      return true;
+    });
+
+  // Keep max 2 tags (prioritize earlier tags = higher AI confidence)
+  return singleWordTags.slice(0, 2);
+}
+
 function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
   if (!type) return null;
   const normalized = String(type).toLowerCase();
@@ -1022,8 +1053,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const filteredTagSuggestions = useMemo(() => {
     if (sanitizedTagSuggestions.length === 0) return [];
-    return sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
-  }, [sanitizedTagSuggestions, state.tags]);
+
+    let filtered = sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
+
+    // For habits, filter to single-word, concrete activity tags (max 2)
+    if (baseType === 'habit') {
+      const tagNames = filtered.map((entry) => entry.name);
+      const habitFiltered = filterHabitTags(tagNames);
+      filtered = filtered.filter((entry) => habitFiltered.includes(entry.name));
+    }
+
+    return filtered;
+  }, [sanitizedTagSuggestions, state.tags, baseType]);
 
   // AI Tag Override for Mind Drop narrative items
   // Replace hash noise tags with quality AI tags on first edit open
@@ -1060,7 +1101,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     });
 
     // Replace state.tags with AI tags (sanitized and normalized)
-    const aiTagNames = sanitizedTagSuggestions.map((entry) => entry.name);
+    let aiTagNames = sanitizedTagSuggestions.map((entry) => entry.name);
+
+    // For habits, filter to single-word, concrete activity tags (max 2)
+    const isHabit = entity?.type === 'habit' || baseType === 'habit';
+    if (isHabit) {
+      const beforeFilter = [...aiTagNames];
+      aiTagNames = filterHabitTags(aiTagNames);
+      console.log('[OverlayV2] Filtered habit tags', {
+        before: beforeFilter,
+        after: aiTagNames,
+      });
+    }
+
     dispatch({ type: 'SET_TAGS', tags: aiTagNames });
 
     // Mark tags as dirty so they get persisted on save
