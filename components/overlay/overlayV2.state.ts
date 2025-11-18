@@ -68,7 +68,7 @@ type Action =
   | { type: 'SET_BASE_TYPE'; to: BaseType }
   | { type: 'SET_TEXT'; text: string } // applies to current type
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
-  | { type: 'SET_TITLE'; title: string }
+  | { type: 'SET_TITLE'; title: string; force?: boolean } // force=true bypasses userEditedTitle guard
   | { type: 'SET_COMPACT_TITLE'; title: string }
   | { type: 'SET_TODO_DUE'; due_at: string | null }
   | { type: 'TOGGLE_COMMITMENT' }
@@ -184,14 +184,31 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_TITLE': {
-      if (state.userEditedTitle) {
+      // Allow forcing title update (for AI-generated titles) even if user has edited text
+      if (state.userEditedTitle && !action.force) {
         return state;
       }
       let next: V2State;
       if (state.baseType === 'log') next = { ...state, log: { ...state.log, title: action.title } };
-      else if (state.baseType === 'todo')
+      else if (state.baseType === 'todo') {
+        if (__DEV__) {
+          console.log('[overlayV2.reducer] SET_TITLE for todo', {
+            newTitle: action.title,
+            force: action.force,
+            userEditedTitle: state.userEditedTitle,
+            currentDetails: state.todo.details,
+            currentTitle: state.todo.title,
+          });
+        }
         next = { ...state, todo: { ...state.todo, title: action.title } };
-      else next = { ...state, habit: { ...state.habit, title: action.title } };
+        if (__DEV__) {
+          console.log('[overlayV2.reducer] SET_TITLE result', {
+            resultTitle: next.todo.title,
+            resultDetails: next.todo.details,
+            detailsPreserved: next.todo.details === state.todo.details,
+          });
+        }
+      } else next = { ...state, habit: { ...state.habit, title: action.title } };
 
       // Use the title as-is for compactTitle without running through compacting logic
       return {

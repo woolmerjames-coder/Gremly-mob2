@@ -9,6 +9,9 @@
 export { OverlayComponent } from './gateway';
 export type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 
+// Export Mind Drop helpers
+export { getMindDropRawText, hasMindDropRawText } from './getMindDropRawText';
+
 // Intentionally do NOT export UnifiedCreateOverlay or UnifiedOverlayV2
 // directly — those are implementation details and should be reached via
 // the gateway when needed for storybooks or dev previews.

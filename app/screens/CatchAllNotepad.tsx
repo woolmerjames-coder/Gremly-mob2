@@ -56,7 +56,11 @@ import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
-import { appendLineageToWhyString, hasChecklist } from '../../lib/conversion';
+import {
+  appendLineageToWhyString,
+  hasChecklist,
+  convertUnsortedToHabit,
+} from '../../lib/conversion';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 import {
   filterAndNormalizeTags,
@@ -64,6 +68,7 @@ import {
   deriveLogSubtypeFromTags,
 } from '../../lib/tags/normalize';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
+import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -651,6 +656,8 @@ type UnifiedDrop = {
   due_date?: string | null; // ISO timestamp for todos
   tags?: string[];
   optimisticKind?: 'note' | 'todo' | 'habit';
+  drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
+  archived?: boolean; // Track archived status to filter out converted notes
 };
 
 const relativeTime = (iso: string) => {
@@ -665,6 +672,29 @@ const relativeTime = (iso: string) => {
   const days = Math.floor(h / 24);
   return `${days} day${days > 1 ? 's' : ''} ago`;
 };
+
+/**
+ * Get display tags for Recent drops list
+ * Filters out junk tags (*journal, stop words, etc.) and normalizes formatting
+ * Returns tags ready to display in the UI (e.g., ["running", "morning", "@alice"])
+ */
+function getDisplayTagsForRecentDrop(item: UnifiedDrop): string[] {
+  if (!Array.isArray(item.tags) || item.tags.length === 0) {
+    return [];
+  }
+
+  // Use the same tag filtering/normalization as Mind Drop overlay
+  // This strips *journal, removes stop words, dedupes, etc.
+  const cleaned = filterAndNormalizeTags(item.tags);
+
+  // Remove the # prefix for display (we'll add it back in the UI)
+  return cleaned.map((tag) => {
+    if (tag.startsWith('#')) return tag.slice(1);
+    if (tag.startsWith('@')) return tag; // Keep @ prefix for mentions
+    if (tag.startsWith('*')) return tag.slice(1); // Remove * prefix
+    return tag;
+  });
+}
 
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
 type GlobalOverlayController = Pick<OverlayContextValue, 'openCreate' | 'openEdit' | 'close'>;
@@ -753,11 +783,20 @@ const RecentDrops: React.FC<{
           .filter((tag) => tag.length > 0);
       };
 
+      // DEDUPLICATION RULE: One row per drop_id, prefer canonical items over unsorted notes
+      // When an unsorted note is converted to a habit/todo/log:
+      // - The original note is archived (archived=true)
+      // - A new canonical item (habit/todo/note with canonicalType) is created with same drop_id
+      // - We filter out archived notes and dedupe by drop_id, keeping canonical items
+
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
           (n) =>
-            n?.origin === 'catchall' ||
-            (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL)),
+            // Filter to Mind Drop items only
+            (n?.origin === 'catchall' ||
+              (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL))) &&
+            // Exclude archived notes (converted unsorted notes)
+            n?.archived !== true,
         )
         .map((n) => {
           const labels = Array.isArray(n?.labels) ? n.labels : [];
@@ -779,6 +818,8 @@ const RecentDrops: React.FC<{
             unsorted,
             noteSubtype,
             tags: toTagList((n as any)?.tags),
+            drop_id: (n as any)?.drop_id ?? null,
+            archived: n?.archived === true,
           };
         });
 
@@ -797,6 +838,7 @@ const RecentDrops: React.FC<{
             created_at: t.created_at,
             due_date: t.due_date ?? null,
             tags: toTagList((t as any)?.tags),
+            drop_id: (t as any)?.drop_id ?? null,
           };
         });
 
@@ -814,12 +856,51 @@ const RecentDrops: React.FC<{
             text: rawText,
             created_at: h.created_at,
             tags: toTagList((h as any)?.tags),
+            drop_id: (h as any)?.drop_id ?? null,
           };
         });
 
+      // Merge all drops, filter valid items
       let unified = [...noteDrops, ...todoDrops, ...habitDrops].filter(
         (i) => i.text && i.created_at,
       );
+
+      // DEDUPLICATION: Group by drop_id and prefer canonical items (habit/todo) over unsorted notes
+      // This ensures that when an unsorted note is converted to a habit, we only show the habit
+      const dropIdMap = new Map<string, UnifiedDrop>();
+      const noDropIdItems: UnifiedDrop[] = [];
+
+      for (const item of unified) {
+        if (!item.drop_id) {
+          // No drop_id: keep as-is (shouldn't happen for Mind Drop items, but be safe)
+          noDropIdItems.push(item);
+          continue;
+        }
+
+        const existing = dropIdMap.get(item.drop_id);
+        if (!existing) {
+          // First item with this drop_id
+          dropIdMap.set(item.drop_id, item);
+          continue;
+        }
+
+        // Conflict: prefer canonical items (habit/todo) over unsorted notes
+        // Priority: habit > todo > note (non-unsorted) > note (unsorted)
+        const itemPriority =
+          item.kind === 'habit' ? 3 : item.kind === 'todo' ? 2 : item.unsorted ? 0 : 1;
+
+        const existingPriority =
+          existing.kind === 'habit' ? 3 : existing.kind === 'todo' ? 2 : existing.unsorted ? 0 : 1;
+
+        if (itemPriority > existingPriority) {
+          // Replace with higher-priority item
+          dropIdMap.set(item.drop_id, item);
+        }
+        // Otherwise keep existing (it has higher or equal priority)
+      }
+
+      // Combine deduplicated items with no-drop-id items
+      unified = [...Array.from(dropIdMap.values()), ...noDropIdItems];
 
       if (!showOlder) {
         unified = unified.filter((i) => {
@@ -1059,15 +1140,20 @@ const RecentDrops: React.FC<{
                         </Pressable>
                       </View>
                     </View>
-                    {effectiveKind === 'todo' &&
+                    {/* Show tags for todos and habits */}
+                    {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
                     Array.isArray(item.tags) &&
                     item.tags.length > 0 ? (
                       <View style={styles.recentTagsRow}>
-                        {item.tags.slice(0, 6).map((tag) => (
-                          <View key={`${item.id}-${tag}`} style={styles.recentTagPill}>
-                            <Text style={styles.recentTagText}>{`#${tag}`}</Text>
-                          </View>
-                        ))}
+                        {getDisplayTagsForRecentDrop(item)
+                          .slice(0, 6)
+                          .map((tag) => (
+                            <View key={`${item.id}-${tag}`} style={styles.recentTagPill}>
+                              <Text style={styles.recentTagText}>
+                                {tag.startsWith('@') ? tag : `#${tag}`}
+                              </Text>
+                            </View>
+                          ))}
                       </View>
                     ) : null}
                   </View>
@@ -1679,31 +1765,56 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const todos: any[] = (await (repo as any)?.todos?.list?.({ createdAfter: since })) ?? [];
       const habits: any[] = (await (repo as any)?.habits?.list?.({ createdAfter: since })) ?? [];
 
-      // no-op
+      // DEDUPLICATION RULE: Count unique drop_ids, not individual records
+      // When an unsorted note is converted to a habit/todo:
+      // - The note is archived but may still be in the query results
+      // - Both the note and the new habit/todo share the same drop_id
+      // - We should count this as 1 thought organized, not 2
 
-      let count = [notes, todos, habits]
-        .map((arr) =>
-          Array.isArray(arr)
-            ? arr.filter((i) => new Date(i.created_at) >= new Date(since)).length
-            : 0,
-        )
-        .reduce((a, b) => a + b, 0);
+      // Filter to Mind Drop items created today
+      const todayNotes = Array.isArray(notes)
+        ? notes.filter(
+            (n) =>
+              new Date(n.created_at) >= new Date(since) &&
+              (n?.origin === 'catchall' ||
+                (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL))) &&
+              n?.archived !== true, // Exclude archived notes (converted items)
+          )
+        : [];
 
-      if (count === 0) {
-        const fallbackCount = [notes, todos, habits]
-          .map((arr) => (Array.isArray(arr) ? arr.length : 0))
-          .reduce((a, b) => a + b, 0);
-        if (fallbackCount > 0) {
-          count = fallbackCount;
+      const todayTodos = Array.isArray(todos)
+        ? todos.filter((t) => new Date(t.created_at) >= new Date(since) && t?.origin === 'catchall')
+        : [];
+
+      const todayHabits = Array.isArray(habits)
+        ? habits.filter(
+            (h) => new Date(h.created_at) >= new Date(since) && h?.origin === 'catchall',
+          )
+        : [];
+
+      // Collect all drop_ids and deduplicate
+      const dropIds = new Set<string>();
+      let itemsWithoutDropId = 0;
+
+      for (const item of [...todayNotes, ...todayTodos, ...todayHabits]) {
+        const dropId = (item as any)?.drop_id;
+        if (dropId && typeof dropId === 'string') {
+          dropIds.add(dropId);
+        } else {
+          // Count items without drop_id (shouldn't happen for Mind Drop, but be safe)
+          itemsWithoutDropId++;
         }
       }
+
+      // Total count = unique drop_ids + items without drop_id
+      const count = dropIds.size + itemsWithoutDropId;
 
       // Only update state if count actually changed to prevent unnecessary re-renders
       setOrganizedToday((prev) => (prev === count ? prev : count));
       // Optional debug for tests/dev; avoid error overlay in RN
       if (__DEV__ && process.env.JEST_WORKAROUND === '1') {
         // eslint-disable-next-line no-console
-        console.debug('[TrustBuilders] computed count', count);
+        console.debug('[TrustBuilders] computed count', count, 'unique drops:', dropIds.size);
       }
     } catch (e) {
       // Silent fail — keep last known number
@@ -2153,16 +2264,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const title = clampNoteLength(rawTitle);
               const due = action.payload.due ?? parsedIso ?? null;
 
-              // Use AI tags or fallback to locally generated tags
-              const todoTags =
-                combinedTags.length > 0 ? combinedTags : buildFallbackTags(cleanedText, 'todo');
+              // Use shared Mind Drop helper for consistent tag cleaning and field mapping
+              const derived = buildMindDropDerivedFields('todo', {
+                rawText: trimmed,
+                aiTags: combinedTags.length > 0 ? combinedTags : undefined,
+              });
 
               mapped.push({
                 bucket: 'todos',
                 payload: {
                   type: 'todo',
-                  title,
-                  name: title,
+                  title: derived.title || title,
+                  name: derived.name || title,
                   due_date: due,
                   undefined_due: !due,
                   space_id: action.payload.spaceId ?? null,
@@ -2171,7 +2284,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   origin: 'catchall',
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(todoTags.length > 0 && { tags: todoTags }),
+                  ...(derived.tags.length > 0 && { tags: derived.tags }),
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -2181,23 +2294,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
 
-              // Use AI tags or fallback to locally generated tags
-              const habitTags =
-                combinedTags.length > 0 ? combinedTags : buildFallbackTags(cleanedText, 'habit');
+              // Use shared Mind Drop helper for consistent tag cleaning and field mapping
+              const derived = buildMindDropDerivedFields('habit', {
+                rawText: trimmed,
+                aiTags: combinedTags.length > 0 ? combinedTags : undefined,
+              });
 
               mapped.push({
                 bucket: 'habits',
                 payload: {
                   type: 'habit',
-                  name,
+                  name: action.payload.name?.trim() || derived.name || name, // Prefer AI-suggested name, then derived
                   frequency,
+                  notes: derived.notes, // Full raw Mind Drop text in notes field
                   space_id: action.payload.spaceId ?? null,
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(habitTags.length > 0 && { tags: habitTags }),
+                  ...(derived.tags.length > 0 && { tags: derived.tags }),
                 },
               });
             } else if (action.type === 'create.note') {
@@ -2207,18 +2323,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
               const canonicalType = persistedToCanonical('note', subtype);
 
-              // Use AI tags or fallback to locally generated tags for this note subtype
-              const noteTags =
-                combinedTags.length > 0
-                  ? combinedTags
-                  : buildFallbackTags(cleanedText, 'note', subtype);
+              // Use shared Mind Drop helper for consistent field mapping and tag cleaning
+              const derived = buildMindDropDerivedFields('log', {
+                rawText: trimmed, // Use full raw text
+                aiTags: combinedTags.length > 0 ? combinedTags : undefined,
+              });
 
               mapped.push({
                 bucket: 'notes',
                 payload: {
                   type: 'note',
-                  title: text || 'Quick note',
-                  body: text,
+                  title: derived.title || 'Quick note',
+                  body: derived.body ?? undefined,
                   subtype,
                   origin: 'catchall',
                   ai_placed: subtype !== 'catchall',
@@ -2229,7 +2345,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(noteTags.length > 0 && { tags: noteTags }),
+                  ...(derived.tags.length > 0 && { tags: derived.tags }),
                 },
               });
             } else if (action.type === 'add.to.list') {
@@ -2814,7 +2930,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             return;
           }
         } else if (kind === 'habit') {
-          // Convert the unsorted note to a habit
+          // Convert the unsorted note to a habit using the conversion helper
           try {
             const original = await repo.getById(unsortedId);
             if (!original) {
@@ -2826,99 +2942,33 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               dropIdRef.current ||
               null;
 
-            const firstLine =
-              ((original as any).body || (original as any).title || '')
-                .split('\n')[0]
-                .trim()
-                .slice(0, 80) || 'New habit';
+            // Get existing frequency if available, otherwise default to 'daily'
+            const existingFrequency = (original as any)?.frequency || 'daily';
 
-            // Try updating in place
-            try {
-              await repo.update({
-                id: unsortedId,
-                patch: {
-                  type: 'habit',
-                  name: firstLine,
-                  frequency: 'daily',
-                  labels: ((original as any).labels || []).filter(
-                    (l: string) => l !== 'needs_review',
-                  ),
-                  ai_placed: true,
-                  why_string: 'Confirmed as habit via category chip',
-                } as any,
+            // Use the conversion helper to create a first-class habit
+            const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedId, {
+              frequency: existingFrequency,
+            });
+
+            setOrganizedToday((prev) => prev + 1);
+            triggerRecentRefresh();
+            setLowConfidenceUnsortedId(null);
+            unsortedIdRef.current = null;
+
+            metricsRef.current.conversions += 1;
+            logMetrics('category_converted_habit', {
+              noteId: unsortedId,
+              habitId: createdHabit.id,
+              habitName: createdHabit.name,
+              dropId,
+              mode: 'ask',
+            });
+
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: 'Started a habit ✓',
               });
-
-              setOrganizedToday((prev) => prev + 1);
-              triggerRecentRefresh();
-              setLowConfidenceUnsortedId(null);
-              unsortedIdRef.current = null;
-
-              metricsRef.current.conversions += 1;
-              logMetrics('category_converted_habit', {
-                noteId: unsortedId,
-                habitName: firstLine,
-                dropId,
-                mode: 'ask',
-              });
-
-              if (TOASTS_ON) {
-                showActionToast({
-                  type: 'success',
-                  content: 'Started a habit ✓',
-                });
-              }
-            } catch (updateError) {
-              console.warn(
-                '[MindDrop][CategoryChip] repo.update unsupported, using fallback',
-                updateError,
-              );
-
-              // Fallback: create new habit then remove unsorted
-              const newHabit = await repo.create({
-                type: 'habit',
-                name: firstLine,
-                frequency: 'daily',
-                labels: ((original as any).labels || []).filter(
-                  (l: string) => l !== 'needs_review',
-                ),
-                ai_placed: true,
-                origin: 'catchall',
-                why_string: 'Created as habit via category chip (fallback)',
-              } as any);
-
-              // Remove the unsorted note
-              if (unsortedId) {
-                try {
-                  await repo.remove(unsortedId);
-                } catch (deleteErr) {
-                  console.warn(
-                    '[MindDrop][CategoryChip] Failed to delete unsorted after habit creation',
-                    deleteErr,
-                  );
-                }
-              }
-
-              setOrganizedToday((prev) => prev + 1);
-              triggerRecentRefresh();
-              setLowConfidenceUnsortedId(null);
-              unsortedIdRef.current = null;
-
-              metricsRef.current.conversions += 1;
-              logMetrics('category_converted_habit', {
-                noteId: unsortedId,
-                habitId: newHabit?.id,
-                habitName: firstLine,
-                fallback: true,
-                dropId,
-                mode: 'ask',
-              });
-
-              if (TOASTS_ON) {
-                showActionToast({
-                  type: 'success',
-                  content: 'Started a habit ✓',
-                });
-              }
             }
           } catch (habitError) {
             console.error(
@@ -2943,7 +2993,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             '';
           const narrative = classifyNarrative(noteText);
           const nextSubtype = narrative ? 'journal' : 'idea';
-          const canonicalType = persistedToCanonical('note', nextSubtype);
+
+          // Filter labels: remove catchall and needs_review, add log
+          const originalLabels = ((originalNote as any)?.labels || []) as string[];
+          const filteredLabels = originalLabels.filter(
+            (l: string) => l !== 'needs_review' && l !== 'catchall',
+          );
+          const logLabels = Array.from(new Set([...filteredLabels, 'log']));
 
           await repo.update({
             id: unsortedId,
@@ -2951,10 +3007,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               archived: false,
               ai_placed: true,
               subtype: nextSubtype,
-              canonicalType,
-              labels: ((originalNote as any)?.labels || []).filter(
-                (l: string) => l !== 'needs_review',
-              ),
+              canonicalType: 'log',
+              labels: logLabels,
               why_string: 'Confirmed as log via category chip',
             },
           });

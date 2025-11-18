@@ -19,11 +19,13 @@ const mockNotesDelete: jest.Mock<Promise<void>, [string]> = jest.fn(
   async (_id: string) => undefined as unknown as void,
 );
 const mockTodosList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
+const mockHabitsList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
 
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
     notes: { list: mockNotesList, delete: mockNotesDelete },
     todos: { list: mockTodosList },
+    habits: { list: mockHabitsList },
   }),
 }));
 
@@ -60,6 +62,7 @@ describe('RecentDrops component (isolated)', () => {
     jest.clearAllMocks();
     mockNotesList.mockResolvedValue([]);
     mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([]);
   });
 
   test('filters to today by default and toggles older items', async () => {
@@ -144,5 +147,28 @@ describe('RecentDrops component (isolated)', () => {
     const todoCard = await screen.findByTestId('minddrop-recent-todo-t1');
     expect(within(todoCard).getByText('#running')).toBeTruthy();
     expect(within(todoCard).getByText('#focus')).toBeTruthy();
+  });
+
+  test('renders habit tags when available', async () => {
+    const now = Date.now();
+    mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([]);
+    mockHabitsList.mockResolvedValue([
+      {
+        id: 'h1',
+        type: 'habit',
+        name: 'Run every morning',
+        created_at: new Date(now - 500).toISOString(),
+        origin: 'catchall',
+        tags: ['#running', '#morning', '#exercise'],
+      },
+    ]);
+
+    render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
+
+    const habitCard = await screen.findByTestId('minddrop-recent-habit-h1');
+    expect(within(habitCard).getByText('#running')).toBeTruthy();
+    expect(within(habitCard).getByText('#morning')).toBeTruthy();
+    expect(within(habitCard).getByText('#exercise')).toBeTruthy();
   });
 });

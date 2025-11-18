@@ -59,6 +59,7 @@ import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsR
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag } from '../../lib/tags/normalize';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
+import { getMindDropRawText } from './getMindDropRawText';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -172,6 +173,66 @@ function areSuggestionListsEqual(
   }
   return true;
 }
+
+// ============================================================================
+// Mind Drop Detection Helpers (type-agnostic for todos, habits, notes)
+// ============================================================================
+
+/**
+ * Check if an entity is a Mind Drop item that may need auto-prefill
+ */
+function isMindDropEntity(entity: any, mode: 'create' | 'edit'): boolean {
+  if (mode !== 'edit') return false;
+  if (!entity || entity.origin !== 'catchall') return false;
+  const type = entity.type;
+  return type === 'todo' || type === 'habit' || type === 'note';
+}
+
+/**
+ * Get the short title for an entity (type-agnostic)
+ * - todos: title ?? name
+ * - habits: name ?? title
+ * - notes: title
+ */
+function getEntityShortTitle(entity: any): string {
+  if (!entity) return '';
+  const type = entity.type;
+
+  if (type === 'todo') {
+    return entity.title ?? entity.name ?? '';
+  }
+  if (type === 'habit') {
+    return entity.name ?? entity.title ?? '';
+  }
+  if (type === 'note') {
+    return entity.title ?? '';
+  }
+  return '';
+}
+
+/**
+ * Determine if an entity's title is still a "raw sentence" (not yet condensed by AI)
+ * Returns true when:
+ * - Title has 5+ words, AND
+ * - Title matches the original raw Mind Drop text
+ */
+function isRawSentenceTitle(entity: any): boolean {
+  const shortTitle = getEntityShortTitle(entity);
+  if (!shortTitle || shortTitle.trim().length === 0) return false;
+
+  const trimmed = shortTitle.trim();
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount < 5) return false;
+
+  // Use standardized helper to get raw Mind Drop text
+  const rawText = getMindDropRawText(entity);
+  if (!rawText) return false;
+
+  // Check if title equals the raw Mind Drop sentence
+  return trimmed === rawText.trim();
+}
+
+// ============================================================================
 
 function normalizePrefillSuggestions(
   text: string,
@@ -755,8 +816,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [initialEntity]);
 
   const hasAiTitle = useMemo(() => {
-    const entity = initialEntity as any;
-    return typeof entity?.title === 'string' && entity.title.trim().length > 0;
+    const short = getEntityShortTitle(initialEntity as any);
+    return !!short && short.trim().length > 0;
   }, [initialEntity]);
 
   const isAiPlaced = useMemo(() => {
@@ -764,28 +825,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return entity?.ai_placed === true;
   }, [initialEntity]);
 
-  // Detect Mind Drop todos that need automatic title suggestion
-  const isMindDropTodo =
-    mode === 'edit' &&
-    (initialEntity as any)?.type === 'todo' &&
-    (initialEntity as any)?.origin === 'catchall';
+  // Detect Mind Drop entities (todos, habits, notes) that need automatic title suggestion
+  const isMindDrop = useMemo(() => isMindDropEntity(initialEntity, mode), [initialEntity, mode]);
 
   // Detect if title is still a raw sentence (not yet condensed by AI)
-  const isRawSentenceTitle =
-    isMindDropTodo &&
-    typeof (initialEntity as any)?.title === 'string' &&
-    (initialEntity as any).title === (initialEntity as any).name &&
-    (initialEntity as any).title.trim().split(/\s+/).length >= 5;
+  const rawSentence = useMemo(() => isRawSentenceTitle(initialEntity), [initialEntity]);
 
   // Skip auto-prefill for items that already have AI content,
-  // EXCEPT for Mind Drop todos with raw sentence titles (allow one auto-suggestion)
-  const shouldSkipAutoPrefill = !isRawSentenceTitle && (hasAiTags || hasAiTitle || isAiPlaced);
+  // EXCEPT for Mind Drop entities with raw sentence titles (allow one auto-suggestion)
+  const shouldSkipAutoPrefill = !rawSentence && (hasAiTags || hasAiTitle || isAiPlaced);
 
   console.log('[OverlayV2] Prefill detection', {
     mode,
     hasAiTags,
     hasAiTitle,
     isAiPlaced,
+    isMindDrop,
+    rawSentence,
     shouldSkipAutoPrefill,
   });
 
@@ -800,11 +856,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     skipAutoRun: shouldSkipAutoPrefill,
   });
 
-  // Auto-run prefill for Mind Drop todos with raw sentence titles on first edit open
+  // Auto-run prefill for Mind Drop entities with raw sentence titles on first edit open
   useEffect(() => {
     if (mode !== 'edit') return;
     if (!visible) return;
-    if (!isMindDropTodo || !isRawSentenceTitle) return;
+    if (!isMindDrop || !rawSentence) return;
     if (editAutoPrefillRanRef.current) return;
     if (!refreshPrefill) return;
 
@@ -813,16 +869,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       return;
     }
 
-    console.log('[OverlayV2] auto prefill for Mind Drop todo on edit open', {
-      isMindDropTodo,
-      isRawSentenceTitle,
+    console.log('[OverlayV2] auto prefill for Mind Drop entity on edit open', {
+      type: (initialEntity as any)?.type,
+      isMindDrop,
+      rawSentence,
       textLen: currentText.length,
     });
 
     editAutoPrefillRanRef.current = true;
     setPendingTitleResummarize(true);
     void refreshPrefill();
-  }, [mode, visible, isMindDropTodo, isRawSentenceTitle, refreshPrefill, currentText]);
+  }, [mode, visible, isMindDrop, rawSentence, refreshPrefill, currentText, initialEntity]);
 
   const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
   useEffect(() => {
@@ -937,6 +994,69 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (sanitizedTagSuggestions.length === 0) return [];
     return sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
   }, [sanitizedTagSuggestions, state.tags]);
+
+  // AI Tag Override for Mind Drop narrative items
+  // Replace hash noise tags with quality AI tags on first edit open
+  const aiTagOverrideAppliedRef = useRef(false);
+  useEffect(() => {
+    // Only apply in edit mode
+    if (mode !== 'edit') return;
+
+    // Only run once per entity
+    if (aiTagOverrideAppliedRef.current) return;
+
+    // Don't override if user has already edited tags
+    if (tagsDirty) return;
+
+    // Only for Mind Drop narrative items (unsorted with raw sentence)
+    if (!isMindDrop || !rawSentence) return;
+
+    // Wait for AI tags to be available
+    if (!sanitizedTagSuggestions || sanitizedTagSuggestions.length === 0) return;
+
+    // Check if entity is from catchall origin (Mind Drop)
+    const entity = initialEntity as any;
+    const isCatchall = entity?.origin === 'catchall';
+    const hasUnsortedLabels =
+      Array.isArray(entity?.labels) &&
+      (entity.labels.includes('catchall') || entity.labels.includes('needs_review'));
+
+    if (!isCatchall && !hasUnsortedLabels) return;
+
+    console.log('[OverlayV2] Applying AI tag override for Mind Drop narrative item', {
+      entityId: entity?.id,
+      oldTags: state.tags,
+      aiTags: sanitizedTagSuggestions.map((t) => t.name),
+    });
+
+    // Replace state.tags with AI tags (sanitized and normalized)
+    const aiTagNames = sanitizedTagSuggestions.map((entry) => entry.name);
+    dispatch({ type: 'SET_TAGS', tags: aiTagNames });
+
+    // Mark tags as dirty so they get persisted on save
+    // This is different from manual user edits - we DO want to save AI improvements
+    setTagsDirty(true);
+
+    // Mark as applied so we don't re-run
+    aiTagOverrideAppliedRef.current = true;
+  }, [
+    mode,
+    tagsDirty,
+    isMindDrop,
+    rawSentence,
+    sanitizedTagSuggestions,
+    initialEntity,
+    state.tags,
+    dispatch,
+  ]);
+
+  // Reset the override flag when the entity changes
+  useEffect(() => {
+    const entityId = (initialEntity as any)?.id;
+    return () => {
+      aiTagOverrideAppliedRef.current = false;
+    };
+  }, [(initialEntity as any)?.id]);
 
   const suggestionChips = useMemo((): TagsRowSuggestion[] => {
     if (filteredTagSuggestions.length === 0) return [];
@@ -1167,8 +1287,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     const nextTitle = suggestedTitle.trim();
 
-    // Update the main title used when saving
-    dispatch({ type: 'SET_TITLE', title: nextTitle });
+    // Update the main title used when saving (force=true to bypass userEditedTitle guard)
+    // This ensures AI title updates state.todo.title even if user has typed text
+    dispatch({ type: 'SET_TITLE', title: nextTitle, force: true });
 
     // ALSO update the compactTitle used as overlaySubtitle in the header
     dispatch({ type: 'SET_COMPACT_TITLE', title: nextTitle });
@@ -1441,6 +1562,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setIsSaving(true);
     try {
       const input = toCreateOrUpdateInput(baseType, state as any, initialSpaceId ?? null);
+
+      // Development logging for todo saves
+      if (__DEV__ && baseType === 'todo') {
+        console.log('[UnifiedOverlayV2.onSave] Todo state before save', {
+          'state.todo.title': state.todo.title,
+          'state.todo.details': state.todo.details,
+          'state.compactTitle': state.compactTitle,
+        });
+        console.log('[UnifiedOverlayV2.onSave] Todo input payload', {
+          title: (input as any).title,
+          name: (input as any).name,
+          details: (input as any).details,
+        });
+      }
+
       const telemetryTitle =
         typeof (input as any)?.title === 'string'
           ? ((input as any).title as string)
@@ -2355,24 +2491,87 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const type = (entity as any)?.type;
   const baseType: BaseType = type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log';
 
-  // Extract raw details and title
+  // Use standardized helper to get raw Mind Drop text
+  const mindDropRawText = getMindDropRawText(entity);
+
+  // === Habit-specific long text and title computation ===
+  if (type === 'habit') {
+    // Long text for habits: prefer Mind Drop raw text, then notes, then body, then name
+    const habitLongText =
+      mindDropRawText ??
+      (entity as any)?.notes ??
+      (entity as any)?.body ??
+      (entity as any)?.name ??
+      '';
+
+    // Short title for habits: prefer name, then title, then first line of long text
+    const compactTitle =
+      (entity as any)?.name ?? (entity as any)?.title ?? firstLine(habitLongText) ?? '';
+
+    // Normalize tags from entity
+    const extractedTags = extractTagKeysFromEntity(entity);
+
+    const normalizeMetaValues = (values: unknown): string[] => {
+      if (!Array.isArray(values)) return [];
+      const normalized = values
+        .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
+        .filter(Boolean);
+      return Array.from(new Set(normalized));
+    };
+
+    const tagsMeta = (entity as any)?.tags_meta ?? {};
+
+    return {
+      baseType: 'habit',
+      compactTitle,
+      // Hydrate all type-specific states for symmetry (in case user switches types)
+      habit: {
+        title: compactTitle,
+        notes: habitLongText,
+        schedule: 'custom',
+      },
+      todo: {
+        title: compactTitle,
+        details: habitLongText,
+        due_at: null,
+      },
+      log: {
+        title: compactTitle,
+        body: habitLongText,
+      },
+      tags: extractedTags,
+      stickyTags: normalizeMetaValues(tagsMeta?.sticky),
+      tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
+    };
+  }
+
+  // === Todo/Log handling ===
+  // Use Mind Drop raw text if available, otherwise fall back to standard fields
   const rawDetails =
-    (entity as any)?.details ?? (entity as any)?.body ?? (entity as any)?.notes ?? '';
+    mindDropRawText ??
+    (entity as any)?.details ??
+    (entity as any)?.body ??
+    (entity as any)?.notes ??
+    '';
   const title = (entity as any)?.title ?? '';
   const name = (entity as any)?.name ?? '';
 
-  // For todos: handle Mind Drop items that only have 'name' but no 'details'
-  // - If details exists, use it (user has edited the long text)
-  // - If no details but has name/title, populate details with name/title
-  //   (so user can edit the original Mind Drop text)
+  // For todos: handle Mind Drop items
+  // - Use Mind Drop raw text as the long text source (body/details mapping)
+  // - If no Mind Drop text, fall back to name/title (backwards compatibility)
   // - title remains as the short label (possibly AI-generated)
   const todoDetails = rawDetails || name || title || '';
+
+  // For notes/logs: handle Mind Drop items
+  // - Use Mind Drop raw text as the long text source (body mapping)
+  // - title remains as the short label (possibly AI-generated)
+  const logBody = rawDetails || title || '';
 
   const payload: Partial<V2State> = {
     baseType,
     log: {
       title,
-      body: (entity as any)?.body || (entity as any)?.details || title || '',
+      body: logBody,
     },
     todo: {
       title,
@@ -2381,7 +2580,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     },
     habit: {
       title,
-      notes: (entity as any)?.notes ?? '',
+      notes: rawDetails || '',
       schedule: 'custom',
     },
   };

@@ -1,10 +1,11 @@
 import type { CreateRecordInput, IRepo } from './repo/IRepo';
-import type { Note, Todo } from './types';
+import type { Note, Todo, Habit } from './types';
 import {
   logConversionStart,
   logConversionSuccess,
   logConversionError,
 } from './conversionTelemetry';
+import { buildMindDropDerivedFields } from './minddrop/minddropShared';
 
 type LineageMeta = {
   originId: string;
@@ -214,6 +215,103 @@ export const convertTodoToLogList = async (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logConversionError({ from: 'todo-list', to: 'log', originId: todoId, error: message });
+    throw error;
+  }
+};
+
+/**
+ * Converts an unsorted note (catchall) to a first-class habit.
+ * Creates a new habit record and marks the original note as archived.
+ *
+ * @param repo - Repository instance
+ * @param noteId - ID of the unsorted note to convert
+ * @param options - Conversion options (frequency, name override)
+ * @returns Object containing the created habit and updated note
+ */
+export const convertUnsortedToHabit = async (
+  repo: IRepo,
+  noteId: string,
+  options: { frequency?: string; nameOverride?: string } = {},
+): Promise<{ habit: Habit; updatedNote: Note }> => {
+  logConversionStart({ from: 'unsorted', to: 'habit', originId: noteId });
+
+  try {
+    const record = await repo.getById(noteId);
+    if (!record || record.type !== 'note') {
+      throw new Error(`Note ${noteId} not found`);
+    }
+
+    const note = record as Note;
+
+    // Derive habit name from note: prefer body (Mind Drop text), then title
+    const rawText = note.body ?? note.title ?? '';
+
+    // Use shared Mind Drop helper for consistent tag cleaning
+    const derived = buildMindDropDerivedFields('habit', {
+      rawText,
+      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
+    });
+
+    // For conversion, use nameOverride or extract first line (unlike direct Mind Drop creation which can use full text)
+    const firstLine = rawText.split('\n')[0].trim().slice(0, 80);
+    const habitName = options.nameOverride ?? (firstLine || 'New habit');
+    const frequency = options.frequency ?? 'daily';
+
+    // Filter labels: remove catchall/needs_review, add habit
+    const originalLabels = note.labels ?? [];
+    const filteredLabels = originalLabels.filter(
+      (l: string) => l !== 'needs_review' && l !== 'catchall',
+    );
+    const habitLabels = Array.from(new Set([...filteredLabels, 'habit']));
+
+    const habitWhy = appendLineageToWhyString(note.why_string, {
+      originId: note.id,
+      source: 'unsorted',
+    });
+
+    const habitInput: CreateRecordInput = {
+      type: 'habit',
+      name: habitName,
+      frequency,
+      notes: derived.notes, // Preserve full Mind Drop text in notes field using shared helper
+      space_id: note.space_id ?? null,
+      ai_placed: !!note.ai_placed,
+      why_string: habitWhy ?? 'Confirmed as habit via category chip',
+      origin: note.origin ?? 'catchall',
+      canonicalType: 'habit',
+      labels: habitLabels,
+      tags: derived.tags, // Use cleaned tags from shared helper
+      tags_meta: note.tags_meta,
+      views: note.views,
+      dropId: (note as any).drop_id,
+    };
+
+    const createdHabit = (await repo.create(habitInput)) as Habit;
+
+    const noteWhy = appendLineageToWhyString(note.why_string, {
+      originId: createdHabit.id,
+      source: 'habit',
+    });
+
+    const updatedNote = (await repo.update({
+      id: note.id,
+      patch: {
+        archived: true,
+        why_string: noteWhy,
+      },
+    })) as Note;
+
+    logConversionSuccess({
+      from: 'unsorted',
+      to: 'habit',
+      originId: note.id,
+      createdId: createdHabit.id,
+    });
+
+    return { habit: createdHabit, updatedNote };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logConversionError({ from: 'unsorted', to: 'habit', originId: noteId, error: message });
     throw error;
   }
 };

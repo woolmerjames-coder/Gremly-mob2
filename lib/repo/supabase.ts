@@ -330,6 +330,15 @@ export class SupabaseRepo implements IRepo {
       const habitName = input.name ?? input.title ?? 'Untitled';
       const habitTitle = input.title ?? habitName;
 
+      // Map details → notes for habits (full Mind Drop sentence persistence)
+      let notesText: string | null = null;
+      if (typeof (input as any).details === 'string') {
+        const trimmed = (input as any).details.trim();
+        if (trimmed.length > 0) {
+          notesText = trimmed;
+        }
+      }
+
       // Build minimal payload with Insert schema validation
       // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
@@ -350,7 +359,7 @@ export class SupabaseRepo implements IRepo {
           // Extended habit fields - map to jsonb columns
           frequency_json: input.frequency_value ?? undefined,
           reminders_json: input.reminders ?? undefined,
-          notes: input.notes ?? null,
+          notes: notesText ?? input.notes ?? null, // 🔴 Prefer details, fallback to notes
           tags: input.tags ?? null,
           tags_meta: tagsMeta,
           buddy_id: input.buddy_id ?? null,
@@ -372,15 +381,21 @@ export class SupabaseRepo implements IRepo {
         console.log('[SupabaseRepo.create] habit payload:', JSON.stringify(payload, null, 2));
       }
     } else if (input.type === 'todo') {
-      // Database schema truth: todos table has 'name' column (NO 'title' column)
+      // Database schema truth: todos table has 'name' and 'title' columns
       if (!input.name) throw new Error('Todo requires name');
+
+      // Map details → body for todos (full Mind Drop sentence persistence)
+      const bodyText =
+        typeof (input as any).details === 'string' && (input as any).details.trim().length > 0
+          ? (input as any).details.trim()
+          : (input.body ?? null);
 
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: input.name, // Required - PRIMARY field for todos (NO 'title' in DB)
-          body: input.body ?? null,
+          name: input.name, // Required - PRIMARY field for todos
+          body: bodyText, // 🔴 Store full Mind Drop sentence here (mapped from details)
           due_date: normalizeIsoDatetime(input.due_date) ?? null,
           due_time: input.due_time ?? null, // Phase 7+: HH:mm format
           undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
@@ -401,6 +416,15 @@ export class SupabaseRepo implements IRepo {
       );
 
       if (__DEV__) {
+        console.log('[SupabaseRepo.create] todo payload', {
+          name: input.name,
+          details: (input as any).details,
+          bodyText,
+          payloadBody: payload.body,
+        });
+      }
+
+      if (__DEV__) {
         console.log('[SupabaseRepo.create] Using todoInsertSchema');
         console.log('[SupabaseRepo.create] todo payload:', JSON.stringify(payload, null, 2));
       }
@@ -410,12 +434,18 @@ export class SupabaseRepo implements IRepo {
       if (!input.subtype) throw new Error('Note requires subtype');
       if (!input.title) throw new Error('Note requires title');
 
+      // Map details → body for notes (full Mind Drop sentence persistence)
+      const noteBody =
+        typeof (input as any).details === 'string' && (input as any).details.trim().length > 0
+          ? (input as any).details.trim()
+          : (input.body ?? null);
+
       // Build minimal payload with Insert schema validation
       payload = noteInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
           title: input.title, // Required - PRIMARY field for notes (NO 'name' in DB)
-          body: input.body ?? null,
+          body: noteBody, // 🔴 Store full Mind Drop sentence here (mapped from details)
           subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
@@ -536,6 +566,11 @@ export class SupabaseRepo implements IRepo {
     const existing = await this.getById(id);
     if (!existing) throw new Error('Record not found');
 
+    // Development logging for todo updates
+    if (__DEV__ && existing.type === 'todo') {
+      console.log('[TodoUpdate] incoming patch', patch);
+    }
+
     const table = tableFor(existing.type);
 
     const normalizedPatch = { ...patch } as typeof patch;
@@ -553,16 +588,35 @@ export class SupabaseRepo implements IRepo {
     const updatePayload: Record<string, unknown> = {};
 
     if (existing.type === 'todo') {
-      // DATABASE TRUTH: todos table has 'name' column (NO 'title' column)
-      // Handle name/title mapping: prefer 'name', treat 'title' as alias for backwards compatibility
-      if ('name' in normalizedPatch && normalizedPatch.name !== undefined) {
-        updatePayload.name = normalizedPatch.name;
-      } else if ('title' in normalizedPatch && normalizedPatch.title !== undefined) {
-        // Map 'title' to 'name' for backwards compatibility with overlay code
-        updatePayload.name = normalizedPatch.title;
+      // DATABASE SCHEMA: todos table has both 'name' and 'title' columns
+      // Keep both columns in sync for consistency across queries and mappers
+      // Accept both 'name' and 'title' in patch, prefer 'name' if both are present
+      const newName =
+        (typeof (normalizedPatch as any).name === 'string' &&
+        (normalizedPatch as any).name.trim().length > 0
+          ? (normalizedPatch as any).name
+          : undefined) ??
+        (typeof (normalizedPatch as any).title === 'string' &&
+        (normalizedPatch as any).title.trim().length > 0
+          ? (normalizedPatch as any).title
+          : undefined);
+
+      if (newName !== undefined) {
+        updatePayload.name = newName;
+        updatePayload.title = newName; // Keep both columns in sync
       }
 
-      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+      // IMPORTANT: Map details → body for todos (full Mind Drop sentence)
+      // This ensures the long text survives save/reopen cycles
+      if ('details' in normalizedPatch) {
+        const details = (normalizedPatch as any).details;
+        const trimmed = typeof details === 'string' ? details.trim() : '';
+        updatePayload.body = trimmed.length > 0 ? trimmed : null;
+      } else if ('body' in normalizedPatch) {
+        // Also support direct body updates for backwards compatibility
+        updatePayload.body = normalizedPatch.body ?? null;
+      }
+
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('due_date' in normalizedPatch) {
         const duePatch = normalizedPatch.due_date as string | null | undefined;
@@ -578,8 +632,33 @@ export class SupabaseRepo implements IRepo {
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'habit') {
-      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
-        updatePayload.title = normalizedPatch.title;
+      // DATABASE SCHEMA: habits table has both 'name' and 'title' columns
+      // Keep both columns in sync for consistency
+      const newName =
+        (typeof (normalizedPatch as any).name === 'string' &&
+        (normalizedPatch as any).name.trim().length > 0
+          ? (normalizedPatch as any).name.trim()
+          : undefined) ??
+        (typeof (normalizedPatch as any).title === 'string' &&
+        (normalizedPatch as any).title.trim().length > 0
+          ? (normalizedPatch as any).title.trim()
+          : undefined);
+
+      if (newName !== undefined) {
+        updatePayload.name = newName;
+        updatePayload.title = newName; // Keep both columns in sync
+      }
+
+      // IMPORTANT: Map details → notes for habits (full Mind Drop sentence)
+      if ('details' in normalizedPatch) {
+        const details = (normalizedPatch as any).details;
+        const trimmed = typeof details === 'string' ? details.trim() : '';
+        updatePayload.notes = trimmed.length > 0 ? trimmed : null;
+      } else if ('notes' in normalizedPatch) {
+        // Also support direct notes updates when details not present
+        updatePayload.notes = normalizedPatch.notes ?? null;
+      }
+
       if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
         updatePayload.frequency = normalizedPatch.frequency;
       if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
@@ -589,7 +668,17 @@ export class SupabaseRepo implements IRepo {
         updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'note') {
       if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
-      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+
+      // IMPORTANT: Map details → body for notes (full Mind Drop sentence)
+      if ('details' in normalizedPatch) {
+        const details = (normalizedPatch as any).details;
+        const trimmed = typeof details === 'string' ? details.trim() : '';
+        updatePayload.body = trimmed.length > 0 ? trimmed : null;
+      } else if ('body' in normalizedPatch) {
+        // Also support direct body updates when details not present
+        updatePayload.body = normalizedPatch.body ?? null;
+      }
+
       if ('subtype' in normalizedPatch && normalizedPatch.subtype !== undefined)
         updatePayload.subtype = normalizedPatch.subtype;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
@@ -609,6 +698,11 @@ export class SupabaseRepo implements IRepo {
     if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
     if ('dropId' in normalizedPatch) updatePayload.drop_id = normalizedPatch.dropId ?? null;
 
+    // Development logging for todo updates
+    if (__DEV__ && existing.type === 'todo') {
+      console.log('[TodoUpdate] dbPayload', updatePayload);
+    }
+
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
       .from(table)
@@ -616,6 +710,11 @@ export class SupabaseRepo implements IRepo {
       .eq('id', id)
       .select('*')
       .single();
+
+    // Development logging for todo updates
+    if (__DEV__ && existing.type === 'todo') {
+      console.log('[TodoUpdate] db result', result, error);
+    }
 
     if (error) {
       logSbError(`${existing.type}.update`, error);

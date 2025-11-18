@@ -436,9 +436,11 @@ export function useOverlayPrefill(options: UseOverlayPrefillOptions = {}) {
           .filter((name) => name && name.trim().length > 0);
 
         // Get local fallback tags based on text content
-        const localFallback = buildFallbackTags(text, 'note');
+        // IMPORTANT: Only use fallback tags when AI returns no tags
+        // This prevents hash noise (#even, #every, #mins) from polluting quality AI tags
+        const localFallback = rawTagNames.length > 0 ? [] : buildFallbackTags(text, 'note');
 
-        // Merge both sources (server tags + local fallback)
+        // Merge both sources (server tags + local fallback only if no server tags)
         const merged = [...rawTagNames, ...localFallback];
 
         const filtered =

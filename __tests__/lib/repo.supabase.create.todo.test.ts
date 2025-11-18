@@ -101,7 +101,7 @@ describe('SupabaseRepo.create - Todo', () => {
       id: '123e4567-e89b-12d3-a456-426614174000',
       owner_id: 'test-user-id',
       name: 'Todo with body',
-      body: 'Test body',
+      body: 'Test body text for this todo',
       space_id: null,
       due_date: '2025-10-20T10:00:00Z',
       undefined_due: false,
@@ -115,7 +115,7 @@ describe('SupabaseRepo.create - Todo', () => {
     await repo.create({
       type: 'todo',
       name: 'Todo with body',
-      body: 'Test body',
+      body: 'Test body text for this todo',
       due_date: '2025-10-20T10:00:00Z',
       undefined_due: false,
       ai_placed: false,
@@ -126,7 +126,7 @@ describe('SupabaseRepo.create - Todo', () => {
     expect(insertPayload).toEqual(
       expect.objectContaining({
         name: 'Todo with body',
-        body: 'Test body',
+        body: 'Test body text for this todo',
         due_date: '2025-10-20T10:00:00Z',
         undefined_due: false,
         ai_placed: false,
@@ -139,6 +139,48 @@ describe('SupabaseRepo.create - Todo', () => {
     expect(insertPayload).toHaveProperty('owner_id'); // This IS included now
     expect(insertPayload).not.toHaveProperty('created_at');
     expect(insertPayload).not.toHaveProperty('updated_at');
+  });
+
+  it('should map details to body when creating todo from Mind Drop', async () => {
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Dinner in Zipolite',
+      title: 'Dinner in Zipolite',
+      body: 'Find somewhere great for dinner in Zipolite',
+      space_id: null,
+      origin: 'catchall',
+      ai_placed: true,
+      created_at: '2025-11-17T12:00:00Z',
+      updated_at: '2025-11-17T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    // Simulate Mind Drop creation with details field
+    await repo.create({
+      type: 'todo',
+      name: 'Dinner in Zipolite',
+      details: 'Find somewhere great for dinner in Zipolite', // This should map to body
+      origin: 'catchall',
+      ai_placed: true,
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Assert: details was mapped to body in the database payload
+    expect(insertPayload).toEqual(
+      expect.objectContaining({
+        name: 'Dinner in Zipolite',
+        body: 'Find somewhere great for dinner in Zipolite', // Mapped from details
+        origin: 'catchall',
+        ai_placed: true,
+        owner_id: 'test-user-id',
+      }),
+    );
+
+    // Should NOT have a details field in DB payload
+    expect(insertPayload).not.toHaveProperty('details');
   });
 
   it('should throw error if input contains created_at', async () => {
