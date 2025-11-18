@@ -69,6 +69,7 @@ import {
 } from '../../lib/tags/normalize';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
+import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -2264,9 +2265,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const title = clampNoteLength(rawTitle);
               const due = action.payload.due ?? parsedIso ?? null;
 
-              // Use shared Mind Drop helper for consistent tag cleaning and field mapping
-              const derived = buildMindDropDerivedFields('todo', {
+              // Use canonical mapper for consistent Mind Drop → todo transformation
+              const canonical = buildCanonicalFromMindDrop({
+                kind: 'todo',
                 rawText: trimmed,
+                aiTitle: action.payload.title?.trim(),
                 aiTags: combinedTags.length > 0 ? combinedTags : undefined,
               });
 
@@ -2274,8 +2277,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 bucket: 'todos',
                 payload: {
                   type: 'todo',
-                  title: derived.title || title,
-                  name: derived.name || title,
+                  ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
                   due_date: due,
                   undefined_due: !due,
                   space_id: action.payload.spaceId ?? null,
@@ -2284,7 +2286,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   origin: 'catchall',
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(derived.tags.length > 0 && { tags: derived.tags }),
                 },
               });
             } else if (action.type === 'create.habit') {
@@ -2294,9 +2295,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
 
-              // Use shared Mind Drop helper for consistent tag cleaning and field mapping
-              const derived = buildMindDropDerivedFields('habit', {
+              // Use canonical mapper for consistent Mind Drop → habit transformation
+              const canonical = buildCanonicalFromMindDrop({
+                kind: 'habit',
                 rawText: trimmed,
+                aiTitle: action.payload.name?.trim(),
                 aiTags: combinedTags.length > 0 ? combinedTags : undefined,
               });
 
@@ -2304,16 +2307,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 bucket: 'habits',
                 payload: {
                   type: 'habit',
-                  name: action.payload.name?.trim() || derived.name || name, // Prefer AI-suggested name, then derived
+                  ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
                   frequency,
-                  notes: derived.notes, // Full raw Mind Drop text in notes field
                   space_id: action.payload.spaceId ?? null,
                   ai_placed: true,
                   why_string: decision.explanation || 'Organized via Mind Drop',
                   origin: 'catchall',
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(derived.tags.length > 0 && { tags: derived.tags }),
                 },
               });
             } else if (action.type === 'create.note') {
@@ -2323,9 +2324,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
               const canonicalType = persistedToCanonical('note', subtype);
 
-              // Use shared Mind Drop helper for consistent field mapping and tag cleaning
-              const derived = buildMindDropDerivedFields('log', {
-                rawText: trimmed, // Use full raw text
+              // Use canonical mapper for consistent Mind Drop → log transformation
+              const canonical = buildCanonicalFromMindDrop({
+                kind: 'log',
+                rawText: trimmed,
+                aiTitle: action.payload.text?.trim(),
                 aiTags: combinedTags.length > 0 ? combinedTags : undefined,
               });
 
@@ -2333,19 +2336,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 bucket: 'notes',
                 payload: {
                   type: 'note',
-                  title: derived.title || 'Quick note',
-                  body: derived.body ?? undefined,
+                  ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
                   subtype,
                   origin: 'catchall',
                   ai_placed: subtype !== 'catchall',
                   space_id: action.payload.spaceId ?? null,
                   why_string: decision.explanation || 'Organized via Mind Drop',
-                  canonicalType,
-                  labels: [CATCHALL_LABEL],
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(derived.tags.length > 0 && { tags: derived.tags }),
                 },
               });
             } else if (action.type === 'add.to.list') {
