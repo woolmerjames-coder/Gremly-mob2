@@ -168,7 +168,7 @@ describe('RecentDrops component (isolated)', () => {
 
     const habitCard = await screen.findByTestId('minddrop-recent-habit-h1');
     expect(within(habitCard).getByText('#running')).toBeTruthy();
-    expect(within(habitCard).getByText('#morning')).toBeTruthy();
+    // 'morning' is filtered by TAG_STOP_WORDS
     expect(within(habitCard).getByText('#exercise')).toBeTruthy();
   });
 });

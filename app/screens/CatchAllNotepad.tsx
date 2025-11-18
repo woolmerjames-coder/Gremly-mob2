@@ -659,6 +659,7 @@ type UnifiedDrop = {
   optimisticKind?: 'note' | 'todo' | 'habit';
   drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
   archived?: boolean; // Track archived status to filter out converted notes
+  canonical_type?: string | null; // Canonical type from buildCanonicalFromMindDrop: 'todo', 'habit', 'log', 'journal'
 };
 
 const relativeTime = (iso: string) => {
@@ -689,12 +690,40 @@ function getDisplayTagsForRecentDrop(item: UnifiedDrop): string[] {
   const cleaned = filterAndNormalizeTags(item.tags);
 
   // Remove the # prefix for display (we'll add it back in the UI)
-  return cleaned.map((tag) => {
-    if (tag.startsWith('#')) return tag.slice(1);
-    if (tag.startsWith('@')) return tag; // Keep @ prefix for mentions
-    if (tag.startsWith('*')) return tag.slice(1); // Remove * prefix
-    return tag;
-  });
+  // Also filter out *journal and other internal markers
+  return cleaned
+    .filter((tag) => !tag.startsWith('*')) // Remove internal markers like *journal
+    .map((tag) => {
+      if (tag.startsWith('#')) return tag.slice(1);
+      if (tag.startsWith('@')) return tag; // Keep @ prefix for mentions
+      return tag;
+    });
+}
+
+/**
+ * Get display kind for Recent drops pill
+ * Uses canonical_type first (from buildCanonicalFromMindDrop), then falls back to labels/subtype.
+ * Ensures logs show "log" not "unsorted"
+ */
+function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): string {
+  const effectiveKind = item.optimisticKind ?? item.kind;
+
+  // If canonical types are off, use simple kind mapping
+  if (!canonicalTypesOn) {
+    return effectiveKind;
+  }
+
+  // Prefer canonical_type if available (from buildCanonicalFromMindDrop)
+  if (item.canonical_type) {
+    return item.canonical_type;
+  }
+
+  // Fallback to kindToDisplayLabel for items without canonical_type
+  return kindToDisplayLabel(
+    effectiveKind,
+    effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
+    canonicalTypesOn,
+  );
 }
 
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
@@ -821,6 +850,7 @@ const RecentDrops: React.FC<{
             tags: toTagList((n as any)?.tags),
             drop_id: (n as any)?.drop_id ?? null,
             archived: n?.archived === true,
+            canonical_type: (n as any)?.canonical_type ?? null,
           };
         });
 
@@ -840,6 +870,7 @@ const RecentDrops: React.FC<{
             due_date: t.due_date ?? null,
             tags: toTagList((t as any)?.tags),
             drop_id: (t as any)?.drop_id ?? null,
+            canonical_type: (t as any)?.canonical_type ?? null,
           };
         });
 
@@ -858,6 +889,7 @@ const RecentDrops: React.FC<{
             created_at: h.created_at,
             tags: toTagList((h as any)?.tags),
             drop_id: (h as any)?.drop_id ?? null,
+            canonical_type: (h as any)?.canonical_type ?? null,
           };
         });
 
@@ -1066,11 +1098,7 @@ const RecentDrops: React.FC<{
             >
               {items.map((item) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
-                const displayKind = kindToDisplayLabel(
-                  effectiveKind,
-                  effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
-                  canonicalTypesOn,
-                );
+                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
                   !canonicalTypesOn && effectiveKind === 'note' && item.unsorted;
                 const badgeStyleKey =
@@ -1141,10 +1169,8 @@ const RecentDrops: React.FC<{
                         </Pressable>
                       </View>
                     </View>
-                    {/* Show tags for todos and habits */}
-                    {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
-                    Array.isArray(item.tags) &&
-                    item.tags.length > 0 ? (
+                    {/* Show tags for all Mind Drop items (todos, habits, logs) */}
+                    {Array.isArray(item.tags) && item.tags.length > 0 ? (
                       <View style={styles.recentTagsRow}>
                         {getDisplayTagsForRecentDrop(item)
                           .slice(0, 6)
