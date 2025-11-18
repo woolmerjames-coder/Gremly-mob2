@@ -1925,10 +1925,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const reminderIso = coerceIsoTimestamp(s.reminderAt);
       const datePatch = reminderIso ? { date: reminderIso } : {};
 
+      // For Mind Drop logs confirmed as logs, ensure canonical_type and labels are set
+      // This clears catchall/needs_review labels and marks the item as a confirmed log
+      const logConfirmationPatch = {
+        canonical_type: 'log' as const,
+        labels: ['log'] as const,
+      };
+
       return {
         type: 'note' as const,
         subtype: 'catchall' as const,
         ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
+        ...logConfirmationPatch, // Override with confirmed log status
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         ...moodPatch,

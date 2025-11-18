@@ -660,6 +660,7 @@ type UnifiedDrop = {
   drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
   archived?: boolean; // Track archived status to filter out converted notes
   canonical_type?: string | null; // Canonical type from buildCanonicalFromMindDrop: 'todo', 'habit', 'log', 'journal'
+  labels?: string[]; // Labels from backend: ['log'], ['habit'], ['todo'], ['catchall', 'needs_review'], etc.
 };
 
 const relativeTime = (iso: string) => {
@@ -718,7 +719,15 @@ function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): st
     return item.canonical_type;
   }
 
-  // Fallback to kindToDisplayLabel for items without canonical_type
+  // Check labels to detect confirmed logs/todos/habits
+  // Items with labels=['log'] should show "log", not "unsorted"
+  if (Array.isArray(item.labels)) {
+    if (item.labels.includes('log')) return 'log';
+    if (item.labels.includes('todo')) return 'todo';
+    if (item.labels.includes('habit')) return 'habit';
+  }
+
+  // Fallback to kindToDisplayLabel for items without canonical_type or labels
   return kindToDisplayLabel(
     effectiveKind,
     effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
@@ -851,6 +860,7 @@ const RecentDrops: React.FC<{
             drop_id: (n as any)?.drop_id ?? null,
             archived: n?.archived === true,
             canonical_type: (n as any)?.canonical_type ?? null,
+            labels: Array.isArray((n as any)?.labels) ? (n as any).labels : [],
           };
         });
 
@@ -871,6 +881,7 @@ const RecentDrops: React.FC<{
             tags: toTagList((t as any)?.tags),
             drop_id: (t as any)?.drop_id ?? null,
             canonical_type: (t as any)?.canonical_type ?? null,
+            labels: Array.isArray((t as any)?.labels) ? (t as any).labels : [],
           };
         });
 
@@ -890,6 +901,7 @@ const RecentDrops: React.FC<{
             tags: toTagList((h as any)?.tags),
             drop_id: (h as any)?.drop_id ?? null,
             canonical_type: (h as any)?.canonical_type ?? null,
+            labels: Array.isArray((h as any)?.labels) ? (h as any).labels : [],
           };
         });
 
