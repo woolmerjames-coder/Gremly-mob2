@@ -60,6 +60,7 @@ import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './u
 import { normalizeTag } from '../../lib/tags/normalize';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
+import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -1483,6 +1484,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const tagsPayload = shouldIncludeTags ? { tags, tags_meta: tagsMeta } : {};
 
     if (baseType === 'todo') {
+      // For Mind Drop edits, use canonical mapper for consistency
+      const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
+
+      if (isMindDropEdit && s.todo.details) {
+        // Use canonical mapper to ensure consistent title/body/tags
+        const canonical = buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: s.todo.details,
+          aiTitle: s.todo.title || undefined,
+          aiTags: shouldIncludeTags ? tags : undefined,
+          existing: initialEntity,
+        });
+
+        const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
+        return {
+          type: 'todo' as const,
+          ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
+          due_at: dueAt,
+          space_id: s.spaceId ?? spaceId ?? null,
+          origin: 'catchall' as const,
+          // Commitment fields (only for todos/habits)
+          commitment: s.commitment,
+          commitment_note: s.commitment ? s.commitmentNote || null : null,
+          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+        };
+      }
+
       // For todos: title and details are strictly separate
       // - title should be the explicitly set short label (or empty)
       // - details is the long text field
@@ -1507,6 +1535,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       };
     }
     if (baseType === 'habit') {
+      // For Mind Drop edits, use canonical mapper for consistency
+      const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
+
+      if (isMindDropEdit && s.habit.notes) {
+        // Use canonical mapper to ensure consistent title/notes/tags
+        const canonical = buildCanonicalFromMindDrop({
+          kind: 'habit',
+          rawText: s.habit.notes,
+          aiTitle: s.habit.title || undefined,
+          aiTags: shouldIncludeTags ? tags : undefined,
+          existing: initialEntity,
+        });
+
+        return {
+          type: 'habit' as const,
+          ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
+          frequency: s.habit.schedule ?? 'custom',
+          space_id: s.spaceId ?? spaceId ?? null,
+          origin: 'catchall' as const,
+          // Commitment fields (only for todos/habits)
+          commitment: s.commitment,
+          commitment_note: s.commitment ? s.commitmentNote || null : null,
+          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+        };
+      }
+
       return {
         type: 'habit' as const,
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
@@ -1521,6 +1575,44 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+      };
+    }
+
+    // For Mind Drop log edits, use canonical mapper for consistency
+    const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
+
+    if (isMindDropEdit && s.log.body) {
+      // Use canonical mapper to ensure consistent title/body/tags
+      const canonical = buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: s.log.body,
+        aiTitle: s.log.title || undefined,
+        aiTags: shouldIncludeTags ? tags : undefined,
+        existing: initialEntity,
+      });
+
+      // mood (Journal)
+      const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
+
+      // fmt: list tag overrides explicit format
+      let fmtVal: any = null;
+      if (s.tags.includes('list')) fmtVal = 'checkboxes';
+      else if (s.format) fmtVal = s.format; // 'plain' | 'checkboxes' | 'bullet'
+
+      const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
+
+      const reminderIso = coerceIsoTimestamp(s.reminderAt);
+      const datePatch = reminderIso ? { date: reminderIso } : {};
+
+      return {
+        type: 'note' as const,
+        subtype: 'catchall' as const,
+        ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
+        space_id: s.spaceId ?? spaceId ?? null,
+        origin: 'catchall' as const,
+        ...moodPatch,
+        ...fmtPatch,
+        ...datePatch,
       };
     }
 
