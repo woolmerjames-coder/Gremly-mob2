@@ -160,6 +160,77 @@ function normalizeCandidate(raw: string): string | null {
   return null;
 }
 
+/**
+ * Booking appointment words that indicate "book" is a verb, not a tag-worthy noun.
+ * Used to filter out #book tags from Mind Drop todos that start with "Book [appointment]".
+ */
+const BOOKING_APPOINTMENT_WORDS = new Set([
+  'doctor',
+  'dentist',
+  'haircut',
+  'flight',
+  'table',
+  'appointment',
+  'reservation',
+  'tickets',
+  'ticket',
+  'hotel',
+  'room',
+  'car',
+  'massage',
+  'spa',
+  'consultation',
+  'meeting',
+  'call',
+  'slot',
+  'time',
+]);
+
+/**
+ * Filter Mind Drop todo tags with "Book" heuristic.
+ * If the text starts with "Book " followed by appointment words (doctor, dentist, etc.),
+ * strip the "book" tag but keep meaningful tags like #appointment, #doctor, or weekday tags.
+ *
+ * Example:
+ * - Text: "Book doctor appointment tomorrow"
+ * - Tags: ['book', 'doctor', 'appointment', 'tomorrow']
+ * - Result: ['doctor', 'appointment', 'tomorrow'] (removed 'book')
+ */
+export function filterMindDropTodoTags(text: string, tags: string[]): string[] {
+  const textLower = text.trim().toLowerCase();
+
+  // Check if text starts with "book " or "book a/an/the "
+  const startsWithBook =
+    textLower.startsWith('book ') ||
+    textLower.startsWith('book a ') ||
+    textLower.startsWith('book an ') ||
+    textLower.startsWith('book the ');
+
+  if (!startsWithBook) {
+    return tags; // No filtering needed
+  }
+
+  // Extract the word after "book" (skip articles)
+  const afterBook = textLower
+    .replace(/^book\s+(a|an|the)\s+/, 'book ')
+    .replace(/^book\s+/, '')
+    .split(/\s+/)[0];
+
+  // Check if it's a booking appointment word
+  if (afterBook && BOOKING_APPOINTMENT_WORDS.has(afterBook)) {
+    // Filter out "book" tag, keep everything else
+    return tags.filter((tag) => {
+      const normalized = tag
+        .trim()
+        .toLowerCase()
+        .replace(/^[#@*]/, '');
+      return normalized !== 'book';
+    });
+  }
+
+  return tags; // No filtering if not an appointment booking
+}
+
 export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] {
   const result: string[] = [];
   const seen = new Set<string>();

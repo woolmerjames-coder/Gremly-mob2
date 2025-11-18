@@ -51,7 +51,11 @@ import {
   type V2State,
 } from './overlayV2.state';
 import ToastUndo from './ToastUndo';
-import { linkSelectedPerson, sanitizeSuggestedTags } from './overlayV2.mapping';
+import {
+  linkSelectedPerson,
+  sanitizeSuggestedTags,
+  filterMindDropTodoTags,
+} from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
@@ -104,7 +108,15 @@ function extractTagKeysFromEntity(entity: any): TagKey[] {
 
   // For Mind Drop todos (origin='catchall'), apply tag quality filtering
   const isMindDropTodo = entity.type === 'todo' && entity.origin === 'catchall';
-  const tagsToProcess = isMindDropTodo ? filterAndNormalizeTags(raw) : raw;
+  let tagsToProcess = isMindDropTodo ? filterAndNormalizeTags(raw) : raw;
+
+  // Apply "Book [appointment]" heuristic for Mind Drop todos
+  if (isMindDropTodo) {
+    const rawText = getMindDropRawText(entity);
+    if (rawText) {
+      tagsToProcess = filterMindDropTodoTags(rawText, tagsToProcess);
+    }
+  }
 
   const seen = new Set<TagKey>();
   for (const entry of tagsToProcess) {
@@ -382,6 +394,47 @@ function isRawSentenceTitle(entity: any, fullEntity?: any): boolean {
     // This enables prefill on first edit for todos with compacted titles
     if (body && body.length > 0) {
       return true;
+    }
+  }
+
+  // Enhanced Mind Drop detection for todos/habits created from Mind Drop
+  // If origin='catchall', ai_placed=true, has drop_id, and title is basically the full sentence
+  if (
+    entityToCheck?.origin === 'catchall' &&
+    entityToCheck?.ai_placed === true &&
+    entityToCheck?.drop_id
+  ) {
+    const entityType = entityToCheck?.type;
+    if (entityType === 'todo' || entityType === 'habit') {
+      const title = entityToCheck.title?.trim() || entityToCheck.name?.trim() || '';
+      const rawText = getMindDropRawText(entityToCheck);
+
+      if (title && rawText) {
+        // Check if title is the same as raw text (full sentence preserved)
+        if (title === rawText.trim()) {
+          return true;
+        }
+
+        // Check if title is very similar to raw text (minor differences)
+        // This handles cases where AI made minimal edits
+        const titleNormalized = title.toLowerCase().replace(/[.,!?;:]$/g, '');
+        const rawNormalized = rawText
+          .trim()
+          .toLowerCase()
+          .replace(/[.,!?;:]$/g, '');
+
+        if (titleNormalized === rawNormalized) {
+          return true;
+        }
+
+        // For todos/habits, also check body/notes field similarity
+        const bodyField =
+          entityType === 'todo' ? entityToCheck.body?.trim() : entityToCheck.notes?.trim();
+
+        if (bodyField && title === bodyField.trim()) {
+          return true;
+        }
+      }
     }
   }
 

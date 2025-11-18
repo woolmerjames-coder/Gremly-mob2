@@ -69,8 +69,19 @@ BEGIN
   -- STEP 2: If no existing todo, create one
   IF v_todo_id IS NULL THEN
     -- Extract payload values
-    v_due_date := NULLIF(p_payload->>'due_date', '')::date;
-    v_due_time := NULLIF(p_payload->>'due_time', '')::time;
+    -- Handle due_at: if present, extract both due_date and due_time from it
+    -- This satisfies the todos_due_time_check constraint (due_time requires due_date)
+    IF p_payload->>'due_at' IS NOT NULL AND p_payload->>'due_at' != '' THEN
+      -- Extract date component (DATE type)
+      v_due_date := (p_payload->>'due_at')::timestamptz::date;
+      -- Extract time component (TIME type) - time of day without timezone
+      v_due_time := (p_payload->>'due_at')::timestamptz::time;
+    ELSE
+      -- Fallback to individual due_date/due_time fields if due_at not provided
+      v_due_date := NULLIF(p_payload->>'due_date', '')::date;
+      v_due_time := NULLIF(p_payload->>'due_time', '')::time;
+    END IF;
+    
     v_tags := COALESCE(p_payload->'tags', '[]'::jsonb);
     v_origin := COALESCE(p_payload->>'origin', 'catchall');
     v_ai_placed := COALESCE((p_payload->>'ai_placed')::boolean, FALSE);
