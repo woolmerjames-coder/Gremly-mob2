@@ -1,7 +1,15 @@
 /**
  * Canonical mapper for Mind Drop → todo/habit/log creation.
  * Standardizes how Mind Drop text becomes different entity types with consistent
- * title generation, tag cleaning, and field mapping.
+ * field mapping WITHOUT title/tag generation.
+ *
+ * IMPORTANT: Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+ * This function maps raw text to entity fields but does NOT:
+ * - Compact titles (title = rawText as-is)
+ * - Generate or clean tags (tags = empty or passed through)
+ * - Call AI/Cortex for enrichment
+ *
+ * All title compaction and tag generation happens in UnifiedOverlayV2 on first edit.
  */
 
 import { filterAndNormalizeTags } from '../tags/normalize';
@@ -12,8 +20,8 @@ export type CanonicalKind = 'todo' | 'habit' | 'log';
 export interface BuildCanonicalInput {
   kind: CanonicalKind;
   rawText: string; // Full Mind Drop sentence
-  aiTitle?: string; // Optional AI-suggested condensed title
-  aiTags?: string[]; // Optional AI-suggested tags
+  aiTitle?: string; // DEPRECATED: No longer used - titles owned by UnifiedOverlayV2
+  aiTags?: string[]; // Optional system tags (e.g., *journal marker) - user tags owned by UnifiedOverlayV2
   existing?: Record<string, any>; // Optional existing entity for edits
 }
 
@@ -39,78 +47,67 @@ export interface CanonicalPayload {
 }
 
 /**
- * Compact/summarize raw text to a short title.
- * Uses AI title if available, otherwise takes first 60 chars.
+ * DEPRECATED: Title compaction moved to UnifiedOverlayV2.
+ * This function now just returns rawText as-is.
  *
  * @param rawText - Full Mind Drop sentence
- * @param aiTitle - Optional AI-suggested title
- * @returns Compact title string
+ * @param aiTitle - IGNORED (kept for backwards compatibility)
+ * @returns Raw text unchanged
  */
 function compactTitle(rawText: string, aiTitle?: string): string {
-  if (aiTitle?.trim()) {
-    return aiTitle.trim();
-  }
-
-  // Fallback: use first line or first 60 chars
-  const firstLine = rawText.split('\n')[0].trim();
-  if (firstLine.length <= 60) {
-    return firstLine;
-  }
-
-  return firstLine.slice(0, 57) + '...';
+  // Title compaction is now owned by UnifiedOverlayV2
+  // Return raw text as-is - no AI enrichment at creation time
+  return rawText.trim();
 }
 
 /**
- * Build cleaned tags from AI tags or raw text.
- * Single source of truth for tag cleaning:
- * 1. Use aiTags if present
- * 2. Otherwise, generate from rawText via buildFallbackTags
- * 3. Apply filterAndNormalizeTags to:
- *    - Lowercase and dedupe
- *    - Strip leading # and @
- *    - Remove junk words (every, day, minutes, tomorrow, back, very, really, just, but, etc.)
+ * Build system tags (e.g., *journal marker) without user tag enrichment.
+ * User tags are owned by UnifiedOverlayV2.
  *
  * Special case for logs: preserve *journal marker if present in AI tags.
+ * All other tag generation happens in UnifiedOverlayV2 on first edit.
  *
- * @param rawText - Full Mind Drop sentence
- * @param aiTags - Optional AI-suggested tags
- * @param kind - Entity type (affects fallback tag generation)
- * @returns Cleaned tag array
+ * @param rawText - Full Mind Drop sentence (UNUSED - kept for backwards compatibility)
+ * @param aiTags - Optional system tags (e.g., *journal)
+ * @param kind - Entity type (affects default tags)
+ * @returns System tags only (empty for todo/habit, *journal for narrative logs)
  */
 function buildCleanedTags(
   rawText: string,
   aiTags: string[] | undefined,
   kind: CanonicalKind,
 ): string[] {
-  if (aiTags && aiTags.length > 0) {
-    // AI tags already provided - clean them
-    return filterAndNormalizeTags(aiTags);
+  // For logs with *journal marker, preserve it as a system tag
+  if (kind === 'log' && aiTags && aiTags.some((t) => t === '*journal' || t === 'journal')) {
+    return ['*journal'];
   }
 
-  // Fallback: generate tags from raw text
-  // buildFallbackTags already calls filterAndNormalizeTags internally
-  // Map 'log' to 'note' for buildFallbackTags
-  const fallbackKind = kind === 'log' ? 'note' : kind;
-  return buildFallbackTags(rawText, fallbackKind);
+  // For all other cases, return empty - tags owned by UnifiedOverlayV2
+  return [];
 }
 
 /**
- * Build canonical payload for Mind Drop → entity creation.
- * Standardizes title, tags, labels, and type-specific fields.
+ * Build canonical payload for Mind Drop → entity creation WITHOUT title/tag enrichment.
+ * Standardizes labels and type-specific fields, but title = rawText and tags = [] (or system tags only).
  *
  * Field mapping by kind:
- * - log: title = aiTitle || compact(rawText), body = rawText, canonicalType = "log", labels = ["log"]
- * - todo: title = aiTitle || compact(rawText), name = title, body/details = rawText, canonicalType = "todo", labels = ["todo"]
- * - habit: title = aiTitle || compact(rawText), name = title, notes = rawText, canonicalType = "habit", labels = ["habit"]
+ * - log: title = rawText, body = rawText, tags = ['*journal'] if narrative, canonicalType = "log", labels = ["log"]
+ * - todo: title = rawText, name = rawText, body/details = rawText, tags = [], canonicalType = "todo", labels = ["todo"]
+ * - habit: title = rawText, name = rawText, notes = rawText, tags = [], canonicalType = "habit", labels = ["habit"]
+ *
+ * Title compaction (e.g., "Book doctor" from "Book doctor appointment tomorrow") happens in UnifiedOverlayV2 on first edit.
+ * Tag generation (e.g., #appointment, #doctor, #tomorrow) happens in UnifiedOverlayV2 on first edit.
  *
  * @param input - Configuration for canonical mapping
- * @returns Normalized payload ready for SupabaseRepo.create
+ * @returns Normalized payload ready for SupabaseRepo.create (no AI enrichment)
  */
 export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): CanonicalPayload {
-  const { kind, rawText, aiTitle, aiTags, existing } = input;
+  const { kind, rawText, aiTags, existing } = input;
 
   const trimmedRawText = rawText.trim();
-  const title = compactTitle(trimmedRawText, aiTitle);
+  // Title is raw text - compaction happens in UnifiedOverlayV2
+  const title = compactTitle(trimmedRawText);
+  // Tags are empty or system tags only - generation happens in UnifiedOverlayV2
   const tags = buildCleanedTags(trimmedRawText, aiTags, kind);
 
   // Build common fields
@@ -136,7 +133,7 @@ export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): Canonica
     case 'todo':
       return {
         ...common,
-        name: title, // Short title in name field
+        name: title, // Raw text in name field (UnifiedOverlayV2 will compact)
         body: trimmedRawText, // Full raw text in body/details
         details: trimmedRawText, // Alternative field name
       };
@@ -144,7 +141,7 @@ export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): Canonica
     case 'habit':
       return {
         ...common,
-        name: title, // Short title in name field
+        name: title, // Raw text in name field (UnifiedOverlayV2 will compact)
         notes: trimmedRawText, // Full raw text in notes field
       };
   }

@@ -1,7 +1,11 @@
 -- Mind Drop RPC: convert_or_create_from_drop
 -- Creates or reuses todos derived from Mind Drop items in an idempotent way
 -- Archives the provisional Mind Drop note after conversion
-
+--
+-- IMPORTANT: Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+-- This function copies title/name/body/tags from p_payload without modification.
+-- All AI title compaction and tag generation happens in the overlay on first edit.
+--
 -- COPILOT TASK: Update convert_or_create_from_drop to stop manipulating labels and just archive the provisional note.
 --
 -- Context:
@@ -22,6 +26,7 @@
 -- ✅ 3) Archive note WITHOUT touching labels - dynamic column detection for archived boolean
 -- ✅ 4) Return todo id correctly
 -- ✅ 5) All other behavior preserved (due date, tags, etc.)
+-- ✅ 6) Do NOT modify title/tags - copy from payload as-is
 
 CREATE OR REPLACE FUNCTION public.convert_or_create_from_drop(
   p_owner uuid,

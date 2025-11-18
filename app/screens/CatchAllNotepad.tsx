@@ -1,3 +1,28 @@
+/**
+ * CatchAllNotepad.tsx - Mind Drop Input & Provisional Entity Creation
+ *
+ * ARCHITECTURE NOTE: Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+ *
+ * This screen handles Mind Drop text input and creates provisional entities (notes/todos/habits)
+ * with RAW text only. No title compaction or tag generation happens at creation time.
+ *
+ * Flow:
+ * 1. User enters text: "Book doctor appointment tomorrow at 2pm"
+ * 2. AI classifies intent → determines it's a todo
+ * 3. Create provisional todo:
+ *    - title: "Book doctor appointment tomorrow at 2pm" (raw text, not compacted)
+ *    - body: "Book doctor appointment tomorrow at 2pm" (full text)
+ *    - tags: [] (empty - no AI tag generation at creation)
+ *    - due_date: extracted date (if detected)
+ * 4. User opens in UnifiedOverlayV2 for first edit
+ * 5. UnifiedOverlayV2 runs OverlayPrefill:
+ *    - Compacts title: "Book doctor appointment tomorrow at 2pm" → "Doctor Appointment"
+ *    - Generates tags: [] → ['doctor', 'appointment', 'tomorrow']
+ *
+ * Title compaction and tag generation happen ONLY in UnifiedOverlayV2 via OverlayPrefill.
+ * This ensures consistent UX: user sees full text initially, AI suggestions appear on first edit.
+ */
+
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
   AccessibilityInfo,
@@ -2303,19 +2328,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const title = clampNoteLength(rawTitle);
               const due = action.payload.due ?? parsedIso ?? null;
 
-              // Use canonical mapper for consistent Mind Drop → todo transformation
+              // Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+              // Pass raw text only - no AI title compaction or tag generation
               const canonical = buildCanonicalFromMindDrop({
                 kind: 'todo',
                 rawText: trimmed,
-                aiTitle: action.payload.title?.trim(),
-                aiTags: combinedTags.length > 0 ? combinedTags : undefined,
+                // aiTitle: removed - title compaction happens in UnifiedOverlayV2
+                // aiTags: removed - tag generation happens in UnifiedOverlayV2
               });
 
               mapped.push({
                 bucket: 'todos',
                 payload: {
                   type: 'todo',
-                  ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
+                  ...canonical, // Spread canonical fields (title=rawText, name=rawText, body=rawText, tags=[], canonicalType, labels)
                   due_date: due,
                   undefined_due: !due,
                   space_id: action.payload.spaceId ?? null,
@@ -2333,19 +2359,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const frequency: 'daily' | 'weekly' | 'monthly' =
                 freqRaw === 'weekly' ? 'weekly' : 'daily';
 
-              // Use canonical mapper for consistent Mind Drop → habit transformation
+              // Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+              // Pass raw text only - no AI title compaction or tag generation
               const canonical = buildCanonicalFromMindDrop({
                 kind: 'habit',
                 rawText: trimmed,
-                aiTitle: action.payload.name?.trim(),
-                aiTags: combinedTags.length > 0 ? combinedTags : undefined,
+                // aiTitle: removed - title compaction happens in UnifiedOverlayV2
+                // aiTags: removed - tag generation happens in UnifiedOverlayV2
               });
 
               mapped.push({
                 bucket: 'habits',
                 payload: {
                   type: 'habit',
-                  ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
+                  ...canonical, // Spread canonical fields (title=rawText, name=rawText, notes=rawText, tags=[], canonicalType, labels)
                   frequency,
                   space_id: action.payload.spaceId ?? null,
                   ai_placed: true,
@@ -2362,19 +2389,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const subtype = rawSubtype === 'journal' ? 'journal' : 'catchall';
               const canonicalType = persistedToCanonical('note', subtype);
 
-              // Use canonical mapper for consistent Mind Drop → log transformation
+              // Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+              // Pass raw text only - preserve *journal marker for narrative logs, no other tags
               const canonical = buildCanonicalFromMindDrop({
                 kind: 'log',
                 rawText: trimmed,
-                aiTitle: action.payload.text?.trim(),
-                aiTags: combinedTags.length > 0 ? combinedTags : undefined,
+                // aiTitle: removed - title compaction happens in UnifiedOverlayV2
+                aiTags: subtype === 'journal' ? ['*journal'] : undefined, // Preserve *journal system marker only
               });
 
               mapped.push({
                 bucket: 'notes',
                 payload: {
                   type: 'note',
-                  ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
+                  ...canonical, // Spread canonical fields (title=rawText, body=rawText, tags=['*journal'] or [], canonicalType, labels)
                   subtype,
                   origin: 'catchall',
                   ai_placed: subtype !== 'catchall',
@@ -2392,17 +2420,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const listTitle = clampNoteLength(rawListTitle);
               const canonicalType = persistedToCanonical('note', 'list');
 
-              // Use AI tags or fallback to locally generated tags for list notes
-              const listTags =
-                combinedTags.length > 0
-                  ? combinedTags
-                  : buildFallbackTags(cleanedText, 'note', 'list');
+              // Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
+              // No tag generation at creation time - tags assigned in overlay on first edit
 
               mapped.push({
                 bucket: 'notes',
                 payload: {
                   type: 'note',
-                  title: listTitle,
+                  title: listTitle, // Raw title, not AI-compacted
                   body: cleanedText || itemText,
                   subtype: 'list',
                   origin: 'catchall',
@@ -2414,7 +2439,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   views: { alsoShowIn: ['Hub:Catch-All'] },
                   sourceMessageId: validSourceMessageId,
                   dropId,
-                  ...(listTags.length > 0 && { tags: listTags }),
+                  // tags: removed - tag generation happens in UnifiedOverlayV2
                 },
               });
             } else {
