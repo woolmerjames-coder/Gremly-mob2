@@ -41,6 +41,8 @@ export interface CreateRecordInput {
   tags_meta?: TagsMeta | null;
   views?: {
     alsoShowIn?: string[];
+    ai_pending?: boolean; // Phase 1: Mind Drop AI processing state
+    [key: string]: any; // Allow additional view state
   };
   // owner_id is optional - Supabase will set from auth context, Memory repo will use constructor userId
   owner_id?: ID;
@@ -227,6 +229,9 @@ export interface IRepo {
     details?: { archived_reason?: string },
   ): Promise<void>;
 
+  /** Archive all items (todos, habits, notes) with the given drop_id */
+  archiveItemsByDropId(dropId: string, archivedReason?: string): Promise<void>;
+
   /** Commitments */
   listCommitments(): Promise<
     Array<{
@@ -251,6 +256,26 @@ export interface IRepo {
    * Forces ai_placed=true and origin='catchall'. spaceId may be null for unassigned.
    */
   addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord>;
+
+  /**
+   * Phase 1: Create unsorted Mind Drop note before AI classification.
+   * Always creates a note with:
+   * - subtype: 'catchall'
+   * - labels: ['catchall', 'needs_review']
+   * - origin: 'catchall'
+   * - ai_placed: true
+   * - views.ai_pending: true (will be set to false after AI completes)
+   *
+   * This ensures Mind Drop always creates a single note first, then AI decides what to do with it.
+   */
+  createUnsortedDrop(
+    text: string,
+    opts?: {
+      spaceId?: ID | null;
+      dropId?: string | null;
+      sourceMessageId?: string | null;
+    },
+  ): Promise<Note>;
 
   // Space methods (Phase 5)
   listSpaces(): Promise<Space[]>;

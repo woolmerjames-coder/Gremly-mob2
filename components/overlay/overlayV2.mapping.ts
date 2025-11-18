@@ -311,7 +311,12 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
   return result;
 }
 
-export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdProp: string | null) {
+export function toCreateOrUpdateInput(
+  baseType: BaseType,
+  s: V2State,
+  spaceIdProp: string | null,
+  existingEntity?: any,
+) {
   const textForTags = (() => {
     const logText = `${s.log.title ?? ''}\n${s.log.body ?? ''}`;
     if (baseType === 'log') return logText;
@@ -364,10 +369,20 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
           return normalized !== 'journal';
         });
 
+  // Preserve existing views and tags_meta if available
+  const preservedViews = existingEntity?.views ?? {};
+  const existingTagsMeta = existingEntity?.tags_meta ?? { sticky: [], tombstones: [] };
+
+  // Only override tags_meta if we have new sticky/tombstone data, otherwise preserve existing
   const tagsMeta = {
-    sticky: normalizedStickyMeta,
-    tombstones: normalizedTombstonesMeta,
+    sticky:
+      normalizedStickyMeta.length > 0 ? normalizedStickyMeta : (existingTagsMeta.sticky ?? []),
+    tombstones:
+      normalizedTombstonesMeta.length > 0
+        ? normalizedTombstonesMeta
+        : (existingTagsMeta.tombstones ?? []),
   };
+
   if (baseType === 'todo') {
     const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
     const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
@@ -381,6 +396,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       origin: 'catchall' as const,
       tags: [...tagsForSave],
       tags_meta: tagsMeta,
+      views: preservedViews,
     };
   }
   if (baseType === 'habit') {
@@ -393,6 +409,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       origin: 'catchall' as const,
       tags: [...tagsForSave],
       tags_meta: tagsMeta,
+      views: preservedViews,
     };
   }
 
@@ -406,6 +423,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     origin: 'catchall' as const,
     tags: [...tagsForSave],
     tags_meta: tagsMeta,
+    views: preservedViews,
   };
 
   const moodPatch = sanitized.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };

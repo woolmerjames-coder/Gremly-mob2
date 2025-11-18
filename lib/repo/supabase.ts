@@ -219,6 +219,7 @@ function mapHabitFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
+    views: dbRecord.views ?? {}, // Round-trip views JSONB column
   };
 }
 
@@ -241,6 +242,7 @@ function mapTodoFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
+    views: dbRecord.views ?? {}, // Round-trip views JSONB column
   };
 }
 
@@ -257,6 +259,7 @@ function mapNoteFromDb(dbRecord: any): any {
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
     drop_id: dbRecord.drop_id ?? null,
+    views: dbRecord.views ?? {}, // Round-trip views JSONB column
   };
 }
 
@@ -557,6 +560,44 @@ export class SupabaseRepo implements IRepo {
       ai_placed: true,
       origin: 'catchall',
     });
+  }
+
+  /**
+   * Phase 1: Create unsorted Mind Drop note before AI classification.
+   * Always creates a note with catchall subtype and ai_pending flag.
+   */
+  async createUnsortedDrop(
+    text: string,
+    opts?: {
+      spaceId?: ID | null;
+      dropId?: string | null;
+      sourceMessageId?: string | null;
+    },
+  ): Promise<Note> {
+    const trimmedText = text.trim();
+    const firstLine = trimmedText.split('\n')[0] || 'Untitled';
+
+    const record = await this.create({
+      type: 'note',
+      subtype: 'catchall',
+      title: firstLine,
+      body: trimmedText,
+      labels: ['catchall', 'needs_review'],
+      origin: 'catchall',
+      ai_placed: true,
+      space_id: opts?.spaceId ?? null,
+      dropId: opts?.dropId ?? null,
+      sourceMessageId: opts?.sourceMessageId ?? null,
+      views: {
+        ai_pending: true, // Will be set to false after AI classification completes
+      },
+    });
+
+    if (record.type !== 'note') {
+      throw new Error('Expected note record from createUnsortedDrop');
+    }
+
+    return record;
   }
 
   async update({ id, patch }: UpdateRecordInput): Promise<AppRecord> {
@@ -1681,6 +1722,43 @@ export class SupabaseRepo implements IRepo {
     if (action === 'carry_forward') {
       // Habits don't support carry_forward flag; skip.
       return;
+    }
+  }
+
+  async archiveItemsByDropId(dropId: string, archivedReason = 'user_deleted_drop'): Promise<void> {
+    const ownerId = this.ensureUserId();
+
+    // Archive todos with this drop_id
+    const { error: todoError } = await supabase
+      .from('todos')
+      .update({ status: 'archived', archived_reason: archivedReason })
+      .eq('drop_id', dropId)
+      .eq('owner_id', ownerId);
+
+    if (todoError) {
+      console.error('[SupabaseRepo.archiveItemsByDropId] Failed to archive todos:', todoError);
+    }
+
+    // Archive habits with this drop_id
+    const { error: habitError } = await supabase
+      .from('habits')
+      .update({ archived: true, archived_reason: archivedReason })
+      .eq('drop_id', dropId)
+      .eq('owner_id', ownerId);
+
+    if (habitError) {
+      console.error('[SupabaseRepo.archiveItemsByDropId] Failed to archive habits:', habitError);
+    }
+
+    // Archive notes with this drop_id
+    const { error: noteError } = await supabase
+      .from('notes')
+      .update({ archived: true, archived_reason: archivedReason })
+      .eq('drop_id', dropId)
+      .eq('owner_id', ownerId);
+
+    if (noteError) {
+      console.error('[SupabaseRepo.archiveItemsByDropId] Failed to archive notes:', noteError);
     }
   }
 

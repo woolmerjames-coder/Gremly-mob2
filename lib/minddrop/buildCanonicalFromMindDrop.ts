@@ -20,7 +20,7 @@ export type CanonicalKind = 'todo' | 'habit' | 'log';
 export interface BuildCanonicalInput {
   kind: CanonicalKind;
   rawText: string; // Full Mind Drop sentence
-  aiTitle?: string; // DEPRECATED: No longer used - titles owned by UnifiedOverlayV2
+  aiTitle?: string; // Optional AI-generated title from Phase 2A background prefill
   aiTags?: string[]; // Optional system tags (e.g., *journal marker) - user tags owned by UnifiedOverlayV2
   existing?: Record<string, any>; // Optional existing entity for edits
 }
@@ -47,17 +47,17 @@ export interface CanonicalPayload {
 }
 
 /**
- * DEPRECATED: Title compaction moved to UnifiedOverlayV2.
- * This function now just returns rawText as-is.
+ * Determine the effective title for a Mind Drop entity.
+ * Phase 2: Prefer AI-generated title over raw text.
  *
  * @param rawText - Full Mind Drop sentence
- * @param aiTitle - IGNORED (kept for backwards compatibility)
- * @returns Raw text unchanged
+ * @param aiTitle - Optional AI-generated title from background prefill
+ * @returns AI title if available, otherwise raw text
  */
 function compactTitle(rawText: string, aiTitle?: string): string {
-  // Title compaction is now owned by UnifiedOverlayV2
-  // Return raw text as-is - no AI enrichment at creation time
-  return rawText.trim();
+  // Phase 2: Prefer AI-generated title from background prefill
+  // If no AI title, fall back to raw text
+  return (aiTitle ?? rawText).trim();
 }
 
 /**
@@ -102,11 +102,11 @@ function buildCleanedTags(
  * @returns Normalized payload ready for SupabaseRepo.create (no AI enrichment)
  */
 export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): CanonicalPayload {
-  const { kind, rawText, aiTags, existing } = input;
+  const { kind, rawText, aiTitle, aiTags, existing } = input;
 
   const trimmedRawText = rawText.trim();
-  // Title is raw text - compaction happens in UnifiedOverlayV2
-  const title = compactTitle(trimmedRawText);
+  // Phase 2: Use AI-generated title if available, otherwise use raw text
+  const title = compactTitle(trimmedRawText, aiTitle);
   // Tags are empty or system tags only - generation happens in UnifiedOverlayV2
   const tags = buildCleanedTags(trimmedRawText, aiTags, kind);
 

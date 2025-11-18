@@ -157,6 +157,12 @@ function isJunkNormalizedTag(tag: string): boolean {
   if (!key) return true;
   if (TAG_STOP_WORDS.has(key)) return true;
 
+  // Filter out short tags (<=2 chars) unless whitelisted
+  const SHORT_TAG_WHITELIST = new Set(['tax', 'gym', 'job']);
+  if (key.length <= 2 && !SHORT_TAG_WHITELIST.has(key)) {
+    return true;
+  }
+
   const tokens = key.split(' ').filter(Boolean);
   if (tokens.length === 0) return true;
   if (tokens.some((token) => !TAG_STOP_WORDS.has(token))) {

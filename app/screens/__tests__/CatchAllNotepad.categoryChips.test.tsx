@@ -206,20 +206,23 @@ describe('CatchAllNotepad - Category Chips', () => {
     const todoChip = getByText('Add to To-Do List');
     fireEvent.press(todoChip);
 
-    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(mockSupabaseRpc).toHaveBeenCalledWith(
-      'convert_or_create_from_drop',
-      expect.objectContaining({
-        p_owner: 'test-user-123',
-        p_target: 'todo',
-        p_drop_id: expect.any(String),
-        p_payload: expect.objectContaining({
-          name: 'Maybe schedule meeting',
-          body: 'Maybe schedule meeting',
-          origin: 'catchall',
-        }),
-      }),
+    // Wait for conversion: should create todo + archive original note
+    await waitFor(
+      () => {
+        const createCalls = mockRepo.create.mock.calls;
+        expect(createCalls.length).toBeGreaterThanOrEqual(2);
+        const todoCreate = createCalls.find((call: any) => call[0].type === 'todo');
+        expect(todoCreate).toBeDefined();
+      },
+      { timeout: 4000 },
     );
+
+    // Verify todo was created
+    const todoCreateCall = mockRepo.create.mock.calls.find((call: any) => call[0].type === 'todo');
+    expect(todoCreateCall[0]).toMatchObject({
+      type: 'todo',
+      origin: 'catchall',
+    });
 
     const overlay = useGlobalOverlay();
     expect((overlay.openCreate as jest.Mock).mock.calls.length).toBe(0);
@@ -230,10 +233,16 @@ describe('CatchAllNotepad - Category Chips', () => {
       }),
     );
 
-    expect(mockRepo.update).not.toHaveBeenCalled();
-    expect(createdRecords.length).toBe(1);
-    expect(createdRecords[0].type).toBe('note');
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    // Verify original note was archived during conversion
+    expect(mockRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        patch: expect.objectContaining({
+          archived: true,
+        }),
+      }),
+    );
+    // Only one note initially created (unsorted), then converted to todo
+    expect(mockRepo.create).toHaveBeenCalledTimes(2); // unsorted + todo
   });
 
   it('confirms as log without creating duplicate when "Just Save It" is selected', async () => {
@@ -275,7 +284,9 @@ describe('CatchAllNotepad - Category Chips', () => {
       expect(createdRecords.length).toBe(1);
       expect(createdRecords[0].type).toBe('note');
       expect(createdRecords[0].archived).toBe(false);
-      expect(createdRecords[0].why_string).toContain('Confirmed as log via category chip');
+      // New lineage format: "... | origin:ID;source:TYPE"
+      expect(createdRecords[0].why_string).toContain('origin:');
+      expect(createdRecords[0].why_string).toContain('source:log_confirmation');
 
       // Verify no duplicate
       expect(mockRepo.create).toHaveBeenCalledTimes(1);

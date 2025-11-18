@@ -60,11 +60,13 @@ import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
+// Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -404,6 +406,27 @@ function getEntityShortTitle(entity: any): string {
     return entity.title ?? '';
   }
   return '';
+}
+
+/**
+ * Phase 1: Check if a Mind Drop entity has already been AI-prefilled and should be locked.
+ * Once AI has generated title/tags, we don't re-run AI on every open.
+ * AI should only run again if user explicitly taps "Re-summarize" (future phase).
+ *
+ * Returns true when:
+ * - Entity is from Mind Drop (has drop_id)
+ * - Entity was AI-placed (ai_placed = true)
+ * - Entity has already been prefilled once (views.minddrop_prefilled_v1 = true)
+ */
+function isMindDropAiLocked(entity: any): boolean {
+  const isMindDrop = !!entity?.drop_id;
+  const aiPlaced = !!entity?.ai_placed;
+  const views = entity?.views ?? {};
+  const alreadyPrefilled = views.minddrop_prefilled_v1 === true;
+
+  // Phase 1 rule:
+  // If it came from Mind Drop AND has already been AI-prefilled once, treat AI as locked.
+  return isMindDrop && aiPlaced && alreadyPrefilled;
 }
 
 /**
@@ -1082,149 +1105,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return entity?.ai_placed === true;
   }, [initialEntity]);
 
-  // Detect Mind Drop entities (todos, habits, notes) that need automatic title suggestion
-  const isMindDrop = useMemo(() => isMindDropEntity(initialEntity, mode), [initialEntity, mode]);
+  // Phase 2: Overlay no longer runs AI prefill on edit. Titles and tags come only from backgroundPrefill.
 
-  // NEW Mind Drop Prefill System: Check if entity needs one-time AI enrichment
-  // This is the SINGLE owner of AI titles + tags for Mind Drop-created items
-  // Prefill runs once when: ai_placed=true && origin='catchall' && !views.minddrop_prefilled_v1
-  const shouldRunMindDropPrefill = useMemo(() => {
-    const entity = fullEntity || initialEntity;
-    if (!entity) return false;
-
-    // Check if this is a Mind Drop entity
-    const isFromMindDrop = entity.ai_placed === true && entity.origin === 'catchall';
-    if (!isFromMindDrop) return false;
-
-    // Check if already prefilled (views.minddrop_prefilled_v1 === true)
-    const alreadyPrefilled = entity.views?.minddrop_prefilled_v1 === true;
-    if (alreadyPrefilled) return false;
-
-    // Only run for edit mode (not create mode)
-    if (mode !== 'edit') return false;
-
-    return true;
-  }, [initialEntity, fullEntity, mode]);
-
-  // Detect if title is still a raw sentence (not yet condensed by AI)
-  // Pass fullEntity for complete data access in edit mode
-  const rawSentence = useMemo(
-    () => isRawSentenceTitle(initialEntity, fullEntity),
-    [initialEntity, fullEntity],
-  );
-
-  // Skip auto-prefill for items that already have AI content,
-  // EXCEPT for Mind Drop entities with raw sentence titles (allow one auto-suggestion)
-  // OR Mind Drop entities that need one-time prefill (new system)
-  const shouldSkipAutoPrefill =
-    !shouldRunMindDropPrefill && !rawSentence && (hasAiTags || hasAiTitle || isAiPlaced);
-
-  console.log('[OverlayV2] Prefill detection', {
-    mode,
-    hasAiTags,
-    hasAiTitle,
-    isAiPlaced,
-    isMindDrop,
-    rawSentence,
-    shouldRunMindDropPrefill,
-    shouldSkipAutoPrefill,
-  });
-
-  // AI prefill hook: request suggestions when creating a new item with empty text
-  const {
-    suggestedTitle,
-    suggestedTags: prefillSuggestedTags,
-    refresh: refreshPrefill,
-  } = useOverlayPrefill({
-    mode,
-    getText: getPrefillText,
-    skipAutoRun: shouldSkipAutoPrefill,
-  });
-
-  // Auto-run prefill for Mind Drop entities:
-  // 1. NEW SYSTEM: One-time prefill for items with !views.minddrop_prefilled_v1
-  // 2. LEGACY: Raw sentence titles (backwards compatibility)
-  useEffect(() => {
-    if (mode !== 'edit') return;
-    if (!visible) return;
-
-    // Check if we should run Mind Drop prefill
-    const needsPrefill = shouldRunMindDropPrefill || (isMindDrop && rawSentence);
-    if (!needsPrefill) return;
-
-    if (editAutoPrefillRanRef.current) return;
-    if (!refreshPrefill) return;
-
-    // Wait until the main text/details have been hydrated
-    if (!currentText || !currentText.trim().length) {
-      return;
-    }
-
-    console.log('[OverlayV2] auto prefill for Mind Drop entity on edit open', {
-      type: (initialEntity as any)?.type,
-      isMindDrop,
-      rawSentence,
-      shouldRunMindDropPrefill,
-      textLen: currentText.length,
-    });
-
-    editAutoPrefillRanRef.current = true;
-    setPendingTitleResummarize(true);
-    void refreshPrefill();
-  }, [
-    mode,
-    visible,
-    isMindDrop,
-    rawSentence,
-    shouldRunMindDropPrefill,
-    refreshPrefill,
-    currentText,
-    initialEntity,
-  ]);
-
-  const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>(prefillSuggestedTags ?? []);
-  useEffect(() => {
-    prefillSuggestionsRef.current = prefillSuggestedTags ?? [];
-  }, [prefillSuggestedTags]);
-  const suggestedTitleRef = useRef<string | null>(suggestedTitle ?? null);
-  useEffect(() => {
-    suggestedTitleRef.current = suggestedTitle ?? null;
-  }, [suggestedTitle]);
-
-  // COPILOT TASK: Log suggestedTitle changes for debugging
-  useEffect(() => {
-    console.log('[OverlayV2] suggestedTitle', {
-      mode,
-      suggestedTitle,
-      currentText: currentText?.slice(0, 100) ?? null,
-    });
-  }, [suggestedTitle, mode, currentText]);
+  const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>([]);
+  const suggestedTitleRef = useRef<string | null>(null);
 
   // Track previous title to detect manual edits after an AI suggestion was applied
   const prevTitleRef = useRef<string | null>(null);
-  // Track which suggested tag names were offered
-  useEffect(() => {
-    // Only apply suggestions for fresh creates with an empty text body
-    if (mode !== 'create') return;
-    if (currentText && currentText.trim().length > 0) return;
-    if (suggestedTitle && !state.log.title) {
-      dispatch({ type: 'SET_TITLE', title: suggestedTitle });
-      // remember that the current title equals the suggestion we applied
-      prevTitleRef.current = suggestedTitle;
-    }
-  }, [currentText, dispatch, mode, state.log.title, suggestedTitle]);
-
-  // Detect manual title edits away from an AI suggestion
-  useEffect(() => {
-    const prev = prevTitleRef.current;
-    const cur = state.log.title;
-    if (prev && prev.trim().length > 0 && cur !== prev && suggestedTitle === prev) {
-      // user edited the suggested title -> mark as rejected
-      recordOverlayFeedback({ type: 'title', accepted: false, prev, newValue: cur });
-      // clear prev so we don't repeatedly send
-      prevTitleRef.current = null;
-    }
-  }, [state.log.title, suggestedTitle]);
 
   const tagTombstoneSet = useMemo(() => {
     const set = new Set<string>();
@@ -1238,33 +1125,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const resuggestRequestIdRef = useRef(0);
   const resuggestAppliedIdRef = useRef(0);
 
-  useEffect(() => {
-    if (mode !== 'create') return;
-
-    const normalized = normalizePrefillSuggestions(
-      currentText,
-      prefillSuggestedTags,
-      tagTombstoneSet,
-    );
-
-    setSuggestedTags((prev) => {
-      let next: PrefillSuggestedTag[] = prev;
-
-      if (normalized.length === 0) {
-        if (Array.isArray(prefillSuggestedTags) && prefillSuggestedTags.length === 0) {
-          next = [];
-        }
-      } else {
-        next = mergeSuggestionEntries(prev, normalized);
-      }
-
-      if (areSuggestionListsEqual(prev, next)) {
-        return prev;
-      }
-
-      return next;
-    });
-  }, [currentText, mode, prefillSuggestedTags, tagTombstoneSet]);
+  // Phase 2: Removed prefill suggestion normalization logic - overlay no longer runs AI prefill
 
   const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
     if (suggestedTags.length === 0) return [];
@@ -1307,115 +1168,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [sanitizedTagSuggestions, state.tags, baseType]);
 
   // AI Tag Override for Mind Drop items
-  // NEW SYSTEM: Apply tags on one-time prefill (views.minddrop_prefilled_v1 check)
-  // LEGACY: Also support raw sentence detection for backwards compatibility
+  // Phase 2: Removed Mind Drop tag override logic - overlay no longer runs AI prefill
   const aiTagOverrideAppliedRef = useRef(false);
-  useEffect(() => {
-    // Only apply in edit mode
-    if (mode !== 'edit') return;
-
-    // Only run once per entity
-    if (aiTagOverrideAppliedRef.current) return;
-
-    // Don't override if user has already edited tags
-    if (tagsDirty) return;
-
-    // Only for Mind Drop items that need prefill OR have raw sentences
-    const needsTagOverride = shouldRunMindDropPrefill || (isMindDrop && rawSentence);
-    if (!needsTagOverride) return;
-
-    // Wait for AI tags to be available
-    if (!sanitizedTagSuggestions || sanitizedTagSuggestions.length === 0) return;
-
-    // Check if entity is from catchall origin (Mind Drop)
-    const entity = initialEntity as any;
-    const isCatchall = entity?.origin === 'catchall';
-    const hasUnsortedLabels =
-      Array.isArray(entity?.labels) &&
-      (entity.labels.includes('catchall') || entity.labels.includes('needs_review'));
-
-    if (!isCatchall && !hasUnsortedLabels) return;
-
-    console.log('[OverlayV2] Applying AI tag override for Mind Drop item', {
-      entityId: entity?.id,
-      entityType: entity?.type,
-      baseType,
-      shouldRunMindDropPrefill,
-      rawSentence,
-      oldTags: state.tags,
-      aiTags: sanitizedTagSuggestions.map((t) => t.name),
-    });
-
-    // Get AI tag names
-    const aiTagNames = sanitizedTagSuggestions.map((entry) => entry.name);
-    let finalTags: string[];
-
-    // Determine entity type
-    const isHabit = entity?.type === 'habit' || baseType === 'habit';
-    const isLog =
-      entity?.type === 'note' ||
-      baseType === 'log' ||
-      (entity as any)?.logSubtype === 'journal' ||
-      (entity as any)?.subtype === 'journal';
-
-    if (isLog) {
-      // For logs/journals: merge AI tags, preserve *journal, prioritize emotion tags
-      const beforeMerge = [...state.tags];
-      finalTags = mergeLogTags(state.tags, aiTagNames);
-      console.log('[OverlayV2] Merged log tags', {
-        before: beforeMerge,
-        aiTags: aiTagNames,
-        after: finalTags,
-      });
-    } else if (isHabit) {
-      // For habits: if current tags are only generic (like #doing, #habit),
-      // replace them with filtered AI tags. Otherwise, keep existing tags.
-      const hasOnlyGeneric = hasOnlyGenericHabitTags(state.tags);
-
-      if (hasOnlyGeneric) {
-        // Replace generic tags with AI tags (filtered to single-word, max 2)
-        const beforeReplace = [...state.tags];
-        finalTags = filterHabitTags(aiTagNames);
-        console.log('[OverlayV2] Replaced generic habit tags with AI tags', {
-          before: beforeReplace,
-          aiTags: aiTagNames,
-          after: finalTags,
-          wasGeneric: true,
-        });
-      } else {
-        // Keep existing specific tags (user may have manually added them)
-        finalTags = [...state.tags];
-        console.log('[OverlayV2] Kept existing habit tags (not generic)', {
-          tags: finalTags,
-          aiTags: aiTagNames,
-          wasGeneric: false,
-        });
-      }
-    } else {
-      // For todos and other types: replace with AI tags
-      finalTags = aiTagNames;
-    }
-
-    dispatch({ type: 'SET_TAGS', tags: finalTags });
-
-    // Mark tags as dirty so they get persisted on save
-    // This is different from manual user edits - we DO want to save AI improvements
-    setTagsDirty(true);
-
-    // Mark as applied so we don't re-run
-    aiTagOverrideAppliedRef.current = true;
-  }, [
-    mode,
-    tagsDirty,
-    isMindDrop,
-    rawSentence,
-    shouldRunMindDropPrefill,
-    sanitizedTagSuggestions,
-    initialEntity,
-    baseType,
-    state.tags,
-    dispatch,
-  ]);
 
   // Reset the override flag when the entity changes
   useEffect(() => {
@@ -1593,168 +1347,48 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     void emitOverlayEvent({ type: 'overlay_tag_user_remove', label: canonical, wasAi });
   }, []);
 
-  const handleResuggestTags = useCallback(async () => {
-    if (!refreshPrefill || isResuggestingTags) return;
-    const requestId = resuggestRequestIdRef.current + 1;
-    resuggestRequestIdRef.current = requestId;
-    setIsResuggestingTags(true);
-    void emitOverlayEvent({ type: 'overlay_tags_resuggest' });
-    try {
-      await refreshPrefill();
-      const compute = (source: PrefillSuggestedTag[] | null | undefined) =>
-        normalizePrefillSuggestions(currentText, source, tagTombstoneSet);
-
-      let normalized = compute(prefillSuggestionsRef.current);
-      if (normalized.length === 0 && prefillSuggestedTags?.length) {
-        normalized = compute(prefillSuggestedTags);
-      }
-      if (normalized.length === 0) return;
-
-      setSuggestedTags((prev) => {
-        const next = mergeSuggestionEntries(prev, normalized);
-        if (areSuggestionListsEqual(prev, next)) {
-          return prev;
-        }
-        resuggestAppliedIdRef.current = requestId;
-        return next;
-      });
-    } catch (err) {
-      if (__DEV__) console.error('[UnifiedOverlayV2] re-suggest tags failed', err);
-    } finally {
-      setIsResuggestingTags(false);
-    }
-  }, [refreshPrefill, isResuggestingTags, currentText, tagTombstoneSet, prefillSuggestedTags]);
-
+  // Resummarize handlers for background AI prefill
   const handleResummarizeTitle = useCallback(async () => {
-    if (!refreshPrefill || isResummarizingTitle) return;
+    if (!fullEntity || !currentText || isResummarizingTitle) return;
+
     setIsResummarizingTitle(true);
-    setPendingTitleResummarize(true);
-    void emitOverlayEvent({ type: 'overlay_title_resummarize' });
-    console.log('[OverlayV2] handleResummarizeTitle', { mode });
     try {
-      await refreshPrefill();
-      // Do not read suggestedTitle here; it may not have updated yet.
-    } catch (err) {
-      if (__DEV__) console.error('[UnifiedOverlayV2] re-summarize title failed', err);
-      setPendingTitleResummarize(false);
+      const { title, updated } = await resummarizeTitle(fullEntity, currentText);
+
+      if (updated && title) {
+        // Update local state with new title
+        dispatch({ type: 'SET_TEXT', text: title });
+        console.log('[OverlayV2] Title resummarized', { entityId: fullEntity.id, title });
+      }
+    } catch (error) {
+      console.error('[OverlayV2] Resummarize title failed', error);
     } finally {
       setIsResummarizingTitle(false);
     }
-  }, [refreshPrefill, isResummarizingTitle, mode]);
+  }, [fullEntity, currentText, isResummarizingTitle]);
 
-  // Apply the resummarized title when it becomes available
-  useEffect(() => {
-    if (!pendingTitleResummarize) return;
-    if (!suggestedTitle || !suggestedTitle.trim().length) return;
+  const handleResuggestTags = useCallback(async () => {
+    if (!fullEntity || !currentText || isResuggestingTags) return;
 
-    console.log('[OverlayV2] applyResummarizedTitle', {
-      mode,
-      suggestedTitle,
-      shouldRunMindDropPrefill,
-    });
+    setIsResuggestingTags(true);
+    try {
+      const { tags, updated } = await resummarizeTags(fullEntity, currentText);
 
-    const nextTitle = suggestedTitle.trim();
-
-    // Determine if we should auto-apply the title or just suggest it
-    // Auto-apply when:
-    // 1. Running Mind Drop one-time prefill (new system)
-    // 2. Title is empty
-    // 3. Title equals the raw body text (not user-edited)
-    const entity = fullEntity || initialEntity;
-    const currentTitle = state.todo.title || state.habit.title || state.log.title || '';
-    const rawBody = entity?.body || entity?.details || entity?.notes || '';
-
-    const titleIsEmpty = !currentTitle || currentTitle.trim().length === 0;
-    const titleEqualsBody = currentTitle.trim() === rawBody.trim();
-    const shouldAutoApply = shouldRunMindDropPrefill || titleIsEmpty || titleEqualsBody;
-
-    if (shouldAutoApply) {
-      // Update the main title used when saving (force=true to bypass userEditedTitle guard)
-      // This ensures AI title updates state.todo.title even if user has typed text
-      dispatch({ type: 'SET_TITLE', title: nextTitle, force: true });
-
-      // ALSO update the compactTitle used as overlaySubtitle in the header
-      dispatch({ type: 'SET_COMPACT_TITLE', title: nextTitle });
-
-      prevTitleRef.current = nextTitle;
-    } else {
-      // User has edited title - don't auto-apply, just make it available for "Re-summarize" action
-      console.log('[OverlayV2] Title already edited by user, not auto-applying', {
-        currentTitle,
-        suggestedTitle: nextTitle,
-      });
-      prevTitleRef.current = nextTitle;
-      // The suggested title is still available via suggestedTitle state for manual application
-    }
-
-    // In edit mode, persist the AI title to the backend once so Recent Drops and future opens see it.
-    if (
-      mode === 'edit' &&
-      !aiTitlePersistedRef.current &&
-      (initialEntity as any)?.id &&
-      baseType === 'todo'
-    ) {
-      aiTitlePersistedRef.current = true;
-      const id = (initialEntity as any).id;
-      // Fire-and-forget; don't block the UI.
-      (async () => {
-        try {
-          await repo.update({
-            id,
-            patch: {
-              type: 'todo',
-              // UnifiedOverlayV2 uses name as the canonical title for todos
-              name: nextTitle,
-              title: nextTitle,
-            } as any,
-          });
-        } catch (err) {
-          if (__DEV__) {
-            console.warn('[UnifiedOverlayV2] failed to persist AI title', err);
-          }
-          // Allow a retry on next open
-          aiTitlePersistedRef.current = false;
-        }
-      })();
-    }
-
-    // In edit mode, also refresh suggested tags from the AI prefill
-    if (mode === 'edit') {
-      const normalized = normalizePrefillSuggestions(
-        currentText,
-        prefillSuggestedTags,
-        tagTombstoneSet,
-      );
-
-      if (normalized.length > 0) {
-        setSuggestedTags((prev) => {
-          const next = mergeSuggestionEntries(prev, normalized);
-          if (areSuggestionListsEqual(prev, next)) {
-            return prev;
-          }
-          return next;
+      if (updated && tags.length > 0) {
+        // Set new tags (replaces existing ones)
+        const tagKeys = tags.map((tag) => normalizeToTagKey(tag)).filter(Boolean) as TagKey[];
+        dispatch({ type: 'SET_TAGS', tags: tagKeys });
+        console.log('[OverlayV2] Tags resummarized', {
+          entityId: fullEntity.id,
+          tagsCount: tags.length,
         });
       }
+    } catch (error) {
+      console.error('[OverlayV2] Resummarize tags failed', error);
+    } finally {
+      setIsResuggestingTags(false);
     }
-
-    setPendingTitleResummarize(false);
-  }, [
-    pendingTitleResummarize,
-    suggestedTitle,
-    shouldRunMindDropPrefill,
-    mode,
-    dispatch,
-    currentText,
-    prefillSuggestedTags,
-    tagTombstoneSet,
-    initialEntity,
-    fullEntity,
-    state.todo.title,
-    state.habit.title,
-    state.log.title,
-    baseType,
-    repo,
-  ]);
+  }, [fullEntity, currentText, isResuggestingTags]);
 
   const showDueToast = useCallback((message: string) => {
     setDueToastMessage(message);
@@ -1782,28 +1416,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [dispatch, showDueToast],
   );
 
-  useEffect(() => {
-    if (mode === 'create') return;
-    const requestId = resuggestRequestIdRef.current;
-    if (!requestId) return;
-    if (resuggestAppliedIdRef.current >= requestId) return;
-
-    const normalized = normalizePrefillSuggestions(
-      currentText,
-      prefillSuggestedTags,
-      tagTombstoneSet,
-    );
-    if (normalized.length === 0) return;
-
-    setSuggestedTags((prev) => {
-      const next = mergeSuggestionEntries(prev, normalized);
-      if (areSuggestionListsEqual(prev, next)) {
-        return prev;
-      }
-      resuggestAppliedIdRef.current = requestId;
-      return next;
-    });
-  }, [mode, currentText, prefillSuggestedTags, tagTombstoneSet]);
+  // Phase 2: Removed prefill suggestion normalization effect - overlay no longer runs AI prefill
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
@@ -1829,6 +1442,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     baseType: BaseType,
     s: typeof initialV2State,
     spaceId: string | null,
+    existingEntity?: any,
   ) {
     const textForTags =
       baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
@@ -1866,9 +1480,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     const combinedTags = Array.from(combined.values());
     const tags = stripJournalTags(combinedTags, baseType === 'log');
+
+    // Phase 2: Removed Mind Drop prefill marking logic - overlay no longer runs AI prefill
+
+    // Build views object - preserve existing views from entity
+    const entity = fullEntity || initialEntity;
+    const existingViews = entity?.views || {};
+    const viewsWithPrefillFlag = existingEntity?.views || existingViews;
+
+    // Preserve existing tags_meta when available, only override if tags were modified
+    const existingTagsMeta = existingEntity?.tags_meta ??
+      entity?.tags_meta ?? { sticky: [], tombstones: [] };
     const tagsMeta = {
-      sticky: normalizedStickyMeta,
-      tombstones: normalizedTombstonesMeta,
+      sticky:
+        normalizedStickyMeta.length > 0 ? normalizedStickyMeta : (existingTagsMeta.sticky ?? []),
+      tombstones:
+        normalizedTombstonesMeta.length > 0
+          ? normalizedTombstonesMeta
+          : (existingTagsMeta.tombstones ?? []),
     };
 
     // Conditionally include tags/tags_meta:
@@ -1876,20 +1505,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // - Edit mode: only include if user modified tags (tagsDirty === true)
     // This preserves Mind Drop AI-generated tags when user only edits title/due date
     const shouldIncludeTags = mode !== 'edit' || tagsDirty;
-    const tagsPayload = shouldIncludeTags ? { tags, tags_meta: tagsMeta } : {};
-
-    // NEW Mind Drop Prefill System: Mark views.minddrop_prefilled_v1 = true after first prefill
-    // This prevents re-running prefill on subsequent opens
-    const entity = fullEntity || initialEntity;
-    const isMindDropPrefillNeeded = shouldRunMindDropPrefill && mode === 'edit';
-    const shouldMarkPrefilled =
-      isMindDropPrefillNeeded && (aiTagOverrideAppliedRef.current || pendingTitleResummarize);
-
-    // Build views object with minddrop_prefilled_v1 flag
-    const existingViews = entity?.views || {};
-    const viewsWithPrefillFlag = shouldMarkPrefilled
-      ? { ...existingViews, minddrop_prefilled_v1: true }
-      : existingViews;
+    const tagsPayload = shouldIncludeTags
+      ? { tags, tags_meta: tagsMeta }
+      : { tags_meta: existingTagsMeta };
 
     if (baseType === 'todo') {
       // For Mind Drop edits, use canonical mapper for consistency
@@ -1923,14 +1541,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // For todos: title and details are strictly separate
       // - title should be the explicitly set short label (or empty)
       // - details is the long text field
-      // Do NOT derive title from details (no firstLine fallback)
-      const todoTitle = s.todo.title || '';
+      // Phase 2: Preserve AI-generated titles over raw sentence details
+      const rawDetails = (s.todo.details || '').trim();
+      const overlayTitle = (s.todo.title || '').trim();
+      const compactTitle = (s.compactTitle || '').trim();
+
+      const effectiveTitle = overlayTitle || compactTitle || rawDetails;
+
       const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
       return {
         type: 'todo' as const,
-        title: todoTitle,
-        name: todoTitle,
-        details: s.todo.details || null,
+        title: effectiveTitle,
+        name: effectiveTitle,
+        details: rawDetails || null,
         due_at: dueAt,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
@@ -2075,7 +1698,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setSaveError(null);
     setIsSaving(true);
     try {
-      const input = toCreateOrUpdateInput(baseType, state as any, initialSpaceId ?? null);
+      const input = toCreateOrUpdateInput(
+        baseType,
+        state as any,
+        initialSpaceId ?? null,
+        fullEntity,
+      );
 
       // Development logging for todo saves
       if (__DEV__ && baseType === 'todo') {
@@ -2398,42 +2026,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   >
                     {headerFor(baseType, mode)}
                   </Text>
-                  <Pressable
-                    onPress={handleResummarizeTitle}
-                    disabled={isResummarizingTitle}
-                    accessibilityRole="button"
-                    accessibilityLabel="Re-summarize title"
-                    testID="resummarize-title-action"
-                    style={({ pressed }) => [
-                      {
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: 999,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor:
-                          pressed && !isResummarizingTitle ? 'rgba(0,0,0,0.06)' : 'transparent',
-                      },
-                      isResummarizingTitle ? { opacity: 0.65 } : null,
-                    ]}
-                  >
-                    {isResummarizingTitle ? (
-                      <ActivityIndicator
-                        size="small"
-                        color={typeTabUnderlineColor}
-                        style={{ marginRight: 6 }}
-                      />
-                    ) : null}
-                    <Text
-                      style={{
-                        color: typeTabUnderlineColor,
-                        fontSize: lightTokens.typography.size.xs,
-                        fontWeight: '600',
-                      }}
-                    >
-                      Re-summarize title
-                    </Text>
-                  </Pressable>
+                  {/* Resummarize title button (only in edit mode with existing entity) */}
+                  {mode === 'edit' && fullEntity && currentText ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onPress={handleResummarizeTitle}
+                      disabled={isResummarizingTitle}
+                      title={isResummarizingTitle ? 'Resummarizing...' : '✨ Resummarize'}
+                    />
+                  ) : null}
                 </View>
                 {overlaySubtitle ? (
                   <Text
@@ -2497,7 +2099,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   tags={activeTagChips}
                   suggested={suggestionChips}
                   onToggle={handleTagToggle}
-                  onResuggest={handleResuggestTags}
+                  onResuggest={mode === 'edit' && fullEntity ? handleResuggestTags : undefined}
                   resuggesting={isResuggestingTags}
                   onAdd={handleTagAdd}
                   onUserAdd={handleTelemetryTagAdd}

@@ -844,6 +844,23 @@ export class MemoryRepo implements IRepo {
     // keep -> no action
   }
 
+  async archiveItemsByDropId(dropId: string, archivedReason = 'user_deleted_drop'): Promise<void> {
+    // Archive all items (todos, habits, notes) with the given drop_id
+    this.data.forEach((record) => {
+      if (record.owner_id === this.currentUserId && (record as any).drop_id === dropId) {
+        if (record.type === 'todo') {
+          // Todos use status='archived' and archived_reason
+          (record as any).status = 'archived';
+          (record as any).archived_reason = archivedReason;
+        } else {
+          // Notes and habits use archived=true and archived_reason
+          (record as any).archived = true;
+          (record as any).archived_reason = archivedReason;
+        }
+      }
+    });
+  }
+
   async countActiveCommitments(): Promise<number> {
     return this.data.filter(
       (row) => row.owner_id === this.currentUserId && (row as any).commitment === true,
@@ -947,6 +964,44 @@ export class MemoryRepo implements IRepo {
       ai_placed: true,
       origin: 'catchall',
     });
+  }
+
+  /**
+   * Phase 1: Create unsorted Mind Drop note before AI classification.
+   * Always creates a note with catchall subtype and ai_pending flag.
+   */
+  async createUnsortedDrop(
+    text: string,
+    opts?: {
+      spaceId?: ID | null;
+      dropId?: string | null;
+      sourceMessageId?: string | null;
+    },
+  ): Promise<Note> {
+    const trimmedText = text.trim();
+    const firstLine = trimmedText.split('\n')[0] || 'Untitled';
+
+    const record = await this.create({
+      type: 'note',
+      subtype: 'catchall',
+      title: firstLine,
+      body: trimmedText,
+      labels: ['catchall', 'needs_review'],
+      origin: 'catchall',
+      ai_placed: true,
+      space_id: opts?.spaceId ?? null,
+      dropId: opts?.dropId ?? null,
+      sourceMessageId: opts?.sourceMessageId ?? null,
+      views: {
+        ai_pending: true, // Will be set to false after AI classification completes
+      },
+    });
+
+    if (record.type !== 'note') {
+      throw new Error('Expected note record from createUnsortedDrop');
+    }
+
+    return record;
   }
 
   // ==========================

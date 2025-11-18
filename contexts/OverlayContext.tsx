@@ -33,6 +33,7 @@ interface OverlayState {
   conversionMeta?: ConversionMeta;
   initialText?: string | null;
   entity?: AppRecord; // Full record for edit mode pre-fill
+  views?: Record<string, any>; // Pass-through for ai_title_frozen, ai_tags_frozen, etc.
 }
 
 interface CreateOptions {
@@ -146,6 +147,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       logSubtype = 'everything_else';
     }
 
+    // Extract views from the record to pass through to overlay
+    const safeViews = record.views ?? {};
+
     const newState = {
       visible: true,
       mode: 'edit' as const,
@@ -157,6 +161,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialSpaceId: spaceId,
       initialText: null,
       entity: record, // Store full record for pre-fill
+      views: safeViews, // Pass through views (ai_title_frozen, ai_tags_frozen, etc.)
     };
 
     console.log('[GlobalOverlay] openEdit called with state:', newState);

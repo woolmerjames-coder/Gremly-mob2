@@ -74,6 +74,62 @@ describe('Mind Drop Todo Prefill Logic', () => {
       expect(filtered).toContain('#project');
       expect(filtered).toContain('@alice');
     });
+
+    test('filters common conversational junk tags', () => {
+      const tags = [
+        '#probably',
+        '#been',
+        '#bit',
+        '#down',
+        '#doing',
+        '#actually',
+        '#just',
+        '#really',
+        '#very',
+        '#call',
+        '#mum',
+        '#exercise',
+        '*journal',
+      ];
+
+      const filtered = filterAndNormalizeTags(tags);
+
+      // Junk conversational words should be filtered
+      expect(filtered).not.toContain('#probably');
+      expect(filtered).not.toContain('#been');
+      expect(filtered).not.toContain('#bit');
+      expect(filtered).not.toContain('#down');
+      expect(filtered).not.toContain('#doing');
+      expect(filtered).not.toContain('#actually');
+      expect(filtered).not.toContain('#just');
+      expect(filtered).not.toContain('#really');
+      expect(filtered).not.toContain('#very');
+
+      // Valid content tags should remain
+      expect(filtered).toContain('#call');
+      expect(filtered).toContain('#mum');
+      expect(filtered).toContain('#exercise');
+
+      // Star tags should always be preserved
+      expect(filtered).toContain('*journal');
+    });
+
+    test('filters short tags except whitelisted ones', () => {
+      const tags = ['#it', '#to', '#up', '#at', '#tax', '#gym', '#job'];
+
+      const filtered = filterAndNormalizeTags(tags);
+
+      // Short junk tags should be filtered
+      expect(filtered).not.toContain('#it');
+      expect(filtered).not.toContain('#to');
+      expect(filtered).not.toContain('#up');
+      expect(filtered).not.toContain('#at');
+
+      // Whitelisted short tags should remain
+      expect(filtered).toContain('#tax');
+      expect(filtered).toContain('#gym');
+      expect(filtered).toContain('#job');
+    });
   });
 
   describe('Mind Drop todo prefill behavior (unit tests)', () => {
