@@ -170,6 +170,39 @@ function filterHabitTags(tags: string[]): string[] {
 }
 
 /**
+ * Generic/placeholder tags that AI creates when it can't extract meaningful habits.
+ * These are low-value tags that should be replaced with better AI suggestions.
+ */
+const GENERIC_HABIT_TAGS = new Set([
+  'doing',
+  'habit',
+  'routine',
+  'task',
+  'activity',
+  'action',
+  'daily',
+  'practice',
+]);
+
+/**
+ * Check if a tag list contains ONLY generic/placeholder habit tags.
+ * Returns true if all tags are generic (or empty), meaning we should replace them.
+ */
+function hasOnlyGenericHabitTags(tags: string[]): boolean {
+  if (!tags || tags.length === 0) return true;
+
+  const normalizedTags = tags.map((tag) =>
+    tag
+      .trim()
+      .toLowerCase()
+      .replace(/^[#@*]/, ''),
+  );
+
+  // Check if ALL tags are generic
+  return normalizedTags.every((tag) => GENERIC_HABIT_TAGS.has(tag));
+}
+
+/**
  * Common emotion tags that should be prioritized for journal/log entries.
  * These help users track their emotional state over time.
  */
@@ -1291,13 +1324,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         after: finalTags,
       });
     } else if (isHabit) {
-      // For habits: filter to single-word, concrete activity tags (max 2)
-      const beforeFilter = [...aiTagNames];
-      finalTags = filterHabitTags(aiTagNames);
-      console.log('[OverlayV2] Filtered habit tags', {
-        before: beforeFilter,
-        after: finalTags,
-      });
+      // For habits: if current tags are only generic (like #doing, #habit),
+      // replace them with filtered AI tags. Otherwise, keep existing tags.
+      const hasOnlyGeneric = hasOnlyGenericHabitTags(state.tags);
+
+      if (hasOnlyGeneric) {
+        // Replace generic tags with AI tags (filtered to single-word, max 2)
+        const beforeReplace = [...state.tags];
+        finalTags = filterHabitTags(aiTagNames);
+        console.log('[OverlayV2] Replaced generic habit tags with AI tags', {
+          before: beforeReplace,
+          aiTags: aiTagNames,
+          after: finalTags,
+          wasGeneric: true,
+        });
+      } else {
+        // Keep existing specific tags (user may have manually added them)
+        finalTags = [...state.tags];
+        console.log('[OverlayV2] Kept existing habit tags (not generic)', {
+          tags: finalTags,
+          aiTags: aiTagNames,
+          wasGeneric: false,
+        });
+      }
     } else {
       // For todos and other types: replace with AI tags
       finalTags = aiTagNames;
