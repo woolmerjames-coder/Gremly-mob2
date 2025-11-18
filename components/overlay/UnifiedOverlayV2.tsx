@@ -157,6 +157,120 @@ function filterHabitTags(tags: string[]): string[] {
   return singleWordTags.slice(0, 2);
 }
 
+/**
+ * Common emotion tags that should be prioritized for journal/log entries.
+ * These help users track their emotional state over time.
+ */
+const EMOTION_TAGS = new Set([
+  'anxious',
+  'anxiety',
+  'overwhelmed',
+  'stressed',
+  'stress',
+  'happy',
+  'joy',
+  'joyful',
+  'sad',
+  'sadness',
+  'angry',
+  'anger',
+  'frustrated',
+  'frustration',
+  'excited',
+  'excitement',
+  'nervous',
+  'calm',
+  'peaceful',
+  'grateful',
+  'gratitude',
+  'worried',
+  'worry',
+  'fear',
+  'scared',
+  'content',
+  'hopeful',
+  'hope',
+  'proud',
+  'shame',
+  'guilty',
+  'guilt',
+  'lonely',
+  'loneliness',
+  'confused',
+  'confusion',
+  'relieved',
+  'relief',
+  'bored',
+  'energized',
+  'tired',
+  'exhausted',
+]);
+
+/**
+ * Check if a tag represents an emotion.
+ */
+function isEmotionTag(tag: string): boolean {
+  const normalized = tag.trim().toLowerCase();
+  return EMOTION_TAGS.has(normalized);
+}
+
+/**
+ * Merge AI tags into existing log/journal tags, prioritizing emotion tags.
+ *
+ * For Mind Drop → log conversions, we want to:
+ * 1. Always preserve *journal marker
+ * 2. Keep all emotion tags (anxious, overwhelmed, stressed, etc.)
+ * 3. Add 1-2 context tags from AI suggestions (meeting, walk, etc.)
+ * 4. Keep the tag list short but meaningful
+ *
+ * Example:
+ * Existing: ['*journal', 'anxious', 'better']
+ * AI tags: ['anxiety', 'meeting', 'walk']
+ * Result: ['journal', 'anxious', 'anxiety', 'meeting'] (emotion + top context tag)
+ */
+function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  const addTag = (tag: string) => {
+    const normalized = tag.trim().toLowerCase().replace(/^\*/, '');
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(normalized);
+  };
+
+  // 1. Always preserve journal marker (without the * prefix for storage)
+  const hasJournalMarker = existingTags.some(
+    (t) => t.toLowerCase() === 'journal' || t.toLowerCase() === '*journal',
+  );
+  if (hasJournalMarker) {
+    addTag('journal');
+  }
+
+  // 2. Keep all emotion tags from existing tags
+  existingTags.forEach((tag) => {
+    const cleaned = tag.replace(/^[*#@]/, '').trim();
+    if (isEmotionTag(cleaned)) {
+      addTag(cleaned);
+    }
+  });
+
+  // 3. Add emotion tags from AI suggestions
+  aiTags.forEach((tag) => {
+    if (isEmotionTag(tag)) {
+      addTag(tag);
+    }
+  });
+
+  // 4. Add 1-2 context tags from AI suggestions (non-emotion tags)
+  const contextTags = aiTags.filter((tag) => !isEmotionTag(tag));
+  contextTags.slice(0, 2).forEach((tag) => {
+    addTag(tag);
+  });
+
+  return result;
+}
+
 function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
   if (!type) return null;
   const normalized = String(type).toLowerCase();
@@ -1096,25 +1210,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     console.log('[OverlayV2] Applying AI tag override for Mind Drop narrative item', {
       entityId: entity?.id,
+      entityType: entity?.type,
+      baseType,
       oldTags: state.tags,
       aiTags: sanitizedTagSuggestions.map((t) => t.name),
     });
 
-    // Replace state.tags with AI tags (sanitized and normalized)
-    let aiTagNames = sanitizedTagSuggestions.map((entry) => entry.name);
+    // Get AI tag names
+    const aiTagNames = sanitizedTagSuggestions.map((entry) => entry.name);
+    let finalTags: string[];
 
-    // For habits, filter to single-word, concrete activity tags (max 2)
+    // Determine entity type
     const isHabit = entity?.type === 'habit' || baseType === 'habit';
-    if (isHabit) {
+    const isLog =
+      entity?.type === 'note' ||
+      baseType === 'log' ||
+      (entity as any)?.logSubtype === 'journal' ||
+      (entity as any)?.subtype === 'journal';
+
+    if (isLog) {
+      // For logs/journals: merge AI tags, preserve *journal, prioritize emotion tags
+      const beforeMerge = [...state.tags];
+      finalTags = mergeLogTags(state.tags, aiTagNames);
+      console.log('[OverlayV2] Merged log tags', {
+        before: beforeMerge,
+        aiTags: aiTagNames,
+        after: finalTags,
+      });
+    } else if (isHabit) {
+      // For habits: filter to single-word, concrete activity tags (max 2)
       const beforeFilter = [...aiTagNames];
-      aiTagNames = filterHabitTags(aiTagNames);
+      finalTags = filterHabitTags(aiTagNames);
       console.log('[OverlayV2] Filtered habit tags', {
         before: beforeFilter,
-        after: aiTagNames,
+        after: finalTags,
       });
+    } else {
+      // For todos and other types: replace with AI tags
+      finalTags = aiTagNames;
     }
 
-    dispatch({ type: 'SET_TAGS', tags: aiTagNames });
+    dispatch({ type: 'SET_TAGS', tags: finalTags });
 
     // Mark tags as dirty so they get persisted on save
     // This is different from manual user edits - we DO want to save AI improvements
@@ -1129,6 +1265,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     rawSentence,
     sanitizedTagSuggestions,
     initialEntity,
+    baseType,
     state.tags,
     dispatch,
   ]);
