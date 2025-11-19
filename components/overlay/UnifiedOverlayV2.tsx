@@ -2705,7 +2705,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   justifyContent: 'center',
                   alignItems: 'center',
                   paddingHorizontal: 20,
-                  backgroundColor: 'rgba(0,0,0,0.4)', // Darker overlay background
+                  backgroundColor: 'rgba(0,0,0,0.4)',
                 }}
                 onPress={() => {
                   // Close modal when tapping outside
@@ -2718,13 +2718,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 }}
               >
                 <Pressable
-                  onPress={(e) => e.stopPropagation()} // Prevent closing when tapping inside
+                  onPress={(e) => e.stopPropagation()}
                   style={{
-                    width: '100%',
-                    maxWidth: 380,
+                    width: '90%',
+                    maxWidth: 360,
                     alignSelf: 'center',
                     backgroundColor: '#FFFFFF',
-                    padding: tokenSpacing.lg,
+                    paddingHorizontal: 20,
+                    paddingTop: 24,
+                    paddingBottom: 20,
                     borderRadius: 20,
                     borderWidth: 1,
                     borderColor: '#E0E0E0',
@@ -2732,8 +2734,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     shadowOffset: { width: 0, height: 8 },
                     shadowOpacity: 0.15,
                     shadowRadius: 24,
-                    elevation: 8, // Android shadow
-                    maxHeight: '80%', // Prevent overflow on small screens
+                    elevation: 8,
+                    maxHeight: '80%',
                   }}
                 >
                   <ScrollView showsVerticalScrollIndicator={false}>
@@ -2748,7 +2750,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       Set due date
                     </Text>
                     <Box mt={1}>
-                      <Box row gap={2}>
+                      <Box row gap={2} style={{ flexWrap: 'wrap' }}>
                         <Pressable
                           onPress={() => {
                             const today = new Date();
@@ -2850,7 +2852,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                     {/* Date Picker */}
                     {!clearDateFlag && (
-                      <Box mt={5} style={{ paddingHorizontal: 0 }}>
+                      <Box mt={3} mb={4} style={{ alignSelf: 'stretch' }}>
                         <DateTimePicker
                           value={selectedDate}
                           mode="date"
@@ -2869,7 +2871,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                     {/* Add time toggle */}
                     {!clearDateFlag && (
-                      <Box mt={5}>
+                      <Box mt={3} mb={4}>
                         <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                           <Text
                             style={{
@@ -2907,12 +2909,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                         {/* Preset Time Chips */}
                         {showTimePicker && (
-                          <Box mt={3}>
+                          <Box mt={3} mb={4}>
                             <Box
                               row
                               style={{
                                 flexWrap: 'wrap',
-                                gap: 8,
+                                rowGap: 8,
+                                columnGap: 8,
                               }}
                             >
                               {PRESET_TIMES.map((preset) => (
@@ -2929,9 +2932,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     setSelectedTime(newTime);
                                   }}
                                   style={({ pressed }) => ({
-                                    paddingHorizontal: 16,
+                                    paddingHorizontal: 14,
                                     paddingVertical: 8,
-                                    borderRadius: 999,
+                                    borderRadius: 18,
                                     backgroundColor: pressed
                                       ? '#F5F5F5'
                                       : selectedTimePreset === preset.key
@@ -2943,7 +2946,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   })}
                                 >
                                   <Text
-                                    style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: '500',
+                                      color:
+                                        selectedTimePreset === preset.key ? '#2E5540' : '#222222',
+                                    }}
                                   >
                                     {preset.label}
                                   </Text>
@@ -2956,9 +2964,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setShowCustomTimePicker(true);
                                 }}
                                 style={({ pressed }) => ({
-                                  paddingHorizontal: 16,
+                                  paddingHorizontal: 14,
                                   paddingVertical: 8,
-                                  borderRadius: 999,
+                                  borderRadius: 18,
                                   backgroundColor: pressed
                                     ? '#F5F5F5'
                                     : selectedTimePreset === 'custom'
@@ -2969,7 +2977,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
                                 })}
                               >
-                                <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: '500',
+                                    color: selectedTimePreset === 'custom' ? '#2E5540' : '#222222',
+                                  }}
+                                >
                                   {selectedTimePreset === 'custom'
                                     ? `Custom (${format(selectedTime, 'h:mm a')})`
                                     : 'Custom…'}
@@ -3001,7 +3015,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </ScrollView>
 
                   {/* Action buttons */}
-                  <Box row mt={5} style={{ gap: 12 }}>
+                  <Box row mt={3} style={{ gap: 12 }}>
                     <Button
                       variant="ghost"
                       onPress={() => {
