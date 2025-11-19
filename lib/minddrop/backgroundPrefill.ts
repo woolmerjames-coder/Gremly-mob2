@@ -170,13 +170,9 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
 
             // Tag fallback: Use AI tags if present, otherwise preserve existing tags from source note
             // Apply quality filter to both AI tags and existing tags to drop junk
+            // Phase 4A: When AI tags are empty and existing tags filter to nothing, return []
             const existingTags = applyTagQualityFilter(fullTodo.tags);
-            const effectiveTags =
-              aiTags && aiTags.length > 0
-                ? filterAndNormalizeTags(aiTags)
-                : existingTags.length > 0
-                  ? existingTags
-                  : [];
+            const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
 
             // Apply theme tags based on rawSentence or title
             const text = rawSentence ?? aiTitle ?? fullTodo.body ?? '';
@@ -215,12 +211,8 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
 
           if (!fetchError && fullTodo) {
             const existingTags = applyTagQualityFilter(fullTodo.tags);
-            const effectiveTags =
-              aiTags && aiTags.length > 0
-                ? filterAndNormalizeTags(aiTags)
-                : existingTags.length > 0
-                  ? existingTags
-                  : [];
+            // Phase 4A: When AI tags are empty, return [] (don't fall back to naive existing tags)
+            const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
 
             // Apply theme tags based on rawSentence
             const text = rawSentence ?? '';
@@ -256,12 +248,9 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
 
         if (!fetchHabitError && fullHabit) {
           const existingHabitTags = applyTagQualityFilter(fullHabit.tags);
+          // Phase 4A: When AI tags are empty, return [] (don't fall back to naive existing tags)
           const effectiveHabitTags =
-            aiTags && aiTags.length > 0
-              ? filterAndNormalizeTags(aiTags)
-              : existingHabitTags.length > 0
-                ? existingHabitTags
-                : [];
+            aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
 
           // Apply theme tags based on rawSentence or title
           const text = rawSentence ?? aiTitle ?? '';

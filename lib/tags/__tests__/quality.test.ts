@@ -185,5 +185,84 @@ describe('Tag Quality Filtering', () => {
       expect(output).not.toContain('#should');
       expect(output).not.toContain('#maybe');
     });
+
+    // Phase 4A: Additional test cases for upgraded tag quality
+    describe('Phase 4A: Upgraded Tag Quality', () => {
+      it('rejects common action verbs (start, stop, make, take, give, keep, need, want)', () => {
+        expect(isGoodTokenTag('#start')).toBe(false);
+        expect(isGoodTokenTag('#started')).toBe(false);
+        expect(isGoodTokenTag('#starting')).toBe(false);
+        expect(isGoodTokenTag('#stop')).toBe(false);
+        expect(isGoodTokenTag('#make')).toBe(false);
+        expect(isGoodTokenTag('#take')).toBe(false);
+        expect(isGoodTokenTag('#give')).toBe(false);
+        expect(isGoodTokenTag('#keep')).toBe(false);
+        expect(isGoodTokenTag('#need')).toBe(false);
+        expect(isGoodTokenTag('#want')).toBe(false);
+        expect(isGoodTokenTag('#doing')).toBe(false);
+      });
+
+      it('rejects generic time words (every, always, morning, afternoon, evening, today, tomorrow)', () => {
+        expect(isGoodTokenTag('#every')).toBe(false);
+        expect(isGoodTokenTag('#always')).toBe(false);
+        expect(isGoodTokenTag('#never')).toBe(false);
+        expect(isGoodTokenTag('#morning')).toBe(false);
+        expect(isGoodTokenTag('#afternoon')).toBe(false);
+        expect(isGoodTokenTag('#evening')).toBe(false);
+        expect(isGoodTokenTag('#tonight')).toBe(false);
+        expect(isGoodTokenTag('#today')).toBe(false);
+        expect(isGoodTokenTag('#yesterday')).toBe(false);
+        expect(isGoodTokenTag('#tomorrow')).toBe(false);
+      });
+
+      it('filters "Work stuff has been a lot lately" to only #work', () => {
+        const input = ['#work', '#stuff', '#has', '#been', '#lot', '#lately'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toEqual(['#work']);
+        expect(output.length).toBe(1);
+      });
+
+      it('keeps quality tags from "Email accountant about tax letter"', () => {
+        const input = ['#email', '#accountant', '#about', '#tax', '#letter'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toContain('#email');
+        expect(output).toContain('#accountant');
+        expect(output).toContain('#tax');
+        expect(output).toContain('#letter');
+        expect(output).not.toContain('#about'); // Preposition
+        expect(output.length).toBe(4);
+      });
+
+      it('filters "Start running every morning" to only #running', () => {
+        const input = ['#start', '#running', '#every', '#morning'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toEqual(['#running']);
+        expect(output).not.toContain('#start');
+        expect(output).not.toContain('#every');
+        expect(output).not.toContain('#morning');
+      });
+
+      it('returns empty array when all tags are junk', () => {
+        const input = ['#has', '#been', '#lot', '#stuff', '#lately', '#really', '#very'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toEqual([]);
+      });
+
+      it('preserves theme tags and AI tags while filtering junk', () => {
+        const input = ['#work', '#exercise', '#start', '#every', '#morning', '#running'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toContain('#work'); // Theme tag
+        expect(output).toContain('#exercise'); // Theme tag
+        expect(output).toContain('#running'); // Good quality tag
+        expect(output).not.toContain('#start');
+        expect(output).not.toContain('#every');
+        expect(output).not.toContain('#morning');
+      });
+    });
   });
 });

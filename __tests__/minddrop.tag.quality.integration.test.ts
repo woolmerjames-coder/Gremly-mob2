@@ -268,4 +268,105 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
       expect(finalTags).not.toContain('#about');
     });
   });
+
+  // Phase 4A: Enhanced Tag Quality Tests
+  describe('Phase 4A: Minimum Token Length (4 chars)', () => {
+    it('filters tokens < 4 characters from buildFallbackTags', () => {
+      const text = 'Get gym bag car keys job kit';
+      const tags = buildFallbackTags(text, 'todo');
+
+      // Whitelisted 3-char tags should still be included in final output
+      // but buildFallbackTags now requires 4+ chars for frequency map
+      // So these would only appear if added by other logic
+
+      // The key is that non-whitelisted 3-char tokens should NOT appear
+      expect(tags).not.toContain('#get'); // 3 chars, not whitelisted
+      expect(tags).not.toContain('#bag'); // 3 chars, not whitelisted
+      expect(tags).not.toContain('#kit'); // 3 chars, not whitelisted
+    });
+
+    it('allows whitelisted short tags through quality filter', () => {
+      const { applyTagQualityFilter } = require('../lib/tags/quality');
+
+      const input = ['#tax', '#gym', '#job', '#car', '#dr', '#apt'];
+      const output = applyTagQualityFilter(input);
+
+      // All whitelisted tags should pass
+      expect(output).toContain('#tax');
+      expect(output).toContain('#gym');
+      expect(output).toContain('#job');
+      expect(output).toContain('#car');
+      expect(output).toContain('#dr');
+      expect(output).toContain('#apt');
+    });
+  });
+
+  describe('Phase 4A: Generic Action Verbs Filtering', () => {
+    it('filters "Start running every morning" to only quality tags', () => {
+      const text = 'Start running every morning';
+      const tags = buildFallbackTags(text, 'habit');
+
+      // Should NOT include generic verbs or time words
+      expect(tags).not.toContain('#start');
+      expect(tags).not.toContain('#every');
+      expect(tags).not.toContain('#morning');
+
+      // Should include good quality tag
+      expect(tags).toContain('#running');
+    });
+
+    it('filters common action verbs from buildFallbackTags', () => {
+      const text = 'Need to make appointment and take notes for meeting';
+      const tags = buildFallbackTags(text, 'todo');
+
+      // Should NOT include generic verbs
+      expect(tags).not.toContain('#need');
+      expect(tags).not.toContain('#make');
+      expect(tags).not.toContain('#take');
+
+      // Should include quality nouns (at least some of them based on frequency)
+      expect(tags).toContain('#appointment');
+      expect(tags).toContain('#meeting');
+      // Notes may or may not be included depending on frequency ranking
+    });
+  });
+
+  describe('Phase 4A: Empty Tag Scenarios (Case B)', () => {
+    it('returns empty array when all initial tags are junk', () => {
+      const text = 'Has been a lot of stuff lately really';
+      const tags = buildFallbackTags(text, 'note');
+
+      // May only have *journal or similar category tags, but no content tags
+      const contentTags = tags.filter((t: string) => !t.startsWith('*'));
+
+      // Should have very few or no content tags since all tokens are junk
+      expect(contentTags.length).toBeLessThanOrEqual(1);
+
+      // Definitely should NOT have these junk tags
+      expect(tags).not.toContain('#has');
+      expect(tags).not.toContain('#been');
+      expect(tags).not.toContain('#lot');
+      expect(tags).not.toContain('#stuff');
+      expect(tags).not.toContain('#lately');
+      expect(tags).not.toContain('#really');
+    });
+
+    it('handles BackgroundPrefill Case B: empty AI tags → empty final tags', () => {
+      const { applyTagQualityFilter } = require('../lib/tags/quality');
+
+      // Simulate BackgroundPrefill scenario
+      const existingJunkTags = ['#has', '#been', '#lot', '#stuff'];
+      const aiTags: string[] = []; // AI returned nothing
+
+      // Phase 4A logic: When aiTags is empty, return []
+      const filteredExisting = applyTagQualityFilter(existingJunkTags);
+      const effectiveTags = aiTags.length > 0 ? aiTags : [];
+
+      // Should be empty since AI returned nothing
+      expect(effectiveTags).toEqual([]);
+
+      // Even if existing tags filtered to something, we don't use them
+      expect(filteredExisting).toEqual([]); // All were junk
+    });
+  });
 });

@@ -499,7 +499,8 @@ export function buildFallbackTags(
   const frequencyMap = new Map<string, number>();
   for (const word of words) {
     const lowerWord = word.toLowerCase();
-    if (lowerWord.length < 3) continue;
+    // Phase 4A: Increased minimum token length from 3 to 4 characters
+    if (lowerWord.length < 4) continue;
     if (STOPWORDS.has(lowerWord)) continue;
     if (/^[A-Z]/.test(word) && people.has(`@${word}`)) continue;
     frequencyMap.set(lowerWord, (frequencyMap.get(lowerWord) ?? 0) + 1);
