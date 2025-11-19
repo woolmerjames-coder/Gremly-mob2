@@ -94,6 +94,7 @@ import {
   normalizeTags,
   deriveLogSubtypeFromTags,
 } from '../../lib/tags/normalize';
+import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
@@ -2242,7 +2243,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // Create new unsorted note only if we don't have one yet
             try {
               const narrativeTags = buildFallbackTags(cleanedText, 'note', 'journal');
-              const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
+              // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
+              const qualityFiltered = applyTagQualityFilter(narrativeTags);
+              const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
               const id = await saveToUnsortedTray(repo as any, cleanedText, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Narrative text - awaiting category selection',
@@ -2385,11 +2388,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 ...engineTags,
                 ...classificationTagsRaw,
               ]);
+              // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
+              const qualityFiltered = applyTagQualityFilter(tagsForUnsorted);
 
               const createdId = await saveToUnsortedTray(repo, cleanedText, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Auto-organizing via Mind Drop',
-                tags: tagsForUnsorted,
+                tags: qualityFiltered,
                 dropId,
               });
               unsortedNoteId = createdId ?? null;
@@ -2608,7 +2613,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   classificationTags.length > 0
                     ? classificationTags
                     : buildFallbackTags(cleanedText, 'note', fallbackSubtype);
-                const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
+                // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
+                const qualityFiltered = applyTagQualityFilter(fallbackTags);
+                const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
                 const id = await saveToUnsortedTray(repo as any, cleanedText, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
@@ -2715,7 +2722,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Create new unsorted note only if we don't have one yet
           try {
             const fallbackTags = buildFallbackTags(trimmed, 'note');
-            const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
+            // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
+            const qualityFiltered = applyTagQualityFilter(fallbackTags);
+            const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
 
             const id = await saveToUnsortedTray(repo as any, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
