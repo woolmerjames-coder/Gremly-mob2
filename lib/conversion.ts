@@ -339,7 +339,8 @@ export const convertUnsortedToLog = async (
   noteId: string,
   options: { subtype?: 'journal' | 'idea' | 'list' | 'reference' } = {},
 ): Promise<{ note: Note }> => {
-  const targetSubtype = options.subtype || 'idea';
+  // Default to 'journal' for logs - 'idea' should only be used for explicitly detected ideation drops
+  const targetSubtype = options.subtype || 'journal';
   logConversionStart({ from: 'unsorted', to: 'log', originId: noteId });
 
   try {

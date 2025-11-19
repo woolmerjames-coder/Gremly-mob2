@@ -2936,8 +2936,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               (originalNote as any)?.title ||
               (originalNote as any)?.text ||
               '';
-            const narrative = classifyNarrative(noteText);
-            const subtype = narrative ? 'journal' : 'idea';
+            // Always use 'journal' subtype for logs - never 'idea'
+            // 'idea' is only for explicitly detected ideation drops, not logs
+            const subtype = 'journal';
 
             const { note: convertedLog } = await convertUnsortedToLog(repo, unsortedId, {
               subtype,

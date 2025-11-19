@@ -1639,18 +1639,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const reminderIso = coerceIsoTimestamp(s.reminderAt);
       const datePatch = reminderIso ? { date: reminderIso } : {};
 
-      // For Mind Drop logs confirmed as logs, ensure canonical_type and labels are set
+      // For Mind Drop logs confirmed as logs, ensure canonical_type, labels, and subtype are set
       // This clears catchall/needs_review labels and marks the item as a confirmed log
+      // Logs should use 'journal' subtype by default, never 'idea'
       const logConfirmationPatch = {
         canonical_type: 'log' as const,
         labels: ['log'] as const,
+        subtype: 'journal' as const, // Always use 'journal' for logs, never 'idea'
       };
 
       return {
         type: 'note' as const,
-        subtype: 'catchall' as const,
         ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
-        ...logConfirmationPatch, // Override with confirmed log status
+        ...logConfirmationPatch, // Override with confirmed log status and correct subtype
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -1660,10 +1661,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       };
     }
 
-    // base note payload
+    // base note payload (for non-Mind Drop logs or manual log creation)
+    // Use 'journal' subtype by default for all logs
     const base = {
       type: 'note' as const,
-      subtype: 'catchall' as const,
+      subtype: 'journal' as const, // Default to 'journal' for logs, not 'catchall' or 'idea'
       title: s.log.title || firstLine(s.log.body) || 'Untitled note',
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
