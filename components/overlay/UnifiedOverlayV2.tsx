@@ -2680,14 +2680,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   flex: 1,
                   justifyContent: 'center',
                   paddingHorizontal: tokenSpacing.base * 3,
+                  backgroundColor: 'rgba(0,0,0,0.4)', // Darker overlay background
                 }}
               >
-                <Box bg="bg" style={{ padding: tokenSpacing.md, borderRadius: tokenRadius.sm }}>
-                  <Text variant="title">Set due date</Text>
-                  <Box mt={3}>
+                <Box
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    padding: tokenSpacing.lg,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#E0E0E0',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 8, // Android shadow
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#222222',
+                      marginBottom: 16,
+                    }}
+                  >
+                    Set due date
+                  </Text>
+                  <Box mt={1}>
                     <Box row gap={2}>
-                      <Button
-                        variant="ghost"
+                      <Pressable
                         onPress={() => {
                           const today = new Date();
                           setSelectedDate(today);
@@ -2698,10 +2720,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             setDateModalTarget(null);
                           }
                         }}
-                        title="Today"
-                      />
-                      <Button
-                        variant="ghost"
+                        style={({ pressed }) => ({
+                          paddingHorizontal: 16,
+                          paddingVertical: 8,
+                          borderRadius: 999,
+                          backgroundColor: pressed
+                            ? '#F5F5F5'
+                            : clearDateFlag === false &&
+                                selectedDate.toDateString() === new Date().toDateString()
+                              ? '#F0F4F1'
+                              : '#FAFAFA',
+                          borderWidth: 1,
+                          borderColor:
+                            clearDateFlag === false &&
+                            selectedDate.toDateString() === new Date().toDateString()
+                              ? '#2E5540'
+                              : '#E0E0E0',
+                        })}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                          Today
+                        </Text>
+                      </Pressable>
+                      <Pressable
                         onPress={() => {
                           const tomorrow = addDays(new Date(), 1);
                           setSelectedDate(tomorrow);
@@ -2712,10 +2753,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             setDateModalTarget(null);
                           }
                         }}
-                        title="Tomorrow"
-                      />
-                      <Button
-                        variant="ghost"
+                        style={({ pressed }) => ({
+                          paddingHorizontal: 16,
+                          paddingVertical: 8,
+                          borderRadius: 999,
+                          backgroundColor: pressed
+                            ? '#F5F5F5'
+                            : clearDateFlag === false &&
+                                selectedDate.toDateString() ===
+                                  addDays(new Date(), 1).toDateString()
+                              ? '#F0F4F1'
+                              : '#FAFAFA',
+                          borderWidth: 1,
+                          borderColor:
+                            clearDateFlag === false &&
+                            selectedDate.toDateString() === addDays(new Date(), 1).toDateString()
+                              ? '#2E5540'
+                              : '#E0E0E0',
+                        })}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                          Tomorrow
+                        </Text>
+                      </Pressable>
+                      <Pressable
                         onPress={() => {
                           setClearDateFlag(true);
                           setShowTimePicker(false);
@@ -2725,14 +2786,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             setDateModalTarget(null);
                           }
                         }}
-                        title="Clear"
-                      />
+                        style={({ pressed }) => ({
+                          paddingHorizontal: 16,
+                          paddingVertical: 8,
+                          borderRadius: 999,
+                          backgroundColor: pressed
+                            ? '#F5F5F5'
+                            : clearDateFlag
+                              ? '#F0F4F1'
+                              : '#FAFAFA',
+                          borderWidth: 1,
+                          borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
+                        })}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                          Clear
+                        </Text>
+                      </Pressable>
                     </Box>
                   </Box>
 
                   {/* Date Picker */}
                   {!clearDateFlag && (
-                    <Box mt={3}>
+                    <Box mt={5} style={{ paddingHorizontal: 16 }}>
                       <DateTimePicker
                         value={selectedDate}
                         mode="date"
@@ -2744,15 +2820,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           }
                         }}
                         themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                        accentColor="#2E5540"
                       />
                     </Box>
                   )}
 
                   {/* Add time toggle */}
                   {!clearDateFlag && (
-                    <Box mt={3}>
+                    <Box mt={5}>
                       <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text variant="label">Add time?</Text>
+                        <Text
+                          style={{
+                            fontSize: 15,
+                            fontWeight: '500',
+                            color: '#555555',
+                          }}
+                        >
+                          Add time?
+                        </Text>
                         <Switch
                           value={showTimePicker}
                           onValueChange={(value) => {
@@ -2765,18 +2850,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }
                           }}
                           trackColor={{
-                            false: colorMode === 'dark' ? 'rgba(255,255,255,0.2)' : '#E0E0E0',
-                            true:
-                              colorMode === 'dark'
-                                ? darkTokens.colors.moss
-                                : lightTokens.colors.moss,
+                            false: '#E0E0E0',
+                            true: '#2E5540',
                           }}
+                          thumbColor="#FFFFFF"
                         />
                       </Box>
 
                       {/* Time Picker */}
                       {showTimePicker && (
-                        <Box mt={2}>
+                        <Box mt={3}>
                           <DateTimePicker
                             value={selectedTime}
                             mode="time"
@@ -2787,15 +2870,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               }
                             }}
                             themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                            accentColor="#2E5540"
                           />
                           {/* Display selected time in 12-hour format */}
                           <Box mt={2}>
                             <Text
                               style={{
-                                color:
-                                  colorMode === 'dark'
-                                    ? darkTokens.colors.subtle
-                                    : lightTokens.colors.subtle,
+                                color: '#888888',
                                 fontSize: 14,
                                 textAlign: 'center',
                               }}
@@ -2809,7 +2890,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   )}
 
                   {/* Action buttons */}
-                  <Box row mt={3}>
+                  <Box row mt={5} style={{ gap: 12 }}>
                     <Button
                       variant="ghost"
                       onPress={() => {
