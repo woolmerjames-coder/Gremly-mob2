@@ -98,6 +98,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+import { Pencil, Trash2 } from 'lucide-react-native';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 
 export const THINKING_DURATION = 1200;
@@ -788,10 +789,19 @@ const RecentDrops: React.FC<{
   overlay: GlobalOverlayController;
   onEdited?: () => void;
   onDeleted?: () => void;
+  onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
-}> = ({ overlay, onEdited, onDeleted, refreshSignal, initiallyOpen = true, eagerLoad = false }) => {
+}> = ({
+  overlay,
+  onEdited,
+  onDeleted,
+  onTodayCountChange,
+  refreshSignal,
+  initiallyOpen = true,
+  eagerLoad = false,
+}) => {
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
@@ -986,11 +996,14 @@ const RecentDrops: React.FC<{
       // Combine deduplicated items with no-drop-id items
       unified = [...Array.from(dropIdMap.values()), ...noDropIdItems];
 
+      // Calculate today count before any filtering
+      const todayItems = unified.filter((i) => {
+        const ts = new Date(i.created_at).getTime();
+        return Number.isFinite(ts) && ts >= cutoff; // "Today"
+      });
+
       if (!showOlder) {
-        unified = unified.filter((i) => {
-          const ts = new Date(i.created_at).getTime();
-          return Number.isFinite(ts) && ts >= cutoff; // "Today"
-        });
+        unified = todayItems;
       }
 
       unified = unified
@@ -998,10 +1011,14 @@ const RecentDrops: React.FC<{
         .slice(0, 25); // keep snappy; scroll handles overflow
 
       setItems(unified);
+
+      // Notify parent of today count (for "X thoughts organized today" counter)
+      // This ensures the counter always matches the actual number of items in Today section
+      onTodayCountChange?.(todayItems.length);
     } finally {
       if (!isTest) setLoading(false);
     }
-  }, [repo, showOlder]);
+  }, [repo, showOlder, onTodayCountChange]);
 
   useEffect(() => {
     void load();
@@ -1182,73 +1199,86 @@ const RecentDrops: React.FC<{
                     testID={`minddrop-recent-${item.kind}-${item.id}`}
                     style={styles.recentCard}
                   >
+                    {/* Top row: Title (left) + Due/Time (right) */}
                     <View style={styles.recentTopRow}>
-                      <Text numberOfLines={1} style={styles.recentText}>
+                      <Text numberOfLines={1} style={styles.recentTitle}>
                         {item.title || item.text || '—'}
                       </Text>
-                      <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+
+                      {/* Right side: Due date OR time ago */}
+                      {effectiveKind === 'todo' && item.due_date ? (
+                        <Text
+                          testID={`minddrop-recent-todo-due-${item.id}`}
+                          style={styles.recentDueBadge}
+                        >
+                          {formatDue(item.due_date)}
+                        </Text>
+                      ) : (
+                        <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+                      )}
                     </View>
 
+                    {/* Second row: Category, tags, and actions */}
                     <View style={styles.recentMetaRow}>
-                      <View style={styles.recentBadgeRow}>
-                        <Text style={[styles.recentBadge, styles[badgeStyleKey]]}>
+                      {/* Left side: Category pill + tags */}
+                      <View style={styles.recentMetaLeft}>
+                        {/* Category pill */}
+                        <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
                           {displayKind}
                         </Text>
+
                         {showLegacyUnsortedBadge ? (
-                          <Text style={[styles.recentBadge, styles.badge_unsorted]}>Unsorted</Text>
+                          <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>
+                            Unsorted
+                          </Text>
                         ) : null}
-                        {effectiveKind === 'todo' ? (
+
+                        {/* Tags - single line with truncation */}
+                        {Array.isArray(item.tags) && item.tags.length > 0 ? (
                           <Text
-                            testID={`minddrop-recent-todo-due-${item.id}`}
-                            style={styles.recentDueBadge}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                            style={styles.recentTagsText}
                           >
-                            {formatDue(item.due_date)}
+                            {getDisplayTagsForRecentDrop(item)
+                              .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
+                              .join('  ')}
                           </Text>
                         ) : null}
                       </View>
 
-                      <View style={styles.recentActions}>
-                        {item.kind === 'note' && item.unsorted && !item.optimisticKind ? (
-                          <>
-                            <Pressable
-                              onPress={() => handleAddToTodo(item)}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                            >
-                              <Text style={styles.recentAction}>Add to To-Dos</Text>
-                            </Pressable>
-                            <Text style={styles.recentDot}>•</Text>
-                          </>
-                        ) : null}
+                      {/* Right side: Actions */}
+                      <View style={styles.recentMetaRight}>
                         <Pressable
                           onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
                           hitSlop={8}
                           accessibilityRole="button"
+                          accessibilityLabel="Edit"
                         >
-                          <Text style={styles.recentAction}>Edit</Text>
+                          <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
                         </Pressable>
-                        <Text style={styles.recentDot}>•</Text>
                         <Pressable
                           onPress={() => handleDelete(item.id, item.kind)}
                           hitSlop={8}
                           accessibilityRole="button"
+                          accessibilityLabel="Delete"
                         >
-                          <Text style={styles.recentActionDelete}>Delete</Text>
+                          <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
                         </Pressable>
                       </View>
                     </View>
-                    {/* Show tags for all Mind Drop items (todos, habits, logs) */}
-                    {Array.isArray(item.tags) && item.tags.length > 0 ? (
-                      <View style={styles.recentTagsRow}>
-                        {getDisplayTagsForRecentDrop(item)
-                          .slice(0, 6)
-                          .map((tag) => (
-                            <View key={`${item.id}-${tag}`} style={styles.recentTagPill}>
-                              <Text style={styles.recentTagText}>
-                                {tag.startsWith('@') ? tag : `#${tag}`}
-                              </Text>
-                            </View>
-                          ))}
+
+                    {/* Phase 5b: "Add to To-Dos" button for unsorted notes (if needed) */}
+                    {item.kind === 'note' && item.unsorted && !item.optimisticKind ? (
+                      <View style={styles.recentUnsortedActionRow}>
+                        <Pressable
+                          onPress={() => handleAddToTodo(item)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          style={styles.recentUnsortedAction}
+                        >
+                          <Text style={styles.recentUnsortedActionText}>Add to To-Dos</Text>
+                        </Pressable>
                       </View>
                     ) : null}
                   </View>
@@ -1673,7 +1703,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [organizedToday, setOrganizedToday] = useState<number>(
     typeof testOrganizedTodayOverride === 'number' ? testOrganizedTodayOverride : 0,
   );
-  const trustRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recentRefresh, setRecentRefresh] = useState(0);
   const recentRefreshBatchRef = useRef<number | null>(null);
   const triggerRecentRefresh = useCallback(() => {
@@ -1688,6 +1717,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
+
+  // Callback to sync "X thoughts organized today" counter with actual Today items count
+  const handleTodayCountChange = useCallback(
+    (count: number) => {
+      // Only update if test override is not set
+      if (typeof testOrganizedTodayOverride !== 'number') {
+        setOrganizedToday(count);
+      }
+    },
+    [testOrganizedTodayOverride],
+  );
 
   const isProcessing = isSubmitting || isThinking;
 
@@ -1853,83 +1893,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
-  // Trust Builders: loader for today's organized count
-  const refreshOrganizedToday = useCallback(async () => {
-    if (typeof testOrganizedTodayOverride === 'number') {
-      setOrganizedToday(testOrganizedTodayOverride);
-      return;
-    }
-    try {
-      const since = startOfTodayLocal().toISOString();
-
-      // Attempt to use repo APIs if available; otherwise, fall back to filtering
-      const notes: any[] = (await (repo as any)?.notes?.list?.({ createdAfter: since })) ?? [];
-      const todos: any[] = (await (repo as any)?.todos?.list?.({ createdAfter: since })) ?? [];
-      const habits: any[] = (await (repo as any)?.habits?.list?.({ createdAfter: since })) ?? [];
-
-      // DEDUPLICATION RULE: Count unique drop_ids, not individual records
-      // When an unsorted note is converted to a habit/todo:
-      // - The note is archived but may still be in the query results
-      // - Both the note and the new habit/todo share the same drop_id
-      // - We should count this as 1 thought organized, not 2
-
-      // Filter to Mind Drop items created today
-      const todayNotes = Array.isArray(notes)
-        ? notes.filter(
-            (n) =>
-              new Date(n.created_at) >= new Date(since) &&
-              (n?.origin === 'catchall' ||
-                (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL))) &&
-              n?.archived !== true, // Exclude archived notes (converted items)
-          )
-        : [];
-
-      const todayTodos = Array.isArray(todos)
-        ? todos.filter((t) => new Date(t.created_at) >= new Date(since) && t?.origin === 'catchall')
-        : [];
-
-      const todayHabits = Array.isArray(habits)
-        ? habits.filter(
-            (h) => new Date(h.created_at) >= new Date(since) && h?.origin === 'catchall',
-          )
-        : [];
-
-      // Collect all drop_ids and deduplicate
-      const dropIds = new Set<string>();
-      let itemsWithoutDropId = 0;
-
-      for (const item of [...todayNotes, ...todayTodos, ...todayHabits]) {
-        const dropId = (item as any)?.drop_id;
-        if (dropId && typeof dropId === 'string') {
-          dropIds.add(dropId);
-        } else {
-          // Count items without drop_id (shouldn't happen for Mind Drop, but be safe)
-          itemsWithoutDropId++;
-        }
-      }
-
-      // Total count = unique drop_ids + items without drop_id
-      const count = dropIds.size + itemsWithoutDropId;
-
-      // Only update state if count actually changed to prevent unnecessary re-renders
-      setOrganizedToday((prev) => (prev === count ? prev : count));
-      // Optional debug for tests/dev; avoid error overlay in RN
-      if (__DEV__ && process.env.JEST_WORKAROUND === '1') {
-        // eslint-disable-next-line no-console
-        console.debug('[TrustBuilders] computed count', count, 'unique drops:', dropIds.size);
-      }
-    } catch (e) {
-      // Silent fail — keep last known number
-    }
-  }, [repo, testOrganizedTodayOverride]);
-
+  // When overlay is saved, refresh the Recent Drops list (which will update the counter via callback)
   useEffect(() => {
     const unsub = addOverlaySavedListener(() => {
-      void refreshOrganizedToday?.();
       triggerRecentRefresh();
     });
     return unsub;
-  }, [refreshOrganizedToday, triggerRecentRefresh]);
+  }, [triggerRecentRefresh]);
 
   // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
   const disabled = useMemo(
@@ -2010,28 +1980,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     lastAppliedHeightRef.current = START_HEIGHT;
   }, []);
 
-  // Trust Builders: start timer and initial refresh
+  // Trust Builders: Handle test override for organized today count
   useEffect(() => {
     if (typeof testOrganizedTodayOverride === 'number') {
       setOrganizedToday(testOrganizedTodayOverride);
-      return undefined;
     }
-
-    let mounted = true;
-    (async () => {
-      await refreshOrganizedToday();
-      // Refresh count every 60s, but skip if user is typing to prevent TextInput disruption
-      trustRefreshRef.current = setInterval(() => {
-        if (!inputFocusRef.current) {
-          void refreshOrganizedToday();
-        }
-      }, trustRefreshMs);
-    })();
-    return () => {
-      mounted = false;
-      if (trustRefreshRef.current) clearInterval(trustRefreshRef.current);
-    };
-  }, [refreshOrganizedToday, trustRefreshMs, testOrganizedTodayOverride]);
+    // Counter is now synced via RecentDrops onTodayCountChange callback
+    // No need for periodic refresh since the list updates reactively
+  }, [testOrganizedTodayOverride]);
 
   // Undo last created items (todos/notes/habits)
   const handleUndoCreated = useCallback(async () => {
@@ -3315,7 +3271,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           void e;
         }
         pendingUndo.current = { todos: [], notes: [], habits: [] };
-        await refreshOrganizedToday?.();
+        // Counter will update via RecentDrops onTodayCountChange callback when list refreshes
         triggerRecentRefresh();
         // A11y focus target after clearing input
         focusGreetingForA11y();
@@ -3480,8 +3436,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
         // Nothing created (no Undo set)
         pendingUndo.current = { todos: [], notes: [], habits: [] };
-        // Refresh trust count & recent
-        await refreshOrganizedToday?.();
+        // Refresh recent drops list (counter updates via callback)
         triggerRecentRefresh();
         focusGreetingForA11y();
         return;
@@ -3518,7 +3473,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         details: createdDetails,
       });
 
-      await refreshOrganizedToday?.();
+      // Counter updates via RecentDrops onTodayCountChange callback when list refreshes
       triggerRecentRefresh();
       // A11y focus target after clearing input
       focusGreetingForA11y();
@@ -3535,7 +3490,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     isSubmitting,
     performSave,
     repo,
-    refreshOrganizedToday,
     showActionToast,
     networkIsOnline,
     resetState,
@@ -3571,181 +3525,191 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const statsVisible = organizedToday > 0;
 
     return (
-      <View>
-        <View style={styles.headerContainer}>
-          <View style={styles.headerRow} testID="minddrop-header">
-            <View style={styles.headerLeftGroup}>
-              <Pressable
-                accessibilityLabel="Go back"
-                accessibilityRole="button"
-                onPress={handleBack}
-                hitSlop={12}
-                style={styles.headerBackBtn}
-              >
-                <Text style={styles.headerBackText}>{'<'}</Text>
-              </Pressable>
-              <Text
-                ref={headerTitleRef}
-                style={styles.headerTitle}
-                accessibilityRole="header"
-                numberOfLines={1}
-              >
-                {copy.title}
-              </Text>
-              <Pressable
-                accessibilityLabel="About Mind Drop"
-                accessibilityRole="button"
-                testID="minddrop-info-header"
-                style={styles.headerInfoBtn}
-                onPress={handleInfoOpen}
-                hitSlop={12}
-              >
-                <Icon name="Info" size="sm" color={c.mossGreen} />
-              </Pressable>
-            </View>
-          </View>
-          <Image
-            source={GREMLY_TOP}
-            style={styles.headerMascot}
-            resizeMode="contain"
-            accessibilityIgnoresInvertColors
-          />
-        </View>
-        <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
-          {contextPrompt}
-        </Text>
-        <View style={styles.inputBlock}>
-          <MindDropInput
-            value={note}
-            onChangeText={handleChangeText}
-            placeholder={placeholder}
-            placeholderTextColor="#66706A"
-            containerStyle={styles.inputContainer}
-            focusedStyle={styles.inputContainerFocused}
-            inputStyle={styles.input}
-            focusedInputStyle={styles.inputFocused}
-            onFocusChange={handleInputFocusChange}
-            autoFocus
-            onContentSizeChange={handleInputContentSizeChange}
-            scrollEnabled={inputScrollEnabled}
-            showHud={false}
-            iconContainerStyle={styles.inputIconCluster}
-            iconButtonStyle={styles.inputIconButton}
-            iconMicStyle={styles.inputIconMicButton}
-            iconCameraStyle={styles.inputIconCameraButton}
-            iconWrapperStyle={styles.inputIconWrapper}
-            iconColor={c.mossGreen}
-            heightWrapperStyle={styles.inputHeightWrapper}
-            inputDynHeight={inputDynHeight}
-          />
-        </View>
-        {note.length > 0 ? (
-          <View style={styles.helperRow}>
-            <View style={styles.helperLeft}>
-              <Icon name="Lock" size="xs" color={c.goldenPear} strokeWidth={1.75} />
-              <Text testID="minddrop-privacy" style={styles.helperText} numberOfLines={1}>
-                Private & secure
-              </Text>
-            </View>
-            {note.length >= 1500 ? (
-              <Text
-                testID="minddrop-counter"
-                style={styles.helperCounter}
-              >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
-            ) : null}
-          </View>
-        ) : null}
-        {categoryChips.length > 0 ? (
-          <MidConfidenceChips
-            variant="category"
-            categoryChips={categoryChips}
-            onDirectPick={handleCategoryChipPick}
-            prompt="What would you like to do?"
-            autoDismissMs={CHIPS_AUTO_DISMISS_MS}
-          />
-        ) : null}
-        {timingChips.length > 0 ? (
-          <MidConfidenceChips
-            variant="timing"
-            timingChips={timingChips}
-            onTimingPick={handleTimingSelection}
-            prompt="When do you want to do this?"
-            autoDismissMs={5000}
-          />
-        ) : null}
-        <View
-          style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
-        >
-          <Pressable
-            testID="minddrop-submit-button"
-            onPress={handleSubmit}
-            disabled={disabled}
-            accessibilityRole="button"
-            accessibilityLabel={isProcessing ? 'Organizing' : 'Drop to Gremly'}
-            accessibilityState={{ busy: isProcessing, disabled }}
-            style={styles.submitPressable}
-            onPressIn={handleSubmitPressIn}
-            onPressOut={handleSubmitPressOut}
-          >
-            <Animated.View
-              style={[
-                styles.submitButton,
-                isButtonVisuallyDisabled ? styles.submitButtonDisabled : styles.submitButtonActive,
-                { transform: [{ scale: submitScale }] },
-              ]}
-            >
-              <View style={styles.submitInnerRow}>
-                {isProcessing ? (
-                  <Animated.View
-                    style={[
-                      styles.submitPulse,
-                      reduceMotion ? null : { transform: [{ scale: pulseScale }] },
-                    ]}
-                  />
-                ) : null}
-                <Text
-                  style={[
-                    styles.submitLabel,
-                    isButtonVisuallyDisabled ? styles.submitLabelDisabled : null,
-                  ]}
+      <View style={styles.mainContainer}>
+        {/* Phase 5A: Fixed header/input area - does not scroll */}
+        <View style={styles.fixedTopSection}>
+          <View style={styles.headerContainer}>
+            <View style={styles.headerRow} testID="minddrop-header">
+              <View style={styles.headerLeftGroup}>
+                <Pressable
+                  accessibilityLabel="Go back"
+                  accessibilityRole="button"
+                  onPress={handleBack}
+                  hitSlop={12}
+                  style={styles.headerBackBtn}
                 >
-                  {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
+                  <Text style={styles.headerBackText}>{'<'}</Text>
+                </Pressable>
+                <Text
+                  ref={headerTitleRef}
+                  style={styles.headerTitle}
+                  accessibilityRole="header"
+                  numberOfLines={1}
+                >
+                  {copy.title}
+                </Text>
+                <Pressable
+                  accessibilityLabel="About Mind Drop"
+                  accessibilityRole="button"
+                  testID="minddrop-info-header"
+                  style={styles.headerInfoBtn}
+                  onPress={handleInfoOpen}
+                  hitSlop={12}
+                >
+                  <Icon name="Info" size="sm" color={c.mossGreen} />
+                </Pressable>
+              </View>
+            </View>
+            <Image
+              source={GREMLY_TOP}
+              style={styles.headerMascot}
+              resizeMode="contain"
+              accessibilityIgnoresInvertColors
+            />
+          </View>
+          <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
+            {contextPrompt}
+          </Text>
+          <View style={styles.inputBlock}>
+            <MindDropInput
+              value={note}
+              onChangeText={handleChangeText}
+              placeholder={placeholder}
+              placeholderTextColor="#66706A"
+              containerStyle={styles.inputContainer}
+              focusedStyle={styles.inputContainerFocused}
+              inputStyle={styles.input}
+              focusedInputStyle={styles.inputFocused}
+              onFocusChange={handleInputFocusChange}
+              autoFocus
+              onContentSizeChange={handleInputContentSizeChange}
+              scrollEnabled={inputScrollEnabled}
+              showHud={false}
+              iconContainerStyle={styles.inputIconCluster}
+              iconButtonStyle={styles.inputIconButton}
+              iconMicStyle={styles.inputIconMicButton}
+              iconCameraStyle={styles.inputIconCameraButton}
+              iconWrapperStyle={styles.inputIconWrapper}
+              iconColor={c.mossGreen}
+              heightWrapperStyle={styles.inputHeightWrapper}
+              inputDynHeight={inputDynHeight}
+            />
+          </View>
+          {note.length > 0 ? (
+            <View style={styles.helperRow}>
+              <View style={styles.helperLeft}>
+                <Icon name="Lock" size="xs" color={c.goldenPear} strokeWidth={1.75} />
+                <Text testID="minddrop-privacy" style={styles.helperText} numberOfLines={1}>
+                  Private & secure
                 </Text>
               </View>
-            </Animated.View>
-          </Pressable>
-          <View style={styles.submitMicrocopyContainer} pointerEvents="none">
-            {isProcessing ? (
-              <AnimatedMicrocopyText
+              {note.length >= 1500 ? (
+                <Text
+                  testID="minddrop-counter"
+                  style={styles.helperCounter}
+                >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
+              ) : null}
+            </View>
+          ) : null}
+          {categoryChips.length > 0 ? (
+            <MidConfidenceChips
+              variant="category"
+              categoryChips={categoryChips}
+              onDirectPick={handleCategoryChipPick}
+              prompt="What would you like to do?"
+              autoDismissMs={CHIPS_AUTO_DISMISS_MS}
+            />
+          ) : null}
+          {timingChips.length > 0 ? (
+            <MidConfidenceChips
+              variant="timing"
+              timingChips={timingChips}
+              onTimingPick={handleTimingSelection}
+              prompt="When do you want to do this?"
+              autoDismissMs={5000}
+            />
+          ) : null}
+          <View
+            style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
+          >
+            <Pressable
+              testID="minddrop-submit-button"
+              onPress={handleSubmit}
+              disabled={disabled}
+              accessibilityRole="button"
+              accessibilityLabel={isProcessing ? 'Organizing' : 'Drop to Gremly'}
+              accessibilityState={{ busy: isProcessing, disabled }}
+              style={styles.submitPressable}
+              onPressIn={handleSubmitPressIn}
+              onPressOut={handleSubmitPressOut}
+            >
+              <Animated.View
                 style={[
-                  styles.submitMicrocopy,
-                  reduceMotion ? null : { opacity: microcopyOpacity },
+                  styles.submitButton,
+                  isButtonVisuallyDisabled
+                    ? styles.submitButtonDisabled
+                    : styles.submitButtonActive,
+                  { transform: [{ scale: submitScale }] },
                 ]}
-                accessibilityLiveRegion="polite"
               >
-                {THINKING_MICROCOPY[microcopyIndex]}
-              </AnimatedMicrocopyText>
-            ) : null}
+                <View style={styles.submitInnerRow}>
+                  {isProcessing ? (
+                    <Animated.View
+                      style={[
+                        styles.submitPulse,
+                        reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                      ]}
+                    />
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.submitLabel,
+                      isButtonVisuallyDisabled ? styles.submitLabelDisabled : null,
+                    ]}
+                  >
+                    {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
+                  </Text>
+                </View>
+              </Animated.View>
+            </Pressable>
+            <View style={styles.submitMicrocopyContainer} pointerEvents="none">
+              {isProcessing ? (
+                <AnimatedMicrocopyText
+                  style={[
+                    styles.submitMicrocopy,
+                    reduceMotion ? null : { opacity: microcopyOpacity },
+                  ]}
+                  accessibilityLiveRegion="polite"
+                >
+                  {THINKING_MICROCOPY[microcopyIndex]}
+                </AnimatedMicrocopyText>
+              ) : null}
+            </View>
           </View>
+          {statsVisible ? (
+            <View style={styles.trustRow} testID="minddrop-trust">
+              <Text style={styles.trustStyled} testID="minddrop-trust-text">
+                {organizedToday === 1
+                  ? '1 thought organized today'
+                  : `${organizedToday} thoughts organized today`}
+              </Text>
+            </View>
+          ) : null}
+          <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
         </View>
-        {statsVisible ? (
-          <View style={styles.trustRow} testID="minddrop-trust">
-            <Text style={styles.trustStyled} testID="minddrop-trust-text">
-              {organizedToday === 1
-                ? '1 thought organized today'
-                : `${organizedToday} thoughts organized today`}
-            </Text>
-          </View>
-        ) : null}
-        <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
-        {/* Recent Drops section */}
-        <RecentDropsMemo
-          overlay={overlay}
-          refreshSignal={recentRefresh}
-          onEdited={noopCallback}
-          onDeleted={noopCallback}
-          initiallyOpen={true}
-        />
+        {/* Phase 5A: End fixed section, begin scrollable Recent Drops */}
+
+        {/* Phase 5A: Scrollable Recent Drops section */}
+        <View style={styles.scrollableSection}>
+          <RecentDropsMemo
+            overlay={overlay}
+            refreshSignal={recentRefresh}
+            onEdited={noopCallback}
+            onDeleted={noopCallback}
+            onTodayCountChange={handleTodayCountChange}
+            initiallyOpen={true}
+          />
+        </View>
       </View>
     );
   }, [
@@ -3771,6 +3735,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     organizedToday,
     recentRefresh,
     noopCallback,
+    handleTodayCountChange,
+    overlay,
     inputDynHeight,
     inputScrollEnabled,
     handleBack,
@@ -3846,26 +3812,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Pressable>
       </Modal>
 
+      {/* Phase 5A: Removed outer ScrollView, content now manages its own scroll areas */}
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={insets.top + SPACE * 6}
       >
-        <ScrollView
-          style={styles.contentScroll}
-          contentContainerStyle={[
+        <View
+          style={[
             styles.contentWrapper,
             {
               paddingTop: insets.top + SPACE * 3,
-              paddingBottom: insets.bottom + SPACE * 4,
+              paddingBottom: insets.bottom,
+              paddingHorizontal: SPACE * 2,
             },
           ]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          showsVerticalScrollIndicator={false}
         >
           {content}
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -3882,12 +3846,21 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     keyboardAvoider: {
       flex: 1,
     },
-    contentScroll: {
+    // Phase 5A: Removed contentScroll (no longer using ScrollView)
+    contentWrapper: {
+      flex: 1, // Phase 5A: Changed from flexGrow to flex for proper layout
+    },
+    // Phase 5A: New container for entire Mind Drop UI
+    mainContainer: {
       flex: 1,
     },
-    contentWrapper: {
-      flexGrow: 1,
-      paddingHorizontal: space * 2,
+    // Phase 5A: Fixed section containing header, input, button (non-scrolling)
+    fixedTopSection: {
+      // No flex: this section sizes to its content
+    },
+    // Phase 5A: Scrollable section for Recent Drops only
+    scrollableSection: {
+      flex: 1, // Takes remaining space, enables scrolling
     },
     headerContainer: {
       position: 'relative',
@@ -4216,7 +4189,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       marginTop: 0,
     },
 
-    recentRoot: { marginTop: 0 },
+    // Phase 5A: recentRoot now fills scrollableSection container
+    recentRoot: {
+      marginTop: 0,
+      flex: 1, // Takes full height of scrollableSection
+    },
     recentHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -4268,7 +4245,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Medium',
       textDecorationLine: 'underline',
     },
-    recentList: { marginTop: space },
+    // Phase 5A: recentList now takes remaining vertical space for scrolling
+    recentList: {
+      marginTop: space,
+      flex: 1, // Takes remaining vertical space in scrollableSection
+    },
     recentScrollContent: {
       gap: space,
       paddingBottom: space * 2,
@@ -4276,7 +4257,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentCard: {
       backgroundColor: c.linenCream,
       borderRadius: 4,
-      padding: 12,
+      height: 72,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.sageMist,
       shadowColor: 'rgba(46,85,64,0.08)',
@@ -4284,36 +4267,58 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       shadowRadius: 6,
       shadowOffset: { width: 0, height: 3 },
       elevation: 2,
+      justifyContent: 'space-between',
     },
+    // Top row: Title (left) + Due/Time (right)
     recentTopRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      gap: 12,
+      gap: 8,
     },
-    recentText: {
-      color: c.charcoalInk, // Phase 2: default text color
-      fontSize: 14,
-      lineHeight: 20,
-      fontFamily: 'Inter-Regular',
+    // Title styling - single line, medium weight, truncated
+    recentTitle: {
+      color: c.charcoalInk,
+      fontSize: 15,
+      lineHeight: 21,
+      fontFamily: 'Inter-Medium',
       flex: 1,
-      marginRight: 12,
     },
-    recentBadgeRow: {
+    // Meta row contains category, tags, actions (second row)
+    recentMetaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 8,
+    },
+    // Left side of meta row (category + tags) - single line, no wrap
+    recentMetaLeft: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-    },
-    recentBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: 10,
-      fontSize: 11,
+      gap: 4,
+      flex: 1,
       overflow: 'hidden',
-      color: c.text,
+    },
+    // Right side of meta row (action icons only)
+    recentMetaRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexShrink: 0,
+    },
+    // Category pill (tiny, subtle)
+    recentCategoryPill: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 8,
+      fontSize: 10,
+      overflow: 'hidden',
+      color: c.mutedText,
       backgroundColor: c.sageTint,
       fontFamily: 'Inter-Medium',
+      textTransform: 'capitalize',
     },
+    // Phase 5b: Removed old recentTopRow, recentText, recentBadgeRow, recentBadge styles
     badge_note: {
       backgroundColor: c.sageTint,
     },
@@ -4327,68 +4332,49 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: c.goldenPear,
       color: c.mossGreen,
     },
+    // Due date styling - medium weight, slightly smaller than title (14px)
     recentDueBadge: {
-      fontSize: 11,
-      color: c.mutedText,
+      fontSize: 14,
+      color: c.charcoalInk,
+      fontFamily: 'Inter-Medium',
+      flexShrink: 0,
+    },
+    // Single-line tags with truncation
+    recentTagsText: {
+      color: '#8A9A8C', // Muted gray-green
+      fontSize: 12,
       fontFamily: 'Inter-Regular',
-      fontStyle: 'italic',
+      flex: 1,
     },
-    recentMetaRow: {
-      marginTop: 12,
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
+    // Time ago styling - regular weight, smaller (13px), secondary gray
+    recentTime: {
+      color: c.mutedText,
+      fontSize: 13,
+      fontFamily: 'Inter-Regular',
+      flexShrink: 0,
     },
-    recentTagsRow: {
+    // Phase 5b: "Add to To-Dos" action for unsorted notes
+    recentUnsortedActionRow: {
       marginTop: 8,
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 6,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.sageMist,
     },
-    recentTagPill: {
-      backgroundColor: '#E6F0FF',
-      borderRadius: 12,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
+    recentUnsortedAction: {
+      alignSelf: 'flex-start',
     },
-    recentTagText: {
+    recentUnsortedActionText: {
       color: c.mossGreen,
-      fontSize: 11,
-      fontFamily: 'Inter-Medium',
-    },
-    recentActions: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    recentAction: {
-      color: c.mossGreen, // Phase 2: mossGreen for actions
-      fontSize: 13,
+      fontSize: 12,
       textDecorationLine: 'underline',
       fontFamily: 'Inter-Medium',
-      lineHeight: 18,
     },
-    recentActionDelete: {
-      color: c.danger,
-      fontSize: 13,
-      textDecorationLine: 'underline',
-      fontFamily: 'Inter-Medium',
-      lineHeight: 18,
-    },
-    recentDot: { color: c.mutedText, marginHorizontal: 6 },
     recentEmpty: {
       color: c.mutedText,
       fontSize: 13,
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
       paddingVertical: 10,
-    },
-    recentTime: {
-      color: c.mutedText,
-      fontSize: 12,
-      fontFamily: 'Inter-Regular',
-      fontStyle: 'italic',
-      opacity: 0.6,
     },
   });
 }
