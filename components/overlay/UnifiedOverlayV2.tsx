@@ -2724,9 +2724,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     maxWidth: 360,
                     alignSelf: 'center',
                     backgroundColor: '#FFFFFF',
-                    paddingHorizontal: 20,
-                    paddingTop: 24,
-                    paddingBottom: 20,
+                    paddingHorizontal: 16,
+                    paddingTop: 20,
+                    paddingBottom: 16,
                     borderRadius: 20,
                     borderWidth: 1,
                     borderColor: '#E0E0E0',
@@ -2763,9 +2763,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }
                           }}
                           style={({ pressed }) => ({
-                            paddingHorizontal: 16,
-                            paddingVertical: 8,
-                            borderRadius: 999,
+                            paddingHorizontal: 14,
+                            paddingVertical: 7,
+                            borderRadius: 18,
                             backgroundColor: pressed
                               ? '#F5F5F5'
                               : clearDateFlag === false &&
@@ -2780,7 +2780,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 : '#E0E0E0',
                           })}
                         >
-                          <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
                             Today
                           </Text>
                         </Pressable>
@@ -2796,9 +2796,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }
                           }}
                           style={({ pressed }) => ({
-                            paddingHorizontal: 16,
-                            paddingVertical: 8,
-                            borderRadius: 999,
+                            paddingHorizontal: 14,
+                            paddingVertical: 7,
+                            borderRadius: 18,
                             backgroundColor: pressed
                               ? '#F5F5F5'
                               : clearDateFlag === false &&
@@ -2814,7 +2814,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 : '#E0E0E0',
                           })}
                         >
-                          <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
                             Tomorrow
                           </Text>
                         </Pressable>
@@ -2831,9 +2831,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }
                           }}
                           style={({ pressed }) => ({
-                            paddingHorizontal: 16,
-                            paddingVertical: 8,
-                            borderRadius: 999,
+                            paddingHorizontal: 14,
+                            paddingVertical: 7,
+                            borderRadius: 18,
                             backgroundColor: pressed
                               ? '#F5F5F5'
                               : clearDateFlag
@@ -2843,7 +2843,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
                           })}
                         >
-                          <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
                             Clear
                           </Text>
                         </Pressable>
