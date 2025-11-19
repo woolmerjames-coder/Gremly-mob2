@@ -2338,8 +2338,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         ) : null}
                       </View>
 
-                      {/* Right side: Lock In toggle (for todos & habits) */}
-                      {commitmentsOn ? (
+                      {/* Right side: Lock In toggle (for todos only) */}
+                      {commitmentsOn && baseType === 'todo' ? (
                         <View style={styles.lockInRight}>
                           <Lock
                             size={14}
@@ -2411,32 +2411,80 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 {/* Frequency row for habits */}
                 {baseType === 'habit' ? (
                   <Box mt={3} px={0}>
-                    <Pressable
-                      style={styles.dueDateRow}
-                      onPress={() => {
-                        // Initialize modal state from current habit frequency
-                        const currentFreq = jsonToFrequency(state.habit.frequency_json);
-                        setFrequencyTab(currentFreq.mode);
-                        if (currentFreq.mode === 'days') {
-                          setSelectedDays(currentFreq.days);
-                        } else if (currentFreq.mode === 'custom') {
-                          setCustomCount(String(currentFreq.value.count));
-                          setCustomUnit(currentFreq.value.unit);
-                        }
-                        setShowFrequencyModal(true);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Set frequency"
-                    >
-                      <Calendar
-                        size={16}
-                        color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                        style={styles.dueDateIcon}
-                      />
-                      <Text style={styles.dueDateText}>
-                        {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
-                      </Text>
-                    </Pressable>
+                    {/* Frequency + Lock In row (matching todo structure) */}
+                    <View style={styles.dueAndLockRow}>
+                      {/* Left side: Frequency selector */}
+                      <View style={styles.dueDateLeft}>
+                        <Pressable
+                          style={styles.dueDateRow}
+                          onPress={() => {
+                            // Initialize modal state from current habit frequency
+                            const currentFreq = jsonToFrequency(state.habit.frequency_json);
+                            setFrequencyTab(currentFreq.mode);
+                            if (currentFreq.mode === 'days') {
+                              setSelectedDays(currentFreq.days);
+                            } else if (currentFreq.mode === 'custom') {
+                              setCustomCount(String(currentFreq.value.count));
+                              setCustomUnit(currentFreq.value.unit);
+                            }
+                            setShowFrequencyModal(true);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Set frequency"
+                        >
+                          <Calendar
+                            size={16}
+                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                            style={styles.dueDateIcon}
+                          />
+                          <Text style={styles.dueDateText}>
+                            {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
+                          </Text>
+                        </Pressable>
+                      </View>
+
+                      {/* Right side: Lock In toggle (same as todos) */}
+                      {commitmentsOn ? (
+                        <View style={styles.lockInRight}>
+                          <Lock
+                            size={14}
+                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                            style={styles.lockIcon}
+                          />
+                          <Text style={styles.lockLabel}>Lock In</Text>
+                          <Switch
+                            value={isLockedIn}
+                            onValueChange={async () => {
+                              if (!state.commitment) {
+                                const ok = await canEnableCommitment();
+                                if (!ok) {
+                                  console.log('[Lock In] Limit reached (3)');
+                                  return;
+                                }
+                              }
+                              pushUndoEntry('commitment', {
+                                commitment: state.commitment,
+                                commitmentNote: state.commitmentNote,
+                                commitmentStartedAt: state.commitmentStartedAt,
+                              });
+                              dispatch({ type: 'TOGGLE_COMMITMENT' });
+                              try {
+                                eventBus.emit('OverlayCommitmentToggled', {
+                                  on: !state.commitment,
+                                });
+                              } catch (e) {
+                                // ignore telemetry errors
+                              }
+                            }}
+                            trackColor={{
+                              false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                              true: lightTokens.colors.moss,
+                            }}
+                            thumbColor="#FFFFFF"
+                          />
+                        </View>
+                      ) : null}
+                    </View>
                   </Box>
                 ) : null}
 
@@ -2721,6 +2769,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   style={{
                     width: '92%',
                     maxWidth: 400,
+                    maxHeight: '85%',
                     alignSelf: 'center',
                     backgroundColor: '#FFFFFF',
                     paddingHorizontal: 12,
@@ -2738,6 +2787,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 >
                   <ScrollView
                     showsVerticalScrollIndicator={false}
+                    bounces={true}
                     contentContainerStyle={{
                       paddingBottom: 32,
                       paddingTop: 4,
@@ -3026,71 +3076,71 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         )}
                       </Box>
                     )}
-                  </ScrollView>
 
-                  {/* Action buttons */}
-                  <Box row style={{ gap: 12, marginTop: 12 }}>
-                    <Button
-                      variant="ghost"
-                      onPress={() => {
-                        setShowDateModal(false);
-                        setDateModalTarget(null);
-                        setShowTimePicker(false);
-                        setClearDateFlag(false);
-                        setSelectedTimePreset(null);
-                        setShowCustomTimePicker(false);
-                      }}
-                      title="Cancel"
-                    />
-                    <Box flex={1} />
-                    <Button
-                      variant="primary"
-                      onPress={() => {
-                        try {
-                          let finalIso: string | null = null;
-
-                          if (!clearDateFlag) {
-                            // Combine date and optional time
-                            let finalDate = selectedDate;
-
-                            if (showTimePicker && selectedTime) {
-                              // Merge the selected time into the selected date
-                              finalDate = setHours(
-                                setMinutes(selectedDate, selectedTime.getMinutes()),
-                                selectedTime.getHours(),
-                              );
-                            } else {
-                              // No time selected, use midnight
-                              finalDate = setHours(setMinutes(selectedDate, 0), 0);
-                            }
-
-                            finalIso = finalDate.toISOString();
-                          }
-
-                          // Apply the change
-                          if (dateModalTarget === 'reminder') {
-                            dispatch({ type: 'SET_REMINDER', when: finalIso });
-                          } else {
-                            const label = finalIso
-                              ? safeFormat(finalIso) || format(selectedDate, 'MMM d')
-                              : '';
-                            handleTodoDueChange(finalIso, { label });
-                          }
-
-                          // Reset and close
+                    {/* Action buttons - now inside ScrollView */}
+                    <Box row style={{ gap: 12, marginTop: 12 }}>
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
                           setShowDateModal(false);
                           setDateModalTarget(null);
                           setShowTimePicker(false);
                           setClearDateFlag(false);
                           setSelectedTimePreset(null);
                           setShowCustomTimePicker(false);
-                        } catch (e) {
-                          console.error('[DatePicker] Error setting date:', e);
-                        }
-                      }}
-                      title="Set"
-                    />
-                  </Box>
+                        }}
+                        title="Cancel"
+                      />
+                      <Box flex={1} />
+                      <Button
+                        variant="primary"
+                        onPress={() => {
+                          try {
+                            let finalIso: string | null = null;
+
+                            if (!clearDateFlag) {
+                              // Combine date and optional time
+                              let finalDate = selectedDate;
+
+                              if (showTimePicker && selectedTime) {
+                                // Merge the selected time into the selected date
+                                finalDate = setHours(
+                                  setMinutes(selectedDate, selectedTime.getMinutes()),
+                                  selectedTime.getHours(),
+                                );
+                              } else {
+                                // No time selected, use midnight
+                                finalDate = setHours(setMinutes(selectedDate, 0), 0);
+                              }
+
+                              finalIso = finalDate.toISOString();
+                            }
+
+                            // Apply the change
+                            if (dateModalTarget === 'reminder') {
+                              dispatch({ type: 'SET_REMINDER', when: finalIso });
+                            } else {
+                              const label = finalIso
+                                ? safeFormat(finalIso) || format(selectedDate, 'MMM d')
+                                : '';
+                              handleTodoDueChange(finalIso, { label });
+                            }
+
+                            // Reset and close
+                            setShowDateModal(false);
+                            setDateModalTarget(null);
+                            setShowTimePicker(false);
+                            setClearDateFlag(false);
+                            setSelectedTimePreset(null);
+                            setShowCustomTimePicker(false);
+                          } catch (e) {
+                            console.error('[DatePicker] Error setting date:', e);
+                          }
+                        }}
+                        title="Set"
+                      />
+                    </Box>
+                  </ScrollView>
                 </Pressable>
               </Pressable>
             </Modal>
