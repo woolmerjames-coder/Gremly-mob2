@@ -1,153 +1,219 @@
 /**
- * Theme Tag Enrichment
+ * Theme Tag Enrichment - Phase 4B
  *
- * Adds canonical theme tags (e.g., #exercise, #work, #health) to entities
- * based on pattern matching in the entity's text content.
+ * Adds canonical theme tags (e.g., #exercise, #work, #health, #money) to entities
+ * based on pattern matching in the entity's text content AND existing specific tags.
+ *
+ * Key principles:
+ * - Theme tags are ADDITIVE, not replacements
+ * - Specific tags (#running, #yoga, #bills) are always preserved
+ * - Theme tags provide broader categorization (#exercise, #money)
+ *
+ * Examples:
+ * - "Start running every morning" → #running (specific) + #exercise (theme)
+ * - "Yoga before bed" → #yoga (specific) + #exercise (theme)
+ * - "Pay rent and utilities" → #rent, #utilities (specific) + #money (theme)
  *
  * This is applied as a post-processing step in BackgroundPrefill after
  * AI tag merging and quality filtering.
  */
 
+type ThemeName = 'exercise' | 'work' | 'health' | 'money' | 'relationships' | 'sleep';
+
 type ThemeRule = {
   theme: string; // e.g. "#exercise"
-  patterns: RegExp[]; // any of these matching suggests this theme
+  keywords: string[]; // keywords to match in text OR existing tags
 };
 
 /**
- * Canonical theme tags with their detection patterns.
- * Keep this small and opinionated - only add themes that provide
- * clear value across many use cases.
+ * Canonical theme tags with their detection keywords.
+ * Keywords are matched against both:
+ * 1. The entity's text content (title/body)
+ * 2. Normalized existing tag tokens
+ *
+ * Keep this opinionated - only add themes that provide clear value.
  */
 const THEME_RULES: ThemeRule[] = [
   {
     theme: '#exercise',
-    patterns: [
-      /\brun\b/i,
-      /\brunning\b/i,
-      /\bjog\b/i,
-      /\bjogging\b/i,
-      /\bworkout\b/i,
-      /\bgym\b/i,
-      /\bcardio\b/i,
-      /\byoga\b/i,
-      /\bswim\b/i,
-      /\bswimming\b/i,
-      /\bfitness\b/i,
-      /\btraining\b/i,
-      /\bhiking\b/i,
-      /\bcycling\b/i,
-      /\bbiking\b/i,
+    keywords: [
+      'run',
+      'running',
+      'jog',
+      'jogging',
+      'gym',
+      'workout',
+      'lifting',
+      'weights',
+      'cardio',
+      'yoga',
+      'pilates',
+      'swim',
+      'swimming',
+      'cycle',
+      'cycling',
+      'bike',
+      'biking',
+      'walk',
+      'walking',
+      'hike',
+      'hiking',
+      'sport',
+      'sports',
+      'fitness',
+      'training',
+      'strength',
     ],
   },
   {
     theme: '#work',
-    patterns: [
-      /\bwork\b/i,
-      /\bmeeting\b/i,
-      /\bdeadline\b/i,
-      /\bpresentation\b/i,
-      /\bclient\b/i,
-      /\bboss\b/i,
-      /\bproject\b/i,
-      /\boffice\b/i,
-      /\breport\b/i,
-      /\bconference\b/i,
+    keywords: [
+      'work',
+      'job',
+      'office',
+      'boss',
+      'manager',
+      'meeting',
+      'deadline',
+      'project',
+      'client',
+      'presentation',
+      'report',
+      'conference',
+      'colleague',
+      'career',
     ],
   },
   {
     theme: '#health',
-    patterns: [
-      /\bdoctor\b/i,
-      /\bdentist\b/i,
-      /\btherapy\b/i,
-      /\btherapist\b/i,
-      /\bmeds?\b/i,
-      /\bhealth\b/i,
-      /\bsick\b/i,
-      /\bappointment\b/i,
-      /\bmedical\b/i,
-      /\bcheckup\b/i,
-      /\bhospital\b/i,
-      /\bclinic\b/i,
+    keywords: [
+      'health',
+      'diet',
+      'doctor',
+      'therapy',
+      'therapist',
+      'meds',
+      'medication',
+      'dentist',
+      'sick',
+      'medical',
+      'checkup',
+      'hospital',
+      'clinic',
+      'appointment',
+      'nutrition',
     ],
   },
   {
-    theme: '#finance',
-    patterns: [
-      /\btax\b/i,
-      /\btaxes\b/i,
-      /\bbudget\b/i,
-      /\bmoney\b/i,
-      /\bbank\b/i,
-      /\bpay\b/i,
-      /\bpaying\b/i,
-      /\bbill\b/i,
-      /\bbills\b/i,
-      /\binvoice\b/i,
-      /\baccountant\b/i,
-      /\bfinance\b/i,
-      /\bfinancial\b/i,
+    theme: '#money',
+    keywords: [
+      'money',
+      'debt',
+      'bills',
+      'rent',
+      'salary',
+      'income',
+      'budget',
+      'tax',
+      'taxes',
+      'bank',
+      'payment',
+      'invoice',
+      'accountant',
+      'finance',
+      'financial',
+      'savings',
+      'investment',
+      'mortgage',
+      'utilities',
     ],
   },
   {
-    theme: '#home',
-    patterns: [
-      /\bclean\b/i,
-      /\bcleaning\b/i,
-      /\blaundry\b/i,
-      /\bgrocery\b/i,
-      /\bgroceries\b/i,
-      /\brepair\b/i,
-      /\bmaintenance\b/i,
-      /\bplumber\b/i,
-      /\belectrician\b/i,
-      /\bhousehold\b/i,
+    theme: '#relationships',
+    keywords: [
+      'relationship',
+      'partner',
+      'friend',
+      'friends',
+      'family',
+      'dating',
+      'girlfriend',
+      'boyfriend',
+      'spouse',
+      'marriage',
+      'parents',
+      'children',
+      'kids',
     ],
+  },
+  {
+    theme: '#sleep',
+    keywords: ['sleep', 'insomnia', 'tired', 'bedtime', 'nap', 'rest', 'fatigue'],
   },
 ];
 
 /**
- * Enriches a tag list with canonical theme tags based on text content.
+ * Normalize a tag token for comparison
+ * Strips #, *, @ prefixes and lowercases
+ */
+function normalizeTagToken(tag: string): string {
+  return tag
+    .replace(/^[#*@]/, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Enriches a tag list with canonical theme tags based on text content AND existing tags.
  *
- * @param text - The source text to analyze (title, body, or textPreview)
+ * Phase 4B: This is ADDITIVE - theme tags are added alongside specific tags, never replacing them.
+ *
+ * @param text - The source text to analyze (title, body, or rawSentence)
  * @param tags - Current tags (after quality filtering)
  * @returns Enriched tag list with theme tags added (if applicable)
  *
- * Rules:
- * - Only adds a theme tag if it's not already present (case-insensitive)
- * - Only adds if at least one pattern matches the text
- * - Preserves all existing tags
- * - Returns deduplicated list
+ * Detection logic:
+ * 1. Checks if any keyword matches in the text (case-insensitive substring match)
+ * 2. Checks if any keyword matches in existing tag tokens
+ * 3. If either matches, adds the theme tag (if not already present)
  *
- * Example:
- * applyThemeTags("Start running every morning", ["#running", "#morning"])
- * => ["#running", "#morning", "#exercise"]
+ * Examples:
+ * - applyThemeTags("Start running every morning", ["#running"])
+ *   => ["#running", "#exercise"]
+ * - applyThemeTags("Yoga before bed", ["#yoga"])
+ *   => ["#yoga", "#exercise"]
+ * - applyThemeTags("Pay rent", ["#rent", "#bills"])
+ *   => ["#rent", "#bills", "#money"]
  */
 export function applyThemeTags(text: string, tags: string[]): string[] {
-  if (!text || !text.trim()) {
-    return tags;
+  if (!text && (!tags || tags.length === 0)) {
+    return tags || [];
   }
 
-  const lowerText = text.toLowerCase();
-  const present = new Set(tags);
+  const lowerText = (text || '').toLowerCase();
+  const normalizedExisting = new Set(tags.map((tag) => normalizeTagToken(tag)));
+  const result = [...tags]; // Start with all existing tags
 
   for (const rule of THEME_RULES) {
     // Check if theme already present (case-insensitive)
-    const alreadyPresent = Array.from(present).some(
-      (tag) => tag.replace(/^#/, '').toLowerCase() === rule.theme.replace(/^#/, '').toLowerCase(),
-    );
-    if (alreadyPresent) {
-      continue;
+    const themeToken = normalizeTagToken(rule.theme);
+    if (normalizedExisting.has(themeToken)) {
+      continue; // Theme already present, skip
     }
 
-    // Check if any pattern matches
-    const matches = rule.patterns.some((re) => re.test(lowerText));
-    if (matches) {
-      present.add(rule.theme);
+    // Check if any keyword matches in text OR in existing tags
+    const hitInText = rule.keywords.some((kw) => lowerText.includes(kw.toLowerCase()));
+    const hitInTags = rule.keywords.some((kw) =>
+      Array.from(normalizedExisting).some((tok) => tok.includes(kw.toLowerCase())),
+    );
+
+    if (hitInText || hitInTags) {
+      result.push(rule.theme);
+      normalizedExisting.add(themeToken); // Track to avoid duplicates
     }
   }
 
-  return Array.from(present);
+  return result;
 }
 
 /**

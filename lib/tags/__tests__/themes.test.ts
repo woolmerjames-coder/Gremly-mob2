@@ -91,55 +91,11 @@ describe('applyThemeTags', () => {
     });
   });
 
-  describe('Finance theme', () => {
-    it('adds #finance tag for tax text', () => {
-      const result = applyThemeTags('File taxes before April 15', ['#april']);
-      expect(result).toContain('#finance');
-    });
-
-    it('adds #finance tag for budget text', () => {
-      const result = applyThemeTags('Review monthly budget', []);
-      expect(result).toContain('#finance');
-    });
-
-    it('adds #finance tag for bill text', () => {
-      const result = applyThemeTags('Pay electricity bill', []);
-      expect(result).toContain('#finance');
-    });
-
-    it('adds #finance tag for accountant text', () => {
-      const result = applyThemeTags('Email accountant about invoice', ['#email', '#accountant']);
-      expect(result).toContain('#finance');
-    });
-  });
-
-  describe('Home theme', () => {
-    it('adds #home tag for cleaning text', () => {
-      const result = applyThemeTags('Clean the kitchen', []);
-      expect(result).toContain('#home');
-    });
-
-    it('adds #home tag for grocery text', () => {
-      const result = applyThemeTags('Buy groceries for the week', []);
-      expect(result).toContain('#home');
-    });
-
-    it('adds #home tag for laundry text', () => {
-      const result = applyThemeTags('Do laundry this weekend', ['#weekend']);
-      expect(result).toContain('#home');
-    });
-
-    it('adds #home tag for repair text', () => {
-      const result = applyThemeTags('Need to repair the broken dishwasher', []);
-      expect(result).toContain('#home');
-    });
-  });
-
   describe('Multiple themes', () => {
     it('can add multiple theme tags if multiple patterns match', () => {
-      const result = applyThemeTags('Work from home today, need to clean office', []);
+      const result = applyThemeTags('Work meeting, then gym workout', []);
       expect(result).toContain('#work');
-      expect(result).toContain('#home');
+      expect(result).toContain('#exercise');
     });
 
     it('adds theme tags on top of existing tags', () => {
@@ -177,8 +133,8 @@ describe('applyThemeTags', () => {
     });
 
     it('does not add theme if no patterns match', () => {
-      const result = applyThemeTags('Buy groceries', []);
-      expect(result).toContain('#home'); // groceries matches home theme
+      const result = applyThemeTags('Random unrelated text', []);
+      expect(result).toEqual([]);
     });
 
     it('is case-insensitive for pattern matching', () => {
@@ -201,8 +157,121 @@ describe('applyThemeTags', () => {
       THEME_RULES.forEach((rule) => {
         expect(rule.theme).toBeDefined();
         expect(rule.theme).toMatch(/^#/);
-        expect(Array.isArray(rule.patterns)).toBe(true);
-        expect(rule.patterns.length).toBeGreaterThan(0);
+        expect(Array.isArray(rule.keywords)).toBe(true);
+        expect(rule.keywords.length).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  // Phase 4B: Additive theme tags tests
+  describe('Phase 4B: Additive theme tags', () => {
+    describe('Exercise theme - specific + theme tags', () => {
+      it('adds #exercise alongside #running (not replacing)', () => {
+        const result = applyThemeTags('Start running every morning', ['#running']);
+        expect(result).toContain('#running'); // Specific tag preserved
+        expect(result).toContain('#exercise'); // Theme tag added
+        expect(result.length).toBe(2);
+      });
+
+      it('adds #exercise alongside #yoga', () => {
+        const result = applyThemeTags('Yoga before bed', ['#yoga']);
+        expect(result).toContain('#yoga'); // Specific tag preserved
+        expect(result).toContain('#exercise'); // Theme tag added
+      });
+
+      it('detects exercise from existing tag when no keyword in text', () => {
+        const result = applyThemeTags('Daily routine', ['#swimming']);
+        expect(result).toContain('#swimming'); // Specific tag preserved
+        expect(result).toContain('#exercise'); // Theme detected from #swimming tag
+      });
+
+      it('detects exercise from tag containing keyword substring', () => {
+        const result = applyThemeTags('Morning activity', ['#cycling']);
+        expect(result).toContain('#cycling');
+        expect(result).toContain('#exercise'); // cycling keyword in tag
+      });
+    });
+
+    describe('Money theme - specific + theme tags', () => {
+      it('adds #money alongside specific finance tags', () => {
+        const result = applyThemeTags('Pay rent and utilities', ['#rent', '#utilities']);
+        expect(result).toContain('#rent'); // Specific tags preserved
+        expect(result).toContain('#utilities');
+        expect(result).toContain('#money'); // Theme tag added
+      });
+
+      it('adds #money for bills text', () => {
+        const result = applyThemeTags('Pay monthly bills', ['#bills']);
+        expect(result).toContain('#bills');
+        expect(result).toContain('#money');
+      });
+
+      it('adds #money from tag match even without text keyword', () => {
+        const result = applyThemeTags('Monthly expenses', ['#salary']);
+        expect(result).toContain('#salary');
+        expect(result).toContain('#money'); // salary keyword in tag
+      });
+    });
+
+    describe('Relationships and Sleep themes', () => {
+      it('adds #relationships for partner/family keywords', () => {
+        const result = applyThemeTags('Call mom about family dinner', ['#family']);
+        expect(result).toContain('#family');
+        expect(result).toContain('#relationships');
+      });
+
+      it('adds #sleep for bedtime/insomnia keywords', () => {
+        const result = applyThemeTags('Struggling with insomnia again', ['#insomnia']);
+        expect(result).toContain('#insomnia');
+        expect(result).toContain('#sleep');
+      });
+
+      it('adds #sleep for tired/rest keywords', () => {
+        const result = applyThemeTags('Feeling tired, need rest', []);
+        expect(result).toContain('#sleep');
+      });
+    });
+
+    describe('Preserves specific tags while adding themes', () => {
+      it('never removes specific tags when adding theme', () => {
+        const specific = ['#accountant', '#email', '#invoice', '#deadline'];
+        const result = applyThemeTags('Email accountant about invoice deadline', specific);
+
+        // All specific tags preserved
+        expect(result).toContain('#accountant');
+        expect(result).toContain('#email');
+        expect(result).toContain('#invoice');
+        expect(result).toContain('#deadline');
+
+        // Theme tags added
+        expect(result).toContain('#money'); // accountant, invoice
+        expect(result).toContain('#work'); // deadline
+      });
+
+      it('works with mixed case tags', () => {
+        const result = applyThemeTags('Daily workout routine', ['#Running', '#Yoga']);
+        expect(result).toContain('#Running');
+        expect(result).toContain('#Yoga');
+        expect(result).toContain('#exercise'); // Theme added
+      });
+    });
+
+    describe('Text and tag keyword detection', () => {
+      it('detects theme from text keyword only', () => {
+        const result = applyThemeTags('Need to start running', []);
+        expect(result).toContain('#exercise');
+      });
+
+      it('detects theme from tag keyword only', () => {
+        const result = applyThemeTags('Morning activity', ['#workout']);
+        expect(result).toContain('#workout');
+        expect(result).toContain('#exercise'); // From tag
+      });
+
+      it('detects theme from both text and tag keywords', () => {
+        const result = applyThemeTags('Running and gym', ['#cardio']);
+        expect(result).toContain('#cardio');
+        expect(result).toContain('#exercise'); // From both text and tag
       });
     });
   });

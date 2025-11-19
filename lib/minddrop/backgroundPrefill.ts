@@ -168,12 +168,14 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
               });
             }
 
+            // BackgroundPrefill: starting merge for todo tags
             // Tag fallback: Use AI tags if present, otherwise preserve existing tags from source note
             // Apply quality filter to both AI tags and existing tags to drop junk
             // Phase 4A: When AI tags are empty and existing tags filter to nothing, return []
             const existingTags = applyTagQualityFilter(fullTodo.tags);
             const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
 
+            // Phase 4B: Apply theme tags (additive - preserves specific tags like #running)
             // Apply theme tags based on rawSentence or title
             const text = rawSentence ?? aiTitle ?? fullTodo.body ?? '';
             const withThemeTags = applyThemeTags(text, effectiveTags);
@@ -211,9 +213,11 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
 
           if (!fetchError && fullTodo) {
             const existingTags = applyTagQualityFilter(fullTodo.tags);
+            // BackgroundPrefill: starting merge for todo tags (no AI title branch)
             // Phase 4A: When AI tags are empty, return [] (don't fall back to naive existing tags)
             const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
 
+            // Phase 4B: Apply theme tags (additive)
             // Apply theme tags based on rawSentence
             const text = rawSentence ?? '';
             const withThemeTags = applyThemeTags(text, effectiveTags);
@@ -239,6 +243,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
           updatePayload.name = aiTitle;
         }
 
+        // BackgroundPrefill: starting merge for habit tags
         // Tag fallback for habits: Use AI tags if present, otherwise preserve existing tags from source note
         const { data: fullHabit, error: fetchHabitError } = await supabase
           .from('habits')
@@ -252,6 +257,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
           const effectiveHabitTags =
             aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
 
+          // Phase 4B: Apply theme tags (additive - e.g., #running + #exercise)
           // Apply theme tags based on rawSentence or title
           const text = rawSentence ?? aiTitle ?? '';
           const withThemeTags = applyThemeTags(text, effectiveHabitTags);
@@ -280,22 +286,26 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
         if (aiTitle) {
           updatePayload.title = aiTitle;
         }
+        // BackgroundPrefill: starting merge for log tags
         // For notes/logs: fetch full entity to get subtype, labels, existing tags
         // Then merge AI tags with subtype tag (e.g., #idea, #journal)
         // Also filters out internal markers (*idea, *journal) and low-quality tags
         const { data: fullNote, error: fetchError } = await supabase
           .from('notes')
-          .select('subtype, labels, tags, tags_meta')
+          .select('title, body, subtype, labels, tags, tags_meta')
           .eq('id', entity.id)
           .single();
 
         if (!fetchError && fullNote) {
+          // Phase 4B: Pass text for theme tag detection in logs
+          const text = rawSentence ?? aiTitle ?? fullNote.title ?? fullNote.body ?? '';
           const { tags, tags_meta } = mergeLogSubtypeTag(
             aiTags,
             fullNote.tags,
             fullNote.subtype,
             fullNote.labels,
             fullNote.tags_meta,
+            text,
           );
           updatePayload.tags = tags;
           updatePayload.tags_meta = tags_meta;
