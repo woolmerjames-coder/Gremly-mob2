@@ -264,5 +264,93 @@ describe('Tag Quality Filtering', () => {
         expect(output).not.toContain('#morning');
       });
     });
+
+    // Low-signal emotional/state words filtering
+    describe('Low-signal emotional/state words', () => {
+      it('rejects vague emotional words (feeling, feels, felt, feel)', () => {
+        expect(isGoodTokenTag('#feeling')).toBe(false);
+        expect(isGoodTokenTag('#feels')).toBe(false);
+        expect(isGoodTokenTag('#felt')).toBe(false);
+        expect(isGoodTokenTag('#feel')).toBe(false);
+      });
+
+      it('rejects vague state descriptors (off, good, bad, okay, fine)', () => {
+        expect(isGoodTokenTag('#off')).toBe(false);
+        expect(isGoodTokenTag('#good')).toBe(false);
+        expect(isGoodTokenTag('#bad')).toBe(false);
+        expect(isGoodTokenTag('#okay')).toBe(false);
+        expect(isGoodTokenTag('#fine')).toBe(false);
+        expect(isGoodTokenTag('#better')).toBe(false);
+        expect(isGoodTokenTag('#worse')).toBe(false);
+      });
+
+      it('rejects generic qualitative words (nice, great, terrible, weird, strange)', () => {
+        expect(isGoodTokenTag('#nice')).toBe(false);
+        expect(isGoodTokenTag('#great')).toBe(false);
+        expect(isGoodTokenTag('#terrible')).toBe(false);
+        expect(isGoodTokenTag('#weird')).toBe(false);
+        expect(isGoodTokenTag('#strange')).toBe(false);
+      });
+
+      it('filters "Feeling off" to no content tags', () => {
+        const input = ['#feeling', '#off'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toEqual([]);
+        expect(output).not.toContain('#feeling');
+        expect(output).not.toContain('#off');
+      });
+
+      it('filters "Feeling off" with *journal marker to only keep marker', () => {
+        const input = ['*journal', '#feeling', '#off'];
+        const output = applyTagQualityFilter(input);
+
+        expect(output).toEqual(['*journal']);
+        expect(output).not.toContain('#feeling');
+        expect(output).not.toContain('#off');
+      });
+    });
+
+    // Protected meaningful tags
+    describe('Protected meaningful tags', () => {
+      it('always preserves core life domain tags', () => {
+        expect(isGoodTokenTag('#work')).toBe(true);
+        expect(isGoodTokenTag('#health')).toBe(true);
+        expect(isGoodTokenTag('#money')).toBe(true);
+        expect(isGoodTokenTag('#exercise')).toBe(true);
+        expect(isGoodTokenTag('#sleep')).toBe(true);
+        expect(isGoodTokenTag('#relationships')).toBe(true);
+      });
+
+      it('always preserves log subtype tags', () => {
+        expect(isGoodTokenTag('#journal')).toBe(true);
+        expect(isGoodTokenTag('#idea')).toBe(true);
+        expect(isGoodTokenTag('#list')).toBe(true);
+        expect(isGoodTokenTag('#reflection')).toBe(true);
+        expect(isGoodTokenTag('#insight')).toBe(true);
+      });
+
+      it('always preserves action tags', () => {
+        expect(isGoodTokenTag('#email')).toBe(true);
+        expect(isGoodTokenTag('#call')).toBe(true);
+        expect(isGoodTokenTag('#meeting')).toBe(true);
+        expect(isGoodTokenTag('#deadline')).toBe(true);
+        expect(isGoodTokenTag('#appointment')).toBe(true);
+      });
+
+      it('always preserves exercise type tags', () => {
+        expect(isGoodTokenTag('#running')).toBe(true);
+        expect(isGoodTokenTag('#walking')).toBe(true);
+        expect(isGoodTokenTag('#cycling')).toBe(true);
+        expect(isGoodTokenTag('#swimming')).toBe(true);
+        expect(isGoodTokenTag('#yoga')).toBe(true);
+      });
+
+      it('preserves protected tags even with mixed case', () => {
+        expect(isGoodTokenTag('#Work')).toBe(true);
+        expect(isGoodTokenTag('#HEALTH')).toBe(true);
+        expect(isGoodTokenTag('#Running')).toBe(true);
+      });
+    });
   });
 });

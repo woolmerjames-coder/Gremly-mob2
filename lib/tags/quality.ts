@@ -89,6 +89,25 @@ const LOW_QUALITY_TAGS = new Set([
   'anything',
   'everything',
   'nothing',
+  'more',
+
+  // Low-signal emotional/state words (too vague to be useful tags)
+  'feeling',
+  'feels',
+  'felt',
+  'feel',
+  'off',
+  'good',
+  'bad',
+  'okay',
+  'fine',
+  'better',
+  'worse',
+  'nice',
+  'great',
+  'terrible',
+  'weird',
+  'strange',
 
   // Time words (too generic to be useful as tags)
   'every',
@@ -143,6 +162,83 @@ const LOW_QUALITY_TAGS = new Set([
 const SHORT_TAG_WHITELIST = new Set(['tax', 'gym', 'job', 'car', 'dr', 'apt', 'am', 'pm']);
 
 /**
+ * Protected meaningful tags that should never be filtered
+ * These are core life domains and important categories
+ */
+const PROTECTED_TAGS = new Set([
+  'journal',
+  'idea',
+  'list',
+  'reflection',
+  'insight',
+  'decision',
+  'work',
+  'health',
+  'money',
+  'exercise',
+  'sleep',
+  'relationships',
+  'family',
+  'friends',
+  'finance',
+  'career',
+  'learning',
+  'goals',
+  'habits',
+  'productivity',
+  'home',
+  'travel',
+  'food',
+  'cooking',
+  'reading',
+  'writing',
+  'music',
+  'art',
+  'meditation',
+  'mindfulness',
+  'therapy',
+  'doctor',
+  'appointment',
+  'meeting',
+  'deadline',
+  'project',
+  'email',
+  'call',
+  'phone',
+  'message',
+  'urgent',
+  'important',
+  'running',
+  'walking',
+  'cycling',
+  'swimming',
+  'yoga',
+  'strength',
+  'cardio',
+  'diet',
+  'nutrition',
+  'hydration',
+  'breakfast',
+  'lunch',
+  'dinner',
+  'groceries',
+  'shopping',
+  'cleaning',
+  'laundry',
+  'maintenance',
+  'repair',
+  'bills',
+  'budget',
+  'savings',
+  'investment',
+  'taxes',
+  'insurance',
+  'rent',
+  'mortgage',
+  'utilities',
+]);
+
+/**
  * Check if a tag token is high-quality enough to keep
  *
  * Filters out:
@@ -165,7 +261,10 @@ export function isGoodTokenTag(tag: string): boolean {
   const normalized = tag.replace(/^#/, '').toLowerCase().trim();
   if (!normalized) return false;
 
-  // Explicitly banned tokens
+  // Always keep protected meaningful tags (work, health, running, etc.)
+  if (PROTECTED_TAGS.has(normalized)) return true;
+
+  // Explicitly banned tokens (feeling, off, has, been, etc.)
   if (LOW_QUALITY_TAGS.has(normalized)) return false;
 
   // Short tokens are usually junk, but allow whitelisted ones
