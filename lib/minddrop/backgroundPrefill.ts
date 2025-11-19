@@ -17,6 +17,8 @@ import { supabase } from '../supabase/client';
 import { mergeLogSubtypeTag } from './logSubtypeTags';
 import { filterAndNormalizeTags } from '../tags/normalize';
 import { validateAiTitleForTodo } from './normalizeTodoTitle';
+import { applyTagQualityFilter } from '../tags/quality';
+import { applyThemeTags } from '../tags/themes';
 
 interface PrefillEntity {
   id: string;
@@ -167,7 +169,8 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             }
 
             // Tag fallback: Use AI tags if present, otherwise preserve existing tags from source note
-            const existingTags = Array.isArray(fullTodo.tags) ? fullTodo.tags : [];
+            // Apply quality filter to both AI tags and existing tags to drop junk
+            const existingTags = applyTagQualityFilter(fullTodo.tags);
             const effectiveTags =
               aiTags && aiTags.length > 0
                 ? filterAndNormalizeTags(aiTags)
@@ -175,8 +178,13 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
                   ? existingTags
                   : [];
 
-            if (effectiveTags.length > 0) {
-              updatePayload.tags = effectiveTags;
+            // Apply theme tags based on rawSentence or title
+            const text = rawSentence ?? aiTitle ?? fullTodo.body ?? '';
+            const withThemeTags = applyThemeTags(text, effectiveTags);
+            const finalTags = applyTagQualityFilter(withThemeTags);
+
+            if (finalTags.length > 0) {
+              updatePayload.tags = finalTags;
             }
 
             console.log('[BackgroundPrefill] Tags for todo', {
@@ -184,6 +192,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
               aiTagsCount: aiTags.length,
               existingTagsCount: existingTags.length,
               effectiveTagsCount: effectiveTags.length,
+              finalTagsCount: finalTags.length,
               source: aiTags.length > 0 ? 'ai' : existingTags.length > 0 ? 'fallback' : 'none',
             });
           } else {
@@ -205,7 +214,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             .single();
 
           if (!fetchError && fullTodo) {
-            const existingTags = Array.isArray(fullTodo.tags) ? fullTodo.tags : [];
+            const existingTags = applyTagQualityFilter(fullTodo.tags);
             const effectiveTags =
               aiTags && aiTags.length > 0
                 ? filterAndNormalizeTags(aiTags)
@@ -213,8 +222,13 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
                   ? existingTags
                   : [];
 
-            if (effectiveTags.length > 0) {
-              updatePayload.tags = effectiveTags;
+            // Apply theme tags based on rawSentence
+            const text = rawSentence ?? '';
+            const withThemeTags = applyThemeTags(text, effectiveTags);
+            const finalTags = applyTagQualityFilter(withThemeTags);
+
+            if (finalTags.length > 0) {
+              updatePayload.tags = finalTags;
             }
 
             console.log('[BackgroundPrefill] Tags for todo (no AI title)', {
@@ -241,7 +255,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
           .single();
 
         if (!fetchHabitError && fullHabit) {
-          const existingHabitTags = Array.isArray(fullHabit.tags) ? fullHabit.tags : [];
+          const existingHabitTags = applyTagQualityFilter(fullHabit.tags);
           const effectiveHabitTags =
             aiTags && aiTags.length > 0
               ? filterAndNormalizeTags(aiTags)
@@ -249,8 +263,13 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
                 ? existingHabitTags
                 : [];
 
-          if (effectiveHabitTags.length > 0) {
-            updatePayload.tags = effectiveHabitTags;
+          // Apply theme tags based on rawSentence or title
+          const text = rawSentence ?? aiTitle ?? '';
+          const withThemeTags = applyThemeTags(text, effectiveHabitTags);
+          const finalHabitTags = applyTagQualityFilter(withThemeTags);
+
+          if (finalHabitTags.length > 0) {
+            updatePayload.tags = finalHabitTags;
           }
 
           console.log('[BackgroundPrefill] Tags for habit', {
@@ -258,6 +277,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             aiTagsCount: aiTags.length,
             existingTagsCount: existingHabitTags.length,
             effectiveTagsCount: effectiveHabitTags.length,
+            finalTagsCount: finalHabitTags.length,
             source: aiTags.length > 0 ? 'ai' : existingHabitTags.length > 0 ? 'fallback' : 'none',
           });
         } else if (aiTags && aiTags.length > 0) {

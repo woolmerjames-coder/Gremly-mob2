@@ -1,10 +1,12 @@
 /**
- * Tests for Phase 2D: Overlay Auto-Open Behavior
+ * Tests for Phase 2E: Overlay Auto-Open Behavior
+ *
+ * Phase 2E Update: Mind Drop NEVER auto-opens the overlay
  *
  * Requirements:
  * 1. Logs: Never auto-open overlay after "Just Save It" - only show in Recent Drops
- * 2. Todos: Only auto-open when due_date is missing
- * 3. Habits: Only auto-open when additional parameters needed
+ * 2. Todos: Never auto-open overlay - user opens from Recent Drops/Today if needed
+ * 3. Habits: Never auto-open overlay - user opens from Recent Drops/Today if needed
  * 4. No double-opening from backgroundPrefill or repo updates
  */
 
@@ -78,7 +80,7 @@ const createMockRepo = (): IRepo => {
   } as any;
 };
 
-describe('Phase 2D: Overlay Auto-Open Behavior', () => {
+describe('Phase 2E: Overlay Auto-Open Behavior', () => {
   beforeEach(() => {
     mockOpenEdit.mockClear();
   });
@@ -147,8 +149,9 @@ describe('Phase 2D: Overlay Auto-Open Behavior', () => {
       expect(todo).toBeDefined();
       expect(todo.due_date).toBe('2024-11-22');
 
-      // In real code: overlay should NOT auto-open when due_date is set
-      // The guard checks: if (!hasDueDate) overlay.openEdit()
+      // Phase 2E: overlay should NEVER auto-open from Mind Drop
+      // User opens from Recent Drops or Today if needed
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
 
     it('should create todo without due_date when not parsed', async () => {
@@ -168,8 +171,9 @@ describe('Phase 2D: Overlay Auto-Open Behavior', () => {
       expect(todo).toBeDefined();
       expect(todo.due_date).toBeNull();
 
-      // In real code: overlay SHOULD auto-open when due_date is missing
-      // The guard checks: if (!hasDueDate) overlay.openEdit()
+      // Phase 2E: overlay should NEVER auto-open from Mind Drop (even without due_date)
+      // User opens from Recent Drops or Today if needed
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
 
     it('should preserve full body text in todo details', async () => {
@@ -208,8 +212,9 @@ describe('Phase 2D: Overlay Auto-Open Behavior', () => {
       expect(habit).toBeDefined();
       expect(habit.frequency).toBe('daily');
 
-      // In real code: overlay should NOT auto-open when basic params are set
-      // The guard checks: if (needsMoreInfo) overlay.openEdit()
+      // Phase 2E: overlay should NEVER auto-open from Mind Drop
+      // User opens from Recent Drops or Today if needed
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
 
     it('should create habit with custom frequency (needs more info)', async () => {
@@ -229,8 +234,9 @@ describe('Phase 2D: Overlay Auto-Open Behavior', () => {
       expect(habit).toBeDefined();
       expect(habit.frequency).toBe('custom');
 
-      // In real code: overlay SHOULD auto-open when frequency is custom
-      // The guard checks: if (needsMoreInfo) overlay.openEdit()
+      // Phase 2E: overlay should NEVER auto-open from Mind Drop (even with custom frequency)
+      // User opens from Recent Drops or Today if needed
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
 
     it('should preserve full body text in habit notes', async () => {

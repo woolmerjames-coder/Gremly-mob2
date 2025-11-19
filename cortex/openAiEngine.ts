@@ -1,6 +1,7 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
 import { filterAndNormalizeTags, normalizeTag } from '../lib/tags/normalize';
+import { applyTagQualityFilter } from '../lib/tags/quality';
 import { heuristicEngine } from './heuristicEngine';
 
 interface OpenAiEngineConfig {
@@ -524,11 +525,17 @@ export function buildFallbackTags(
   }
 
   const normalized = filterAndNormalizeTags(tags);
+
+  // Apply tag quality filter to remove low-quality tokens (has, been, lot, lately, etc.)
+  const qualityFiltered = applyTagQualityFilter(normalized);
+
   const typeTagPrecedence = ['*journal', '*idea', '*list', '*meeting'] as const;
-  const chosenTypeTag = typeTagPrecedence.find((tag) => normalized.includes(tag)) ?? null;
+  const chosenTypeTag = typeTagPrecedence.find((tag) => qualityFiltered.includes(tag)) ?? null;
   const filtered = chosenTypeTag
-    ? normalized.filter((tag) => !tag.startsWith('*') || tag === chosenTypeTag)
-    : normalized.filter((tag, index) => normalized.indexOf(tag) === index);
+    ? qualityFiltered.filter((tag: string) => !tag.startsWith('*') || tag === chosenTypeTag)
+    : qualityFiltered.filter(
+        (tag: string, index: number) => qualityFiltered.indexOf(tag) === index,
+      );
 
   return filtered;
 }

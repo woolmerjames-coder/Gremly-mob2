@@ -2897,28 +2897,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
-            // Phase 2D: Only auto-open overlay for todos when due_date is missing
-            // Otherwise save silently and show in Recent Drops
-            const hasDueDate = !!(createdTodo as any).due_date || !!(createdTodo as any).due_at;
-            if (!hasDueDate) {
-              console.log(
-                '[MindDrop][Debug][openOverlay] Auto-opening for todo (missing due_date)',
-                {
-                  todoId: createdTodo.id,
-                },
-              );
-              overlay.openEdit({
-                record: createdTodo,
-              });
-            } else {
-              console.log(
-                '[MindDrop][Debug][openOverlay] Skipping auto-open for todo (has due_date)',
-                {
-                  todoId: createdTodo.id,
-                  hasDueDate,
-                },
-              );
-            }
+            // Phase 2E: Never auto-open overlay from Mind Drop
+            // User can open from Recent Drops or Today if needed
+            console.log(
+              '[MindDrop][Debug][openOverlay] Skipping auto-open for todo (Phase 2E - no auto-open from Mind Drop)',
+              {
+                todoId: createdTodo.id,
+              },
+            );
 
             if (TOASTS_ON) {
               showActionToast({
@@ -2977,33 +2963,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
-            // Phase 2D: Only auto-open overlay for habits when additional parameters are needed
-            // Basic habits with just frequency can save silently
-            const needsMoreInfo =
-              !createdHabit.frequency ||
-              createdHabit.frequency === 'custom' ||
-              !(createdHabit as any).reminders?.length;
-
-            if (needsMoreInfo) {
-              console.log(
-                '[MindDrop][Debug][openOverlay] Auto-opening for habit (needs more info)',
-                {
-                  habitId: createdHabit.id,
-                  frequency: createdHabit.frequency,
-                },
-              );
-              overlay.openEdit({
-                record: createdHabit,
-              });
-            } else {
-              console.log(
-                '[MindDrop][Debug][openOverlay] Skipping auto-open for habit (basic params set)',
-                {
-                  habitId: createdHabit.id,
-                  frequency: createdHabit.frequency,
-                },
-              );
-            }
+            // Phase 2E: Never auto-open overlay from Mind Drop
+            // User can open from Recent Drops or Today if needed
+            console.log(
+              '[MindDrop][Debug][openOverlay] Skipping auto-open for habit (Phase 2E - no auto-open from Mind Drop)',
+              {
+                habitId: createdHabit.id,
+                frequency: createdHabit.frequency,
+              },
+            );
 
             if (TOASTS_ON) {
               showActionToast({

@@ -1,10 +1,12 @@
 /**
  * Tests for Mind Drop auto-overlay behavior after conversions
  *
+ * Phase 2E Update: Mind Drop NEVER auto-opens the overlay
+ *
  * Verifies that:
  * - Logs do NOT auto-open the overlay (just save silently)
- * - Todos DO auto-open the overlay (for immediate editing)
- * - Habits DO auto-open the overlay (for immediate editing)
+ * - Todos do NOT auto-open the overlay (user opens from Recent Drops/Today if needed)
+ * - Habits do NOT auto-open the overlay (user opens from Recent Drops/Today if needed)
  */
 
 import React from 'react';
@@ -163,37 +165,30 @@ describe('CatchAllNotepad - Auto Overlay Behavior', () => {
   });
 
   describe('Todo conversions', () => {
-    it('should auto-open overlay when converting to todo', () => {
-      // Simulate the behavior - in the actual component, after conversion,
-      // overlay.openEdit should be called with the created todo
-      const createdTodo = mockConvertedTodo;
+    it('should NOT auto-open overlay when converting to todo (Phase 2E)', async () => {
+      // Phase 2E: Mind Drop never auto-opens overlay for todos
+      // User can open from Recent Drops or Today if needed
 
-      // This is what should happen in the component
-      mockOpenEdit({
-        record: createdTodo,
-      });
+      // In the actual CatchAllNotepad component, after todo conversion,
+      // overlay.openEdit should NOT be called anymore
 
-      // Verify overlay was opened for todos
-      expect(mockOpenEdit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          record: expect.objectContaining({
-            id: 'todo-123',
-            type: 'todo',
-          }),
-        }),
-      );
+      // Verify that overlay was NOT opened
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
 
-    it('should log when auto-opening for todo', () => {
+    it('should log when skipping auto-open for todo', () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       // The actual implementation would log this
-      console.log('[MindDrop][Debug][openOverlay] Auto-opening for todo', {
-        todoId: 'todo-123',
-      });
+      console.log(
+        '[MindDrop][Debug][openOverlay] Skipping auto-open for todo (Phase 2E - no auto-open from Mind Drop)',
+        {
+          todoId: 'todo-123',
+        },
+      );
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        '[MindDrop][Debug][openOverlay] Auto-opening for todo',
+        '[MindDrop][Debug][openOverlay] Skipping auto-open for todo (Phase 2E - no auto-open from Mind Drop)',
         expect.objectContaining({
           todoId: 'todo-123',
         }),
@@ -204,39 +199,34 @@ describe('CatchAllNotepad - Auto Overlay Behavior', () => {
   });
 
   describe('Habit conversions', () => {
-    it('should auto-open overlay when converting to habit', () => {
-      // Simulate the behavior - in the actual component, after conversion,
-      // overlay.openEdit should be called with the created habit
-      const createdHabit = mockConvertedHabit;
+    it('should NOT auto-open overlay when converting to habit (Phase 2E)', async () => {
+      // Phase 2E: Mind Drop never auto-opens overlay for habits
+      // User can open from Recent Drops or Today if needed
 
-      // This is what should happen in the component
-      mockOpenEdit({
-        record: createdHabit,
-      });
+      // In the actual CatchAllNotepad component, after habit conversion,
+      // overlay.openEdit should NOT be called anymore
 
-      // Verify overlay was opened for habits
-      expect(mockOpenEdit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          record: expect.objectContaining({
-            id: 'habit-123',
-            type: 'habit',
-          }),
-        }),
-      );
+      // Verify that overlay was NOT opened
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
 
-    it('should log when auto-opening for habit', () => {
+    it('should log when skipping auto-open for habit', () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       // The actual implementation would log this
-      console.log('[MindDrop][Debug][openOverlay] Auto-opening for habit', {
-        habitId: 'habit-123',
-      });
+      console.log(
+        '[MindDrop][Debug][openOverlay] Skipping auto-open for habit (Phase 2E - no auto-open from Mind Drop)',
+        {
+          habitId: 'habit-123',
+          frequency: 'daily',
+        },
+      );
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        '[MindDrop][Debug][openOverlay] Auto-opening for habit',
+        '[MindDrop][Debug][openOverlay] Skipping auto-open for habit (Phase 2E - no auto-open from Mind Drop)',
         expect.objectContaining({
           habitId: 'habit-123',
+          frequency: 'daily',
         }),
       );
 
@@ -245,25 +235,27 @@ describe('CatchAllNotepad - Auto Overlay Behavior', () => {
   });
 
   describe('Helper function behavior', () => {
-    it('shouldAutoOpenOverlayForEntity returns true for todos', () => {
+    it('shouldAutoOpenOverlayForEntity returns false for todos (Phase 2E)', () => {
+      // Phase 2E: Mind Drop never auto-opens overlay for any entity type
       const shouldAutoOpenOverlayForEntity = (entity: { type: string }) => {
-        return entity.type === 'todo' || entity.type === 'habit';
+        return false; // Never auto-open from Mind Drop
       };
 
-      expect(shouldAutoOpenOverlayForEntity({ type: 'todo' })).toBe(true);
+      expect(shouldAutoOpenOverlayForEntity({ type: 'todo' })).toBe(false);
     });
 
-    it('shouldAutoOpenOverlayForEntity returns true for habits', () => {
+    it('shouldAutoOpenOverlayForEntity returns false for habits (Phase 2E)', () => {
+      // Phase 2E: Mind Drop never auto-opens overlay for any entity type
       const shouldAutoOpenOverlayForEntity = (entity: { type: string }) => {
-        return entity.type === 'todo' || entity.type === 'habit';
+        return false; // Never auto-open from Mind Drop
       };
 
-      expect(shouldAutoOpenOverlayForEntity({ type: 'habit' })).toBe(true);
+      expect(shouldAutoOpenOverlayForEntity({ type: 'habit' })).toBe(false);
     });
 
     it('shouldAutoOpenOverlayForEntity returns false for notes/logs', () => {
       const shouldAutoOpenOverlayForEntity = (entity: { type: string }) => {
-        return entity.type === 'todo' || entity.type === 'habit';
+        return false; // Never auto-open from Mind Drop
       };
 
       expect(shouldAutoOpenOverlayForEntity({ type: 'note' })).toBe(false);

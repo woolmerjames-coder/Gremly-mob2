@@ -9,6 +9,7 @@
  */
 
 import { filterAndNormalizeTags } from '../tags/normalize';
+import { applyTagQualityFilter } from '../tags/quality';
 
 export interface TagsMeta {
   sticky: string[];
@@ -55,7 +56,12 @@ export function mergeLogSubtypeTag(
   const isLog =
     (labels ?? []).includes('log') || (subtype && LOG_SUBTYPE_TAGS[subtype] !== undefined);
 
-  const merged = [...(aiTags ?? []), ...(existingTags ?? [])];
+  // Apply quality filter to existing tags BEFORE merging
+  // This drops junk tags like #has, #lately that may have been stored initially
+  const cleanedExistingTags = applyTagQualityFilter(existingTags);
+  const cleanedAiTags = applyTagQualityFilter(aiTags);
+
+  const merged = [...cleanedAiTags, ...cleanedExistingTags];
 
   // Drop internal markers like *idea / *journal completely
   const withoutInternalMarkers = merged.filter((raw) => raw && !raw.startsWith('*'));
