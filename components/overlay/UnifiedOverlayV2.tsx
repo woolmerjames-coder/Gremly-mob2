@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   TextInput,
   StyleSheet,
   UIManager,
@@ -24,6 +25,7 @@ import Reanimated, {
   withSequence,
   interpolate,
 } from 'react-native-reanimated';
+import { X as CloseIcon, Calendar, Pencil, RotateCw, Lock } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
 import * as Haptics from 'expo-haptics';
@@ -683,6 +685,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const createPrefillAppliedRef = useRef(false);
   const editAutoPrefillRanRef = useRef(false);
   const aiTitlePersistedRef = useRef(false);
+  const textInputRef = useRef<TextInput | null>(null);
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
   const currentTagsRef = useRef<TagKey[]>(state.tags);
@@ -1373,6 +1376,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     void emitOverlayEvent({ type: 'overlay_tag_user_remove', label: canonical, wasAi });
   }, []);
 
+  // Handler for edit icon - focuses the main text input
+  const handleEditTitle = useCallback(() => {
+    textInputRef.current?.focus();
+  }, []);
+
   // Resummarize handlers for background AI prefill
   const handleResummarizeTitle = useCallback(async () => {
     if (!fullEntity || !currentText || isResummarizingTitle) return;
@@ -1446,8 +1454,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
-  const sheetBackground =
-    colorMode === 'dark' ? darkTokens.colors.linen : lightTokens.colors.linenCream;
+  // Phase 6a: Overlay surface background - light mode should be pure white for a clean sheet look
+  const sheetBackground = colorMode === 'dark' ? darkTokens.colors.linen : '#FFFFFF';
   const sheetBorderColor = colorMode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
   const handleColor = colorMode === 'dark' ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.16)';
   const typeTabActiveColor =
@@ -1456,11 +1464,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
   const typeTabUnderlineColor =
     colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss;
+
+  // Type-specific accent colors for subtle underline
+  const getTypeAccentColor = (type: BaseType): string => {
+    if (colorMode === 'dark') {
+      // Darker mode uses subtle variations
+      return type === 'todo'
+        ? 'rgba(174, 184, 255, 0.5)' // periwinkle hint
+        : type === 'habit'
+          ? 'rgba(191, 216, 192, 0.5)' // sage hint
+          : 'rgba(255,255,255,0.2)'; // neutral gray
+    }
+    // Light mode: soft, subtle accent colors
+    return type === 'todo'
+      ? '#C5D0FF' // soft periwinkle/blue
+      : type === 'habit'
+        ? '#C8E6C9' // soft sage/green
+        : '#E0E0E0'; // soft gray for log
+  };
+
   const headerPulseColor =
     colorMode === 'dark' ? 'rgba(94, 160, 138, 0.35)' : 'rgba(46, 125, 106, 0.18)';
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   const overlaySubtitle = state.compactTitle?.trim() ?? '';
+
+  // Derived "Lock In" state from commitment field
+  const isLockedIn = !!state.commitment && (baseType === 'todo' || baseType === 'habit');
 
   const canSave = currentText.trim().length > 0 && !isSaving;
 
@@ -1980,13 +2010,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               borderTopRightRadius: tokenRadius.md,
               overflow: 'hidden',
               backgroundColor: sheetBackground,
-              borderTopWidth: 1,
-              borderColor: 'rgba(34,34,34,0.08)',
+              // Lock In visual state: add green top border when locked
+              borderTopWidth: isLockedIn ? 3 : 0,
+              borderTopColor: isLockedIn ? lightTokens.colors.moss : 'transparent',
+              // subtle shadow to feel like a sheet of paper floating above the app
               shadowColor: '#000',
-              shadowOpacity: 0.16,
-              shadowRadius: 14,
-              shadowOffset: { width: 0, height: -6 },
-              elevation: 14,
+              shadowOpacity: 0.05,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+              elevation: 4,
             }}
           >
             {showSaveToast ? (
@@ -2028,13 +2060,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: handleColor }}
               />
             </View>
-            {/* Header: contextual title */}
+            {/* Header: contextual title - Phase 6b cleanup */}
             <Box
-              px={4}
-              pb={3}
               style={{
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: lightTokens.colors.border,
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                // remove harsh bottom border on header to keep sheet soft
+                borderBottomWidth: 0,
                 backgroundColor: sheetBackground,
               }}
             >
@@ -2055,82 +2087,159 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     gap: 12,
                   }}
                 >
-                  <Text
-                    variant="title"
-                    style={{ color: lightTokens.colors.text, fontWeight: '600', flex: 1 }}
-                    numberOfLines={1}
-                  >
-                    {headerFor(baseType, mode)}
-                  </Text>
-                  {/* Resummarize title button (only in edit mode with existing entity) */}
-                  {mode === 'edit' && fullEntity && currentText ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onPress={handleResummarizeTitle}
-                      disabled={isResummarizingTitle}
-                      title={isResummarizingTitle ? 'Resummarizing...' : '✨ Resummarize'}
-                    />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}>
+                    <Text
+                      variant="title"
+                      style={{
+                        color: '#222222',
+                        fontWeight: '500',
+                        fontSize: 18,
+                        flex: 1,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {headerFor(baseType, mode, overlaySubtitle)}
+                    </Text>
+                    {/* Lock In badge */}
+                    {isLockedIn ? (
+                      <View style={styles.lockedBadge}>
+                        <Text style={styles.lockedBadgeText}>⚡ Locked In</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {/* Title actions - edit + resummarize icons (only in edit mode) */}
+                  {mode === 'edit' && fullEntity ? (
+                    <View style={styles.titleActions}>
+                      {/* Edit icon - focuses the text input */}
+                      <Pressable
+                        onPress={handleEditTitle}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit title"
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.5 : 0.6,
+                        })}
+                      >
+                        <Pencil
+                          size={16}
+                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                        />
+                      </Pressable>
+                      {/* Resummarize icon - regenerates title via AI */}
+                      {currentText ? (
+                        <Pressable
+                          onPress={handleResummarizeTitle}
+                          disabled={isResummarizingTitle}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Re-summarize title"
+                          style={({ pressed }) => ({
+                            opacity: pressed || isResummarizingTitle ? 0.5 : 0.6,
+                          })}
+                        >
+                          <RotateCw
+                            size={16}
+                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   ) : null}
-                </View>
-                {overlaySubtitle ? (
-                  <Text
-                    testID="overlay-compact-title"
-                    numberOfLines={1}
-                    style={{
-                      marginTop: 4,
-                      color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(34,34,34,0.65)',
-                      fontSize: lightTokens.typography.size.sm,
-                      fontWeight: '500',
-                    }}
+
+                  {/* Close button - Phase 6b */}
+                  <Pressable
+                    onPress={handleCancel}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close"
+                    style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
                   >
-                    {overlaySubtitle}
-                  </Text>
-                ) : null}
+                    <CloseIcon
+                      size={20}
+                      color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                    />
+                  </Pressable>
+                </View>
+                {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
               </View>
             </Box>
 
             {/* Body: entire form stack in a single scroll context */}
             <ScrollView
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120, paddingTop: 16 }}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120, paddingTop: 0 }}
             >
-              <Box px={4}>
-                <View style={[styles.typeTabsRow, { marginBottom: tokenSpacing.md }]}>
-                  {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
-                    const selected = baseType === t;
-                    return (
-                      <Pressable
-                        key={t}
-                        onPress={() => handleTypeSelect(t)}
-                        style={styles.typeTab}
-                        accessibilityRole="tab"
-                        accessibilityState={{ selected }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              {/* Phase 6c: Type selector - underline style directly below header */}
+              <View style={[styles.typeTabsRow, { marginTop: 12, marginBottom: 10 }]}>
+                {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
+                  const selected = baseType === t;
+                  return (
+                    <Pressable
+                      key={t}
+                      onPress={() => handleTypeSelect(t)}
+                      style={styles.typeTab}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.typeTabLabel,
+                          {
+                            color: selected ? typeTabActiveColor : typeTabInactiveColor,
+                            fontWeight: selected ? '600' : '500',
+                          },
+                        ]}
                       >
-                        <Text
-                          style={[
-                            styles.typeTabLabel,
-                            {
-                              color: selected ? typeTabActiveColor : typeTabInactiveColor,
-                              fontWeight: selected ? '600' : '500',
-                            },
-                          ]}
-                        >
-                          {BASE_LABEL[t]}
-                        </Text>
-                        <View
-                          style={[
-                            styles.typeTabUnderline,
-                            {
-                              backgroundColor: selected ? typeTabUnderlineColor : 'transparent',
-                            },
-                          ]}
-                        />
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                        {BASE_LABEL[t]}
+                      </Text>
+                      <View
+                        style={[
+                          styles.typeTabUnderline,
+                          {
+                            backgroundColor: selected ? getTypeAccentColor(t) : 'transparent',
+                          },
+                        ]}
+                      />
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Main text field - moved above tags */}
+              <Box px={4} mt={3}>
+                <TextInput
+                  ref={textInputRef}
+                  value={currentText}
+                  onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                  accessibilityLabel="Overlay content input"
+                  onFocus={() => setBodyFocused(true)}
+                  onBlur={() => setBodyFocused(false)}
+                  placeholder="Add notes..."
+                  placeholderTextColor={lightTokens.colors.subtle}
+                  multiline
+                  scrollEnabled={false}
+                  autoFocus
+                  textAlignVertical="top"
+                  style={[
+                    styles.textArea,
+                    {
+                      color: lightTokens.colors.text,
+                      backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                      borderWidth: 1,
+                      borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                      shadowColor: '#000',
+                      shadowOpacity: 0.03,
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowRadius: 2,
+                    },
+                  ]}
+                />
+              </Box>
+
+              {/* Tags row - now directly below text field */}
+              <Box px={4} mt={2.5}>
                 <TagsRow
                   tags={activeTagChips}
                   suggested={suggestionChips}
@@ -2146,47 +2255,87 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     <Text variant="subtle">AI suggestions (low confidence)</Text>
                   </Box>
                 ) : null}
+              </Box>
 
-                <Box mt={3}>
-                  <TextInput
-                    value={currentText}
-                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                    accessibilityLabel="Overlay content input"
-                    onFocus={() => setBodyFocused(true)}
-                    onBlur={() => setBodyFocused(false)}
-                    placeholder="Drop your thought…"
-                    placeholderTextColor={lightTokens.colors.subtle}
-                    multiline
-                    scrollEnabled={false}
-                    autoFocus
-                    textAlignVertical="top"
-                    style={[
-                      styles.textArea,
-                      {
-                        color: lightTokens.colors.text,
-                        backgroundColor:
-                          colorMode === 'dark' ? darkTokens.colors.deep : lightTokens.colors.linen,
-                        borderColor: bodyFocused
-                          ? '#E0C47A'
-                          : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                        borderWidth: bodyFocused ? 2 : StyleSheet.hairlineWidth,
-                      },
-                    ]}
-                  />
-                </Box>
-                {baseType === 'todo' ? (
-                  <Box row mt={2} style={{ alignItems: 'center' }}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onPress={() => {
-                        setDateModalTarget('todo');
-                        setShowDateModal(true);
-                      }}
-                      title={
-                        state.todo.due_at ? `Due: ${safeFormat(state.todo.due_at)}` : 'Add due date'
-                      }
-                    />
+              <Box px={4}>
+                {baseType === 'todo' || baseType === 'habit' ? (
+                  <Box mt={3}>
+                    {/* Due date + Lock In row */}
+                    <View style={styles.dueAndLockRow}>
+                      {/* Left side: Due date */}
+                      <View style={styles.dueDateLeft}>
+                        {baseType === 'todo' && state.todo.due_at ? (
+                          <Pressable
+                            style={styles.dueDatePill}
+                            onPress={() => {
+                              setDateModalTarget('todo');
+                              setShowDateModal(true);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Due date: ${safeFormat(state.todo.due_at)}`}
+                          >
+                            <Calendar
+                              size={16}
+                              color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                              style={styles.dueDateIcon}
+                            />
+                            <Text style={styles.dueDateText}>{safeFormat(state.todo.due_at)}</Text>
+                          </Pressable>
+                        ) : baseType === 'todo' ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={() => {
+                              setDateModalTarget('todo');
+                              setShowDateModal(true);
+                            }}
+                            title="Add due date"
+                          />
+                        ) : null}
+                      </View>
+
+                      {/* Right side: Lock In toggle (for todos & habits) */}
+                      {commitmentsOn ? (
+                        <View style={styles.lockInRight}>
+                          <Lock
+                            size={14}
+                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                            style={styles.lockIcon}
+                          />
+                          <Text style={styles.lockLabel}>Lock In</Text>
+                          <Switch
+                            value={isLockedIn}
+                            onValueChange={async () => {
+                              if (!state.commitment) {
+                                const ok = await canEnableCommitment();
+                                if (!ok) {
+                                  console.log('[Lock In] Limit reached (3)');
+                                  return;
+                                }
+                              }
+                              pushUndoEntry('commitment', {
+                                commitment: state.commitment,
+                                commitmentNote: state.commitmentNote,
+                                commitmentStartedAt: state.commitmentStartedAt,
+                              });
+                              dispatch({ type: 'TOGGLE_COMMITMENT' });
+                              try {
+                                eventBus.emit('OverlayCommitmentToggled', {
+                                  on: !state.commitment,
+                                });
+                              } catch (e) {
+                                // ignore telemetry errors
+                              }
+                            }}
+                            trackColor={{
+                              false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                              true: lightTokens.colors.moss,
+                            }}
+                            thumbColor="#FFFFFF"
+                          />
+                        </View>
+                      ) : null}
+                    </View>
                     {dueToastMessage ? (
                       <View
                         style={{
@@ -2215,28 +2364,45 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Box>
                 ) : null}
                 {baseType === 'log' ? (
-                  <Box row mt={2} style={{ alignItems: 'center' }}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onPress={() => {
-                        setDateModalTarget('reminder');
-                        setShowDateModal(true);
-                      }}
-                      title={
-                        state.reminderAt
-                          ? `Reminder: ${safeFormat(state.reminderAt)}`
-                          : 'Add reminder'
-                      }
-                    />
+                  <Box mt={3}>
+                    {state.reminderAt ? (
+                      <Pressable
+                        style={styles.dueDateRow}
+                        onPress={() => {
+                          setDateModalTarget('reminder');
+                          setShowDateModal(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Reminder: ${safeFormat(state.reminderAt)}`}
+                      >
+                        <Calendar
+                          size={16}
+                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                          style={styles.dueDateIcon}
+                        />
+                        <Text style={styles.dueDateText}>
+                          Reminder: {safeFormat(state.reminderAt)}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => {
+                          setDateModalTarget('reminder');
+                          setShowDateModal(true);
+                        }}
+                        title="Add reminder"
+                      />
+                    )}
                   </Box>
                 ) : null}
-                <Box mt={3} row style={{ alignItems: 'center' }}>
+                <Box mt={3.5} row style={{ alignItems: 'center' }}>
                   <Button
                     variant="ghost"
                     size="sm"
                     onPress={handleToggleDetails}
-                    title={state.expanded ? 'Hide details' : 'Add details'}
+                    title={state.expanded ? 'Hide details' : '+ Details'}
                   />
                   <Box flex={1} />
                 </Box>
@@ -2325,12 +2491,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       styles.textArea,
                                       { minHeight: 40, paddingVertical: 8 },
                                       {
-                                        borderColor: commitmentFocused
-                                          ? '#E0C47A'
-                                          : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                                        borderWidth: commitmentFocused
-                                          ? 2
-                                          : StyleSheet.hairlineWidth,
+                                        backgroundColor:
+                                          colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                        borderWidth: 0,
                                       },
                                     ]}
                                   />
@@ -2511,13 +2674,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         { minHeight: 40, paddingVertical: 8 },
                         {
                           backgroundColor:
-                            colorMode === 'dark'
-                              ? darkTokens.colors.deep
-                              : lightTokens.colors.linen,
-                          borderColor: customDateFocused
-                            ? '#E0C47A'
-                            : lightTokens.colors.sageMist || lightTokens.colors.sage,
-                          borderWidth: customDateFocused ? 2 : StyleSheet.hairlineWidth,
+                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                          borderWidth: 0,
                         },
                       ]}
                     />
@@ -2595,6 +2753,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 <Text variant="subtle">You're offline — Save will keep the draft.</Text>
               </Box>
             ) : null}
+
+            {/* Phase 6d: Footer with better spacing and clear primary action */}
             <SafeAreaView
               style={{
                 backgroundColor: sheetBackground,
@@ -2602,25 +2762,85 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               }}
             >
               <Box
-                px={4}
-                py={3}
-                row
-                gap={2}
                 style={{
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                  borderTopColor: lightTokens.colors.border,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  paddingTop: 20,
+                  // soften footer separation
+                  borderTopWidth: 0,
                   paddingBottom: 0, // handled by SafeAreaView padding
                   backgroundColor: sheetBackground,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
                 }}
               >
-                <Button variant="ghost" onPress={handleCancel} disabled={isSaving} title="Cancel" />
-                <Box flex={1} />
+                {/* Cancel button - text-only, subtle */}
+                <Pressable
+                  onPress={handleCancel}
+                  disabled={isSaving}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    minHeight: 44,
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: isSaving
+                        ? colorMode === 'dark'
+                          ? 'rgba(255,255,255,0.3)'
+                          : 'rgba(34,34,34,0.3)'
+                        : '#666666',
+                      fontSize: 14,
+                      fontWeight: '400',
+                    }}
+                  >
+                    Cancel
+                  </Text>
+                </Pressable>
+
+                {/* Save button - primary action */}
                 <Reanimated.View style={saveStyle}>
-                  <Button
+                  <Pressable
                     onPress={onSave}
                     disabled={!canSave}
-                    title={isSaving ? 'Saving...' : 'Save'}
-                  />
+                    accessibilityRole="button"
+                    accessibilityLabel={isSaving ? 'Saving' : 'Save'}
+                    style={{
+                      backgroundColor: !canSave
+                        ? colorMode === 'dark'
+                          ? 'rgba(94, 160, 138, 0.3)'
+                          : 'rgba(46, 125, 106, 0.3)'
+                        : colorMode === 'dark'
+                          ? darkTokens.colors.moss
+                          : lightTokens.colors.moss,
+                      width: 120,
+                      height: 44,
+                      borderRadius: 999,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: !canSave
+                          ? colorMode === 'dark'
+                            ? 'rgba(255,255,255,0.4)'
+                            : 'rgba(255,255,255,0.6)'
+                          : '#FFFFFF',
+                        fontSize: 15,
+                        fontWeight: '600',
+                      }}
+                    >
+                      {isSaving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                    </Text>
+                  </Pressable>
                 </Reanimated.View>
               </Box>
             </SafeAreaView>
@@ -2761,8 +2981,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   return payload;
 }
 
-function headerFor(base: BaseType, mode: 'create' | 'edit') {
-  if (mode === 'edit') return 'Edit';
+function headerFor(base: BaseType, mode: 'create' | 'edit', title?: string) {
+  // Phase 6b: Show entity title in edit mode instead of generic "Edit"
+  if (mode === 'edit' && title) return title;
+  if (mode === 'edit') return 'Edit'; // Fallback if no title available
   return base === 'log' ? 'New Log' : base === 'todo' ? 'New To-Do' : 'New Habit';
 }
 
@@ -2851,29 +3073,98 @@ function buildCreateOrUpdateInput({
 }
 
 const styles = StyleSheet.create({
+  // Phase 6c: Type selector - underline style
   typeTabsRow: {
     flexDirection: 'row',
+    paddingHorizontal: 16,
   },
   typeTab: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: tokenSpacing.sm,
+    paddingVertical: 6,
   },
   typeTabLabel: {
-    fontSize: lightTokens.typography.size.sm,
+    fontSize: 12,
   },
   typeTabUnderline: {
     alignSelf: 'stretch',
     height: 2,
-    marginTop: tokenSpacing.xs,
+    marginTop: 4,
     borderRadius: tokenRadius.sm,
   },
   textArea: {
     minHeight: 120,
-    fontSize: lightTokens.typography.size.md,
-    lineHeight: 22,
-    paddingVertical: tokenSpacing.md,
-    paddingHorizontal: tokenSpacing.base,
+    fontSize: 16,
+    lineHeight: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 0,
+  },
+
+  /* Due date pill styling */
+  dueDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+  },
+  dueDateIcon: {
+    marginRight: 6,
+  },
+  dueDateText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#222222',
+  },
+
+  /* Lock In feature styles */
+  dueAndLockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dueDateLeft: {
+    flex: 1,
+  },
+  dueDatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+  },
+  lockInRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lockIcon: {
+    opacity: 0.7,
+  },
+  lockLabel: {
+    fontSize: 13,
+    color: '#222222',
+    fontWeight: '500',
+  },
+  lockedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#E0F0E5',
+  },
+  lockedBadgeText: {
+    fontSize: 11,
+    color: '#2E5540',
+    fontWeight: '500',
+  },
+
+  /* Title actions styling */
+  titleActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 
   /* Details panel layout */
