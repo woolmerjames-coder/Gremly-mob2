@@ -6,7 +6,12 @@ export type TagKey = string;
 
 export type LogState = { body: string; title: string };
 export type TodoState = { title: string; details: string; due_at?: string | null };
-export type HabitState = { title: string; notes: string; schedule?: 'daily' | 'weekly' | 'custom' };
+export type HabitState = {
+  title: string;
+  notes: string;
+  schedule?: 'daily' | 'weekly' | 'custom';
+  frequency_json?: any; // Structured frequency configuration
+};
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
@@ -71,6 +76,7 @@ type Action =
   | { type: 'SET_TITLE'; title: string; force?: boolean } // force=true bypasses userEditedTitle guard
   | { type: 'SET_COMPACT_TITLE'; title: string }
   | { type: 'SET_TODO_DUE'; due_at: string | null }
+  | { type: 'SET_HABIT_FREQUENCY'; frequency_json: any }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
@@ -226,6 +232,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
     }
     case 'SET_TODO_DUE':
       return { ...state, todo: { ...state.todo, due_at: action.due_at } };
+    case 'SET_HABIT_FREQUENCY':
+      return { ...state, habit: { ...state.habit, frequency_json: action.frequency_json } };
     case 'TOGGLE_COMMITMENT': {
       const turningOn = !state.commitment;
       // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.

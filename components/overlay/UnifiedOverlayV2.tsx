@@ -70,6 +70,14 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
+import {
+  type FrequencyConfig,
+  type DayOfWeek,
+  frequencyToJson,
+  jsonToFrequency,
+  getFrequencyLabel,
+  DAY_LABELS,
+} from './frequencyHelpers';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -651,6 +659,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [clearDateFlag, setClearDateFlag] = useState(false);
+  // Frequency picker state
+  const [showFrequencyModal, setShowFrequencyModal] = useState(false);
+  const [frequencyTab, setFrequencyTab] = useState<'simple' | 'days' | 'custom'>('simple');
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [customCount, setCustomCount] = useState('1');
+  const [customUnit, setCustomUnit] = useState<'day' | 'week' | 'month'>('week');
   // save error UI
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSaveToast, setShowSaveToast] = useState(false);
@@ -1653,6 +1667,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           type: 'habit' as const,
           ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
           frequency: s.habit.schedule ?? 'custom',
+          frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -1668,6 +1683,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
         notes: s.habit.notes || null,
         frequency: s.habit.schedule ?? 'custom',
+        frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -2367,6 +2383,39 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     ) : null}
                   </Box>
                 ) : null}
+
+                {/* Frequency row for habits */}
+                {baseType === 'habit' ? (
+                  <Box mt={3} px={0}>
+                    <Pressable
+                      style={styles.dueDateRow}
+                      onPress={() => {
+                        // Initialize modal state from current habit frequency
+                        const currentFreq = jsonToFrequency(state.habit.frequency_json);
+                        setFrequencyTab(currentFreq.mode);
+                        if (currentFreq.mode === 'days') {
+                          setSelectedDays(currentFreq.days);
+                        } else if (currentFreq.mode === 'custom') {
+                          setCustomCount(String(currentFreq.value.count));
+                          setCustomUnit(currentFreq.value.unit);
+                        }
+                        setShowFrequencyModal(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Set frequency"
+                    >
+                      <Calendar
+                        size={16}
+                        color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                        style={styles.dueDateIcon}
+                      />
+                      <Text style={styles.dueDateText}>
+                        {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
+                      </Text>
+                    </Pressable>
+                  </Box>
+                ) : null}
+
                 {baseType === 'log' ? (
                   <Box mt={3}>
                     {state.reminderAt ? (
@@ -2822,6 +2871,279 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               </Box>
             </Modal>
 
+            {/* Frequency Builder Modal */}
+            <Modal
+              visible={showFrequencyModal}
+              transparent
+              animationType="fade"
+              onRequestClose={() => {
+                setShowFrequencyModal(false);
+              }}
+            >
+              <Box
+                flex={1}
+                style={{
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: 16,
+                }}
+              >
+                <Box
+                  bg="bg"
+                  style={{
+                    padding: tokenSpacing.md,
+                    borderRadius: tokenRadius.sm,
+                    width: '100%',
+                    maxWidth: 400,
+                  }}
+                >
+                  <Text variant="title">Set frequency</Text>
+
+                  {/* Tab selector */}
+                  <Box mt={3}>
+                    <Box
+                      row
+                      gap={2}
+                      style={{
+                        borderBottomWidth: 1,
+                        borderBottomColor:
+                          colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
+                      }}
+                    >
+                      {(['simple', 'days', 'custom'] as const).map((tab) => (
+                        <Pressable
+                          key={tab}
+                          onPress={() => setFrequencyTab(tab)}
+                          style={{
+                            paddingVertical: 8,
+                            paddingHorizontal: 16,
+                            borderBottomWidth: 2,
+                            borderBottomColor:
+                              frequencyTab === tab
+                                ? colorMode === 'dark'
+                                  ? lightTokens.colors.moss
+                                  : lightTokens.colors.moss
+                                : 'transparent',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color:
+                                frequencyTab === tab
+                                  ? colorMode === 'dark'
+                                    ? '#FFFFFF'
+                                    : '#222222'
+                                  : colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.6)'
+                                    : 'rgba(34,34,34,0.6)',
+                              fontWeight: frequencyTab === tab ? '600' : '400',
+                            }}
+                          >
+                            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </Box>
+                  </Box>
+
+                  {/* Tab content */}
+                  <Box mt={3} style={{ minHeight: 150 }}>
+                    {/* Simple tab */}
+                    {frequencyTab === 'simple' && (
+                      <Box gap={2}>
+                        {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
+                          <Button
+                            key={freq}
+                            variant="ghost"
+                            onPress={() => {
+                              const config: FrequencyConfig = { mode: 'simple', value: freq };
+                              dispatch({
+                                type: 'SET_HABIT_FREQUENCY',
+                                frequency_json: frequencyToJson(config),
+                              });
+                              setShowFrequencyModal(false);
+                            }}
+                            title={freq.charAt(0).toUpperCase() + freq.slice(1)}
+                          />
+                        ))}
+                      </Box>
+                    )}
+
+                    {/* Days tab */}
+                    {frequencyTab === 'days' && (
+                      <Box>
+                        <Text variant="label" style={{ marginBottom: 12 }}>
+                          Select days
+                        </Text>
+                        <Box row gap={1} style={{ flexWrap: 'wrap' }}>
+                          {DAY_LABELS.map(({ day, short, long }) => {
+                            const isSelected = selectedDays.includes(day);
+                            return (
+                              <Pressable
+                                key={day}
+                                onPress={() => {
+                                  setSelectedDays((prev) =>
+                                    prev.includes(day)
+                                      ? prev.filter((d) => d !== day)
+                                      : [...prev, day],
+                                  );
+                                }}
+                                style={{
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: 22,
+                                  backgroundColor: isSelected
+                                    ? colorMode === 'dark'
+                                      ? lightTokens.colors.moss
+                                      : lightTokens.colors.moss
+                                    : colorMode === 'dark'
+                                      ? 'rgba(255,255,255,0.1)'
+                                      : '#F5F5F5',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  marginBottom: 8,
+                                }}
+                                accessibilityLabel={long}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: isSelected }}
+                              >
+                                <Text
+                                  style={{
+                                    color: isSelected
+                                      ? '#FFFFFF'
+                                      : colorMode === 'dark'
+                                        ? 'rgba(255,255,255,0.7)'
+                                        : '#666666',
+                                    fontWeight: isSelected ? '600' : '400',
+                                    fontSize: 16,
+                                  }}
+                                >
+                                  {short}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Custom tab */}
+                    {frequencyTab === 'custom' && (
+                      <Box>
+                        <Text variant="label" style={{ marginBottom: 12 }}>
+                          How often?
+                        </Text>
+                        <Box row gap={2} style={{ alignItems: 'center' }}>
+                          <TextInput
+                            value={customCount}
+                            onChangeText={(text) => {
+                              const num = text.replace(/[^0-9]/g, '');
+                              setCustomCount(num || '1');
+                            }}
+                            keyboardType="number-pad"
+                            placeholder="1"
+                            style={{
+                              backgroundColor:
+                                colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                              borderWidth: 1,
+                              borderColor:
+                                colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
+                              borderRadius: 8,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                              width: 80,
+                              color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
+                              fontSize: 16,
+                            }}
+                          />
+                          <Text
+                            style={{
+                              color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666',
+                            }}
+                          >
+                            times per
+                          </Text>
+                          <View style={{ flex: 1 }}>
+                            <Pressable
+                              onPress={() => {
+                                const units: ('day' | 'week' | 'month')[] = [
+                                  'day',
+                                  'week',
+                                  'month',
+                                ];
+                                const currentIndex = units.indexOf(customUnit);
+                                const nextIndex = (currentIndex + 1) % units.length;
+                                setCustomUnit(units[nextIndex]);
+                              }}
+                              style={{
+                                backgroundColor:
+                                  colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                borderWidth: 1,
+                                borderColor:
+                                  colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
+                                borderRadius: 8,
+                                paddingHorizontal: 12,
+                                paddingVertical: 10,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
+                                  fontSize: 16,
+                                }}
+                              >
+                                {customUnit}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </Box>
+                      </Box>
+                    )}
+                  </Box>
+
+                  {/* Action buttons */}
+                  <Box row mt={4}>
+                    <Button
+                      variant="ghost"
+                      onPress={() => {
+                        setShowFrequencyModal(false);
+                      }}
+                      title="Cancel"
+                    />
+                    <Box flex={1} />
+                    <Button
+                      variant="primary"
+                      onPress={() => {
+                        let config: FrequencyConfig;
+
+                        if (frequencyTab === 'simple') {
+                          config = { mode: 'simple', value: 'daily' }; // Default, but this won't be called in simple mode
+                        } else if (frequencyTab === 'days') {
+                          if (selectedDays.length === 0) {
+                            // Require at least one day
+                            return;
+                          }
+                          config = { mode: 'days', days: selectedDays as DayOfWeek[] };
+                        } else {
+                          const count = parseInt(customCount) || 1;
+                          config = { mode: 'custom', value: { count, unit: customUnit } };
+                        }
+
+                        dispatch({
+                          type: 'SET_HABIT_FREQUENCY',
+                          frequency_json: frequencyToJson(config),
+                        });
+                        setShowFrequencyModal(false);
+                      }}
+                      title="Set"
+                      disabled={frequencyTab === 'days' && selectedDays.length === 0}
+                    />
+                  </Box>
+                </Box>
+              </Box>
+            </Modal>
+
             {/* Save bar (fixed within the sheet) */}
             {/* Inline save error / retry bar (Phase 9) */}
             {saveError ? (
@@ -3005,6 +3327,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         title: compactTitle,
         notes: habitLongText,
         schedule: 'custom',
+        frequency_json: (entity as any)?.frequency_value ?? null, // Load frequency_json from DB
       },
       todo: {
         title: compactTitle,
