@@ -2296,7 +2296,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     <View style={styles.dueAndLockRow}>
                       {/* Left side: Due date */}
                       <View style={styles.dueDateLeft}>
-                        {baseType === 'todo' && state.todo.due_at ? (
+                        {baseType === 'todo' ? (
                           <Pressable
                             style={styles.dueDatePill}
                             onPress={() => {
@@ -2304,25 +2304,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               setShowDateModal(true);
                             }}
                             accessibilityRole="button"
-                            accessibilityLabel={`Due date: ${safeFormat(state.todo.due_at)}`}
+                            accessibilityLabel={
+                              state.todo.due_at
+                                ? `Due date: ${safeFormat(state.todo.due_at)}`
+                                : 'Add due date'
+                            }
                           >
                             <Calendar
                               size={16}
-                              color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                              color={
+                                state.todo.due_at
+                                  ? colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.7)'
+                                    : '#666666'
+                                  : colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.5)'
+                                    : '#777777'
+                              }
                               style={styles.dueDateIcon}
                             />
-                            <Text style={styles.dueDateText}>{safeFormat(state.todo.due_at)}</Text>
+                            <Text
+                              style={[
+                                styles.dueDateText,
+                                !state.todo.due_at && {
+                                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#777777',
+                                  fontWeight: '400',
+                                },
+                              ]}
+                            >
+                              {state.todo.due_at ? safeFormat(state.todo.due_at) : 'Add due date'}
+                            </Text>
                           </Pressable>
-                        ) : baseType === 'todo' ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onPress={() => {
-                              setDateModalTarget('todo');
-                              setShowDateModal(true);
-                            }}
-                            title="Add due date"
-                          />
                         ) : null}
                       </View>
 
@@ -2687,15 +2699,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             </ScrollView>
 
             <Modal visible={showDateModal} transparent animationType="fade">
-              <Box
+              <Pressable
                 style={{
                   flex: 1,
                   justifyContent: 'center',
                   paddingHorizontal: tokenSpacing.base * 3,
                   backgroundColor: 'rgba(0,0,0,0.4)', // Darker overlay background
                 }}
+                onPress={() => {
+                  // Close modal when tapping outside
+                  setShowDateModal(false);
+                  setDateModalTarget(null);
+                  setShowTimePicker(false);
+                  setClearDateFlag(false);
+                  setSelectedTimePreset(null);
+                  setShowCustomTimePicker(false);
+                }}
               >
-                <Box
+                <Pressable
+                  onPress={(e) => e.stopPropagation()} // Prevent closing when tapping inside
                   style={{
                     backgroundColor: '#FFFFFF',
                     padding: tokenSpacing.lg,
@@ -2707,198 +2729,227 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     shadowOpacity: 0.15,
                     shadowRadius: 24,
                     elevation: 8, // Android shadow
+                    maxHeight: '80%', // Prevent overflow on small screens
                   }}
                 >
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: '600',
-                      color: '#222222',
-                      marginBottom: 16,
-                    }}
-                  >
-                    Set due date
-                  </Text>
-                  <Box mt={1}>
-                    <Box row gap={2}>
-                      <Pressable
-                        onPress={() => {
-                          const today = new Date();
-                          setSelectedDate(today);
-                          setClearDateFlag(false);
-                          if (dateModalTarget === 'reminder') {
-                            dispatch({ type: 'SET_REMINDER', when: today.toISOString() });
-                            setShowDateModal(false);
-                            setDateModalTarget(null);
-                          }
-                        }}
-                        style={({ pressed }) => ({
-                          paddingHorizontal: 16,
-                          paddingVertical: 8,
-                          borderRadius: 999,
-                          backgroundColor: pressed
-                            ? '#F5F5F5'
-                            : clearDateFlag === false &&
-                                selectedDate.toDateString() === new Date().toDateString()
-                              ? '#F0F4F1'
-                              : '#FAFAFA',
-                          borderWidth: 1,
-                          borderColor:
-                            clearDateFlag === false &&
-                            selectedDate.toDateString() === new Date().toDateString()
-                              ? '#2E5540'
-                              : '#E0E0E0',
-                        })}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
-                          Today
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          const tomorrow = addDays(new Date(), 1);
-                          setSelectedDate(tomorrow);
-                          setClearDateFlag(false);
-                          if (dateModalTarget === 'reminder') {
-                            dispatch({ type: 'SET_REMINDER', when: tomorrow.toISOString() });
-                            setShowDateModal(false);
-                            setDateModalTarget(null);
-                          }
-                        }}
-                        style={({ pressed }) => ({
-                          paddingHorizontal: 16,
-                          paddingVertical: 8,
-                          borderRadius: 999,
-                          backgroundColor: pressed
-                            ? '#F5F5F5'
-                            : clearDateFlag === false &&
-                                selectedDate.toDateString() ===
-                                  addDays(new Date(), 1).toDateString()
-                              ? '#F0F4F1'
-                              : '#FAFAFA',
-                          borderWidth: 1,
-                          borderColor:
-                            clearDateFlag === false &&
-                            selectedDate.toDateString() === addDays(new Date(), 1).toDateString()
-                              ? '#2E5540'
-                              : '#E0E0E0',
-                        })}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
-                          Tomorrow
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          setClearDateFlag(true);
-                          setShowTimePicker(false);
-                          setSelectedTimePreset(null);
-                          setShowCustomTimePicker(false);
-                          if (dateModalTarget === 'reminder') {
-                            dispatch({ type: 'SET_REMINDER', when: null });
-                            setShowDateModal(false);
-                            setDateModalTarget(null);
-                          }
-                        }}
-                        style={({ pressed }) => ({
-                          paddingHorizontal: 16,
-                          paddingVertical: 8,
-                          borderRadius: 999,
-                          backgroundColor: pressed
-                            ? '#F5F5F5'
-                            : clearDateFlag
-                              ? '#F0F4F1'
-                              : '#FAFAFA',
-                          borderWidth: 1,
-                          borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
-                        })}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
-                          Clear
-                        </Text>
-                      </Pressable>
-                    </Box>
-                  </Box>
-
-                  {/* Date Picker */}
-                  {!clearDateFlag && (
-                    <Box mt={5} style={{ paddingHorizontal: 16 }}>
-                      <DateTimePicker
-                        value={selectedDate}
-                        mode="date"
-                        display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                        onChange={(event, date) => {
-                          if (date) {
-                            setSelectedDate(date);
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    <Text
+                      style={{
+                        fontSize: 18,
+                        fontWeight: '600',
+                        color: '#222222',
+                        marginBottom: 16,
+                      }}
+                    >
+                      Set due date
+                    </Text>
+                    <Box mt={1}>
+                      <Box row gap={2}>
+                        <Pressable
+                          onPress={() => {
+                            const today = new Date();
+                            setSelectedDate(today);
                             setClearDateFlag(false);
-                          }
-                        }}
-                        themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                        accentColor="#2E5540"
-                      />
-                    </Box>
-                  )}
-
-                  {/* Add time toggle */}
-                  {!clearDateFlag && (
-                    <Box mt={5}>
-                      <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text
-                          style={{
-                            fontSize: 15,
-                            fontWeight: '500',
-                            color: '#555555',
-                          }}
-                        >
-                          Add time?
-                        </Text>
-                        <Switch
-                          value={showTimePicker}
-                          onValueChange={(value) => {
-                            setShowTimePicker(value);
-                            if (value) {
-                              // Default to 9 AM if no preset selected
-                              if (!selectedTimePreset) {
-                                setSelectedTimePreset(PRESET_TIMES[0].key);
-                                const defaultTime = setHours(setMinutes(new Date(), 0), 9);
-                                setSelectedTime(defaultTime);
-                              }
-                            } else {
-                              // Reset when toggling off
-                              setSelectedTimePreset(null);
-                              setShowCustomTimePicker(false);
+                            if (dateModalTarget === 'reminder') {
+                              dispatch({ type: 'SET_REMINDER', when: today.toISOString() });
+                              setShowDateModal(false);
+                              setDateModalTarget(null);
                             }
                           }}
-                          trackColor={{
-                            false: '#E0E0E0',
-                            true: '#2E5540',
+                          style={({ pressed }) => ({
+                            paddingHorizontal: 16,
+                            paddingVertical: 8,
+                            borderRadius: 999,
+                            backgroundColor: pressed
+                              ? '#F5F5F5'
+                              : clearDateFlag === false &&
+                                  selectedDate.toDateString() === new Date().toDateString()
+                                ? '#F0F4F1'
+                                : '#FAFAFA',
+                            borderWidth: 1,
+                            borderColor:
+                              clearDateFlag === false &&
+                              selectedDate.toDateString() === new Date().toDateString()
+                                ? '#2E5540'
+                                : '#E0E0E0',
+                          })}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                            Today
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            const tomorrow = addDays(new Date(), 1);
+                            setSelectedDate(tomorrow);
+                            setClearDateFlag(false);
+                            if (dateModalTarget === 'reminder') {
+                              dispatch({ type: 'SET_REMINDER', when: tomorrow.toISOString() });
+                              setShowDateModal(false);
+                              setDateModalTarget(null);
+                            }
                           }}
-                          thumbColor="#FFFFFF"
+                          style={({ pressed }) => ({
+                            paddingHorizontal: 16,
+                            paddingVertical: 8,
+                            borderRadius: 999,
+                            backgroundColor: pressed
+                              ? '#F5F5F5'
+                              : clearDateFlag === false &&
+                                  selectedDate.toDateString() ===
+                                    addDays(new Date(), 1).toDateString()
+                                ? '#F0F4F1'
+                                : '#FAFAFA',
+                            borderWidth: 1,
+                            borderColor:
+                              clearDateFlag === false &&
+                              selectedDate.toDateString() === addDays(new Date(), 1).toDateString()
+                                ? '#2E5540'
+                                : '#E0E0E0',
+                          })}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                            Tomorrow
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            setClearDateFlag(true);
+                            setShowTimePicker(false);
+                            setSelectedTimePreset(null);
+                            setShowCustomTimePicker(false);
+                            if (dateModalTarget === 'reminder') {
+                              dispatch({ type: 'SET_REMINDER', when: null });
+                              setShowDateModal(false);
+                              setDateModalTarget(null);
+                            }
+                          }}
+                          style={({ pressed }) => ({
+                            paddingHorizontal: 16,
+                            paddingVertical: 8,
+                            borderRadius: 999,
+                            backgroundColor: pressed
+                              ? '#F5F5F5'
+                              : clearDateFlag
+                                ? '#F0F4F1'
+                                : '#FAFAFA',
+                            borderWidth: 1,
+                            borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
+                          })}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                            Clear
+                          </Text>
+                        </Pressable>
+                      </Box>
+                    </Box>
+
+                    {/* Date Picker */}
+                    {!clearDateFlag && (
+                      <Box mt={5} style={{ paddingHorizontal: 16 }}>
+                        <DateTimePicker
+                          value={selectedDate}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                          onChange={(event, date) => {
+                            if (date) {
+                              setSelectedDate(date);
+                              setClearDateFlag(false);
+                            }
+                          }}
+                          themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                          accentColor="#2E5540"
                         />
                       </Box>
+                    )}
 
-                      {/* Preset Time Chips */}
-                      {showTimePicker && (
-                        <Box mt={3}>
-                          <Box
-                            row
+                    {/* Add time toggle */}
+                    {!clearDateFlag && (
+                      <Box mt={5}>
+                        <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Text
                             style={{
-                              flexWrap: 'wrap',
-                              gap: 8,
+                              fontSize: 15,
+                              fontWeight: '500',
+                              color: '#555555',
                             }}
                           >
-                            {PRESET_TIMES.map((preset) => (
+                            Add time?
+                          </Text>
+                          <Switch
+                            value={showTimePicker}
+                            onValueChange={(value) => {
+                              setShowTimePicker(value);
+                              if (value) {
+                                // Default to 9 AM if no preset selected
+                                if (!selectedTimePreset) {
+                                  setSelectedTimePreset(PRESET_TIMES[0].key);
+                                  const defaultTime = setHours(setMinutes(new Date(), 0), 9);
+                                  setSelectedTime(defaultTime);
+                                }
+                              } else {
+                                // Reset when toggling off
+                                setSelectedTimePreset(null);
+                                setShowCustomTimePicker(false);
+                              }
+                            }}
+                            trackColor={{
+                              false: '#E0E0E0',
+                              true: '#2E5540',
+                            }}
+                            thumbColor="#FFFFFF"
+                          />
+                        </Box>
+
+                        {/* Preset Time Chips */}
+                        {showTimePicker && (
+                          <Box mt={3}>
+                            <Box
+                              row
+                              style={{
+                                flexWrap: 'wrap',
+                                gap: 8,
+                              }}
+                            >
+                              {PRESET_TIMES.map((preset) => (
+                                <Pressable
+                                  key={preset.key}
+                                  onPress={() => {
+                                    setSelectedTimePreset(preset.key);
+                                    setShowCustomTimePicker(false);
+                                    // Update selectedTime for use in Set button
+                                    const newTime = setHours(
+                                      setMinutes(new Date(), preset.minute),
+                                      preset.hour,
+                                    );
+                                    setSelectedTime(newTime);
+                                  }}
+                                  style={({ pressed }) => ({
+                                    paddingHorizontal: 16,
+                                    paddingVertical: 8,
+                                    borderRadius: 999,
+                                    backgroundColor: pressed
+                                      ? '#F5F5F5'
+                                      : selectedTimePreset === preset.key
+                                        ? '#F0F4F1'
+                                        : '#FAFAFA',
+                                    borderWidth: 1,
+                                    borderColor:
+                                      selectedTimePreset === preset.key ? '#2E5540' : '#E0E0E0',
+                                  })}
+                                >
+                                  <Text
+                                    style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}
+                                  >
+                                    {preset.label}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              {/* Custom time chip */}
                               <Pressable
-                                key={preset.key}
                                 onPress={() => {
-                                  setSelectedTimePreset(preset.key);
-                                  setShowCustomTimePicker(false);
-                                  // Update selectedTime for use in Set button
-                                  const newTime = setHours(
-                                    setMinutes(new Date(), preset.minute),
-                                    preset.hour,
-                                  );
-                                  setSelectedTime(newTime);
+                                  setSelectedTimePreset('custom');
+                                  setShowCustomTimePicker(true);
                                 }}
                                 style={({ pressed }) => ({
                                   paddingHorizontal: 16,
@@ -2906,68 +2957,44 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   borderRadius: 999,
                                   backgroundColor: pressed
                                     ? '#F5F5F5'
-                                    : selectedTimePreset === preset.key
+                                    : selectedTimePreset === 'custom'
                                       ? '#F0F4F1'
                                       : '#FAFAFA',
                                   borderWidth: 1,
                                   borderColor:
-                                    selectedTimePreset === preset.key ? '#2E5540' : '#E0E0E0',
+                                    selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
                                 })}
                               >
                                 <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
-                                  {preset.label}
+                                  {selectedTimePreset === 'custom'
+                                    ? `Custom (${format(selectedTime, 'h:mm a')})`
+                                    : 'Custom…'}
                                 </Text>
                               </Pressable>
-                            ))}
-                            {/* Custom time chip */}
-                            <Pressable
-                              onPress={() => {
-                                setSelectedTimePreset('custom');
-                                setShowCustomTimePicker(true);
-                              }}
-                              style={({ pressed }) => ({
-                                paddingHorizontal: 16,
-                                paddingVertical: 8,
-                                borderRadius: 999,
-                                backgroundColor: pressed
-                                  ? '#F5F5F5'
-                                  : selectedTimePreset === 'custom'
-                                    ? '#F0F4F1'
-                                    : '#FAFAFA',
-                                borderWidth: 1,
-                                borderColor:
-                                  selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
-                              })}
-                            >
-                              <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
-                                {selectedTimePreset === 'custom'
-                                  ? `Custom (${format(selectedTime, 'h:mm a')})`
-                                  : 'Custom…'}
-                              </Text>
-                            </Pressable>
-                          </Box>
-
-                          {/* Custom Time Picker - shown inline when Custom is selected */}
-                          {showCustomTimePicker && (
-                            <Box mt={3}>
-                              <DateTimePicker
-                                value={selectedTime}
-                                mode="time"
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={(event, time) => {
-                                  if (time) {
-                                    setSelectedTime(time);
-                                  }
-                                }}
-                                themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                                accentColor="#2E5540"
-                              />
                             </Box>
-                          )}
-                        </Box>
-                      )}
-                    </Box>
-                  )}
+
+                            {/* Custom Time Picker - shown inline when Custom is selected */}
+                            {showCustomTimePicker && (
+                              <Box mt={3}>
+                                <DateTimePicker
+                                  value={selectedTime}
+                                  mode="time"
+                                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                  onChange={(event, time) => {
+                                    if (time) {
+                                      setSelectedTime(time);
+                                    }
+                                  }}
+                                  themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                                  accentColor="#2E5540"
+                                />
+                              </Box>
+                            )}
+                          </Box>
+                        )}
+                      </Box>
+                    )}
+                  </ScrollView>
 
                   {/* Action buttons */}
                   <Box row mt={5} style={{ gap: 12 }}>
@@ -3032,8 +3059,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       title="Set"
                     />
                   </Box>
-                </Box>
-              </Box>
+                </Pressable>
+              </Pressable>
             </Modal>
 
             {/* Frequency Builder Modal */}
@@ -3723,9 +3750,10 @@ const styles = StyleSheet.create({
   dueDatePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     alignSelf: 'flex-start',
+    minHeight: 44, // Ensure adequate touch target
   },
   lockInRight: {
     flexDirection: 'row',
