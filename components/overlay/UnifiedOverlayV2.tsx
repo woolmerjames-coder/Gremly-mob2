@@ -81,6 +81,15 @@ import {
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
+// Preset time options for time picker
+const PRESET_TIMES = [
+  { label: '9:00 AM', hour: 9, minute: 0, key: '9:00-AM' },
+  { label: '12:00 PM', hour: 12, minute: 0, key: '12:00-PM' },
+  { label: '3:00 PM', hour: 15, minute: 0, key: '3:00-PM' },
+  { label: '6:00 PM', hour: 18, minute: 0, key: '6:00-PM' },
+  { label: '9:00 PM', hour: 21, minute: 0, key: '9:00-PM' },
+] as const;
+
 function normalizeTagCandidate(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value
@@ -659,6 +668,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [clearDateFlag, setClearDateFlag] = useState(false);
+  // Preset time picker state
+  const [selectedTimePreset, setSelectedTimePreset] = useState<string | 'custom' | null>(null);
+  const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
   // Frequency picker state
   const [showFrequencyModal, setShowFrequencyModal] = useState(false);
   const [frequencyTab, setFrequencyTab] = useState<'simple' | 'days' | 'custom'>('simple');
@@ -2780,6 +2792,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         onPress={() => {
                           setClearDateFlag(true);
                           setShowTimePicker(false);
+                          setSelectedTimePreset(null);
+                          setShowCustomTimePicker(false);
                           if (dateModalTarget === 'reminder') {
                             dispatch({ type: 'SET_REMINDER', when: null });
                             setShowDateModal(false);
@@ -2843,10 +2857,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           onValueChange={(value) => {
                             setShowTimePicker(value);
                             if (value) {
-                              // Initialize time to current time or 9 AM if not set
-                              const now = new Date();
-                              const defaultTime = setHours(setMinutes(new Date(), 0), 9);
-                              setSelectedTime(selectedTime || defaultTime);
+                              // Default to 9 AM if no preset selected
+                              if (!selectedTimePreset) {
+                                setSelectedTimePreset(PRESET_TIMES[0].key);
+                                const defaultTime = setHours(setMinutes(new Date(), 0), 9);
+                                setSelectedTime(defaultTime);
+                              }
+                            } else {
+                              // Reset when toggling off
+                              setSelectedTimePreset(null);
+                              setShowCustomTimePicker(false);
                             }
                           }}
                           trackColor={{
@@ -2857,33 +2877,93 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         />
                       </Box>
 
-                      {/* Time Picker */}
+                      {/* Preset Time Chips */}
                       {showTimePicker && (
                         <Box mt={3}>
-                          <DateTimePicker
-                            value={selectedTime}
-                            mode="time"
-                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                            onChange={(event, time) => {
-                              if (time) {
-                                setSelectedTime(time);
-                              }
+                          <Box
+                            row
+                            style={{
+                              flexWrap: 'wrap',
+                              gap: 8,
                             }}
-                            themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                            accentColor="#2E5540"
-                          />
-                          {/* Display selected time in 12-hour format */}
-                          <Box mt={2}>
-                            <Text
-                              style={{
-                                color: '#888888',
-                                fontSize: 14,
-                                textAlign: 'center',
+                          >
+                            {PRESET_TIMES.map((preset) => (
+                              <Pressable
+                                key={preset.key}
+                                onPress={() => {
+                                  setSelectedTimePreset(preset.key);
+                                  setShowCustomTimePicker(false);
+                                  // Update selectedTime for use in Set button
+                                  const newTime = setHours(
+                                    setMinutes(new Date(), preset.minute),
+                                    preset.hour,
+                                  );
+                                  setSelectedTime(newTime);
+                                }}
+                                style={({ pressed }) => ({
+                                  paddingHorizontal: 16,
+                                  paddingVertical: 8,
+                                  borderRadius: 999,
+                                  backgroundColor: pressed
+                                    ? '#F5F5F5'
+                                    : selectedTimePreset === preset.key
+                                      ? '#F0F4F1'
+                                      : '#FAFAFA',
+                                  borderWidth: 1,
+                                  borderColor:
+                                    selectedTimePreset === preset.key ? '#2E5540' : '#E0E0E0',
+                                })}
+                              >
+                                <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                                  {preset.label}
+                                </Text>
+                              </Pressable>
+                            ))}
+                            {/* Custom time chip */}
+                            <Pressable
+                              onPress={() => {
+                                setSelectedTimePreset('custom');
+                                setShowCustomTimePicker(true);
                               }}
+                              style={({ pressed }) => ({
+                                paddingHorizontal: 16,
+                                paddingVertical: 8,
+                                borderRadius: 999,
+                                backgroundColor: pressed
+                                  ? '#F5F5F5'
+                                  : selectedTimePreset === 'custom'
+                                    ? '#F0F4F1'
+                                    : '#FAFAFA',
+                                borderWidth: 1,
+                                borderColor:
+                                  selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
+                              })}
                             >
-                              {format(selectedTime, 'h:mm a')}
-                            </Text>
+                              <Text style={{ fontSize: 14, fontWeight: '500', color: '#222222' }}>
+                                {selectedTimePreset === 'custom'
+                                  ? `Custom (${format(selectedTime, 'h:mm a')})`
+                                  : 'Custom…'}
+                              </Text>
+                            </Pressable>
                           </Box>
+
+                          {/* Custom Time Picker - shown inline when Custom is selected */}
+                          {showCustomTimePicker && (
+                            <Box mt={3}>
+                              <DateTimePicker
+                                value={selectedTime}
+                                mode="time"
+                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                onChange={(event, time) => {
+                                  if (time) {
+                                    setSelectedTime(time);
+                                  }
+                                }}
+                                themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                                accentColor="#2E5540"
+                              />
+                            </Box>
+                          )}
                         </Box>
                       )}
                     </Box>
@@ -2898,6 +2978,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         setDateModalTarget(null);
                         setShowTimePicker(false);
                         setClearDateFlag(false);
+                        setSelectedTimePreset(null);
+                        setShowCustomTimePicker(false);
                       }}
                       title="Cancel"
                     />
@@ -2941,6 +3023,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           setDateModalTarget(null);
                           setShowTimePicker(false);
                           setClearDateFlag(false);
+                          setSelectedTimePreset(null);
+                          setShowCustomTimePicker(false);
                         } catch (e) {
                           console.error('[DatePicker] Error setting date:', e);
                         }
