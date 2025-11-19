@@ -1632,6 +1632,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const lastSubmittedTextRef = useRef<string | null>(null);
   const lastUnsortedIdRef = useRef<string | null>(null);
 
+  // Track which drop_ids already have unsorted notes to prevent duplicates
+  // This is needed because dropIdRef persists across submissions but unsortedIdRef gets cleared
+  const unsortedNotesByDropIdRef = useRef<Map<string, string>>(new Map());
+
   // Phase 1B: Submission mutex to prevent rapid duplicate submits
   const submissionMutex = useRef<Map<string, boolean>>(new Map());
 
@@ -1994,6 +1998,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     unsortedIdRef.current = null;
     submissionIdRef.current = null;
     dropIdRef.current = null;
+    unsortedNotesByDropIdRef.current.clear(); // Clear drop_id tracking
     setNote('');
     setIsSubmitting(false);
     setIsThinking(false);
@@ -2223,8 +2228,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
         if (classifyNarrative(cleanedText)) {
-          // Save to unsorted tray once if not already saved
-          if (unsortedIdRef.current == null) {
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            unsortedIdRef.current = existingUnsortedId;
+            console.debug('[MindDrop][Narrative] Reusing existing unsorted note for drop_id', {
+              dropId,
+              unsortedId: existingUnsortedId,
+            });
+          } else if (unsortedIdRef.current == null) {
+            // Create new unsorted note only if we don't have one yet
             try {
               const narrativeTags = buildFallbackTags(cleanedText, 'note', 'journal');
               const tagsForCreate = narrativeTags.length > 0 ? narrativeTags : null;
@@ -2240,6 +2255,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   dropId,
                   mode: decision?.mode ?? 'narrative_guard',
                 });
+                // Track this drop_id to prevent duplicates
+                unsortedNotesByDropIdRef.current.set(dropId, id);
               }
               unsortedIdRef.current = id ?? null;
 
@@ -2344,7 +2361,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (shouldAutoCreate(decision) && actions.length > 0) {
           // Step 1: Create unsorted note first (unified pipeline invariant)
           let unsortedNoteId: string | null = null;
-          if (unsortedIdRef.current == null) {
+
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            unsortedNoteId = existingUnsortedId;
+            unsortedIdRef.current = existingUnsortedId;
+            console.debug('[MindDrop][AutoCreate] Reusing existing unsorted note for drop_id', {
+              dropId,
+              unsortedId: existingUnsortedId,
+            });
+          } else if (unsortedIdRef.current == null) {
+            // Create new unsorted note only if we don't have one yet
             try {
               // Compute combined AI tags from cortexDecide response
               const engineTags = Array.isArray(decision.engineTags) ? decision.engineTags : [];
@@ -2364,6 +2394,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               });
               unsortedNoteId = createdId ?? null;
               unsortedIdRef.current = unsortedNoteId;
+
+              if (unsortedNoteId) {
+                // Track this drop_id to prevent duplicates
+                unsortedNotesByDropIdRef.current.set(dropId, unsortedNoteId);
+              }
             } catch (err) {
               console.warn('[MindDrop][AutoCreate] Failed to create unsorted note', err);
               // If we can't create unsorted note, fall through to ask mode
@@ -2528,65 +2563,81 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
 
         if (decision.mode === 'ask' && chipSuggestions.length > 0) {
-          // Duplicate prevention: only save if no existing unsorted note OR text is different
-          const shouldSaveNew =
-            unsortedIdRef.current == null && lastSubmittedTextRef.current !== cleanedText;
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 
-          if (shouldSaveNew) {
-            try {
-              const decisionMeta = decision.meta as
-                | (Record<string, unknown> & {
-                    engineOutput?: { tags?: unknown };
-                    classification?: { tags?: unknown };
-                    canonicalSubtype?: LogSubtype | null;
-                  })
-                | undefined;
-              const engineTags = Array.isArray(decisionMeta?.engineOutput?.tags)
-                ? (decisionMeta?.engineOutput?.tags as string[])
-                : [];
-              const classificationTagsMeta = Array.isArray(decisionMeta?.classification?.tags)
-                ? (decisionMeta?.classification?.tags as string[])
-                : [];
-              const classificationTags = filterAndNormalizeTags([
-                ...engineTags,
-                ...classificationTagsMeta,
-              ]);
-              const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
-              const fallbackSubtype =
-                canonicalSubtypeMeta === 'journal' ||
-                canonicalSubtypeMeta === 'list' ||
-                canonicalSubtypeMeta === 'idea'
-                  ? (canonicalSubtypeMeta as NoteSubtype)
-                  : 'catchall';
-              const fallbackTags =
-                classificationTags.length > 0
-                  ? classificationTags
-                  : buildFallbackTags(cleanedText, 'note', fallbackSubtype);
-              const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
-              const id = await saveToUnsortedTray(repo as any, cleanedText, {
-                sourceMessageId: validSourceMessageId ?? undefined,
-                whyString: 'Awaiting chip selection',
-                tags: tagsForCreate ?? undefined,
-                dropId,
-              });
-              if (id) {
-                logMetrics('minddrop_unsorted_created', {
-                  noteId: id,
-                  dropId,
-                  mode: decision.mode,
-                });
-              }
-              unsortedIdRef.current = id ?? null;
-
-              // Track this submission to prevent duplicates
-              lastSubmittedTextRef.current = trimmed;
-              lastUnsortedIdRef.current = unsortedIdRef.current;
-            } catch (e) {
-              console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
-            }
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            unsortedIdRef.current = existingUnsortedId;
+            console.debug('[MindDrop][Ask] Reusing existing unsorted note for drop_id', {
+              dropId,
+              unsortedId: existingUnsortedId,
+            });
           } else {
-            // Reuse existing unsorted note
-            console.debug('[MindDrop][Ask] Reusing existing unsorted note, not creating duplicate');
+            // Duplicate prevention: only save if no existing unsorted note OR text is different
+            const shouldSaveNew =
+              unsortedIdRef.current == null && lastSubmittedTextRef.current !== cleanedText;
+
+            if (shouldSaveNew) {
+              try {
+                const decisionMeta = decision.meta as
+                  | (Record<string, unknown> & {
+                      engineOutput?: { tags?: unknown };
+                      classification?: { tags?: unknown };
+                      canonicalSubtype?: LogSubtype | null;
+                    })
+                  | undefined;
+                const engineTags = Array.isArray(decisionMeta?.engineOutput?.tags)
+                  ? (decisionMeta?.engineOutput?.tags as string[])
+                  : [];
+                const classificationTagsMeta = Array.isArray(decisionMeta?.classification?.tags)
+                  ? (decisionMeta?.classification?.tags as string[])
+                  : [];
+                const classificationTags = filterAndNormalizeTags([
+                  ...engineTags,
+                  ...classificationTagsMeta,
+                ]);
+                const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
+                const fallbackSubtype =
+                  canonicalSubtypeMeta === 'journal' ||
+                  canonicalSubtypeMeta === 'list' ||
+                  canonicalSubtypeMeta === 'idea'
+                    ? (canonicalSubtypeMeta as NoteSubtype)
+                    : 'catchall';
+                const fallbackTags =
+                  classificationTags.length > 0
+                    ? classificationTags
+                    : buildFallbackTags(cleanedText, 'note', fallbackSubtype);
+                const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
+                const id = await saveToUnsortedTray(repo as any, cleanedText, {
+                  sourceMessageId: validSourceMessageId ?? undefined,
+                  whyString: 'Awaiting chip selection',
+                  tags: tagsForCreate ?? undefined,
+                  dropId,
+                });
+                if (id) {
+                  logMetrics('minddrop_unsorted_created', {
+                    noteId: id,
+                    dropId,
+                    mode: decision.mode,
+                  });
+                  // Track this drop_id to prevent duplicates
+                  unsortedNotesByDropIdRef.current.set(dropId, id);
+                }
+                unsortedIdRef.current = id ?? null;
+
+                // Track this submission to prevent duplicates
+                lastSubmittedTextRef.current = trimmed;
+                lastUnsortedIdRef.current = unsortedIdRef.current;
+              } catch (e) {
+                console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
+              }
+            } else {
+              // Reuse existing unsorted note
+              console.debug(
+                '[MindDrop][Ask] Reusing existing unsorted note, not creating duplicate',
+              );
+            }
           }
 
           const savedUnsortedId = unsortedIdRef.current;
@@ -2650,8 +2701,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           actionsCount: decision?.actions?.length ?? 0,
         });
 
-        // Save to Unsorted tray if not already saved
-        if (unsortedIdRef.current == null) {
+        // Check if we already have an unsorted note for this drop_id
+        const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+        if (existingUnsortedId) {
+          // Reuse existing unsorted note for this drop_id
+          unsortedIdRef.current = existingUnsortedId;
+          console.debug('[MindDrop][NoActions] Reusing existing unsorted note for drop_id', {
+            dropId,
+            unsortedId: existingUnsortedId,
+          });
+        } else if (unsortedIdRef.current == null) {
+          // Create new unsorted note only if we don't have one yet
           try {
             const fallbackTags = buildFallbackTags(trimmed, 'note');
             const tagsForCreate = fallbackTags.length > 0 ? fallbackTags : null;
@@ -2670,6 +2731,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 mode: decision?.mode ?? 'ask',
                 reason: 'no_actions',
               });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, id);
             }
 
             unsortedIdRef.current = id ?? null;
@@ -3226,17 +3289,34 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     try {
       // Optional short-circuit if network state is provided and offline
       if (typeof networkIsOnline === 'boolean' && !networkIsOnline) {
-        const offlineId = await saveToUnsortedTray(repo, trimmed, {
-          sourceMessageId: validSourceMessageId,
-          dropId,
-        });
-        if (offlineId) {
-          logMetrics('minddrop_unsorted_created', {
-            noteId: offlineId,
+        // Check if we already have an unsorted note for this drop_id
+        const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+        let offlineId: string | undefined;
+        if (existingUnsortedId) {
+          // Reuse existing unsorted note for this drop_id
+          offlineId = existingUnsortedId;
+          console.debug('[MindDrop][Offline] Reusing existing unsorted note for drop_id', {
             dropId,
-            mode: 'offline_short_circuit',
+            unsortedId: existingUnsortedId,
           });
+        } else {
+          // Create new unsorted note
+          offlineId = await saveToUnsortedTray(repo, trimmed, {
+            sourceMessageId: validSourceMessageId,
+            dropId,
+          });
+          if (offlineId) {
+            logMetrics('minddrop_unsorted_created', {
+              noteId: offlineId,
+              dropId,
+              mode: 'offline_short_circuit',
+            });
+            // Track this drop_id to prevent duplicates
+            unsortedNotesByDropIdRef.current.set(dropId, offlineId);
+          }
         }
+
         resetState();
         if (TOASTS_ON) {
           showActionToast({
@@ -3322,18 +3402,34 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (!finalResult) {
         // Primary pipeline failed twice. Decide fallback by error type.
         if (isNetworkError(lastError)) {
-          // Offline-ish path — save locally and reassure
-          const offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
-            sourceMessageId: validSourceMessageId,
-            dropId,
-          });
-          if (offlineRetryId) {
-            logMetrics('minddrop_unsorted_created', {
-              noteId: offlineRetryId,
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          let offlineRetryId: string | undefined;
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            offlineRetryId = existingUnsortedId;
+            console.debug('[MindDrop][OfflineRetry] Reusing existing unsorted note for drop_id', {
               dropId,
-              mode: 'offline_retry',
+              unsortedId: existingUnsortedId,
             });
+          } else {
+            // Offline-ish path — save locally and reassure
+            offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
+              sourceMessageId: validSourceMessageId,
+              dropId,
+            });
+            if (offlineRetryId) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: offlineRetryId,
+                dropId,
+                mode: 'offline_retry',
+              });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, offlineRetryId);
+            }
           }
+
           resetState();
           if (TOASTS_ON) {
             showActionToast({
@@ -3355,18 +3451,37 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             void e;
           }
         } else {
-          // Non-network error: save to Unsorted Tray for manual follow-up
-          const unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
-            sourceMessageId: validSourceMessageId,
-            dropId,
-          });
-          if (unsortedFallbackId) {
-            logMetrics('minddrop_unsorted_created', {
-              noteId: unsortedFallbackId,
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          let unsortedFallbackId: string | undefined;
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            unsortedFallbackId = existingUnsortedId;
+            console.debug(
+              '[MindDrop][UnsortedFallback] Reusing existing unsorted note for drop_id',
+              {
+                dropId,
+                unsortedId: existingUnsortedId,
+              },
+            );
+          } else {
+            // Non-network error: save to Unsorted Tray for manual follow-up
+            unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
+              sourceMessageId: validSourceMessageId,
               dropId,
-              mode: 'fallback_unsorted',
             });
+            if (unsortedFallbackId) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: unsortedFallbackId,
+                dropId,
+                mode: 'fallback_unsorted',
+              });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, unsortedFallbackId);
+            }
           }
+
           resetState();
           if (TOASTS_ON) {
             showActionToast({

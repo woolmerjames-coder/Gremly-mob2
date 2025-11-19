@@ -63,38 +63,40 @@ function extractTemporalTokens(text: string): string[] {
 }
 
 /**
- * Check if AI title is acceptable (not too long, not identical to body, preserves temporal hints)
+ * Check if AI title is acceptable (not too long, not identical to body, shorter than body)
+ *
+ * Simplified validation rules:
+ * - Accept aiTitle iff:
+ *   - aiTitle is non-empty after trim, and
+ *   - aiTitle !== body (strict string comparison), and
+ *   - aiTitle.length <= 80, and
+ *   - aiTitle.length < body.length (prefer shorter than full sentence)
+ *
+ * We do NOT require temporal hints to accept a title.
+ * We do NOT reject a good aiTitle based on undefined_due status.
  */
 function isAiTitleAcceptable(aiTitle: string, body: string): boolean {
   const trimmedAiTitle = aiTitle.trim();
   const trimmedBody = body.trim();
+
+  // Reject if AI title is empty
+  if (!trimmedAiTitle) {
+    return false;
+  }
 
   // Reject if AI title is identical to the full body
   if (trimmedAiTitle === trimmedBody) {
     return false;
   }
 
-  // Reject if AI title is too long (should be a summary, not the full text)
-  if (trimmedAiTitle.length > MAX_TITLE_CHARS) {
+  // Reject if AI title is too long (max 80 chars)
+  if (trimmedAiTitle.length > 80) {
     return false;
   }
 
-  const wordCount = trimmedAiTitle.split(/\s+/).length;
-  if (wordCount > MAX_TITLE_WORDS) {
+  // Reject if AI title is not shorter than the body (should be a summary)
+  if (trimmedAiTitle.length >= trimmedBody.length) {
     return false;
-  }
-
-  // Check if body contains temporal tokens
-  const bodyTemporalTokens = extractTemporalTokens(trimmedBody);
-
-  // If body has temporal tokens, ensure AI title preserves at least one of them
-  if (bodyTemporalTokens.length > 0) {
-    const aiTitleTemporalTokens = extractTemporalTokens(trimmedAiTitle);
-
-    // If AI title has no temporal tokens but body does, reject it
-    if (aiTitleTemporalTokens.length === 0) {
-      return false;
-    }
   }
 
   return true;
@@ -188,26 +190,38 @@ export function normalizeTodoTitle(body: string, aiTitle?: string | null): strin
  *
  * @param body - The full Mind Drop text
  * @param aiTitle - AI-generated title candidate
- * @returns The AI title if acceptable, otherwise null
+ * @returns Object with validated title and rejection reason (if applicable)
  */
 export function validateAiTitleForTodo(
   body: string,
   aiTitle: string | null | undefined,
-): string | null {
+): { title: string | null; reason?: string } {
   if (!aiTitle || typeof aiTitle !== 'string') {
-    return null;
+    return { title: null, reason: 'empty or invalid type' };
   }
 
   const trimmedAiTitle = aiTitle.trim();
+  const trimmedBody = body.trim();
+
   if (!trimmedAiTitle) {
-    return null;
+    return { title: null, reason: 'empty after trim' };
   }
 
-  // Check if AI title is acceptable
-  if (isAiTitleAcceptable(trimmedAiTitle, body.trim())) {
-    return trimmedAiTitle;
+  // Reject if AI title is identical to the full body
+  if (trimmedAiTitle === trimmedBody) {
+    return { title: null, reason: 'identical to body' };
   }
 
-  // AI title failed validation - return null to keep existing title
-  return null;
+  // Reject if AI title is too long (max 80 chars)
+  if (trimmedAiTitle.length > 80) {
+    return { title: null, reason: 'longer than 80 chars' };
+  }
+
+  // Reject if AI title is not shorter than the body (should be a summary)
+  if (trimmedAiTitle.length >= trimmedBody.length) {
+    return { title: null, reason: 'longer than or equal to body' };
+  }
+
+  // AI title passed all validation checks
+  return { title: trimmedAiTitle };
 }

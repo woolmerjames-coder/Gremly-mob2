@@ -334,6 +334,32 @@ function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
   });
 }
 
+/**
+ * Compare two tag arrays to determine if they have changed.
+ * Returns true if tags are different (order-insensitive).
+ */
+function areTagsEqual(originalTags: string[], newTags: string[]): boolean {
+  // Normalize and sort both arrays for comparison
+  const normalize = (tags: string[]) => {
+    const normalized = tags
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean)
+      .sort();
+    return Array.from(new Set(normalized)); // Remove duplicates
+  };
+
+  const normalizedOriginal = normalize(originalTags);
+  const normalizedNew = normalize(newTags);
+
+  // Compare lengths first
+  if (normalizedOriginal.length !== normalizedNew.length) {
+    return false;
+  }
+
+  // Compare each element (arrays are already sorted)
+  return normalizedOriginal.every((tag, index) => tag === normalizedNew[index]);
+}
+
 function mergeSuggestionEntries(
   base: PrefillSuggestedTag[],
   incoming: PrefillSuggestedTag[],
@@ -1500,11 +1526,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           : (existingTagsMeta.tombstones ?? []),
     };
 
+    // Determine if tags have changed by comparing current tags with original entity tags
+    // Only send tags in the patch if they've actually changed
+    const originalTags = Array.isArray(entity?.tags) ? entity.tags : [];
+    const tagsHaveChanged = !areTagsEqual(originalTags, tags);
+
     // Conditionally include tags/tags_meta:
     // - Create mode: always include (mode !== 'edit')
-    // - Edit mode: only include if user modified tags (tagsDirty === true)
+    // - Edit mode: only include if tags have actually changed
     // This preserves Mind Drop AI-generated tags when user only edits title/due date
-    const shouldIncludeTags = mode !== 'edit' || tagsDirty;
+    const shouldIncludeTags = mode !== 'edit' || (tagsDirty && tagsHaveChanged);
     const tagsPayload = shouldIncludeTags
       ? { tags, tags_meta: tagsMeta }
       : { tags_meta: existingTagsMeta };
@@ -2677,6 +2708,11 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const title = (entity as any)?.title ?? '';
   const name = (entity as any)?.name ?? '';
 
+  // For todos: prefer name over title (name is the primary field for todos)
+  // For logs: prefer title over name
+  const todoTitle = name || title || '';
+  const logTitle = title || name || '';
+
   // For todos: handle Mind Drop items
   // - Use Mind Drop raw text as the long text source (body/details mapping)
   // - If no Mind Drop text, fall back to name/title (backwards compatibility)
@@ -2688,23 +2724,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   // - title remains as the short label (possibly AI-generated)
   const logBody = rawDetails || title || '';
 
-  const payload: Partial<V2State> = {
-    baseType,
-    log: {
-      title,
-      body: logBody,
-    },
-    todo: {
-      title,
-      details: todoDetails,
-      due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
-    },
-    habit: {
-      title,
-      notes: rawDetails || '',
-      schedule: 'custom',
-    },
-  };
+  // Extract tags from entity for all types (not just habits)
+  const extractedTags = extractTagKeysFromEntity(entity);
 
   const normalizeMetaValues = (values: unknown): string[] => {
     if (!Array.isArray(values)) return [];
@@ -2715,8 +2736,27 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   };
 
   const tagsMeta = (entity as any)?.tags_meta ?? {};
-  (payload as any).stickyTags = normalizeMetaValues(tagsMeta?.sticky);
-  (payload as any).tagTombstones = normalizeMetaValues(tagsMeta?.tombstones);
+
+  const payload: Partial<V2State> = {
+    baseType,
+    log: {
+      title: logTitle,
+      body: logBody,
+    },
+    todo: {
+      title: todoTitle,
+      details: todoDetails,
+      due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
+    },
+    habit: {
+      title: name || title || '',
+      notes: rawDetails || '',
+      schedule: 'custom',
+    },
+    tags: extractedTags, // Initialize tags from entity for all types
+    stickyTags: normalizeMetaValues(tagsMeta?.sticky),
+    tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
+  };
 
   return payload;
 }

@@ -512,6 +512,60 @@ export class SupabaseRepo implements IRepo {
       .single();
 
     if (error) {
+      // Defensive handling: If we hit duplicate key error on notes_owner_drop_id_active_unique,
+      // treat as "already exists" and fetch the existing note instead of throwing.
+      // This provides a safety net for race conditions between concurrent Mind Drop submissions.
+      const isDuplicateNoteError =
+        input.type === 'note' &&
+        error?.code === '23505' &&
+        error?.message?.includes('notes_owner_drop_id_active_unique');
+
+      if (isDuplicateNoteError && input.dropId) {
+        // Log warning instead of error - this is expected defensive behavior
+        console.warn(
+          `[SupabaseRepo.create] Duplicate note detected for drop_id=${input.dropId}, fetching existing note`,
+          {
+            code: error.code,
+            constraint: 'notes_owner_drop_id_active_unique',
+            userId: this.currentUserId,
+          },
+        );
+
+        // Fetch the existing active note by drop_id + owner_id
+        const { data: existingNote, error: fetchError } = await supabase
+          .from('notes')
+          .select('*')
+          .eq('drop_id', input.dropId)
+          .eq('owner_id', this.currentUserId)
+          .eq('archived', false)
+          .single();
+
+        if (fetchError || !existingNote) {
+          // If we can't fetch the existing note, fall back to original error
+          logSupabaseError(
+            `${input.type}.insert.duplicate.fetch_failed`,
+            fetchError ?? error,
+            payloadWithOwnerId,
+            this.currentUserId ?? undefined,
+          );
+          const friendlyMsg = getUserFriendlyErrorMessage(error);
+          throw new Error(`Failed to create ${input.type}: ${friendlyMsg}`);
+        }
+
+        // Successfully fetched existing note - return it as if create succeeded
+        if (__DEV__) {
+          console.log(
+            `[SupabaseRepo.create] Returning existing note id=${existingNote.id} for drop_id=${input.dropId}`,
+          );
+        }
+
+        const record = { ...existingNote, type: 'note' as const };
+        const parsedRecord = noteZ.parse(mapNoteFromDb(record));
+        eventBus.emit('ItemSaved', { id: parsedRecord.id });
+        return parsedRecord;
+      }
+
+      // All other errors: log and throw as before
       logSupabaseError(
         `${input.type}.insert`,
         error,

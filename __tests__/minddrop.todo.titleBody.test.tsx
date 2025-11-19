@@ -66,24 +66,24 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
       expect(result.length).toBeLessThanOrEqual(body.length); // Should not be longer than body
     });
 
-    it('should reject AI title that removes temporal hints (today)', () => {
+    it('should now accept AI title even if it omits temporal hints (today)', () => {
       const body = 'Book dentist appointment today';
-      const aiTitle = 'Dentist Appointment'; // Missing "today"
+      const aiTitle = 'Dentist Appointment'; // Missing "today" - but OK now
 
       const result = normalizeTodoTitle(body, aiTitle);
 
-      expect(result).not.toBe(aiTitle); // Should reject AI title
-      expect(result).toContain('today'); // Fallback should preserve "today"
+      // New behavior: we ACCEPT the AI title even though it omits "today"
+      expect(result).toBe(aiTitle);
     });
 
-    it('should reject AI title that removes temporal hints (Friday)', () => {
+    it('should now accept AI title even if it omits temporal hints (Friday)', () => {
       const body = 'Email my accountant about the tax letter before Friday';
-      const aiTitle = 'Email accountant'; // Missing "Friday"
+      const aiTitle = 'Email accountant'; // Missing "Friday" - but OK now
 
       const result = normalizeTodoTitle(body, aiTitle);
 
-      expect(result).not.toBe(aiTitle);
-      expect(result.toLowerCase()).toContain('friday'); // Fallback should preserve "Friday"
+      // New behavior: we ACCEPT the AI title even though it omits "Friday"
+      expect(result).toBe(aiTitle);
     });
 
     it('should reject AI title that is identical to body', () => {
@@ -109,24 +109,24 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
       expect(result.split(/\s+/).length).toBeLessThanOrEqual(11);
     });
 
-    it('should handle body with tomorrow', () => {
+    it('should now accept AI titles even if they omit temporal hints (tomorrow)', () => {
       const body = 'Call the plumber tomorrow morning';
-      const badAiTitle = 'Call plumber'; // Missing "tomorrow"
+      const aiTitle = 'Call plumber'; // Missing "tomorrow" - but OK now
 
-      const result = normalizeTodoTitle(body, badAiTitle);
+      const result = normalizeTodoTitle(body, aiTitle);
 
-      expect(result).not.toBe(badAiTitle);
-      expect(result.toLowerCase()).toContain('tomorrow');
+      // New behavior: we ACCEPT the AI title even though it omits "tomorrow"
+      expect(result).toBe(aiTitle);
     });
 
-    it('should handle body with weekday names', () => {
+    it('should now accept AI titles even if they omit temporal hints (weekday)', () => {
       const body = 'Finish presentation for Monday meeting';
-      const badAiTitle = 'Finish presentation'; // Missing "Monday"
+      const aiTitle = 'Finish presentation'; // Missing "Monday" - but OK now
 
-      const result = normalizeTodoTitle(body, badAiTitle);
+      const result = normalizeTodoTitle(body, aiTitle);
 
-      expect(result).not.toBe(badAiTitle);
-      expect(result.toLowerCase()).toContain('monday');
+      // New behavior: we ACCEPT the AI title even though it omits "Monday"
+      expect(result).toBe(aiTitle);
     });
 
     it('should handle empty body gracefully', () => {
@@ -143,40 +143,66 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
   });
 
   describe('validateAiTitleForTodo', () => {
-    it('should accept valid AI title', () => {
+    it('should accept valid AI title (shorter than body)', () => {
       const body = 'Email my accountant about the tax letter before Friday';
-      const aiTitle = 'Email accountant - tax letter Friday';
+      const aiTitle = 'Email accountant - tax letter';
 
       const result = validateAiTitleForTodo(body, aiTitle);
 
-      expect(result).toBe(aiTitle);
+      expect(result.title).toBe(aiTitle);
+      expect(result.reason).toBeUndefined();
     });
 
     it('should reject null/undefined AI title', () => {
       const body = 'Some task';
 
-      expect(validateAiTitleForTodo(body, null)).toBeNull();
-      expect(validateAiTitleForTodo(body, undefined)).toBeNull();
-      expect(validateAiTitleForTodo(body, '')).toBeNull();
+      expect(validateAiTitleForTodo(body, null).title).toBeNull();
+      expect(validateAiTitleForTodo(body, null).reason).toBe('empty or invalid type');
+      expect(validateAiTitleForTodo(body, undefined).title).toBeNull();
+      expect(validateAiTitleForTodo(body, '').title).toBeNull();
+      expect(validateAiTitleForTodo(body, '').reason).toBe('empty or invalid type');
     });
 
-    it('should reject AI title missing temporal hints', () => {
+    it('should accept AI title even without temporal hints (simplified validation)', () => {
       const body = 'Submit report today';
-      const aiTitle = 'Submit report'; // Missing "today"
+      const aiTitle = 'Submit report'; // Missing "today" - but that's OK now
 
       const result = validateAiTitleForTodo(body, aiTitle);
 
-      expect(result).toBeNull();
+      // New behavior: we DO accept this because it's shorter and non-identical
+      expect(result.title).toBe(aiTitle);
+      expect(result.reason).toBeUndefined();
     });
 
-    it('should reject AI title that is too long', () => {
-      const body = 'Short task';
+    it('should reject AI title that is too long (>80 chars)', () => {
+      const body = 'Short task that is definitely longer than the proposed AI title will be';
       const aiTitle =
-        'This is a very long title that exceeds the maximum character limit and should be rejected';
+        'This is a very long title that exceeds the maximum character limit of 80 characters and should be rejected';
 
       const result = validateAiTitleForTodo(body, aiTitle);
 
-      expect(result).toBeNull();
+      expect(result.title).toBeNull();
+      expect(result.reason).toBe('longer than 80 chars');
+    });
+
+    it('should reject AI title identical to body', () => {
+      const body = 'Call mom';
+      const aiTitle = 'Call mom';
+
+      const result = validateAiTitleForTodo(body, aiTitle);
+
+      expect(result.title).toBeNull();
+      expect(result.reason).toBe('identical to body');
+    });
+
+    it('should reject AI title that is not shorter than body', () => {
+      const body = 'Email accountant';
+      const aiTitle = 'Email my accountant'; // Longer than body
+
+      const result = validateAiTitleForTodo(body, aiTitle);
+
+      expect(result.title).toBeNull();
+      expect(result.reason).toBe('longer than or equal to body');
     });
   });
 
@@ -228,14 +254,15 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
       // Body should contain full text
       expect(result.todo.body).toBe(fullText);
 
-      // Title should be shorter or equal (if temporal preservation extends it slightly)
-      expect(result.todo.name?.length).toBeLessThanOrEqual(fullText.length + 10); // Allow for ellipsis
+      // Title should be shorter or equal to body length (may be same if body is short)
+      expect(result.todo.name?.length).toBeLessThanOrEqual(fullText.length);
 
-      // Title should still contain temporal hint "Friday"
-      expect(result.todo.name?.toLowerCase()).toContain('friday');
+      // Title should be a reasonable summary (not testing for specific temporal tokens)
+      expect(result.todo.name).toBeTruthy();
+      expect(result.todo.name?.length).toBeGreaterThan(0);
     });
 
-    it('should create fallback title with temporal hint when no AI title available', async () => {
+    it('should create fallback title when no AI title available', async () => {
       const noteId = 'test-note-456';
       const fullText = 'Book dentist appointment today';
 
@@ -253,11 +280,11 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
       expect(result.todo.body).toBe(fullText);
       expect(result.todo.body).toContain('today');
 
-      // Title should be reasonable length (allow equal if it's already short)
-      expect(result.todo.name?.length).toBeLessThanOrEqual(fullText.length + 5);
+      // Title should be reasonable length
+      expect(result.todo.name?.length).toBeLessThanOrEqual(fullText.length);
 
-      // Title should preserve "today" from body
-      expect(result.todo.name?.toLowerCase()).toContain('today');
+      // Title should be a reasonable summary (fallback logic may or may not include "today")
+      expect(result.todo.name).toBeTruthy();
     });
 
     it('should not duplicate body as title', async () => {
@@ -306,12 +333,16 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
       // Title should be much shorter (first ~7 words)
       expect(result.todo.name?.length).toBeLessThan(60);
 
-      // Title should contain key temporal hint from beginning
-      expect(result.todo.name?.toLowerCase()).toContain('friday');
+      // Title should be a reasonable summary
+      expect(result.todo.name).toBeTruthy();
     });
   });
 
-  describe('Temporal token preservation', () => {
+  describe('Temporal token preservation (legacy - removed in simplified validation)', () => {
+    // These tests verify that normalizeTodoTitle fallback logic TRIES to preserve temporal tokens
+    // when generating fallback titles (when AI title is rejected or not provided).
+    // However, we NO LONGER REJECT AI titles just because they're missing temporal hints.
+
     const temporalCases = [
       { body: 'Meet client today at 3pm', temporal: 'today' },
       { body: 'Submit report tomorrow', temporal: 'tomorrow' },
@@ -322,13 +353,25 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
     ];
 
     temporalCases.forEach(({ body, temporal }) => {
-      it(`should preserve "${temporal}" in title for: "${body}"`, () => {
-        const badAiTitle = body.split(' ').slice(0, 2).join(' '); // First 2 words, likely missing temporal
+      it(`should try to include "${temporal}" in fallback title for: "${body}"`, () => {
+        // When NO AI title provided, normalizeTodoTitle creates a fallback
+        // The fallback logic still tries to preserve temporal hints
+        const result = normalizeTodoTitle(body);
 
-        const result = normalizeTodoTitle(body, badAiTitle);
-
+        // Fallback title SHOULD try to include temporal token
         expect(result.toLowerCase()).toContain(temporal.toLowerCase());
       });
+    });
+
+    it('should now ACCEPT AI titles even if they omit temporal hints', () => {
+      const body = 'Submit report tomorrow';
+      const aiTitle = 'Submit report'; // Missing "tomorrow" - but that's OK now
+
+      const result = normalizeTodoTitle(body, aiTitle);
+
+      // New behavior: we USE the AI title even though it omits "tomorrow"
+      expect(result).toBe(aiTitle);
+      expect(result.toLowerCase()).not.toContain('tomorrow');
     });
   });
 });

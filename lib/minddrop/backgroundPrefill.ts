@@ -139,7 +139,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
         tableName = 'todos';
 
         // For todos: validate AI title before applying it
-        // Only use AI title if it's short, preserves temporal hints, and isn't identical to body
+        // Only use AI title if it's short, not identical to body, and shorter than body
         if (aiTitle) {
           // Fetch the full todo to get the body text for validation
           const { data: fullTodo, error: fetchError } = await supabase
@@ -149,21 +149,20 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             .single();
 
           if (!fetchError && fullTodo?.body) {
-            const validatedTitle = validateAiTitleForTodo(fullTodo.body, aiTitle);
-            if (validatedTitle) {
-              updatePayload.name = validatedTitle;
-              updatePayload.title = validatedTitle; // Backwards compatibility
+            const validation = validateAiTitleForTodo(fullTodo.body, aiTitle);
+            if (validation.title) {
+              updatePayload.name = validation.title;
+              updatePayload.title = validation.title; // Backwards compatibility
               console.log('[BackgroundPrefill] Using validated AI title for todo', {
                 entityId: entity.id,
                 originalAiTitle: aiTitle,
-                validatedTitle,
+                validatedTitle: validation.title,
               });
             } else {
-              console.log('[BackgroundPrefill] AI title rejected for todo (preserving existing)', {
+              console.log('[BackgroundPrefill] Rejected aiTitle for todo', {
                 entityId: entity.id,
                 aiTitle,
-                reason:
-                  'Failed validation (too long, identical to body, or missing temporal hints)',
+                reason: validation.reason || 'unknown',
               });
             }
           } else {
@@ -173,16 +172,22 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
           }
         }
 
-        // Filter tags through unified junk filter
-        updatePayload.tags = filterAndNormalizeTags(aiTags ?? []);
+        // Only update tags if AI returned some tags
+        // Don't overwrite existing tags with an empty array
+        if (aiTags && aiTags.length > 0) {
+          updatePayload.tags = filterAndNormalizeTags(aiTags);
+        }
         break;
       case 'habit':
         tableName = 'habits';
         if (aiTitle) {
           updatePayload.name = aiTitle;
         }
-        // Filter tags through unified junk filter
-        updatePayload.tags = filterAndNormalizeTags(aiTags ?? []);
+        // Only update tags if AI returned some tags
+        // Don't overwrite existing tags with an empty array
+        if (aiTags && aiTags.length > 0) {
+          updatePayload.tags = filterAndNormalizeTags(aiTags);
+        }
         break;
       case 'note': {
         tableName = 'notes';
