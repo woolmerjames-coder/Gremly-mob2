@@ -2834,6 +2834,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
+            // Auto-open overlay for todos to allow immediate editing
+            console.log('[MindDrop][Debug][openOverlay] Auto-opening for todo', {
+              todoId: createdTodo.id,
+            });
+            overlay.openEdit({
+              record: createdTodo,
+            });
+
             if (TOASTS_ON) {
               showActionToast({
                 type: 'success',
@@ -2891,6 +2899,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
+            // Auto-open overlay for habits to allow immediate editing
+            console.log('[MindDrop][Debug][openOverlay] Auto-opening for habit', {
+              habitId: createdHabit.id,
+            });
+            overlay.openEdit({
+              record: createdHabit,
+            });
+
             if (TOASTS_ON) {
               showActionToast({
                 type: 'success',
@@ -2932,9 +2948,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
 
-            // Open overlay on converted log
-            overlay.openEdit({
-              record: convertedLog,
+            // Skip auto-opening overlay for logs (user doesn't need to edit immediately)
+            console.log('[MindDrop][Debug][openOverlay] Skipping auto-open for log', {
+              noteId: convertedLog.id,
+              subtype,
             });
 
             if (TOASTS_ON) {
