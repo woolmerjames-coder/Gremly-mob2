@@ -30,7 +30,8 @@ import { useReducedMotion, conditionalAnimation, timingConfig } from '../../desi
 import { Box, Text, Button } from '../../ui';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
-import { format, parseISO, addDays } from 'date-fns';
+import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   lightTokens,
   darkTokens,
@@ -645,14 +646,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
-  const [customDate, setCustomDate] = useState('');
+  // Date picker state
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [clearDateFlag, setClearDateFlag] = useState(false);
   // save error UI
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
-  const [customDateFocused, setCustomDateFocused] = useState(false);
   const [commitmentFocused, setCommitmentFocused] = useState(false);
   // useAuth may not be available in some test harnesses that mock providers,
   // so guard against the hook throwing by falling back to null.
@@ -2591,8 +2595,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             label: 'Tomorrow',
                           });
                         } else {
-                          // fallback: open custom date modal prefilled (for todo)
-                          setCustomDate(d.replace(/^\D+/g, ''));
+                          // fallback: open custom date modal with parsed date prefilled
+                          try {
+                            const dateStr = d.replace(/^\D+/g, '');
+                            const parsed = new Date(dateStr);
+                            if (!isNaN(parsed.getTime())) {
+                              setSelectedDate(parsed);
+                              setClearDateFlag(false);
+                            }
+                          } catch (e) {
+                            // Use today as fallback
+                            setSelectedDate(new Date());
+                          }
                           setDateModalTarget('todo');
                           setShowDateModal(true);
                         }
@@ -2626,93 +2640,183 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       <Button
                         variant="ghost"
                         onPress={() => {
-                          const iso = new Date().toISOString();
-                          if (dateModalTarget === 'reminder')
-                            dispatch({ type: 'SET_REMINDER', when: iso });
-                          else handleTodoDueChange(iso, { label: 'Today' });
-                          setShowDateModal(false);
-                          setDateModalTarget(null);
+                          const today = new Date();
+                          setSelectedDate(today);
+                          setClearDateFlag(false);
+                          if (dateModalTarget === 'reminder') {
+                            dispatch({ type: 'SET_REMINDER', when: today.toISOString() });
+                            setShowDateModal(false);
+                            setDateModalTarget(null);
+                          }
                         }}
                         title="Today"
                       />
                       <Button
                         variant="ghost"
                         onPress={() => {
-                          const iso = addDays(new Date(), 1).toISOString();
-                          if (dateModalTarget === 'reminder')
-                            dispatch({ type: 'SET_REMINDER', when: iso });
-                          else handleTodoDueChange(iso, { label: 'Tomorrow' });
-                          setShowDateModal(false);
-                          setDateModalTarget(null);
+                          const tomorrow = addDays(new Date(), 1);
+                          setSelectedDate(tomorrow);
+                          setClearDateFlag(false);
+                          if (dateModalTarget === 'reminder') {
+                            dispatch({ type: 'SET_REMINDER', when: tomorrow.toISOString() });
+                            setShowDateModal(false);
+                            setDateModalTarget(null);
+                          }
                         }}
                         title="Tomorrow"
                       />
                       <Button
                         variant="ghost"
                         onPress={() => {
-                          if (dateModalTarget === 'reminder')
+                          setClearDateFlag(true);
+                          setShowTimePicker(false);
+                          if (dateModalTarget === 'reminder') {
                             dispatch({ type: 'SET_REMINDER', when: null });
-                          else handleTodoDueChange(null);
-                          setShowDateModal(false);
-                          setDateModalTarget(null);
+                            setShowDateModal(false);
+                            setDateModalTarget(null);
+                          }
                         }}
                         title="Clear"
                       />
                     </Box>
                   </Box>
-                  <Box mt={3}>
-                    <Text variant="label">Custom (YYYY-MM-DD)</Text>
-                    <TextInput
-                      value={customDate}
-                      onChangeText={setCustomDate}
-                      placeholder="2023-12-31"
-                      accessibilityLabel="Custom date input (YYYY-MM-DD)"
-                      onFocus={() => setCustomDateFocused(true)}
-                      onBlur={() => setCustomDateFocused(false)}
-                      style={[
-                        styles.textArea,
-                        { minHeight: 40, paddingVertical: 8 },
-                        {
-                          backgroundColor:
-                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                          borderWidth: 0,
-                        },
-                      ]}
-                    />
-                    <Box row mt={2}>
-                      <Button
-                        variant="ghost"
-                        onPress={() => {
-                          setShowDateModal(false);
-                          setDateModalTarget(null);
-                        }}
-                        title="Cancel"
-                      />
-                      <Box flex={1} />
-                      <Button
-                        variant="primary"
-                        onPress={() => {
-                          try {
-                            if (customDate.trim().length === 0) return;
-                            const parsed = new Date(`${customDate}T00:00:00`);
-                            if (isNaN(parsed.getTime())) return;
-                            const iso = parsed.toISOString();
-                            if (dateModalTarget === 'reminder')
-                              dispatch({ type: 'SET_REMINDER', when: iso });
-                            else
-                              handleTodoDueChange(iso, {
-                                label: safeFormat(iso) || customDate || 'selected date',
-                              });
-                            setCustomDate('');
-                            setShowDateModal(false);
-                            setDateModalTarget(null);
-                          } catch (e) {
-                            // ignore parse
+
+                  {/* Date Picker */}
+                  {!clearDateFlag && (
+                    <Box mt={3}>
+                      <DateTimePicker
+                        value={selectedDate}
+                        mode="date"
+                        display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                        onChange={(event, date) => {
+                          if (date) {
+                            setSelectedDate(date);
+                            setClearDateFlag(false);
                           }
                         }}
-                        title="Set"
+                        themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
                       />
                     </Box>
+                  )}
+
+                  {/* Add time toggle */}
+                  {!clearDateFlag && (
+                    <Box mt={3}>
+                      <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text variant="label">Add time?</Text>
+                        <Switch
+                          value={showTimePicker}
+                          onValueChange={(value) => {
+                            setShowTimePicker(value);
+                            if (value) {
+                              // Initialize time to current time or 9 AM if not set
+                              const now = new Date();
+                              const defaultTime = setHours(setMinutes(new Date(), 0), 9);
+                              setSelectedTime(selectedTime || defaultTime);
+                            }
+                          }}
+                          trackColor={{
+                            false: colorMode === 'dark' ? 'rgba(255,255,255,0.2)' : '#E0E0E0',
+                            true:
+                              colorMode === 'dark'
+                                ? darkTokens.colors.moss
+                                : lightTokens.colors.moss,
+                          }}
+                        />
+                      </Box>
+
+                      {/* Time Picker */}
+                      {showTimePicker && (
+                        <Box mt={2}>
+                          <DateTimePicker
+                            value={selectedTime}
+                            mode="time"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            onChange={(event, time) => {
+                              if (time) {
+                                setSelectedTime(time);
+                              }
+                            }}
+                            themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                          />
+                          {/* Display selected time in 12-hour format */}
+                          <Box mt={2}>
+                            <Text
+                              style={{
+                                color:
+                                  colorMode === 'dark'
+                                    ? darkTokens.colors.subtle
+                                    : lightTokens.colors.subtle,
+                                fontSize: 14,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {format(selectedTime, 'h:mm a')}
+                            </Text>
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Action buttons */}
+                  <Box row mt={3}>
+                    <Button
+                      variant="ghost"
+                      onPress={() => {
+                        setShowDateModal(false);
+                        setDateModalTarget(null);
+                        setShowTimePicker(false);
+                        setClearDateFlag(false);
+                      }}
+                      title="Cancel"
+                    />
+                    <Box flex={1} />
+                    <Button
+                      variant="primary"
+                      onPress={() => {
+                        try {
+                          let finalIso: string | null = null;
+
+                          if (!clearDateFlag) {
+                            // Combine date and optional time
+                            let finalDate = selectedDate;
+
+                            if (showTimePicker && selectedTime) {
+                              // Merge the selected time into the selected date
+                              finalDate = setHours(
+                                setMinutes(selectedDate, selectedTime.getMinutes()),
+                                selectedTime.getHours(),
+                              );
+                            } else {
+                              // No time selected, use midnight
+                              finalDate = setHours(setMinutes(selectedDate, 0), 0);
+                            }
+
+                            finalIso = finalDate.toISOString();
+                          }
+
+                          // Apply the change
+                          if (dateModalTarget === 'reminder') {
+                            dispatch({ type: 'SET_REMINDER', when: finalIso });
+                          } else {
+                            const label = finalIso
+                              ? safeFormat(finalIso) || format(selectedDate, 'MMM d')
+                              : '';
+                            handleTodoDueChange(finalIso, { label });
+                          }
+
+                          // Reset and close
+                          setShowDateModal(false);
+                          setDateModalTarget(null);
+                          setShowTimePicker(false);
+                          setClearDateFlag(false);
+                        } catch (e) {
+                          console.error('[DatePicker] Error setting date:', e);
+                        }
+                      }}
+                      title="Set"
+                    />
                   </Box>
                 </Box>
               </Box>
