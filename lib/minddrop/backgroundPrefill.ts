@@ -141,10 +141,10 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
         // For todos: validate AI title before applying it
         // Only use AI title if it's short, not identical to body, and shorter than body
         if (aiTitle) {
-          // Fetch the full todo to get the body text for validation
+          // Fetch the full todo to get body text and existing tags for validation
           const { data: fullTodo, error: fetchError } = await supabase
             .from('todos')
-            .select('body')
+            .select('body, tags')
             .eq('id', entity.id)
             .single();
 
@@ -165,30 +165,107 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
                 reason: validation.reason || 'unknown',
               });
             }
+
+            // Tag fallback: Use AI tags if present, otherwise preserve existing tags from source note
+            const existingTags = Array.isArray(fullTodo.tags) ? fullTodo.tags : [];
+            const effectiveTags =
+              aiTags && aiTags.length > 0
+                ? filterAndNormalizeTags(aiTags)
+                : existingTags.length > 0
+                  ? existingTags
+                  : [];
+
+            if (effectiveTags.length > 0) {
+              updatePayload.tags = effectiveTags;
+            }
+
+            console.log('[BackgroundPrefill] Tags for todo', {
+              entityId: entity.id,
+              aiTagsCount: aiTags.length,
+              existingTagsCount: existingTags.length,
+              effectiveTagsCount: effectiveTags.length,
+              source: aiTags.length > 0 ? 'ai' : existingTags.length > 0 ? 'fallback' : 'none',
+            });
           } else {
             // Fallback if we can't fetch body: use AI title as-is (backward compatible)
             updatePayload.name = aiTitle;
             updatePayload.title = aiTitle;
+
+            // Only update tags if AI returned some tags
+            if (aiTags && aiTags.length > 0) {
+              updatePayload.tags = filterAndNormalizeTags(aiTags);
+            }
+          }
+        } else {
+          // No AI title - just handle tags with fallback logic
+          const { data: fullTodo, error: fetchError } = await supabase
+            .from('todos')
+            .select('tags')
+            .eq('id', entity.id)
+            .single();
+
+          if (!fetchError && fullTodo) {
+            const existingTags = Array.isArray(fullTodo.tags) ? fullTodo.tags : [];
+            const effectiveTags =
+              aiTags && aiTags.length > 0
+                ? filterAndNormalizeTags(aiTags)
+                : existingTags.length > 0
+                  ? existingTags
+                  : [];
+
+            if (effectiveTags.length > 0) {
+              updatePayload.tags = effectiveTags;
+            }
+
+            console.log('[BackgroundPrefill] Tags for todo (no AI title)', {
+              entityId: entity.id,
+              aiTagsCount: aiTags.length,
+              existingTagsCount: existingTags.length,
+              effectiveTagsCount: effectiveTags.length,
+              source: aiTags.length > 0 ? 'ai' : existingTags.length > 0 ? 'fallback' : 'none',
+            });
           }
         }
-
-        // Only update tags if AI returned some tags
-        // Don't overwrite existing tags with an empty array
-        if (aiTags && aiTags.length > 0) {
-          updatePayload.tags = filterAndNormalizeTags(aiTags);
-        }
         break;
-      case 'habit':
+      case 'habit': {
         tableName = 'habits';
         if (aiTitle) {
           updatePayload.name = aiTitle;
         }
-        // Only update tags if AI returned some tags
-        // Don't overwrite existing tags with an empty array
-        if (aiTags && aiTags.length > 0) {
+
+        // Tag fallback for habits: Use AI tags if present, otherwise preserve existing tags from source note
+        const { data: fullHabit, error: fetchHabitError } = await supabase
+          .from('habits')
+          .select('tags')
+          .eq('id', entity.id)
+          .single();
+
+        if (!fetchHabitError && fullHabit) {
+          const existingHabitTags = Array.isArray(fullHabit.tags) ? fullHabit.tags : [];
+          const effectiveHabitTags =
+            aiTags && aiTags.length > 0
+              ? filterAndNormalizeTags(aiTags)
+              : existingHabitTags.length > 0
+                ? existingHabitTags
+                : [];
+
+          if (effectiveHabitTags.length > 0) {
+            updatePayload.tags = effectiveHabitTags;
+          }
+
+          console.log('[BackgroundPrefill] Tags for habit', {
+            entityId: entity.id,
+            aiTagsCount: aiTags.length,
+            existingTagsCount: existingHabitTags.length,
+            effectiveTagsCount: effectiveHabitTags.length,
+            source: aiTags.length > 0 ? 'ai' : existingHabitTags.length > 0 ? 'fallback' : 'none',
+          });
+        } else if (aiTags && aiTags.length > 0) {
+          // Fallback if fetch fails: use AI tags if available
           updatePayload.tags = filterAndNormalizeTags(aiTags);
         }
         break;
+      }
       case 'note': {
         tableName = 'notes';
         if (aiTitle) {

@@ -105,12 +105,15 @@ function isAiTitleAcceptable(aiTitle: string, body: string): boolean {
 /**
  * Create a fallback title from the body text (first N words)
  * Tries to preserve temporal tokens if possible
+ * For multi-line text, only uses the first line
  */
 function createFallbackTitle(body: string, maxWords: number = FALLBACK_TITLE_WORDS): string {
-  const words = body.trim().split(/\s+/);
+  // For multi-line text, only use the first line for the title
+  const firstLine = body.trim().split('\n')[0].trim();
+  const words = firstLine.split(/\s+/);
 
   // Check if body contains temporal tokens
-  const bodyTemporalTokens = extractTemporalTokens(body);
+  const bodyTemporalTokens = extractTemporalTokens(firstLine);
 
   // If body has temporal tokens, try to include them in the title
   if (bodyTemporalTokens.length > 0) {
