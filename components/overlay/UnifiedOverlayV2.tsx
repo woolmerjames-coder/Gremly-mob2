@@ -2703,7 +2703,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 style={{
                   flex: 1,
                   justifyContent: 'center',
-                  paddingHorizontal: tokenSpacing.base * 3,
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
                   backgroundColor: 'rgba(0,0,0,0.4)', // Darker overlay background
                 }}
                 onPress={() => {
@@ -2719,6 +2720,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 <Pressable
                   onPress={(e) => e.stopPropagation()} // Prevent closing when tapping inside
                   style={{
+                    width: '100%',
+                    maxWidth: 380,
+                    alignSelf: 'center',
                     backgroundColor: '#FFFFFF',
                     padding: tokenSpacing.lg,
                     borderRadius: 20,
@@ -2846,7 +2850,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                     {/* Date Picker */}
                     {!clearDateFlag && (
-                      <Box mt={5} style={{ paddingHorizontal: 16 }}>
+                      <Box mt={5} style={{ paddingHorizontal: 0 }}>
                         <DateTimePicker
                           value={selectedDate}
                           mode="date"
