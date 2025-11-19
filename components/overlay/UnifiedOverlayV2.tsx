@@ -2704,7 +2704,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   flex: 1,
                   justifyContent: 'center',
                   alignItems: 'center',
-                  paddingHorizontal: 20,
                   backgroundColor: 'rgba(0,0,0,0.4)',
                 }}
                 onPress={() => {
@@ -2720,11 +2719,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 <Pressable
                   onPress={(e) => e.stopPropagation()}
                   style={{
-                    width: '90%',
-                    maxWidth: 360,
+                    width: '92%',
+                    maxWidth: 400,
                     alignSelf: 'center',
                     backgroundColor: '#FFFFFF',
-                    paddingHorizontal: 16,
+                    paddingHorizontal: 12,
                     paddingTop: 20,
                     paddingBottom: 16,
                     borderRadius: 20,
@@ -2735,10 +2734,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     shadowOpacity: 0.15,
                     shadowRadius: 24,
                     elevation: 8,
-                    maxHeight: '80%',
                   }}
                 >
-                  <ScrollView showsVerticalScrollIndicator={false}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{
+                      paddingBottom: 32,
+                      paddingTop: 4,
+                    }}
+                  >
                     <Text
                       style={{
                         fontSize: 18,
@@ -2852,7 +2856,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                     {/* Date Picker */}
                     {!clearDateFlag && (
-                      <Box mt={3} mb={4} style={{ alignSelf: 'stretch' }}>
+                      <Box mt={3} mb={4}>
                         <DateTimePicker
                           value={selectedDate}
                           mode="date"
@@ -2909,7 +2913,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                         {/* Preset Time Chips */}
                         {showTimePicker && (
-                          <Box mt={3} mb={4}>
+                          <Box mt={3} style={{ marginBottom: 0, paddingBottom: 4 }}>
                             <Box
                               row
                               style={{
@@ -2999,8 +3003,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   mode="time"
                                   display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                                   onChange={(event, time) => {
+                                    // On Android, event.type === 'dismissed' means the user cancelled
+                                    if (Platform.OS === 'android' && event.type === 'dismissed') {
+                                      setShowCustomTimePicker(false);
+                                      return;
+                                    }
+
                                     if (time) {
                                       setSelectedTime(time);
+                                      if (Platform.OS === 'android') {
+                                        // Close picker after selection on Android
+                                        setShowCustomTimePicker(false);
+                                      }
                                     }
                                   }}
                                   themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
@@ -3015,7 +3029,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </ScrollView>
 
                   {/* Action buttons */}
-                  <Box row mt={3} style={{ gap: 12 }}>
+                  <Box row style={{ gap: 12, marginTop: 12 }}>
                     <Button
                       variant="ghost"
                       onPress={() => {
