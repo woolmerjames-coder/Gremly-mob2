@@ -97,6 +97,7 @@ import {
 import { buildFallbackTags } from '../../cortex/openAiEngine';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+import { hashString } from '../../lib/telemetry/catchallLogger';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -895,8 +896,8 @@ const RecentDrops: React.FC<{
         .filter(
           (t) =>
             t?.origin === 'catchall' &&
-            // Exclude archived todos
-            (t as any)?.status !== 'archived',
+            // Exclude soft-deleted todos (completed_at is set)
+            !(t as any)?.completed_at,
         )
         .map((t) => {
           const rawText = t.name || t.title || '';
@@ -921,8 +922,8 @@ const RecentDrops: React.FC<{
         .filter(
           (h) =>
             h?.origin === 'catchall' &&
-            // Exclude archived habits
-            h?.archived !== true,
+            // Exclude soft-deleted habits (completed_at is set)
+            !(h as any)?.completed_at,
         )
         .map((h) => {
           const rawText = h.name || '';
@@ -1630,6 +1631,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Duplicate prevention: track last submitted text and its unsorted ID
   const lastSubmittedTextRef = useRef<string | null>(null);
   const lastUnsortedIdRef = useRef<string | null>(null);
+
+  // Phase 1B: Submission mutex to prevent rapid duplicate submits
+  const submissionMutex = useRef<Map<string, boolean>>(new Map());
 
   // Metrics tracking for Mind Drop refinements
   const metricsRef = useRef({
@@ -3114,6 +3118,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
+    // Phase 1B: Text-hash-based mutex to prevent rapid duplicate submissions
+    const textHash = hashString(trimmed);
+    if (submissionMutex.current.get(textHash)) {
+      console.log('[MindDrop] Duplicate submission blocked', textHash);
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+      return;
+    }
+
+    // Set mutex for this text
+    submissionMutex.current.set(textHash, true);
+
     // Prevent rapid repeat submissions of same text
     const MIN_SUBMIT_INTERVAL_MS = 2000;
     if (
@@ -3122,6 +3138,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ) {
       setIsSubmitting(false);
       submitLockRef.current = false;
+      // Clear mutex after window
+      setTimeout(() => {
+        submissionMutex.current.delete(textHash);
+      }, 2000);
       return;
     }
     lastSubmitAt.current = now;
@@ -3360,6 +3380,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } finally {
       setIsSubmitting(false);
       submitLockRef.current = false;
+      // Clear mutex after 2 second window
+      setTimeout(() => {
+        submissionMutex.current.delete(textHash);
+      }, 2000);
     }
   }, [
     note,

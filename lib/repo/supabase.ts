@@ -877,10 +877,25 @@ export class SupabaseRepo implements IRepo {
         query = query.in('subtype', opts.subtypes);
       }
 
-      // COPILOT: Exclude archived notes from notes.list for Mind Drop Recent Drops
-      // Provisional notes are soft-deleted by convert_or_create_from_drop RPC
+      // ZOMBIE PREVENTION: Exclude archived/completed entities from all list queries
+      // This ensures deleted Mind Drops don't resurrect in Recent Drops or other UI lists
+
       if (type === 'note') {
-        query = query.eq('archived', false);
+        // Notes: soft delete via archived boolean flag (migration 20251116)
+        // Filter: archived = false OR archived IS NULL (for legacy rows)
+        query = query.or('archived.eq.false,archived.is.null');
+      }
+
+      if (type === 'todo') {
+        // Todos: soft delete via completed_at timestamp
+        // Filter: completed_at IS NULL (only show active todos)
+        query = query.is('completed_at', null);
+      }
+
+      if (type === 'habit') {
+        // Habits: soft delete via completed_at timestamp
+        // Filter: completed_at IS NULL (only show active habits)
+        query = query.is('completed_at', null);
       }
 
       if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
@@ -987,17 +1002,20 @@ export class SupabaseRepo implements IRepo {
         .from('habits')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('ai_placed', true),
+        .eq('ai_placed', true)
+        .is('completed_at', null), // Exclude completed habits
       supabase
         .from('todos')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('ai_placed', true),
+        .eq('ai_placed', true)
+        .is('completed_at', null), // Exclude completed todos
       supabase
         .from('notes')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('ai_placed', true),
+        .eq('ai_placed', true)
+        .or('archived.eq.false,archived.is.null'), // Exclude archived notes
     ]);
 
     if (habitsResult.error)
@@ -1049,6 +1067,7 @@ export class SupabaseRepo implements IRepo {
       .from('habits')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed habits
       .ilike('name', `%${q}%`); // Changed from 'title' to 'name' per Phase 7 spec
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
@@ -1061,6 +1080,7 @@ export class SupabaseRepo implements IRepo {
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed todos
       .or(`name.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
@@ -1073,6 +1093,7 @@ export class SupabaseRepo implements IRepo {
       .from('notes')
       .select('*')
       .eq('owner_id', userId)
+      .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .or(`title.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (notesError) throw new Error(`Failed to search notes: ${notesError.message}`);
@@ -1099,6 +1120,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
+      .is('completed_at', null) // Exclude completed todos
       .or(`name.ilike.${q},body.ilike.${q}`);
 
     // Search notes
@@ -1107,6 +1129,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
+      .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .or(`title.ilike.${q},body.ilike.${q}`);
 
     // Search habits (name/title)
@@ -1115,6 +1138,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
+      .is('completed_at', null) // Exclude completed habits
       .or(`name.ilike.${q},title.ilike.${q}`);
 
     // Search chats (title or last_message_snippet)
@@ -1167,6 +1191,7 @@ export class SupabaseRepo implements IRepo {
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed todos
       .not('due_date', 'is', null);
 
     if (todosError) throw new Error(`Failed to list due todos: ${todosError.message}`);
@@ -1194,6 +1219,7 @@ export class SupabaseRepo implements IRepo {
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed todos
       .eq('undefined_due', true);
 
     if (error) throw new Error(`Failed to list undefined due todos: ${error.message}`);
@@ -1388,7 +1414,8 @@ export class SupabaseRepo implements IRepo {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
         .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment')
-        .eq('owner_id', userId);
+        .eq('owner_id', userId)
+        .is('completed_at', null); // Exclude completed habits
 
       if (habitsErr) throw habitsErr;
 
@@ -1621,6 +1648,7 @@ export class SupabaseRepo implements IRepo {
       .from('notes')
       .select('id,title,body,created_at')
       .eq('owner_id', ownerId)
+      .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .gte('created_at', sinceIso)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -1725,41 +1753,132 @@ export class SupabaseRepo implements IRepo {
     }
   }
 
-  async archiveItemsByDropId(dropId: string, archivedReason = 'user_deleted_drop'): Promise<void> {
+  /**
+   * Archive all entities (notes, todos, habits) that share the same drop_id.
+   *
+   * This is the ONLY reliable way to delete a Mind Drop and prevent zombie resurrections.
+   *
+   * Schema truth (as of Nov 2025):
+   * - notes: Has `archived` boolean column (added in migration 20251116)
+   * - todos: Has `completed_at` timestamp column for soft delete
+   * - habits: Has `completed_at` timestamp column for soft delete
+   *
+   * @param dropId - The Mind Drop UUID linking all related entities
+   * @param archivedReason - Optional reason string (currently unused but kept for future metadata)
+   * @returns Counts of archived entities by type
+   */
+  async archiveItemsByDropId(
+    dropId: string,
+    archivedReason = 'user_deleted_drop',
+  ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }> {
     const ownerId = this.ensureUserId();
+    const nowIso = new Date().toISOString();
 
-    // Archive todos with this drop_id
-    const { error: todoError } = await supabase
-      .from('todos')
-      .update({ status: 'archived', archived_reason: archivedReason })
-      .eq('drop_id', dropId)
-      .eq('owner_id', ownerId);
+    let notesArchived = 0;
+    let todosArchived = 0;
+    let habitsArchived = 0;
 
-    if (todoError) {
-      console.error('[SupabaseRepo.archiveItemsByDropId] Failed to archive todos:', todoError);
-    }
+    // Run all table updates in parallel, each with its own try/catch
+    // This ensures one failure doesn't block others and prevents silent failures
+    await Promise.all([
+      // Archive todos: soft delete via completed_at timestamp + status column
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('todos')
+            .update({
+              completed_at: nowIso,
+              status: 'archived', // Set status if column exists
+            })
+            .eq('drop_id', dropId)
+            .eq('owner_id', ownerId)
+            .select('id');
 
-    // Archive habits with this drop_id
-    const { error: habitError } = await supabase
-      .from('habits')
-      .update({ archived: true, archived_reason: archivedReason })
-      .eq('drop_id', dropId)
-      .eq('owner_id', ownerId);
+          if (error) {
+            console.error(
+              '[SupabaseRepo.archiveItemsByDropId] ❌ CRITICAL: Failed to archive todos:',
+              formatSupabaseError(error),
+              '\nThis will cause zombie todos to resurrect on next Mind Drop submission!',
+            );
+          } else {
+            todosArchived = data?.length ?? 0;
+            if (todosArchived > 0) {
+              console.log(
+                `[SupabaseRepo.archiveItemsByDropId] ✓ Archived ${todosArchived} todo(s) for drop_id=${dropId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[SupabaseRepo.archiveItemsByDropId] ❌ EXCEPTION archiving todos:', err);
+        }
+      })(),
 
-    if (habitError) {
-      console.error('[SupabaseRepo.archiveItemsByDropId] Failed to archive habits:', habitError);
-    }
+      // Archive habits: soft delete via completed_at timestamp
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('habits')
+            .update({ completed_at: nowIso })
+            .eq('drop_id', dropId)
+            .eq('owner_id', ownerId)
+            .select('id');
 
-    // Archive notes with this drop_id
-    const { error: noteError } = await supabase
-      .from('notes')
-      .update({ archived: true, archived_reason: archivedReason })
-      .eq('drop_id', dropId)
-      .eq('owner_id', ownerId);
+          if (error) {
+            console.error(
+              '[SupabaseRepo.archiveItemsByDropId] ❌ CRITICAL: Failed to archive habits:',
+              formatSupabaseError(error),
+              '\nThis will cause zombie habits to resurrect on next Mind Drop submission!',
+            );
+          } else {
+            habitsArchived = data?.length ?? 0;
+            if (habitsArchived > 0) {
+              console.log(
+                `[SupabaseRepo.archiveItemsByDropId] ✓ Archived ${habitsArchived} habit(s) for drop_id=${dropId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[SupabaseRepo.archiveItemsByDropId] ❌ EXCEPTION archiving habits:', err);
+        }
+      })(),
 
-    if (noteError) {
-      console.error('[SupabaseRepo.archiveItemsByDropId] Failed to archive notes:', noteError);
-    }
+      // Archive notes: soft delete via archived boolean flag
+      // Migration 20251116 added the archived column to notes table
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('notes')
+            .update({ archived: true })
+            .eq('drop_id', dropId)
+            .eq('owner_id', ownerId)
+            .select('id');
+
+          if (error) {
+            console.error(
+              '[SupabaseRepo.archiveItemsByDropId] ❌ CRITICAL: Failed to archive notes:',
+              formatSupabaseError(error),
+              '\nThis will cause zombie notes to resurrect on next Mind Drop submission!',
+            );
+          } else {
+            notesArchived = data?.length ?? 0;
+            if (notesArchived > 0) {
+              console.log(
+                `[SupabaseRepo.archiveItemsByDropId] ✓ Archived ${notesArchived} note(s) for drop_id=${dropId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[SupabaseRepo.archiveItemsByDropId] ❌ EXCEPTION archiving notes:', err);
+        }
+      })(),
+    ]);
+
+    console.log(
+      `[SupabaseRepo.archiveItemsByDropId] Summary for drop_id=${dropId}: ` +
+        `${notesArchived} notes, ${todosArchived} todos, ${habitsArchived} habits archived`,
+    );
+
+    return { notesArchived, todosArchived, habitsArchived };
   }
 
   /** Count active commitments (habits + todos). No archived predicate yet. */
@@ -1813,12 +1932,14 @@ export class SupabaseRepo implements IRepo {
         .from('habits')
         .select('id,name,commitment_started_at,commitment_note,commitment')
         .eq('owner_id', userId)
-        .eq('commitment', true),
+        .eq('commitment', true)
+        .is('completed_at', null), // Exclude completed habits
       supabase
         .from('todos')
         .select('id,name,commitment_started_at,commitment_note,commitment')
         .eq('owner_id', userId)
-        .eq('commitment', true),
+        .eq('commitment', true)
+        .is('completed_at', null), // Exclude completed todos
     ]);
 
     if (habitsRes.error) {

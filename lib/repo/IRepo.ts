@@ -230,7 +230,10 @@ export interface IRepo {
   ): Promise<void>;
 
   /** Archive all items (todos, habits, notes) with the given drop_id */
-  archiveItemsByDropId(dropId: string, archivedReason?: string): Promise<void>;
+  archiveItemsByDropId(
+    dropId: string,
+    archivedReason?: string,
+  ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }>;
 
   /** Commitments */
   listCommitments(): Promise<

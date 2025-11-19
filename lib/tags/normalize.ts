@@ -183,6 +183,26 @@ export function filterAndNormalizeTags(input: string[]): string[] {
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
+    // Phase 1C: Strip leading symbols before validation
+    const stripped = trimmed
+      .toLowerCase()
+      .replace(/^[#*@]+/, '')
+      .trim();
+
+    // Phase 1C: Enforce stricter validation rules
+    // Min length: 3 characters
+    if (stripped.length < 3) continue;
+
+    // Max length: 20 characters
+    if (stripped.length > 20) continue;
+
+    // Pattern: must start with letter, then letters/numbers/underscores only
+    if (!/^[a-z][a-z0-9_]*$/.test(stripped)) continue;
+
+    // Check against stop words
+    if (TAG_STOP_WORDS.has(stripped)) continue;
+
+    // Now normalize the tag with proper prefix
     const { tag } = normalizeTag(trimmed);
     if (!tag) continue;
     if (isJunkNormalizedTag(tag)) continue;

@@ -844,21 +844,49 @@ export class MemoryRepo implements IRepo {
     // keep -> no action
   }
 
-  async archiveItemsByDropId(dropId: string, archivedReason = 'user_deleted_drop'): Promise<void> {
-    // Archive all items (todos, habits, notes) with the given drop_id
+  /**
+   * Archive all entities (notes, todos, habits) that share the same drop_id.
+   *
+   * Memory repo implementation aligned with Supabase schema:
+   * - notes: Set archived = true (soft delete)
+   * - todos: Set completed_at (soft delete)
+   * - habits: Set completed_at (soft delete)
+   */
+  async archiveItemsByDropId(
+    dropId: string,
+    archivedReason = 'user_deleted_drop',
+  ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }> {
+    const nowIso = new Date().toISOString();
+    let notesArchived = 0;
+    let todosArchived = 0;
+    let habitsArchived = 0;
+
     this.data.forEach((record) => {
       if (record.owner_id === this.currentUserId && (record as any).drop_id === dropId) {
         if (record.type === 'todo') {
-          // Todos use status='archived' and archived_reason
-          (record as any).status = 'archived';
-          (record as any).archived_reason = archivedReason;
-        } else {
-          // Notes and habits use archived=true and archived_reason
-          (record as any).archived = true;
-          (record as any).archived_reason = archivedReason;
+          // Todos: soft delete by setting completed_at + status (only if not already completed)
+          if (!(record as any).completed_at) {
+            (record as any).completed_at = nowIso;
+            (record as any).status = 'archived'; // Set status if column exists
+            todosArchived++;
+          }
+        } else if (record.type === 'habit') {
+          // Habits: soft delete by setting completed_at (only if not already completed)
+          if (!(record as any).completed_at) {
+            (record as any).completed_at = nowIso;
+            habitsArchived++;
+          }
+        } else if (record.type === 'note') {
+          // Notes: soft delete by setting archived = true
+          if (!(record as any).archived) {
+            (record as any).archived = true;
+            notesArchived++;
+          }
         }
       }
     });
+
+    return { notesArchived, todosArchived, habitsArchived };
   }
 
   async countActiveCommitments(): Promise<number> {
