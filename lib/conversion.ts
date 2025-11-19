@@ -7,6 +7,7 @@ import {
 } from './conversionTelemetry';
 import { buildMindDropDerivedFields } from './minddrop/minddropShared';
 import { backgroundPrefill } from './minddrop/backgroundPrefill';
+import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
 
 type LineageMeta = {
   originId: string;
@@ -253,9 +254,9 @@ export const convertUnsortedToTodo = async (
       aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
     });
 
-    // For conversion, use nameOverride or extract first line for name/title
-    const firstLine = rawText.split('\n')[0].trim().slice(0, 80);
-    const todoName = options.nameOverride ?? (firstLine || 'New task');
+    // Create a short, clean title using the normalization helper
+    // This will be the initial title (BackgroundPrefill may refine it later with AI)
+    const todoName = options.nameOverride ?? normalizeTodoTitle(rawText);
     const due = options.due ?? null;
 
     // Preserve the original full Mind Drop text in body field

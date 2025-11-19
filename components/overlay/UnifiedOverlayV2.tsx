@@ -1541,12 +1541,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // For todos: title and details are strictly separate
       // - title should be the explicitly set short label (or empty)
       // - details is the long text field
-      // Phase 2: Preserve AI-generated titles over raw sentence details
+      // Phase 2C: Use normalizeTodoTitle to ensure title doesn't duplicate details
       const rawDetails = (s.todo.details || '').trim();
       const overlayTitle = (s.todo.title || '').trim();
       const compactTitle = (s.compactTitle || '').trim();
 
-      const effectiveTitle = overlayTitle || compactTitle || rawDetails;
+      // Use overlay title if set, otherwise use compact title
+      // Never fall back to full rawDetails as the title
+      const effectiveTitle =
+        overlayTitle || compactTitle || (rawDetails ? firstLine(rawDetails) : '');
 
       const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
       return {

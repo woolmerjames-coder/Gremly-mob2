@@ -16,6 +16,7 @@ import { callClassify } from '../cortex/CortexClient';
 import { supabase } from '../supabase/client';
 import { mergeLogSubtypeTag } from './logSubtypeTags';
 import { filterAndNormalizeTags } from '../tags/normalize';
+import { validateAiTitleForTodo } from './normalizeTodoTitle';
 
 interface PrefillEntity {
   id: string;
@@ -136,10 +137,42 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
     switch (entity.type) {
       case 'todo':
         tableName = 'todos';
+
+        // For todos: validate AI title before applying it
+        // Only use AI title if it's short, preserves temporal hints, and isn't identical to body
         if (aiTitle) {
-          updatePayload.name = aiTitle;
-          updatePayload.title = aiTitle; // Backwards compatibility
+          // Fetch the full todo to get the body text for validation
+          const { data: fullTodo, error: fetchError } = await supabase
+            .from('todos')
+            .select('body')
+            .eq('id', entity.id)
+            .single();
+
+          if (!fetchError && fullTodo?.body) {
+            const validatedTitle = validateAiTitleForTodo(fullTodo.body, aiTitle);
+            if (validatedTitle) {
+              updatePayload.name = validatedTitle;
+              updatePayload.title = validatedTitle; // Backwards compatibility
+              console.log('[BackgroundPrefill] Using validated AI title for todo', {
+                entityId: entity.id,
+                originalAiTitle: aiTitle,
+                validatedTitle,
+              });
+            } else {
+              console.log('[BackgroundPrefill] AI title rejected for todo (preserving existing)', {
+                entityId: entity.id,
+                aiTitle,
+                reason:
+                  'Failed validation (too long, identical to body, or missing temporal hints)',
+              });
+            }
+          } else {
+            // Fallback if we can't fetch body: use AI title as-is (backward compatible)
+            updatePayload.name = aiTitle;
+            updatePayload.title = aiTitle;
+          }
         }
+
         // Filter tags through unified junk filter
         updatePayload.tags = filterAndNormalizeTags(aiTags ?? []);
         break;
