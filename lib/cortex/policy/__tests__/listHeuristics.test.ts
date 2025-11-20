@@ -84,4 +84,23 @@ describe('analyzeListShape', () => {
     const result = analyzeListShape('- eggs');
     expect(result.looksLikeList).toBe(false);
   });
+
+  // Regression tests for issue: lists not auto-creating as logs
+  it('should detect grocery list with high confidence', () => {
+    const result = analyzeListShape('- eggs - milk - cereal');
+    expect(result.looksLikeList).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(0.7); // Should trigger auto-create
+    expect(result.matches).toBe(3);
+  });
+
+  it('should work with extra whitespace', () => {
+    const result = analyzeListShape('-  eggs  -  milk  -  cereal');
+    expect(result.looksLikeList).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('should handle mixed case items', () => {
+    const result = analyzeListShape('- Eggs - MILK - Cereal');
+    expect(result.looksLikeList).toBe(true);
+  });
 });
