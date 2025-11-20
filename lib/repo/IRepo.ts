@@ -476,4 +476,29 @@ export interface IRepo {
    * Subscribe to realtime notes updates for a space.
    */
   subscribeToNotes?(spaceId: string, callback: (payload: any) => void): any;
+
+  // Phase 10.10 - Log Photos (multi-photo journal logs)
+  /**
+   * List all photos for a log/note, ordered by position.
+   */
+  listLogPhotos(noteId: string): Promise<Array<{ id: string; url: string; position: number }>>;
+
+  /**
+   * Insert a new log photo record.
+   */
+  insertLogPhoto(params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }): Promise<{ id: string }>;
+
+  /**
+   * Update photo position (for reordering).
+   */
+  updateLogPhotoPosition(photoId: string, position: number): Promise<void>;
+
+  /**
+   * Delete a log photo record.
+   */
+  deleteLogPhoto(photoId: string): Promise<void>;
 }

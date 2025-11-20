@@ -3201,6 +3201,82 @@ export class SupabaseRepo implements IRepo {
       .subscribe();
     return channel;
   }
+
+  // ============================================================================
+  // Phase 10.10 - Log Photos (multi-photo journal logs)
+  // ============================================================================
+
+  async listLogPhotos(
+    noteId: string,
+  ): Promise<Array<{ id: string; url: string; position: number }>> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('log_photos')
+      .select('id, url, position')
+      .eq('note_id', noteId)
+      .eq('owner_id', userId)
+      .order('position', { ascending: true });
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to list log photos:', error);
+      throw new Error(`Failed to list log photos: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  async insertLogPhoto(params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }): Promise<{ id: string }> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('log_photos')
+      .insert({
+        note_id: params.noteId,
+        owner_id: userId,
+        url: params.url,
+        position: params.position,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to insert log photo:', error);
+      throw new Error(`Failed to insert log photo: ${error.message}`);
+    }
+
+    return { id: data.id };
+  }
+
+  async updateLogPhotoPosition(photoId: string, position: number): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('log_photos')
+      .update({ position })
+      .eq('id', photoId)
+      .eq('owner_id', userId);
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to update log photo position:', error);
+      throw new Error(`Failed to update log photo position: ${error.message}`);
+    }
+  }
+
+  async deleteLogPhoto(photoId: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('log_photos')
+      .delete()
+      .eq('id', photoId)
+      .eq('owner_id', userId);
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to delete log photo:', error);
+      throw new Error(`Failed to delete log photo: ${error.message}`);
+    }
+  }
 }
 
 /**

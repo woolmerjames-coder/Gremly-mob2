@@ -1574,6 +1574,34 @@ export class MemoryRepo implements IRepo {
 
     this.data.splice(idx, 1);
   }
+
+  // ============================================================================
+  // Phase 10.10 - Log Photos (multi-photo journal logs)
+  // ============================================================================
+
+  async listLogPhotos(
+    _noteId: string,
+  ): Promise<Array<{ id: string; url: string; position: number }>> {
+    // Memory backend stub - photos not persisted in memory
+    return [];
+  }
+
+  async insertLogPhoto(_params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }): Promise<{ id: string }> {
+    // Memory backend stub - return fake ID
+    return { id: `photo-${Date.now()}` };
+  }
+
+  async updateLogPhotoPosition(_photoId: string, _position: number): Promise<void> {
+    // Memory backend stub - no-op
+  }
+
+  async deleteLogPhoto(_photoId: string): Promise<void> {
+    // Memory backend stub - no-op
+  }
 }
 
 /**

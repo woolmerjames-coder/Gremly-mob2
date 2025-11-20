@@ -1473,17 +1473,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       try {
         console.log('[UnifiedOverlayV2] Loading photos for note:', noteId);
-        const { supabase } = await import('../../lib/supabase/client');
-        const { data, error } = await supabase
-          .from('log_photos')
-          .select('id, url, position')
-          .eq('note_id', noteId)
-          .order('position', { ascending: true });
-
-        if (error) {
-          console.error('[UnifiedOverlayV2] Failed to load log photos:', error);
-          return;
-        }
+        const data = await repo.listLogPhotos(noteId);
 
         console.log('[UnifiedOverlayV2] Loaded photos from DB:', data);
         if (data && data.length > 0) {
@@ -1503,7 +1493,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
 
     loadLogPhotos();
-  }, [mode, initialEntity, baseType]);
+  }, [mode, initialEntity, baseType, repo]);
 
   // Clear photos when switching away from log type (Phase L5)
   useEffect(() => {
@@ -2668,14 +2658,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             if (photo.isDeleted && photo.id) {
               try {
                 // Delete from database
-                const { error: deleteError } = await supabase
-                  .from('log_photos')
-                  .delete()
-                  .eq('id', photo.id);
-
-                if (deleteError) {
-                  console.error('[UnifiedOverlayV2] Failed to delete photo from DB:', deleteError);
-                }
+                await repo.deleteLogPhoto(photo.id);
 
                 // Try to delete from storage (best effort)
                 if (photo.url && photo.url.includes('log-photos/')) {
@@ -2740,25 +2723,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                 // Insert into database
                 console.log('[UnifiedOverlayV2] Inserting photo record into log_photos table...');
-                const { error: insertError } = await supabase.from('log_photos').insert({
-                  note_id: noteId,
-                  owner_id: userId,
+                await repo.insertLogPhoto({
+                  noteId,
                   url: publicUrl,
                   position: i,
                 });
-
-                if (insertError) {
-                  console.error('[UnifiedOverlayV2] Failed to insert photo record:', insertError);
-                } else {
-                  console.log('[UnifiedOverlayV2] Photo record inserted successfully');
-                }
+                console.log('[UnifiedOverlayV2] Photo record inserted successfully');
               } catch (err) {
                 console.error('[UnifiedOverlayV2] Error uploading photo:', err);
               }
             } else if (!photo.isNew && photo.id) {
               // Update position for existing photos
               try {
-                await supabase.from('log_photos').update({ position: i }).eq('id', photo.id);
+                await repo.updateLogPhotoPosition(photo.id, i);
               } catch (err) {
                 console.error('[UnifiedOverlayV2] Error updating photo position:', err);
               }
