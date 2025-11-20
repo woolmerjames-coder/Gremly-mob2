@@ -462,7 +462,7 @@ describe('CatchAllNotepad - Category Chip Conversion No Duplicates', () => {
             archived: false,
             why_string: expect.stringContaining('origin:'),
             canonicalType: 'log',
-            subtype: 'idea',
+            subtype: 'journal',
           }),
         }),
       );
