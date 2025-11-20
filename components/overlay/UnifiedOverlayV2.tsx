@@ -923,21 +923,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isListLog = isLog && logKind === 'list';
 
   // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
-  // When editing logs, use AI classification if no manual override or tag-based detection
+  // Priority order: manual override > tags > entity subtype > AI classification > fallback
   const effectiveLogSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' = useMemo(() => {
     if (!isLog) return 'plain';
 
-    // Check current tags FIRST to support auto-detection (Prompt 3)
-    // This allows #list auto-tagging to override everything, including saved entity.subtype
+    // 1. Manual override takes HIGHEST precedence (user explicitly chose)
+    if (state.logSubtypeOverride) return state.logSubtypeOverride;
+
+    // 2. Tag-based detection (auto-detection from #list, #journal, etc.)
     if (state.tags.includes('list')) return 'list';
     if (state.tags.includes('journal')) return 'journal';
     if (state.tags.includes('idea')) return 'idea';
     if (state.tags.includes('reference')) return 'reference';
 
-    // Manual override takes precedence over entity.subtype (but NOT over tags)
-    if (state.logSubtypeOverride) return state.logSubtypeOverride;
-
-    // Fallback to entity.subtype if present (edit mode)
+    // 3. Fallback to entity.subtype if present (edit mode)
     const entity = initialEntity as any;
     const rawSubtype = entity?.subtype as string | undefined;
     if (
@@ -2088,6 +2087,69 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }, 1000) as unknown as number;
   }, []);
 
+  // Handle log subtype chip press - open selector for manual override
+  const handleLogSubtypeChipPress = useCallback(() => {
+    if (!isLog) return;
+
+    const options = ['Journal', 'List', 'Reference', 'Idea', 'Clear subtype', 'Cancel'];
+    const destructiveButtonIndex = 4; // Clear subtype
+    const cancelButtonIndex = 5;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex,
+          destructiveButtonIndex,
+          title: 'Select log subtype',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === cancelButtonIndex) return;
+
+          const subtypeMap: Record<number, 'journal' | 'list' | 'reference' | 'idea' | null> = {
+            0: 'journal',
+            1: 'list',
+            2: 'reference',
+            3: 'idea',
+            4: null, // Clear subtype
+          };
+
+          const value = subtypeMap[buttonIndex];
+          dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value });
+        },
+      );
+    } else {
+      // Android: use Alert with buttons
+      Alert.alert('Select log subtype', 'Choose a subtype or clear to use automatic detection', [
+        {
+          text: 'Journal',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'journal' }),
+        },
+        {
+          text: 'List',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'list' }),
+        },
+        {
+          text: 'Reference',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'reference' }),
+        },
+        {
+          text: 'Idea',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'idea' }),
+        },
+        {
+          text: 'Clear subtype',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: null }),
+          style: 'destructive',
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]);
+    }
+  }, [isLog]);
+
   const handleTodoDueChange = useCallback(
     (iso: string | null, options?: { label?: string }) => {
       dispatch({ type: 'SET_TODO_DUE', due_at: iso });
@@ -3018,10 +3080,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <Text style={styles.lockedBadgeText}>⚡ Locked In</Text>
                       </View>
                     ) : null}
-                    {/* Log subtype chip - subtle indicator for non-plain logs */}
+                    {/* Log subtype chip - tappable for manual override */}
                     {isLog && logSubtypeLabel ? (
-                      <View
-                        style={{
+                      <Pressable
+                        onPress={handleLogSubtypeChipPress}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Log subtype: ${logSubtypeLabel}. Tap to change.`}
+                        style={({ pressed }) => ({
                           alignSelf: 'center',
                           marginLeft: 8,
                           paddingHorizontal: 8,
@@ -3036,7 +3102,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             colorMode === 'dark'
                               ? 'rgba(255, 255, 255, 0.04)'
                               : 'rgba(46, 85, 64, 0.06)',
-                        }}
+                          opacity: pressed ? 0.6 : 1,
+                        })}
                       >
                         <Text
                           style={{
@@ -3047,7 +3114,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         >
                           {logSubtypeLabel}
                         </Text>
-                      </View>
+                      </Pressable>
                     ) : null}
                   </View>
 
@@ -3334,50 +3401,50 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               </Box>
 
               {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
-              {isJournal && logTimestampLabel ? (
+              {isJournal ? (
                 <Box px={4} mt={3}>
                   <View style={styles.logMetaRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
-                      {state.log.private && (
-                        <Lock
-                          size={14}
-                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
-                          style={{ opacity: 0.8 }}
-                        />
-                      )}
-                    </View>
-                    {isJournal && (
-                      <View style={styles.moodRow}>
-                        <Pressable
-                          onPress={() => setMood('happy')}
-                          hitSlop={8}
-                          style={[styles.moodButton, mood === 'happy' && styles.moodButtonActive]}
-                          accessibilityRole="button"
-                          accessibilityLabel="Set mood to happy"
-                        >
-                          <Text style={{ fontSize: 20 }}>😊</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => setMood('neutral')}
-                          hitSlop={8}
-                          style={[styles.moodButton, mood === 'neutral' && styles.moodButtonActive]}
-                          accessibilityRole="button"
-                          accessibilityLabel="Set mood to neutral"
-                        >
-                          <Text style={{ fontSize: 20 }}>😐</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => setMood('sad')}
-                          hitSlop={8}
-                          style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
-                          accessibilityRole="button"
-                          accessibilityLabel="Set mood to sad"
-                        >
-                          <Text style={{ fontSize: 20 }}>😔</Text>
-                        </Pressable>
+                    {logTimestampLabel ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
+                        {state.log.private && (
+                          <Lock
+                            size={14}
+                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
+                            style={{ opacity: 0.8 }}
+                          />
+                        )}
                       </View>
-                    )}
+                    ) : null}
+                    <View style={styles.moodRow}>
+                      <Pressable
+                        onPress={() => setMood('happy')}
+                        hitSlop={8}
+                        style={[styles.moodButton, mood === 'happy' && styles.moodButtonActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Set mood to happy"
+                      >
+                        <Text style={{ fontSize: 20 }}>😊</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setMood('neutral')}
+                        hitSlop={8}
+                        style={[styles.moodButton, mood === 'neutral' && styles.moodButtonActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Set mood to neutral"
+                      >
+                        <Text style={{ fontSize: 20 }}>😐</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setMood('sad')}
+                        hitSlop={8}
+                        style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Set mood to sad"
+                      >
+                        <Text style={{ fontSize: 20 }}>😔</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </Box>
               ) : null}

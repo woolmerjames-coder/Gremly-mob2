@@ -51,7 +51,7 @@ export type HabitState = {
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
 export type MoodValue = 'pos' | 'neu' | 'neg';
-export type LogSubtypeOverride = 'journal' | 'list' | 'idea' | 'plain' | null;
+export type LogSubtypeOverride = 'journal' | 'list' | 'reference' | 'idea' | 'plain' | null;
 
 export type V2State = {
   baseType: BaseType;
