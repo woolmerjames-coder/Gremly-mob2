@@ -59,6 +59,19 @@ const createAskDecision = (overrides: Partial<MockDecision> = {}): MockDecision 
 
 const mockDecideWithContext = jest.fn(async () => createAskDecision());
 const mockShowActionToast = jest.fn();
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+  };
+});
 
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: {
@@ -153,6 +166,7 @@ const resetOtherMocks = () => {
   mockDecideWithContext.mockReset();
   mockDecideWithContext.mockImplementation(async () => createAskDecision());
   mockShowActionToast.mockReset();
+  mockConvertUnsortedToTodo.mockReset();
 };
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -171,8 +185,30 @@ describe('Mind Drop Category Chip Conversion', () => {
     jest.clearAllMocks();
     resetRepo();
     resetOtherMocks();
-    mockSupabaseRpc.mockReset();
-    mockSupabaseRpc.mockResolvedValue({ data: 'todo-123', error: null });
+
+    // Setup default mock for convertUnsortedToTodo
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('unsorted-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || 'Untitled',
+        body: note?.body,
+        labels: ['todo'],
+        drop_id: note?.drop_id,
+        dropId: note?.dropId,
+      };
+
+      // Simulate the conversion helper creating a todo
+      await repo.create(createdTodo);
+
+      // Simulate archiving the original note
+      await repo.update(noteId, { labels: ['archived'] });
+
+      return { todo: createdTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
+
     process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
 
     const overlay = useGlobalOverlay();
@@ -226,31 +262,36 @@ describe('Mind Drop Category Chip Conversion', () => {
     const overlay = useGlobalOverlay();
     const openCreate = overlay.openCreate as jest.Mock;
 
-    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1));
+    // Verify convertUnsortedToTodo was called with correct parameters
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalledTimes(1));
 
-    expect(mockSupabaseRpc).toHaveBeenCalledWith(
-      'convert_or_create_from_drop',
+    expect(mockConvertUnsortedToTodo).toHaveBeenCalledWith(
+      mockRepo,
+      'unsorted-123',
       expect.objectContaining({
-        p_owner: 'test-user',
-        p_drop_id: 'drop-123',
-        p_target: 'todo',
-        p_payload: expect.objectContaining({
-          body: 'Buy groceries and milk',
-          origin: 'catchall',
-          why_string: 'Converted via Mind Drop chip',
-        }),
+        due: null, // No due date parsed from "Buy groceries and milk"
       }),
     );
 
+    // Verify overlay never opens
     expect(openCreate).not.toHaveBeenCalled();
+
+    // Verify success toast is shown
     expect(mockShowActionToast).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', content: 'Converted to To-Do ✓' }),
     );
 
-    expect(mockRepo.update).not.toHaveBeenCalled();
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(mockRepo.remove).not.toHaveBeenCalled();
+    // Verify conversion helper was called (which internally creates todo + archives note)
     expect(mockRepo.getById).toHaveBeenCalledWith('unsorted-123');
+
+    // repo.create should be called twice: once for initial note, once for todo via conversion
+    expect(mockRepo.create).toHaveBeenCalledTimes(2);
+    expect(mockRepo.create.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        type: 'todo',
+        body: 'Buy groceries and milk',
+      }),
+    );
   });
 
   it('passes original note text to RPC payload for manual todo conversion', async () => {
@@ -296,20 +337,27 @@ describe('Mind Drop Category Chip Conversion', () => {
     const overlay = useGlobalOverlay();
     const openCreate = overlay.openCreate as jest.Mock;
 
-    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalled());
+    // Verify convertUnsortedToTodo was called with the original long text
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
 
-    const rpcArgs = mockSupabaseRpc.mock.calls.slice(-1)[0][1];
-    expect(rpcArgs).toEqual(
+    expect(mockConvertUnsortedToTodo).toHaveBeenCalledWith(
+      mockRepo,
+      'unsorted-456',
+      expect.any(Object), // Options with due date
+    );
+
+    // Verify the note retrieved has the full original text
+    expect(mockRepo.getById).toHaveBeenCalledWith('unsorted-456');
+
+    // Verify the created todo preserves the original text in body field
+    expect(mockRepo.create.mock.calls[1][0]).toEqual(
       expect.objectContaining({
-        p_drop_id: 'drop-456',
-        p_payload: expect.objectContaining({
-          body: longText,
-          origin: 'catchall',
-        }),
+        type: 'todo',
+        body: longText, // Full original text preserved
       }),
     );
 
-    expect(mockRepo.update).not.toHaveBeenCalled();
+    // Verify overlay never opens
     expect(openCreate).not.toHaveBeenCalled();
   });
 
@@ -336,8 +384,6 @@ describe('Mind Drop Category Chip Conversion', () => {
     mockRepo.getById.mockResolvedValue(mockUnsortedNote);
     mockRepo.update.mockResolvedValue({ id: 'unsorted-777' });
 
-    mockSupabaseRpc.mockImplementation(async () => ({ data: 'todo-rapid', error: null }));
-
     const { getByTestId, findByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
@@ -352,17 +398,31 @@ describe('Mind Drop Category Chip Conversion', () => {
 
     const todoChip = await findByTestId('minddrop-category-todo', {}, { timeout: 3000 });
 
+    // Rapid fire two clicks
     await act(async () => {
       fireEvent.press(todoChip);
       fireEvent.press(todoChip);
     });
 
-    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1));
+    // Wait for conversion to complete
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
+
+    // The function may be called 1-2 times due to race conditions in rapid clicks,
+    // but what matters is that only ONE todo is created (checked via repo.create calls)
+    // First call is the provisional note, subsequent calls should be todo creation
+    const todoCreateCalls = mockRepo.create.mock.calls.filter(
+      (call: any[]) => call[0]?.type === 'todo',
+    );
+
+    // Should only create ONE todo, even if clicked twice
+    expect(todoCreateCalls.length).toBe(1);
+
+    // Verify success toast shown
     expect(mockShowActionToast).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', content: 'Converted to To-Do ✓' }),
     );
-    expect(mockRepo.update).not.toHaveBeenCalled();
 
+    // Verify overlay never opens
     const overlay = useGlobalOverlay();
     expect(overlay.openCreate as jest.Mock).not.toHaveBeenCalled();
   });

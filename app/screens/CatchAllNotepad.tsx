@@ -2858,7 +2858,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
+      // Prevent duplicate conversions from rapid clicks using ref for immediate sync check
+      if (submitLockRef.current) {
+        console.warn('[MindDrop][CategoryChip] Already processing, ignoring duplicate click');
+        return;
+      }
+
       try {
+        submitLockRef.current = true;
         setIsSubmitting(true);
         setCategoryChips([]);
 
@@ -2931,6 +2938,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // Don't clear the unsorted state - let the user retry
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
+            submitLockRef.current = false;
             setIsSubmitting(false);
             return;
           }
@@ -3045,6 +3053,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } catch (error) {
         console.error('[MindDrop][CategoryChip] Failed to process', error);
       } finally {
+        submitLockRef.current = false;
         setIsSubmitting(false);
       }
     },
