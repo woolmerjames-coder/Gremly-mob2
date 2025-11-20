@@ -20,7 +20,7 @@ describe('cortexDecide list heuristics', () => {
     process.env.EXPO_PUBLIC_CANONICAL_CONVERSIONS = 'on';
   });
 
-  it('forces ask mode and surfaces list chips for bullet lists', async () => {
+  it('auto-creates strong list patterns (checkboxes) as notes', async () => {
     mockClassify.mockResolvedValue({
       type: 'todo',
       title: 'Packing list',
@@ -37,17 +37,14 @@ describe('cortexDecide list heuristics', () => {
       { userId: 'user-1', uiSurface: 'catchall', activeSpaceId: null },
     );
 
-    expect(result.mode).toBe('ask');
-    expect(result.actions).toHaveLength(0);
+    // Strong lists (score >= 0.7) now auto-create instead of showing chips
+    expect(result.mode).toBe('auto');
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0]?.type).toBe('create.note');
 
-    const chipLabels = (result.suggestions ?? [])
-      .filter((suggestion): suggestion is ChipSuggestion => typeof suggestion !== 'string')
-      .map((chip) => chip.label);
-
-    expect(chipLabels).toEqual(
-      expect.arrayContaining(['Save as note (list)', 'Create To-do checklist']),
-    );
+    // Heuristic metadata should be present
     expect(result.meta?.heuristics?.list?.applied).toBe(true);
+    expect(result.meta?.heuristics?.list?.score).toBeGreaterThanOrEqual(0.7);
     expect(result.meta?.canonicalSubtype).toBe('list');
     expect(result.meta?.canonicalHint).toEqual(
       expect.objectContaining({ source: 'list-heuristic' }),
@@ -75,7 +72,7 @@ describe('cortexDecide list heuristics', () => {
     const chipLabels = (result.suggestions ?? [])
       .filter((suggestion): suggestion is ChipSuggestion => typeof suggestion !== 'string')
       .map((chip) => chip.label);
-  expect(chipLabels).toEqual(expect.arrayContaining(['Save as note (idea)']));
+    expect(chipLabels).toEqual(expect.arrayContaining(['Save as note (idea)']));
     expect(result.meta?.heuristics?.idea?.applied).toBe(true);
     expect(result.meta?.canonicalSubtype).toBe('idea');
     expect(result.meta?.canonicalHint).toEqual(
