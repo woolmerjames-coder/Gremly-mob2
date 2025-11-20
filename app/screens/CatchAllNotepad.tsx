@@ -3802,29 +3802,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityLabel="About Mind Drop"
           >
             <View style={styles.infoSheet} testID="minddrop-info-sheet">
-              <Text style={styles.infoTitle}>Your peaceful inbox</Text>
               <Text style={styles.infoBody}>
-                Drop anything on your mind. I'll quietly sort it into tasks, habits, or log it for
-                later... so you can let it go and move on.
-              </Text>
-              <Text style={styles.infoHeading}>Need to revisit something?</Text>
-              <Text style={styles.infoBody}>
-                Recent drops stay close by. Open them to edit, move, or undo anything I organized
-                for you.
+                Stop trying to remember everything. This is where thoughts go to be safe. Drop it
+                here, and Gremly will make sure nothing gets lost - whether it's a task, habit, or
+                just something on your mind.
               </Text>
               <View style={styles.infoActions}>
-                <Pressable
-                  testID="minddrop-info-open-recent"
-                  onPress={handleInfoViewRecent}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    pressed && styles.secondaryButtonPressed,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="View recent drops"
-                >
-                  <Text style={styles.secondaryButtonLabel}>View recent drops</Text>
-                </Pressable>
                 <Pressable
                   testID="minddrop-info-close"
                   onPress={handleInfoClose}
