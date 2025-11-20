@@ -89,6 +89,7 @@ import {
   convertUnsortedToTodo,
   convertUnsortedToLog,
 } from '../../lib/conversion';
+import { backgroundPrefill } from '../../lib/minddrop/backgroundPrefill';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 import {
   filterAndNormalizeTags,
@@ -1611,7 +1612,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const isProcessingRef = useRef(false);
   // Mind Drop: placeholder text and header focus target
   const headerTitleRef = useRef<any>(null);
-  const [placeholder] = useState('Drop your thoughts here…\nLet it flow, big or small.');
+  const [placeholder] = useState("What's on your mind?");
   const inputFocusRef = useRef(false);
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
@@ -2431,16 +2432,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   source: 'auto_classification',
                 });
 
+                // For list subtype, ensure #list tag is added
+                const shouldAddListTag = subtype === 'list';
+                const updatePatch: any = {
+                  subtype,
+                  canonicalType,
+                  ai_placed: subtype !== 'catchall',
+                  why_string: whyUpdate,
+                  views: { alsoShowIn: ['Hub:Catch-All'] },
+                };
+
+                // If it's a list, add the #list tag to the existing tags
+                if (shouldAddListTag) {
+                  const existingNote = await repo.getById(unsortedNoteId);
+                  const existingTags = (existingNote as any)?.tags || [];
+                  const hasListTag = existingTags.some(
+                    (t: string) => t.toLowerCase().replace(/^[#@*]+/, '') === 'list',
+                  );
+                  if (!hasListTag) {
+                    updatePatch.tags = [...existingTags, 'list'];
+                  }
+                }
+
                 const updatedNote = await repo.update({
                   id: unsortedNoteId,
-                  patch: {
-                    subtype,
-                    canonicalType,
-                    ai_placed: subtype !== 'catchall',
-                    why_string: whyUpdate,
-                    views: { alsoShowIn: ['Hub:Catch-All'] },
-                  },
+                  patch: updatePatch,
                 });
+
+                // Run background AI prefill for title + tags enrichment (like todos/habits)
+                void backgroundPrefill(updatedNote, cleanedText);
 
                 counts.notes += 1;
                 createdIds.notes.push(updatedNote.id);
