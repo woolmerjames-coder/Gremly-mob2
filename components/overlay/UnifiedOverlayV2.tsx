@@ -5385,6 +5385,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
   const payload: Partial<V2State> = {
     baseType,
+    compactTitle: title || '', // Preserve entity title as compactTitle
+    compactTitleSource: title || '', // Track source of title
     log: {
       title: logTitle,
       body: logBody,
