@@ -9,13 +9,13 @@ import {
 } from '../minddropShared';
 
 describe('buildMindDropTags', () => {
-  it('uses AI tags when provided and filters junk words', () => {
+  it('uses AI tags when provided and filters junk words', async () => {
     const source: MindDropSource = {
       rawText: 'Run every morning, even if just for 5 mins',
       aiTags: ['#running', '#every', '#morning', '#fitness', '#mins'],
     };
 
-    const tags = buildMindDropTags(source, 'habit');
+    const tags = await buildMindDropTags(source);
 
     // Should filter out junk time/frequency words
     expect(tags).not.toContain('#every');
@@ -27,12 +27,12 @@ describe('buildMindDropTags', () => {
     expect(tags).toContain('#fitness');
   });
 
-  it('generates fallback tags when AI tags not provided', () => {
+  it('generates fallback tags when AI tags not provided', async () => {
     const source: MindDropSource = {
       rawText: 'Book flight back home to SFO',
     };
 
-    const tags = buildMindDropTags(source, 'todo');
+    const tags = await buildMindDropTags(source);
 
     // Should have some tags generated
     expect(Array.isArray(tags)).toBe(true);
@@ -42,13 +42,13 @@ describe('buildMindDropTags', () => {
     ).toBe(true);
   });
 
-  it('returns same cleaned tag set for all item kinds given same AI tags', () => {
+  it('returns same cleaned tag set for all item kinds given same AI tags', async () => {
     const aiTags = ['#meditation', '#every', '#daily', '#mindfulness', '#minutes'];
     const rawText = 'Meditate for 10 minutes every day';
 
-    const habitTags = buildMindDropTags({ rawText, aiTags }, 'habit');
-    const todoTags = buildMindDropTags({ rawText, aiTags }, 'todo');
-    const logTags = buildMindDropTags({ rawText, aiTags }, 'log');
+    const habitTags = await buildMindDropTags({ rawText, aiTags });
+    const todoTags = await buildMindDropTags({ rawText, aiTags });
+    const logTags = await buildMindDropTags({ rawText, aiTags });
 
     // All should have same cleaned tags (junk filtered)
     expect(habitTags).toEqual(todoTags);
@@ -64,13 +64,13 @@ describe('buildMindDropTags', () => {
     expect(habitTags).toContain('#mindfulness');
   });
 
-  it('handles empty AI tags gracefully', () => {
+  it('handles empty AI tags gracefully', async () => {
     const source: MindDropSource = {
       rawText: 'Today I finally did X',
       aiTags: [],
     };
 
-    const tags = buildMindDropTags(source, 'log');
+    const tags = await buildMindDropTags(source);
 
     // Should fallback to generated tags
     expect(Array.isArray(tags)).toBe(true);
@@ -78,13 +78,13 @@ describe('buildMindDropTags', () => {
 });
 
 describe('buildMindDropDerivedFields', () => {
-  it('maps habit fields correctly: name, title, notes with full sentence', () => {
+  it('maps habit fields correctly: name, title, notes with full sentence', async () => {
     const source: MindDropSource = {
       rawText: 'Run every morning, even if just for 5 mins',
       aiTags: ['#running', '#fitness'],
     };
 
-    const fields = buildMindDropDerivedFields('habit', source);
+    const fields = await buildMindDropDerivedFields('habit', source);
 
     expect(fields.title).toBe('Run every morning, even if just for 5 mins');
     expect(fields.name).toBe('Run every morning, even if just for 5 mins');
@@ -94,13 +94,13 @@ describe('buildMindDropDerivedFields', () => {
     expect(fields.tags).toContain('#fitness');
   });
 
-  it('maps todo fields correctly: title, name, null body/notes', () => {
+  it('maps todo fields correctly: title, name, null body/notes', async () => {
     const source: MindDropSource = {
       rawText: 'Book flight back home to SFO',
       aiTags: ['#travel', '#flight'],
     };
 
-    const fields = buildMindDropDerivedFields('todo', source);
+    const fields = await buildMindDropDerivedFields('todo', source);
 
     expect(fields.title).toBe('Book flight back home to SFO');
     expect(fields.name).toBe('Book flight back home to SFO');
@@ -110,13 +110,13 @@ describe('buildMindDropDerivedFields', () => {
     expect(fields.tags).toContain('#flight');
   });
 
-  it('maps log fields correctly: title and body with full sentence', () => {
+  it('maps log fields correctly: title and body with full sentence', async () => {
     const source: MindDropSource = {
       rawText: 'Today I finally completed the marathon training',
       aiTags: ['#accomplishment', '#running'],
     };
 
-    const fields = buildMindDropDerivedFields('log', source);
+    const fields = await buildMindDropDerivedFields('log', source);
 
     expect(fields.title).toBe('Today I finally completed the marathon training');
     expect(fields.body).toBe('Today I finally completed the marathon training');
@@ -124,26 +124,26 @@ describe('buildMindDropDerivedFields', () => {
     expect(fields.tags).toContain('#running');
   });
 
-  it('trims whitespace from raw text', () => {
+  it('trims whitespace from raw text', async () => {
     const source: MindDropSource = {
       rawText: '  Meditate daily  ',
       aiTags: ['#meditation'],
     };
 
-    const fields = buildMindDropDerivedFields('habit', source);
+    const fields = await buildMindDropDerivedFields('habit', source);
 
     expect(fields.title).toBe('Meditate daily');
     expect(fields.name).toBe('Meditate daily');
     expect(fields.notes).toBe('Meditate daily');
   });
 
-  it('all three kinds get same cleaned tags from same AI input', () => {
+  it('all three kinds get same cleaned tags from same AI input', async () => {
     const aiTags = ['#productivity', '#every', '#daily', '#work', '#minutes'];
     const rawText = 'Review inbox every morning for 15 minutes';
 
-    const habitFields = buildMindDropDerivedFields('habit', { rawText, aiTags });
-    const todoFields = buildMindDropDerivedFields('todo', { rawText, aiTags });
-    const logFields = buildMindDropDerivedFields('log', { rawText, aiTags });
+    const habitFields = await buildMindDropDerivedFields('habit', { rawText, aiTags });
+    const todoFields = await buildMindDropDerivedFields('todo', { rawText, aiTags });
+    const logFields = await buildMindDropDerivedFields('log', { rawText, aiTags });
 
     // All should have identical cleaned tags
     expect(habitFields.tags).toEqual(todoFields.tags);
@@ -159,15 +159,13 @@ describe('buildMindDropDerivedFields', () => {
     expect(habitFields.tags).toContain('#work');
   });
 
-  it('preserves full sentence for habit notes even with AI-suggested title', () => {
-    // This simulates the case where Cortex might suggest a short title
-    // but we want to preserve the full input in notes
+  it('preserves full Mind Drop sentence in notes for habits (user will edit later)', async () => {
     const source: MindDropSource = {
       rawText: 'Start a daily meditation practice for 10 minutes each morning to reduce stress',
       aiTags: ['#meditation', '#mindfulness'],
     };
 
-    const fields = buildMindDropDerivedFields('habit', source);
+    const fields = await buildMindDropDerivedFields('habit', source);
 
     // Full sentence should be in notes
     expect(fields.notes).toBe(

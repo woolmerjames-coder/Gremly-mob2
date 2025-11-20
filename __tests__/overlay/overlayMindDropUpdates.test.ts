@@ -7,12 +7,12 @@ import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFro
 
 describe('Overlay Mind Drop Updates', () => {
   describe('Todo updates', () => {
-    it('should use canonical mapper for editing haircut todo', () => {
+    it('should use canonical mapper for editing haircut todo', async () => {
       const rawText = 'Book haircut tomorrow at 3pm';
       const aiTitle = 'Haircut appointment tomorrow';
       const aiTags = ['#haircut', '#appointment'];
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'todo',
         rawText,
         aiTitle,
@@ -46,11 +46,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(updatePatch.tags).toEqual(['#haircut', '#appointment']);
     });
 
-    it('should preserve full raw text in body after title edit', () => {
+    it('should preserve full raw text in body after title edit', async () => {
       const rawText = 'Book haircut tomorrow at 3pm';
       const newTitle = 'Haircut @ 3pm'; // User edited title
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'todo',
         rawText,
         aiTitle: newTitle,
@@ -62,11 +62,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(canonical.body).toBe('Book haircut tomorrow at 3pm');
     });
 
-    it('should clean tags when user adds junk words', () => {
+    it('should clean tags when user adds junk words', async () => {
       const rawText = 'Book haircut tomorrow at 3pm';
       const userAddedTags = ['#haircut', '#tomorrow', '#at', '#3pm']; // 'tomorrow' and 'at' are junk
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'todo',
         rawText,
         aiTags: userAddedTags,
@@ -78,12 +78,12 @@ describe('Overlay Mind Drop Updates', () => {
   });
 
   describe('Habit updates', () => {
-    it('should use canonical mapper for editing running habit', () => {
+    it('should use canonical mapper for editing running habit', async () => {
       const rawText = 'Go for a 20-minute walk every morning';
       const aiTitle = 'Morning walk';
       const aiTags = ['#walk'];
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'habit',
         rawText,
         aiTitle,
@@ -115,11 +115,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(updatePatch.tags).toEqual(['#walk']);
     });
 
-    it('should preserve full sentence in notes after title edit', () => {
+    it('should preserve full sentence in notes after title edit', async () => {
       const rawText = 'Go for a 20-minute walk every morning';
       const newTitle = '20min morning walk'; // User edited
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'habit',
         rawText,
         aiTitle: newTitle,
@@ -131,11 +131,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(canonical.notes).toBe('Go for a 20-minute walk every morning');
     });
 
-    it('should filter time-related junk from habit tags', () => {
+    it('should filter time-related junk from habit tags', async () => {
       const rawText = 'Go for a 20-minute walk every morning';
       const userTags = ['#walk', '#every', '#morning', '#minute']; // 'every', 'morning', 'minute' are junk
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'habit',
         rawText,
         aiTags: userTags,
@@ -147,12 +147,12 @@ describe('Overlay Mind Drop Updates', () => {
   });
 
   describe('Log updates', () => {
-    it('should use canonical mapper for editing overwhelmed log', () => {
+    it('should use canonical mapper for editing overwhelmed log', async () => {
       const rawText = 'Felt overwhelmed after work but calmed down after a walk';
       const aiTitle = 'Feeling Overwhelmed After Work';
       const aiTags = ['#overwhelmed', '#calm', '#walk'];
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText,
         aiTitle,
@@ -187,11 +187,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(updatePatch.tags).toEqual(['#overwhelmed', '#calm', '#walk']);
     });
 
-    it('should preserve full story in body with compact title', () => {
+    it('should preserve full story in body with compact title', async () => {
       const rawText = 'Felt overwhelmed after work but calmed down after a walk';
       const compactTitle = 'Overwhelmed → Calm'; // User edited to shorter
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText,
         aiTitle: compactTitle,
@@ -203,11 +203,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(canonical.body).toBe('Felt overwhelmed after work but calmed down after a walk');
     });
 
-    it('should preserve emotion tags and filter filler words', () => {
+    it('should preserve emotion tags and filter filler words', async () => {
       const rawText = 'Felt overwhelmed after work but calmed down after a walk';
       const userTags = ['#overwhelmed', '#calm', '#after', '#walk']; // 'after' is junk
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText,
         aiTags: userTags,
@@ -217,11 +217,11 @@ describe('Overlay Mind Drop Updates', () => {
       expect(canonical.tags).toEqual(['#overwhelmed', '#calm', '#walk']);
     });
 
-    it('should preserve *journal marker in log tags', () => {
+    it('should preserve *journal marker in log tags', async () => {
       const rawText = 'Today was a wonderful day';
       const journalTags = ['*journal', '#wonderful', '#day']; // 'day' is junk but *journal preserved
 
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText,
         aiTags: journalTags,
@@ -235,7 +235,7 @@ describe('Overlay Mind Drop Updates', () => {
   });
 
   describe('Consistency across updates', () => {
-    it('should return same structure for same Mind Drop text across all types', () => {
+    it('should return same structure for same Mind Drop text across all types', async () => {
       const rawText = 'Test Mind Drop sentence';
 
       const todoCanonical = buildCanonicalFromMindDrop({

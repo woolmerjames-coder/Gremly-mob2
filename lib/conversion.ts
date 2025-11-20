@@ -8,6 +8,7 @@ import {
 import { buildMindDropDerivedFields } from './minddrop/minddropShared';
 import { backgroundPrefill } from './minddrop/backgroundPrefill';
 import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
+import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
 
 type LineageMeta = {
   originId: string;
@@ -249,7 +250,7 @@ export const convertUnsortedToTodo = async (
     const rawText = note.body ?? note.title ?? '';
 
     // Use shared Mind Drop helper for consistent tag cleaning
-    const derived = buildMindDropDerivedFields('todo', {
+    const derived = await buildMindDropDerivedFields('todo', {
       rawText,
       aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
     });
@@ -330,18 +331,21 @@ export const convertUnsortedToTodo = async (
  * Convert an unsorted note to a log (journal, idea, list, etc.)
  * Updates the note in place to promote it to a canonical log subtype.
  *
+ * Uses AI classification to determine the best subtype unless manually overridden.
+ *
  * @param repo - Repository instance
  * @param noteId - ID of the unsorted note to convert
- * @param options - Conversion options (subtype)
+ * @param options - Conversion options (subtype override, skip AI classification)
  * @returns Updated note
  */
 export const convertUnsortedToLog = async (
   repo: IRepo,
   noteId: string,
-  options: { subtype?: 'journal' | 'idea' | 'list' | 'reference' } = {},
+  options: {
+    subtype?: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+    skipAI?: boolean; // For photo-only logs or manual override cases
+  } = {},
 ): Promise<{ note: Note }> => {
-  // Default to 'journal' for logs - 'idea' should only be used for explicitly detected ideation drops
-  const targetSubtype = options.subtype || 'journal';
   logConversionStart({ from: 'unsorted', to: 'log', originId: noteId });
 
   try {
@@ -351,6 +355,29 @@ export const convertUnsortedToLog = async (
     }
 
     const note = record as Note;
+
+    // Determine subtype: manual override > AI classification > fallback to 'journal'
+    let targetSubtype: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+
+    if (options.subtype) {
+      // Manual override provided
+      targetSubtype = options.subtype;
+    } else if (options.skipAI) {
+      // Skip AI (e.g., photo-only logs) - use fallback
+      targetSubtype = 'plain';
+    } else {
+      // Use AI classification
+      const rawText = note.body ?? note.title ?? '';
+      try {
+        targetSubtype = await getEffectiveLogSubtype(rawText);
+      } catch (err) {
+        console.warn(
+          '[convertUnsortedToLog] AI subtype classification failed, using fallback',
+          err,
+        );
+        targetSubtype = 'journal'; // Fallback to journal on AI failure
+      }
+    }
 
     // Filter labels: remove catchall and needs_review, add log
     const originalLabels = note.labels ?? [];
@@ -364,12 +391,15 @@ export const convertUnsortedToLog = async (
       source: 'log_confirmation',
     });
 
+    // Convert 'plain' to null for database (plain means no specific subtype)
+    const subtypeForDb = targetSubtype === 'plain' ? null : targetSubtype;
+
     const updatedNote = (await repo.update({
       id: note.id,
       patch: {
         archived: false,
         ai_placed: true,
-        subtype: targetSubtype,
+        subtype: subtypeForDb,
         canonicalType: 'log',
         labels: logLabels,
         why_string: whyUpdate,
@@ -423,7 +453,7 @@ export const convertUnsortedToHabit = async (
     const rawText = note.body ?? note.title ?? '';
 
     // Use shared Mind Drop helper for consistent tag cleaning
-    const derived = buildMindDropDerivedFields('habit', {
+    const derived = await buildMindDropDerivedFields('habit', {
       rawText,
       aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
     });

@@ -19,6 +19,7 @@ import { filterAndNormalizeTags } from '../tags/normalize';
 import { validateAiTitleForTodo } from './normalizeTodoTitle';
 import { applyTagQualityFilter } from '../tags/quality';
 import { applyThemeTags } from '../tags/themes';
+import { extractMeaningfulTags } from '../tags/extractTags';
 
 interface PrefillEntity {
   id: string;
@@ -455,21 +456,49 @@ export async function resummarizeTags(
   });
 
   try {
-    // Call Cortex for tag generation
-    const cortexResult = await callClassify({
-      text: rawText,
-    });
+    // Try AI tag generation first
+    let aiTags: string[] = [];
+    let usedFallback = false;
 
-    if (!cortexResult.ok) {
-      console.warn('[ResummarizeTags] Cortex call failed', {
-        entityId: entity.id,
+    try {
+      const cortexResult = await callClassify({
+        text: rawText,
       });
-      return { tags: [], updated: false };
+
+      if (cortexResult.ok && Array.isArray(cortexResult.classification?.tags)) {
+        aiTags = cortexResult.classification.tags.filter(Boolean);
+      } else {
+        console.warn(
+          '[ResummarizeTags] Cortex call returned no tags, using deterministic fallback',
+          {
+            entityId: entity.id,
+          },
+        );
+        usedFallback = true;
+      }
+    } catch (error) {
+      console.warn('[ResummarizeTags] Cortex call failed, using deterministic fallback', {
+        entityId: entity.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      usedFallback = true;
     }
 
-    const aiTags = Array.isArray(cortexResult.classification?.tags)
-      ? cortexResult.classification.tags.filter(Boolean)
-      : [];
+    // Fallback to deterministic extraction if AI failed or returned no tags
+    if (usedFallback || aiTags.length === 0) {
+      const subtype =
+        entity.type === 'note' && entity.subtype === 'journal' ? 'journal' : undefined;
+      const extractedTags = extractMeaningfulTags(rawText, subtype);
+      // Convert to # prefix format for backwards compatibility
+      aiTags = extractedTags.map((tag) => {
+        if (tag.startsWith('@') || tag.startsWith('*')) return tag;
+        return `#${tag}`;
+      });
+      console.log('[ResummarizeTags] Using deterministic fallback tags', {
+        entityId: entity.id,
+        tagsCount: aiTags.length,
+      });
+    }
 
     // Build update based on entity type
     let tableName: string;

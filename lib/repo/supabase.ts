@@ -434,7 +434,7 @@ export class SupabaseRepo implements IRepo {
     } else {
       // note
       // Database schema truth: notes table has 'title' column (NO 'name' column)
-      if (!input.subtype) throw new Error('Note requires subtype');
+      // Note: subtype is optional in database schema (can be null)
       if (!input.title) throw new Error('Note requires title');
 
       // Map details → body for notes (full Mind Drop sentence persistence)

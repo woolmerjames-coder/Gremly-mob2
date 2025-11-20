@@ -32,6 +32,7 @@ interface OverlayState {
   initialSpaceId?: string | null;
   conversionMeta?: ConversionMeta;
   initialText?: string | null;
+  initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
   entity?: AppRecord; // Full record for edit mode pre-fill
   views?: Record<string, any>; // Pass-through for ai_title_frozen, ai_tags_frozen, etc.
 }
@@ -43,6 +44,7 @@ interface CreateOptions {
   conversionMeta?: ConversionMeta;
   initialEntity?: OverlayState['initialEntity'];
   initialText?: string | null;
+  initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
   suppressOverlayOpen?: boolean;
 }
 
@@ -78,6 +80,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       conversionMeta,
       initialEntity,
       initialText,
+      initialLogPhotoUris,
       suppressOverlayOpen,
     }: CreateOptions = {}) => {
       if (suppressOverlayOpen) {
@@ -106,6 +109,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         initialSpaceId: spaceId,
         conversionMeta,
         initialText: resolvedText,
+        initialLogPhotoUris,
       });
 
       if (debounceTimerRef.current) {

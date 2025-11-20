@@ -228,7 +228,7 @@ export const noteInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
   title: z.string().min(1), // Required - DATABASE TRUTH: notes table has 'title' column (NO 'name')
   body: z.string().optional().nullable(),
-  subtype: z.enum(['journal', 'list', 'catchall', 'idea', 'reference']),
+  subtype: z.enum(['journal', 'list', 'catchall', 'idea', 'reference']).nullable().optional(), // Optional in database
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),

@@ -211,14 +211,13 @@ export class MemoryRepo implements IRepo {
         drop_id: input.dropId ?? null,
       };
     } else {
-      // note
-      if (!input.subtype) throw new Error('Note requires subtype');
+      // note - subtype is optional in database schema (can be null)
       rec = {
         id: genId('note'),
         type: 'note',
         title: input.title,
         body: input.body,
-        subtype: input.subtype as import('../types').NoteSubtype,
+        subtype: (input.subtype as import('../types').NoteSubtype) ?? null,
         space_id: input.space_id ?? null,
         ai_placed: !!input.ai_placed,
         why_string: input.why_string ?? null,

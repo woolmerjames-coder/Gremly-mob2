@@ -5,7 +5,7 @@
  */
 
 import { filterAndNormalizeTags } from '../tags/normalize';
-import { buildFallbackTags } from '../../cortex/openAiEngine';
+import { getEffectiveTags } from '../tags/getEffectiveTags';
 
 export type MindDropItemKind = 'log' | 'todo' | 'habit';
 
@@ -25,31 +25,29 @@ export interface MindDropDerivedFields {
 
 /**
  * Build cleaned tags for Mind Drop items using the same logic across all types.
- * Reuses the existing tag-filtering pipeline:
+ * Uses new AI-first tag extraction pipeline:
  * 1. Use AI tags if present (from Cortex engineTags or classification.tags)
- * 2. Otherwise, fallback to locally generated tags
+ * 2. Otherwise, call getEffectiveTags which tries AI then falls back to deterministic
  * 3. Apply filterAndNormalizeTags to strip junk words and normalize format
  *
  * @param source - The Mind Drop source with raw text and optional AI tags
- * @param kind - The type of item being created (for fallback tag generation)
- * @returns Cleaned, normalized tag array
+ * @returns Promise resolving to cleaned, normalized tag array
  */
-export function buildMindDropTags(source: MindDropSource, kind: MindDropItemKind): string[] {
-  // Use AI tags if available, otherwise generate fallback tags
+export async function buildMindDropTags(source: MindDropSource): Promise<string[]> {
+  // Use AI tags if available
   const aiTags = source.aiTags ?? [];
 
   if (aiTags.length > 0) {
     // AI tags are already passed through filterAndNormalizeTags in the caller
-    // (see CatchAllNotepad.tsx line 2260: combinedTags = filterAndNormalizeTags(...))
     // But we apply it here too for safety/consistency when called standalone
     return filterAndNormalizeTags(aiTags);
   }
 
-  // Fallback: generate tags heuristically
-  // buildFallbackTags already calls filterAndNormalizeTags internally
-  // Note: 'log' kind maps to 'note' for buildFallbackTags
-  const fallbackKind = kind === 'log' ? 'note' : kind;
-  return buildFallbackTags(source.rawText, fallbackKind);
+  // Extract tags using AI-first approach with deterministic fallback
+  const extractedTags = await getEffectiveTags(source.rawText);
+
+  // Filter and normalize the extracted tags
+  return filterAndNormalizeTags(extractedTags);
 }
 
 /**
@@ -63,13 +61,13 @@ export function buildMindDropTags(source: MindDropSource, kind: MindDropItemKind
  *
  * @param kind - The type of item being created
  * @param source - The Mind Drop source with raw text and optional AI tags
- * @returns Object with title, name, body, notes, and cleaned tags
+ * @returns Promise resolving to object with title, name, body, notes, and cleaned tags
  */
-export function buildMindDropDerivedFields(
+export async function buildMindDropDerivedFields(
   kind: MindDropItemKind,
   source: MindDropSource,
-): MindDropDerivedFields {
-  const tags = buildMindDropTags(source, kind);
+): Promise<MindDropDerivedFields> {
+  const tags = await buildMindDropTags(source);
   const sentence = source.rawText.trim();
 
   switch (kind) {

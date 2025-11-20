@@ -171,6 +171,7 @@ export type UnifiedCreateOverlayProps = {
     initialDueDate?: string | null;
   };
   initialText?: string | null;
+  initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
   onCommitmentsChanged?: () => void | Promise<void>;

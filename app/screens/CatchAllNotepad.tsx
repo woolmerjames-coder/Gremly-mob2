@@ -42,7 +42,9 @@ import {
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
   Image,
+  ActionSheetIOS,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -97,7 +99,7 @@ import {
   deriveLogSubtypeFromTags,
 } from '../../lib/tags/normalize';
 import { applyTagQualityFilter } from '../../lib/tags/quality';
-import { buildFallbackTags } from '../../cortex/openAiEngine';
+import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { Pencil, Trash2 } from 'lucide-react-native';
@@ -274,6 +276,7 @@ type MindDropInputProps = {
   iconWrapperStyle?: any;
   heightWrapperStyle?: any;
   inputDynHeight: number;
+  onCameraPress?: () => void;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -303,6 +306,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
     iconWrapperStyle,
     heightWrapperStyle,
     inputDynHeight,
+    onCameraPress,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -396,11 +400,12 @@ const MindDropInput = React.memo<MindDropInputProps>(
             </View>
           </Pressable>
           <Pressable
-            disabled
+            disabled={!onCameraPress}
             style={[iconButtonStyle, iconCameraStyle]}
             accessibilityRole="button"
-            accessibilityLabel="Attach a photo (coming soon)"
-            accessibilityState={{ disabled: true }}
+            accessibilityLabel="Attach a photo"
+            accessibilityState={{ disabled: !onCameraPress }}
+            onPress={onCameraPress}
           >
             <View style={iconWrapperStyle}>
               <Icon name="Camera" size="sm" color={iconColor} strokeWidth={1.4} />
@@ -1576,6 +1581,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [lowConfidenceUnsortedId, setLowConfidenceUnsortedId] = useState<string | null>(null);
   const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
+  const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
 
   // Auto-dismiss category chips after configured interval
@@ -1908,12 +1914,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return unsub;
   }, [triggerRecentRefresh]);
 
-  // Memoized disabled state: only depends on note & isSubmitting, isolating input from unrelated state
+  // Memoized disabled state: allow submit if note OR photos present
   const disabled = useMemo(
-    () => note.trim().length === 0 || isSubmitting || isThinking,
-    [note, isSubmitting, isThinking],
+    () => (note.trim().length === 0 && pendingPhotoUris.length === 0) || isSubmitting || isThinking,
+    [note, pendingPhotoUris, isSubmitting, isThinking],
   );
-  const isButtonVisuallyDisabled = note.trim().length === 0;
+  const isButtonVisuallyDisabled = note.trim().length === 0 && pendingPhotoUris.length === 0;
+
+  // Dynamic placeholder based on photo presence
+  const dynamicPlaceholder = useMemo(
+    () => (pendingPhotoUris.length > 0 ? 'Add a note about these?' : placeholder),
+    [pendingPhotoUris, placeholder],
+  );
 
   const modeDescription = useMemo(() => {
     return uiMode === 'free'
@@ -1978,6 +1990,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     dropIdRef.current = null;
     unsortedNotesByDropIdRef.current.clear(); // Clear drop_id tracking
     setNote('');
+    setPendingPhotoUris([]); // Photo Drop: clear photos on reset
     setIsSubmitting(false);
     setIsThinking(false);
     setConfirmations([]);
@@ -2205,7 +2218,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           } else if (unsortedIdRef.current == null) {
             // Create new unsorted note only if we don't have one yet
             try {
-              const narrativeTags = buildFallbackTags(cleanedText, 'note', 'journal');
+              const narrativeTags = extractMeaningfulTags(cleanedText, 'journal');
               // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
               const qualityFiltered = applyTagQualityFilter(narrativeTags);
               const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
@@ -2591,10 +2604,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   canonicalSubtypeMeta === 'idea'
                     ? (canonicalSubtypeMeta as NoteSubtype)
                     : 'catchall';
+                const extractionSubtype =
+                  fallbackSubtype === 'catchall' ? undefined : fallbackSubtype;
                 const fallbackTags =
                   classificationTags.length > 0
                     ? classificationTags
-                    : buildFallbackTags(cleanedText, 'note', fallbackSubtype);
+                    : extractMeaningfulTags(cleanedText, extractionSubtype);
                 // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
                 const qualityFiltered = applyTagQualityFilter(fallbackTags);
                 const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
@@ -2703,7 +2718,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         } else if (unsortedIdRef.current == null) {
           // Create new unsorted note only if we don't have one yet
           try {
-            const fallbackTags = buildFallbackTags(trimmed, 'note');
+            const fallbackTags = extractMeaningfulTags(trimmed);
             // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
             const qualityFiltered = applyTagQualityFilter(fallbackTags);
             const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
@@ -2981,25 +2996,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             }
           }
         } else {
-          // Log: Convert unsorted note to canonical log
+          // Log: Convert unsorted note to canonical log using AI subtype classification
           try {
             const originalNote = await repo.getById(unsortedId);
             if (!originalNote) {
               throw new Error('Original note not found');
             }
 
-            const noteText =
-              (originalNote as any)?.body ||
-              (originalNote as any)?.title ||
-              (originalNote as any)?.text ||
-              '';
-            // Always use 'journal' subtype for logs - never 'idea'
-            // 'idea' is only for explicitly detected ideation drops, not logs
-            const subtype = 'journal';
-
-            const { note: convertedLog } = await convertUnsortedToLog(repo, unsortedId, {
-              subtype,
-            });
+            // Do NOT pass subtype - let convertUnsortedToLog use AI classification
+            // This ensures AI determines the best subtype (journal/list/reference/idea/plain)
+            const { note: convertedLog } = await convertUnsortedToLog(repo, unsortedId);
 
             setOrganizedToday((prev) => prev + 1);
             triggerRecentRefresh();
@@ -3009,7 +3015,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // Skip auto-opening overlay for logs (user doesn't need to edit immediately)
             console.log('[MindDrop][Debug][openOverlay] Skipping auto-open for log', {
               noteId: convertedLog.id,
-              subtype,
+              subtype: convertedLog.subtype,
             });
 
             if (TOASTS_ON) {
@@ -3186,6 +3192,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     const now = Date.now();
     const trimmed = note.trim();
+
+    // Photo Drop shortcut: if photos are present, skip AI and open overlay directly
+    if (pendingPhotoUris.length > 0) {
+      try {
+        overlay.openCreate({
+          initialEntity: { type: 'log', id: undefined, logSubtype: 'everything_else' },
+          initialText: trimmed || null,
+          initialLogPhotoUris: pendingPhotoUris,
+          spaceId: null,
+        });
+
+        // Clear local state
+        setNote('');
+        setPendingPhotoUris([]);
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+        return;
+      } catch (error) {
+        console.error('[MindDrop] Photo drop failed:', error);
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+        return;
+      }
+    }
 
     if (!trimmed) {
       setIsSubmitting(false);
@@ -3514,6 +3544,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [
     note,
     isSubmitting,
+    pendingPhotoUris,
+    overlay,
     performSave,
     repo,
     showActionToast,
@@ -3525,8 +3557,81 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ensureSubmissionAndDropIds,
   ]);
 
+  // Photo Drop handlers
+  const addMindDropPhoto = useCallback(
+    async (fromCamera: boolean) => {
+      // Check max limit
+      if (pendingPhotoUris.length >= 5) {
+        Alert.alert('Maximum Photos', 'You can add up to 5 photos per Mind Drop.');
+        return;
+      }
+
+      try {
+        let result;
+        if (fromCamera) {
+          const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+          if (!permissionResult.granted) {
+            Alert.alert('Permission Required', 'Camera permission is required to take photos.');
+            return;
+          }
+          result = await ImagePicker.launchCameraAsync({
+            allowsEditing: false,
+            quality: 0.8,
+          });
+        } else {
+          const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!permissionResult.granted) {
+            Alert.alert(
+              'Permission Required',
+              'Photo library permission is required to choose photos.',
+            );
+            return;
+          }
+          result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: false,
+            quality: 0.8,
+          });
+        }
+
+        if (!result.canceled && result.assets?.[0]?.uri) {
+          setPendingPhotoUris((prev) => [...prev, result.assets[0].uri]);
+        }
+      } catch (error) {
+        console.error('[MindDrop] Error adding photo:', error);
+        Alert.alert('Error', 'Failed to add photo. Please try again.');
+      }
+    },
+    [pendingPhotoUris],
+  );
+
+  const handleMindDropPhotoAction = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take photo', 'Choose from library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) return addMindDropPhoto(true);
+          if (buttonIndex === 2) return addMindDropPhoto(false);
+        },
+      );
+    } else {
+      Alert.alert('Add photo', 'Choose an option', [
+        { text: 'Take photo', onPress: () => addMindDropPhoto(true) },
+        { text: 'Choose from library', onPress: () => addMindDropPhoto(false) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [addMindDropPhoto]);
+
+  const handleRemovePendingPhoto = useCallback((index: number) => {
+    setPendingPhotoUris((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const handleSubmit = useCallback(() => {
-    if (isSubmitting || isThinking || !note.trim()) {
+    if (isSubmitting || isThinking || (!note.trim() && pendingPhotoUris.length === 0)) {
       return;
     }
 
@@ -3600,7 +3705,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             <MindDropInput
               value={note}
               onChangeText={handleChangeText}
-              placeholder={placeholder}
+              placeholder={dynamicPlaceholder}
               placeholderTextColor="#66706A"
               containerStyle={styles.inputContainer}
               focusedStyle={styles.inputContainerFocused}
@@ -3619,8 +3724,41 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               iconColor={c.mossGreen}
               heightWrapperStyle={styles.inputHeightWrapper}
               inputDynHeight={inputDynHeight}
+              onCameraPress={handleMindDropPhotoAction}
             />
           </View>
+          {pendingPhotoUris.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.photoStrip}
+              contentContainerStyle={styles.photoStripContent}
+            >
+              {pendingPhotoUris.map((uri, index) => (
+                <View key={uri} style={styles.photoThumb}>
+                  <Image source={{ uri }} style={styles.photoThumbImage} />
+                  <Pressable
+                    style={styles.photoRemoveButton}
+                    onPress={() => handleRemovePendingPhoto(index)}
+                    accessibilityLabel={`Remove photo ${index + 1}`}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.photoRemoveText}>×</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {pendingPhotoUris.length < 5 && (
+                <Pressable
+                  style={styles.photoAddButton}
+                  onPress={handleMindDropPhotoAction}
+                  accessibilityLabel="Add another photo"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.photoAddText}>+</Text>
+                </Pressable>
+              )}
+            </ScrollView>
+          )}
           {note.length > 0 ? (
             <View style={styles.helperRow}>
               <View style={styles.helperLeft}>
@@ -4384,6 +4522,63 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
       paddingVertical: 10,
+    },
+    // Photo Drop styles
+    photoStrip: {
+      marginTop: 12,
+      marginBottom: 8,
+      paddingHorizontal: space,
+    },
+    photoStripContent: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    photoThumb: {
+      position: 'relative',
+      width: 40,
+      height: 40,
+      borderRadius: 4,
+      overflow: 'hidden',
+      backgroundColor: c.sageTint,
+    },
+    photoThumbImage: {
+      width: '100%',
+      height: '100%',
+      resizeMode: 'cover',
+    },
+    photoRemoveButton: {
+      position: 'absolute',
+      top: -2,
+      right: -2,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: c.charcoalInk,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    photoRemoveText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '600',
+      lineHeight: 16,
+    },
+    photoAddButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      borderColor: c.mossGreen,
+      borderStyle: 'dashed',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'transparent',
+    },
+    photoAddText: {
+      color: c.mossGreen,
+      fontSize: 20,
+      fontWeight: '400',
+      lineHeight: 24,
     },
   });
 }

@@ -82,6 +82,9 @@ import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsR
 // Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
+import { extractMeaningfulTags } from '../../lib/tags/extractTags';
+import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
+import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
@@ -453,7 +456,8 @@ function hasOnlyGenericHabitTags(tags: string[]): boolean {
 
 /**
  * Common emotion tags that should be prioritized for journal/log entries.
- * These help users track their emotional state over time.
+ * Synced with lib/tags/extractTags.ts ALLOWED_EMOTIONS for consistency.
+ * Extended with variations (e.g., anxiety/anxious, stress/stressed) for matching.
  */
 const EMOTION_TAGS = new Set([
   'anxious',
@@ -461,15 +465,10 @@ const EMOTION_TAGS = new Set([
   'overwhelmed',
   'stressed',
   'stress',
-  'happy',
-  'joy',
-  'joyful',
   'sad',
   'sadness',
   'angry',
   'anger',
-  'frustrated',
-  'frustration',
   'excited',
   'excitement',
   'nervous',
@@ -477,25 +476,6 @@ const EMOTION_TAGS = new Set([
   'peaceful',
   'grateful',
   'gratitude',
-  'worried',
-  'worry',
-  'fear',
-  'scared',
-  'content',
-  'hopeful',
-  'hope',
-  'proud',
-  'shame',
-  'guilty',
-  'guilt',
-  'lonely',
-  'loneliness',
-  'confused',
-  'confusion',
-  'relieved',
-  'relief',
-  'bored',
-  'energized',
   'tired',
   'exhausted',
 ]);
@@ -896,6 +876,25 @@ function formatLogTimestamp(mode: 'create' | 'edit', entity: any | null): string
   }
 }
 
+// Helper to get log subtype chip label
+function getLogSubtypeChipLabel(
+  subtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain',
+): string | null {
+  switch (subtype) {
+    case 'journal':
+      return 'Journal';
+    case 'list':
+      return 'List';
+    case 'reference':
+      return 'Reference';
+    case 'idea':
+      return 'Idea';
+    case 'plain':
+    default:
+      return null;
+  }
+}
+
 export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const {
     visible,
@@ -905,6 +904,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialSpaceId,
     onSaved,
     initialText,
+    initialLogPhotoUris,
   } = props;
 
   // Extract full entity from props (passed by OverlayHost in edit mode)
@@ -923,7 +923,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isListLog = isLog && logKind === 'list';
 
   // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
-  const effectiveLogSubtype: 'journal' | 'list' | 'idea' | 'plain' = useMemo(() => {
+  // When editing logs, use AI classification if no manual override or tag-based detection
+  const effectiveLogSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' = useMemo(() => {
     if (!isLog) return 'plain';
 
     // Check current tags FIRST to support auto-detection (Prompt 3)
@@ -931,6 +932,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (state.tags.includes('list')) return 'list';
     if (state.tags.includes('journal')) return 'journal';
     if (state.tags.includes('idea')) return 'idea';
+    if (state.tags.includes('reference')) return 'reference';
 
     // Manual override takes precedence over entity.subtype (but NOT over tags)
     if (state.logSubtypeOverride) return state.logSubtypeOverride;
@@ -938,11 +940,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Fallback to entity.subtype if present (edit mode)
     const entity = initialEntity as any;
     const rawSubtype = entity?.subtype as string | undefined;
-    if (rawSubtype === 'journal' || rawSubtype === 'list' || rawSubtype === 'idea') {
+    if (
+      rawSubtype === 'journal' ||
+      rawSubtype === 'list' ||
+      rawSubtype === 'reference' ||
+      rawSubtype === 'idea'
+    ) {
       return rawSubtype;
     }
 
-    // Default to plain when nothing is set
+    // For new logs or when entity has no subtype, AI classification will be used in toCreateOrUpdateInput
+    // Return 'plain' here as placeholder - actual AI classification happens at save time
     return 'plain';
   }, [isLog, state.logSubtypeOverride, initialEntity, state.tags]);
 
@@ -1008,6 +1016,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Multi-photo support for logs (Phase L5)
   const [logPhotos, setLogPhotos] = useState<LogPhoto[]>([]);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+
+  // Photo Drop: hydrate logPhotos from initialLogPhotoUris for create-mode logs (once)
+  const initialLogPhotosHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      baseType !== 'log' ||
+      mode !== 'create' ||
+      initialLogPhotosHydratedRef.current ||
+      !initialLogPhotoUris ||
+      initialLogPhotoUris.length === 0
+    ) {
+      return;
+    }
+
+    const seeded: LogPhoto[] = initialLogPhotoUris.slice(0, 5).map((uri, index) => ({
+      url: uri,
+      position: index,
+      isNew: true,
+      isDeleted: false,
+    }));
+
+    setLogPhotos(seeded);
+    initialLogPhotosHydratedRef.current = true;
+  }, [baseType, mode, initialLogPhotoUris]);
 
   // Mood selector for journal logs (Phase L4)
   const [mood, setMood] = useState<'happy' | 'neutral' | 'sad'>('neutral');
@@ -1428,12 +1461,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Load existing log photos from database (Phase L5)
   useEffect(() => {
     const loadLogPhotos = async () => {
+      console.log('[UnifiedOverlayV2] loadLogPhotos effect:', {
+        mode,
+        hasInitialEntity: !!initialEntity,
+        baseType,
+        noteId: (initialEntity as any)?.id,
+      });
       if (mode !== 'edit' || !initialEntity || baseType !== 'log') return;
 
       const noteId = (initialEntity as any)?.id;
       if (!noteId) return;
 
       try {
+        console.log('[UnifiedOverlayV2] Loading photos for note:', noteId);
         const { supabase } = await import('../../lib/supabase/client');
         const { data, error } = await supabase
           .from('log_photos')
@@ -1446,6 +1486,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           return;
         }
 
+        console.log('[UnifiedOverlayV2] Loaded photos from DB:', data);
         if (data && data.length > 0) {
           const photos: LogPhoto[] = data.map((row) => ({
             id: row.id,
@@ -1454,6 +1495,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             isNew: false,
             isDeleted: false,
           }));
+          console.log('[UnifiedOverlayV2] Setting logPhotos state:', photos);
           setLogPhotos(photos);
         }
       } catch (err) {
@@ -1583,32 +1625,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const resuggestRequestIdRef = useRef(0);
   const resuggestAppliedIdRef = useRef(0);
 
-  // Phase 2: Removed prefill suggestion normalization logic - overlay no longer runs AI prefill
-
+  // Phase 3: Generate tag suggestions deterministically using extractMeaningfulTags
   const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
-    if (suggestedTags.length === 0) return [];
+    if (!currentText || currentText.trim().length === 0) return [];
 
-    const lowConfidenceLookup = new Map<string, boolean>();
-    suggestedTags.forEach((entry) => {
-      const key = normalizeToTagKey(entry?.name ?? '');
-      if (!key || lowConfidenceLookup.has(key)) return;
-      lowConfidenceLookup.set(key, !!entry.lowConfidence);
-    });
-
-    const sanitizedNames = sanitizeSuggestedTags(
-      currentText,
-      suggestedTags.map((entry) => (typeof entry?.name === 'string' ? entry.name : '')),
-    );
-    if (sanitizedNames.length === 0) return [];
-
-    const results: PrefillSuggestedTag[] = [];
-    for (const name of sanitizedNames) {
-      const key = normalizeToTagKey(name);
-      if (!key || tagTombstoneSet.has(key)) continue;
-      results.push({ name: key, lowConfidence: lowConfidenceLookup.get(key) ?? false });
+    // Determine subtype for tag extraction
+    let extractionSubtype: string | undefined;
+    if (baseType === 'log') {
+      // Use effectiveLogSubtype for logs
+      extractionSubtype = effectiveLogSubtype === 'plain' ? undefined : effectiveLogSubtype;
     }
+
+    // Extract meaningful tags deterministically
+    const extractedTags = extractMeaningfulTags(currentText, extractionSubtype);
+
+    // Filter out tags that are already added or tombstoned
+    const results: PrefillSuggestedTag[] = [];
+    for (const tag of extractedTags) {
+      const key = normalizeToTagKey(tag);
+      if (!key || tagTombstoneSet.has(key)) continue;
+      if (state.tags.includes(key)) continue; // Skip if already added
+      results.push({ name: key, lowConfidence: false });
+    }
+
     return results;
-  }, [currentText, suggestedTags, tagTombstoneSet]);
+  }, [currentText, baseType, effectiveLogSubtype, tagTombstoneSet, state.tags]);
 
   const filteredTagSuggestions = useMemo(() => {
     if (sanitizedTagSuggestions.length === 0) return [];
@@ -2006,27 +2047,35 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [fullEntity, currentText, isResummarizingTitle]);
 
   const handleResuggestTags = useCallback(async () => {
-    if (!fullEntity || !currentText || isResuggestingTags) return;
+    if (!currentText || isResuggestingTags) return;
 
     setIsResuggestingTags(true);
     try {
-      const { tags, updated } = await resummarizeTags(fullEntity, currentText);
+      // Determine subtype for tag extraction
+      let extractionSubtype: string | undefined;
+      if (baseType === 'log') {
+        extractionSubtype = effectiveLogSubtype === 'plain' ? undefined : effectiveLogSubtype;
+      }
 
-      if (updated && tags.length > 0) {
-        // Set new tags (replaces existing ones)
-        const tagKeys = tags.map((tag) => normalizeToTagKey(tag)).filter(Boolean) as TagKey[];
+      // Extract tags deterministically
+      const extractedTags = extractMeaningfulTags(currentText, extractionSubtype);
+
+      if (extractedTags.length > 0) {
+        // Convert to TagKeys
+        const tagKeys = extractedTags
+          .map((tag) => normalizeToTagKey(tag))
+          .filter(Boolean) as TagKey[];
         dispatch({ type: 'SET_TAGS', tags: tagKeys });
-        console.log('[OverlayV2] Tags resummarized', {
-          entityId: fullEntity.id,
-          tagsCount: tags.length,
+        console.log('[OverlayV2] Tags re-extracted deterministically', {
+          tagsCount: tagKeys.length,
         });
       }
     } catch (error) {
-      console.error('[OverlayV2] Resummarize tags failed', error);
+      console.error('[OverlayV2] Re-extract tags failed', error);
     } finally {
       setIsResuggestingTags(false);
     }
-  }, [fullEntity, currentText, isResuggestingTags]);
+  }, [currentText, baseType, effectiveLogSubtype, isResuggestingTags]);
 
   const showDueToast = useCallback((message: string) => {
     setDueToastMessage(message);
@@ -2102,17 +2151,42 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     : '';
   const currentMood = state.mood ?? 'neu';
 
+  // Log subtype chip label - only show for non-plain subtypes
+  const logSubtypeLabel = isLog ? getLogSubtypeChipLabel(effectiveLogSubtype) : null;
+
   const canSave = currentText.trim().length > 0 && !isSaving;
 
-  function toCreateOrUpdateInput(
+  async function toCreateOrUpdateInput(
     baseType: BaseType,
     s: typeof initialV2State,
     spaceId: string | null,
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
     mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
-    effectiveLogSubtype?: 'journal' | 'list' | 'idea' | 'plain', // Phase L8: Manual log subtype
+    effectiveLogSubtype?: 'journal' | 'list' | 'reference' | 'idea' | 'plain', // Phase L8: Manual log subtype
   ) {
+    const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
+
+    // For logs: if effectiveLogSubtype is 'plain', use AI to classify the subtype
+    // BUT: Skip AI classification for Mind Drop edits since buildCanonicalFromMindDrop already does it
+    let aiClassifiedSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' | undefined;
+
+    if (baseType === 'log' && effectiveLogSubtype === 'plain' && s.log.body && !isEditingMindDrop) {
+      try {
+        aiClassifiedSubtype = await getEffectiveLogSubtype(s.log.body);
+        console.log('[UnifiedOverlayV2] AI classified log subtype:', aiClassifiedSubtype);
+      } catch (err) {
+        console.warn(
+          '[UnifiedOverlayV2] AI log subtype classification failed, using fallback',
+          err,
+        );
+        aiClassifiedSubtype = 'journal'; // Fallback to journal on AI failure
+      }
+    }
+
+    // Use AI-classified subtype if available, otherwise use the provided effectiveLogSubtype
+    const finalLogSubtype = aiClassifiedSubtype ?? effectiveLogSubtype;
+
     const textForTags =
       baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
     const normalizeMetaValues = (values: string[] | undefined | null): string[] => {
@@ -2136,12 +2210,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       })
       .filter((value): value is string => !!value);
 
+    // Use AI tag extraction with deterministic fallback
+    const extractedTags = await getEffectiveTags(textForTags ?? '');
+
+    // Combine AI-extracted tags with existing user tags
     const sanitized = sanitizeSuggestedTags(textForTags ?? '', Array.isArray(s.tags) ? s.tags : []);
     const combined = new Map<string, string>();
+
+    // Add extracted tags first
+    extractedTags.forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (!combined.has(key)) combined.set(key, `#${tag}`);
+    });
+
+    // Add user-provided tags (preserving format)
     sanitized.forEach((tag) => {
       const key = tag.toLowerCase();
       if (!combined.has(key)) combined.set(key, tag);
     });
+
+    // Add sticky tags
     manualStickyKeys.forEach((tag) => {
       const key = tag.toLowerCase();
       if (!combined.has(key)) combined.set(key, tag);
@@ -2208,7 +2296,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       if (isMindDropEdit && s.todo.details) {
         // Use canonical mapper to ensure consistent title/body/tags
-        const canonical = buildCanonicalFromMindDrop({
+        const canonical = await buildCanonicalFromMindDrop({
           kind: 'todo',
           rawText: s.todo.details,
           aiTitle: s.todo.title || undefined,
@@ -2269,7 +2357,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       if (isMindDropEdit && s.habit.notes) {
         // Use canonical mapper to ensure consistent title/notes/tags
-        const canonical = buildCanonicalFromMindDrop({
+        const canonical = await buildCanonicalFromMindDrop({
           kind: 'habit',
           rawText: s.habit.notes,
           aiTitle: s.habit.title || undefined,
@@ -2318,7 +2406,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     if (isMindDropEdit && s.log.body) {
       // Use canonical mapper to ensure consistent title/body/tags
-      const canonical = buildCanonicalFromMindDrop({
+      const canonical = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText: s.log.body,
         aiTitle: s.log.title || undefined,
@@ -2330,9 +2418,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const moodPatch = s.log.kind === 'journal' && mood ? { mood } : {};
 
       // fmt: list tag overrides explicit format
+      // Only use valid fmt values: 'bullets', 'numbers', 'checkboxes'
       let fmtVal: any = null;
       if (s.tags.includes('list')) fmtVal = 'checkboxes';
-      else if (s.format) fmtVal = s.format; // 'plain' | 'checkboxes' | 'bullet'
+      else if (s.format && s.format !== 'plain') fmtVal = s.format; // Skip 'plain' as it's invalid
 
       const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
 
@@ -2341,15 +2430,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Phase L8: Use effective log subtype for Mind Drop logs
       // For list/journal/idea, use the detected subtype
-      // For plain, use null (no subtype)
-      const subtype = effectiveLogSubtype === 'plain' ? null : effectiveLogSubtype;
+      // For plain, use null (database allows null subtypes)
+      const subtype = finalLogSubtype === 'plain' ? null : finalLogSubtype;
 
-      // For Mind Drop logs confirmed as logs, ensure canonical_type, labels, and subtype are set
+      // For Mind Drop logs confirmed as logs, ensure canonicalType and labels are set
       // This clears catchall/needs_review labels and marks the item as a confirmed log
       const logConfirmationPatch = {
-        canonical_type: 'log' as const,
+        canonicalType: 'log' as const,
         labels: ['log'] as const,
-        subtype: subtype, // Use detected subtype (list/journal/idea) or null for plain
+        subtype: subtype,
       };
 
       // Photo support for logs (Phase L3)
@@ -2360,7 +2449,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Phase L9: Private toggle for journal logs via views.private_journal
       const viewsWithPrivate =
-        effectiveLogSubtype === 'journal'
+        finalLogSubtype === 'journal'
           ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
           : viewsWithPrefillFlag;
 
@@ -2381,21 +2470,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     // Phase L8: Use effective log subtype for base note payload
     // For list/journal/idea, use the detected subtype
-    // For plain, use null (no subtype)
-    const subtype2 = effectiveLogSubtype === 'plain' ? null : effectiveLogSubtype;
+    // For plain, use null (database allows null subtypes)
+    const subtype2 = finalLogSubtype === 'plain' ? null : finalLogSubtype;
 
     // Preserve AI-generated title when editing existing entities
     // Only use fallback (firstLine) for new entities or when user explicitly cleared title
+    // Phase L10: For new logs from Mind Drop (create mode), always use full body as title
     const preserveExistingTitle = mode === 'edit' && initialEntity && (initialEntity as any)?.title;
-    const derivedTitle =
-      s.log.title ||
-      (preserveExistingTitle ? (initialEntity as any).title : firstLine(s.log.body)) ||
-      'Untitled note';
+    const isNewLogFromMindDrop = mode === 'create' && s.log.body && !s.log.title;
+    const derivedTitle = isNewLogFromMindDrop
+      ? s.log.body // Use full body for new Mind Drop logs
+      : s.log.title ||
+        (preserveExistingTitle ? (initialEntity as any).title : firstLine(s.log.body)) ||
+        'Untitled note';
 
     // base note payload (for non-Mind Drop logs or manual log creation)
     const base = {
       type: 'note' as const,
-      subtype: subtype2, // Use detected subtype (list/journal/idea) or null for plain
+      subtype: subtype2,
+      canonicalType: 'log' as const, // Mark as confirmed log
+      labels: ['log'] as const, // Mark as confirmed log
       title: derivedTitle,
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
@@ -2408,9 +2502,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const moodPatch2 = s.log.kind === 'journal' && mood ? { mood } : {};
 
     // fmt: list tag overrides explicit format
+    // Only use valid fmt values: 'bullets', 'numbers', 'checkboxes'
     let fmtVal: any = null;
     if (s.tags.includes('list')) fmtVal = 'checkboxes';
-    else if (s.format) fmtVal = s.format; // 'plain' | 'checkboxes' | 'bullet'
+    else if (s.format && s.format !== 'plain') fmtVal = s.format; // Skip 'plain' as it's invalid
 
     const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
 
@@ -2425,7 +2520,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     // Phase L9: Private toggle for journal logs via views.private_journal
     const viewsWithPrivate2 =
-      effectiveLogSubtype === 'journal'
+      finalLogSubtype === 'journal'
         ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
         : viewsWithPrefillFlag;
 
@@ -2495,6 +2590,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Handle multi-photo uploads and deletions for logs (Phase L5)
       if (baseType === 'log' && result?.id && userId) {
+        console.log('[UnifiedOverlayV2] Processing log photos:', {
+          baseType,
+          noteId: result.id,
+          userId,
+          photoCount: logPhotos.length,
+          photos: logPhotos.map((p) => ({ url: p.url, isNew: p.isNew, isDeleted: p.isDeleted })),
+        });
         try {
           const noteId = result.id;
           const { supabase } = await import('../../lib/supabase/client');
@@ -2528,24 +2630,35 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
           // Process new photo uploads
           const activePhotos = logPhotos.filter((p) => !p.isDeleted);
+          console.log('[UnifiedOverlayV2] Active photos to process:', activePhotos.length);
           for (let i = 0; i < activePhotos.length; i++) {
             const photo = activePhotos[i];
+            console.log('[UnifiedOverlayV2] Processing photo', i, ':', {
+              isNew: photo.isNew,
+              url: photo.url.substring(0, 50),
+            });
             if (photo.isNew && photo.url.startsWith('file://')) {
               try {
+                console.log('[UnifiedOverlayV2] Uploading new photo...');
                 // Generate unique storage path
                 const fileExt = photo.url.split('.').pop() || 'jpg';
                 const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
                 const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
+                console.log('[UnifiedOverlayV2] Storage path:', storagePath);
 
-                // Read file as blob
+                // React Native: Create ArrayBuffer from file URI
+                console.log('[UnifiedOverlayV2] Fetching file...');
                 const response = await fetch(photo.url);
-                const blob = await response.blob();
+                console.log('[UnifiedOverlayV2] Converting to ArrayBuffer...');
+                const arrayBuffer = await response.arrayBuffer();
+                console.log('[UnifiedOverlayV2] ArrayBuffer size:', arrayBuffer.byteLength);
 
                 // Upload to storage
+                console.log('[UnifiedOverlayV2] Uploading to Supabase storage...');
                 const { data: uploadData, error: uploadError } = await supabase.storage
                   .from('log-photos')
-                  .upload(storagePath, blob, {
-                    contentType: blob.type || 'image/jpeg',
+                  .upload(storagePath, arrayBuffer, {
+                    contentType: 'image/jpeg',
                     upsert: false,
                   });
 
@@ -2553,6 +2666,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   console.error('[UnifiedOverlayV2] Failed to upload photo:', uploadError);
                   continue;
                 }
+                console.log('[UnifiedOverlayV2] Upload successful:', uploadData);
 
                 // Get public URL
                 const { data: urlData } = supabase.storage
@@ -2560,8 +2674,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   .getPublicUrl(storagePath);
 
                 const publicUrl = urlData?.publicUrl || storagePath;
+                console.log('[UnifiedOverlayV2] Public URL:', publicUrl);
 
                 // Insert into database
+                console.log('[UnifiedOverlayV2] Inserting photo record into log_photos table...');
                 const { error: insertError } = await supabase.from('log_photos').insert({
                   note_id: noteId,
                   owner_id: userId,
@@ -2571,6 +2687,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                 if (insertError) {
                   console.error('[UnifiedOverlayV2] Failed to insert photo record:', insertError);
+                } else {
+                  console.log('[UnifiedOverlayV2] Photo record inserted successfully');
                 }
               } catch (err) {
                 console.error('[UnifiedOverlayV2] Error uploading photo:', err);
@@ -2900,6 +3018,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <Text style={styles.lockedBadgeText}>⚡ Locked In</Text>
                       </View>
                     ) : null}
+                    {/* Log subtype chip - subtle indicator for non-plain logs */}
+                    {isLog && logSubtypeLabel ? (
+                      <View
+                        style={{
+                          alignSelf: 'center',
+                          marginLeft: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 999,
+                          borderWidth: StyleSheet.hairlineWidth,
+                          borderColor:
+                            colorMode === 'dark'
+                              ? 'rgba(255, 255, 255, 0.15)'
+                              : 'rgba(0, 0, 0, 0.12)',
+                          backgroundColor:
+                            colorMode === 'dark'
+                              ? 'rgba(255, 255, 255, 0.04)'
+                              : 'rgba(46, 85, 64, 0.06)',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: '500',
+                            color: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
+                          }}
+                        >
+                          {logSubtypeLabel}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
 
                   {/* Title actions - edit + resummarize icons (only in edit mode) */}
@@ -3115,60 +3264,53 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
               {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
                 <Box px={4} mt={2}>
-                  {(() => {
-                    const visiblePhotos = logPhotos.filter((p) => !p.isDeleted);
-
-                    // Has photos - show grid
-                    return (
-                      <View>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.photoGridScroll}
-                          contentContainerStyle={styles.photoGridContent}
-                        >
-                          {visiblePhotos.map((photo, index) => {
-                            const actualIndex = logPhotos.findIndex((p) => p === photo);
-                            return (
-                              <View key={actualIndex} style={styles.photoThumbnailContainer}>
-                                <Pressable
-                                  onPress={() => handleViewLogPhoto(actualIndex)}
-                                  accessibilityLabel={`View photo ${index + 1}`}
-                                  accessibilityRole="button"
-                                >
-                                  <Image
-                                    source={{ uri: photo.url }}
-                                    style={styles.photoGridThumbnail}
-                                    resizeMode="cover"
-                                  />
-                                </Pressable>
-                                <Pressable
-                                  onPress={() => handleDeleteLogPhoto(actualIndex)}
-                                  style={styles.photoGridDeleteButton}
-                                  hitSlop={8}
-                                  accessibilityLabel={`Remove photo ${index + 1}`}
-                                  accessibilityRole="button"
-                                >
-                                  <CloseIcon size={12} color="#666666" />
-                                </Pressable>
-                              </View>
-                            );
-                          })}
-                        </ScrollView>
-                        {visiblePhotos.length < 5 && (
-                          <Pressable
-                            onPress={handleOpenMultiPhotoActionSheet}
-                            style={styles.addMorePhotosButton}
-                            accessibilityLabel="Add another photo"
-                            accessibilityRole="button"
-                          >
-                            <Camera size={16} color="#666666" />
-                            <Text style={styles.addMorePhotosText}>Add photo</Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    );
-                  })()}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.photoGridScroll}
+                    contentContainerStyle={styles.photoGridContent}
+                  >
+                    {logPhotos
+                      .filter((p) => !p.isDeleted)
+                      .map((photo, index) => {
+                        const actualIndex = logPhotos.findIndex((p) => p === photo);
+                        return (
+                          <View key={actualIndex} style={styles.photoThumbnailContainer}>
+                            <Pressable
+                              onPress={() => handleViewLogPhoto(actualIndex)}
+                              accessibilityLabel={`View photo ${index + 1}`}
+                              accessibilityRole="button"
+                            >
+                              <Image
+                                source={{ uri: photo.url }}
+                                style={styles.photoGridThumbnail}
+                                resizeMode="cover"
+                              />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => handleDeleteLogPhoto(actualIndex)}
+                              style={styles.photoGridDeleteButton}
+                              hitSlop={8}
+                              accessibilityLabel={`Remove photo ${index + 1}`}
+                              accessibilityRole="button"
+                            >
+                              <CloseIcon size={12} color="#666666" />
+                            </Pressable>
+                          </View>
+                        );
+                      })}
+                    {logPhotos.filter((p) => !p.isDeleted).length < 5 && (
+                      <Pressable
+                        onPress={handleOpenMultiPhotoActionSheet}
+                        style={styles.addMorePhotosButton}
+                        accessibilityLabel="Add another photo"
+                        accessibilityRole="button"
+                      >
+                        <Camera size={16} color="#666666" />
+                        <Text style={styles.addMorePhotosText}>Add photo</Text>
+                      </Pressable>
+                    )}
+                  </ScrollView>
                 </Box>
               )}
 

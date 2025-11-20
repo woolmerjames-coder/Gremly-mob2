@@ -363,7 +363,15 @@ export const OverlayHost = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const overlay = useGlobalOverlay();
   const {
-    state: { visible, mode, initialEntity, initialSpaceId, conversionMeta, initialText },
+    state: {
+      visible,
+      mode,
+      initialEntity,
+      initialSpaceId,
+      conversionMeta,
+      initialText,
+      initialLogPhotoUris,
+    },
     close,
   } = overlay;
 
@@ -424,6 +432,7 @@ export const OverlayHost = () => {
               initialSpaceId={initialSpaceId}
               conversionMeta={conversionMeta}
               initialText={initialText ?? undefined}
+              initialLogPhotoUris={initialLogPhotoUris}
               onClose={handleClose}
               onSaved={handleSaved}
             />

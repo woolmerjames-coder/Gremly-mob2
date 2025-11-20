@@ -1,19 +1,31 @@
 /**
  * Canonical mapper for Mind Drop → todo/habit/log creation.
  * Standardizes how Mind Drop text becomes different entity types with consistent
- * field mapping WITHOUT title/tag generation.
+ * field mapping AND AI-powered tag extraction.
  *
- * IMPORTANT: Title + tags are owned by UnifiedOverlayV2. Do not enrich here.
- * This function maps raw text to entity fields but does NOT:
- * - Compact titles (title = rawText as-is)
- * - Generate or clean tags (tags = empty or passed through)
- * - Call AI/Cortex for enrichment
+ * Title + tags are enriched here with AI assistance:
+ * - Title: Prefers AI-generated compact title over raw text
+ * - Tags: Extracted via AI with deterministic fallback, then filtered per-type
  *
- * All title compaction and tag generation happens in UnifiedOverlayV2 on first edit.
+ * Tag extraction strategy:
+ * 1. Use provided aiTags if available (from background prefill)
+ * 2. Otherwise, call getEffectiveTags for AI extraction with fallback
+ * 3. Apply domain-specific filters:
+ *    - Todos: filterMindDropTodoTags (removes "book" for appointment bookings)
+ *    - Habits: filterHabitTags (max 2 single-word tags)
+ *    - Logs: mergeLogTags (preserves emotions + journal marker)
  */
 
 import { filterAndNormalizeTags } from '../tags/normalize';
-import { buildFallbackTags } from '../../cortex/openAiEngine';
+import { getEffectiveTags } from '../tags/getEffectiveTags';
+import { type LogSubtype } from '../cortex/classifyLogSubtype';
+import { getEffectiveLogSubtype } from '../logs/getEffectiveLogSubtype';
+
+// Import domain-specific tag filters from overlay
+import {
+  filterMindDropTodoTags,
+  sanitizeSuggestedTags,
+} from '../../components/overlay/overlayV2.mapping';
 
 export type CanonicalKind = 'todo' | 'habit' | 'log';
 
@@ -39,11 +51,12 @@ export interface CanonicalPayload {
   // Type-specific fields
   // todo: name, body/details
   // habit: name, notes
-  // log: body
+  // log: body, subtype
   name?: string; // For todo & habit
   body?: string; // For log & todo
   notes?: string; // For habit
   details?: string; // Alternative to body for todos
+  subtype?: LogSubtype | null; // For logs: journal | list | reference | idea | plain
 }
 
 /**
@@ -61,54 +74,257 @@ function compactTitle(rawText: string, aiTitle?: string): string {
 }
 
 /**
- * Build system tags (e.g., *journal marker) without user tag enrichment.
- * User tags are owned by UnifiedOverlayV2.
- *
- * Special case for logs: preserve *journal marker if present in AI tags.
- * All other tag generation happens in UnifiedOverlayV2 on first edit.
- *
- * @param rawText - Full Mind Drop sentence (UNUSED - kept for backwards compatibility)
- * @param aiTags - Optional system tags (e.g., *journal)
- * @param kind - Entity type (affects default tags)
- * @returns System tags only (empty for todo/habit, *journal for narrative logs)
+ * Filter habit tags to meet strict requirements:
+ * - Keep only single-word tags (no spaces)
+ * - Prioritize tags earlier in the list (AI confidence ordering)
+ * - Maximum 2 tags to keep habits focused
+ * - Filter out generic/placeholder tags
  */
-function buildCleanedTags(
-  rawText: string,
-  aiTags: string[] | undefined,
-  kind: CanonicalKind,
-): string[] {
-  // For logs with *journal marker, preserve it as a system tag
-  if (kind === 'log' && aiTags && aiTags.some((t) => t === '*journal' || t === 'journal')) {
-    return ['*journal'];
+function filterHabitTags(tags: string[]): string[] {
+  if (!tags || tags.length === 0) return [];
+
+  const GENERIC_HABIT_TAGS = new Set([
+    'doing',
+    'habit',
+    'routine',
+    'task',
+    'activity',
+    'action',
+    'daily',
+    'practice',
+  ]);
+
+  const seen = new Set<string>();
+  const singleWordTags: string[] = [];
+
+  for (const tag of tags) {
+    const normalized = tag
+      .trim()
+      .toLowerCase()
+      .replace(/^[#@*]/, '');
+
+    // Skip if already seen (dedupe)
+    if (seen.has(normalized)) continue;
+
+    // Remove tags with spaces (multi-word phrases)
+    if (normalized.includes(' ')) continue;
+    // Remove empty tags
+    if (!normalized) continue;
+    // Remove generic tags
+    if (GENERIC_HABIT_TAGS.has(normalized)) continue;
+
+    seen.add(normalized);
+    singleWordTags.push(normalized);
   }
 
-  // For all other cases, return empty - tags owned by UnifiedOverlayV2
-  return [];
+  // Keep max 2 tags (prioritize earlier tags = higher AI confidence)
+  return singleWordTags.slice(0, 2).map((tag) => `#${tag}`);
 }
 
 /**
- * Build canonical payload for Mind Drop → entity creation WITHOUT title/tag enrichment.
- * Standardizes labels and type-specific fields, but title = rawText and tags = [] (or system tags only).
+ * Common emotion tags that should be prioritized for journal/log entries.
+ */
+const EMOTION_TAGS = new Set([
+  'anxious',
+  'anxiety',
+  'overwhelmed',
+  'stressed',
+  'stress',
+  'sad',
+  'sadness',
+  'angry',
+  'anger',
+  'excited',
+  'excitement',
+  'nervous',
+  'calm',
+  'peaceful',
+  'grateful',
+  'gratitude',
+  'tired',
+  'exhausted',
+]);
+
+/**
+ * Check if a tag represents an emotion.
+ */
+function isEmotionTag(tag: string): boolean {
+  const normalized = tag
+    .trim()
+    .toLowerCase()
+    .replace(/^[#@*]/, '');
+  return EMOTION_TAGS.has(normalized);
+}
+
+/**
+ * Merge AI tags into existing log/journal tags, prioritizing emotion tags.
+ *
+ * For Mind Drop → log conversions, we want to:
+ * 1. Always preserve *journal marker
+ * 2. Keep all emotion tags (anxious, overwhelmed, stressed, etc.)
+ * 3. Add 1-2 context tags from AI suggestions (meeting, walk, etc.)
+ * 4. Keep the tag list short but meaningful
+ */
+function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  const addTag = (tag: string) => {
+    const normalized = tag
+      .trim()
+      .toLowerCase()
+      .replace(/^[*#@]/, '');
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(`#${normalized}`);
+  };
+
+  // 1. Always preserve journal marker
+  const hasJournalMarker = existingTags.some(
+    (t) => t.toLowerCase() === 'journal' || t.toLowerCase() === '*journal',
+  );
+  if (hasJournalMarker) {
+    result.push('*journal');
+    seen.add('journal');
+  }
+
+  // 2. Keep all emotion tags from existing tags
+  existingTags.forEach((tag) => {
+    const cleaned = tag.replace(/^[*#@]/, '').trim();
+    if (isEmotionTag(cleaned)) {
+      addTag(cleaned);
+    }
+  });
+
+  // 3. Add emotion tags from AI suggestions
+  aiTags.forEach((tag) => {
+    if (isEmotionTag(tag)) {
+      addTag(tag);
+    }
+  });
+
+  // 4. Add 1-2 context tags from AI suggestions (non-emotion tags)
+  const contextTags = aiTags.filter((tag) => !isEmotionTag(tag));
+  contextTags.slice(0, 2).forEach((tag) => {
+    addTag(tag);
+  });
+
+  return result;
+}
+
+/**
+ * Build tags for Mind Drop items using AI extraction with deterministic fallback.
+ * Applies domain-specific filtering based on entity type.
+ *
+ * @param rawText - Full Mind Drop sentence
+ * @param aiTags - Optional pre-extracted tags (from background prefill)
+ * @param kind - Entity type (affects filtering rules)
+ * @param existingTags - For logs: existing tags to merge with AI tags
+ * @returns Promise resolving to filtered, normalized tag array
+ */
+async function buildCleanedTags(
+  rawText: string,
+  aiTags: string[] | undefined,
+  kind: CanonicalKind,
+  existingTags?: string[],
+): Promise<string[]> {
+  try {
+    // Step 1: Get AI tags (use provided or extract)
+    let extractedTags: string[];
+    if (aiTags && aiTags.length > 0) {
+      // Use provided AI tags (from background prefill)
+      extractedTags = aiTags;
+    } else {
+      // Extract tags using AI with deterministic fallback
+      extractedTags = await getEffectiveTags(rawText);
+    }
+
+    // Step 2: Apply domain-specific filtering
+    switch (kind) {
+      case 'todo': {
+        // For todos: add # prefix and filter "book" heuristic
+        const withPrefix = extractedTags.map((tag) => (tag.startsWith('#') ? tag : `#${tag}`));
+        const filtered = filterMindDropTodoTags(rawText, withPrefix);
+        return filterAndNormalizeTags(filtered);
+      }
+
+      case 'habit': {
+        // For habits: max 2 single-word tags
+        return filterHabitTags(extractedTags);
+      }
+
+      case 'log': {
+        // For logs: preserve *journal marker + merge emotions with context tags
+        const existing = existingTags ?? [];
+
+        // Check if this should have *journal marker
+        const hasJournalMarker = existing.some((t) => t === '*journal' || t === 'journal');
+
+        const hasEmotionalContent = rawText.match(
+          /feel|felt|feeling|overwhelmed|stressed|anxious/i,
+        );
+
+        if (hasJournalMarker || hasEmotionalContent) {
+          // Add *journal marker if not present
+          const withMarker = hasJournalMarker ? existing : ['*journal', ...existing];
+          return mergeLogTags(withMarker, extractedTags);
+        }
+
+        // For non-journal logs, just normalize the extracted tags
+        const withPrefix = extractedTags.map((tag) =>
+          tag.startsWith('#') || tag.startsWith('*') ? tag : `#${tag}`,
+        );
+        return filterAndNormalizeTags(withPrefix);
+      }
+
+      default:
+        return filterAndNormalizeTags(extractedTags);
+    }
+  } catch (error) {
+    // AI failure should never block - return empty tags
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('[buildCanonicalFromMindDrop] tag extraction failed', error);
+    }
+    return [];
+  }
+}
+
+/**
+ * Build canonical payload for Mind Drop → entity creation WITH AI-powered tag extraction.
+ * Standardizes labels and type-specific fields with intelligent title compaction and tag generation.
  *
  * Field mapping by kind:
- * - log: title = rawText, body = rawText, tags = ['*journal'] if narrative, canonicalType = "log", labels = ["log"]
- * - todo: title = rawText, name = rawText, body/details = rawText, tags = [], canonicalType = "todo", labels = ["todo"]
- * - habit: title = rawText, name = rawText, notes = rawText, tags = [], canonicalType = "habit", labels = ["habit"]
+ * - log: title = aiTitle ?? rawText, body = rawText, tags = AI-extracted + emotion-filtered, canonicalType = "log", labels = ["log"], subtype = classified
+ * - todo: title = aiTitle ?? rawText, name = title, body/details = rawText, tags = AI-extracted + "book" filtered, canonicalType = "todo", labels = ["todo"]
+ * - habit: title = aiTitle ?? rawText, name = title, notes = rawText, tags = AI-extracted (max 2 single-word), canonicalType = "habit", labels = ["habit"]
  *
- * Title compaction (e.g., "Book doctor" from "Book doctor appointment tomorrow") happens in UnifiedOverlayV2 on first edit.
- * Tag generation (e.g., #appointment, #doctor, #tomorrow) happens in UnifiedOverlayV2 on first edit.
+ * Title compaction uses AI-generated titles when available.
+ * Tag generation uses AI extraction with deterministic fallback, never blocks on AI failure.
+ *
+ * NEW: For logs, automatically classifies subtype using AI classification:
+ * - "journal": Personal reflections, feelings, daily experiences
+ * - "list": Items to check off or remember
+ * - "reference": Information to remember later
+ * - "idea": Creative thoughts or brainstorming
+ * - null (plain): Default/unclassified
+ *
+ * Uses getEffectiveLogSubtype() which attempts AI classification first,
+ * with automatic fallback to deterministic patterns on error.
  *
  * @param input - Configuration for canonical mapping
- * @returns Normalized payload ready for SupabaseRepo.create (no AI enrichment)
+ * @returns Promise resolving to normalized payload ready for SupabaseRepo.create
  */
-export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): CanonicalPayload {
+export async function buildCanonicalFromMindDrop(
+  input: BuildCanonicalInput,
+): Promise<CanonicalPayload> {
   const { kind, rawText, aiTitle, aiTags, existing } = input;
 
   const trimmedRawText = rawText.trim();
   // Phase 2: Use AI-generated title if available, otherwise use raw text
   const title = compactTitle(trimmedRawText, aiTitle);
-  // Tags are empty or system tags only - generation happens in UnifiedOverlayV2
-  const tags = buildCleanedTags(trimmedRawText, aiTags, kind);
+  // Extract tags using AI with domain-specific filtering
+  const existingTagsForLogs = existing?.tags ?? [];
+  const tags = await buildCleanedTags(trimmedRawText, aiTags, kind, existingTagsForLogs);
 
   // Build common fields
   const common = {
@@ -124,16 +340,21 @@ export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): Canonica
 
   // Type-specific field mapping
   switch (kind) {
-    case 'log':
+    case 'log': {
+      // Classify log subtype using AI with deterministic fallback
+      const subtype = await getEffectiveLogSubtype(trimmedRawText);
+
       return {
         ...common,
         body: trimmedRawText, // Full raw text goes in body
+        subtype: subtype === 'plain' ? null : subtype, // null for plain, otherwise set subtype
       };
+    }
 
     case 'todo':
       return {
         ...common,
-        name: title, // Raw text in name field (UnifiedOverlayV2 will compact)
+        name: title, // Use compact title in name field
         body: trimmedRawText, // Full raw text in body/details
         details: trimmedRawText, // Alternative field name
       };
@@ -141,7 +362,7 @@ export function buildCanonicalFromMindDrop(input: BuildCanonicalInput): Canonica
     case 'habit':
       return {
         ...common,
-        name: title, // Raw text in name field (UnifiedOverlayV2 will compact)
+        name: title, // Use compact title in name field
         notes: trimmedRawText, // Full raw text in notes field
       };
   }
