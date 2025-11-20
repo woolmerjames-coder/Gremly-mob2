@@ -4,6 +4,7 @@ import { colors, radii, spacing, shadows } from '../theme/tokens';
 import { type } from '../theme/typography';
 import type { Tag } from '../lib/types';
 import { Icon } from './ui/Icon';
+import { Lock } from 'lucide-react-native';
 
 export type HubKind = 'habit' | 'todo' | 'note';
 export type Placement = 'ai' | 'user';
@@ -19,6 +20,7 @@ export type HubItem = {
   spaceName?: string; // Space name to display (only when scope is "Everywhere")
   showSpaceChip?: boolean; // Whether to show space chip (true when scope is Everywhere)
   spaceId?: string | null; // Space ID for navigation
+  private?: boolean; // Phase L7: Private mode for logs
 };
 
 const kindIconName: Record<HubKind, 'Activity' | 'CheckCircle2' | 'FileText'> = {
@@ -50,9 +52,12 @@ export default function HubItemCard({
         </View>
         <View style={styles.main}>
           <View style={styles.titleRow}>
-            <Text numberOfLines={1} style={styles.title}>
+            <Text numberOfLines={1} style={[styles.title, { flex: 1 }]}>
               {item.title}
             </Text>
+            {item.kind === 'note' && item.private === true && (
+              <Lock size={12} color="#777" style={{ marginLeft: 4 }} />
+            )}
           </View>
           {/* Meta row: [AI badge] [Space chip] [Tag chips] [Date] */}
           <View style={styles.metaRow}>

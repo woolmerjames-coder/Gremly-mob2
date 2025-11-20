@@ -220,6 +220,7 @@ export default function HubScreen() {
         spaceName,
         showSpaceChip,
         spaceId: item.space_id, // Add space_id for navigation
+        private: item.type === 'note' ? ((item as any).private ?? false) : undefined, // Phase L7: Private mode
       };
     },
     [itemTags, scope.type, spaces],

@@ -24,6 +24,14 @@ describe('looksLikeList', () => {
   it('ignores short single-line inputs', () => {
     expect(looksLikeList('Buy milk')).toBe(false);
   });
+
+  it('detects inline dash-separated lists', () => {
+    expect(looksLikeList('- eggs - milk - cereal')).toBe(true);
+  });
+
+  it('detects longer inline lists', () => {
+    expect(looksLikeList('- apples - oranges - bananas - grapes')).toBe(true);
+  });
 });
 
 describe('analyzeListShape', () => {
@@ -54,5 +62,26 @@ describe('analyzeListShape', () => {
     expect(result.looksLikeList).toBe(false);
     expect(result.lines).toBe(1);
     expect(result.score).toBe(0);
+  });
+
+  it('detects inline dash-separated grocery lists', () => {
+    const result = analyzeListShape('- eggs - milk - cereal');
+    expect(result.looksLikeList).toBe(true);
+    expect(result.matches).toBe(3);
+    expect(result.score).toBeGreaterThanOrEqual(0.7);
+    expect(result.reasons).toContain('inline-list-pattern');
+  });
+
+  it('detects longer inline lists with high confidence', () => {
+    const result = analyzeListShape('- apples - oranges - bananas - grapes - strawberries');
+    expect(result.looksLikeList).toBe(true);
+    expect(result.matches).toBe(5);
+    expect(result.score).toBeGreaterThanOrEqual(0.9);
+    expect(result.reasons).toContain('inline-list-pattern');
+  });
+
+  it('requires at least 2 items for inline lists', () => {
+    const result = analyzeListShape('- eggs');
+    expect(result.looksLikeList).toBe(false);
   });
 });

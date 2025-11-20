@@ -16,6 +16,9 @@ import {
   Animated as RNAnimated,
   Easing,
   ActivityIndicator,
+  Alert,
+  Image,
+  ActionSheetIOS,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -25,13 +28,25 @@ import Reanimated, {
   withSequence,
   interpolate,
 } from 'react-native-reanimated';
-import { X as CloseIcon, Calendar, Pencil, RotateCw, Lock } from 'lucide-react-native';
+import {
+  X as CloseIcon,
+  Calendar,
+  Pencil,
+  RotateCw,
+  Lock,
+  Bell,
+  Folder,
+  ChevronRight,
+  Trash2,
+  Camera,
+} from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImagePicker from 'expo-image-picker';
 import {
   lightTokens,
   darkTokens,
@@ -49,6 +64,7 @@ import {
   v2Reducer,
   initialV2State,
   firstLine,
+  classifyLogKind,
   type BaseType,
   type TagKey,
   type V2State,
@@ -89,6 +105,217 @@ const PRESET_TIMES = [
   { label: '6:00 PM', hour: 18, minute: 0, key: '6:00-PM' },
   { label: '9:00 PM', hour: 21, minute: 0, key: '9:00-PM' },
 ] as const;
+
+// Multi-photo support for logs (Phase L5)
+type LogPhoto = {
+  id?: string; // existing DB row id (for edit mode)
+  url: string; // public URL or storage path (or local file URI for new photos)
+  position: number; // 0-based ordering
+  isNew?: boolean; // not yet persisted to backend
+  isDeleted?: boolean; // marked for deletion on save
+};
+
+// Overlay-only reminder type for unified reminders UX
+type OverlayReminder = {
+  id: string; // local UUID for list keys
+  time: string; // "HH:mm" in 24h format (e.g. "09:00")
+  repeat: 'once' | 'daily' | 'weekdays' | 'weekends' | 'custom';
+  date?: string; // ISO date for "once" reminders
+  days?: number[]; // 0–6 for custom days (0=Sunday, 6=Saturday)
+};
+
+// Short day labels for custom repeat display
+const SHORT_DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+// Smart list detection helper (Prompt 3)
+type ListDetectionResult =
+  | { kind: 'plain' }
+  | { kind: 'list'; items: Array<{ id: string; label: string; checked?: boolean }> };
+
+function detectListFromText(text: string): ListDetectionResult {
+  if (!text || text.trim().length === 0) {
+    return { kind: 'plain' };
+  }
+
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length < 2) {
+    return { kind: 'plain' };
+  }
+
+  // List patterns to detect
+  const bulletPattern = /^[-•]\s+(.+)$/; // - item or • item
+  const checkboxPattern = /^\[([ xX])\]\s+(.+)$/; // [ ] item or [x] item
+  const numberedPattern = /^\d+\.\s+(.+)$/; // 1. item or 2. item
+
+  const items: Array<{ id: string; label: string; checked?: boolean }> = [];
+  let matchCount = 0;
+
+  for (const line of lines) {
+    let matched = false;
+
+    // Check for checkbox pattern first (preserves checked state)
+    const checkboxMatch = line.match(checkboxPattern);
+    if (checkboxMatch) {
+      const checked = checkboxMatch[1].toLowerCase() === 'x';
+      const label = checkboxMatch[2];
+      items.push({ id: `item-${items.length}`, label, checked });
+      matched = true;
+      matchCount++;
+    }
+
+    // Check for bullet pattern
+    if (!matched) {
+      const bulletMatch = line.match(bulletPattern);
+      if (bulletMatch) {
+        const label = bulletMatch[1];
+        items.push({ id: `item-${items.length}`, label, checked: false });
+        matched = true;
+        matchCount++;
+      }
+    }
+
+    // Check for numbered pattern
+    if (!matched) {
+      const numberedMatch = line.match(numberedPattern);
+      if (numberedMatch) {
+        const label = numberedMatch[1];
+        items.push({ id: `item-${items.length}`, label, checked: false });
+        matched = true;
+        matchCount++;
+      }
+    }
+
+    // If this line doesn't match any pattern, it might be part of previous item or non-list text
+    // For simplicity, we'll skip it (could be enhanced to append to previous item)
+  }
+
+  // Require at least 2 matching list items to qualify as a list
+  if (matchCount >= 2 && items.length >= 2) {
+    return { kind: 'list', items };
+  }
+
+  return { kind: 'plain' };
+}
+
+// Helper: format time from "HH:mm" to "h:mm AM/PM"
+function formatTime24To12(time24: string): string {
+  const [hourStr, minute] = time24.split(':');
+  const hour = parseInt(hourStr, 10);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${hour12}:${minute} ${period}`;
+}
+
+// Helper: format single reminder for display
+function formatSingleReminder(r: OverlayReminder): string {
+  const timeFormatted = formatTime24To12(r.time);
+
+  switch (r.repeat) {
+    case 'once':
+      // Format date like "Nov 25 · 3:00 PM"
+      if (r.date) {
+        try {
+          const dateFormatted = format(parseISO(r.date), 'MMM d');
+          return `${dateFormatted} · ${timeFormatted}`;
+        } catch {
+          return `Once · ${timeFormatted}`;
+        }
+      }
+      return `Once · ${timeFormatted}`;
+
+    case 'daily':
+      return `Daily · ${timeFormatted}`;
+
+    case 'weekdays':
+      return `Weekdays · ${timeFormatted}`;
+
+    case 'weekends':
+      return `Weekends · ${timeFormatted}`;
+
+    case 'custom':
+      if (r.days && r.days.length > 0) {
+        const dayLabels = r.days
+          .sort((a, b) => a - b)
+          .map((d) => SHORT_DAY_LABELS[d])
+          .join(', ');
+        return `${dayLabels} · ${timeFormatted}`;
+      }
+      return `Custom · ${timeFormatted}`;
+
+    default:
+      return timeFormatted;
+  }
+}
+
+// Helper: format reminders array for summary display
+function formatReminderSummary(reminders: OverlayReminder[]): string {
+  if (reminders.length === 0) return 'Off';
+  if (reminders.length === 1) return formatSingleReminder(reminders[0]);
+  return `${reminders.length} reminders`;
+}
+
+// Helper: map reminders array to legacy reminderAt field (use first reminder only)
+function mapRemindersToLegacyFields(reminders: OverlayReminder[]): {
+  reminderAt: string | null;
+} {
+  if (reminders.length === 0) {
+    return { reminderAt: null };
+  }
+
+  const first = reminders[0];
+
+  // For "once" reminders, combine date + time into ISO timestamp
+  if (first.repeat === 'once' && first.date) {
+    try {
+      const [hour, minute] = first.time.split(':').map(Number);
+      const dateObj = parseISO(first.date);
+      const combined = setMinutes(setHours(dateObj, hour), minute);
+      return { reminderAt: combined.toISOString() };
+    } catch {
+      return { reminderAt: null };
+    }
+  }
+
+  // For recurring reminders, store as today + time for now
+  // (full recurrence will be handled in backend later)
+  try {
+    const [hour, minute] = first.time.split(':').map(Number);
+    const today = new Date();
+    const combined = setMinutes(setHours(today, hour), minute);
+    return { reminderAt: combined.toISOString() };
+  } catch {
+    return { reminderAt: null };
+  }
+}
+
+// Helper: hydrate reminders array from existing reminderAt field
+function hydrateRemindersFromLegacy(reminderAt: string | null): OverlayReminder[] {
+  if (!reminderAt) return [];
+
+  try {
+    const dateObj = parseISO(reminderAt);
+    const hour = format(dateObj, 'HH');
+    const minute = format(dateObj, 'mm');
+    const time = `${hour}:${minute}`;
+    const date = format(dateObj, 'yyyy-MM-dd');
+
+    // Create a single "once" reminder from existing reminderAt
+    return [
+      {
+        id: `reminder-${Date.now()}`,
+        time,
+        repeat: 'once',
+        date,
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
 
 function normalizeTagCandidate(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -643,6 +870,32 @@ try {
   console.error('UnifiedOverlayV2 sanity check failed:', e && e.message ? e.message : e);
 }
 
+// Mood options for journal logs (Phase L2)
+const MOOD_OPTIONS = [
+  { value: 'pos' as const, emoji: '😊', label: 'Good' },
+  { value: 'neu' as const, emoji: '😐', label: 'Okay' },
+  { value: 'neg' as const, emoji: '😔', label: 'Low' },
+];
+
+// Helper to format log timestamp (Phase L2)
+function formatLogTimestamp(mode: 'create' | 'edit', entity: any | null): string {
+  try {
+    if (mode === 'edit' && entity) {
+      const raw =
+        entity.date ?? entity.created_at ?? entity.inserted_at ?? entity.updated_at ?? null;
+      if (raw) {
+        const d = new Date(raw);
+        return format(d, 'MMM d, h:mm a');
+      }
+    }
+    // create mode – just show "Today" with time
+    const now = new Date();
+    return format(now, 'MMM d, h:mm a');
+  } catch {
+    return '';
+  }
+}
+
 export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const {
     visible,
@@ -660,9 +913,75 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const repo = useRepo();
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
   const baseType = state.baseType;
+  const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
+
+  // Log kind detection (Phase L1)
+  const isLog = baseType === 'log';
+  const logKind = isLog ? state.log.kind : 'basic';
+  const isJournalLog = isLog && logKind === 'journal';
+  const isIdeaLog = isLog && logKind === 'idea';
+  const isListLog = isLog && logKind === 'list';
+
+  // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
+  const effectiveLogSubtype: 'journal' | 'list' | 'idea' | 'plain' = useMemo(() => {
+    if (!isLog) return 'plain';
+
+    // Check current tags FIRST to support auto-detection (Prompt 3)
+    // This allows #list auto-tagging to override everything, including saved entity.subtype
+    if (state.tags.includes('list')) return 'list';
+    if (state.tags.includes('journal')) return 'journal';
+    if (state.tags.includes('idea')) return 'idea';
+
+    // Manual override takes precedence over entity.subtype (but NOT over tags)
+    if (state.logSubtypeOverride) return state.logSubtypeOverride;
+
+    // Fallback to entity.subtype if present (edit mode)
+    const entity = initialEntity as any;
+    const rawSubtype = entity?.subtype as string | undefined;
+    if (rawSubtype === 'journal' || rawSubtype === 'list' || rawSubtype === 'idea') {
+      return rawSubtype;
+    }
+
+    // Default to plain when nothing is set
+    return 'plain';
+  }, [isLog, state.logSubtypeOverride, initialEntity, state.tags]);
+
+  // Journal detection for mood selector (Phase L4) - now uses effectiveLogSubtype
+  const isJournal = isLog && effectiveLogSubtype === 'journal';
+
+  // Phase L9: Show Private toggle only for journal logs
+  const showLogPrivateToggle = baseType === 'log' && effectiveLogSubtype === 'journal';
+
+  // Prompt 3: Smart list detection for logs
+  const listDetection = useMemo(() => {
+    if (!isLog) return { kind: 'plain' } as const;
+    return detectListFromText(state.log.body);
+  }, [isLog, state.log.body]);
+
+  if (__DEV__ && isLog) {
+    console.log(
+      '[UnifiedOverlayV2] log kind:',
+      logKind,
+      'effectiveLogSubtype:',
+      effectiveLogSubtype,
+    );
+  }
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
+  const [showSpaceModal, setShowSpaceModal] = useState(false);
+
+  // Reminders management state
+  const [reminders, setReminders] = useState<OverlayReminder[]>([]);
+  const [showRemindersModal, setShowRemindersModal] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<OverlayReminder | null>(null);
+  const [editingMode, setEditingMode] = useState<'add' | 'edit'>('add');
+  const [reminderTimeValue, setReminderTimeValue] = useState(new Date());
+  const [reminderDateValue, setReminderDateValue] = useState(new Date());
+  const [reminderRepeat, setReminderRepeat] = useState<OverlayReminder['repeat']>('once');
+  const [reminderCustomDays, setReminderCustomDays] = useState<number[]>([]);
+  const [reminderValidationError, setReminderValidationError] = useState<string | null>(null);
+
   // Date picker state
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState(new Date());
@@ -681,6 +1000,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
+
+  // Photo support for logs (Phase L3 - single photo)
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+
+  // Multi-photo support for logs (Phase L5)
+  const [logPhotos, setLogPhotos] = useState<LogPhoto[]>([]);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+
+  // Mood selector for journal logs (Phase L4)
+  const [mood, setMood] = useState<'happy' | 'neutral' | 'sad'>('neutral');
+
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
   const [commitmentFocused, setCommitmentFocused] = useState(false);
@@ -757,6 +1088,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       mounted = false;
     };
   }, [repo, state.expanded]);
+
+  // Hydrate reminders from existing reminderAt field when overlay opens
+  useEffect(() => {
+    if (!visible) return;
+    const hydrated = hydrateRemindersFromLegacy(state.reminderAt);
+    setReminders(hydrated);
+  }, [visible, state.reminderAt]);
 
   // Emit an 'opened' funnel event when the overlay becomes visible so analytics
   // can track funnel starts (best-effort, ignore telemetry errors).
@@ -1070,8 +1408,69 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (mode === 'edit' && initialEntity) {
       const payload = buildDraftPayloadFromEntity(initialEntity);
       dispatch({ type: 'HYDRATE_EDIT', payload } as any);
+
+      // Hydrate mood for journal logs (Phase L4)
+      const entity = initialEntity as any;
+      if (
+        entity?.mood &&
+        (entity.mood === 'happy' || entity.mood === 'neutral' || entity.mood === 'sad')
+      ) {
+        setMood(entity.mood);
+      }
+
+      // Hydrate photo for logs (Phase L3)
+      if (entity?.photo_uri) {
+        setPhotoUri(entity.photo_uri);
+      }
     }
   }, [mode, initialEntity]);
+
+  // Load existing log photos from database (Phase L5)
+  useEffect(() => {
+    const loadLogPhotos = async () => {
+      if (mode !== 'edit' || !initialEntity || baseType !== 'log') return;
+
+      const noteId = (initialEntity as any)?.id;
+      if (!noteId) return;
+
+      try {
+        const { supabase } = await import('../../lib/supabase/client');
+        const { data, error } = await supabase
+          .from('log_photos')
+          .select('id, url, position')
+          .eq('note_id', noteId)
+          .order('position', { ascending: true });
+
+        if (error) {
+          console.error('[UnifiedOverlayV2] Failed to load log photos:', error);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          const photos: LogPhoto[] = data.map((row) => ({
+            id: row.id,
+            url: row.url,
+            position: row.position,
+            isNew: false,
+            isDeleted: false,
+          }));
+          setLogPhotos(photos);
+        }
+      } catch (err) {
+        console.error('[UnifiedOverlayV2] Error loading log photos:', err);
+      }
+    };
+
+    loadLogPhotos();
+  }, [mode, initialEntity, baseType]);
+
+  // Clear photos when switching away from log type (Phase L5)
+  useEffect(() => {
+    if (baseType !== 'log') {
+      setLogPhotos([]);
+      setSelectedPhotoIndex(null);
+    }
+  }, [baseType]);
 
   useEffect(() => {
     return () => {
@@ -1411,6 +1810,181 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     textInputRef.current?.focus();
   }, []);
 
+  // Photo handlers for logs (Phase L3)
+  const handleTakePhoto = useCallback(async () => {
+    try {
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Camera permission is required to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  }, []);
+
+  const handleChoosePhoto = useCallback(async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert(
+          'Permission Required',
+          'Photo library permission is required to choose photos.',
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error choosing photo:', error);
+      Alert.alert('Error', 'Failed to choose photo. Please try again.');
+    }
+  }, []);
+
+  const handleOpenPhotoActionSheet = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            handleTakePhoto();
+          } else if (buttonIndex === 2) {
+            handleChoosePhoto();
+          }
+        },
+      );
+    } else {
+      // Android fallback
+      Alert.alert(
+        'Add Photo',
+        'Choose an option',
+        [
+          { text: 'Take Photo', onPress: handleTakePhoto },
+          { text: 'Choose from Library', onPress: handleChoosePhoto },
+          { text: 'Cancel', style: 'cancel' },
+        ],
+        { cancelable: true },
+      );
+    }
+  }, [handleTakePhoto, handleChoosePhoto]);
+
+  // Multi-photo handlers for logs (Phase L5)
+  const handleAddLogPhoto = useCallback(
+    async (fromCamera: boolean) => {
+      // Check max limit
+      const activePhotos = logPhotos.filter((p) => !p.isDeleted);
+      if (activePhotos.length >= 5) {
+        Alert.alert('Maximum Photos', 'You can add up to 5 photos per log entry.');
+        return;
+      }
+
+      try {
+        let result;
+        if (fromCamera) {
+          const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+          if (!permissionResult.granted) {
+            Alert.alert('Permission Required', 'Camera permission is required to take photos.');
+            return;
+          }
+          result = await ImagePicker.launchCameraAsync({
+            allowsEditing: false,
+            quality: 0.8,
+          });
+        } else {
+          const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!permissionResult.granted) {
+            Alert.alert(
+              'Permission Required',
+              'Photo library permission is required to choose photos.',
+            );
+            return;
+          }
+          result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: false,
+            quality: 0.8,
+          });
+        }
+
+        if (!result.canceled && result.assets?.[0]?.uri) {
+          const newPhoto: LogPhoto = {
+            url: result.assets[0].uri,
+            position: logPhotos.length,
+            isNew: true,
+            isDeleted: false,
+          };
+          setLogPhotos((prev) => [...prev, newPhoto]);
+        }
+      } catch (error) {
+        console.error('Error adding photo:', error);
+        Alert.alert('Error', 'Failed to add photo. Please try again.');
+      }
+    },
+    [logPhotos],
+  );
+
+  const handleOpenMultiPhotoActionSheet = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            handleAddLogPhoto(true);
+          } else if (buttonIndex === 2) {
+            handleAddLogPhoto(false);
+          }
+        },
+      );
+    } else {
+      Alert.alert(
+        'Add Photo',
+        'Choose an option',
+        [
+          { text: 'Take Photo', onPress: () => handleAddLogPhoto(true) },
+          { text: 'Choose from Library', onPress: () => handleAddLogPhoto(false) },
+          { text: 'Cancel', style: 'cancel' },
+        ],
+        { cancelable: true },
+      );
+    }
+  }, [handleAddLogPhoto]);
+
+  const handleDeleteLogPhoto = useCallback((index: number) => {
+    setLogPhotos((prev) =>
+      prev.map((photo, i) => (i === index ? { ...photo, isDeleted: true } : photo)),
+    );
+  }, []);
+
+  const handleViewLogPhoto = useCallback((index: number) => {
+    setSelectedPhotoIndex(index);
+  }, []);
+
   // Resummarize handlers for background AI prefill
   const handleResummarizeTitle = useCallback(async () => {
     if (!fullEntity || !currentText || isResummarizingTitle) return;
@@ -1522,6 +2096,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Derived "Lock In" state from commitment field
   const isLockedIn = !!state.commitment && (baseType === 'todo' || baseType === 'habit');
 
+  // Log timestamp and mood (Phase L2)
+  const logTimestampLabel = isLog
+    ? formatLogTimestamp(mode, fullEntity ?? initialEntity ?? null)
+    : '';
+  const currentMood = state.mood ?? 'neu';
+
   const canSave = currentText.trim().length > 0 && !isSaving;
 
   function toCreateOrUpdateInput(
@@ -1529,6 +2109,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     s: typeof initialV2State,
     spaceId: string | null,
     existingEntity?: any,
+    photoUri?: string | null, // Phase L3: Photo support
+    mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
+    effectiveLogSubtype?: 'journal' | 'list' | 'idea' | 'plain', // Phase L8: Manual log subtype
   ) {
     const textForTags =
       baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
@@ -1566,6 +2149,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     const combinedTags = Array.from(combined.values());
     const tags = stripJournalTags(combinedTags, baseType === 'log');
+
+    // Prompt 3: Auto-add #list tag for list-type logs
+    if (baseType === 'log') {
+      const detection = detectListFromText(s.log.body);
+      if (detection.kind === 'list') {
+        // Remove conflicting subtype tags when list is detected
+        const filtered = tags.filter((t) => {
+          const lower = t.toLowerCase();
+          return lower !== 'journal' && lower !== 'idea';
+        });
+        // Add list tag if not present
+        if (!filtered.some((t) => t.toLowerCase() === 'list')) {
+          filtered.push('list');
+        }
+        // Replace tags array with filtered version
+        tags.length = 0;
+        tags.push(...filtered);
+      }
+    }
 
     // Phase 2: Removed Mind Drop prefill marking logic - overlay no longer runs AI prefill
 
@@ -1680,6 +2282,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
           frequency: s.habit.schedule ?? 'custom',
           frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
+          subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -1696,6 +2299,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         notes: s.habit.notes || null,
         frequency: s.habit.schedule ?? 'custom',
         frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
+        subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -1722,8 +2326,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         existing: initialEntity,
       });
 
-      // mood (Journal)
-      const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
+      // Mood support for journal logs (Phase L4)
+      const moodPatch = s.log.kind === 'journal' && mood ? { mood } : {};
 
       // fmt: list tag overrides explicit format
       let fmtVal: any = null;
@@ -1735,14 +2339,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const reminderIso = coerceIsoTimestamp(s.reminderAt);
       const datePatch = reminderIso ? { date: reminderIso } : {};
 
+      // Phase L8: Use effective log subtype for Mind Drop logs
+      // For list/journal/idea, use the detected subtype
+      // For plain, use null (no subtype)
+      const subtype = effectiveLogSubtype === 'plain' ? null : effectiveLogSubtype;
+
       // For Mind Drop logs confirmed as logs, ensure canonical_type, labels, and subtype are set
       // This clears catchall/needs_review labels and marks the item as a confirmed log
-      // Logs should use 'journal' subtype by default, never 'idea'
       const logConfirmationPatch = {
         canonical_type: 'log' as const,
         labels: ['log'] as const,
-        subtype: 'journal' as const, // Always use 'journal' for logs, never 'idea'
+        subtype: subtype, // Use detected subtype (list/journal/idea) or null for plain
       };
+
+      // Photo support for logs (Phase L3)
+      const photoPatch = photoUri ? { photo_uri: photoUri } : {};
+
+      // Phase L7: Private mode support (deprecated - kept for compatibility)
+      const privatePatch = { private: s.log.private };
+
+      // Phase L9: Private toggle for journal logs via views.private_journal
+      const viewsWithPrivate =
+        effectiveLogSubtype === 'journal'
+          ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
+          : viewsWithPrefillFlag;
 
       return {
         type: 'note' as const,
@@ -1750,18 +2370,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...logConfirmationPatch, // Override with confirmed log status and correct subtype
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
-        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+        views: viewsWithPrivate, // Add views with minddrop_prefilled_v1 and private_journal flags
         ...moodPatch,
         ...fmtPatch,
         ...datePatch,
+        ...photoPatch,
+        ...privatePatch,
       };
     }
 
+    // Phase L8: Use effective log subtype for base note payload
+    // For list/journal/idea, use the detected subtype
+    // For plain, use null (no subtype)
+    const subtype2 = effectiveLogSubtype === 'plain' ? null : effectiveLogSubtype;
+
     // base note payload (for non-Mind Drop logs or manual log creation)
-    // Use 'journal' subtype by default for all logs
     const base = {
       type: 'note' as const,
-      subtype: 'journal' as const, // Default to 'journal' for logs, not 'catchall' or 'idea'
+      subtype: subtype2, // Use detected subtype (list/journal/idea) or null for plain
       title: s.log.title || firstLine(s.log.body) || 'Untitled note',
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
@@ -1770,8 +2396,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ...tagsPayload, // Conditionally include tags/tags_meta
     } as any;
 
-    // mood (Journal)
-    const moodPatch = s.tags.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
+    // Mood support for journal logs (Phase L4)
+    const moodPatch2 = s.log.kind === 'journal' && mood ? { mood } : {};
 
     // fmt: list tag overrides explicit format
     let fmtVal: any = null;
@@ -1783,7 +2409,27 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const reminderIso = coerceIsoTimestamp(s.reminderAt);
     const datePatch = reminderIso ? { date: reminderIso } : {};
 
-    return { ...base, ...moodPatch, ...fmtPatch, ...datePatch };
+    // Photo support for logs (Phase L3)
+    const photoPatch = photoUri ? { photo_uri: photoUri } : {};
+
+    // Phase L7: Private mode support (deprecated - kept for compatibility)
+    const privatePatch = { private: s.log.private };
+
+    // Phase L9: Private toggle for journal logs via views.private_journal
+    const viewsWithPrivate2 =
+      effectiveLogSubtype === 'journal'
+        ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
+        : viewsWithPrefillFlag;
+
+    return {
+      ...base,
+      views: viewsWithPrivate2, // Override with views containing private_journal
+      ...moodPatch2,
+      ...fmtPatch,
+      ...datePatch,
+      ...photoPatch,
+      ...privatePatch,
+    };
   }
 
   const onSave = useCallback(async () => {
@@ -1796,11 +2442,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setSaveError(null);
     setIsSaving(true);
     try {
+      // Map reminders array back to legacy reminderAt field before save
+      const { reminderAt } = mapRemindersToLegacyFields(reminders);
+      const stateWithReminder = { ...state, reminderAt };
+
       const input = toCreateOrUpdateInput(
         baseType,
-        state as any,
+        stateWithReminder as any,
         initialSpaceId ?? null,
         fullEntity,
+        photoUri, // Phase L3: Pass photo URI
+        mood, // Phase L4: Pass mood for journals
+        effectiveLogSubtype, // Phase L8: Pass effective log subtype
       );
 
       // Development logging for todo saves
@@ -1831,6 +2484,103 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         mode === 'edit' && (initialEntity as any)?.id
           ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
           : await repo.create(input as any);
+
+      // Handle multi-photo uploads and deletions for logs (Phase L5)
+      if (baseType === 'log' && result?.id && userId) {
+        try {
+          const noteId = result.id;
+          const { supabase } = await import('../../lib/supabase/client');
+
+          // Process deletions first
+          for (const photo of logPhotos) {
+            if (photo.isDeleted && photo.id) {
+              try {
+                // Delete from database
+                const { error: deleteError } = await supabase
+                  .from('log_photos')
+                  .delete()
+                  .eq('id', photo.id);
+
+                if (deleteError) {
+                  console.error('[UnifiedOverlayV2] Failed to delete photo from DB:', deleteError);
+                }
+
+                // Try to delete from storage (best effort)
+                if (photo.url && photo.url.includes('log-photos/')) {
+                  const pathMatch = photo.url.match(/log-photos\/(.+)$/);
+                  if (pathMatch) {
+                    await supabase.storage.from('log-photos').remove([pathMatch[1]]);
+                  }
+                }
+              } catch (err) {
+                console.error('[UnifiedOverlayV2] Error deleting photo:', err);
+              }
+            }
+          }
+
+          // Process new photo uploads
+          const activePhotos = logPhotos.filter((p) => !p.isDeleted);
+          for (let i = 0; i < activePhotos.length; i++) {
+            const photo = activePhotos[i];
+            if (photo.isNew && photo.url.startsWith('file://')) {
+              try {
+                // Generate unique storage path
+                const fileExt = photo.url.split('.').pop() || 'jpg';
+                const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+                const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
+
+                // Read file as blob
+                const response = await fetch(photo.url);
+                const blob = await response.blob();
+
+                // Upload to storage
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                  .from('log-photos')
+                  .upload(storagePath, blob, {
+                    contentType: blob.type || 'image/jpeg',
+                    upsert: false,
+                  });
+
+                if (uploadError) {
+                  console.error('[UnifiedOverlayV2] Failed to upload photo:', uploadError);
+                  continue;
+                }
+
+                // Get public URL
+                const { data: urlData } = supabase.storage
+                  .from('log-photos')
+                  .getPublicUrl(storagePath);
+
+                const publicUrl = urlData?.publicUrl || storagePath;
+
+                // Insert into database
+                const { error: insertError } = await supabase.from('log_photos').insert({
+                  note_id: noteId,
+                  owner_id: userId,
+                  url: publicUrl,
+                  position: i,
+                });
+
+                if (insertError) {
+                  console.error('[UnifiedOverlayV2] Failed to insert photo record:', insertError);
+                }
+              } catch (err) {
+                console.error('[UnifiedOverlayV2] Error uploading photo:', err);
+              }
+            } else if (!photo.isNew && photo.id) {
+              // Update position for existing photos
+              try {
+                await supabase.from('log_photos').update({ position: i }).eq('id', photo.id);
+              } catch (err) {
+                console.error('[UnifiedOverlayV2] Error updating photo position:', err);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[UnifiedOverlayV2] Error processing log photos:', err);
+        }
+      }
+
       // After a successful create/update, link any pending Phase‑8 tags/people
       try {
         const itemType = baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note';
@@ -1997,12 +2747,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialSpaceId,
     mode,
     initialEntity,
+    fullEntity,
     repo,
     draftKey,
     onClose,
     isOffline,
     reduceMotion,
     headerPulse,
+    reminders,
+    photoUri, // Phase L3: Photo dependency
+    mood, // Phase L4: Mood dependency
   ]);
 
   const handleCancel = useCallback(async () => {
@@ -2239,36 +2993,163 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 })}
               </View>
 
+              {/* Build/Break Habit toggle - only for habits */}
+              {baseType === 'habit' && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 4,
+                    marginBottom: 8,
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 14 }}>{isBreakHabit ? '↺' : '+'}</Text>
+                    <Text style={{ fontSize: 14, color: '#444', fontWeight: '500' }}>
+                      {isBreakHabit ? 'Break habit' : 'Build habit'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isBreakHabit}
+                    onValueChange={(next) => {
+                      dispatch({
+                        type: 'SET_HABIT_SUBTYPE',
+                        subtype: next ? 'break_habit' : 'start_habit',
+                      });
+                    }}
+                    trackColor={{
+                      false: 'rgba(0,0,0,0.12)',
+                      true: lightTokens.colors.moss,
+                    }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+              )}
+
               {/* Main text field - moved above tags */}
               <Box px={4} mt={3}>
-                <TextInput
-                  ref={textInputRef}
-                  value={currentText}
-                  onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                  accessibilityLabel="Overlay content input"
-                  onFocus={() => setBodyFocused(true)}
-                  onBlur={() => setBodyFocused(false)}
-                  placeholder="Add notes..."
-                  placeholderTextColor={lightTokens.colors.subtle}
-                  multiline
-                  scrollEnabled={false}
-                  autoFocus
-                  textAlignVertical="top"
-                  style={[
-                    styles.textArea,
-                    {
-                      color: lightTokens.colors.text,
-                      backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                      borderWidth: 1,
-                      borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                      shadowColor: '#000',
-                      shadowOpacity: 0.03,
-                      shadowOffset: { width: 0, height: 1 },
-                      shadowRadius: 2,
-                    },
-                  ]}
-                />
+                <View style={{ position: 'relative' }}>
+                  <TextInput
+                    ref={textInputRef}
+                    value={currentText}
+                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                    accessibilityLabel="Overlay content input"
+                    onFocus={() => setBodyFocused(true)}
+                    onBlur={() => setBodyFocused(false)}
+                    placeholder="Add notes..."
+                    placeholderTextColor={lightTokens.colors.subtle}
+                    multiline
+                    scrollEnabled={false}
+                    autoFocus
+                    textAlignVertical="top"
+                    style={[
+                      styles.textArea,
+                      {
+                        color: lightTokens.colors.text,
+                        backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                        borderWidth: 1,
+                        borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                        shadowColor: '#000',
+                        shadowOpacity: 0.03,
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowRadius: 2,
+                        paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                      },
+                    ]}
+                  />
+                  {/* Camera button inside text area for logs only */}
+                  {isLog && (
+                    <Pressable
+                      onPress={handleOpenMultiPhotoActionSheet}
+                      style={({ pressed }) => ({
+                        position: 'absolute',
+                        bottom: 12,
+                        right: 12,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        shadowColor: '#000',
+                        shadowOpacity: 0.08,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowRadius: 4,
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                      accessibilityLabel="Add photo"
+                      accessibilityRole="button"
+                    >
+                      <Camera
+                        size={24}
+                        color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                      />
+                    </Pressable>
+                  )}
+                </View>
               </Box>
+
+              {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
+              {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+                <Box px={4} mt={2}>
+                  {(() => {
+                    const visiblePhotos = logPhotos.filter((p) => !p.isDeleted);
+
+                    // Has photos - show grid
+                    return (
+                      <View>
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.photoGridScroll}
+                          contentContainerStyle={styles.photoGridContent}
+                        >
+                          {visiblePhotos.map((photo, index) => {
+                            const actualIndex = logPhotos.findIndex((p) => p === photo);
+                            return (
+                              <View key={actualIndex} style={styles.photoThumbnailContainer}>
+                                <Pressable
+                                  onPress={() => handleViewLogPhoto(actualIndex)}
+                                  accessibilityLabel={`View photo ${index + 1}`}
+                                  accessibilityRole="button"
+                                >
+                                  <Image
+                                    source={{ uri: photo.url }}
+                                    style={styles.photoGridThumbnail}
+                                    resizeMode="cover"
+                                  />
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => handleDeleteLogPhoto(actualIndex)}
+                                  style={styles.photoGridDeleteButton}
+                                  hitSlop={8}
+                                  accessibilityLabel={`Remove photo ${index + 1}`}
+                                  accessibilityRole="button"
+                                >
+                                  <CloseIcon size={12} color="#666666" />
+                                </Pressable>
+                              </View>
+                            );
+                          })}
+                        </ScrollView>
+                        {visiblePhotos.length < 5 && (
+                          <Pressable
+                            onPress={handleOpenMultiPhotoActionSheet}
+                            style={styles.addMorePhotosButton}
+                            accessibilityLabel="Add another photo"
+                            accessibilityRole="button"
+                          >
+                            <Camera size={16} color="#666666" />
+                            <Text style={styles.addMorePhotosText}>Add photo</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    );
+                  })()}
+                </Box>
+              )}
 
               {/* Tags row - now directly below text field */}
               <Box px={4} mt={2.5}>
@@ -2288,6 +3169,55 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Box>
                 ) : null}
               </Box>
+
+              {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
+              {isJournal && logTimestampLabel ? (
+                <Box px={4} mt={3}>
+                  <View style={styles.logMetaRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
+                      {state.log.private && (
+                        <Lock
+                          size={14}
+                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
+                          style={{ opacity: 0.8 }}
+                        />
+                      )}
+                    </View>
+                    {isJournal && (
+                      <View style={styles.moodRow}>
+                        <Pressable
+                          onPress={() => setMood('happy')}
+                          hitSlop={8}
+                          style={[styles.moodButton, mood === 'happy' && styles.moodButtonActive]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Set mood to happy"
+                        >
+                          <Text style={{ fontSize: 20 }}>😊</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setMood('neutral')}
+                          hitSlop={8}
+                          style={[styles.moodButton, mood === 'neutral' && styles.moodButtonActive]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Set mood to neutral"
+                        >
+                          <Text style={{ fontSize: 20 }}>😐</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setMood('sad')}
+                          hitSlop={8}
+                          style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Set mood to sad"
+                        >
+                          <Text style={{ fontSize: 20 }}>😔</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                </Box>
+              ) : null}
 
               <Box px={4}>
                 {baseType === 'todo' || baseType === 'habit' ? (
@@ -2411,6 +3341,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 {/* Frequency row for habits */}
                 {baseType === 'habit' ? (
                   <Box mt={3} px={0}>
+                    {/* Optional frequency label for break habits */}
+                    {isBreakHabit && (
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888888',
+                          marginBottom: 4,
+                          marginLeft: 4,
+                        }}
+                      >
+                        Check-in frequency
+                      </Text>
+                    )}
                     {/* Frequency + Lock In row (matching todo structure) */}
                     <View style={styles.dueAndLockRow}>
                       {/* Left side: Frequency selector */}
@@ -2488,40 +3431,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Box>
                 ) : null}
 
-                {baseType === 'log' ? (
-                  <Box mt={3}>
-                    {state.reminderAt ? (
-                      <Pressable
-                        style={styles.dueDateRow}
-                        onPress={() => {
-                          setDateModalTarget('reminder');
-                          setShowDateModal(true);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Reminder: ${safeFormat(state.reminderAt)}`}
-                      >
-                        <Calendar
-                          size={16}
-                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                          style={styles.dueDateIcon}
-                        />
-                        <Text style={styles.dueDateText}>
-                          Reminder: {safeFormat(state.reminderAt)}
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onPress={() => {
-                          setDateModalTarget('reminder');
-                          setShowDateModal(true);
-                        }}
-                        title="Add reminder"
-                      />
-                    )}
-                  </Box>
-                ) : null}
                 <Box mt={3.5} row style={{ alignItems: 'center' }}>
                   <Button
                     variant="ghost"
@@ -2534,144 +3443,339 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 {state.expanded ? (
                   <Reanimated.View style={[detailsStyle, { marginTop: tokenSpacing.sm }]}>
                     <Box pb={2}>
-                      <Text variant="label">Details</Text>
-                      {/* People linker + reminder/todo due + space selector */}
-                      <Box mt={2}>
-                        {/* Thin picker for selecting an existing person (Phase-4) */}
-                        <PersonPicker
-                          value={state.person ?? null}
-                          onChange={(p) => dispatch({ type: 'SET_PERSON', person: p })}
-                        />
-
-                        <Box mt={2}>
-                          {/* Space selector: load spaces when expanded */}
-                          <ScopeSelector
-                            selectedScope={
-                              state.spaceId
-                                ? {
-                                    type: 'space',
-                                    spaceId: state.spaceId,
-                                    label:
-                                      spaces.find((s) => s.id === state.spaceId)?.name ?? 'Space',
-                                  }
-                                : { type: 'unassigned', label: 'Unassigned' }
-                            }
-                            spaces={spaces}
-                            onChange={(opt) => {
-                              if (opt.type === 'space')
-                                dispatch({ type: 'SET_SPACE', spaceId: opt.spaceId ?? null });
-                              else dispatch({ type: 'SET_SPACE', spaceId: null });
+                      {/* To-Do Details */}
+                      {baseType === 'todo' ? (
+                        <View style={{ marginTop: 8 }}>
+                          {/* 1) Reminders row */}
+                          <Pressable
+                            onPress={() => {
+                              setShowRemindersModal(true);
                             }}
-                          />
-                        </Box>
-                        {commitmentsOn && (baseType === 'todo' || baseType === 'habit') ? (
-                          <Box mt={2}>
-                            <Text variant="label">Commitment</Text>
-                            <Box row mt={1} gap={2} style={{ alignItems: 'center' }}>
-                              <Button
-                                size="sm"
-                                variant={state.commitment ? 'primary' : 'ghost'}
-                                onPress={async () => {
-                                  if (!state.commitment) {
-                                    const ok = await canEnableCommitment();
-                                    if (!ok) {
-                                      console.log('[Commitment] Limit reached (3)');
-                                      return;
-                                    }
-                                  }
-                                  // push undo snapshot for commitment fields
-                                  const prevOn = !!state.commitment;
-                                  pushUndoEntry('commitment', {
-                                    commitment: state.commitment,
-                                    commitmentNote: state.commitmentNote,
-                                    commitmentStartedAt: state.commitmentStartedAt,
-                                  });
-                                  dispatch({ type: 'TOGGLE_COMMITMENT' });
-                                  try {
-                                    eventBus.emit('OverlayCommitmentToggled', { on: !prevOn });
-                                  } catch (e) {
-                                    // ignore telemetry errors
-                                  }
-                                }}
-                                title={state.commitment ? 'Committed' : 'Make this a commitment'}
+                            style={({ pressed }) => [
+                              styles.detailRow,
+                              pressed && styles.detailRowPressed,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Bell
+                                size={18}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
                               />
+                              <Text style={styles.detailRowText}>Reminders</Text>
+                            </View>
+                            <Text style={styles.detailRowValue}>
+                              {formatReminderSummary(reminders)}
+                            </Text>
+                          </Pressable>
 
-                              {/* Animated reveal for the commitment note */}
-                              <Reanimated.View
-                                style={[commitmentStyle, { flex: 1 }]}
-                                pointerEvents={state.commitment ? 'auto' : 'none'}
-                              >
-                                {state.commitment ? (
-                                  <TextInput
-                                    placeholder="Why this matters (optional, 140 max)"
-                                    accessibilityLabel="Commitment note input"
-                                    maxLength={140}
-                                    value={state.commitmentNote}
-                                    onChangeText={(t) =>
-                                      dispatch({ type: 'SET_COMMITMENT_NOTE', note: t })
-                                    }
-                                    onFocus={() => setCommitmentFocused(true)}
-                                    onBlur={() => setCommitmentFocused(false)}
-                                    style={[
-                                      styles.textArea,
-                                      { minHeight: 40, paddingVertical: 8 },
-                                      {
-                                        backgroundColor:
-                                          colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                        borderWidth: 0,
+                          {/* 2) Add to Space row */}
+                          <Pressable
+                            onPress={() => setShowSpaceModal(true)}
+                            style={({ pressed }) => [
+                              styles.detailRow,
+                              { marginTop: 8 },
+                              pressed && styles.detailRowPressed,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Folder
+                                size={18}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                              />
+                              <Text style={styles.detailRowText}>Add to Space</Text>
+                            </View>
+                            {state.spaceId ? (
+                              <Text style={styles.detailRowValue}>
+                                {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
+                              </Text>
+                            ) : null}
+                          </Pressable>
+
+                          {/* 3) Delete To-Do row (only in edit mode) */}
+                          {mode === 'edit' && (initialEntity as any)?.id ? (
+                            <View style={{ marginTop: 16 }}>
+                              <View style={styles.detailDivider} />
+                              <Pressable
+                                onPress={() => {
+                                  Alert.alert('Delete this to-do?', "This can't be undone.", [
+                                    {
+                                      text: 'Cancel',
+                                      style: 'cancel',
+                                    },
+                                    {
+                                      text: 'Delete',
+                                      style: 'destructive',
+                                      onPress: async () => {
+                                        try {
+                                          await repo.remove((initialEntity as any).id);
+                                          eventBus.emit('ItemUpdated', {
+                                            id: (initialEntity as any).id,
+                                          });
+                                          onClose();
+                                        } catch (err) {
+                                          console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                          Alert.alert(
+                                            'Error',
+                                            'Failed to delete to-do. Please try again.',
+                                          );
+                                        }
                                       },
-                                    ]}
-                                  />
-                                ) : null}
-                              </Reanimated.View>
-                            </Box>
-                          </Box>
-                        ) : null}
-                      </Box>
+                                    },
+                                  ]);
+                                }}
+                                style={({ pressed }) => [
+                                  { paddingVertical: 12 },
+                                  pressed && { opacity: 0.7 },
+                                ]}
+                              >
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                                >
+                                  <Trash2 size={16} color="#DC2626" />
+                                  <Text
+                                    style={{ color: '#DC2626', fontSize: 14, fontWeight: '500' }}
+                                  >
+                                    Delete to-do
+                                  </Text>
+                                </View>
+                              </Pressable>
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
+
+                      {/* Habit Details */}
+                      {baseType === 'habit' ? (
+                        <View style={{ marginTop: 8 }}>
+                          {/* 1) Reminders row */}
+                          <Pressable
+                            onPress={() => {
+                              setShowRemindersModal(true);
+                            }}
+                            style={({ pressed }) => [
+                              styles.detailRow,
+                              pressed && styles.detailRowPressed,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Bell
+                                size={18}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                              />
+                              <Text style={styles.detailRowText}>Reminders</Text>
+                            </View>
+                            <Text style={styles.detailRowValue}>
+                              {formatReminderSummary(reminders)}
+                            </Text>
+                          </Pressable>
+
+                          {/* 2) Add to Space row */}
+                          <Pressable
+                            onPress={() => setShowSpaceModal(true)}
+                            style={({ pressed }) => [
+                              styles.detailRow,
+                              { marginTop: 8 },
+                              pressed && styles.detailRowPressed,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Folder
+                                size={18}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                              />
+                              <Text style={styles.detailRowText}>Add to Space</Text>
+                            </View>
+                            {state.spaceId ? (
+                              <Text style={styles.detailRowValue}>
+                                {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
+                              </Text>
+                            ) : null}
+                          </Pressable>
+
+                          {/* 3) Delete Habit row (only in edit mode) */}
+                          {mode === 'edit' && (initialEntity as any)?.id ? (
+                            <View style={{ marginTop: 16 }}>
+                              <View style={styles.detailDivider} />
+                              <Pressable
+                                onPress={() => {
+                                  Alert.alert('Delete this habit?', "This can't be undone.", [
+                                    {
+                                      text: 'Cancel',
+                                      style: 'cancel',
+                                    },
+                                    {
+                                      text: 'Delete',
+                                      style: 'destructive',
+                                      onPress: async () => {
+                                        try {
+                                          await repo.remove((initialEntity as any).id);
+                                          eventBus.emit('ItemUpdated', {
+                                            id: (initialEntity as any).id,
+                                          });
+                                          onClose();
+                                        } catch (err) {
+                                          console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                          Alert.alert(
+                                            'Error',
+                                            'Failed to delete habit. Please try again.',
+                                          );
+                                        }
+                                      },
+                                    },
+                                  ]);
+                                }}
+                                style={({ pressed }) => [
+                                  { paddingVertical: 12 },
+                                  pressed && { opacity: 0.7 },
+                                ]}
+                              >
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                                >
+                                  <Trash2 size={16} color="#DC2626" />
+                                  <Text
+                                    style={{ color: '#DC2626', fontSize: 14, fontWeight: '500' }}
+                                  >
+                                    Delete habit
+                                  </Text>
+                                </View>
+                              </Pressable>
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
+
+                      {/* Log Details */}
                       {baseType === 'log' ? (
-                        <Box mt={2} row gap={2} style={{ alignItems: 'center' }}>
-                          <Button
-                            size="sm"
-                            variant={state.format === 'plain' ? 'primary' : 'ghost'}
-                            onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'plain' })}
-                            title="Plain"
-                          />
-                          <Button
-                            size="sm"
-                            variant={state.format === 'checkboxes' ? 'primary' : 'ghost'}
-                            onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'checkboxes' })}
-                            title="Checkboxes"
-                          />
-                          <Button
-                            size="sm"
-                            variant={state.format === 'bullet' ? 'primary' : 'ghost'}
-                            onPress={() => dispatch({ type: 'SET_FORMAT', fmt: 'bullet' })}
-                            title="Bullet"
-                          />
-                        </Box>
+                        <View style={{ marginTop: 16, paddingHorizontal: 16 }}>
+                          {/* 1) Reminders row */}
+                          <Pressable
+                            onPress={() => {
+                              setShowRemindersModal(true);
+                            }}
+                            style={({ pressed }) => [
+                              styles.detailRow,
+                              pressed && styles.detailRowPressed,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Bell
+                                size={18}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                              />
+                              <Text style={styles.detailRowText}>Reminders</Text>
+                            </View>
+                            <Text style={styles.detailRowValue}>
+                              {formatReminderSummary(reminders)}
+                            </Text>
+                          </Pressable>
+
+                          {/* 2) Add to Space row */}
+                          <Pressable
+                            onPress={() => setShowSpaceModal(true)}
+                            style={({ pressed }) => [
+                              styles.detailRow,
+                              { marginTop: 12 },
+                              pressed && styles.detailRowPressed,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Folder
+                                size={18}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                              />
+                              <Text style={styles.detailRowText}>Add to Space</Text>
+                            </View>
+                            <Text style={styles.detailRowValue}>
+                              {state.spaceId
+                                ? (spaces.find((s) => s.id === state.spaceId)?.name ?? 'Unassigned')
+                                : 'Unassigned'}
+                            </Text>
+                          </Pressable>
+
+                          {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
+                          {showLogPrivateToggle ? (
+                            <View style={[styles.detailRow, { marginTop: 12 }]}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                <Lock
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                                <Text style={styles.detailRowText}>Private</Text>
+                              </View>
+                              <Switch
+                                value={state.logIsPrivate}
+                                onValueChange={() =>
+                                  dispatch({
+                                    type: 'SET_LOG_IS_PRIVATE',
+                                    value: !state.logIsPrivate,
+                                  })
+                                }
+                                trackColor={{ false: '#D1D5DB', true: '#10B981' }}
+                                thumbColor="#FFFFFF"
+                              />
+                            </View>
+                          ) : null}
+
+                          {/* 4) Divider before Delete */}
+                          {mode === 'edit' && (initialEntity as any)?.id ? (
+                            <>
+                              <View style={[styles.detailDivider, { marginTop: 16 }]} />
+
+                              {/* 5) Delete log row */}
+                              <Pressable
+                                onPress={() => {
+                                  Alert.alert('Delete this log?', "This can't be undone.", [
+                                    {
+                                      text: 'Cancel',
+                                      style: 'cancel',
+                                    },
+                                    {
+                                      text: 'Delete',
+                                      style: 'destructive',
+                                      onPress: async () => {
+                                        try {
+                                          await repo.remove((initialEntity as any).id);
+                                          eventBus.emit('ItemUpdated', {
+                                            id: (initialEntity as any).id,
+                                          });
+                                          onClose();
+                                        } catch (err) {
+                                          console.error(
+                                            '[UnifiedOverlayV2] Delete log failed:',
+                                            err,
+                                          );
+                                          Alert.alert(
+                                            'Error',
+                                            'Failed to delete log. Please try again.',
+                                          );
+                                        }
+                                      },
+                                    },
+                                  ]);
+                                }}
+                                style={({ pressed }) => [
+                                  { paddingVertical: 12 },
+                                  pressed && { opacity: 0.7 },
+                                ]}
+                              >
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                                >
+                                  <Trash2 size={16} color="#DC2626" />
+                                  <Text
+                                    style={{ color: '#DC2626', fontSize: 14, fontWeight: '500' }}
+                                  >
+                                    Delete log
+                                  </Text>
+                                </View>
+                              </Pressable>
+                            </>
+                          ) : null}
+                        </View>
                       ) : null}
                     </Box>
                   </Reanimated.View>
-                ) : null}
-                {/* Journal mood row */}
-                {state.tags.includes('journal') ? (
-                  <Box mt={3} row gap={2} style={{ marginTop: tokenSpacing.md }}>
-                    <MoodPill
-                      label="😊"
-                      active={state.mood === 'pos'}
-                      onPress={() => dispatch({ type: 'SET_MOOD', mood: 'pos' })}
-                    />
-                    <MoodPill
-                      label="😐"
-                      active={state.mood === 'neu'}
-                      onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neu' })}
-                    />
-                    <MoodPill
-                      label="😔"
-                      active={state.mood === 'neg'}
-                      onPress={() => dispatch({ type: 'SET_MOOD', mood: 'neg' })}
-                    />
-                  </Box>
                 ) : null}
 
                 {/* List checkboxes */}
@@ -3145,6 +4249,591 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               </Pressable>
             </Modal>
 
+            {/* Space Selector Modal for To-Do Details */}
+            <Modal visible={showSpaceModal} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => setShowSpaceModal(false)}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '85%',
+                    maxWidth: 350,
+                    backgroundColor: '#FFFFFF',
+                    padding: 20,
+                    borderRadius: 16,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 12,
+                    elevation: 5,
+                  }}
+                >
+                  <Text
+                    style={{ fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 16 }}
+                  >
+                    Select Space
+                  </Text>
+
+                  {/* Clear selection option */}
+                  <Pressable
+                    onPress={() => {
+                      dispatch({ type: 'SET_SPACE', spaceId: null });
+                      setShowSpaceModal(false);
+                    }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      borderRadius: 8,
+                      backgroundColor: pressed
+                        ? '#F3F4F6'
+                        : state.spaceId === null
+                          ? '#F0F4F1'
+                          : 'transparent',
+                      marginBottom: 8,
+                    })}
+                  >
+                    <Text style={{ fontSize: 15, color: '#374151' }}>None</Text>
+                  </Pressable>
+
+                  {/* Space options */}
+                  <ScrollView style={{ maxHeight: 300 }}>
+                    {spaces.map((space) => (
+                      <Pressable
+                        key={space.id}
+                        onPress={() => {
+                          dispatch({ type: 'SET_SPACE', spaceId: space.id });
+                          setShowSpaceModal(false);
+                        }}
+                        style={({ pressed }) => ({
+                          paddingVertical: 12,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          backgroundColor: pressed
+                            ? '#F3F4F6'
+                            : state.spaceId === space.id
+                              ? '#F0F4F1'
+                              : 'transparent',
+                          marginBottom: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                        })}
+                      >
+                        {space.icon && (
+                          <Text style={{ fontSize: 16, marginRight: 10 }}>{space.icon}</Text>
+                        )}
+                        <Text style={{ fontSize: 15, color: '#374151' }}>{space.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Reminders Management Modal */}
+            <Modal visible={showRemindersModal} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => {
+                  if (!editingReminder) {
+                    setShowRemindersModal(false);
+                  }
+                }}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '90%',
+                    maxWidth: 400,
+                    backgroundColor: '#FFFFFF',
+                    padding: 20,
+                    borderRadius: 16,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 12,
+                    elevation: 5,
+                    maxHeight: '80%',
+                  }}
+                >
+                  {editingReminder ? (
+                    /* Add/Edit Reminder Form */
+                    <ScrollView showsVerticalScrollIndicator={false}>
+                      {/* Header */}
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 20,
+                        }}
+                      >
+                        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
+                          {editingMode === 'add' ? 'Add Reminder' : 'Edit Reminder'}
+                        </Text>
+                        <Pressable
+                          onPress={() => {
+                            setEditingReminder(null);
+                            setReminderValidationError(null);
+                          }}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.6 : 1,
+                            padding: 4,
+                          })}
+                        >
+                          <CloseIcon size={24} color="#6B7280" />
+                        </Pressable>
+                      </View>
+
+                      {/* Time Selector */}
+                      <View style={{ marginBottom: 20 }}>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: 8,
+                          }}
+                        >
+                          Time
+                        </Text>
+                        <View style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12 }}>
+                          <DateTimePicker
+                            value={reminderTimeValue}
+                            mode="time"
+                            display="spinner"
+                            onChange={(event, date) => {
+                              if (date) {
+                                setReminderTimeValue(date);
+                              }
+                            }}
+                            style={{ backgroundColor: 'transparent' }}
+                          />
+                        </View>
+                      </View>
+
+                      {/* Repeat Options */}
+                      <View style={{ marginBottom: 20 }}>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: 8,
+                          }}
+                        >
+                          Repeat
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {(['once', 'daily', 'weekdays', 'weekends', 'custom'] as const).map(
+                            (option) => (
+                              <Pressable
+                                key={option}
+                                onPress={() => setReminderRepeat(option)}
+                                style={({ pressed }) => ({
+                                  paddingHorizontal: 14,
+                                  paddingVertical: 8,
+                                  borderRadius: 8,
+                                  backgroundColor:
+                                    reminderRepeat === option
+                                      ? lightTokens.colors.moss
+                                      : pressed
+                                        ? '#F3F4F6'
+                                        : '#F9FAFB',
+                                  borderWidth: 1,
+                                  borderColor:
+                                    reminderRepeat === option ? lightTokens.colors.moss : '#E5E7EB',
+                                })}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 14,
+                                    fontWeight: '500',
+                                    color: reminderRepeat === option ? '#FFFFFF' : '#374151',
+                                    textTransform: 'capitalize',
+                                  }}
+                                >
+                                  {option}
+                                </Text>
+                              </Pressable>
+                            ),
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Conditional: Date picker for "once" */}
+                      {reminderRepeat === 'once' && (
+                        <View style={{ marginBottom: 20 }}>
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontWeight: '500',
+                              color: '#374151',
+                              marginBottom: 8,
+                            }}
+                          >
+                            Date
+                          </Text>
+                          <View
+                            style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12 }}
+                          >
+                            <DateTimePicker
+                              value={reminderDateValue}
+                              mode="date"
+                              display="inline"
+                              onChange={(event, date) => {
+                                if (date) {
+                                  setReminderDateValue(date);
+                                }
+                              }}
+                              style={{ backgroundColor: 'transparent' }}
+                            />
+                          </View>
+                        </View>
+                      )}
+
+                      {/* Conditional: Custom days selector */}
+                      {reminderRepeat === 'custom' && (
+                        <View style={{ marginBottom: 20 }}>
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontWeight: '500',
+                              color: '#374151',
+                              marginBottom: 8,
+                            }}
+                          >
+                            Days
+                          </Text>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              gap: 8,
+                            }}
+                          >
+                            {SHORT_DAY_LABELS.map((label, index) => (
+                              <Pressable
+                                key={index}
+                                onPress={() => {
+                                  setReminderCustomDays((prev) => {
+                                    if (prev.includes(index)) {
+                                      return prev.filter((d) => d !== index);
+                                    } else {
+                                      return [...prev, index].sort((a, b) => a - b);
+                                    }
+                                  });
+                                }}
+                                style={({ pressed }) => ({
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  backgroundColor: reminderCustomDays.includes(index)
+                                    ? lightTokens.colors.moss
+                                    : pressed
+                                      ? '#F3F4F6'
+                                      : 'transparent',
+                                  borderWidth: 1,
+                                  borderColor: reminderCustomDays.includes(index)
+                                    ? lightTokens.colors.moss
+                                    : '#D1D5DB',
+                                })}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: '500',
+                                    color: reminderCustomDays.includes(index)
+                                      ? '#FFFFFF'
+                                      : '#6B7280',
+                                  }}
+                                >
+                                  {label}
+                                </Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                          {reminderValidationError && (
+                            <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 8 }}>
+                              {reminderValidationError}
+                            </Text>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Buttons */}
+                      <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                        <Pressable
+                          onPress={() => {
+                            setEditingReminder(null);
+                            setReminderValidationError(null);
+                          }}
+                          style={({ pressed }) => ({
+                            flex: 1,
+                            paddingVertical: 12,
+                            borderRadius: 8,
+                            backgroundColor: pressed ? '#F3F4F6' : 'transparent',
+                            borderWidth: 1,
+                            borderColor: '#D1D5DB',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            minHeight: 44,
+                          })}
+                        >
+                          <Text style={{ fontSize: 15, fontWeight: '500', color: '#6B7280' }}>
+                            Cancel
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            // Validation
+                            if (reminderRepeat === 'custom' && reminderCustomDays.length === 0) {
+                              setReminderValidationError('Select at least one day');
+                              return;
+                            }
+
+                            // Build reminder object
+                            const hour = format(reminderTimeValue, 'HH');
+                            const minute = format(reminderTimeValue, 'mm');
+                            const time = `${hour}:${minute}`;
+
+                            const newReminder: OverlayReminder = {
+                              id: editingReminder.id,
+                              time,
+                              repeat: reminderRepeat,
+                              ...(reminderRepeat === 'once' && {
+                                date: format(reminderDateValue, 'yyyy-MM-dd'),
+                              }),
+                              ...(reminderRepeat === 'custom' && { days: reminderCustomDays }),
+                            };
+
+                            // Check for duplicates
+                            const isDuplicate = reminders.some((r) => {
+                              if (editingMode === 'edit' && r.id === editingReminder.id)
+                                return false;
+                              return (
+                                r.time === newReminder.time &&
+                                r.repeat === newReminder.repeat &&
+                                r.date === newReminder.date &&
+                                JSON.stringify(r.days) === JSON.stringify(newReminder.days)
+                              );
+                            });
+
+                            if (isDuplicate) {
+                              setReminderValidationError('This reminder already exists');
+                              return;
+                            }
+
+                            // Add or update
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            if (editingMode === 'add') {
+                              setReminders((prev) => [...prev, newReminder]);
+                            } else {
+                              setReminders((prev) =>
+                                prev.map((r) => (r.id === editingReminder.id ? newReminder : r)),
+                              );
+                            }
+
+                            // Clear and return to list
+                            setEditingReminder(null);
+                            setReminderValidationError(null);
+                          }}
+                          style={({ pressed }) => ({
+                            flex: 1,
+                            paddingVertical: 12,
+                            borderRadius: 8,
+                            backgroundColor: pressed ? '#244430' : lightTokens.colors.moss,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            minHeight: 44,
+                          })}
+                        >
+                          <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                            {editingMode === 'add' ? 'Add' : 'Update'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </ScrollView>
+                  ) : (
+                    /* Reminders List View */
+                    <View>
+                      {/* Header */}
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 16,
+                        }}
+                      >
+                        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
+                          Set Reminders
+                        </Text>
+                        <Pressable
+                          onPress={() => setShowRemindersModal(false)}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.6 : 1,
+                            padding: 4,
+                          })}
+                        >
+                          <CloseIcon size={24} color="#6B7280" />
+                        </Pressable>
+                      </View>
+
+                      {/* Reminders List or Empty State */}
+                      <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+                        {reminders.length === 0 ? (
+                          <Text
+                            style={{ textAlign: 'center', color: '#6B7280', paddingVertical: 40 }}
+                          >
+                            No reminders set
+                          </Text>
+                        ) : (
+                          reminders.map((reminder) => (
+                            <Pressable
+                              key={reminder.id}
+                              onPress={() => {
+                                // Open for editing
+                                setEditingReminder(reminder);
+                                setEditingMode('edit');
+                                // Hydrate form state
+                                const [hour, minute] = reminder.time.split(':').map(Number);
+                                const timeDate = new Date();
+                                timeDate.setHours(hour, minute, 0, 0);
+                                setReminderTimeValue(timeDate);
+                                setReminderRepeat(reminder.repeat);
+                                if (reminder.date) {
+                                  setReminderDateValue(parseISO(reminder.date));
+                                }
+                                if (reminder.days) {
+                                  setReminderCustomDays(reminder.days);
+                                }
+                                setReminderValidationError(null);
+                              }}
+                              style={({ pressed }) => ({
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                paddingVertical: 12,
+                                paddingHorizontal: 12,
+                                borderRadius: 8,
+                                backgroundColor: pressed ? '#F3F4F6' : 'transparent',
+                                marginBottom: 8,
+                                minHeight: 48,
+                              })}
+                            >
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 12,
+                                  flex: 1,
+                                }}
+                              >
+                                <Bell size={20} color={lightTokens.colors.moss} />
+                                <Text style={{ fontSize: 15, fontWeight: '500', color: '#111827' }}>
+                                  {formatSingleReminder(reminder)}
+                                </Text>
+                              </View>
+                              <Pressable
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  // Delete reminder with animation
+                                  LayoutAnimation.configureNext(
+                                    LayoutAnimation.Presets.easeInEaseOut,
+                                  );
+                                  setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
+                                }}
+                                style={({ pressed }) => ({
+                                  padding: 4,
+                                  opacity: pressed ? 0.6 : 1,
+                                  minWidth: 24,
+                                  minHeight: 24,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                })}
+                              >
+                                <CloseIcon size={18} color="#6B7280" />
+                              </Pressable>
+                            </Pressable>
+                          ))
+                        )}
+                      </ScrollView>
+
+                      {/* Add Reminder Button */}
+                      {reminders.length < 5 && (
+                        <Pressable
+                          onPress={() => {
+                            // Set smart defaults based on baseType and habit mode
+                            const isHabit = baseType === 'habit';
+                            const defaultTime = isHabit
+                              ? isBreakHabit
+                                ? '20:00'
+                                : '09:00'
+                              : '09:00';
+                            const defaultRepeat = isHabit ? 'daily' : 'once';
+
+                            const [hour, minute] = defaultTime.split(':').map(Number);
+                            const timeDate = new Date();
+                            timeDate.setHours(hour, minute, 0, 0);
+
+                            setReminderTimeValue(timeDate);
+                            setReminderRepeat(defaultRepeat);
+                            setReminderDateValue(
+                              baseType === 'todo' ? addDays(new Date(), 1) : new Date(),
+                            );
+                            setReminderCustomDays([]);
+                            setReminderValidationError(null);
+                            setEditingMode('add');
+                            setEditingReminder({
+                              id: `reminder-${Date.now()}`,
+                              time: defaultTime,
+                              repeat: defaultRepeat,
+                            });
+                          }}
+                          style={({ pressed }) => ({
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            paddingVertical: 14,
+                            borderRadius: 8,
+                            borderWidth: 1.5,
+                            borderStyle: 'dashed',
+                            borderColor: lightTokens.colors.moss,
+                            backgroundColor: pressed ? '#F0F4F1' : 'transparent',
+                            minHeight: 48,
+                          })}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 15,
+                              fontWeight: '500',
+                              color: lightTokens.colors.moss,
+                            }}
+                          >
+                            + Add reminder
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  )}
+                </Pressable>
+              </Pressable>
+            </Modal>
+
             {/* Frequency Builder Modal */}
             <Modal
               visible={showFrequencyModal}
@@ -3553,6 +5242,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           </View>
         </RNAnimated.View>
       </View>
+
+      {/* Fullscreen image modal (Phase L5 - multi-photo support) */}
+      <Modal visible={selectedPhotoIndex !== null} transparent animationType="fade">
+        <Pressable
+          style={styles.imageModalContainer}
+          onPress={() => setSelectedPhotoIndex(null)}
+          accessibilityLabel="Close fullscreen image"
+          accessibilityRole="button"
+        >
+          {selectedPhotoIndex !== null && logPhotos[selectedPhotoIndex] ? (
+            <Image
+              source={{ uri: logPhotos[selectedPhotoIndex].url }}
+              style={styles.imageModalImage}
+              resizeMode="contain"
+            />
+          ) : null}
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -3611,10 +5318,14 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       log: {
         title: compactTitle,
         body: habitLongText,
+        kind: classifyLogKind(habitLongText),
+        private: false, // Default for logs (Phase L7)
       },
       tags: extractedTags,
       stickyTags: normalizeMetaValues(tagsMeta?.sticky),
       tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
+      logSubtypeOverride: null, // Phase L8: Default for habits
+      logIsPrivate: false, // Phase L9: Default for habits
     };
   }
 
@@ -3658,11 +5369,30 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
   const tagsMeta = (entity as any)?.tags_meta ?? {};
 
+  // Phase L8: Hydrate logSubtypeOverride from entity.subtype for logs
+  const rawSubtype = (entity as any)?.subtype as string | undefined;
+  let logSubtypeOverride: 'journal' | 'list' | 'idea' | 'plain' | null = null;
+  if (baseType === 'log') {
+    if (rawSubtype === 'journal' || rawSubtype === 'list' || rawSubtype === 'idea') {
+      logSubtypeOverride = rawSubtype;
+    } else if (rawSubtype === null || rawSubtype === undefined || rawSubtype === 'catchall') {
+      logSubtypeOverride = 'plain';
+    }
+  }
+
+  // Phase L9: Hydrate logIsPrivate from entity.views.private_journal for logs
+  const logIsPrivate =
+    baseType === 'log'
+      ? !!(entity?.views && (entity.views as any).private_journal === true)
+      : false;
+
   const payload: Partial<V2State> = {
     baseType,
     log: {
       title: logTitle,
       body: logBody,
+      kind: classifyLogKind(logBody),
+      private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
     },
     todo: {
       title: todoTitle,
@@ -3677,6 +5407,9 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     tags: extractedTags, // Initialize tags from entity for all types
     stickyTags: normalizeMetaValues(tagsMeta?.sticky),
     tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
+    mood: (entity as any)?.mood ?? null, // Hydrate mood for journal logs (Phase L2)
+    logSubtypeOverride, // Phase L8: Manual log subtype override
+    logIsPrivate, // Phase L9: Private flag for journal logs
   };
 
   return payload;
@@ -3923,5 +5656,164 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: tokenSpacing.sm,
     minHeight: 44,
+  },
+
+  /* Detail row styles for redesigned To-Do details section */
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  detailRowPressed: {
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  detailRowText: {
+    fontSize: 15,
+    color: '#111827',
+  },
+  detailRowValue: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  detailDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+
+  /* Log meta row styles (Phase L2) */
+  logMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  logTimestampText: {
+    fontSize: 13,
+    color: '#666666',
+  },
+  moodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 12,
+    paddingVertical: 6,
+    paddingLeft: 6,
+  },
+  moodButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F2F6F3', // subtle sage tint
+  },
+  moodButtonActive: {
+    backgroundColor: '#CDE8D0', // deeper sage when selected
+  },
+  // Legacy mood pill styles (Phase L2, deprecated in L4)
+  moodPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  moodPillText: {
+    fontSize: 13,
+  },
+
+  /* Photo support styles (Phase L3) */
+  photoContainer: {
+    position: 'relative',
+    width: '100%',
+    marginTop: 12,
+  },
+  photoThumbnail: {
+    width: '100%',
+    height: 160,
+    borderRadius: 12,
+  },
+  photoRemoveButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+  },
+  addPhotoButton: {
+    alignSelf: 'flex-end',
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+  },
+  imageModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  /* Multi-photo grid styles (Phase L5) */
+  photoGridScroll: {
+    marginBottom: 8,
+  },
+  photoGridContent: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  photoThumbnailContainer: {
+    position: 'relative',
+    width: 80,
+    height: 60,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  photoGridThumbnail: {
+    width: 80,
+    height: 60,
+    borderRadius: 8,
+  },
+  photoGridDeleteButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+  },
+  addMorePhotosButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    padding: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    gap: 6,
+  },
+  addMorePhotosText: {
+    fontSize: 14,
+    color: '#666666',
   },
 });

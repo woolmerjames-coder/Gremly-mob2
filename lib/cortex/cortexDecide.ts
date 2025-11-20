@@ -522,15 +522,32 @@ export async function cortexDecide(
       ideaHeuristicTriggered &&
       !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
 
-    const forceListAsk = listHeuristicApplied;
+    // Strong list patterns (score >= 0.7) should auto-create as logs without chips
+    // Weak list patterns (0.5-0.7) should show chips for confirmation
+    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.7;
+    const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
-    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.5;
+
+    // For strong lists, override candidate actions to create.note with list subtype
+    let effectiveCandidateActions = candidateActions;
+    if (listStrong) {
+      effectiveCandidateActions = [
+        {
+          type: 'create.note' as const,
+          payload: {
+            text: userText,
+            subtype: 'list' as const,
+            spaceId: null,
+          },
+        },
+      ];
+    }
 
     const shouldAuto =
       !forceListAsk &&
       !forceIdeaAsk &&
-      candidateActions.length > 0 &&
-      (confidence > autoThreshold || preferHabitAuto);
+      effectiveCandidateActions.length > 0 &&
+      (confidence > autoThreshold || preferHabitAuto || listStrong); // Auto for strong lists
 
     let mode: DecisionMode = 'keep';
 
@@ -550,18 +567,18 @@ export async function cortexDecide(
       normalizedCtx.uiSurface === 'overlay' &&
       hasConfidence &&
       confidence <= autoThreshold &&
-      candidateActions.some((action) => action.type === 'add.to.list');
+      effectiveCandidateActions.some((action) => action.type === 'add.to.list');
 
     const autoTodoWithStrongList =
       mode === 'auto' &&
       listStrong &&
-      candidateActions.some((action) => action.type === 'create.todo');
+      effectiveCandidateActions.some((action) => action.type === 'create.todo');
 
     if (mode === 'auto' && (listActionLowRisk || autoTodoWithStrongList)) {
       mode = 'ask';
     }
 
-    if (candidateActions.length === 0) {
+    if (effectiveCandidateActions.length === 0) {
       mode = 'ask';
     }
 
@@ -610,7 +627,7 @@ export async function cortexDecide(
       suggestions =
         chipSuggestions.length > 0
           ? chipSuggestions
-          : generateSuggestions(candidateActions, normalizedCtx);
+          : generateSuggestions(effectiveCandidateActions, normalizedCtx);
     }
 
     const suggestionLabels =
@@ -621,15 +638,15 @@ export async function cortexDecide(
         : undefined;
 
     const shouldUseExploreFallback =
-      (engineFailed || !engineOutput) && candidateActions.length === 0;
+      (engineFailed || !engineOutput) && effectiveCandidateActions.length === 0;
 
     const explanation = shouldUseExploreFallback
       ? "Let's explore that a bit more."
       : mode === 'ask'
         ? explainAmbiguous(tone, suggestionLabels)
-        : generateExplanation(candidateActions, mode, tone, normalizedCtx);
+        : generateExplanation(effectiveCandidateActions, mode, tone, normalizedCtx);
 
-    const candidateCanonical = canonicalFromAction(candidateActions[0]);
+    const candidateCanonical = canonicalFromAction(effectiveCandidateActions[0]);
     const canonicalHint = listHeuristicApplied
       ? {
           canonicalType: 'log' as CanonicalType,
@@ -686,7 +703,7 @@ export async function cortexDecide(
 
     const result: CortexResponse = {
       ...safeResult,
-      actions: mode === 'auto' ? candidateActions : [],
+      actions: mode === 'auto' ? effectiveCandidateActions : [],
       explanation,
       suggestions,
       confidence,
@@ -698,7 +715,7 @@ export async function cortexDecide(
         showedChip:
           (chipSuggestions.length > 0 || inMidConfidenceBand) &&
           suggestions.some((suggestion) => typeof suggestion !== 'string'),
-        candidateActions,
+        candidateActions: effectiveCandidateActions,
         canonicalType: effectiveCanonicalType,
         canonicalSubtype: effectiveCanonicalSubtype,
         listHeuristicTriggered: listHeuristicApplied,

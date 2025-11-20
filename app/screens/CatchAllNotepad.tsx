@@ -78,6 +78,7 @@ import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
+import { Lock } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -1201,9 +1202,14 @@ const RecentDrops: React.FC<{
                   >
                     {/* Top row: Title (left) + Due/Time (right) */}
                     <View style={styles.recentTopRow}>
-                      <Text numberOfLines={1} style={styles.recentTitle}>
-                        {item.title || item.text || '—'}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                        <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
+                          {item.title || item.text || '—'}
+                        </Text>
+                        {effectiveKind === 'note' && (item as any)?.private === true && (
+                          <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
+                        )}
+                      </View>
 
                       {/* Right side: Due date OR time ago */}
                       {effectiveKind === 'todo' && item.due_date ? (
