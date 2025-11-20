@@ -2384,11 +2384,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // For plain, use null (no subtype)
     const subtype2 = effectiveLogSubtype === 'plain' ? null : effectiveLogSubtype;
 
+    // Preserve AI-generated title when editing existing entities
+    // Only use fallback (firstLine) for new entities or when user explicitly cleared title
+    const preserveExistingTitle = mode === 'edit' && initialEntity && (initialEntity as any)?.title;
+    const derivedTitle =
+      s.log.title ||
+      (preserveExistingTitle ? (initialEntity as any).title : firstLine(s.log.body)) ||
+      'Untitled note';
+
     // base note payload (for non-Mind Drop logs or manual log creation)
     const base = {
       type: 'note' as const,
       subtype: subtype2, // Use detected subtype (list/journal/idea) or null for plain
-      title: s.log.title || firstLine(s.log.body) || 'Untitled note',
+      title: derivedTitle,
       body: s.log.body,
       space_id: s.spaceId ?? spaceId ?? null,
       origin: 'catchall' as const,
@@ -3031,34 +3039,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               {/* Main text field - moved above tags */}
               <Box px={4} mt={3}>
                 <View style={{ position: 'relative' }}>
-                  <TextInput
-                    ref={textInputRef}
-                    value={currentText}
-                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                    accessibilityLabel="Overlay content input"
-                    onFocus={() => setBodyFocused(true)}
-                    onBlur={() => setBodyFocused(false)}
-                    placeholder="Add notes..."
-                    placeholderTextColor={lightTokens.colors.subtle}
-                    multiline
-                    scrollEnabled={false}
-                    autoFocus
-                    textAlignVertical="top"
-                    style={[
-                      styles.textArea,
-                      {
-                        color: lightTokens.colors.text,
-                        backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                        borderWidth: 1,
-                        borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                        shadowColor: '#000',
-                        shadowOpacity: 0.03,
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowRadius: 2,
-                        paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                      },
-                    ]}
-                  />
+                  {/* Conditional rendering: ChecklistInput for lists, TextInput otherwise */}
+                  {effectiveLogSubtype === 'list' ? (
+                    <ChecklistInput
+                      text={currentText}
+                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                      colorMode={colorMode}
+                      onFocus={() => setBodyFocused(true)}
+                      onBlur={() => setBodyFocused(false)}
+                      hasCamera={isLog}
+                    />
+                  ) : (
+                    <TextInput
+                      ref={textInputRef}
+                      value={currentText}
+                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                      accessibilityLabel="Overlay content input"
+                      onFocus={() => setBodyFocused(true)}
+                      onBlur={() => setBodyFocused(false)}
+                      placeholder="Add notes..."
+                      placeholderTextColor={lightTokens.colors.subtle}
+                      multiline
+                      scrollEnabled={false}
+                      autoFocus
+                      textAlignVertical="top"
+                      style={[
+                        styles.textArea,
+                        {
+                          color: lightTokens.colors.text,
+                          backgroundColor:
+                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                          borderWidth: 1,
+                          borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                          shadowColor: '#000',
+                          shadowOpacity: 0.03,
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowRadius: 2,
+                          paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                        },
+                      ]}
+                    />
+                  )}
                   {/* Camera button inside text area for logs only */}
                   {isLog && (
                     <Pressable
@@ -3776,30 +3797,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       ) : null}
                     </Box>
                   </Reanimated.View>
-                ) : null}
-
-                {/* List checkboxes */}
-                {state.tags.includes('list') && state.list ? (
-                  <Box mt={3}>
-                    {(state.list.items || []).map((it) => (
-                      <Box
-                        key={it.id}
-                        row
-                        gap={2}
-                        style={{ alignItems: 'center', marginBottom: tokenSpacing.sm }}
-                      >
-                        <Button
-                          size="sm"
-                          variant={it.checked ? 'primary' : 'neutral'}
-                          onPress={() =>
-                            dispatch({ type: 'TOGGLE_LIST_ITEM', id: it.id, checked: !it.checked })
-                          }
-                          title={it.checked ? '✓' : '○'}
-                        />
-                        <Text>{it.text}</Text>
-                      </Box>
-                    ))}
-                  </Box>
                 ) : null}
 
                 {/* Mentions / Dates chips (inline suggestions) */}
@@ -5442,6 +5439,175 @@ function MoodPill({
         accessibilityLabel={`Mood ${label}`}
       />
     </Box>
+  );
+}
+
+/**
+ * ChecklistInput - Interactive checkbox list for list-type logs
+ * Replaces plain TextInput when effectiveLogSubtype === 'list'
+ */
+type ChecklistItem = {
+  id: string;
+  text: string;
+  checked: boolean;
+};
+
+function ChecklistInput({
+  text,
+  onChangeText,
+  colorMode,
+  onFocus,
+  onBlur,
+  hasCamera = false,
+}: {
+  text: string;
+  onChangeText: (text: string) => void;
+  colorMode: 'light' | 'dark' | null | undefined;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  hasCamera?: boolean;
+}) {
+  const isDark = colorMode === 'dark';
+
+  // Parse text into checklist items
+  const items = useMemo(() => {
+    const parsed: ChecklistItem[] = [];
+
+    // Try inline format first: "- eggs - milk - cereal"
+    if (text.includes(' - ')) {
+      const parts = text.split(' - ').filter((part) => part.trim().length > 0);
+      if (parts.length >= 2) {
+        return parts.map((part, idx) => ({
+          id: `item-${idx}`,
+          text: part.trim().replace(/^-\s*/, ''), // Remove leading dash if present
+          checked: false,
+        }));
+      }
+    }
+
+    // Try newline format: "- eggs\n- milk\n- cereal"
+    const lines = text.split('\n').filter((line) => line.trim().length > 0);
+    if (lines.length >= 2) {
+      lines.forEach((line, idx) => {
+        const trimmed = line.trim();
+        // Check for checkbox format: [ ] or [x]
+        const checkboxMatch = trimmed.match(/^\[([ xX])\]\s*(.+)$/);
+        if (checkboxMatch) {
+          parsed.push({
+            id: `item-${idx}`,
+            text: checkboxMatch[2],
+            checked: checkboxMatch[1].toLowerCase() === 'x',
+          });
+        }
+        // Check for dash format: - item
+        else if (trimmed.startsWith('- ')) {
+          parsed.push({
+            id: `item-${idx}`,
+            text: trimmed.substring(2),
+            checked: false,
+          });
+        }
+        // Check for bullet format: • item
+        else if (trimmed.startsWith('• ')) {
+          parsed.push({
+            id: `item-${idx}`,
+            text: trimmed.substring(2),
+            checked: false,
+          });
+        }
+      });
+    }
+
+    return parsed.length > 0 ? parsed : [{ id: 'item-0', text: text, checked: false }];
+  }, [text]);
+
+  const handleToggle = useCallback(
+    (itemId: string) => {
+      const itemIndex = parseInt(itemId.split('-')[1], 10);
+      const newItems = [...items];
+      newItems[itemIndex] = { ...newItems[itemIndex], checked: !newItems[itemIndex].checked };
+
+      // Reconstruct text in checkbox format
+      const newText = newItems
+        .map((item) => `[${item.checked ? 'x' : ' '}] ${item.text}`)
+        .join('\n');
+
+      onChangeText(newText);
+    },
+    [items, onChangeText],
+  );
+
+  return (
+    <View
+      style={{
+        backgroundColor: isDark ? darkTokens.colors.deep : '#FAFAFA',
+        borderWidth: 1,
+        borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+        borderRadius: tokenRadius.md,
+        padding: 16,
+        paddingRight: hasCamera ? 56 : 16,
+        minHeight: 120,
+        shadowColor: '#000',
+        shadowOpacity: 0.03,
+        shadowOffset: { width: 0, height: 1 },
+        shadowRadius: 2,
+      }}
+      onTouchStart={() => onFocus?.()}
+      onTouchEnd={() => onBlur?.()}
+    >
+      {items.map((item) => (
+        <Pressable
+          key={item.id}
+          onPress={() => handleToggle(item.id)}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginBottom: 12,
+            opacity: pressed ? 0.7 : 1,
+          })}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: item.checked }}
+          accessibilityLabel={item.text}
+        >
+          {/* Checkbox */}
+          <View
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              borderWidth: 2,
+              borderColor: item.checked ? '#7C9885' : isDark ? 'rgba(255,255,255,0.3)' : '#CCCCCC',
+              backgroundColor: item.checked ? '#7C9885' : 'transparent',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}
+          >
+            {item.checked && (
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>✓</Text>
+            )}
+          </View>
+
+          {/* Item text */}
+          <Text
+            style={{
+              flex: 1,
+              fontSize: 16,
+              color: item.checked
+                ? isDark
+                  ? 'rgba(255,255,255,0.5)'
+                  : '#999999'
+                : isDark
+                  ? darkTokens.colors.text
+                  : lightTokens.colors.text,
+              textDecorationLine: item.checked ? 'line-through' : 'none',
+            }}
+          >
+            {item.text}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
