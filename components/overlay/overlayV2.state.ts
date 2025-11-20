@@ -211,8 +211,16 @@ export function v2Reducer(state: V2State, action: Action): V2State {
 
       // For todos: SET_TEXT only updates details, NOT title
       // Title is only updated via SET_TITLE/SET_COMPACT_TITLE or HYDRATE_EDIT
-      // For logs/habits: syncCompactTitle derives title from body/notes
-      if (state.baseType !== 'todo') {
+      // For logs/habits: syncCompactTitle derives title from body/notes ONLY if no title exists yet
+      // Once a title is set (via AI, hydration, or manual edit), preserve it
+      const hasExistingTitle =
+        state.baseType === 'log'
+          ? state.log.title.trim().length > 0
+          : state.baseType === 'habit'
+            ? state.habit.title.trim().length > 0
+            : false;
+
+      if (state.baseType !== 'todo' && !hasExistingTitle) {
         next = syncCompactTitle(next, [text]);
       }
 
