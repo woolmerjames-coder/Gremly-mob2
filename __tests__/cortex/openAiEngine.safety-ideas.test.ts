@@ -22,7 +22,13 @@ describe('OpenAiEngine safety overrides for ideas/brainstorm/list inputs', () =>
     callClassify.mockResolvedValueOnce({
       ok: true,
       id: 'c1',
-      classification: { category: 'To-Do', tags: [], spaceName: null, confidence: 0.88 },
+      classification: {
+        category: 'To-Do',
+        tags: [],
+        spaceName: null,
+        confidence: 0.88,
+        title: null,
+      },
     });
 
     const res = await engine.classify({ text: 'Ideas for weekend trip', spaceId: null });

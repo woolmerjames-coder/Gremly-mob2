@@ -238,17 +238,17 @@ describe('Overlay Mind Drop Updates', () => {
     it('should return same structure for same Mind Drop text across all types', async () => {
       const rawText = 'Test Mind Drop sentence';
 
-      const todoCanonical = buildCanonicalFromMindDrop({
+      const todoCanonical = await buildCanonicalFromMindDrop({
         kind: 'todo',
         rawText,
       });
 
-      const habitCanonical = buildCanonicalFromMindDrop({
+      const habitCanonical = await buildCanonicalFromMindDrop({
         kind: 'habit',
         rawText,
       });
 
-      const logCanonical = buildCanonicalFromMindDrop({
+      const logCanonical = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText,
       });

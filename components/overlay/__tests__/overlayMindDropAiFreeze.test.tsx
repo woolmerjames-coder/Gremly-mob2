@@ -224,7 +224,7 @@ describe('Mind Drop AI Freeze - Phase 1', () => {
         origin: 'catchall',
         drop_id: 'drop-456',
       };
-      const mode: 'edit' | 'create' = 'create';
+      const mode = 'create' as 'edit' | 'create';
 
       const isMindDrop = !!entity.drop_id;
       const aiPlaced = !!entity.ai_placed;
@@ -234,8 +234,9 @@ describe('Mind Drop AI Freeze - Phase 1', () => {
 
       const isFromMindDrop = entity.ai_placed === true && entity.origin === 'catchall';
       // shouldRunMindDropPrefill requires mode === 'edit', so create mode always returns false
+      const modeIsEdit = mode === 'edit';
       const shouldRunMindDropPrefill =
-        mode === 'edit' && !isLocked && isFromMindDrop && !alreadyPrefilled;
+        modeIsEdit && !isLocked && isFromMindDrop && !alreadyPrefilled;
 
       expect(isFromMindDrop).toBe(true);
       expect(shouldRunMindDropPrefill).toBe(false); // mode is 'create'

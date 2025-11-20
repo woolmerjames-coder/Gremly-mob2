@@ -26,6 +26,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
         ai_placed: true,
         origin: 'catchall',
         drop_id: 'test-drop-id',
+        views: undefined,
         // views.minddrop_prefilled_v1 not set (undefined)
       };
 
@@ -47,6 +48,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
         ai_placed: true,
         origin: 'catchall',
         drop_id: 'test-drop-id',
+        views: undefined,
       };
 
       expect(habit.title).toBe(rawText);
@@ -67,6 +69,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
         origin: 'catchall',
         drop_id: 'test-drop-id',
         subtype: 'journal',
+        views: undefined,
       };
 
       expect(log.title).toBe(rawText);
@@ -97,7 +100,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
 
   describe('Rule 2: First overlay open triggers one-time prefill', () => {
     it('should detect item needs prefill (shouldRunMindDropPrefill = true)', () => {
-      const entity = {
+      const entity: any = {
         id: 'todo-123',
         type: 'todo',
         title: 'Book doctor appointment tomorrow at 2pm',
@@ -106,6 +109,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
         ai_placed: true,
         origin: 'catchall',
         drop_id: 'drop-456',
+        views: undefined,
         // views.minddrop_prefilled_v1 NOT set
       };
 
@@ -212,7 +216,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
       const shouldMarkPrefilled =
         isMindDropPrefillNeeded && (aiTagOverrideApplied || pendingTitleResummarize);
 
-      const viewsWithPrefillFlag = shouldMarkPrefilled
+      const viewsWithPrefillFlag: any = shouldMarkPrefilled
         ? { ...entity.views, minddrop_prefilled_v1: true }
         : entity.views;
 
@@ -228,7 +232,7 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
       const shouldRunMindDropPrefill = false; // Already prefilled
       const shouldMarkPrefilled = shouldRunMindDropPrefill;
 
-      const viewsWithPrefillFlag = shouldMarkPrefilled
+      const viewsWithPrefillFlag: any = shouldMarkPrefilled
         ? { ...entity.views, minddrop_prefilled_v1: true }
         : entity.views;
 
@@ -433,11 +437,12 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
         body: 'Old todo from before this feature',
         ai_placed: true,
         origin: 'catchall',
+        views: undefined,
         // No views field
       };
 
       // Should detect needs prefill
-      const alreadyPrefilled = legacyEntity.views?.minddrop_prefilled_v1 === true;
+      const alreadyPrefilled = (legacyEntity as any).views?.minddrop_prefilled_v1 === true;
       const shouldRunMindDropPrefill = !alreadyPrefilled;
 
       expect(alreadyPrefilled).toBe(false);
@@ -504,12 +509,12 @@ describe('Mind Drop Prefill Ownership - Single Source of Truth', () => {
   describe('Integration: Complete Flow', () => {
     it('should follow complete flow: create → first open → second open → re-summarize', () => {
       // Step 1: Mind Drop creation (CatchAllNotepad)
-      const entity = {
+      const entity: any = {
         id: 'todo-123',
         type: 'todo',
         title: 'Book doctor appointment tomorrow at 2pm',
         body: 'Book doctor appointment tomorrow at 2pm',
-        tags: [], // No AI tags
+        tags: [] as string[], // No AI tags
         ai_placed: true,
         origin: 'catchall',
         drop_id: 'drop-456',

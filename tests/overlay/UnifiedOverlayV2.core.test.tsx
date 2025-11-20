@@ -26,7 +26,7 @@ const mockUseOverlayPrefill = useOverlayPrefill as jest.MockedFunction<typeof us
 const baseProps: any = { visible: true, onClose: jest.fn(), mode: 'create' };
 
 let currentSuggestedTags: Array<{ name: string; lowConfidence?: boolean }> = [];
-const refreshPrefillMock = jest.fn(async () => undefined);
+const refreshPrefillMock = jest.fn(async () => null);
 
 const setSuggestedTags = (tags: Array<{ name: string; lowConfidence?: boolean }>) => {
   currentSuggestedTags = Array.isArray(tags) ? tags : [];
@@ -36,12 +36,14 @@ beforeEach(() => {
   mockCreate.mockClear();
   mockUpdate.mockClear();
   refreshPrefillMock.mockClear();
-  refreshPrefillMock.mockResolvedValue(undefined);
+  refreshPrefillMock.mockResolvedValue(null);
   currentSuggestedTags = [];
   mockUseOverlayPrefill.mockReset();
   mockUseOverlayPrefill.mockImplementation(() => ({
+    shouldRunMindDropPrefill: false,
     suggestedTitle: null,
     suggestedTags: currentSuggestedTags,
+    aiTags: [],
     loading: false,
     error: null,
     refresh: refreshPrefillMock,

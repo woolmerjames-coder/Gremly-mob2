@@ -125,6 +125,7 @@ type Action =
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
   | { type: 'TOGGLE_TAG'; tag: TagKey }
+  | { type: 'ADD_TAG'; tag: TagKey }
   | { type: 'SET_MOOD'; mood: MoodValue | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
   | { type: 'TOGGLE_LIST_ITEM'; id: string; checked: boolean }
@@ -184,6 +185,14 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       const nextTags = hasTag
         ? state.tags.filter((t) => t !== action.tag)
         : [...state.tags, action.tag];
+      const { list, mood } = deriveTagSideEffects(state, nextTags);
+      return { ...state, tags: nextTags, list, mood };
+    }
+    case 'ADD_TAG': {
+      // Add tag if not already present
+      const hasTag = state.tags.includes(action.tag);
+      if (hasTag) return state;
+      const nextTags = [...state.tags, action.tag];
       const { list, mood } = deriveTagSideEffects(state, nextTags);
       return { ...state, tags: nextTags, list, mood };
     }

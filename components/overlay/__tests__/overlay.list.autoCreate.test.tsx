@@ -9,7 +9,7 @@
  * 5. No timestamp/mood UI for list logs
  */
 
-import { v2Reducer, initialV2State } from '../overlayV2.state';
+import { v2Reducer, initialV2State, type V2State } from '../overlayV2.state';
 
 describe('List Auto-Creation and AI Enhancement', () => {
   describe('List detection and subtype', () => {
@@ -183,7 +183,7 @@ describe('List Auto-Creation and AI Enhancement', () => {
   describe('Integration: Complete list flow', () => {
     it('should handle complete list creation and editing flow', () => {
       // Step 1: Initial state with list body
-      let state = {
+      let state: V2State = {
         ...initialV2State,
         baseType: 'log' as const,
         log: {

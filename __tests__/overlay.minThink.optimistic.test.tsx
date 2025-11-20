@@ -160,6 +160,7 @@ describe('UnifiedCreateOverlay - Optimistic Thinking UX', () => {
                     tags: [],
                     spaceName: null,
                     confidence: 0.9,
+                    title: null,
                   },
                 }),
               100,
