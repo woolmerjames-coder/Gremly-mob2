@@ -2203,6 +2203,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           suggestions: Array.isArray(decision.suggestions) ? decision.suggestions.length : 0,
         });
 
+        // Development-only logging for Mind Drop AI classification
+        if (__DEV__ && decision.mindDropDecision) {
+          const trimmedText =
+            cleanedText.length > 120 ? cleanedText.slice(0, 120) + '…' : cleanedText;
+          console.log(
+            `[MindDrop AI] type=${decision.mindDropDecision.probableKind} ai_confidence=${decision.mindDropDecision.aiConfidence ?? 'null'} text="${trimmedText}"`,
+          );
+        }
+
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
         if (classifyNarrative(cleanedText)) {
           // Check if we already have an unsorted note for this drop_id

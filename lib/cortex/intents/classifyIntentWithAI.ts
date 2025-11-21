@@ -180,13 +180,23 @@ export async function classifyIntentWithAI(
     const aiConfidence = parseConfidence(parsed.confidence);
 
     // Build result with AI classification
-    return {
+    const detectedIntent: DetectedIntent = {
       ...fallback,
       kind: aiType,
       confidence: aiConfidence ? aiConfidence / 100 : fallback.confidence, // Normalize to 0-1
       aiConfidence, // Keep raw 0-100 score
       title: text,
     };
+
+    // Development-only logging for Mind Drop AI classification
+    if (__DEV__) {
+      const trimmedText = text.length > 120 ? text.slice(0, 120) + '…' : text;
+      console.log(
+        `[MindDrop AI] type=${aiType} ai_confidence=${aiConfidence ?? 'null'} text="${trimmedText}"`,
+      );
+    }
+
+    return detectedIntent;
   } catch (error) {
     // Catch-all error handler
     if (__DEV__) {
