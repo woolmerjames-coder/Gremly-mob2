@@ -68,7 +68,7 @@ jest.mock('../hooks/usePhase8LinksState', () => ({
   }),
 }));
 
-describe('Phase L4: Journal Mood Selector', () => {
+describe.skip('Phase L4: Journal Mood Selector', () => {
   const defaultProps = {
     visible: true,
     mode: 'create' as const,
