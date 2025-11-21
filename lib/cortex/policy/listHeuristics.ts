@@ -13,6 +13,26 @@ export function analyzeListShape(text: string): ListHeuristic {
     return { looksLikeList: false, score: 0, lines: 0, matches: 0, reasons };
   }
 
+  // First, check for inline list pattern: "- eggs - milk - cereal"
+  // This catches single-line lists with multiple dash-separated items
+  const inlineListPattern = /(?:^|\s)-\s+\w+(?:\s+-\s+\w+)+/;
+  if (inlineListPattern.test(text)) {
+    // Count how many dash-separated items there are
+    const dashItems = text.split(/\s+-\s+/).filter((item) => item.trim().length > 0);
+    if (dashItems.length >= 2) {
+      reasons.push('inline-list-pattern');
+      const score = Math.min(1.0, 0.7 + (dashItems.length - 2) * 0.1); // 0.7+ based on item count
+      return {
+        looksLikeList: true,
+        score,
+        lines: 1,
+        matches: dashItems.length,
+        reasons,
+      };
+    }
+  }
+
+  // Existing line-based detection
   const rawLines = text.split(/\r?\n/);
   const lines = rawLines.map((line) => line.trim()).filter(Boolean);
   const n = lines.length;

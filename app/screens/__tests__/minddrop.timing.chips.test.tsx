@@ -92,6 +92,20 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
   }),
 }));
 
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
+  };
+});
+
 let CatchAllNotepad: React.ComponentType;
 
 beforeAll(() => {
@@ -167,6 +181,25 @@ describe('Mind Drop Timing Chips', () => {
     resetRepo();
     resetOtherMocks();
     setFixedDate(new RealDate(2025, 10, 8, 8, 0, 0));
+
+    // Setup conversion helper mocks for Phase 4A auto mode
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('record-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || note?.title || 'Untitled',
+        body: note?.body || note?.title,
+        due_date: options?.due || null,
+        undefined_due: !options?.due,
+        labels: ['todo'],
+        tags: note?.tags || [],
+      };
+      const savedTodo = await repo.create(createdTodo);
+      await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+      return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
   });
 
   afterEach(() => {
@@ -250,8 +283,9 @@ describe('Mind Drop Timing Chips', () => {
     fireEvent.changeText(input, 'Call dentist');
     fireEvent.press(submitButton);
 
+    // Phase 4A: Wait for provisional note + conversion
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalled();
+      expect(mockRepo.create).toHaveBeenCalledTimes(2); // note + todo
     });
 
     const todayChip = await findByTestId('minddrop-timing-today', {}, { timeout: 3000 });
@@ -259,21 +293,18 @@ describe('Mind Drop Timing Chips', () => {
     fireEvent.press(todayChip);
 
     await waitFor(() => {
-      expect(mockRepo.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'todo-456',
-          patch: expect.objectContaining({
-            due_date: expect.any(String), // ISO date string
-            undefined_due: false,
-          }),
-        }),
-      );
-
-      const updateCall = mockRepo.update.mock.calls[0][0];
-      const dueDate = new Date(updateCall.patch.due_date);
-      expect(dueDate.getHours()).toBe(17);
-      expect(dueDate.getMinutes()).toBe(0);
+      // Expect 2 updates: 1 for archiving note, 1 for setting todo due date
+      expect(mockRepo.update).toHaveBeenCalledTimes(2);
     });
+
+    // The second update call is the timing chip selection
+    const updateCall = mockRepo.update.mock.calls[1][0];
+    expect(updateCall.patch.due_date).toBeDefined();
+    expect(updateCall.patch.undefined_due).toBe(false);
+
+    const dueDate = new Date(updateCall.patch.due_date);
+    expect(dueDate.getHours()).toBe(17);
+    expect(dueDate.getMinutes()).toBe(0);
   });
 
   it('shows context-aware timing options based on time of day', async () => {

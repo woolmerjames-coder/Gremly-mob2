@@ -35,6 +35,7 @@ interface CreateOptions {
     logSubtype?: LogSubtype | null;
   };
   initialText?: string | null;
+  suppressOverlayOpen?: boolean;
 }
 
 interface EditOptions {
@@ -117,6 +118,7 @@ export function useUnifiedOverlayController() {
           conversionMeta: opts.conversionMeta,
           initialEntity: opts.initialEntity,
           initialText: opts.initialText ?? null,
+          suppressOverlayOpen: opts.suppressOverlayOpen,
         });
       } else {
         const { record, spaceId } = request.options;
@@ -160,6 +162,9 @@ export function useUnifiedOverlayController() {
 
   const openCreate = useCallback(
     (options: CreateOptions = {}) => {
+      if (options.suppressOverlayOpen) {
+        return;
+      }
       enqueueOpen({ mode: 'create', options });
     },
     [enqueueOpen],

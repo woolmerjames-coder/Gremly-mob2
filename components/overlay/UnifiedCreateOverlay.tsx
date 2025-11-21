@@ -62,6 +62,7 @@ import {
   recordRemovedTags,
   deriveLogSubtypeFromTags,
 } from '../../lib/tags/normalize';
+import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
 import { callClassify, type CallClassifyResult } from '../../lib/cortex/CortexClient';
 import { parseDue } from '../../lib/cortex/entities/datetime';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -170,6 +171,7 @@ export type UnifiedCreateOverlayProps = {
     initialDueDate?: string | null;
   };
   initialText?: string | null;
+  initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
   onCommitmentsChanged?: () => void | Promise<void>;
@@ -2150,7 +2152,16 @@ export function UnifiedCreateOverlay({
           const createdPerson = await repo.createPerson(personInput);
 
           try {
-            await repo.remove(initialEntity.id);
+            // Phase 1A: Use deleteEntityOrDrop to handle drop_id cleanup
+            // Fetch the full entity to get drop_id
+            const fullEntity = await repo.getById(initialEntity.id);
+            const entityType = (fullEntity?.type || 'note') as 'todo' | 'habit' | 'note' | 'log';
+            await deleteEntityOrDrop(
+              repo,
+              initialEntity.id,
+              entityType,
+              (fullEntity as any)?.drop_id,
+            );
           } catch (removeError) {
             console.warn(
               '[UnifiedCreateOverlay] Failed to remove original during conversion to person:',
@@ -2225,7 +2236,15 @@ export function UnifiedCreateOverlay({
           }
 
           try {
-            await repo.remove(initialEntity.id);
+            // Phase 1A: Use deleteEntityOrDrop to handle drop_id cleanup
+            // We already have 'existing' loaded above with the full entity data
+            const entityType = (existing.type || 'note') as 'todo' | 'habit' | 'note' | 'log';
+            await deleteEntityOrDrop(
+              repo,
+              initialEntity.id,
+              entityType,
+              (existing as any)?.drop_id,
+            );
           } catch (removeError) {
             console.warn(
               '[UnifiedCreateOverlay] Failed to remove original during conversion:',

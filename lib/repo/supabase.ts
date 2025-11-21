@@ -218,6 +218,8 @@ function mapHabitFromDb(dbRecord: any): any {
     triggers: dbRecord.triggers_json,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
+    drop_id: dbRecord.drop_id ?? null,
+    views: dbRecord.views ?? {}, // Round-trip views JSONB column
   };
 }
 
@@ -239,6 +241,8 @@ function mapTodoFromDb(dbRecord: any): any {
     reminders: dbRecord.reminders_json,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
+    drop_id: dbRecord.drop_id ?? null,
+    views: dbRecord.views ?? {}, // Round-trip views JSONB column
   };
 }
 
@@ -254,6 +258,8 @@ function mapNoteFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
+    drop_id: dbRecord.drop_id ?? null,
+    views: dbRecord.views ?? {}, // Round-trip views JSONB column
   };
 }
 
@@ -327,6 +333,15 @@ export class SupabaseRepo implements IRepo {
       const habitName = input.name ?? input.title ?? 'Untitled';
       const habitTitle = input.title ?? habitName;
 
+      // Map details → notes for habits (full Mind Drop sentence persistence)
+      let notesText: string | null = null;
+      if (typeof (input as any).details === 'string') {
+        const trimmed = (input as any).details.trim();
+        if (trimmed.length > 0) {
+          notesText = trimmed;
+        }
+      }
+
       // Build minimal payload with Insert schema validation
       // Map TypeScript fields to database columns (frequency_json, reminders_json, etc.)
       payload = habitInsertSchema.parse(
@@ -341,12 +356,13 @@ export class SupabaseRepo implements IRepo {
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
           // Extended habit fields - map to jsonb columns
           frequency_json: input.frequency_value ?? undefined,
           reminders_json: input.reminders ?? undefined,
-          notes: input.notes ?? null,
+          notes: notesText ?? input.notes ?? null, // 🔴 Prefer details, fallback to notes
           tags: input.tags ?? null,
           tags_meta: tagsMeta,
           buddy_id: input.buddy_id ?? null,
@@ -368,15 +384,21 @@ export class SupabaseRepo implements IRepo {
         console.log('[SupabaseRepo.create] habit payload:', JSON.stringify(payload, null, 2));
       }
     } else if (input.type === 'todo') {
-      // Database schema truth: todos table has 'name' column (NO 'title' column)
+      // Database schema truth: todos table has 'name' and 'title' columns
       if (!input.name) throw new Error('Todo requires name');
+
+      // Map details → body for todos (full Mind Drop sentence persistence)
+      const bodyText =
+        typeof (input as any).details === 'string' && (input as any).details.trim().length > 0
+          ? (input as any).details.trim()
+          : (input.body ?? null);
 
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
-          name: input.name, // Required - PRIMARY field for todos (NO 'title' in DB)
-          body: input.body ?? null,
+          name: input.name, // Required - PRIMARY field for todos
+          body: bodyText, // 🔴 Store full Mind Drop sentence here (mapped from details)
           due_date: normalizeIsoDatetime(input.due_date) ?? null,
           due_time: input.due_time ?? null, // Phase 7+: HH:mm format
           undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
@@ -390,10 +412,20 @@ export class SupabaseRepo implements IRepo {
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
         }),
       );
+
+      if (__DEV__) {
+        console.log('[SupabaseRepo.create] todo payload', {
+          name: input.name,
+          details: (input as any).details,
+          bodyText,
+          payloadBody: payload.body,
+        });
+      }
 
       if (__DEV__) {
         console.log('[SupabaseRepo.create] Using todoInsertSchema');
@@ -402,21 +434,28 @@ export class SupabaseRepo implements IRepo {
     } else {
       // note
       // Database schema truth: notes table has 'title' column (NO 'name' column)
-      if (!input.subtype) throw new Error('Note requires subtype');
+      // Note: subtype is optional in database schema (can be null)
       if (!input.title) throw new Error('Note requires title');
+
+      // Map details → body for notes (full Mind Drop sentence persistence)
+      const noteBody =
+        typeof (input as any).details === 'string' && (input as any).details.trim().length > 0
+          ? (input as any).details.trim()
+          : (input.body ?? null);
 
       // Build minimal payload with Insert schema validation
       payload = noteInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
           title: input.title, // Required - PRIMARY field for notes (NO 'name' in DB)
-          body: input.body ?? null,
+          body: noteBody, // 🔴 Store full Mind Drop sentence here (mapped from details)
           subtype: input.subtype,
           ai_placed: input.ai_placed ?? false,
           why_string: input.why_string ?? null,
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
           // Journal-specific fields (from generated schema - notes table has these)
@@ -473,6 +512,60 @@ export class SupabaseRepo implements IRepo {
       .single();
 
     if (error) {
+      // Defensive handling: If we hit duplicate key error on notes_owner_drop_id_active_unique,
+      // treat as "already exists" and fetch the existing note instead of throwing.
+      // This provides a safety net for race conditions between concurrent Mind Drop submissions.
+      const isDuplicateNoteError =
+        input.type === 'note' &&
+        error?.code === '23505' &&
+        error?.message?.includes('notes_owner_drop_id_active_unique');
+
+      if (isDuplicateNoteError && input.dropId) {
+        // Log warning instead of error - this is expected defensive behavior
+        console.warn(
+          `[SupabaseRepo.create] Duplicate note detected for drop_id=${input.dropId}, fetching existing note`,
+          {
+            code: error.code,
+            constraint: 'notes_owner_drop_id_active_unique',
+            userId: this.currentUserId,
+          },
+        );
+
+        // Fetch the existing active note by drop_id + owner_id
+        const { data: existingNote, error: fetchError } = await supabase
+          .from('notes')
+          .select('*')
+          .eq('drop_id', input.dropId)
+          .eq('owner_id', this.currentUserId)
+          .eq('archived', false)
+          .single();
+
+        if (fetchError || !existingNote) {
+          // If we can't fetch the existing note, fall back to original error
+          logSupabaseError(
+            `${input.type}.insert.duplicate.fetch_failed`,
+            fetchError ?? error,
+            payloadWithOwnerId,
+            this.currentUserId ?? undefined,
+          );
+          const friendlyMsg = getUserFriendlyErrorMessage(error);
+          throw new Error(`Failed to create ${input.type}: ${friendlyMsg}`);
+        }
+
+        // Successfully fetched existing note - return it as if create succeeded
+        if (__DEV__) {
+          console.log(
+            `[SupabaseRepo.create] Returning existing note id=${existingNote.id} for drop_id=${input.dropId}`,
+          );
+        }
+
+        const record = { ...existingNote, type: 'note' as const };
+        const parsedRecord = noteZ.parse(mapNoteFromDb(record));
+        eventBus.emit('ItemSaved', { id: parsedRecord.id });
+        return parsedRecord;
+      }
+
+      // All other errors: log and throw as before
       logSupabaseError(
         `${input.type}.insert`,
         error,
@@ -523,12 +616,55 @@ export class SupabaseRepo implements IRepo {
     });
   }
 
+  /**
+   * Phase 1: Create unsorted Mind Drop note before AI classification.
+   * Always creates a note with catchall subtype and ai_pending flag.
+   */
+  async createUnsortedDrop(
+    text: string,
+    opts?: {
+      spaceId?: ID | null;
+      dropId?: string | null;
+      sourceMessageId?: string | null;
+    },
+  ): Promise<Note> {
+    const trimmedText = text.trim();
+    const firstLine = trimmedText.split('\n')[0] || 'Untitled';
+
+    const record = await this.create({
+      type: 'note',
+      subtype: 'catchall',
+      title: firstLine,
+      body: trimmedText,
+      labels: ['catchall', 'needs_review'],
+      origin: 'catchall',
+      ai_placed: true,
+      space_id: opts?.spaceId ?? null,
+      dropId: opts?.dropId ?? null,
+      sourceMessageId: opts?.sourceMessageId ?? null,
+      views: {
+        ai_pending: true, // Will be set to false after AI classification completes
+      },
+    });
+
+    if (record.type !== 'note') {
+      throw new Error('Expected note record from createUnsortedDrop');
+    }
+
+    return record;
+  }
+
   async update({ id, patch }: UpdateRecordInput): Promise<AppRecord> {
     this.ensureUserId();
 
     // First get the record to determine its type
     const existing = await this.getById(id);
     if (!existing) throw new Error('Record not found');
+
+    // Development logging for todo updates
+    if (__DEV__ && existing.type === 'todo') {
+      console.log('[TodoUpdate] incoming patch', patch);
+    }
 
     const table = tableFor(existing.type);
 
@@ -547,9 +683,35 @@ export class SupabaseRepo implements IRepo {
     const updatePayload: Record<string, unknown> = {};
 
     if (existing.type === 'todo') {
-      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
-        updatePayload.title = normalizedPatch.title;
-      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+      // DATABASE SCHEMA: todos table has both 'name' and 'title' columns
+      // Keep both columns in sync for consistency across queries and mappers
+      // Accept both 'name' and 'title' in patch, prefer 'name' if both are present
+      const newName =
+        (typeof (normalizedPatch as any).name === 'string' &&
+        (normalizedPatch as any).name.trim().length > 0
+          ? (normalizedPatch as any).name
+          : undefined) ??
+        (typeof (normalizedPatch as any).title === 'string' &&
+        (normalizedPatch as any).title.trim().length > 0
+          ? (normalizedPatch as any).title
+          : undefined);
+
+      if (newName !== undefined) {
+        updatePayload.name = newName;
+        updatePayload.title = newName; // Keep both columns in sync
+      }
+
+      // IMPORTANT: Map details → body for todos (full Mind Drop sentence)
+      // This ensures the long text survives save/reopen cycles
+      if ('details' in normalizedPatch) {
+        const details = (normalizedPatch as any).details;
+        const trimmed = typeof details === 'string' ? details.trim() : '';
+        updatePayload.body = trimmed.length > 0 ? trimmed : null;
+      } else if ('body' in normalizedPatch) {
+        // Also support direct body updates for backwards compatibility
+        updatePayload.body = normalizedPatch.body ?? null;
+      }
+
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('due_date' in normalizedPatch) {
         const duePatch = normalizedPatch.due_date as string | null | undefined;
@@ -565,8 +727,33 @@ export class SupabaseRepo implements IRepo {
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'habit') {
-      if ('title' in normalizedPatch && normalizedPatch.title !== undefined)
-        updatePayload.title = normalizedPatch.title;
+      // DATABASE SCHEMA: habits table has both 'name' and 'title' columns
+      // Keep both columns in sync for consistency
+      const newName =
+        (typeof (normalizedPatch as any).name === 'string' &&
+        (normalizedPatch as any).name.trim().length > 0
+          ? (normalizedPatch as any).name.trim()
+          : undefined) ??
+        (typeof (normalizedPatch as any).title === 'string' &&
+        (normalizedPatch as any).title.trim().length > 0
+          ? (normalizedPatch as any).title.trim()
+          : undefined);
+
+      if (newName !== undefined) {
+        updatePayload.name = newName;
+        updatePayload.title = newName; // Keep both columns in sync
+      }
+
+      // IMPORTANT: Map details → notes for habits (full Mind Drop sentence)
+      if ('details' in normalizedPatch) {
+        const details = (normalizedPatch as any).details;
+        const trimmed = typeof details === 'string' ? details.trim() : '';
+        updatePayload.notes = trimmed.length > 0 ? trimmed : null;
+      } else if ('notes' in normalizedPatch) {
+        // Also support direct notes updates when details not present
+        updatePayload.notes = normalizedPatch.notes ?? null;
+      }
+
       if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
         updatePayload.frequency = normalizedPatch.frequency;
       if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
@@ -576,7 +763,17 @@ export class SupabaseRepo implements IRepo {
         updatePayload.why_string = normalizedPatch.why_string ?? null;
     } else if (existing.type === 'note') {
       if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
-      if ('body' in normalizedPatch) updatePayload.body = normalizedPatch.body ?? null;
+
+      // IMPORTANT: Map details → body for notes (full Mind Drop sentence)
+      if ('details' in normalizedPatch) {
+        const details = (normalizedPatch as any).details;
+        const trimmed = typeof details === 'string' ? details.trim() : '';
+        updatePayload.body = trimmed.length > 0 ? trimmed : null;
+      } else if ('body' in normalizedPatch) {
+        // Also support direct body updates when details not present
+        updatePayload.body = normalizedPatch.body ?? null;
+      }
+
       if ('subtype' in normalizedPatch && normalizedPatch.subtype !== undefined)
         updatePayload.subtype = normalizedPatch.subtype;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
@@ -594,6 +791,12 @@ export class SupabaseRepo implements IRepo {
       updatePayload.canonical_type = normalizedPatch.canonicalType ?? null;
     if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
     if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
+    if ('dropId' in normalizedPatch) updatePayload.drop_id = normalizedPatch.dropId ?? null;
+
+    // Development logging for todo updates
+    if (__DEV__ && existing.type === 'todo') {
+      console.log('[TodoUpdate] dbPayload', updatePayload);
+    }
 
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
@@ -602,6 +805,11 @@ export class SupabaseRepo implements IRepo {
       .eq('id', id)
       .select('*')
       .single();
+
+    // Development logging for todo updates
+    if (__DEV__ && existing.type === 'todo') {
+      console.log('[TodoUpdate] db result', result, error);
+    }
 
     if (error) {
       logSbError(`${existing.type}.update`, error);
@@ -723,6 +931,27 @@ export class SupabaseRepo implements IRepo {
         query = query.in('subtype', opts.subtypes);
       }
 
+      // ZOMBIE PREVENTION: Exclude archived/completed entities from all list queries
+      // This ensures deleted Mind Drops don't resurrect in Recent Drops or other UI lists
+
+      if (type === 'note') {
+        // Notes: soft delete via archived boolean flag (migration 20251116)
+        // Filter: archived = false OR archived IS NULL (for legacy rows)
+        query = query.or('archived.eq.false,archived.is.null');
+      }
+
+      if (type === 'todo') {
+        // Todos: soft delete via completed_at timestamp
+        // Filter: completed_at IS NULL (only show active todos)
+        query = query.is('completed_at', null);
+      }
+
+      if (type === 'habit') {
+        // Habits: soft delete via completed_at timestamp
+        // Filter: completed_at IS NULL (only show active habits)
+        query = query.is('completed_at', null);
+      }
+
       if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {
         query = query.contains('tags', opts.tagNames);
       }
@@ -827,17 +1056,20 @@ export class SupabaseRepo implements IRepo {
         .from('habits')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('ai_placed', true),
+        .eq('ai_placed', true)
+        .is('completed_at', null), // Exclude completed habits
       supabase
         .from('todos')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('ai_placed', true),
+        .eq('ai_placed', true)
+        .is('completed_at', null), // Exclude completed todos
       supabase
         .from('notes')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('ai_placed', true),
+        .eq('ai_placed', true)
+        .or('archived.eq.false,archived.is.null'), // Exclude archived notes
     ]);
 
     if (habitsResult.error)
@@ -889,6 +1121,7 @@ export class SupabaseRepo implements IRepo {
       .from('habits')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed habits
       .ilike('name', `%${q}%`); // Changed from 'title' to 'name' per Phase 7 spec
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
@@ -901,6 +1134,7 @@ export class SupabaseRepo implements IRepo {
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed todos
       .or(`name.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
@@ -913,6 +1147,7 @@ export class SupabaseRepo implements IRepo {
       .from('notes')
       .select('*')
       .eq('owner_id', userId)
+      .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .or(`title.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (notesError) throw new Error(`Failed to search notes: ${notesError.message}`);
@@ -939,6 +1174,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
+      .is('completed_at', null) // Exclude completed todos
       .or(`name.ilike.${q},body.ilike.${q}`);
 
     // Search notes
@@ -947,6 +1183,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
+      .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .or(`title.ilike.${q},body.ilike.${q}`);
 
     // Search habits (name/title)
@@ -955,6 +1192,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
+      .is('completed_at', null) // Exclude completed habits
       .or(`name.ilike.${q},title.ilike.${q}`);
 
     // Search chats (title or last_message_snippet)
@@ -1007,6 +1245,7 @@ export class SupabaseRepo implements IRepo {
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed todos
       .not('due_date', 'is', null);
 
     if (todosError) throw new Error(`Failed to list due todos: ${todosError.message}`);
@@ -1034,6 +1273,7 @@ export class SupabaseRepo implements IRepo {
       .from('todos')
       .select('*')
       .eq('owner_id', userId)
+      .is('completed_at', null) // Exclude completed todos
       .eq('undefined_due', true);
 
     if (error) throw new Error(`Failed to list undefined due todos: ${error.message}`);
@@ -1228,7 +1468,8 @@ export class SupabaseRepo implements IRepo {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
         .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment')
-        .eq('owner_id', userId);
+        .eq('owner_id', userId)
+        .is('completed_at', null); // Exclude completed habits
 
       if (habitsErr) throw habitsErr;
 
@@ -1461,6 +1702,7 @@ export class SupabaseRepo implements IRepo {
       .from('notes')
       .select('id,title,body,created_at')
       .eq('owner_id', ownerId)
+      .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .gte('created_at', sinceIso)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -1565,6 +1807,134 @@ export class SupabaseRepo implements IRepo {
     }
   }
 
+  /**
+   * Archive all entities (notes, todos, habits) that share the same drop_id.
+   *
+   * This is the ONLY reliable way to delete a Mind Drop and prevent zombie resurrections.
+   *
+   * Schema truth (as of Nov 2025):
+   * - notes: Has `archived` boolean column (added in migration 20251116)
+   * - todos: Has `completed_at` timestamp column for soft delete
+   * - habits: Has `completed_at` timestamp column for soft delete
+   *
+   * @param dropId - The Mind Drop UUID linking all related entities
+   * @param archivedReason - Optional reason string (currently unused but kept for future metadata)
+   * @returns Counts of archived entities by type
+   */
+  async archiveItemsByDropId(
+    dropId: string,
+    archivedReason = 'user_deleted_drop',
+  ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }> {
+    const ownerId = this.ensureUserId();
+    const nowIso = new Date().toISOString();
+
+    let notesArchived = 0;
+    let todosArchived = 0;
+    let habitsArchived = 0;
+
+    // Run all table updates in parallel, each with its own try/catch
+    // This ensures one failure doesn't block others and prevents silent failures
+    await Promise.all([
+      // Archive todos: soft delete via completed_at timestamp + status column
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('todos')
+            .update({
+              completed_at: nowIso,
+              status: 'archived', // Set status if column exists
+            })
+            .eq('drop_id', dropId)
+            .eq('owner_id', ownerId)
+            .select('id');
+
+          if (error) {
+            console.error(
+              '[SupabaseRepo.archiveItemsByDropId] ❌ CRITICAL: Failed to archive todos:',
+              formatSupabaseError(error),
+              '\nThis will cause zombie todos to resurrect on next Mind Drop submission!',
+            );
+          } else {
+            todosArchived = data?.length ?? 0;
+            if (todosArchived > 0) {
+              console.log(
+                `[SupabaseRepo.archiveItemsByDropId] ✓ Archived ${todosArchived} todo(s) for drop_id=${dropId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[SupabaseRepo.archiveItemsByDropId] ❌ EXCEPTION archiving todos:', err);
+        }
+      })(),
+
+      // Archive habits: soft delete via completed_at timestamp
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('habits')
+            .update({ completed_at: nowIso })
+            .eq('drop_id', dropId)
+            .eq('owner_id', ownerId)
+            .select('id');
+
+          if (error) {
+            console.error(
+              '[SupabaseRepo.archiveItemsByDropId] ❌ CRITICAL: Failed to archive habits:',
+              formatSupabaseError(error),
+              '\nThis will cause zombie habits to resurrect on next Mind Drop submission!',
+            );
+          } else {
+            habitsArchived = data?.length ?? 0;
+            if (habitsArchived > 0) {
+              console.log(
+                `[SupabaseRepo.archiveItemsByDropId] ✓ Archived ${habitsArchived} habit(s) for drop_id=${dropId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[SupabaseRepo.archiveItemsByDropId] ❌ EXCEPTION archiving habits:', err);
+        }
+      })(),
+
+      // Archive notes: soft delete via archived boolean flag
+      // Migration 20251116 added the archived column to notes table
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('notes')
+            .update({ archived: true })
+            .eq('drop_id', dropId)
+            .eq('owner_id', ownerId)
+            .select('id');
+
+          if (error) {
+            console.error(
+              '[SupabaseRepo.archiveItemsByDropId] ❌ CRITICAL: Failed to archive notes:',
+              formatSupabaseError(error),
+              '\nThis will cause zombie notes to resurrect on next Mind Drop submission!',
+            );
+          } else {
+            notesArchived = data?.length ?? 0;
+            if (notesArchived > 0) {
+              console.log(
+                `[SupabaseRepo.archiveItemsByDropId] ✓ Archived ${notesArchived} note(s) for drop_id=${dropId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[SupabaseRepo.archiveItemsByDropId] ❌ EXCEPTION archiving notes:', err);
+        }
+      })(),
+    ]);
+
+    console.log(
+      `[SupabaseRepo.archiveItemsByDropId] Summary for drop_id=${dropId}: ` +
+        `${notesArchived} notes, ${todosArchived} todos, ${habitsArchived} habits archived`,
+    );
+
+    return { notesArchived, todosArchived, habitsArchived };
+  }
+
   /** Count active commitments (habits + todos). No archived predicate yet. */
   async countActiveCommitments(): Promise<number> {
     const userId = this.ensureUserId();
@@ -1616,12 +1986,14 @@ export class SupabaseRepo implements IRepo {
         .from('habits')
         .select('id,name,commitment_started_at,commitment_note,commitment')
         .eq('owner_id', userId)
-        .eq('commitment', true),
+        .eq('commitment', true)
+        .is('completed_at', null), // Exclude completed habits
       supabase
         .from('todos')
         .select('id,name,commitment_started_at,commitment_note,commitment')
         .eq('owner_id', userId)
-        .eq('commitment', true),
+        .eq('commitment', true)
+        .is('completed_at', null), // Exclude completed todos
     ]);
 
     if (habitsRes.error) {
@@ -2828,6 +3200,82 @@ export class SupabaseRepo implements IRepo {
       )
       .subscribe();
     return channel;
+  }
+
+  // ============================================================================
+  // Phase 10.10 - Log Photos (multi-photo journal logs)
+  // ============================================================================
+
+  async listLogPhotos(
+    noteId: string,
+  ): Promise<Array<{ id: string; url: string; position: number }>> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('log_photos')
+      .select('id, url, position')
+      .eq('note_id', noteId)
+      .eq('owner_id', userId)
+      .order('position', { ascending: true });
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to list log photos:', error);
+      throw new Error(`Failed to list log photos: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  async insertLogPhoto(params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }): Promise<{ id: string }> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('log_photos')
+      .insert({
+        note_id: params.noteId,
+        owner_id: userId,
+        url: params.url,
+        position: params.position,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to insert log photo:', error);
+      throw new Error(`Failed to insert log photo: ${error.message}`);
+    }
+
+    return { id: data.id };
+  }
+
+  async updateLogPhotoPosition(photoId: string, position: number): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('log_photos')
+      .update({ position })
+      .eq('id', photoId)
+      .eq('owner_id', userId);
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to update log photo position:', error);
+      throw new Error(`Failed to update log photo position: ${error.message}`);
+    }
+  }
+
+  async deleteLogPhoto(photoId: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('log_photos')
+      .delete()
+      .eq('id', photoId)
+      .eq('owner_id', userId);
+
+    if (error) {
+      console.error('[SupabaseRepo] Failed to delete log photo:', error);
+      throw new Error(`Failed to delete log photo: ${error.message}`);
+    }
   }
 }
 

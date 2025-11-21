@@ -1,5 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, useColorScheme, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  useColorScheme,
+  View,
+} from 'react-native';
 import { Text } from '../../../ui/Text';
 import {
   lightTokens,
@@ -160,11 +168,10 @@ export function TagsRow({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text variant="label" style={styles.label}>
-          Tags
-        </Text>
-        {typeof onResuggest === 'function' ? (
+      {/* Header removed - no "Tags" label, just re-suggest button if available */}
+      {typeof onResuggest === 'function' ? (
+        <View style={styles.header}>
+          <View style={{ flex: 1 }} />
           <Pressable
             onPress={onResuggest}
             disabled={!!resuggesting}
@@ -177,10 +184,19 @@ export function TagsRow({
               resuggesting ? styles.resuggestDisabled : null,
             ]}
           >
-            <Text style={[styles.resuggestLabel, { color: palette.sage }]}>Re-suggest tags</Text>
+            <View style={styles.resuggestContent}>
+              {resuggesting ? (
+                <ActivityIndicator
+                  size="small"
+                  color={palette.sage}
+                  style={styles.resuggestSpinner}
+                />
+              ) : null}
+              <Text style={[styles.resuggestLabel, { color: palette.sage }]}>Re-suggest tags</Text>
+            </View>
           </Pressable>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -188,54 +204,89 @@ export function TagsRow({
       >
         {chips.map((chip) => {
           const active = chip.active;
-          const textColor = palette.charcoal;
+          const textColor = colorMode === 'dark' ? palette.charcoal : '#666666';
           const provenance = chip.provenance;
 
           return (
-            <Pressable
+            <View
               key={chip.key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={chip.display}
-              onPress={() => {
-                if (active) {
-                  onUserRemove?.(chip.canonical, String(provenance).toLowerCase() === 'ai');
-                } else {
-                  onUserAdd?.(chip.canonical);
-                }
-                onToggle(chip.key);
-              }}
-              style={({ pressed }) => [
+              style={[
                 styles.chip,
                 {
-                  borderColor: palette.sage,
-                  backgroundColor: 'transparent',
-                  opacity: pressed ? 0.7 : 1,
+                  backgroundColor: active ? '#F5F7F5' : 'transparent',
                 },
               ]}
             >
-              <View style={styles.chipContent}>
-                <Text
-                  style={[
-                    styles.chipLabel,
-                    {
-                      color: textColor,
-                      fontWeight: active ? '600' : '500',
-                    },
-                  ]}
+              {active ? (
+                // Active tag: show label + × remove button
+                <View style={styles.chipContent}>
+                  <Text
+                    style={[
+                      styles.chipLabel,
+                      {
+                        color: textColor,
+                        fontWeight: '500',
+                      },
+                    ]}
+                  >
+                    {chip.display}
+                    {provenance ? (
+                      <Text style={[styles.provenance, { color: metadataColor }]}>
+                        {typeof provenance === 'string' ? provenance : ''}
+                      </Text>
+                    ) : null}
+                  </Text>
+                  {!chip.locked ? (
+                    <Pressable
+                      onPress={() => {
+                        onUserRemove?.(chip.canonical, String(provenance).toLowerCase() === 'ai');
+                        onToggle(chip.key);
+                      }}
+                      hitSlop={4}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${chip.display}`}
+                    >
+                      <Text style={styles.tagRemove}>×</Text>
+                    </Pressable>
+                  ) : (
+                    <Text style={[styles.lockDot, { color: metadataColor }]}>●</Text>
+                  )}
+                </View>
+              ) : (
+                // Suggested tag: tappable to add
+                <Pressable
+                  onPress={() => {
+                    onUserAdd?.(chip.canonical);
+                    onToggle(chip.key);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: false }}
+                  accessibilityLabel={`Add ${chip.display}`}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.7 : 1,
+                  })}
                 >
-                  {chip.display}
-                  {provenance ? (
-                    <Text style={[styles.provenance, { color: metadataColor }]}>
-                      {typeof provenance === 'string' ? provenance : ''}
+                  <View style={styles.chipContent}>
+                    <Text
+                      style={[
+                        styles.chipLabel,
+                        {
+                          color: textColor,
+                          fontWeight: '400',
+                        },
+                      ]}
+                    >
+                      {chip.display}
+                      {provenance ? (
+                        <Text style={[styles.provenance, { color: metadataColor }]}>
+                          {typeof provenance === 'string' ? provenance : ''}
+                        </Text>
+                      ) : null}
                     </Text>
-                  ) : null}
-                </Text>
-                {chip.locked ? (
-                  <Text style={[styles.lockDot, { color: metadataColor }]}>●</Text>
-                ) : null}
-              </View>
-            </Pressable>
+                  </View>
+                </Pressable>
+              )}
+            </View>
           );
         })}
         {typeof onAdd === 'function' ? (
@@ -305,17 +356,27 @@ const styles = StyleSheet.create({
   resuggestDisabled: {
     opacity: 0.6,
   },
+  resuggestContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokenSpacing.xs,
+  },
+  resuggestSpinner: {
+    transform: [{ scale: 0.8 }],
+  },
   scrollContent: {
     paddingVertical: 6,
     paddingRight: tokenSpacing.base,
   },
   chip: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: tokenRadius.sm,
-    paddingHorizontal: tokenSpacing.md,
-    paddingVertical: tokenSpacing.xs,
+    // whisper-like pill: soft background, no harsh border
+    borderWidth: 0,
+    backgroundColor: '#F5F7F5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     marginRight: tokenSpacing.sm,
-    minHeight: 36,
+    minHeight: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -324,8 +385,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chipLabel: {
-    fontSize: lightTokens.typography.size.sm,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#666666',
+  },
+  tagRemove: {
+    fontSize: 14,
+    color: '#AAAAAA',
+    marginLeft: 4,
+    fontWeight: '400',
   },
   provenance: {
     fontSize: lightTokens.typography.size.sm * 0.7,

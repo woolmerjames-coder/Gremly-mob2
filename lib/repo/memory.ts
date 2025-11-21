@@ -161,6 +161,7 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        drop_id: input.dropId ?? null,
         // Extended habit fields (Phase 7+)
         frequency_value: input.frequency_value,
         reminders: input.reminders,
@@ -207,16 +208,16 @@ export class MemoryRepo implements IRepo {
         canonicalType: input.canonicalType,
         labels: input.labels,
         views: input.views,
+        drop_id: input.dropId ?? null,
       };
     } else {
-      // note
-      if (!input.subtype) throw new Error('Note requires subtype');
+      // note - subtype is optional in database schema (can be null)
       rec = {
         id: genId('note'),
         type: 'note',
         title: input.title,
         body: input.body,
-        subtype: input.subtype as import('../types').NoteSubtype,
+        subtype: (input.subtype as import('../types').NoteSubtype) ?? null,
         space_id: input.space_id ?? null,
         ai_placed: !!input.ai_placed,
         why_string: input.why_string ?? null,
@@ -236,6 +237,7 @@ export class MemoryRepo implements IRepo {
         tags_meta: normalizeTagsMeta(input.tags_meta ?? null),
         journal_subtype: input.journal_subtype ?? null,
         source_message_id: input.sourceMessageId ?? null,
+        drop_id: input.dropId ?? null,
       };
     }
 
@@ -261,6 +263,10 @@ export class MemoryRepo implements IRepo {
 
     const original = this.data[idx];
     const merged = { ...original, ...patch, updated_at: nowIso() } as AppRecord;
+    if (Object.prototype.hasOwnProperty.call(patch, 'dropId')) {
+      (merged as AppRecord & { drop_id?: string | null }).drop_id = (patch as any).dropId ?? null;
+      delete (merged as any).dropId;
+    }
     if ('tags' in patch) {
       (merged as AppRecord & { tags?: string[] | null }).tags = patch.tags ?? null;
     }
@@ -837,6 +843,51 @@ export class MemoryRepo implements IRepo {
     // keep -> no action
   }
 
+  /**
+   * Archive all entities (notes, todos, habits) that share the same drop_id.
+   *
+   * Memory repo implementation aligned with Supabase schema:
+   * - notes: Set archived = true (soft delete)
+   * - todos: Set completed_at (soft delete)
+   * - habits: Set completed_at (soft delete)
+   */
+  async archiveItemsByDropId(
+    dropId: string,
+    archivedReason = 'user_deleted_drop',
+  ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }> {
+    const nowIso = new Date().toISOString();
+    let notesArchived = 0;
+    let todosArchived = 0;
+    let habitsArchived = 0;
+
+    this.data.forEach((record) => {
+      if (record.owner_id === this.currentUserId && (record as any).drop_id === dropId) {
+        if (record.type === 'todo') {
+          // Todos: soft delete by setting completed_at + status (only if not already completed)
+          if (!(record as any).completed_at) {
+            (record as any).completed_at = nowIso;
+            (record as any).status = 'archived'; // Set status if column exists
+            todosArchived++;
+          }
+        } else if (record.type === 'habit') {
+          // Habits: soft delete by setting completed_at (only if not already completed)
+          if (!(record as any).completed_at) {
+            (record as any).completed_at = nowIso;
+            habitsArchived++;
+          }
+        } else if (record.type === 'note') {
+          // Notes: soft delete by setting archived = true
+          if (!(record as any).archived) {
+            (record as any).archived = true;
+            notesArchived++;
+          }
+        }
+      }
+    });
+
+    return { notesArchived, todosArchived, habitsArchived };
+  }
+
   async countActiveCommitments(): Promise<number> {
     return this.data.filter(
       (row) => row.owner_id === this.currentUserId && (row as any).commitment === true,
@@ -940,6 +991,44 @@ export class MemoryRepo implements IRepo {
       ai_placed: true,
       origin: 'catchall',
     });
+  }
+
+  /**
+   * Phase 1: Create unsorted Mind Drop note before AI classification.
+   * Always creates a note with catchall subtype and ai_pending flag.
+   */
+  async createUnsortedDrop(
+    text: string,
+    opts?: {
+      spaceId?: ID | null;
+      dropId?: string | null;
+      sourceMessageId?: string | null;
+    },
+  ): Promise<Note> {
+    const trimmedText = text.trim();
+    const firstLine = trimmedText.split('\n')[0] || 'Untitled';
+
+    const record = await this.create({
+      type: 'note',
+      subtype: 'catchall',
+      title: firstLine,
+      body: trimmedText,
+      labels: ['catchall', 'needs_review'],
+      origin: 'catchall',
+      ai_placed: true,
+      space_id: opts?.spaceId ?? null,
+      dropId: opts?.dropId ?? null,
+      sourceMessageId: opts?.sourceMessageId ?? null,
+      views: {
+        ai_pending: true, // Will be set to false after AI classification completes
+      },
+    });
+
+    if (record.type !== 'note') {
+      throw new Error('Expected note record from createUnsortedDrop');
+    }
+
+    return record;
   }
 
   // ==========================
@@ -1484,6 +1573,34 @@ export class MemoryRepo implements IRepo {
     if (idx < 0) throw new Error('Note not found');
 
     this.data.splice(idx, 1);
+  }
+
+  // ============================================================================
+  // Phase 10.10 - Log Photos (multi-photo journal logs)
+  // ============================================================================
+
+  async listLogPhotos(
+    _noteId: string,
+  ): Promise<Array<{ id: string; url: string; position: number }>> {
+    // Memory backend stub - photos not persisted in memory
+    return [];
+  }
+
+  async insertLogPhoto(_params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }): Promise<{ id: string }> {
+    // Memory backend stub - return fake ID
+    return { id: `photo-${Date.now()}` };
+  }
+
+  async updateLogPhotoPosition(_photoId: string, _position: number): Promise<void> {
+    // Memory backend stub - no-op
+  }
+
+  async deleteLogPhoto(_photoId: string): Promise<void> {
+    // Memory backend stub - no-op
   }
 }
 

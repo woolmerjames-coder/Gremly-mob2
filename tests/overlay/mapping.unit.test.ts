@@ -82,3 +82,47 @@ test('todo payload strips stopword tags before save', () => {
   expect(out.tags).toEqual(['running']);
   expect(out.name).toBe("See if there's a common running route near here");
 });
+
+test('todo with AI title uses title for name, details for details field', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.title = 'Dinner in Zipolite'; // Short AI-generated title
+  s.todo.details = 'Find somewhere great for dinner in Zipolite'; // Full original sentence
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+
+  // Assert: name and title get the short AI title
+  expect(out.name).toBe('Dinner in Zipolite');
+  expect(out.title).toBe('Dinner in Zipolite');
+
+  // Assert: details field contains the full sentence
+  expect(out.details).toBe('Find somewhere great for dinner in Zipolite');
+
+  // Assert: title and details are different
+  expect(out.title).not.toBe(out.details);
+});
+
+test('todo without AI title derives name from details', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.title = ''; // No AI title yet
+  s.todo.details = 'Call mom about weekend plans';
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+
+  // Assert: name is derived from first line of details
+  expect(out.name).toBe('Call mom about weekend plans');
+  expect(out.title).toBe('Call mom about weekend plans');
+  expect(out.details).toBe('Call mom about weekend plans');
+});
+
+test('todo details field is included in save payload', () => {
+  const s = { ...initialV2State } as any;
+  s.baseType = 'todo';
+  s.todo.title = 'Short title';
+  s.todo.details = 'Longer description with more context';
+  const out = toCreateOrUpdateInput('todo', s, null as any);
+
+  // Assert: details is present in the output
+  expect(out).toHaveProperty('details');
+  expect(out.details).toBe('Longer description with more context');
+  expect(out.type).toBe('todo');
+});

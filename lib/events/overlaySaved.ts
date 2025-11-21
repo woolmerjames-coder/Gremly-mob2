@@ -2,6 +2,11 @@
 export type OverlaySavedPayload = {
   type: 'habit' | 'todo' | 'note' | 'journal' | 'unsorted' | 'person';
   id: string;
+  // Optional saved entity data for optimistic updates (e.g., due_at for todos)
+  savedEntity?: {
+    due_at?: string | null;
+    [key: string]: any;
+  };
 };
 
 type Listener = (payload: OverlaySavedPayload) => void;

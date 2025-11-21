@@ -35,11 +35,14 @@ export interface CreateRecordInput {
   origin?: 'catchall' | 'space_chat' | 'manual';
   canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
+  dropId?: string | null; // Mind Drop identifier for idempotent conversions
   labels?: string[];
   tags?: string[] | null; // Searchable tag slugs persisted with record
   tags_meta?: TagsMeta | null;
   views?: {
     alsoShowIn?: string[];
+    ai_pending?: boolean; // Phase 1: Mind Drop AI processing state
+    [key: string]: any; // Allow additional view state
   };
   // owner_id is optional - Supabase will set from auth context, Memory repo will use constructor userId
   owner_id?: ID;
@@ -226,6 +229,12 @@ export interface IRepo {
     details?: { archived_reason?: string },
   ): Promise<void>;
 
+  /** Archive all items (todos, habits, notes) with the given drop_id */
+  archiveItemsByDropId(
+    dropId: string,
+    archivedReason?: string,
+  ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }>;
+
   /** Commitments */
   listCommitments(): Promise<
     Array<{
@@ -250,6 +259,26 @@ export interface IRepo {
    * Forces ai_placed=true and origin='catchall'. spaceId may be null for unassigned.
    */
   addUnsorted(spaceId: ID | null, input: CreateRecordInput): Promise<AppRecord>;
+
+  /**
+   * Phase 1: Create unsorted Mind Drop note before AI classification.
+   * Always creates a note with:
+   * - subtype: 'catchall'
+   * - labels: ['catchall', 'needs_review']
+   * - origin: 'catchall'
+   * - ai_placed: true
+   * - views.ai_pending: true (will be set to false after AI completes)
+   *
+   * This ensures Mind Drop always creates a single note first, then AI decides what to do with it.
+   */
+  createUnsortedDrop(
+    text: string,
+    opts?: {
+      spaceId?: ID | null;
+      dropId?: string | null;
+      sourceMessageId?: string | null;
+    },
+  ): Promise<Note>;
 
   // Space methods (Phase 5)
   listSpaces(): Promise<Space[]>;
@@ -447,4 +476,29 @@ export interface IRepo {
    * Subscribe to realtime notes updates for a space.
    */
   subscribeToNotes?(spaceId: string, callback: (payload: any) => void): any;
+
+  // Phase 10.10 - Log Photos (multi-photo journal logs)
+  /**
+   * List all photos for a log/note, ordered by position.
+   */
+  listLogPhotos(noteId: string): Promise<Array<{ id: string; url: string; position: number }>>;
+
+  /**
+   * Insert a new log photo record.
+   */
+  insertLogPhoto(params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }): Promise<{ id: string }>;
+
+  /**
+   * Update photo position (for reordering).
+   */
+  updateLogPhotoPosition(photoId: string, position: number): Promise<void>;
+
+  /**
+   * Delete a log photo record.
+   */
+  deleteLogPhoto(photoId: string): Promise<void>;
 }

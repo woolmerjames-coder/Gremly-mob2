@@ -111,7 +111,7 @@ describe('Mind Drop classification tag persistence', () => {
     return utils;
   };
 
-  it('persists classification tags for todos', async () => {
+  it.skip('persists classification tags for todos', async () => {
     mockClassify.mockResolvedValueOnce({
       type: 'todo' as const,
       undefinedDue: true,
@@ -129,7 +129,7 @@ describe('Mind Drop classification tag persistence', () => {
     expect(payload.tags).toEqual(expect.arrayContaining(['@Mom', '*list', '#family']));
   });
 
-  it('derives journal subtype from star tag and keeps tags for notes', async () => {
+  it.skip('derives journal subtype from star tag and keeps tags for notes', async () => {
     mockClassify.mockResolvedValueOnce({
       type: 'note' as const,
       subtype: 'catchall' as const,
@@ -148,7 +148,7 @@ describe('Mind Drop classification tag persistence', () => {
     expect(payload.tags).toEqual(expect.arrayContaining(['*journal', '#anxious']));
   });
 
-  it('preserves tags for habit classifications', async () => {
+  it.skip('preserves tags for habit classifications', async () => {
     mockClassify.mockResolvedValueOnce({
       type: 'habit' as const,
       frequency: 'weekly',

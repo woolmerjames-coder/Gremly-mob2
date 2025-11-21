@@ -24,7 +24,13 @@ describe('OpenAiEngine Phase 1 prompt polish', () => {
     callClassify.mockResolvedValueOnce({
       ok: true,
       id: 'x',
-      classification: { category: 'To-Do', tags: [], spaceName: null, confidence: 0.9 },
+      classification: {
+        category: 'To-Do',
+        tags: [],
+        spaceName: null,
+        confidence: 0.9,
+        title: null,
+      },
     });
     const res = await engine.classify({ text: 'Book dentist appointment tomorrow', spaceId: null });
     expect(res.type).toBe('todo');
@@ -67,7 +73,13 @@ describe('OpenAiEngine Phase 1 prompt polish', () => {
     callClassify.mockResolvedValueOnce({
       ok: true,
       id: 'ideas',
-      classification: { category: 'To-Do', tags: [], spaceName: null, confidence: 0.7 },
+      classification: {
+        category: 'To-Do',
+        tags: [],
+        spaceName: null,
+        confidence: 0.7,
+        title: null,
+      },
     });
     const res = await engine.classify({ text: 'Ideas for weekend trip', spaceId: null });
     expect(res).toMatchObject({

@@ -21,12 +21,13 @@ export interface DecisionLog {
   modelVersion?: string;
   intent: string;
   confidence: number;
-  mode: 'auto' | 'ask' | 'keep' | 'unsorted';
+  mode: 'auto' | 'ask' | 'keep' | 'unsorted' | 'reply' | 'none';
   decision: string;
   latencyMs?: number;
   createdTodos?: number;
   createdNotes?: number;
   createdHabits?: number;
+  dropId?: string | null;
 }
 
 export async function logCatchallDecision(d: DecisionLog): Promise<void> {
@@ -54,6 +55,7 @@ export async function logCatchallDecision(d: DecisionLog): Promise<void> {
       created_todos: d.createdTodos ?? '',
       created_notes: d.createdNotes ?? '',
       created_habits: d.createdHabits ?? '',
+      drop_id: d.dropId ?? '',
     };
 
     await fetch(url, {

@@ -34,6 +34,32 @@ import { canonicalToPersisted } from '../canonical';
 export type { Lane, CortexContextBase } from './lane';
 
 /**
+ * Mind Drop Decision - Unified decision structure for all Mind Drop flows
+ *
+ * Replaces old mode: 'ask' | 'auto' | 'keep' with a clearer structure:
+ * - probableKind: What type of entity this likely is
+ * - confidence: How confident we are (0-1)
+ * - needsClarification: Whether to show chips/ask UI before converting
+ *
+ * Usage:
+ * - If probableKind === 'none': Leave as unsorted
+ * - If needsClarification === false && high confidence: Auto-convert immediately
+ * - If needsClarification === true: Show chips, convert on user selection
+ */
+export type MindDropDecision = {
+  /** What type of entity this probably is */
+  probableKind: 'todo' | 'habit' | 'log' | 'none';
+  /** Confidence score 0-1 */
+  confidence: number;
+  /** Whether user needs to confirm via chips before conversion */
+  needsClarification: boolean;
+  /** Optional: Specific subtype for logs (idea, journal, list, etc.) */
+  logSubtype?: LogSubtype | null;
+  /** Raw tags from AI classification */
+  tags?: string[];
+};
+
+/**
  * Context provided by UI layers when calling Cortex
  * Phase 10.4: Extended with space defaults and user tone preferences
  * Phase 10.6B: Extended with lane for routing context
@@ -113,6 +139,8 @@ export interface CortexResponse {
   confidence?: number;
   /** Decision mode based on confidence threshold */
   mode: 'auto' | 'ask' | 'keep' | 'reply';
+  /** Mind Drop decision (new unified structure) - preferred over mode for Mind Drop flows */
+  mindDropDecision?: MindDropDecision;
   /** Additional metadata for telemetry and tracking */
   meta?: {
     lane?: Lane;
@@ -124,6 +152,8 @@ export interface CortexResponse {
   };
   /** Raw tags from engine classification (if provided) */
   engineTags?: string[];
+  /** Phase 2A: Original user input text for background prefill */
+  rawSentence?: string;
 }
 
 /**
@@ -132,6 +162,49 @@ export interface CortexResponse {
 export type DecideInput =
   | { text: string; structured?: undefined }
   | { text?: undefined; structured: Record<string, any> };
+
+/**
+ * Build MindDropDecision from cortexDecide analysis
+ *
+ * Maps old mode/probable logic to new unified structure.
+ * - probableKind: Normalized classification (todo, habit, log, none)
+ * - confidence: Numeric confidence score [0-1]
+ * - needsClarification: true if mode was 'ask', false if 'auto'
+ * - logSubtype: Extracted from canonicalSubtype if probableKind is 'log'
+ * - tags: AI-derived tags for the entry
+ *
+ * @param probable - Classification from engine ('todo' | 'habit' | 'log' | 'unknown')
+ * @param confidence - Confidence score [0-1]
+ * @param mode - Decision mode ('auto' | 'ask' | 'keep' | 'reply')
+ * @param canonicalSubtype - Log subtype if kind is 'log'
+ * @param tags - AI-derived tags
+ * @returns MindDropDecision object for unified pipeline
+ */
+function buildMindDropDecision(
+  probable: 'todo' | 'habit' | 'log' | 'unknown',
+  confidence: number,
+  mode: 'auto' | 'ask' | 'keep' | 'reply',
+  canonicalSubtype?: LogSubtype | null,
+  tags?: string[],
+): MindDropDecision {
+  // Map 'unknown' to 'none' for probableKind
+  const probableKind: MindDropDecision['probableKind'] = probable === 'unknown' ? 'none' : probable;
+
+  // needsClarification = true when mode is 'ask'
+  // This replaces the mode: 'ask' branching logic
+  const needsClarification = mode === 'ask';
+
+  // Extract logSubtype only if probableKind is 'log'
+  const logSubtype = probableKind === 'log' ? canonicalSubtype : undefined;
+
+  return {
+    probableKind,
+    confidence,
+    needsClarification,
+    logSubtype,
+    tags: tags || [],
+  };
+}
 
 /**
  * Main Cortex decision function
@@ -181,6 +254,7 @@ export async function cortexDecide(
     mode: 'ask',
     meta: {},
     engineTags: [],
+    rawSentence: '', // Phase 2A: Will be populated with user input
   };
 
   const midLower = 0.55; // offer chips for mid confidence
@@ -267,6 +341,7 @@ export async function cortexDecide(
               explanation: '',
               suggestions: [],
               confidence: detected.confidence,
+              rawSentence: userText, // Phase 2A
               meta: {
                 intent: { kind: detected.kind, confidence: detected.confidence },
                 isMetaComment,
@@ -294,6 +369,7 @@ export async function cortexDecide(
         explanation: '',
         suggestions: [],
         confidence: detected.confidence,
+        rawSentence: userText, // Phase 2A
         meta: {
           intent: { kind: detected.kind, confidence: detected.confidence },
           isMetaComment,
@@ -446,15 +522,32 @@ export async function cortexDecide(
       ideaHeuristicTriggered &&
       !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
 
-    const forceListAsk = listHeuristicApplied;
+    // Strong list patterns (score >= 0.7) should auto-create as logs without chips
+    // Weak list patterns (0.5-0.7) should show chips for confirmation
+    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.7;
+    const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
-    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.5;
+
+    // For strong lists, override candidate actions to create.note with list subtype
+    let effectiveCandidateActions = candidateActions;
+    if (listStrong) {
+      effectiveCandidateActions = [
+        {
+          type: 'create.note' as const,
+          payload: {
+            text: userText,
+            subtype: 'list' as const,
+            spaceId: null,
+          },
+        },
+      ];
+    }
 
     const shouldAuto =
       !forceListAsk &&
       !forceIdeaAsk &&
-      candidateActions.length > 0 &&
-      (confidence > autoThreshold || preferHabitAuto);
+      effectiveCandidateActions.length > 0 &&
+      (confidence > autoThreshold || preferHabitAuto || listStrong); // Auto for strong lists
 
     let mode: DecisionMode = 'keep';
 
@@ -474,18 +567,18 @@ export async function cortexDecide(
       normalizedCtx.uiSurface === 'overlay' &&
       hasConfidence &&
       confidence <= autoThreshold &&
-      candidateActions.some((action) => action.type === 'add.to.list');
+      effectiveCandidateActions.some((action) => action.type === 'add.to.list');
 
     const autoTodoWithStrongList =
       mode === 'auto' &&
       listStrong &&
-      candidateActions.some((action) => action.type === 'create.todo');
+      effectiveCandidateActions.some((action) => action.type === 'create.todo');
 
     if (mode === 'auto' && (listActionLowRisk || autoTodoWithStrongList)) {
       mode = 'ask';
     }
 
-    if (candidateActions.length === 0) {
+    if (effectiveCandidateActions.length === 0) {
       mode = 'ask';
     }
 
@@ -534,7 +627,7 @@ export async function cortexDecide(
       suggestions =
         chipSuggestions.length > 0
           ? chipSuggestions
-          : generateSuggestions(candidateActions, normalizedCtx);
+          : generateSuggestions(effectiveCandidateActions, normalizedCtx);
     }
 
     const suggestionLabels =
@@ -545,15 +638,15 @@ export async function cortexDecide(
         : undefined;
 
     const shouldUseExploreFallback =
-      (engineFailed || !engineOutput) && candidateActions.length === 0;
+      (engineFailed || !engineOutput) && effectiveCandidateActions.length === 0;
 
     const explanation = shouldUseExploreFallback
       ? "Let's explore that a bit more."
       : mode === 'ask'
         ? explainAmbiguous(tone, suggestionLabels)
-        : generateExplanation(candidateActions, mode, tone, normalizedCtx);
+        : generateExplanation(effectiveCandidateActions, mode, tone, normalizedCtx);
 
-    const candidateCanonical = canonicalFromAction(candidateActions[0]);
+    const candidateCanonical = canonicalFromAction(effectiveCandidateActions[0]);
     const canonicalHint = listHeuristicApplied
       ? {
           canonicalType: 'log' as CanonicalType,
@@ -594,25 +687,47 @@ export async function cortexDecide(
       },
     };
 
+    // Extract classification tags from engineOutput if available
+    const classificationTags = engineOutput?.classification?.tags
+      ? coerceEngineTags(engineOutput.classification.tags)
+      : undefined;
+
+    // Build unified Mind Drop decision for new pipeline
+    const mindDropDecision = buildMindDropDecision(
+      probable,
+      confidence,
+      mode,
+      effectiveCanonicalSubtype,
+      engineTags,
+    );
+
     const result: CortexResponse = {
       ...safeResult,
-      actions: mode === 'auto' ? candidateActions : [],
+      actions: mode === 'auto' ? effectiveCandidateActions : [],
       explanation,
       suggestions,
       confidence,
       mode,
+      mindDropDecision, // New unified decision structure
+      rawSentence: userText, // Phase 2A: Original user input for background prefill
       meta: {
         intent: { kind: detected.kind, confidence: detected.confidence },
         showedChip:
           (chipSuggestions.length > 0 || inMidConfidenceBand) &&
           suggestions.some((suggestion) => typeof suggestion !== 'string'),
-        candidateActions,
+        candidateActions: effectiveCandidateActions,
         canonicalType: effectiveCanonicalType,
         canonicalSubtype: effectiveCanonicalSubtype,
         listHeuristicTriggered: listHeuristicApplied,
         ideaHeuristicTriggered: ideaHeuristicApplied,
         heuristics: heuristicsMeta,
         canonicalHint: canonicalHint ?? undefined,
+        engineOutputTags: engineTags,
+        ...(classificationTags && {
+          classification: {
+            tags: classificationTags,
+          },
+        }),
       },
       engineTags,
     };
@@ -636,6 +751,13 @@ export async function cortexDecide(
       mode: 'ask',
       explanation: "Let's explore that a bit more.",
       confidence: 0,
+      rawSentence: input.text || '', // Phase 2A
+      mindDropDecision: {
+        probableKind: 'none',
+        confidence: 0,
+        needsClarification: true,
+        tags: [],
+      },
     };
     console.log('[cortexDecide][final]', {
       mode: fallback.mode,

@@ -1,7 +1,9 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
 import { filterAndNormalizeTags, normalizeTag } from '../lib/tags/normalize';
+import { applyTagQualityFilter } from '../lib/tags/quality';
 import { heuristicEngine } from './heuristicEngine';
+import { extractMeaningfulTags } from '../lib/tags/extractTags';
 
 interface OpenAiEngineConfig {
   apiKey: string; // Kept for backward compatibility but no longer used
@@ -312,6 +314,53 @@ const STOPWORDS = new Set([
   'it',
 ]);
 
+// COPILOT TASK: Time reference phrases mapped to slug tags
+const TIME_REFERENCES = new Map<RegExp, string>([
+  [/\btonight\b/i, 'tonight'],
+  [/\bthis\s+evening\b/i, 'thisevening'],
+  [/\bthis\s+afternoon\b/i, 'thisafternoon'],
+  [/\bthis\s+morning\b/i, 'thismorning'],
+  [/\btomorrow\b/i, 'tomorrow'],
+  [/\bnext\s+week\b/i, 'nextweek'],
+  [/\bthis\s+weekend\b/i, 'thisweekend'],
+  [/\bnext\s+weekend\b/i, 'nextweekend'],
+  [/\bthis\s+week\b/i, 'thisweek'],
+]);
+
+// COPILOT TASK: Common verbs that should not be tagged as locations
+const LOCATION_EXCLUDE_VERBS = new Set([
+  'Find',
+  'Call',
+  'Email',
+  'Schedule',
+  'Book',
+  'Plan',
+  'Meet',
+  'Send',
+  'Pay',
+  'Pick',
+  'Follow',
+  'Check',
+  'Draft',
+  'Review',
+  'Remind',
+  'Tell',
+  'Ask',
+  'Bring',
+  'Buy',
+  'Organize',
+  'Write',
+  'Prepare',
+  'Start',
+  'Remember',
+  'Need',
+  'Make',
+  'Get',
+  'Take',
+  'Give',
+  'Show',
+]);
+
 export function buildFallbackTags(
   text: string,
   type: 'habit' | 'todo' | 'note',
@@ -319,122 +368,41 @@ export function buildFallbackTags(
 ): string[] {
   if (!text?.trim()) return [];
 
-  const tags: string[] = [];
-  const lower = text.toLowerCase();
-  const lines = text.split(/\r?\n/);
-  const words = text.split(/[^A-Za-z]+/).filter(Boolean);
+  const resultTags: string[] = [];
 
+  // Add type tags for notes based on subtype
   if (type === 'note') {
-    const journalHint =
-      subtype === 'journal' || REFLECTION_PATTERNS.some((pattern) => lower.includes(pattern));
-    if (journalHint) {
-      tags.push('*journal');
-      for (const emotion of EMOTION_WORDS) {
-        if (lower.includes(emotion)) {
-          tags.push(`#${emotion}`);
-        }
-      }
-    }
-
-    if (IDEA_PATTERNS.some((pattern) => lower.includes(pattern))) {
-      tags.push('*idea');
-    }
-
-    if (lines.some((line) => LIST_LINE_REGEX.test(line))) {
-      tags.push('*list');
+    if (subtype === 'journal') {
+      resultTags.push('*journal');
+    } else if (subtype === 'list') {
+      resultTags.push('*list');
+    } else if (subtype === 'idea') {
+      resultTags.push('*idea');
     }
   }
 
-  const people = new Set<string>();
-  const doctorMatches = text.match(/Dr\.?\s+[A-Z][a-z]+/g) ?? [];
-  for (const match of doctorMatches) {
-    if (people.size >= 2) break;
-    const collapsed = match.replace(/\s+/g, '');
-    const body = collapsed.replace(/^Dr\.?/, 'Dr').replace(/[^A-Za-z]/g, '');
-    if (body) {
-      people.add(`@${body}`);
-    }
+  // Use extractMeaningfulTags as the primary fallback logic for consistency
+  // Determine subtype for extraction
+  let extractionSubtype: string | undefined;
+  if (type === 'note') {
+    extractionSubtype = subtype; // 'journal', 'list', 'idea', or undefined
   }
 
-  const tokens = text.split(/\s+/);
-  const capitalizeRegex = /^[A-Z][a-z]{2,}$/;
-  for (let i = 0; i < tokens.length && people.size < 2; i += 1) {
-    const current = tokens[i].replace(/[^A-Za-z]/g, '');
-    if (!current) continue;
-    if (!capitalizeRegex.test(current)) continue;
+  const tags = extractMeaningfulTags(text, extractionSubtype);
 
-    const currentLower = current.toLowerCase();
-    if (PERSON_BLOCK_VERBS.has(currentLower)) continue;
-    if (PERSON_DISALLOWED.has(current)) continue;
-    if (EMOTION_WORDS.includes(currentLower as (typeof EMOTION_WORDS)[number])) continue;
-    if (
-      i === 0 &&
-      (PERSON_BLOCK_VERBS.has(currentLower) ||
-        PERSON_DISALLOWED.has(current) ||
-        EMOTION_WORDS.includes(currentLower as (typeof EMOTION_WORDS)[number]))
-    ) {
-      continue;
-    }
+  // Convert to # prefix format for backwards compatibility with existing code
+  const formattedTags = tags.map((tag) => {
+    // Keep @ mentions as-is
+    if (tag.startsWith('@')) return tag;
+    // Keep * type tags as-is (shouldn't happen from extractMeaningfulTags but safe)
+    if (tag.startsWith('*')) return tag;
+    // Add # prefix to topic/emotion tags
+    return `#${tag}`;
+  });
 
-    const nextToken = tokens[i + 1]?.replace(/[^A-Za-z]/g, '') ?? null;
-    const nextLower = nextToken ? nextToken.toLowerCase() : null;
-    const nextIsCapitalized = nextToken ? capitalizeRegex.test(nextToken) : false;
+  resultTags.push(...formattedTags);
 
-    if (
-      nextIsCapitalized &&
-      nextToken &&
-      !PERSON_DISALLOWED.has(nextToken) &&
-      !(nextLower && PERSON_BLOCK_VERBS.has(nextLower))
-    ) {
-      const combined = `${current}${nextToken}`;
-      people.add(`@${combined}`);
-      i += 1;
-      continue;
-    }
-
-    if (PERSON_ALLOWED_SINGLE.has(current)) {
-      people.add(`@${current}`);
-    }
-  }
-
-  tags.push(...people);
-
-  const frequencyMap = new Map<string, number>();
-  for (const word of words) {
-    const lowerWord = word.toLowerCase();
-    if (lowerWord.length < 3) continue;
-    if (STOPWORDS.has(lowerWord)) continue;
-    if (/^[A-Z]/.test(word) && people.has(`@${word}`)) continue;
-    frequencyMap.set(lowerWord, (frequencyMap.get(lowerWord) ?? 0) + 1);
-  }
-
-  const dateTag = extractExplicitDateTag(text);
-  if (dateTag) {
-    tags.push(dateTag);
-  }
-
-  const sortedTopics = Array.from(frequencyMap.entries())
-    .sort((a, b) => {
-      const freqDiff = b[1] - a[1];
-      if (freqDiff !== 0) return freqDiff;
-      return a[0].localeCompare(b[0]);
-    })
-    .slice(0, 3)
-    .map(([word]) => word);
-
-  for (const word of sortedTopics) {
-    const normalized = `#${word.replace(/\s+/g, '_')}`;
-    tags.push(normalized);
-  }
-
-  const normalized = filterAndNormalizeTags(tags);
-  const typeTagPrecedence = ['*journal', '*idea', '*list', '*meeting'] as const;
-  const chosenTypeTag = typeTagPrecedence.find((tag) => normalized.includes(tag)) ?? null;
-  const filtered = chosenTypeTag
-    ? normalized.filter((tag) => !tag.startsWith('*') || tag === chosenTypeTag)
-    : normalized.filter((tag, index) => normalized.indexOf(tag) === index);
-
-  return filtered;
+  return filterAndNormalizeTags(resultTags);
 }
 
 function clamp01(n: unknown): number {
@@ -476,8 +444,17 @@ Rules:
 Tag Rules:
 - People tags use the @ prefix (example: "@Mom"). Preserve name casing and drop spaces.
 - Include exactly one type tag with the * prefix from this set: "*journal","*list","*meeting","*idea" when applicable.
-- Topic/emotion/date tags use the # prefix, lowercase, and replace spaces with underscores. Aim for 2-3 solid topic tags when possible.
-- Add emotion #tags only for journal-style reflections.
+- Topic/emotion/date tags use the # prefix, lowercase, and replace spaces with underscores.
+- Extract ONLY: proper names (people/places), concrete objects, specific topics, activities.
+- IGNORE these categories:
+  * Verbs: call, check, buy, email, schedule, organize, plan, make, get, take, do, go, need, remember, start, write, prepare, find, etc.
+  * Adjectives: good, bad, great, hard, easy, new, old, high, low, early, late, etc.
+  * Generic concepts: habit, routine, task, appointment, meeting, work, daily, stuff, thing, time, day, life, practice, etc.
+  * Filler words: lot, lots, way, ways, every, each, all, etc.
+  * Meta words: note, reminder, event, etc.
+- Prefer specificity: "dentist" over "appointment", "meditation" over "relax", "groceries" over "shopping", "running" over "exercise".
+- Return 3-5 tags maximum.
+- Add emotion #tags (anxious, overwhelmed, stressed, sad, angry, excited, nervous, calm, grateful, tired) ONLY for journal-style reflections (max 1 emotion tag).
 - Add a #date_YYYY-MM-DD tag when a concrete date is mentioned.
 `;
 

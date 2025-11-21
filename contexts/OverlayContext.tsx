@@ -32,6 +32,9 @@ interface OverlayState {
   initialSpaceId?: string | null;
   conversionMeta?: ConversionMeta;
   initialText?: string | null;
+  initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
+  entity?: AppRecord; // Full record for edit mode pre-fill
+  views?: Record<string, any>; // Pass-through for ai_title_frozen, ai_tags_frozen, etc.
 }
 
 interface CreateOptions {
@@ -41,6 +44,8 @@ interface CreateOptions {
   conversionMeta?: ConversionMeta;
   initialEntity?: OverlayState['initialEntity'];
   initialText?: string | null;
+  initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
+  suppressOverlayOpen?: boolean;
 }
 
 interface EditOptions {
@@ -61,6 +66,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<OverlayState>({
     visible: false,
     mode: 'create',
+    entity: undefined,
   });
 
   const isOpeningRef = useRef(false);
@@ -74,7 +80,12 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       conversionMeta,
       initialEntity,
       initialText,
+      initialLogPhotoUris,
+      suppressOverlayOpen,
     }: CreateOptions = {}) => {
+      if (suppressOverlayOpen) {
+        return;
+      }
       if (isOpeningRef.current) {
         console.log('[GlobalOverlay] open already in progress, ignoring');
         return;
@@ -98,6 +109,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         initialSpaceId: spaceId,
         conversionMeta,
         initialText: resolvedText,
+        initialLogPhotoUris,
       });
 
       if (debounceTimerRef.current) {
@@ -139,6 +151,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       logSubtype = 'everything_else';
     }
 
+    // Extract views from the record to pass through to overlay
+    const safeViews = record.views ?? {};
+
     const newState = {
       visible: true,
       mode: 'edit' as const,
@@ -149,6 +164,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       },
       initialSpaceId: spaceId,
       initialText: null,
+      entity: record, // Store full record for pre-fill
+      views: safeViews, // Pass through views (ai_title_frozen, ai_tags_frozen, etc.)
     };
 
     console.log('[GlobalOverlay] openEdit called with state:', newState);
@@ -172,6 +189,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialSpaceId: undefined,
       conversionMeta: undefined,
       initialText: undefined,
+      entity: undefined,
     });
     isOpeningRef.current = false;
     if (debounceTimerRef.current) {

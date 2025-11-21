@@ -196,7 +196,7 @@ describe('RecentDrops in Mind Drop', () => {
     }
   });
 
-  test('Add to To-Dos opens a todo overlay and flips the lane label', async () => {
+  test('Explicit "Add to To-Dos" button opens a todo overlay and flips the lane label', async () => {
     const now = new Date();
     mockNotesList.mockResolvedValue([makeNote('n1', 'convert me', now, true)]);
     mockTodosList.mockResolvedValue([]);
@@ -207,6 +207,7 @@ describe('RecentDrops in Mind Drop', () => {
     const card = await screen.findByTestId('minddrop-recent-note-n1');
     expect(within(card).getByText('note')).toBeTruthy();
     expect(within(card).getByText('Unsorted')).toBeTruthy();
+    // This is an explicit button press from Recent Drops, not an auto chip.
     const convertButton = within(card).getByText('Add to To-Dos');
     fireEvent.press(convertButton);
 
@@ -248,6 +249,34 @@ describe('RecentDrops in Mind Drop', () => {
     } finally {
       (env.feature as any).canonicalTypes = originalCanonical;
     }
+  });
+
+  test('Todo due badge surfaces due_at consistently', async () => {
+    const now = new Date();
+    const dueIso = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+
+    mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([
+      {
+        id: 'todo-due-1',
+        type: 'todo',
+        name: 'Follow up email',
+        created_at: now.toISOString(),
+        due_date: dueIso,
+        due_at: dueIso,
+        origin: 'catchall',
+        tags: [],
+      } as any,
+    ]);
+
+    render(<CatchAllNotepad />);
+
+    const badge = await screen.findByTestId('minddrop-recent-todo-due-todo-due-1');
+    const badgeLabel = Array.isArray(badge.props.children)
+      ? badge.props.children.join('')
+      : badge.props.children;
+    expect(typeof badgeLabel).toBe('string');
+    expect((badgeLabel as string).toLowerCase()).toContain('due');
   });
 
   test('shows singular stats copy when exactly one item is organized today', async () => {

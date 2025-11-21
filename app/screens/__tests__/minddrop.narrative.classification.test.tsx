@@ -36,6 +36,18 @@ jest.mock('../../../providers/CortexProvider', () => ({
   }),
 }));
 
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+jest.mock('../../../lib/conversion', () => ({
+  convertUnsortedToTodo: (repo: any, noteId: string, options?: any) =>
+    mockConvertUnsortedToTodo(repo, noteId, options),
+  convertUnsortedToHabit: (repo: any, noteId: string, options?: any) =>
+    mockConvertUnsortedToHabit(repo, noteId, options),
+  convertUnsortedToLog: (repo: any, noteId: string, options?: any) =>
+    mockConvertUnsortedToLog(repo, noteId, options),
+}));
+
 const mockShowActionToast = jest.fn();
 jest.mock('../../../src/hooks/useActionToast', () => ({
   useActionToast: () => ({
@@ -56,6 +68,30 @@ describe('Mind Drop Narrative Classification', () => {
     }));
     mockRepo.update.mockResolvedValue(null);
     mockRepo.remove.mockResolvedValue(undefined);
+
+    // Phase 4A conversion helper mocks
+    mockRepo.getById.mockImplementation(async (id: string) => ({
+      id,
+      type: 'note',
+      created_at: new Date().toISOString(),
+      labels: [],
+    }));
+
+    mockConvertUnsortedToTodo.mockImplementation(
+      async (repo: any, noteId: string, options?: any) => {
+        const note = await repo.getById(noteId);
+        const todo = await repo.create({
+          type: 'todo',
+          title: options?.title || 'Converted todo',
+          created_at: new Date().toISOString(),
+        });
+        await repo.update({
+          id: noteId,
+          patch: { labels: ['archived'] },
+        });
+        return { todo, updatedNote: { ...note, labels: ['archived'] } };
+      },
+    );
   });
 
   it('narrative journal text does NOT produce todo classification', async () => {
@@ -127,13 +163,16 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
+    // Phase 4A: Should have created unsorted note + todo
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalled();
+      expect(mockRepo.create).toHaveBeenCalledTimes(2);
     });
 
-    // Verify created as todo
-    const createCall = mockRepo.create.mock.calls[0][0];
-    expect(createCall.type).toBe('todo');
+    // Verify created as todo (second create call)
+    const createCalls = mockRepo.create.mock.calls;
+    const todoCall = createCalls.find((call) => call[0].type === 'todo');
+    expect(todoCall).toBeDefined();
+    expect(todoCall[0].type).toBe('todo');
 
     // Timing chips SHOULD appear for non-urgent high-confidence todo
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });
@@ -247,13 +286,16 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
+    // Phase 4A: Should have created unsorted note + todo
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalled();
+      expect(mockRepo.create).toHaveBeenCalledTimes(2);
     });
 
-    // Verify todo creation
-    const createCall = mockRepo.create.mock.calls[0][0];
-    expect(createCall.type).toBe('todo');
+    // Verify todo creation (second create call)
+    const createCalls = mockRepo.create.mock.calls;
+    const todoCall = createCalls.find((call) => call[0].type === 'todo');
+    expect(todoCall).toBeDefined();
+    expect(todoCall[0].type).toBe('todo');
 
     // Timing chips should appear
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });

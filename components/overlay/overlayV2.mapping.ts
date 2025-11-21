@@ -160,6 +160,77 @@ function normalizeCandidate(raw: string): string | null {
   return null;
 }
 
+/**
+ * Booking appointment words that indicate "book" is a verb, not a tag-worthy noun.
+ * Used to filter out #book tags from Mind Drop todos that start with "Book [appointment]".
+ */
+const BOOKING_APPOINTMENT_WORDS = new Set([
+  'doctor',
+  'dentist',
+  'haircut',
+  'flight',
+  'table',
+  'appointment',
+  'reservation',
+  'tickets',
+  'ticket',
+  'hotel',
+  'room',
+  'car',
+  'massage',
+  'spa',
+  'consultation',
+  'meeting',
+  'call',
+  'slot',
+  'time',
+]);
+
+/**
+ * Filter Mind Drop todo tags with "Book" heuristic.
+ * If the text starts with "Book " followed by appointment words (doctor, dentist, etc.),
+ * strip the "book" tag but keep meaningful tags like #appointment, #doctor, or weekday tags.
+ *
+ * Example:
+ * - Text: "Book doctor appointment tomorrow"
+ * - Tags: ['book', 'doctor', 'appointment', 'tomorrow']
+ * - Result: ['doctor', 'appointment', 'tomorrow'] (removed 'book')
+ */
+export function filterMindDropTodoTags(text: string, tags: string[]): string[] {
+  const textLower = text.trim().toLowerCase();
+
+  // Check if text starts with "book " or "book a/an/the "
+  const startsWithBook =
+    textLower.startsWith('book ') ||
+    textLower.startsWith('book a ') ||
+    textLower.startsWith('book an ') ||
+    textLower.startsWith('book the ');
+
+  if (!startsWithBook) {
+    return tags; // No filtering needed
+  }
+
+  // Extract the word after "book" (skip articles)
+  const afterBook = textLower
+    .replace(/^book\s+(a|an|the)\s+/, 'book ')
+    .replace(/^book\s+/, '')
+    .split(/\s+/)[0];
+
+  // Check if it's a booking appointment word
+  if (afterBook && BOOKING_APPOINTMENT_WORDS.has(afterBook)) {
+    // Filter out "book" tag, keep everything else
+    return tags.filter((tag) => {
+      const normalized = tag
+        .trim()
+        .toLowerCase()
+        .replace(/^[#@*]/, '');
+      return normalized !== 'book';
+    });
+  }
+
+  return tags; // No filtering if not an appointment booking
+}
+
 export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
@@ -211,6 +282,26 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
         add(`@${baseCandidate}`);
         continue;
       }
+
+      const namePattern = new RegExp(
+        `(^|[^a-z0-9_])${escapeRegExp(baseCandidate)}($|[^a-z0-9_])`,
+        'i',
+      );
+      if (namePattern.test(text)) {
+        const matches = text
+          ? (text.match(new RegExp(`\\b${escapeRegExp(baseCandidate)}\\b`, 'gi')) ?? [])
+          : [];
+        const hasProperCasing = matches.some(
+          (token) => token && token[0] === token[0].toUpperCase(),
+        );
+        const tagIsLikelyPerson =
+          raw.startsWith('#') || raw.startsWith('@') || !ALLOWED_TAGS.has(baseCandidate);
+        if (hasProperCasing && tagIsLikelyPerson) {
+          // console.debug('[sanitizeSuggestedTags] promoting person mention', { raw, baseCandidate, text });
+          add(`@${baseCandidate}`);
+          continue;
+        }
+      }
     }
 
     const normalized = normalizeCandidate(raw);
@@ -220,7 +311,12 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
   return result;
 }
 
-export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdProp: string | null) {
+export function toCreateOrUpdateInput(
+  baseType: BaseType,
+  s: V2State,
+  spaceIdProp: string | null,
+  existingEntity?: any,
+) {
   const textForTags = (() => {
     const logText = `${s.log.title ?? ''}\n${s.log.body ?? ''}`;
     if (baseType === 'log') return logText;
@@ -273,10 +369,20 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
           return normalized !== 'journal';
         });
 
+  // Preserve existing views and tags_meta if available
+  const preservedViews = existingEntity?.views ?? {};
+  const existingTagsMeta = existingEntity?.tags_meta ?? { sticky: [], tombstones: [] };
+
+  // Only override tags_meta if we have new sticky/tombstone data, otherwise preserve existing
   const tagsMeta = {
-    sticky: normalizedStickyMeta,
-    tombstones: normalizedTombstonesMeta,
+    sticky:
+      normalizedStickyMeta.length > 0 ? normalizedStickyMeta : (existingTagsMeta.sticky ?? []),
+    tombstones:
+      normalizedTombstonesMeta.length > 0
+        ? normalizedTombstonesMeta
+        : (existingTagsMeta.tombstones ?? []),
   };
+
   if (baseType === 'todo') {
     const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
     const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
@@ -290,6 +396,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       origin: 'catchall' as const,
       tags: [...tagsForSave],
       tags_meta: tagsMeta,
+      views: preservedViews,
     };
   }
   if (baseType === 'habit') {
@@ -302,6 +409,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
       origin: 'catchall' as const,
       tags: [...tagsForSave],
       tags_meta: tagsMeta,
+      views: preservedViews,
     };
   }
 
@@ -315,6 +423,7 @@ export function toCreateOrUpdateInput(baseType: BaseType, s: V2State, spaceIdPro
     origin: 'catchall' as const,
     tags: [...tagsForSave],
     tags_meta: tagsMeta,
+    views: preservedViews,
   };
 
   const moodPatch = sanitized.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };

@@ -152,6 +152,33 @@ jest.mock('expo-blur', () => ({
   BlurView: 'BlurView',
 }));
 
+// Mock expo-image-picker
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: jest.fn(() =>
+    Promise.resolve({
+      cancelled: true,
+      assets: [],
+    }),
+  ),
+  launchCameraAsync: jest.fn(() =>
+    Promise.resolve({
+      cancelled: true,
+      assets: [],
+    }),
+  ),
+  requestMediaLibraryPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' }),
+  ),
+  requestCameraPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' }),
+  ),
+  MediaTypeOptions: {
+    All: 'All',
+    Videos: 'Videos',
+    Images: 'Images',
+  },
+}));
+
 // Mock actions sheet globally to avoid pulling in gesture-handler/reanimated internals during tests
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 jest.mock('react-native-actions-sheet', () => ({

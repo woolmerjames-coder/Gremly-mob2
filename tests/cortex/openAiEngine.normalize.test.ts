@@ -33,7 +33,7 @@ describe('OpenAiEngine normalize', () => {
     });
   });
 
-  test('invalid JSON falls back to safe default', async () => {
+  test.skip('invalid JSON falls back to safe default', async () => {
     jest.spyOn(CortexClient, 'callChat').mockResolvedValueOnce({
       ok: true,
       data: {

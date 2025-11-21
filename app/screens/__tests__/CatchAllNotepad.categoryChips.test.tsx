@@ -19,12 +19,22 @@ const mockRepo = {
   findNoteBySourceMessageId: jest.fn(),
 };
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    rpc: jest.fn(),
+  },
+}));
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { supabase } = require('../../../lib/supabase/client');
+const mockSupabaseRpc = supabase.rpc as jest.Mock;
+
 jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'test-user-123' } }),
+  useAuth: () => ({ user: { id: 'test-user-123' }, userId: 'test-user-123' }),
 }));
 
 jest.mock('@react-navigation/native', () => {
@@ -77,8 +87,14 @@ describe('CatchAllNotepad - Category Chips', () => {
       const record = {
         id: `record-${Date.now()}-${Math.random()}`,
         ...input,
+        dropId: input?.dropId ?? '11111111-1111-1111-1111-111111111111',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        drop_id:
+          typeof input?.dropId === 'string' ? input.dropId : '11111111-1111-1111-1111-111111111111',
+        source_message_id:
+          typeof input?.sourceMessageId === 'string' ? input.sourceMessageId : 'minddrop-test-id',
+        sourceMessageId: input?.sourceMessageId ?? 'minddrop-test-id',
       };
       createdRecords.push(record);
       return Promise.resolve(record);
@@ -103,6 +119,14 @@ describe('CatchAllNotepad - Category Chips', () => {
 
     mockRepo.remove.mockResolvedValue(undefined);
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
+
+    mockSupabaseRpc.mockReset();
+    mockSupabaseRpc.mockResolvedValue({ data: 'todo-123', error: null });
+    process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+  });
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
   });
 
   const waitForSubmitEnabled = async (button: ButtonNode) => {
@@ -182,22 +206,43 @@ describe('CatchAllNotepad - Category Chips', () => {
     const todoChip = getByText('Add to To-Do List');
     fireEvent.press(todoChip);
 
-    const overlay = useGlobalOverlay();
-    const openCreate = overlay.openCreate as jest.Mock;
+    // Wait for conversion: should create todo + archive original note
+    await waitFor(
+      () => {
+        const createCalls = mockRepo.create.mock.calls;
+        expect(createCalls.length).toBeGreaterThanOrEqual(2);
+        const todoCreate = createCalls.find((call: any) => call[0].type === 'todo');
+        expect(todoCreate).toBeDefined();
+      },
+      { timeout: 4000 },
+    );
 
-    await waitFor(() => {
-      expect(openCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          initialEntity: expect.objectContaining({ type: 'todo' }),
-          initialText: 'Maybe schedule meeting',
-        }),
-      );
+    // Verify todo was created
+    const todoCreateCall = mockRepo.create.mock.calls.find((call: any) => call[0].type === 'todo');
+    expect(todoCreateCall[0]).toMatchObject({
+      type: 'todo',
+      origin: 'catchall',
     });
 
-    expect(mockRepo.update).not.toHaveBeenCalled();
-    expect(createdRecords.length).toBe(1);
-    expect(createdRecords[0].type).toBe('note');
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    const overlay = useGlobalOverlay();
+    expect((overlay.openCreate as jest.Mock).mock.calls.length).toBe(0);
+    expect(mockShowActionToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'success',
+        content: 'Converted to To-Do ✓',
+      }),
+    );
+
+    // Verify original note was archived during conversion
+    expect(mockRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        patch: expect.objectContaining({
+          archived: true,
+        }),
+      }),
+    );
+    // Only one note initially created (unsorted), then converted to todo
+    expect(mockRepo.create).toHaveBeenCalledTimes(2); // unsorted + todo
   });
 
   it('confirms as log without creating duplicate when "Just Save It" is selected', async () => {
@@ -239,7 +284,9 @@ describe('CatchAllNotepad - Category Chips', () => {
       expect(createdRecords.length).toBe(1);
       expect(createdRecords[0].type).toBe('note');
       expect(createdRecords[0].archived).toBe(false);
-      expect(createdRecords[0].why_string).toContain('Confirmed as log via category chip');
+      // New lineage format: "... | origin:ID;source:TYPE"
+      expect(createdRecords[0].why_string).toContain('origin:');
+      expect(createdRecords[0].why_string).toContain('source:log_confirmation');
 
       // Verify no duplicate
       expect(mockRepo.create).toHaveBeenCalledTimes(1);

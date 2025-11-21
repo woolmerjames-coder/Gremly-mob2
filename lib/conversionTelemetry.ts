@@ -1,6 +1,6 @@
 export type EventBase = {
-  from: 'log-list' | 'todo-list';
-  to: 'todo' | 'log';
+  from: 'log-list' | 'todo-list' | 'unsorted';
+  to: 'todo' | 'log' | 'habit';
   originId: string;
   createdId?: string;
   ok?: boolean;

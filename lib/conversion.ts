@@ -1,10 +1,14 @@
 import type { CreateRecordInput, IRepo } from './repo/IRepo';
-import type { Note, Todo } from './types';
+import type { Note, Todo, Habit } from './types';
 import {
   logConversionStart,
   logConversionSuccess,
   logConversionError,
 } from './conversionTelemetry';
+import { buildMindDropDerivedFields } from './minddrop/minddropShared';
+import { backgroundPrefill } from './minddrop/backgroundPrefill';
+import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
+import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
 
 type LineageMeta = {
   originId: string;
@@ -214,6 +218,309 @@ export const convertTodoToLogList = async (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logConversionError({ from: 'todo-list', to: 'log', originId: todoId, error: message });
+    throw error;
+  }
+};
+
+/**
+ * Converts an unsorted note (catchall) to a first-class todo.
+ * Creates a new todo record and marks the original note as archived.
+ *
+ * @param repo - Repository instance
+ * @param noteId - ID of the unsorted note to convert
+ * @param options - Conversion options (due date, name override)
+ * @returns Object containing the created todo and updated note
+ */
+export const convertUnsortedToTodo = async (
+  repo: IRepo,
+  noteId: string,
+  options: { due?: string | null; nameOverride?: string } = {},
+): Promise<{ todo: Todo; updatedNote: Note }> => {
+  logConversionStart({ from: 'unsorted', to: 'todo', originId: noteId });
+
+  try {
+    const record = await repo.getById(noteId);
+    if (!record || record.type !== 'note') {
+      throw new Error(`Note ${noteId} not found`);
+    }
+
+    const note = record as Note;
+
+    // Derive todo name from note: prefer body (Mind Drop text), then title
+    const rawText = note.body ?? note.title ?? '';
+
+    // Use shared Mind Drop helper for consistent tag cleaning
+    const derived = await buildMindDropDerivedFields('todo', {
+      rawText,
+      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
+    });
+
+    // Create a short, clean title using the normalization helper
+    // This will be the initial title (BackgroundPrefill may refine it later with AI)
+    const todoName = options.nameOverride ?? normalizeTodoTitle(rawText);
+    const due = options.due ?? null;
+
+    // Preserve the original full Mind Drop text in body field
+    // This ensures the overlay shows the complete original text, not just the short title
+    const todoBody = note.body ?? note.title ?? undefined;
+
+    // Filter labels: remove catchall/needs_review, add todo
+    const originalLabels = note.labels ?? [];
+    const filteredLabels = originalLabels.filter(
+      (l: string) => l !== 'needs_review' && l !== 'catchall',
+    );
+    const todoLabels = Array.from(new Set([...filteredLabels, 'todo']));
+
+    const todoWhy = appendLineageToWhyString(note.why_string, {
+      originId: note.id,
+      source: 'unsorted',
+    });
+
+    const todoInput: CreateRecordInput = {
+      type: 'todo',
+      name: todoName,
+      due_date: due,
+      undefined_due: !due,
+      body: todoBody, // Preserve full Mind Drop text in body field
+      space_id: note.space_id ?? null,
+      ai_placed: !!note.ai_placed,
+      why_string: todoWhy ?? 'Confirmed as todo via category chip',
+      origin: note.origin ?? 'catchall',
+      canonicalType: 'todo',
+      labels: todoLabels,
+      tags: derived.tags, // Use cleaned tags from shared helper
+      tags_meta: note.tags_meta,
+      views: note.views,
+      dropId: (note as any).drop_id,
+    };
+
+    const createdTodo = (await repo.create(todoInput)) as Todo;
+
+    // Run background AI prefill for title + tags enrichment
+    void backgroundPrefill(createdTodo, rawText);
+
+    const noteWhy = appendLineageToWhyString(note.why_string, {
+      originId: createdTodo.id,
+      source: 'todo',
+    });
+
+    const updatedNote = (await repo.update({
+      id: note.id,
+      patch: {
+        archived: true,
+        why_string: noteWhy,
+      },
+    })) as Note;
+
+    logConversionSuccess({
+      from: 'unsorted',
+      to: 'todo',
+      originId: note.id,
+      createdId: createdTodo.id,
+    });
+
+    return { todo: createdTodo, updatedNote };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logConversionError({ from: 'unsorted', to: 'todo', originId: noteId, error: message });
+    throw error;
+  }
+};
+
+/**
+ * Convert an unsorted note to a log (journal, idea, list, etc.)
+ * Updates the note in place to promote it to a canonical log subtype.
+ *
+ * Uses AI classification to determine the best subtype unless manually overridden.
+ *
+ * @param repo - Repository instance
+ * @param noteId - ID of the unsorted note to convert
+ * @param options - Conversion options (subtype override, skip AI classification)
+ * @returns Updated note
+ */
+export const convertUnsortedToLog = async (
+  repo: IRepo,
+  noteId: string,
+  options: {
+    subtype?: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+    skipAI?: boolean; // For photo-only logs or manual override cases
+  } = {},
+): Promise<{ note: Note }> => {
+  logConversionStart({ from: 'unsorted', to: 'log', originId: noteId });
+
+  try {
+    const record = await repo.getById(noteId);
+    if (!record || record.type !== 'note') {
+      throw new Error(`Note ${noteId} not found`);
+    }
+
+    const note = record as Note;
+
+    // Determine subtype: manual override > AI classification > fallback to 'journal'
+    let targetSubtype: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+
+    if (options.subtype) {
+      // Manual override provided
+      targetSubtype = options.subtype;
+    } else if (options.skipAI) {
+      // Skip AI (e.g., photo-only logs) - use fallback
+      targetSubtype = 'plain';
+    } else {
+      // Use AI classification
+      const rawText = note.body ?? note.title ?? '';
+      try {
+        targetSubtype = await getEffectiveLogSubtype(rawText);
+      } catch (err) {
+        console.warn(
+          '[convertUnsortedToLog] AI subtype classification failed, using fallback',
+          err,
+        );
+        targetSubtype = 'journal'; // Fallback to journal on AI failure
+      }
+    }
+
+    // Filter labels: remove catchall and needs_review, add log
+    const originalLabels = note.labels ?? [];
+    const filteredLabels = originalLabels.filter(
+      (l: string) => l !== 'needs_review' && l !== 'catchall',
+    );
+    const logLabels = Array.from(new Set([...filteredLabels, 'log']));
+
+    const whyUpdate = appendLineageToWhyString(note.why_string, {
+      originId: note.id,
+      source: 'log_confirmation',
+    });
+
+    // Convert 'plain' to null for database (plain means no specific subtype)
+    const subtypeForDb = targetSubtype === 'plain' ? null : targetSubtype;
+
+    const updatedNote = (await repo.update({
+      id: note.id,
+      patch: {
+        archived: false,
+        ai_placed: true,
+        subtype: subtypeForDb,
+        canonicalType: 'log',
+        labels: logLabels,
+        why_string: whyUpdate,
+      },
+    })) as Note;
+
+    // Run background AI prefill for title + tags enrichment
+    const rawText = note.body ?? note.title ?? '';
+    void backgroundPrefill(updatedNote, rawText);
+
+    logConversionSuccess({
+      from: 'unsorted',
+      to: 'log',
+      originId: note.id,
+      createdId: updatedNote.id,
+    });
+
+    return { note: updatedNote };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logConversionError({ from: 'unsorted', to: 'log', originId: noteId, error: message });
+    throw error;
+  }
+};
+
+/**
+ * Converts an unsorted note (catchall) to a first-class habit.
+ * Creates a new habit record and marks the original note as archived.
+ *
+ * @param repo - Repository instance
+ * @param noteId - ID of the unsorted note to convert
+ * @param options - Conversion options (frequency, name override)
+ * @returns Object containing the created habit and updated note
+ */
+export const convertUnsortedToHabit = async (
+  repo: IRepo,
+  noteId: string,
+  options: { frequency?: string; nameOverride?: string } = {},
+): Promise<{ habit: Habit; updatedNote: Note }> => {
+  logConversionStart({ from: 'unsorted', to: 'habit', originId: noteId });
+
+  try {
+    const record = await repo.getById(noteId);
+    if (!record || record.type !== 'note') {
+      throw new Error(`Note ${noteId} not found`);
+    }
+
+    const note = record as Note;
+
+    // Derive habit name from note: prefer body (Mind Drop text), then title
+    const rawText = note.body ?? note.title ?? '';
+
+    // Use shared Mind Drop helper for consistent tag cleaning
+    const derived = await buildMindDropDerivedFields('habit', {
+      rawText,
+      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
+    });
+
+    // For conversion, use nameOverride or extract first line (unlike direct Mind Drop creation which can use full text)
+    const firstLine = rawText.split('\n')[0].trim().slice(0, 80);
+    const habitName = options.nameOverride ?? (firstLine || 'New habit');
+    const frequency = options.frequency ?? 'daily';
+
+    // Filter labels: remove catchall/needs_review, add habit
+    const originalLabels = note.labels ?? [];
+    const filteredLabels = originalLabels.filter(
+      (l: string) => l !== 'needs_review' && l !== 'catchall',
+    );
+    const habitLabels = Array.from(new Set([...filteredLabels, 'habit']));
+
+    const habitWhy = appendLineageToWhyString(note.why_string, {
+      originId: note.id,
+      source: 'unsorted',
+    });
+
+    const habitInput: CreateRecordInput = {
+      type: 'habit',
+      name: habitName,
+      frequency,
+      notes: derived.notes, // Preserve full Mind Drop text in notes field using shared helper
+      space_id: note.space_id ?? null,
+      ai_placed: !!note.ai_placed,
+      why_string: habitWhy ?? 'Confirmed as habit via category chip',
+      origin: note.origin ?? 'catchall',
+      canonicalType: 'habit',
+      labels: habitLabels,
+      tags: derived.tags, // Use cleaned tags from shared helper
+      tags_meta: note.tags_meta,
+      views: note.views,
+      dropId: (note as any).drop_id,
+    };
+
+    const createdHabit = (await repo.create(habitInput)) as Habit;
+
+    // Run background AI prefill for title + tags enrichment
+    void backgroundPrefill(createdHabit, rawText);
+
+    const noteWhy = appendLineageToWhyString(note.why_string, {
+      originId: createdHabit.id,
+      source: 'habit',
+    });
+
+    const updatedNote = (await repo.update({
+      id: note.id,
+      patch: {
+        archived: true,
+        why_string: noteWhy,
+      },
+    })) as Note;
+
+    logConversionSuccess({
+      from: 'unsorted',
+      to: 'habit',
+      originId: note.id,
+      createdId: createdHabit.id,
+    });
+
+    return { habit: createdHabit, updatedNote };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logConversionError({ from: 'unsorted', to: 'habit', originId: noteId, error: message });
     throw error;
   }
 };

@@ -3,11 +3,12 @@
 -- Run this in Supabase SQL Editor BEFORE running supabase db push
 -- ============================================
 
--- PATCH 1: Add due_time to todos
+-- PATCH 1: Add due_time to todos (HH:mm text format, not timestamptz)
 ALTER TABLE IF EXISTS public.todos
-  ADD COLUMN IF NOT EXISTS due_time TIMESTAMPTZ NULL;
+  ADD COLUMN IF NOT EXISTS due_time TEXT NULL 
+  CHECK (due_time ~ '^\d{2}:\d{2}$');
 
-COMMENT ON COLUMN public.todos.due_time IS 'Optional due date/time for to-do reminders';
+COMMENT ON COLUMN public.todos.due_time IS 'Optional due time in HH:mm format (e.g., "09:00", "14:30")';
 
 -- PATCH 2: Fix people backfill
 ALTER TABLE IF EXISTS public.people

@@ -363,11 +363,23 @@ export const OverlayHost = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const overlay = useGlobalOverlay();
   const {
-    state: { visible, mode, initialEntity, initialSpaceId, conversionMeta, initialText },
+    state: {
+      visible,
+      mode,
+      initialEntity,
+      initialSpaceId,
+      conversionMeta,
+      initialText,
+      initialLogPhotoUris,
+    },
     close,
   } = overlay;
 
   const canTapOutsideToClose = (overlay.state as any)?.canTapOutsideToClose ?? false;
+
+  // Extract full entity for edit mode pre-fill
+  const fullEntity = (overlay.state as any).entity ?? null;
+  const effectiveInitialEntity = fullEntity || initialEntity;
 
   const handleClose = React.useCallback(() => {
     if (!visible) return;
@@ -409,17 +421,18 @@ export const OverlayHost = () => {
               right: 0,
               bottom: 0,
               left: 0,
-              backgroundColor: 'transparent',
+              backgroundColor: 'rgba(0,0,0,0.55)', // Phase 6a: Darker scrim (50-60% black)
             }}
           />
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
             <OverlayComponent
               visible={visible}
               mode={mode}
-              initialEntity={initialEntity}
+              initialEntity={effectiveInitialEntity}
               initialSpaceId={initialSpaceId}
               conversionMeta={conversionMeta}
               initialText={initialText ?? undefined}
+              initialLogPhotoUris={initialLogPhotoUris}
               onClose={handleClose}
               onSaved={handleSaved}
             />

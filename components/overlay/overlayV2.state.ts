@@ -4,19 +4,61 @@ export type BaseType = 'log' | 'todo' | 'habit';
 
 export type TagKey = string;
 
-export type LogState = { body: string; title: string };
+export type LogKind = 'journal' | 'idea' | 'list' | 'basic';
+
+export type LogState = { body: string; title: string; kind: LogKind; private: boolean };
+
+/**
+ * Classify log kind based on content heuristics.
+ * Looks at first ~200 chars for emotional/reflective language (journal),
+ * speculative language (idea), or list-like formatting (list).
+ */
+export function classifyLogKind(raw: string): LogKind {
+  const text = (raw || '').toLowerCase();
+  const firstChunk = text.slice(0, 200);
+
+  // Journal detection – emotional / reflective language
+  const isJournal =
+    /\b(i feel|i'm feeling|feeling|today\b|tonight\b|this morning\b|this evening\b|i am\b|i was\b)/.test(
+      firstChunk,
+    );
+
+  // Idea detection – speculative / "what if" language
+  const isIdea = /\b(idea\b|what if\b|maybe we could\b|could we\b|we should\b|brainstorm\b)/.test(
+    firstChunk,
+  );
+
+  // List detection – multiple short lines starting with bullets / numbers
+  const lines = firstChunk.split(/\r?\n/);
+  const listLikeLines = lines.filter((line) => /^\s*([-*]|\d+\.)\s+/.test(line));
+  const isList = listLikeLines.length >= 2;
+
+  if (isList) return 'list';
+  if (isJournal) return 'journal';
+  if (isIdea) return 'idea';
+  return 'basic';
+}
+
 export type TodoState = { title: string; details: string; due_at?: string | null };
-export type HabitState = { title: string; notes: string; schedule?: 'daily' | 'weekly' | 'custom' };
+export type HabitState = {
+  title: string;
+  notes: string;
+  schedule?: 'daily' | 'weekly' | 'custom';
+  frequency_json?: any; // Structured frequency configuration
+  subtype?: 'start_habit' | 'break_habit' | 'routine'; // Habit mode
+};
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
+export type MoodValue = 'pos' | 'neu' | 'neg';
+export type LogSubtypeOverride = 'journal' | 'list' | 'reference' | 'idea' | 'plain' | null;
 
 export type V2State = {
   baseType: BaseType;
   tags: TagKey[];
   stickyTags: TagKey[];
   tagTombstones: TagKey[];
-  mood?: 'pos' | 'neu' | 'neg' | null;
+  mood?: MoodValue | null;
   list?: { items: { id: string; text: string; checked: boolean }[] } | null;
   detected: { mentions: string[]; dates: string[] };
   // Phase 4 additions
@@ -37,6 +79,10 @@ export type V2State = {
   habit: HabitState;
   // undo stack for lightweight UI-only undos (Phase 9 QA pack)
   undoStack?: Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> }>;
+  // Phase L8: Manual log subtype override
+  logSubtypeOverride: LogSubtypeOverride;
+  // Phase L9: Private flag for journal logs (persisted via views.private_journal)
+  logIsPrivate: boolean;
 };
 
 export const initialV2State: V2State = {
@@ -58,23 +104,29 @@ export const initialV2State: V2State = {
   compactTitle: '',
   compactTitleSource: '',
   userEditedTitle: false,
-  log: { title: '', body: '' },
+  log: { title: '', body: '', kind: 'basic', private: false },
   todo: { title: '', details: '', due_at: null },
-  habit: { title: '', notes: '', schedule: 'custom' },
+  habit: { title: '', notes: '', schedule: 'custom', subtype: 'start_habit' },
   undoStack: [],
+  logSubtypeOverride: null, // Phase L8: Manual log subtype override
+  logIsPrivate: false, // Phase L9: Private flag for journal logs
 };
 
 type Action =
   | { type: 'SET_BASE_TYPE'; to: BaseType }
   | { type: 'SET_TEXT'; text: string } // applies to current type
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
-  | { type: 'SET_TITLE'; title: string }
+  | { type: 'SET_TITLE'; title: string; force?: boolean } // force=true bypasses userEditedTitle guard
+  | { type: 'SET_COMPACT_TITLE'; title: string }
   | { type: 'SET_TODO_DUE'; due_at: string | null }
+  | { type: 'SET_HABIT_FREQUENCY'; frequency_json: any }
+  | { type: 'SET_HABIT_SUBTYPE'; subtype: 'start_habit' | 'break_habit' | 'routine' }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
   | { type: 'TOGGLE_TAG'; tag: TagKey }
-  | { type: 'SET_MOOD'; mood: 'pos' | 'neu' | 'neg' | null }
+  | { type: 'ADD_TAG'; tag: TagKey }
+  | { type: 'SET_MOOD'; mood: MoodValue | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
   | { type: 'TOGGLE_LIST_ITEM'; id: string; checked: boolean }
   | { type: 'SET_DETECTED'; mentions: string[]; dates: string[] }
@@ -83,6 +135,9 @@ type Action =
   | { type: 'SET_PERSON'; person: PersonLink }
   | { type: 'SET_FORMAT'; fmt: FormatKind }
   | { type: 'SET_REMINDER'; when: string | null }
+  | { type: 'TOGGLE_LOG_PRIVATE' }
+  | { type: 'SET_LOG_SUBTYPE_OVERRIDE'; value: LogSubtypeOverride }
+  | { type: 'SET_LOG_IS_PRIVATE'; value: boolean }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
   | { type: 'UNDO_LAST' };
 
@@ -110,7 +165,9 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       const currentText = currentTextOf(state);
       let next: V2State = { ...state, baseType: action.to };
       if (action.to === 'log' && !next.log.body) {
-        next = { ...next, log: { ...next.log, body: currentText } };
+        const nextBody = currentText;
+        const nextKind = classifyLogKind(nextBody);
+        next = { ...next, log: { ...next.log, body: nextBody, kind: nextKind } };
       } else if (action.to === 'todo' && !next.todo.details) {
         next = { ...next, todo: { ...next.todo, details: currentText } };
       } else if (action.to === 'habit' && !next.habit.notes) {
@@ -128,6 +185,14 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       const nextTags = hasTag
         ? state.tags.filter((t) => t !== action.tag)
         : [...state.tags, action.tag];
+      const { list, mood } = deriveTagSideEffects(state, nextTags);
+      return { ...state, tags: nextTags, list, mood };
+    }
+    case 'ADD_TAG': {
+      // Add tag if not already present
+      const hasTag = state.tags.includes(action.tag);
+      if (hasTag) return state;
+      const nextTags = [...state.tags, action.tag];
       const { list, mood } = deriveTagSideEffects(state, nextTags);
       return { ...state, tags: nextTags, list, mood };
     }
@@ -152,7 +217,21 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       const text = action.text ?? '';
       const trimmed = text.trim();
       let next = setTextForCurrent(state, text);
-      next = syncCompactTitle(next, [text]);
+
+      // For todos: SET_TEXT only updates details, NOT title
+      // Title is only updated via SET_TITLE/SET_COMPACT_TITLE or HYDRATE_EDIT
+      // For logs/habits: syncCompactTitle derives title from body/notes ONLY if no title exists yet
+      // Once a title is set (via AI, hydration, or manual edit), preserve it
+      const hasExistingTitle =
+        state.baseType === 'log'
+          ? state.log.title.trim().length > 0
+          : state.baseType === 'habit'
+            ? state.habit.title.trim().length > 0
+            : false;
+
+      if (state.baseType !== 'todo' && !hasExistingTitle) {
+        next = syncCompactTitle(next, [text]);
+      }
 
       const prevList = next.list;
       let list = next.list;
@@ -177,14 +256,31 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_TITLE': {
-      if (state.userEditedTitle) {
+      // Allow forcing title update (for AI-generated titles) even if user has edited text
+      if (state.userEditedTitle && !action.force) {
         return state;
       }
       let next: V2State;
       if (state.baseType === 'log') next = { ...state, log: { ...state.log, title: action.title } };
-      else if (state.baseType === 'todo')
+      else if (state.baseType === 'todo') {
+        if (__DEV__) {
+          console.log('[overlayV2.reducer] SET_TITLE for todo', {
+            newTitle: action.title,
+            force: action.force,
+            userEditedTitle: state.userEditedTitle,
+            currentDetails: state.todo.details,
+            currentTitle: state.todo.title,
+          });
+        }
         next = { ...state, todo: { ...state.todo, title: action.title } };
-      else next = { ...state, habit: { ...state.habit, title: action.title } };
+        if (__DEV__) {
+          console.log('[overlayV2.reducer] SET_TITLE result', {
+            resultTitle: next.todo.title,
+            resultDetails: next.todo.details,
+            detailsPreserved: next.todo.details === state.todo.details,
+          });
+        }
+      } else next = { ...state, habit: { ...state.habit, title: action.title } };
 
       // Use the title as-is for compactTitle without running through compacting logic
       return {
@@ -194,8 +290,18 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         userEditedTitle: false,
       };
     }
+    case 'SET_COMPACT_TITLE': {
+      return {
+        ...state,
+        compactTitle: action.title,
+      };
+    }
     case 'SET_TODO_DUE':
       return { ...state, todo: { ...state.todo, due_at: action.due_at } };
+    case 'SET_HABIT_FREQUENCY':
+      return { ...state, habit: { ...state.habit, frequency_json: action.frequency_json } };
+    case 'SET_HABIT_SUBTYPE':
+      return { ...state, habit: { ...state.habit, subtype: action.subtype } };
     case 'TOGGLE_COMMITMENT': {
       const turningOn = !state.commitment;
       // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.
@@ -212,7 +318,21 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, commitmentNote: action.note };
     case 'HYDRATE_EDIT': {
       const merged = { ...state, ...action.payload } as V2State;
-      const hydrated = syncCompactTitle(merged, [
+
+      // If hydrating a log and kind is not explicitly provided, classify it from body
+      let finalMerged = merged;
+      if (merged.baseType === 'log' && merged.log) {
+        const hasExplicitKind = action.payload?.log && 'kind' in action.payload.log;
+        if (!hasExplicitKind) {
+          const classifiedKind = classifyLogKind(merged.log.body || '');
+          finalMerged = {
+            ...merged,
+            log: { ...merged.log, kind: classifiedKind },
+          };
+        }
+      }
+
+      const hydrated = syncCompactTitle(finalMerged, [
         action.payload?.compactTitle,
         action.payload?.compactTitleSource,
       ]);
@@ -229,6 +349,12 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, format: action.fmt };
     case 'SET_REMINDER':
       return { ...state, reminderAt: action.when };
+    case 'TOGGLE_LOG_PRIVATE':
+      return { ...state, log: { ...state.log, private: !state.log.private } };
+    case 'SET_LOG_SUBTYPE_OVERRIDE':
+      return { ...state, logSubtypeOverride: action.value };
+    case 'SET_LOG_IS_PRIVATE':
+      return { ...state, logIsPrivate: action.value };
     default:
       return state;
   }
@@ -243,7 +369,10 @@ function currentTextOf(s: V2State) {
   return s.baseType === 'log' ? s.log.body : s.baseType === 'todo' ? s.todo.details : s.habit.notes;
 }
 function setTextForCurrent(s: V2State, t: string): V2State {
-  if (s.baseType === 'log') return { ...s, log: { ...s.log, body: t } };
+  if (s.baseType === 'log') {
+    const nextKind = classifyLogKind(t);
+    return { ...s, log: { ...s.log, body: t, kind: nextKind } };
+  }
   if (s.baseType === 'todo') return { ...s, todo: { ...s.todo, details: t } };
   return { ...s, habit: { ...s.habit, notes: t } };
 }
@@ -307,11 +436,13 @@ function syncCompactTitle(state: V2State, priority: Array<string | null | undefi
   }
 
   if (base === 'todo') {
+    // For todos: only update compactTitle/compactTitleSource, NOT todo.title
+    // todo.title is only updated via SET_TITLE/SET_COMPACT_TITLE or HYDRATE_EDIT
     return {
       ...state,
       compactTitle: compact,
       compactTitleSource: source,
-      todo: { ...state.todo, title: compact },
+      // Preserve existing todo.title
     };
   }
 

@@ -44,6 +44,7 @@ interface OpenCreateParams {
   type?: EntityType;
   spaceId?: string | null;
   logSubtype?: LogSubtype | null;
+  suppressOverlayOpen?: boolean;
 }
 
 interface OpenEditParams {
@@ -79,9 +80,7 @@ export function useOverlayController(): OverlayController {
   const canonicalTypesOn = isFlagEnabled(process.env.EXPO_PUBLIC_CANONICAL_TYPES);
   const unifiedOverlayFlag = process.env.EXPO_PUBLIC_UNIFIED_OVERLAY;
   const useUnifiedOverlay =
-    canonicalTypesOn ||
-    isFlagEnabled(unifiedOverlayFlag) ||
-    unifiedOverlayFlag === undefined; // Default to true when unset
+    canonicalTypesOn || isFlagEnabled(unifiedOverlayFlag) || unifiedOverlayFlag === undefined; // Default to true when unset
 
   return useUnifiedOverlay ? unifiedController : legacyController;
 }
@@ -126,6 +125,9 @@ function useLegacyOverlayController(): OverlayController {
   );
 
   const openCreate = useCallback((params?: OpenCreateParams) => {
+    if (params?.suppressOverlayOpen) {
+      return;
+    }
     setState({
       visible: true,
       mode: 'create',
@@ -142,7 +144,7 @@ function useLegacyOverlayController(): OverlayController {
   const openEdit = useCallback(
     (params: OpenEditParams) => {
       const { record, spaceId } = params;
-  const { entityType, logSubtype } = resolveEntityFromRecord(record);
+      const { entityType, logSubtype } = resolveEntityFromRecord(record);
 
       setState({
         visible: true,

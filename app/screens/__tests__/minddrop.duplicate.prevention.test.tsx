@@ -9,6 +9,16 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    rpc: jest.fn(),
+  },
+}));
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { supabase } = require('../../../lib/supabase/client');
+const mockSupabaseRpc = supabase.rpc as jest.Mock;
+
 let unsortedIdCounter = 0;
 
 const mockRepo = {
@@ -97,6 +107,20 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
   }),
 }));
 
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+  };
+});
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const CatchAllNotepad = require('../CatchAllNotepad').default as React.ComponentType;
 
@@ -144,6 +168,32 @@ describe('Mind Drop - Duplicate Prevention', () => {
     jest.clearAllMocks();
     resetRepoMocks();
     resetOtherMocks();
+    mockSupabaseRpc.mockReset();
+    mockSupabaseRpc.mockResolvedValue({ data: 'todo-123', error: null });
+    process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+
+    // Setup conversion helper mocks
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('record-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || note?.title || 'Untitled',
+        body: note?.body || note?.title,
+        due_date: options?.due || null,
+        undefined_due: !options?.due,
+        labels: ['todo'],
+        tags: note?.tags || [],
+      };
+      const savedTodo = await repo.create(createdTodo);
+      await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+      return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.EXPO_PUBLIC_MINDDROP_TOASTS;
   });
 
   it('prevents duplicate unsorted notes when same text submitted twice quickly', async () => {
@@ -210,7 +260,13 @@ describe('Mind Drop - Duplicate Prevention', () => {
   });
 
   it('clears duplicate tracking after category chip action', async () => {
-    mockRepo.getById.mockResolvedValue({ id: 'unsorted-1', body: 'exercise daily' });
+    mockRepo.getById.mockResolvedValue({
+      id: 'unsorted-1',
+      body: 'exercise daily',
+      drop_id: 'a1e8f2c0-1234-4bcd-9abc-1234567890ab',
+      source_message_id: 'minddrop-test',
+      tags: ['catchall'],
+    });
     mockRepo.update.mockResolvedValue({ id: 'unsorted-1' });
 
     const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
@@ -236,11 +292,21 @@ describe('Mind Drop - Duplicate Prevention', () => {
     }
     fireEvent.press(todoChip);
 
-    await waitFor(() => expect(openCreate).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(openCreate).toHaveBeenCalledWith(
+    // Phase 4A: Check conversion helper is called instead of RPC
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalledTimes(1), {
+      timeout: 4000,
+    });
+    expect(mockConvertUnsortedToTodo).toHaveBeenCalledWith(
+      expect.anything(), // repo
+      'unsorted-1', // noteId
+      expect.objectContaining({}), // options
+    );
+
+    expect(openCreate).not.toHaveBeenCalled();
+    expect(mockShowActionToast).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: 'exercise daily',
+        type: 'success',
+        content: 'Converted to To-Do ✓',
       }),
     );
 

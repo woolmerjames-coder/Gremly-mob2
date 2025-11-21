@@ -157,6 +157,12 @@ function isJunkNormalizedTag(tag: string): boolean {
   if (!key) return true;
   if (TAG_STOP_WORDS.has(key)) return true;
 
+  // Filter out short tags (<=2 chars) unless whitelisted
+  const SHORT_TAG_WHITELIST = new Set(['tax', 'gym', 'job']);
+  if (key.length <= 2 && !SHORT_TAG_WHITELIST.has(key)) {
+    return true;
+  }
+
   const tokens = key.split(' ').filter(Boolean);
   if (tokens.length === 0) return true;
   if (tokens.some((token) => !TAG_STOP_WORDS.has(token))) {
@@ -177,6 +183,26 @@ export function filterAndNormalizeTags(input: string[]): string[] {
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
+    // Phase 1C: Strip leading symbols before validation
+    const stripped = trimmed
+      .toLowerCase()
+      .replace(/^[#*@]+/, '')
+      .trim();
+
+    // Phase 1C: Enforce stricter validation rules
+    // Min length: 3 characters
+    if (stripped.length < 3) continue;
+
+    // Max length: 20 characters
+    if (stripped.length > 20) continue;
+
+    // Pattern: must start with letter, then letters/numbers/underscores only
+    if (!/^[a-z][a-z0-9_]*$/.test(stripped)) continue;
+
+    // Check against stop words
+    if (TAG_STOP_WORDS.has(stripped)) continue;
+
+    // Now normalize the tag with proper prefix
     const { tag } = normalizeTag(trimmed);
     if (!tag) continue;
     if (isJunkNormalizedTag(tag)) continue;
@@ -184,6 +210,7 @@ export function filterAndNormalizeTags(input: string[]): string[] {
     if (tag.startsWith('@')) {
       const base = tag.slice(1).toLowerCase();
       if (!base) continue;
+      if (mentions.has(base)) continue;
       mentions.set(base, tag);
       continue;
     }

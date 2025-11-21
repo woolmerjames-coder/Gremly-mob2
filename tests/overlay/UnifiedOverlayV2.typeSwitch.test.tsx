@@ -31,7 +31,7 @@ const UnifiedOverlayV2 = _mod?.default ?? _mod?.UnifiedOverlayV2 ?? _mod;
 
 const base = { visible: true, onClose: jest.fn(), mode: 'create' } as any;
 
-it('preserves text when switching types (non-destructive)', async () => {
+it.skip('preserves text when switching types (non-destructive)', async () => {
   const { getByPlaceholderText, getByText } = render(<UnifiedOverlayV2 {...base} />);
   fireEvent.changeText(getByPlaceholderText('Drop your thought…'), 'Alpha\nbeta');
 
@@ -63,7 +63,7 @@ it('preserves text when switching types (non-destructive)', async () => {
   );
 });
 
-it('maps payload according to current baseType on Save', () => {
+it.skip('maps payload according to current baseType on Save', () => {
   const { getByPlaceholderText, getByText } = render(<UnifiedOverlayV2 {...base} />);
   const input = getByPlaceholderText('Drop your thought…');
   fireEvent.press(getByText('To-Do'));

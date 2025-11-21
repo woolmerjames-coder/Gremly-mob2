@@ -35,9 +35,8 @@ export interface Habit {
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
-  views?: {
-    alsoShowIn?: string[];
-  };
+  views?: Record<string, any>; // JSONB field for UI state (e.g., minddrop_prefilled_v1, alsoShowIn)
+  drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID; // Supabase user ID
@@ -100,10 +99,9 @@ export interface Todo {
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
-  views?: {
-    alsoShowIn?: string[];
-  };
+  views?: Record<string, any>; // JSONB field for UI state (e.g., minddrop_prefilled_v1, alsoShowIn)
   source_message_id?: string | null;
+  drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
@@ -134,10 +132,9 @@ export interface Note {
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
-  views?: {
-    alsoShowIn?: string[];
-  };
+  views?: Record<string, any>; // JSONB field for UI state (e.g., minddrop_prefilled_v1, alsoShowIn)
   source_message_id?: string | null;
+  drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   owner_id: ID;
