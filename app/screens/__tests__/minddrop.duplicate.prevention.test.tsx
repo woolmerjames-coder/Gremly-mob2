@@ -107,6 +107,20 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
   }),
 }));
 
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+  };
+});
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const CatchAllNotepad = require('../CatchAllNotepad').default as React.ComponentType;
 
@@ -157,6 +171,25 @@ describe('Mind Drop - Duplicate Prevention', () => {
     mockSupabaseRpc.mockReset();
     mockSupabaseRpc.mockResolvedValue({ data: 'todo-123', error: null });
     process.env.EXPO_PUBLIC_MINDDROP_TOASTS = 'on';
+
+    // Setup conversion helper mocks
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('record-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || note?.title || 'Untitled',
+        body: note?.body || note?.title,
+        due_date: options?.due || null,
+        undefined_due: !options?.due,
+        labels: ['todo'],
+        tags: note?.tags || [],
+      };
+      const savedTodo = await repo.create(createdTodo);
+      await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+      return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
   });
 
   afterEach(() => {
@@ -259,19 +292,14 @@ describe('Mind Drop - Duplicate Prevention', () => {
     }
     fireEvent.press(todoChip);
 
-    await waitFor(() => expect(mockSupabaseRpc).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(mockSupabaseRpc).toHaveBeenCalledWith(
-      'convert_or_create_from_drop',
-      expect.objectContaining({
-        p_owner: 'test-user',
-        p_target: 'todo',
-        p_drop_id: expect.any(String),
-        p_payload: expect.objectContaining({
-          name: 'Exercise daily',
-          body: 'exercise daily',
-          origin: 'catchall',
-        }),
-      }),
+    // Phase 4A: Check conversion helper is called instead of RPC
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalledTimes(1), {
+      timeout: 4000,
+    });
+    expect(mockConvertUnsortedToTodo).toHaveBeenCalledWith(
+      expect.anything(), // repo
+      'unsorted-1', // noteId
+      expect.objectContaining({}), // options
     );
 
     expect(openCreate).not.toHaveBeenCalled();

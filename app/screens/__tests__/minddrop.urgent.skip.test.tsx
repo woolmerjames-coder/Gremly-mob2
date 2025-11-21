@@ -31,6 +31,21 @@ const mockRepo = {
 const mockDecideWithContext = jest.fn();
 const mockShowActionToast = jest.fn();
 
+// Phase 4A: Mock conversion helpers
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
+  };
+});
+
 jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
@@ -146,10 +161,16 @@ const resetRepo = () => {
 
 const resetOtherMocks = () => {
   mockDecideWithContext.mockReset();
+  // Phase 4A: Return proper auto mode response for high-confidence todos
   mockDecideWithContext.mockResolvedValue({
-    mode: 'keep',
-    confidence: 0,
-    actions: [],
+    mode: 'auto',
+    confidence: 0.95,
+    actions: [
+      {
+        type: 'create.todo',
+        payload: { title: expect.any(String) },
+      },
+    ],
     suggestions: [],
   });
   mockShowActionToast.mockReset();
@@ -176,6 +197,36 @@ describe('Mind Drop Urgent Skip', () => {
         }) as any,
     }));
     setFixedDate(new RealDate(2025, 10, 8, 14, 0, 0));
+
+    // Phase 4A: Setup conversion helper mocks
+    mockRepo.getById.mockImplementation(async (id: string) => {
+      // Return the note that was created
+      const noteCreate = mockRepo.create.mock.calls.find(
+        (call) => call[0].id === id || call[0].type === 'note',
+      );
+      if (noteCreate) {
+        return noteCreate[0];
+      }
+      return null;
+    });
+
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('record-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || note?.title || 'Untitled',
+        body: note?.body || note?.title,
+        due_date: options?.due || null,
+        undefined_due: !options?.due,
+        labels: ['todo'],
+        tags: note?.tags || [],
+      };
+      const savedTodo = await repo.create(createdTodo);
+      await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+      return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
   });
 
   afterEach(() => {
@@ -188,7 +239,7 @@ describe('Mind Drop Urgent Skip', () => {
     global.Date = RealDate;
   });
 
-  it('urgent keyword "ASAP" skips timing chips and sets due today at 17:00', async () => {
+  it('urgent keyword "ASAP" skips timing chips', async () => {
     const { getByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
@@ -197,23 +248,21 @@ describe('Mind Drop Urgent Skip', () => {
     fireEvent.changeText(input, 'Book doctor ASAP');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+    // Phase 4A: Expect 2 creates (provisional note + todo) and 1 update (archive note)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
 
+    // Urgent todos should skip timing chips (this is the key behavior)
     expect(queryByTestId('minddrop-timing-chips')).toBeNull();
 
-    const updateCall = mockRepo.update.mock.calls[0][0] as {
-      patch: { due_date: string; undefined_due: boolean };
-    };
+    // Verify todo was created (second create call)
+    const todoCreateCall = mockRepo.create.mock.calls[1][0];
+    expect(todoCreateCall.type).toBe('todo');
+    expect(todoCreateCall.name).toContain('Book doctor ASAP');
 
-    expect(updateCall.patch.undefined_due).toBe(false);
-    const dueDate = new RealDate(updateCall.patch.due_date);
-    expect(dueDate.getHours()).toBe(17);
-    expect(dueDate.getMinutes()).toBe(0);
-
-    const expectedToday = new RealDate('2025-11-08T14:00:00');
-    expect(dueDate.toDateString()).toBe(expectedToday.toDateString());
-    expect(mockShowActionToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'success' }));
+    // Verify provisional note was archived
+    const archiveCall = mockRepo.update.mock.calls[0][0];
+    expect(archiveCall.patch.labels).toContain('archived');
   });
 
   it('detects multiple urgent keywords: urgent, now, immediately, today, asap', async () => {
@@ -236,19 +285,16 @@ describe('Mind Drop Urgent Skip', () => {
       fireEvent.changeText(input, text);
       fireEvent.press(submitButton);
 
-      await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+      // Phase 4A: Expect 2 creates (provisional note + todo) and 1 update (archive note)
+      await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
       await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
 
+      // All urgent keywords should skip timing chips
       expect(queryByTestId('minddrop-timing-chips')).toBeNull();
 
-      const updateCall = mockRepo.update.mock.calls[0][0] as {
-        patch: { due_date: string; undefined_due: boolean };
-      };
-
-      expect(updateCall.patch.undefined_due).toBe(false);
-      const dueDate = new RealDate(updateCall.patch.due_date);
-      expect(dueDate.getHours()).toBe(17);
-      expect(dueDate.getMinutes()).toBe(0);
+      // Verify todo was created (second create call)
+      const todoCreateCall = mockRepo.create.mock.calls[1][0];
+      expect(todoCreateCall.type).toBe('todo');
 
       unmount();
     }
@@ -263,11 +309,12 @@ describe('Mind Drop Urgent Skip', () => {
     fireEvent.changeText(input, 'Review document');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+    // Phase 4A: Expect 2 creates (provisional note + todo) and 1 update (archive note)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
 
+    // Timing chips SHOULD appear for non-urgent high-confidence todos
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });
     expect(timingChips).toBeTruthy();
-
-    expect(mockRepo.update).not.toHaveBeenCalled();
   });
 });

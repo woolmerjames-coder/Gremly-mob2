@@ -58,10 +58,20 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
   }),
 }));
 
-jest.mock('../../../lib/conversion', () => ({
-  ...jest.requireActual('../../../lib/conversion'),
-  convertLogListToTodo: jest.fn(),
-}));
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
+    convertLogListToTodo: jest.fn(),
+  };
+});
 
 import CatchAllNotepad from '../CatchAllNotepad';
 
@@ -96,6 +106,28 @@ describe('Timing Chips Integration', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     createdRecords = [];
+
+    // Setup conversion helper - auto mode creates note first, then converts to todo
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('record-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || note?.title || 'Untitled',
+        body: note?.body || note?.title,
+        due_date: options?.due || null,
+        undefined_due: !options?.due,
+        labels: ['todo'],
+        tags: note?.tags || [],
+      };
+
+      // Simulate the conversion: create todo and archive note
+      const savedTodo = await repo.create(createdTodo);
+      await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+
+      return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
 
     mockRepo.create.mockImplementation((input) => {
       const record = {
@@ -168,13 +200,21 @@ describe('Timing Chips Integration', () => {
       expect(mockDecideWithContext).toHaveBeenCalled();
     });
 
+    // Wait for provisional note creation (Phase 4A behavior)
     await eventually(() => {
       expect(mockRepo.create).toHaveBeenCalled();
+      expect(createdRecords.length).toBeGreaterThan(0);
     });
 
+    // Wait for auto-conversion to todo
     await eventually(() => {
-      expect(createdRecords.length).toBeGreaterThan(0);
-      expect(createdRecords[0].type).toBe('todo');
+      expect(mockConvertUnsortedToTodo).toHaveBeenCalled();
+    });
+
+    // After conversion, should have both note and todo
+    await eventually(() => {
+      const todos = createdRecords.filter((r: any) => r.type === 'todo');
+      expect(todos.length).toBeGreaterThan(0);
     });
 
     // Should show timing chips prompt
@@ -254,15 +294,25 @@ describe('Timing Chips Integration', () => {
 
     fireEvent.press(submitButton);
 
+    // Wait for provisional note creation
     await eventually(() => {
       expect(createdRecords.length).toBeGreaterThan(0);
     });
 
+    // Wait for auto-conversion to todo
+    await eventually(() => {
+      expect(mockConvertUnsortedToTodo).toHaveBeenCalled();
+    });
+
+    // Wait for timing chips to appear
     await eventually(() => {
       expect(getByText('When do you want to do this?')).toBeTruthy();
     });
 
-    const todoId = createdRecords[0].id;
+    // Get the todo ID (second record after note → todo conversion)
+    const todos = createdRecords.filter((r: any) => r.type === 'todo');
+    expect(todos.length).toBeGreaterThan(0);
+    const todoId = todos[0].id;
 
     // Fast-forward 5 seconds
     await advanceTimers(5000);

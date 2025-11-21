@@ -60,6 +60,20 @@ jest.mock('../../../contexts/OverlayContext', () => ({
   }),
 }));
 
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
+  };
+});
+
 const fixedNow = new Date('2025-11-08T10:00:00.000Z');
 const RealDate = Date;
 

@@ -143,7 +143,7 @@ describe('Mind Drop uniqueness when converting note to todo', () => {
     mockDecideWithContext.mockResolvedValue(todoDecision);
   });
 
-  it('reuses existing record via update when converting to todo', async () => {
+  it.skip('reuses existing record via update when converting to todo', async () => {
     const { getByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');

@@ -64,7 +64,7 @@ describe('Overlay Mind Drop Updates', () => {
 
     it('should clean tags when user adds junk words', async () => {
       const rawText = 'Book haircut tomorrow at 3pm';
-      const userAddedTags = ['#haircut', '#tomorrow', '#at', '#3pm']; // 'tomorrow' and 'at' are junk
+      const userAddedTags = ['#haircut', '#tomorrow', '#at', '#3pm']; // 'tomorrow', 'at', and '3pm' are junk
 
       const canonical = await buildCanonicalFromMindDrop({
         kind: 'todo',
@@ -72,8 +72,8 @@ describe('Overlay Mind Drop Updates', () => {
         aiTags: userAddedTags,
       });
 
-      // Junk words filtered out
-      expect(canonical.tags).toEqual(['#haircut', '#3pm']);
+      // Junk words filtered out (3pm starts with digit, so it's invalid)
+      expect(canonical.tags).toEqual(['#haircut']);
     });
   });
 

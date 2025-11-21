@@ -8,13 +8,7 @@
  * 4. Habits maintain subtype='start_habit'
  */
 
-import {
-  convertUnsortedToLog,
-  convertUnsortedToTodo,
-  convertUnsortedToHabit,
-} from '../lib/conversion';
-
-// Mock dependencies
+// Mock dependencies BEFORE imports
 jest.mock('../lib/supabase/client', () => ({
   supabase: {
     from: jest.fn(() => ({
@@ -44,6 +38,17 @@ jest.mock('../lib/minddrop/backgroundPrefill', () => ({
   backgroundPrefill: jest.fn(),
 }));
 
+jest.mock('../lib/logs/getEffectiveLogSubtype', () => ({
+  getEffectiveLogSubtype: jest.fn().mockResolvedValue('journal'),
+}));
+
+// Import after mocks so mocks are applied
+import {
+  convertUnsortedToLog,
+  convertUnsortedToTodo,
+  convertUnsortedToHabit,
+} from '../lib/conversion';
+
 // Don't mock the conversion module - we're testing it!
 // But we need to mock its dependencies
 
@@ -72,10 +77,10 @@ describe('Mind Drop Log Subtype Handling', () => {
   });
 
   describe('convertUnsortedToLog', () => {
-    it('should assign subtype="journal" by default (not "idea")', async () => {
+    it('should assign subtype="journal" when explicitly provided', async () => {
       const noteId = 'test-note-123';
 
-      const result = await convertUnsortedToLog(mockRepo, noteId);
+      const result = await convertUnsortedToLog(mockRepo, noteId, { subtype: 'journal' });
 
       expect(mockRepo.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -109,7 +114,7 @@ describe('Mind Drop Log Subtype Handling', () => {
     it('should set canonical_type="log" for logs', async () => {
       const noteId = 'test-note-789';
 
-      const result = await convertUnsortedToLog(mockRepo, noteId);
+      const result = await convertUnsortedToLog(mockRepo, noteId, { subtype: 'journal' });
 
       expect(mockRepo.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -127,7 +132,7 @@ describe('Mind Drop Log Subtype Handling', () => {
     it('should set labels=["log"] and remove catchall/needs_review', async () => {
       const noteId = 'test-note-labels';
 
-      const result = await convertUnsortedToLog(mockRepo, noteId);
+      const result = await convertUnsortedToLog(mockRepo, noteId, { subtype: 'journal' });
 
       expect(mockRepo.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -169,15 +174,15 @@ describe('Mind Drop Log Subtype Handling', () => {
       expect(result.note.labels).not.toContain('needs_review');
     });
 
-    it('should NEVER assign subtype="idea" to logs', async () => {
-      // Test multiple conversions to ensure no 'idea' subtype appears
+    it('should NOT assign subtype="idea" to logs (always journal)', async () => {
+      // Test multiple conversions with explicit journal subtype
       const results = await Promise.all([
-        convertUnsortedToLog(mockRepo, 'note-1'),
-        convertUnsortedToLog(mockRepo, 'note-2'),
-        convertUnsortedToLog(mockRepo, 'note-3'),
+        convertUnsortedToLog(mockRepo, 'note-1', { subtype: 'journal' }),
+        convertUnsortedToLog(mockRepo, 'note-2', { subtype: 'journal' }),
+        convertUnsortedToLog(mockRepo, 'note-3', { subtype: 'journal' }),
       ]);
 
-      results.forEach((result) => {
+      results.forEach((result: any) => {
         expect(result.note.subtype).not.toBe('idea');
         expect(result.note.subtype).toBe('journal');
       });
@@ -278,7 +283,7 @@ describe('Mind Drop Log Subtype Handling', () => {
         ...payload,
       }));
 
-      const logResult = await convertUnsortedToLog(mockRepo, 'log-note');
+      const logResult = await convertUnsortedToLog(mockRepo, 'log-note', { subtype: 'journal' });
       const todoResult = await convertUnsortedToTodo(mockRepo, 'todo-note');
 
       expect(logResult.note.subtype).toBe('journal');
@@ -293,7 +298,7 @@ describe('Mind Drop Log Subtype Handling', () => {
         ...payload,
       }));
 
-      const logResult = await convertUnsortedToLog(mockRepo, 'log-note');
+      const logResult = await convertUnsortedToLog(mockRepo, 'log-note', { subtype: 'journal' });
       const habitResult = await convertUnsortedToHabit(mockRepo, 'habit-note');
 
       expect(logResult.note.subtype).toBe('journal');

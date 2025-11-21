@@ -17,6 +17,7 @@
  */
 
 import { filterAndNormalizeTags } from '../tags/normalize';
+import { TAG_STOP_WORDS } from '../tags/constants';
 import { getEffectiveTags } from '../tags/getEffectiveTags';
 import { type LogSubtype } from '../cortex/classifyLogSubtype';
 import { getEffectiveLogSubtype } from '../logs/getEffectiveLogSubtype';
@@ -79,6 +80,7 @@ function compactTitle(rawText: string, aiTitle?: string): string {
  * - Prioritize tags earlier in the list (AI confidence ordering)
  * - Maximum 2 tags to keep habits focused
  * - Filter out generic/placeholder tags
+ * - Filter out stop words (every, morning, daily, etc.)
  */
 function filterHabitTags(tags: string[]): string[] {
   if (!tags || tags.length === 0) return [];
@@ -112,6 +114,8 @@ function filterHabitTags(tags: string[]): string[] {
     if (!normalized) continue;
     // Remove generic tags
     if (GENERIC_HABIT_TAGS.has(normalized)) continue;
+    // Remove stop words (every, morning, daily, etc.)
+    if (TAG_STOP_WORDS.has(normalized)) continue;
 
     seen.add(normalized);
     singleWordTags.push(normalized);
@@ -164,6 +168,7 @@ function isEmotionTag(tag: string): boolean {
  * 2. Keep all emotion tags (anxious, overwhelmed, stressed, etc.)
  * 3. Add 1-2 context tags from AI suggestions (meeting, walk, etc.)
  * 4. Keep the tag list short but meaningful
+ * 5. Filter out junk/stop words (after, during, etc.)
  */
 function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
   const result: string[] = [];
@@ -204,9 +209,12 @@ function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
   });
 
   // 4. Add 1-2 context tags from AI suggestions (non-emotion tags)
+  // Filter through quality filter to remove junk words
   const contextTags = aiTags.filter((tag) => !isEmotionTag(tag));
-  contextTags.slice(0, 2).forEach((tag) => {
-    addTag(tag);
+  const qualityFiltered = filterAndNormalizeTags(contextTags);
+  qualityFiltered.slice(0, 2).forEach((tag) => {
+    const cleaned = tag.replace(/^[*#@]/, '').trim();
+    addTag(cleaned);
   });
 
   return result;
@@ -257,20 +265,15 @@ async function buildCleanedTags(
         // For logs: preserve *journal marker + merge emotions with context tags
         const existing = existingTags ?? [];
 
-        // Check if this should have *journal marker
+        // Check if this should have *journal marker (only if explicitly provided in existing tags)
         const hasJournalMarker = existing.some((t) => t === '*journal' || t === 'journal');
 
-        const hasEmotionalContent = rawText.match(
-          /feel|felt|feeling|overwhelmed|stressed|anxious/i,
-        );
-
-        if (hasJournalMarker || hasEmotionalContent) {
-          // Add *journal marker if not present
-          const withMarker = hasJournalMarker ? existing : ['*journal', ...existing];
-          return mergeLogTags(withMarker, extractedTags);
+        if (hasJournalMarker) {
+          // Preserve *journal marker and merge with AI tags
+          return mergeLogTags(existing, extractedTags);
         }
 
-        // For non-journal logs, just normalize the extracted tags
+        // For non-journal logs, just normalize and filter the extracted tags
         const withPrefix = extractedTags.map((tag) =>
           tag.startsWith('#') || tag.startsWith('*') ? tag : `#${tag}`,
         );

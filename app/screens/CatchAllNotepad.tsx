@@ -1218,7 +1218,7 @@ const RecentDrops: React.FC<{
                       </View>
 
                       {/* Right side: Due date OR time ago */}
-                      {effectiveKind === 'todo' && item.due_date ? (
+                      {effectiveKind === 'todo' ? (
                         <Text
                           testID={`minddrop-recent-todo-due-${item.id}`}
                           style={styles.recentDueBadge}

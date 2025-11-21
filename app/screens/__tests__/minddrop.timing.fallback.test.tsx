@@ -102,6 +102,20 @@ jest.mock('../../../src/hooks/useActionToast', () => ({
   }),
 }));
 
+const mockConvertUnsortedToTodo = jest.fn();
+const mockConvertUnsortedToHabit = jest.fn();
+const mockConvertUnsortedToLog = jest.fn();
+
+jest.mock('../../../lib/conversion', () => {
+  const actual = jest.requireActual('../../../lib/conversion');
+  return {
+    ...actual,
+    convertUnsortedToTodo: (...args: any[]) => mockConvertUnsortedToTodo(...args),
+    convertUnsortedToHabit: (...args: any[]) => mockConvertUnsortedToHabit(...args),
+    convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
+  };
+});
+
 const RealDate = Date;
 
 const setFixedDate = (value: string | number | Date) => {
@@ -193,6 +207,29 @@ describe('Mind Drop Timing Fallback', () => {
     resetOtherMocks();
     timingFallbackTimers.clear();
     nextTimeoutId = 1;
+
+    // Setup conversion helper - auto mode creates note first, then converts to todo
+    mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+      const note = await repo.getById(noteId);
+      const todoId = `todo-${noteId.replace('record-', '')}`;
+      const createdTodo = {
+        id: todoId,
+        type: 'todo',
+        name: note?.body || note?.title || 'Untitled',
+        body: note?.body || note?.title,
+        due_date: options?.due || null,
+        undefined_due: !options?.due,
+        labels: ['todo'],
+        tags: note?.tags || [],
+      };
+
+      // Simulate the conversion: create todo and archive note
+      const savedTodo = await repo.create(createdTodo);
+      await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+
+      return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+    });
+
     setTimeoutSpy = jest.spyOn(global, 'setTimeout') as unknown as jest.SpyInstance;
     setTimeoutSpy.mockImplementation(((
       handler: TimerHandler,
@@ -242,7 +279,9 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Review docs');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+    // Phase 4A: Wait for provisional note creation + conversion to todo (2 creates)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
 
     await findByTestId('minddrop-timing-chips');
 
@@ -285,7 +324,9 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Important task');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+    // Phase 4A: Wait for provisional note + conversion to todo (2 creates)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
 
     await findByTestId('minddrop-timing-chips');
     await act(async () => {
@@ -295,9 +336,11 @@ describe('Mind Drop Timing Fallback', () => {
 
     fireEvent.press(tomorrowChip);
 
-    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
+    // Expect 2 updates: 1 for archiving note, 1 for setting todo due date
+    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(2));
 
-    const updateCall = mockRepo.update.mock.calls[0][0] as {
+    // The second update call is the timing chip selection
+    const updateCall = mockRepo.update.mock.calls[1][0] as {
       patch: { due_date: string; undefined_due: boolean };
     };
 
