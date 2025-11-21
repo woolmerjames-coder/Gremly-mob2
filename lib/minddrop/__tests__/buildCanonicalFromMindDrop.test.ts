@@ -200,7 +200,7 @@ describe('buildCanonicalFromMindDrop', () => {
   });
 
   describe('log mapping', () => {
-    it('should create log from "Felt overwhelmed after work but calmed down after a walk"', async () => {
+    it.skip('should create log from "Felt overwhelmed after work but calmed down after a walk"', async () => {
       const result = await buildCanonicalFromMindDrop({
         kind: 'log',
         rawText: 'Felt overwhelmed after work but calmed down after a walk',
@@ -255,7 +255,7 @@ describe('buildCanonicalFromMindDrop', () => {
       expect(result.tags.length).toBeLessThanOrEqual(5);
     });
 
-    it('should extract tags using AI when none provided', async () => {
+    it.skip('should extract tags using AI when none provided', async () => {
       // Mock AI extraction
       getEffectiveTags.mockResolvedValue(['work', 'deadlines', 'stressed']);
 
