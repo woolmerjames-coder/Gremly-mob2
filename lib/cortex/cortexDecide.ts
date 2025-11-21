@@ -23,6 +23,7 @@ import {
 } from './explain';
 import { env } from '../env';
 import { detectIntent } from './intents/detectIntent';
+import { classifyIntentWithAI, isAIClassificationAvailable } from './intents/classifyIntentWithAI';
 import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
@@ -57,6 +58,8 @@ export type MindDropDecision = {
   logSubtype?: LogSubtype | null;
   /** Raw tags from AI classification */
   tags?: string[];
+  /** Phase 11.8: AI confidence score 0-100 (optional) */
+  aiConfidence?: number;
 };
 
 /**
@@ -172,12 +175,14 @@ export type DecideInput =
  * - needsClarification: true if mode was 'ask', false if 'auto'
  * - logSubtype: Extracted from canonicalSubtype if probableKind is 'log'
  * - tags: AI-derived tags for the entry
+ * - aiConfidence: AI confidence score 0-100 (Phase 11.8)
  *
  * @param probable - Classification from engine ('todo' | 'habit' | 'log' | 'unknown')
  * @param confidence - Confidence score [0-1]
  * @param mode - Decision mode ('auto' | 'ask' | 'keep' | 'reply')
  * @param canonicalSubtype - Log subtype if kind is 'log'
  * @param tags - AI-derived tags
+ * @param aiConfidence - AI confidence score 0-100 (optional)
  * @returns MindDropDecision object for unified pipeline
  */
 function buildMindDropDecision(
@@ -186,6 +191,7 @@ function buildMindDropDecision(
   mode: 'auto' | 'ask' | 'keep' | 'reply',
   canonicalSubtype?: LogSubtype | null,
   tags?: string[],
+  aiConfidence?: number,
 ): MindDropDecision {
   // Map 'unknown' to 'none' for probableKind
   const probableKind: MindDropDecision['probableKind'] = probable === 'unknown' ? 'none' : probable;
@@ -203,6 +209,7 @@ function buildMindDropDecision(
     needsClarification,
     logSubtype,
     tags: tags || [],
+    aiConfidence,
   };
 }
 
@@ -272,8 +279,11 @@ export async function cortexDecide(
     const optimistic = env.cortex.optimistic;
 
     // Detect intent up-front for fast-path routing when highly confident
+    // Phase 11.8: Use AI classification when available for confidence scoring
     const userText = input.text || (input.structured ? JSON.stringify(input.structured) : '');
-    const detected = detectIntent(userText);
+    const detected = isAIClassificationAvailable()
+      ? await classifyIntentWithAI(userText, timeoutMs)
+      : detectIntent(userText);
     const listAnalysis = analyzeListShape(userText);
     const ideaAnalysis = analyzeIdeaShape(userText);
     const listHeuristicTriggered = listAnalysis.score >= 0.6;
@@ -283,6 +293,7 @@ export async function cortexDecide(
       text: userText.substring(0, 50),
       kind: detected.kind,
       confidence: detected.confidence,
+      aiConfidence: detected.aiConfidence, // Phase 11.8: Log AI confidence
       suppressChips: detected.suppressChips,
       isMetaComment: (detected as any).isMetaComment,
       listHeuristic: {
@@ -693,12 +704,14 @@ export async function cortexDecide(
       : undefined;
 
     // Build unified Mind Drop decision for new pipeline
+    // Phase 11.8: Pass through AI confidence from intent detection
     const mindDropDecision = buildMindDropDecision(
       probable,
       confidence,
       mode,
       effectiveCanonicalSubtype,
       engineTags,
+      detected.aiConfidence, // Phase 11.8: AI confidence 0-100
     );
 
     const result: CortexResponse = {
