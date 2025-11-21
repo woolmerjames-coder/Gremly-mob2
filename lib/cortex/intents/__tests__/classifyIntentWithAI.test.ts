@@ -51,6 +51,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 92,
+          title: null,
         },
       });
 
@@ -59,6 +60,46 @@ describe('classifyIntentWithAI', () => {
       expect(result.kind).toBe('habit');
       expect(result.aiConfidence).toBe(92);
       expect(result.confidence).toBeCloseTo(0.92, 2);
+    });
+
+    it('should handle type field (new format)', async () => {
+      mockCallClassify.mockResolvedValue({
+        ok: true,
+        id: 'test-2b',
+        classification: {
+          category: JSON.stringify({ type: 'todo', confidence: 95 }),
+          tags: [],
+          spaceName: null,
+          confidence: 95,
+          title: null,
+        },
+      });
+
+      const result = await classifyIntentWithAI('I need to email Sarah back tonight');
+
+      expect(result.kind).toBe('todo');
+      expect(result.aiConfidence).toBe(95);
+      expect(result.confidence).toBeCloseTo(0.95, 2);
+    });
+
+    it('should handle category-only field (backward compat)', async () => {
+      mockCallClassify.mockResolvedValue({
+        ok: true,
+        id: 'test-2c',
+        classification: {
+          category: JSON.stringify({ category: 'habit', confidence: 80 }),
+          tags: [],
+          spaceName: null,
+          confidence: 80,
+          title: null,
+        },
+      });
+
+      const result = await classifyIntentWithAI('Exercise daily');
+
+      expect(result.kind).toBe('habit');
+      expect(result.aiConfidence).toBe(80);
+      expect(result.confidence).toBeCloseTo(0.8, 2);
     });
   });
 
@@ -72,6 +113,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 72,
+          title: null,
         },
       });
 
@@ -91,6 +133,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 45,
+          title: null,
         },
       });
 
@@ -112,6 +155,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: undefined as any,
+          title: null,
         },
       });
 
@@ -132,6 +176,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: null as any,
+          title: null,
         },
       });
 
@@ -152,6 +197,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 150,
+          title: null,
         },
       });
 
@@ -170,6 +216,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: -10,
+          title: null,
         },
       });
 
@@ -188,6 +235,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 87.6,
+          title: null,
         },
       });
 
@@ -209,6 +257,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 'high' as any,
+          title: null,
         },
       });
 
@@ -227,6 +276,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: true as any,
+          title: null,
         },
       });
 
@@ -245,6 +295,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: { score: 90 } as any,
+          title: null,
         },
       });
 
@@ -301,6 +352,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 90,
+          title: null,
         },
       });
 
@@ -338,6 +390,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 88,
+          title: null,
         },
       });
 
@@ -356,6 +409,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 30,
+          title: null,
         },
       });
 
@@ -374,6 +428,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 96,
+          title: null,
         },
       });
 
@@ -392,6 +447,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 91,
+          title: null,
         },
       });
 
@@ -412,6 +468,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 0,
+          title: null,
         },
       });
 
@@ -431,6 +488,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 100,
+          title: null,
         },
       });
 
@@ -450,6 +508,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 50,
+          title: null,
         },
       });
 
@@ -471,6 +530,7 @@ describe('classifyIntentWithAI', () => {
           tags: [],
           spaceName: null,
           confidence: 85,
+          title: null,
         },
       });
 

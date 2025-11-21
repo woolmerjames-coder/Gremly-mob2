@@ -36,14 +36,22 @@ const AI_CLASSIFICATION_PROMPT = `You are an intent classifier for a productivit
 • Recurring language ("daily", "every", "each morning", "every week") → higher Habit confidence
 • Past tense narratives → higher Log confidence
 
-**Output Format:**
-Return ONLY a JSON object with this exact structure:
+**CRITICAL - Output Format:**
+You MUST return a JSON object with this EXACT structure.
+The top-level key MUST be "type" (not "category" or anything else).
+
 {
   "type": "todo" | "habit" | "log" | "ignore",
   "confidence": number
 }
 
-Do not include any other fields or commentary.`;
+Example valid outputs:
+{"type": "todo", "confidence": 95}
+{"type": "habit", "confidence": 88}
+{"type": "log", "confidence": 62}
+{"type": "ignore", "confidence": 30}
+
+Do not include any other fields or commentary. Use "type" as the key.`;
 
 /**
  * Mapping from AI types to IntentKind
@@ -167,11 +175,14 @@ export async function classifyIntentWithAI(
       }
     }
 
+    // Extract type from AI response - prefer 'type' field, fall back to 'category' for backward compat
+    const rawType = parsed.type ?? parsed.category;
+
     // Normalize type
-    const aiType = normalizeAIType(parsed.type);
+    const aiType = normalizeAIType(rawType);
     if (!aiType) {
       if (__DEV__) {
-        console.warn('[classifyIntentWithAI] Invalid AI type, using fallback:', parsed.type);
+        console.warn('[classifyIntentWithAI] Invalid AI type, using fallback:', rawType);
       }
       return fallback;
     }
