@@ -798,6 +798,17 @@ export class SupabaseRepo implements IRepo {
       console.log('[TodoUpdate] dbPayload', updatePayload);
     }
 
+    // Guard: Don't call Supabase if the patch is empty (prevents PGRST116 error)
+    if (Object.keys(updatePayload).length === 0) {
+      if (__DEV__) {
+        console.log('[SupabaseRepo.update] Empty patch - skipping database call', {
+          id,
+          type: existing.type,
+        });
+      }
+      return existing;
+    }
+
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
       .from(table)

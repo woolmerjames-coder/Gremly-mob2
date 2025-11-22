@@ -2601,7 +2601,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const { reminderAt } = mapRemindersToLegacyFields(reminders);
       const stateWithReminder = { ...state, reminderAt };
 
-      const input = toCreateOrUpdateInput(
+      const input = await toCreateOrUpdateInput(
         baseType,
         stateWithReminder as any,
         initialSpaceId ?? null,
