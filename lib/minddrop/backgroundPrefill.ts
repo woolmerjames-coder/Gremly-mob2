@@ -16,7 +16,6 @@ import { callClassify } from '../cortex/CortexClient';
 import { supabase } from '../supabase/client';
 import { mergeLogSubtypeTag } from './logSubtypeTags';
 import { filterAndNormalizeTags } from '../tags/normalize';
-import { validateAiTitleForTodo } from './normalizeTodoTitle';
 import { applyTagQualityFilter } from '../tags/quality';
 import { applyThemeTags } from '../tags/themes';
 import { extractMeaningfulTags } from '../tags/extractTags';
@@ -30,6 +29,72 @@ interface PrefillEntity {
 interface PrefillResult {
   title?: string;
   tags?: string[];
+}
+
+interface TitleInputs {
+  entityType: 'todo' | 'habit' | 'note';
+  originalTitle?: string | null; // what was stored at create time
+  body?: string | null; // full text of the drop
+  aiTitle?: string | null; // from Cortex
+}
+
+/**
+ * Compute unified prefill title for all entity types (todos, habits, notes/logs)
+ *
+ * Strategy:
+ * 1. Prefer non-empty aiTitle from Cortex
+ * 2. If no aiTitle, synthesize a short fallback title from body/originalTitle
+ * 3. Strip common prefixes, limit to 3-6 words, apply sentence case
+ *
+ * @param inputs - Title computation inputs
+ * @returns Computed title or undefined if no valid input
+ */
+export function computePrefillTitle({
+  entityType,
+  originalTitle,
+  body,
+  aiTitle,
+}: TitleInputs): string | undefined {
+  // 1. Prefer non-empty aiTitle
+  if (aiTitle && aiTitle.trim().length > 0) {
+    return aiTitle.trim();
+  }
+
+  // 2. Choose a base string: body > originalTitle
+  const source =
+    (body && body.trim().length > 0 && body) ||
+    (originalTitle && originalTitle.trim().length > 0 && originalTitle) ||
+    '';
+
+  if (!source) return undefined;
+
+  // 3. Strip common prefixes like "Todo:", "Remind me to", "I need to", "Just thinking about"
+  let s = source.trim();
+  s = s.replace(/^todo[:]\s*/i, '');
+  s = s.replace(/^remind me to\s+/i, '');
+  s = s.replace(/^i need to\s+/i, '');
+  s = s.replace(/^i have to\s+/i, '');
+  s = s.replace(/^just thinking about\s+/i, '');
+  s = s.replace(/^just\s+/i, '');
+
+  // 4. Collapse whitespace
+  s = s.replace(/\s+/g, ' ').trim();
+
+  if (!s) return undefined;
+
+  // 5. Limit to ~3–6 words
+  const words = s.split(' ');
+  const maxWords = 6;
+  const shortened = words.slice(0, maxWords).join(' ');
+
+  // 6. Remove trailing punctuation
+  const clean = shortened.replace(/[.!?]+$/, '');
+
+  // 7. Simple sentence case: first letter uppercase, rest as-is
+  const [first, ...rest] = clean;
+  const cased = first ? first.toUpperCase() + rest.join('') : clean;
+
+  return cased;
 }
 
 /**
@@ -138,121 +203,98 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
     };
 
     switch (entity.type) {
-      case 'todo':
+      case 'todo': {
         tableName = 'todos';
 
-        // For todos: validate AI title before applying it
-        // Only use AI title if it's short, not identical to body, and shorter than body
-        if (aiTitle) {
-          // Fetch the full todo to get body text and existing tags for validation
-          const { data: fullTodo, error: fetchError } = await supabase
-            .from('todos')
-            .select('body, tags')
-            .eq('id', entity.id)
-            .single();
+        // Fetch the full todo to get body text, title, and existing tags
+        const { data: fullTodo, error: fetchError } = await supabase
+          .from('todos')
+          .select('name, title, body, tags')
+          .eq('id', entity.id)
+          .single();
 
-          if (!fetchError && fullTodo?.body) {
-            const validation = validateAiTitleForTodo(fullTodo.body, aiTitle);
-            if (validation.title) {
-              updatePayload.name = validation.title;
-              updatePayload.title = validation.title; // Backwards compatibility
-              console.log('[BackgroundPrefill] Using validated AI title for todo', {
-                entityId: entity.id,
-                originalAiTitle: aiTitle,
-                validatedTitle: validation.title,
-              });
-            } else {
-              console.log('[BackgroundPrefill] Rejected aiTitle for todo', {
-                entityId: entity.id,
-                aiTitle,
-                reason: validation.reason || 'unknown',
-              });
-            }
+        if (!fetchError && fullTodo) {
+          // Compute unified prefill title (AI or fallback)
+          const nextTitle = computePrefillTitle({
+            entityType: 'todo',
+            originalTitle: fullTodo.title ?? fullTodo.name,
+            body: fullTodo.body,
+            aiTitle: aiTitle,
+          });
 
-            // BackgroundPrefill: starting merge for todo tags
-            // Tag fallback: Use AI tags if present, otherwise preserve existing tags from source note
-            // Apply quality filter to both AI tags and existing tags to drop junk
-            // Phase 4A: When AI tags are empty and existing tags filter to nothing, return []
-            const existingTags = applyTagQualityFilter(fullTodo.tags);
-            const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
-
-            // Phase 4B: Apply theme tags (additive - preserves specific tags like #running)
-            // Apply theme tags based on rawSentence or title
-            const text = rawSentence ?? aiTitle ?? fullTodo.body ?? '';
-            const withThemeTags = applyThemeTags(text, effectiveTags);
-            const finalTags = applyTagQualityFilter(withThemeTags);
-
-            if (finalTags.length > 0) {
-              updatePayload.tags = finalTags;
-            }
-
-            console.log('[BackgroundPrefill] Tags for todo', {
+          // Only update title if nextTitle is defined AND different
+          if (nextTitle && nextTitle !== fullTodo.title && nextTitle !== fullTodo.name) {
+            updatePayload.name = nextTitle;
+            updatePayload.title = nextTitle; // Backwards compatibility
+            console.log('[BackgroundPrefill] Computed title for todo', {
               entityId: entity.id,
-              aiTagsCount: aiTags.length,
-              existingTagsCount: existingTags.length,
-              effectiveTagsCount: effectiveTags.length,
-              finalTagsCount: finalTags.length,
-              source: aiTags.length > 0 ? 'ai' : existingTags.length > 0 ? 'fallback' : 'none',
-            });
-          } else {
-            // Fallback if we can't fetch body: use AI title as-is (backward compatible)
-            updatePayload.name = aiTitle;
-            updatePayload.title = aiTitle;
-
-            // Only update tags if AI returned some tags
-            if (aiTags && aiTags.length > 0) {
-              updatePayload.tags = filterAndNormalizeTags(aiTags);
-            }
-          }
-        } else {
-          // No AI title - just handle tags with fallback logic
-          const { data: fullTodo, error: fetchError } = await supabase
-            .from('todos')
-            .select('tags')
-            .eq('id', entity.id)
-            .single();
-
-          if (!fetchError && fullTodo) {
-            const existingTags = applyTagQualityFilter(fullTodo.tags);
-            // BackgroundPrefill: starting merge for todo tags (no AI title branch)
-            // Phase 4A: When AI tags are empty, return [] (don't fall back to naive existing tags)
-            const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
-
-            // Phase 4B: Apply theme tags (additive)
-            // Apply theme tags based on rawSentence
-            const text = rawSentence ?? '';
-            const withThemeTags = applyThemeTags(text, effectiveTags);
-            const finalTags = applyTagQualityFilter(withThemeTags);
-
-            if (finalTags.length > 0) {
-              updatePayload.tags = finalTags;
-            }
-
-            console.log('[BackgroundPrefill] Tags for todo (no AI title)', {
-              entityId: entity.id,
-              aiTagsCount: aiTags.length,
-              existingTagsCount: existingTags.length,
-              effectiveTagsCount: effectiveTags.length,
-              source: aiTags.length > 0 ? 'ai' : existingTags.length > 0 ? 'fallback' : 'none',
+              aiTitle,
+              computedTitle: nextTitle,
+              source: aiTitle ? 'ai' : 'fallback',
             });
           }
+
+          // BackgroundPrefill: starting merge for todo tags
+          // Tag fallback: Use AI tags if present, otherwise preserve existing tags from source note
+          // Apply quality filter to both AI tags and existing tags to drop junk
+          // Phase 4A: When AI tags are empty and existing tags filter to nothing, return []
+          const existingTags = applyTagQualityFilter(fullTodo.tags);
+          const effectiveTags = aiTags && aiTags.length > 0 ? filterAndNormalizeTags(aiTags) : [];
+
+          // Phase 4B: Apply theme tags (additive - preserves specific tags like #running)
+          // Apply theme tags based on rawSentence or title
+          const text = rawSentence ?? aiTitle ?? fullTodo.body ?? '';
+          const withThemeTags = applyThemeTags(text, effectiveTags);
+          const finalTags = applyTagQualityFilter(withThemeTags);
+
+          if (finalTags.length > 0) {
+            updatePayload.tags = finalTags;
+          }
+
+          console.log('[BackgroundPrefill] Tags for todo', {
+            entityId: entity.id,
+            aiTagsCount: aiTags.length,
+            existingTagsCount: existingTags.length,
+            effectiveTagsCount: effectiveTags.length,
+            finalTagsCount: finalTags.length,
+            source: aiTags.length > 0 ? 'ai' : existingTags.length > 0 ? 'fallback' : 'none',
+          });
         }
         break;
+      }
       case 'habit': {
         tableName = 'habits';
-        if (aiTitle) {
-          updatePayload.name = aiTitle;
-        }
 
-        // BackgroundPrefill: starting merge for habit tags
-        // Tag fallback for habits: Use AI tags if present, otherwise preserve existing tags from source note
+        // Fetch the full habit to get name, title, notes, and existing tags
         const { data: fullHabit, error: fetchHabitError } = await supabase
           .from('habits')
-          .select('tags')
+          .select('name, title, notes, tags')
           .eq('id', entity.id)
           .single();
 
         if (!fetchHabitError && fullHabit) {
+          // Compute unified prefill title (AI or fallback)
+          const nextTitle = computePrefillTitle({
+            entityType: 'habit',
+            originalTitle: fullHabit.title ?? fullHabit.name,
+            body: fullHabit.notes,
+            aiTitle: aiTitle,
+          });
+
+          // Only update title if nextTitle is defined AND different
+          if (nextTitle && nextTitle !== fullHabit.title && nextTitle !== fullHabit.name) {
+            updatePayload.name = nextTitle;
+            updatePayload.title = nextTitle; // For consistency with todos
+            console.log('[BackgroundPrefill] Computed title for habit', {
+              entityId: entity.id,
+              aiTitle,
+              computedTitle: nextTitle,
+              source: aiTitle ? 'ai' : 'fallback',
+            });
+          }
+
+          // BackgroundPrefill: starting merge for habit tags
+          // Tag fallback for habits: Use AI tags if present, otherwise preserve existing tags from source note
           const existingHabitTags = applyTagQualityFilter(fullHabit.tags);
           // Phase 4A: When AI tags are empty, return [] (don't fall back to naive existing tags)
           const effectiveHabitTags =
@@ -260,7 +302,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
 
           // Phase 4B: Apply theme tags (additive - e.g., #running + #exercise)
           // Apply theme tags based on rawSentence or title
-          const text = rawSentence ?? aiTitle ?? '';
+          const text = rawSentence ?? aiTitle ?? fullHabit.notes ?? '';
           const withThemeTags = applyThemeTags(text, effectiveHabitTags);
           const finalHabitTags = applyTagQualityFilter(withThemeTags);
 
@@ -276,21 +318,13 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             finalTagsCount: finalHabitTags.length,
             source: aiTags.length > 0 ? 'ai' : existingHabitTags.length > 0 ? 'fallback' : 'none',
           });
-        } else if (aiTags && aiTags.length > 0) {
-          // Fallback if fetch fails: use AI tags if available
-          updatePayload.tags = filterAndNormalizeTags(aiTags);
         }
         break;
       }
       case 'note': {
         tableName = 'notes';
-        if (aiTitle) {
-          updatePayload.title = aiTitle;
-        }
-        // BackgroundPrefill: starting merge for log tags
-        // For notes/logs: fetch full entity to get subtype, labels, existing tags
-        // Then merge AI tags with subtype tag (e.g., #idea, #journal)
-        // Also filters out internal markers (*idea, *journal) and low-quality tags
+
+        // Fetch full note to get title, body, subtype, labels, tags
         const { data: fullNote, error: fetchError } = await supabase
           .from('notes')
           .select('title, body, subtype, labels, tags, tags_meta')
@@ -298,7 +332,28 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
           .single();
 
         if (!fetchError && fullNote) {
-          // Phase 4B: Pass text for theme tag detection in logs
+          // Compute unified prefill title (AI or fallback)
+          const nextTitle = computePrefillTitle({
+            entityType: 'note',
+            originalTitle: fullNote.title,
+            body: fullNote.body,
+            aiTitle: aiTitle,
+          });
+
+          // Only update title if nextTitle is defined AND different
+          if (nextTitle && nextTitle !== fullNote.title) {
+            updatePayload.title = nextTitle;
+            console.log('[BackgroundPrefill] Computed title for note', {
+              entityId: entity.id,
+              aiTitle,
+              computedTitle: nextTitle,
+              source: aiTitle ? 'ai' : 'fallback',
+            });
+          }
+
+          // BackgroundPrefill: merge tags for notes/logs
+          // Merge AI tags with subtype tag (e.g., #idea, #journal)
+          // Filters out internal markers (*idea, *journal) and low-quality tags
           const text = rawSentence ?? aiTitle ?? fullNote.title ?? fullNote.body ?? '';
           const { tags, tags_meta } = mergeLogSubtypeTag(
             aiTags,
