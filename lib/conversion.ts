@@ -6,7 +6,6 @@ import {
   logConversionError,
 } from './conversionTelemetry';
 import { buildMindDropDerivedFields } from './minddrop/minddropShared';
-import { backgroundPrefill } from './minddrop/backgroundPrefill';
 import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
 import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
 
@@ -406,9 +405,9 @@ export const convertUnsortedToLog = async (
       },
     })) as Note;
 
-    // Run background AI prefill for title + tags enrichment
-    const rawText = note.body ?? note.title ?? '';
-    void backgroundPrefill(updatedNote, rawText);
+    // Note: backgroundPrefill is now called by Stage B (runMindDropStageBPrefill)
+    // to unify the prefill pipeline for todos, habits, and logs.
+    // This prevents duplicate AI requests and ensures consistent stage transitions.
 
     logConversionSuccess({
       from: 'unsorted',

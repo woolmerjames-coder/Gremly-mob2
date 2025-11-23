@@ -920,6 +920,72 @@ export class SupabaseRepo implements IRepo {
   }
 
   /**
+   * Find a todo by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findTodoByDropId(dropId: string): Promise<Todo | null> {
+    const userId = this.ensureUserId();
+    if (!dropId) return null;
+    if (!UUID_REGEX.test(dropId)) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('drop_id', dropId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      logSupabaseError('todos.findByDropId', error);
+      throw new Error(`Failed to find todo by dropId: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    if (!data) return null;
+
+    const record = { ...data, type: 'todo' as const };
+    return todoZ.parse(record);
+  }
+
+  /**
+   * Find a habit by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findHabitByDropId(dropId: string): Promise<Habit | null> {
+    const userId = this.ensureUserId();
+    if (!dropId) return null;
+    if (!UUID_REGEX.test(dropId)) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('habits')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('drop_id', dropId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      logSupabaseError('habits.findByDropId', error);
+      throw new Error(`Failed to find habit by dropId: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    if (!data) return null;
+
+    const record = { ...data, type: 'habit' as const };
+    return habitZ.parse(record);
+  }
+
+  /**
    * List records by type with optional filtering
    * 10R: Uses idx_todos_space_id, idx_habits_space_id, idx_notes_space_id for space filtering
    * 10R: Uses idx_notes_created_at, idx_todos_created_at for chronological ordering

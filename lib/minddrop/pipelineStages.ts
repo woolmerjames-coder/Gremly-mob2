@@ -124,10 +124,61 @@ export async function runMindDropStageAClassification(
   try {
     // Convert unsorted note to target type based on decision
     if (firstAction.type === 'create.todo') {
+      // Check if a canonical todo already exists for this dropId (idempotency)
+      let createdTodo;
+      if (dropId) {
+        const existingTodo = await repo.findTodoByDropId(dropId);
+        if (existingTodo) {
+          console.log('[StageA] Todo already exists for dropId, using existing', {
+            id: existingTodo.id,
+            dropId,
+          });
+          createdTodo = existingTodo;
+          createdIds.todos.push(existingTodo.id);
+          entityDetails.push({ kind: 'todo' });
+          
+          // Update stage to classified (in case retry happened during Stage A)
+          await repo.update({
+            id: existingTodo.id,
+            patch: {
+              views: {
+                ...(existingTodo.views ?? {}),
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                ai_failed: false,
+              },
+            },
+          });
+          
+          // Archive the unsorted note if it's not already archived
+          if (unsortedNoteId) {
+            const unsortedNote = await repo.getById(unsortedNoteId);
+            if (unsortedNote && !(unsortedNote as any).archived) {
+              await repo.update({
+                id: unsortedNoteId,
+                patch: {
+                  archived: true,
+                },
+              });
+            }
+          }
+          
+          // Don't create a new todo - use existing
+          return {
+            entities: createdIds,
+            entityDetails,
+            mode: decision.mode,
+            confidence: decision.confidence ?? 0,
+          };
+        }
+      }
+      
+      // No existing todo found - create new one
       const due = firstAction.payload.due ?? parsedDue ?? null;
-      const { todo: createdTodo } = await convertUnsortedToTodo(repo, unsortedNoteId, {
+      const result = await convertUnsortedToTodo(repo, unsortedNoteId, {
         due,
       });
+      createdTodo = result.todo;
 
       // Mark classification complete (success transition)
       await repo.update({
@@ -151,11 +202,62 @@ export async function runMindDropStageAClassification(
         stage: 'classified',
       });
     } else if (firstAction.type === 'create.habit') {
+      // Check if a canonical habit already exists for this dropId (idempotency)
+      let createdHabit;
+      if (dropId) {
+        const existingHabit = await repo.findHabitByDropId(dropId);
+        if (existingHabit) {
+          console.log('[StageA] Habit already exists for dropId, using existing', {
+            id: existingHabit.id,
+            dropId,
+          });
+          createdHabit = existingHabit;
+          createdIds.habits.push(existingHabit.id);
+          entityDetails.push({ kind: 'habit' });
+          
+          // Update stage to classified (in case retry happened during Stage A)
+          await repo.update({
+            id: existingHabit.id,
+            patch: {
+              views: {
+                ...(existingHabit.views ?? {}),
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                ai_failed: false,
+              },
+            },
+          });
+          
+          // Archive the unsorted note if it's not already archived
+          if (unsortedNoteId) {
+            const unsortedNote = await repo.getById(unsortedNoteId);
+            if (unsortedNote && !(unsortedNote as any).archived) {
+              await repo.update({
+                id: unsortedNoteId,
+                patch: {
+                  archived: true,
+                },
+              });
+            }
+          }
+          
+          // Don't create a new habit - use existing
+          return {
+            entities: createdIds,
+            entityDetails,
+            mode: decision.mode,
+            confidence: decision.confidence ?? 0,
+          };
+        }
+      }
+      
+      // No existing habit found - create new one
       const freqRaw = firstAction.payload.freq;
       const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
-      const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedNoteId, {
+      const result = await convertUnsortedToHabit(repo, unsortedNoteId, {
         frequency,
       });
+      createdHabit = result.habit;
 
       // Mark classification complete (success transition)
       await repo.update({

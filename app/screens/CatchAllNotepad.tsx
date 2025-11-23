@@ -1117,6 +1117,20 @@ const RecentDrops: React.FC<{
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
 
+  /**
+   * Load recent Mind Drops for the Catch-All / Recent Mind Drops list
+   * 
+   * Mind Drop v3 Architecture:
+   * - Catch-All = "Raw + in-flight Mind Drops" (pending/classified stage)
+   * - Today/Habits/Logs = "Final destinations for converted drops" (prefilled stage)
+   * 
+   * Filter Behavior:
+   * - v3: Shows only pending/in-flight notes (not fully processed canonical entities)
+   * - v2: Shows all Mind Drop items (notes, todos, habits) regardless of stage
+   * 
+   * This prevents duplication: once a Mind Drop is converted to a canonical todo/habit,
+   * it appears only in Today/Habits/Logs, not in Catch-All.
+   */
   const load = React.useCallback(async () => {
     const isTest = process.env.JEST_WORKAROUND === '1';
     if (!isTest) setLoading(true);
@@ -1171,12 +1185,35 @@ const RecentDrops: React.FC<{
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter(
-          (n) =>
+          (n) => {
             // Filter to Mind Drop items only
-            (n?.origin === 'catchall' ||
-              (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL))) &&
+            const isMindDrop = n?.origin === 'catchall' ||
+              (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL));
+            
+            if (!isMindDrop) return false;
+            
             // Exclude archived notes (converted unsorted notes)
-            n?.archived !== true,
+            if (n?.archived === true) return false;
+
+            // Mind Drop v3: Catch-All shows only pending/in-flight items
+            // This makes Catch-All feel like "recent & in-flight drops" rather than
+            // a permanent home for fully-processed items that now live in Today/Habits/Logs
+            if (MIND_DROP_V3_INSTANT) {
+              const views = (n as any)?.views ?? {};
+              
+              // Include if AI processing is still pending
+              if (views.ai_pending === true) return true;
+              
+              // Include if not yet fully prefilled
+              if (views.minddrop_stage !== 'prefilled') return true;
+              
+              // Exclude fully processed items (they show up in canonical views)
+              return false;
+            }
+
+            // Mind Drop v2: Show all non-archived catchall items
+            return true;
+          },
         )
         .map((n) => {
           const labels = Array.isArray(n?.labels) ? n.labels : [];
@@ -1208,10 +1245,23 @@ const RecentDrops: React.FC<{
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
         .filter(
-          (t) =>
-            t?.origin === 'catchall' &&
+          (t) => {
+            // Only include Mind Drop-origin todos
+            if (t?.origin !== 'catchall') return false;
+            
             // Exclude soft-deleted todos (completed_at is set)
-            !(t as any)?.completed_at,
+            if ((t as any)?.completed_at) return false;
+            
+            // Mind Drop v3: Exclude canonical todos - they appear in Today/Habits views
+            // Catch-All shows only raw/in-flight Mind Drop notes, not their converted entities
+            if (MIND_DROP_V3_INSTANT) {
+              // If this is a canonical todo (converted from Mind Drop note), exclude it
+              // It will appear in Today if it has a due_date
+              if ((t as any)?.canonicalType === 'todo') return false;
+            }
+            
+            return true;
+          },
         )
         .map((t) => {
           const rawText = t.name || t.title || '';
@@ -1235,10 +1285,23 @@ const RecentDrops: React.FC<{
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
         .filter(
-          (h) =>
-            h?.origin === 'catchall' &&
+          (h) => {
+            // Only include Mind Drop-origin habits
+            if (h?.origin !== 'catchall') return false;
+            
             // Exclude soft-deleted habits (completed_at is set)
-            !(h as any)?.completed_at,
+            if ((h as any)?.completed_at) return false;
+            
+            // Mind Drop v3: Exclude canonical habits - they appear in Today/Habits views
+            // Catch-All shows only raw/in-flight Mind Drop notes, not their converted entities
+            if (MIND_DROP_V3_INSTANT) {
+              // If this is a canonical habit (converted from Mind Drop note), exclude it
+              // It will appear in Habits view
+              if ((h as any)?.canonicalType === 'habit') return false;
+            }
+            
+            return true;
+          },
         )
         .map((h) => {
           const rawText = h.name || '';
@@ -3423,8 +3486,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
-            // Phase 2E: Never auto-open overlay from Mind Drop
-            // User can open from Recent Drops or Today if needed
+            // Phase 2E / Mind Drop v3: Never auto-open overlay from Mind Drop
+            // Overlay should only open on deliberate user action (tap), not automatically
+            // when AI finishes classification or enrichment.
+            // User can open from Recent Drops or Today when ready.
             console.log(
               '[MindDrop][Debug][openOverlay] Skipping auto-open for todo (Phase 2E - no auto-open from Mind Drop)',
               {
@@ -3490,8 +3555,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
-            // Phase 2E: Never auto-open overlay from Mind Drop
-            // User can open from Recent Drops or Today if needed
+            // Phase 2E / Mind Drop v3: Never auto-open overlay from Mind Drop
+            // Overlay should only open on deliberate user action (tap), not automatically
+            // when AI finishes classification or enrichment.
+            // User can open from Recent Drops or Today when ready.
             console.log(
               '[MindDrop][Debug][openOverlay] Skipping auto-open for habit (Phase 2E - no auto-open from Mind Drop)',
               {
@@ -3533,7 +3600,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
 
-            // Skip auto-opening overlay for logs (user doesn't need to edit immediately)
+            // Mind Drop v3: Skip auto-opening overlay for logs
+            // Overlay should only open on deliberate user action (tap), not automatically.
+            // User doesn't need to edit logs immediately after creation.
             console.log('[MindDrop][Debug][openOverlay] Skipping auto-open for log', {
               noteId: convertedLog.id,
               subtype: convertedLog.subtype,
@@ -3860,6 +3929,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (MIND_DROP_V3_INSTANT) {
         // V3 INSTANT MODE: Fire-and-forget the AI pipeline
         // The pipeline runs in the background; UI resets immediately
+        //
+        // Mind Drop v3 UX: Overlay ONLY opens on deliberate user action (tap card/chip),
+        // NOT automatically when AI finishes classification or prefill.
+        // This prevents interrupting the user's flow.
         void runMindDropPipeline({
           trimmed,
           dropId,

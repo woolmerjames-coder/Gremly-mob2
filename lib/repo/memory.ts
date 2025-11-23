@@ -323,6 +323,32 @@ export class MemoryRepo implements IRepo {
     return match ?? null;
   }
 
+  /**
+   * Find a todo by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findTodoByDropId(dropId: string): Promise<Todo | null> {
+    if (!dropId) return null;
+    const match = this.data.find((r): r is Todo => {
+      if (r.type !== 'todo' || r.owner_id !== this.currentUserId) return false;
+      return ((r as any).drop_id ?? null) === dropId;
+    });
+    return match ?? null;
+  }
+
+  /**
+   * Find a habit by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findHabitByDropId(dropId: string): Promise<Habit | null> {
+    if (!dropId) return null;
+    const match = this.data.find((r): r is Habit => {
+      if (r.type !== 'habit' || r.owner_id !== this.currentUserId) return false;
+      return ((r as any).drop_id ?? null) === dropId;
+    });
+    return match ?? null;
+  }
+
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     let results = this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
 
