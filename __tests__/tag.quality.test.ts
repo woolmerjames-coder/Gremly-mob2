@@ -16,14 +16,16 @@ describe('Overlay Phase 2 — Tag Quality', () => {
   describe('@Name vs #Tag classification', () => {
     it('prioritises @Name tagging when both mention and hashtag patterns exist', () => {
       const result = filterAndNormalizeTags(['#Alice', '@Alice', 'Alice']);
-      expect(result).toEqual(['@Alice']);
+      // CP-TAG-3: @tags are normalized to lowercase
+      expect(result).toEqual(['@alice']);
     });
   });
 
   describe('Mixed quality tag sets', () => {
     it('drops stop words while keeping meaningful hashtags and mentions', () => {
       const result = filterAndNormalizeTags(['#find', '#Fitness', '@Dave', '#great']);
-      expect(result).toEqual(['@Dave', '#fitness']);
+      // CP-TAG-3: @tags are normalized to lowercase, hashtags too
+      expect(result).toEqual(['@dave', '#fitness']);
     });
   });
 
@@ -60,7 +62,8 @@ describe('Overlay Phase 2 — Tag Quality', () => {
       expect(sanitized).not.toContain('#dave');
 
       const normalized = filterAndNormalizeTags(['@Dave', '#Travel', ...sanitized]);
-      expect(normalized).toContain('@Dave');
+      // CP-TAG-3: @tags are normalized to lowercase
+      expect(normalized).toContain('@dave');
       expect(normalized).toContain('#travel');
       expect(normalized.filter((tag) => tag.toLowerCase() === '@dave').length).toBe(1);
     });
