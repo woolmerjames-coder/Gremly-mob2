@@ -8,7 +8,7 @@ import { Alert } from 'react-native';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import type { Tag } from '../../lib/repo/types';
 
-const CLASSIFICATION_TAGS = ['@Mom', '*list', '#family'];
+const CLASSIFICATION_TAGS = ['@mom', '*list', '#family'];
 const classificationResponse = {
   ok: true,
   classification: {
@@ -351,7 +351,7 @@ describe('UnifiedCreateOverlay tags UI', () => {
       subtype: 'idea',
       title: 'Call mom',
       body: 'Remember to call mom about schedule',
-      tags: ['@Mom', '#Family'],
+      tags: ['@mom', '#family'],
       fmt: null,
       space_id: null,
     };
@@ -363,7 +363,7 @@ describe('UnifiedCreateOverlay tags UI', () => {
       initialEntity: { id: 'note-1', type: 'note' },
     });
 
-    expect(await findByText('@Mom')).toBeTruthy();
+    expect(await findByText('@mom')).toBeTruthy();
     expect(await findByText('#family')).toBeTruthy();
   });
 
@@ -432,20 +432,20 @@ describe('UnifiedCreateOverlay tags UI', () => {
 
     addTag('@Mom');
     await waitFor(() => {
-      expect(getByText('@Mom')).toBeTruthy();
+      expect(getByText('@mom')).toBeTruthy();
     });
 
-    const removeMomButton = getByTestId('overlay-tags-field-remove-Mom');
+    const removeMomButton = getByTestId('overlay-tags-field-remove-mom');
     fireEvent.press(removeMomButton);
     await waitFor(() => {
-      expect(queryByText('@Mom')).toBeNull();
+      expect(queryByText('@mom')).toBeNull();
     });
 
     await act(async () => {
       TagEditor.__pushTags(CLASSIFICATION_TAGS);
     });
 
-    expect(queryByText('@Mom')).toBeNull();
+    expect(queryByText('@mom')).toBeNull();
 
     fireEvent.press(getByTestId('save-to-hub'));
 
@@ -460,7 +460,7 @@ describe('UnifiedCreateOverlay tags UI', () => {
     }
     expect(createPayload.tags).toContain('#work_life');
     expect(createPayload.tags).toContain('*meeting');
-    expect(createPayload.tags).not.toContain('@Mom');
+    expect(createPayload.tags).not.toContain('@mom');
     expect(onClose).toHaveBeenCalled();
   });
 
