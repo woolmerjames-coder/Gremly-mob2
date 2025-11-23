@@ -26,7 +26,7 @@ function sanitizeHashtagBody(body: string): string | null {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_-]/g, '');
+    .replace(/[^a-z0-9_]/g, ''); // Hashtags: only alphanumeric and underscore (no hyphens)
 
   if (!normalized) {
     return null;
@@ -206,9 +206,12 @@ export function filterAndNormalizeTags(input: string[]): string[] {
     // Max length: 20 characters
     if (stripped.length > 20) continue;
 
-    // CP-TAG-3: Pattern must start with letter, then letters/numbers/underscores/hyphens
-    // Allow hyphens for @ tags like @sarah-jones
-    if (!/^[a-z][a-z0-9_-]*$/.test(stripped)) continue;
+    // CP-TAG-3: Pattern must start with letter, then letters/numbers/underscores
+    // For @ tags (mentions), also allow hyphens (e.g., @sarah-jones)
+    // For # tags, only allow underscores (no hyphens, as they get stripped anyway)
+    const isAtSymbol = trimmed.startsWith('@');
+    const pattern = isAtSymbol ? /^[a-z][a-z0-9_-]*$/ : /^[a-z][a-z0-9_]*$/;
+    if (!pattern.test(stripped)) continue;
 
     // CP-TAG-1: Block contraction fragments (e.g., "don't" → "don", "I've" → "ive")
     // Detect fragments that end with 't, 've, 'll patterns or are common contractions

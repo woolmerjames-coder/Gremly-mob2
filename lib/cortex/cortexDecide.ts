@@ -589,17 +589,34 @@ export async function cortexDecide(
     // This is the single source of truth for intent classification
     let mode: DecisionMode = 'keep';
 
+    // CRITICAL: Respect explicit engine confidence when provided
+    // If engine explicitly returns confidence at or below threshold, don't auto-create
+    const hasExplicitEngineConfidence = typeof engineOutput.confidence === 'number';
+    const engineConfidenceBelowThreshold =
+      hasExplicitEngineConfidence && engineOutput.confidence <= autoThreshold;
+    const engineConfidenceHigh = hasExplicitEngineConfidence && engineOutput.confidence >= 0.7;
+
+    // When engine has high confidence in its classification, respect the engine type over canonical heuristics
+    const engineTypeOverride =
+      engineConfidenceHigh && normalized.canonicalType
+        ? normalized.canonicalType
+        : canonicalIntent.type;
+
     // Step 1: Use canonical intent to determine if we should auto-create
     const shouldAutoCreateFromCanonical =
       canonicalIntent.allowAutoCreate &&
       !canonicalIntent.suppressChips &&
-      canonicalIntent.confidence >= 0.55;
+      canonicalIntent.confidence >= 0.55 &&
+      !engineConfidenceBelowThreshold; // Don't override explicit low engine confidence
 
     // Step 2: Build actions based on canonical type if we're auto-creating
     if (shouldAutoCreateFromCanonical) {
+      // Use engineTypeOverride to respect high-confidence engine classifications
+      const effectiveType = engineConfidenceHigh ? engineTypeOverride : canonicalIntent.type;
+
       // Ensure we have the right action for the canonical type
       if (
-        canonicalIntent.type === 'todo' &&
+        effectiveType === 'todo' &&
         !effectiveCandidateActions.some((a) => a.type === 'create.todo')
       ) {
         effectiveCandidateActions = [
@@ -613,7 +630,7 @@ export async function cortexDecide(
           ...effectiveCandidateActions,
         ];
       } else if (
-        canonicalIntent.type === 'habit' &&
+        effectiveType === 'habit' &&
         !effectiveCandidateActions.some((a) => a.type === 'create.habit')
       ) {
         effectiveCandidateActions = [
@@ -628,7 +645,8 @@ export async function cortexDecide(
           ...effectiveCandidateActions,
         ];
       } else if (
-        canonicalIntent.type === 'log' &&
+        effectiveType === 'log' &&
+        normalized.canonicalSubtype !== 'list' && // Don't add create.note for lists (will use add.to.list)
         !effectiveCandidateActions.some((a) => a.type === 'create.note')
       ) {
         effectiveCandidateActions = [
@@ -663,6 +681,7 @@ export async function cortexDecide(
       const canonicalForceAuto =
         canonicalIntent.allowAutoCreate &&
         !canonicalIntent.suppressChips &&
+        !engineConfidenceBelowThreshold && // Don't force auto if engine gave low confidence
         (canonicalIntent.type === 'todo' ||
           canonicalIntent.type === 'habit' ||
           canonicalIntent.type === 'log');
@@ -673,7 +692,10 @@ export async function cortexDecide(
         effectiveCandidateActions.length > 0 &&
         (confidence > autoThreshold || preferHabitAuto || listStrong || canonicalForceAuto);
 
-      if (!hasConfidence || confidence < 0) {
+      // CRITICAL: If engine gave very low confidence (<0.5), keep mode should be 'keep'
+      const engineConfidenceVeryLow = hasExplicitEngineConfidence && engineOutput.confidence < 0.5;
+
+      if (!hasConfidence || confidence < 0 || engineConfidenceVeryLow) {
         mode = 'keep';
       } else if (shouldAuto) {
         mode = 'auto';
