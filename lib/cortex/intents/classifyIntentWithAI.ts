@@ -29,12 +29,29 @@ const AI_CLASSIFICATION_PROMPT = `You are an intent classifier for a productivit
 • 90-100%: Contains explicit keywords like "todo:", "habit:", "remind me to", "I need to", "I have to", "please remember to"
 • 75-89%: Clear intent with action verbs or patterns, e.g. "call dentist", "email Sarah", "meditate daily", "go running three times a week"
 • 50-74%: Ambiguous, could be multiple types, e.g. "talked to Sarah about project", "thinking about starting a side hustle"
-• < 50%: Unclear intent, meta-comment, or very vague, e.g. "hmm", "interesting", "idk", "just thinking"
+• < 50%: Unclear intent, meta-comment, or very vague, e.g. "hmm", "interesting", "idk"
 
 **Consider:**
 • Strong action verbs → higher To-Do confidence
 • Recurring language ("daily", "every", "each morning", "every week") → higher Habit confidence
 • Past tense narratives → higher Log confidence
+
+**CRITICAL DISTINCTION - 'log' vs 'ignore':**
+
+'log' should be used for:
+  - Reflective thoughts: "just thinking about", "wondering if", "maybe I should"
+  - Vague plans: "someday I want to", "might do this later", "considering"
+  - Internal monologue: "thinking about messaging Alex", "could start a side hustle"
+  - Past tense reflections: "talked to Sarah about project"
+  - ANY thought or idea the user might want to remember later
+
+'ignore' should ONLY be used for:
+  - Meta-comments about the app: "this app is confusing", "how does this work?"
+  - Explicit opt-outs: "don't save this", "never mind", "forget it", "stop"
+  - Feedback about the app: "you made a mistake", "that doesn't make sense"
+  - Questions about the app's behavior: "why did you do that?"
+
+When in doubt between 'log' and 'ignore', choose 'log' with low confidence (< 50).
 
 **CRITICAL - Output Format:**
 You MUST return a JSON object with this EXACT structure.
@@ -49,7 +66,8 @@ Example valid outputs:
 {"type": "todo", "confidence": 95}
 {"type": "habit", "confidence": 88}
 {"type": "log", "confidence": 62}
-{"type": "ignore", "confidence": 30}
+{"type": "log", "confidence": 40}  ← Use this for vague reflective thoughts
+{"type": "ignore", "confidence": 30}  ← Only for meta-comments/feedback
 
 Do not include any other fields or commentary. Use "type" as the key.`;
 
@@ -190,10 +208,43 @@ export async function classifyIntentWithAI(
     // Parse and validate confidence
     const aiConfidence = parseConfidence(parsed.confidence);
 
-    // Build result with AI classification
+    // REFLECTIVE PATTERN OVERRIDE:
+    // If AI returns 'ignore'/'none' with low confidence AND text contains reflective patterns,
+    // override to 'log' to prevent losing user's thoughts
+    let finalType = aiType;
+    if (
+      (aiType === 'none' || aiType === 'question') &&
+      aiConfidence !== undefined &&
+      aiConfidence < 70
+    ) {
+      const reflectivePatterns = [
+        /\b(thinking|thought|wondering|considering|might|maybe|someday|could|should)\b/i,
+        /\b(just thinking|just thought)\b/i,
+        /\b(vague|planning|contemplating)\b/i,
+        /\b(side hustle|job change|career)\b/i,
+        /\b(messaging|contacting|reaching out to)\b/i,
+      ];
+
+      const hasReflectivePattern = reflectivePatterns.some((pattern) => pattern.test(text));
+      const isNotMetaComment =
+        !/\b(how does this work|what does this do|why did you|this app|doesn't make sense)\b/i.test(
+          text,
+        );
+
+      if (hasReflectivePattern && isNotMetaComment) {
+        if (__DEV__) {
+          console.log(
+            `[classifyIntentWithAI] Override: '${aiType}' (conf=${aiConfidence}) → 'note' (reflective pattern detected)`,
+          );
+        }
+        finalType = 'note'; // Override to 'note' (log)
+      }
+    }
+
+    // Build result with AI classification (using finalType after override)
     const detectedIntent: DetectedIntent = {
       ...fallback,
-      kind: aiType,
+      kind: finalType,
       confidence: aiConfidence ? aiConfidence / 100 : fallback.confidence, // Normalize to 0-1
       aiConfidence, // Keep raw 0-100 score
       title: text,
@@ -203,7 +254,7 @@ export async function classifyIntentWithAI(
     if (__DEV__) {
       const trimmedText = text.length > 120 ? text.slice(0, 120) + '…' : text;
       console.log(
-        `[MindDrop AI] type=${aiType} ai_confidence=${aiConfidence ?? 'null'} text="${trimmedText}"`,
+        `[MindDrop AI] type=${finalType} ai_confidence=${aiConfidence ?? 'null'} text="${trimmedText}"`,
       );
     }
 
