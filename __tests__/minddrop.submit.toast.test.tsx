@@ -92,6 +92,9 @@ jest.mock('../providers/RepoProvider', () => ({
     listLinkedTags: jest.fn(),
     listPeople: jest.fn(),
     listLinkedPeople: jest.fn(),
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 

@@ -55,6 +55,9 @@ jest.mock('../providers/RepoProvider', () => ({
     remove: mockRemove,
     writeEvent: mockWriteEvent,
     notes: { list: mockNotesList },
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 

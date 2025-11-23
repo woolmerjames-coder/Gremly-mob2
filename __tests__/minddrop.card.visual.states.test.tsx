@@ -1,6 +1,6 @@
 /**
  * Render tests for Mind Drop card visual states
- * 
+ *
  * Tests the three visual states of Mind Drop cards in Recent Drops:
  * - Pending: AI enrichment in progress (skeleton + Gremly working)
  * - Complete: AI enrichment complete (real title + tags)
@@ -46,6 +46,9 @@ jest.mock('../providers/RepoProvider', () => ({
     getById: mockGetById,
     remove: mockRemove,
     archiveItemsByDropId: mockArchiveItemsByDropId,
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 
@@ -177,7 +180,7 @@ describe('Mind Drop Card Visual States', () => {
 
       // Tag skeleton layer should be present
       expect(screen.getByTestId('minddrop-tag-skeleton-layer')).toBeTruthy();
-      
+
       // Should have 3 tag skeletons
       const tagSkeletons = screen.getAllByTestId('minddrop-tag-skeleton');
       expect(tagSkeletons).toHaveLength(3);
@@ -293,7 +296,7 @@ describe('Mind Drop Card Visual States', () => {
 
       // No failed hint
       expect(screen.queryByTestId('minddrop-failed-hint')).toBeNull();
-      
+
       // Content should be visible
       expect(screen.getByText('Meeting Notes')).toBeTruthy();
     });
@@ -388,7 +391,7 @@ describe('Mind Drop Card Visual States', () => {
       // Key validation: user can see actual content, not skeleton placeholder
       const skeletonLayers = screen.queryAllByTestId('minddrop-skeleton-layer');
       // If skeleton exists, it should be invisible (opacity: 0) while content is visible
-      
+
       // ASSERTION 4: No "Organizing..." text (confirms not in pending state)
       expect(screen.queryByText(/organizing/i)).toBeNull();
     });
@@ -490,7 +493,7 @@ describe('Mind Drop Card Visual States', () => {
       // This test verifies the structure supports state transitions
       // The actual animation transition would require more complex testing
       const initialPending = makePendingNote('transition-1', 'Processing...');
-      
+
       mockNotesList.mockResolvedValue([initialPending] as any);
 
       const { rerender } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
@@ -574,10 +577,10 @@ describe('Mind Drop Card Visual States', () => {
         const skeletonLayers = screen.queryAllByTestId('minddrop-skeleton-layer');
         // Skeleton exists in DOM but should have opacity 0 (or not be "visible")
         // We can't easily test opacity in RTL, so just check complete content is visible
-        
+
         // AI-enhanced title should be visible
         expect(screen.getByText('AI-enhanced title')).toBeTruthy();
-        
+
         // AI-generated tags should be visible
         expect(screen.getByText(/#productivity/)).toBeTruthy();
         expect(screen.getByText(/#ideas/)).toBeTruthy();
@@ -585,7 +588,7 @@ describe('Mind Drop Card Visual States', () => {
 
       // Step 4: Verify no pending or failed hints
       expect(screen.queryByTestId('minddrop-failed-hint')).toBeNull();
-      
+
       // Skeleton layer should still exist in DOM (for animation architecture)
       // but the key verification is that complete content is visible
       expect(screen.getByText('AI-enhanced title')).toBeTruthy();
