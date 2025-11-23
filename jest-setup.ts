@@ -27,6 +27,32 @@ process.env.JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT ?? '0';
 // Use real timers by default (tests can override with jest.useFakeTimers() if needed)
 jest.useRealTimers();
 
+// Mock Supabase client globally to avoid channel subscription errors
+jest.mock('./lib/supabase/client', () => ({
+  supabase: {
+    rpc: jest.fn(),
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+      unsubscribe: jest.fn().mockResolvedValue({ error: null }),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      insert: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null, error: null }),
+    })),
+    auth: {
+      onAuthStateChange: jest.fn().mockReturnValue({
+        data: { subscription: { unsubscribe: jest.fn() } },
+      }),
+      getSession: jest.fn().mockResolvedValue({ data: { session: null }, error: null }),
+    },
+  },
+}));
+
 // Mock Reanimated with minimal implementation
 jest.mock('react-native-reanimated', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires

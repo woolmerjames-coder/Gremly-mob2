@@ -76,6 +76,11 @@ jest.mock('../../../lib/conversion', () => {
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: {
     rpc: jest.fn(),
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+      unsubscribe: jest.fn().mockResolvedValue({ error: null }),
+    })),
   },
 }));
 
@@ -84,7 +89,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user' }),
+  useAuth: () => ({ user: { id: 'test-user' } }),
 }));
 
 jest.mock('../../../providers/CortexProvider', () => ({
@@ -181,8 +186,14 @@ beforeAll(() => {
 });
 
 describe('Mind Drop Category Chip Conversion', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { supabase } = require('../../../lib/supabase/client');
+  const mockSupabaseRpc = supabase.rpc as jest.Mock;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSupabaseRpc.mockReset();
+    mockSupabaseRpc.mockResolvedValue({ data: 'todo-xyz', error: null });
     resetRepo();
     resetOtherMocks();
 

@@ -43,7 +43,7 @@ jest.mock('../providers/CortexProvider', () => {
 
 // Mock Auth
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({ user: { id: 'user-1' } }),
 }));
 
 // Mock Repo

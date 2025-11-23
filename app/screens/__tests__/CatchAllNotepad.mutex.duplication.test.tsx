@@ -56,7 +56,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user' }),
+  useAuth: () => ({ user: { id: 'test-user' } }),
 }));
 
 jest.mock('@react-navigation/native', () => ({
