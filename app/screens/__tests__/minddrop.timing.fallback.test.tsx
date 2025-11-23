@@ -71,7 +71,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
-jest.mock('../../providers/AuthProvider', () => ({
+jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' } }),
 }));
 
