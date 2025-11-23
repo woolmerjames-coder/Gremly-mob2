@@ -132,6 +132,7 @@ export const INPUT_LINE_HEIGHT = LINE_HEIGHT;
 export { START_HEIGHT as START_HEIGHT, MIN_HEIGHT as MIN_HEIGHT, MAX_HEIGHT as MAX_HEIGHT };
 export const MAX_DYNAMIC_HEIGHT = MAX_HEIGHT; // Backwards compatibility for existing imports
 const MAX_INPUT_CHARACTERS = 2000;
+const PHOTO_TEXT_HINT = 'Add a few words so Gremly knows what this photo is about.';
 const SPACE = 8;
 const INPUT_PADDING_LEFT = 16;
 const INPUT_ICON_PADDING_RIGHT = 72;
@@ -285,6 +286,7 @@ type MindDropInputProps = {
   heightWrapperStyle?: any;
   inputDynHeight: number;
   onCameraPress?: () => void;
+  photoHintText?: string;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -315,6 +317,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
     heightWrapperStyle,
     inputDynHeight,
     onCameraPress,
+    photoHintText,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -448,6 +451,13 @@ const MindDropInput = React.memo<MindDropInputProps>(
                 ellipsizeMode="tail"
               >{`${characterCount} / ${MAX_INPUT_CHARACTERS}`}</Text>
             </View>
+          </View>
+        ) : null}
+        {photoHintText ? (
+          <View style={{ marginTop: 4, paddingHorizontal: 16 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280' }}>
+              {photoHintText}
+            </Text>
           </View>
         ) : null}
       </Pressable>
@@ -2112,6 +2122,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
   }, []);
+
+  // Compute photo hint text: show gentle prompt when photos exist but text is empty
+  const noteIsEmpty = note.trim().length === 0;
+  const requiresTextForPhotos = pendingPhotoUris.length > 0 && noteIsEmpty;
+  const photoHintText = requiresTextForPhotos ? PHOTO_TEXT_HINT : undefined;
 
   const handleInputContentSizeChange = useCallback(
     (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
@@ -4366,6 +4381,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
+    // Guard: require text when photos are attached
+    const trimmed = note.trim();
+    if (pendingPhotoUris.length > 0 && trimmed.length === 0) {
+      showActionToast({
+        type: 'success',
+        content: 'ℹ️ Gremly needs a few words so it can organize your photo.',
+      });
+      return;
+    }
+
     const needsDelay = uiMode === 'guided';
 
     if (needsDelay) {
@@ -4456,6 +4481,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               heightWrapperStyle={styles.inputHeightWrapper}
               inputDynHeight={inputDynHeight}
               onCameraPress={handleMindDropPhotoAction}
+              photoHintText={photoHintText}
             />
           </View>
           {pendingPhotoUris.length > 0 && (
