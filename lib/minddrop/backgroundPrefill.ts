@@ -192,9 +192,11 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
     const updatedViews = {
       ...existingViews,
       minddrop_prefilled_v1: true,
+      minddrop_stage: 'prefilled', // Mark prefill stage complete
       ai_title_frozen: true,
       ai_tags_frozen: true,
       ai_pending: false, // AI processing complete
+      ai_failed: false, // Success - clear any previous failure state
     };
 
     // Step 3: Update entity in Supabase based on type

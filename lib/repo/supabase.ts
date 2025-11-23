@@ -206,10 +206,12 @@ const tableFor = (type: AppRecord['type']): string => {
 /**
  * Normalize views JSONB field to avoid null weirdness
  * Database column is NOT NULL with default '{}', but old records may have been migrated
+ * Always returns non-null object to ensure stage and failure flags round-trip properly
  */
 function normalizeViews(input: any): Record<string, any> {
   if (!input || typeof input !== 'object') return {};
-  return input;
+  // Preserve all fields including ai_pending, ai_failed, minddrop_stage, minddrop_prefilled_v1
+  return { ...input };
 }
 
 // Helper to map database habit columns to TypeScript fields

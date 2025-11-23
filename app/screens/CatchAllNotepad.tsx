@@ -92,6 +92,10 @@ import {
   convertUnsortedToLog,
 } from '../../lib/conversion';
 import { backgroundPrefill } from '../../lib/minddrop/backgroundPrefill';
+import {
+  runMindDropStageAClassification,
+  runMindDropStageBPrefill,
+} from '../../lib/minddrop/pipelineStages';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
 import MascotIcon from '../../components/MascotIcon';
 import {
@@ -507,6 +511,8 @@ export async function saveToUnsortedTray(
     tags,
     views: {
       ai_pending: true, // Mark for background AI enrichment
+      ai_failed: false, // Initial state - no failure yet
+      minddrop_stage: 'pending', // Pipeline entry state
     },
   };
 
@@ -727,25 +733,34 @@ function getMindDropVisualState(entity: {
 }): MindDropVisualState {
   const views = entity.views ?? {};
   
-  // Still processing
-  if (views.ai_pending) return 'pending';
+  // Still processing (Phase 4 flag check)
+  if (views.ai_pending === true || views.minddrop_stage === 'pending') {
+    return 'pending';
+  }
   
-  // Explicitly failed
-  if (views.ai_failed) return 'failed';
+  // Explicitly failed (Phase 4 flag check)
+  if (views.ai_failed === true) {
+    return 'failed';
+  }
   
-  // Check if AI enrichment actually happened
-  // If ai_pending is false but no enrichment occurred, treat as failed
-  if (views.ai_pending === false) {
+  // Successfully prefilled (Phase 4 explicit success check)
+  if (views.minddrop_stage === 'prefilled' || views.minddrop_prefilled_v1 === true) {
+    return 'complete';
+  }
+  
+  // Implicit failure: ai_pending is false, not prefilled, and no enrichment signals
+  // This catches cases where Stage B failed or never ran
+  if (views.ai_pending === false && views.minddrop_stage !== 'prefilled') {
     const hasEnrichedTags = Array.isArray(entity.tags) && entity.tags.length > 0;
     const hasCompactTitle = entity.title && entity.title.length > 0 && entity.title.length < 60;
-    const wasPrefilled = views.minddrop_prefilled_v1 === true;
     
-    // If no tags, no compact title, and wasn't prefilled, AI likely didn't enhance it
-    if (!hasEnrichedTags && !hasCompactTitle && !wasPrefilled) {
+    // If no enrichment signals, treat as failed
+    if (!hasEnrichedTags && !hasCompactTitle) {
       return 'failed';
     }
   }
   
+  // Default: complete (backward compatibility for entities without new flags)
   return 'complete';
 }
 
@@ -2608,42 +2623,50 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // Couldn't create unsorted note - skip auto-create
             console.warn('[MindDrop][AutoCreate] No unsorted note available, skipping auto-create');
           } else {
-            // Step 2: Convert unsorted note to target type based on decision
-            const createdIds = {
-              todos: [] as string[],
-              notes: [] as string[],
-              habits: [] as string[],
-            };
-            const counts = { todos: 0, notes: 0, habits: 0 };
-            const createdDetails: OrganizedDetail[] = [];
-            let firstTodoId: string | null = null;
-
             try {
+              const createdIds = {
+                todos: [] as string[],
+                habits: [] as string[],
+                notes: [] as string[],
+              };
+              const createdDetails: OrganizedDetail[] = [];
+              let firstTodoId: string | null = null;
               const firstAction = actions[0];
 
+              //Step 2A: Classification stage - create entities based on decision
               if (firstAction.type === 'create.todo') {
-                const due = firstAction.payload.due ?? parsedIso ?? null;
-                const { todo: createdTodo } = await convertUnsortedToTodo(repo, unsortedNoteId, {
-                  due,
+                // Use Stage A for todos
+                const stageAResult = await runMindDropStageAClassification({
+                  repo,
+                  text: trimmed,
+                  cleanedText,
+                  decision,
+                  dropId,
+                  sourceMessageId: validSourceMessageId ?? null,
+                  parsedDue: parsedIso,
+                  unsortedNoteId,
                 });
 
-                counts.todos += 1;
-                createdIds.todos.push(createdTodo.id);
-                createdDetails.push({ kind: 'todo' });
-                firstTodoId = createdTodo.id;
+                createdIds.todos = stageAResult.entities.todos;
+                createdDetails.push(...stageAResult.entityDetails);
+                firstTodoId = createdIds.todos[0] ?? null;
               } else if (firstAction.type === 'create.habit') {
-                const freqRaw = firstAction.payload.freq;
-                const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
-                const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedNoteId, {
-                  frequency,
+                // Use Stage A for habits
+                const stageAResult = await runMindDropStageAClassification({
+                  repo,
+                  text: trimmed,
+                  cleanedText,
+                  decision,
+                  dropId,
+                  sourceMessageId: validSourceMessageId ?? null,
+                  parsedDue: parsedIso,
+                  unsortedNoteId,
                 });
 
-                counts.habits += 1;
-                createdIds.habits.push(createdHabit.id);
-                createdDetails.push({ kind: 'habit' });
+                createdIds.habits = stageAResult.entities.habits;
+                createdDetails.push(...stageAResult.entityDetails);
               } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
-                // For notes/lists, update the existing unsorted note in place
-                // Priority: 1) action payload, 2) mindDropDecision.logSubtype, 3) default to 'everything_else'
+                // Handle notes inline (complex logic with UI dependencies)
                 const rawSubtype =
                   firstAction.type === 'add.to.list'
                     ? 'list'
@@ -2651,7 +2674,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                       decision.mindDropDecision?.logSubtype ??
                       'everything_else');
 
-                // Normalize to valid log subtypes
                 const subtype =
                   rawSubtype === 'journal'
                     ? 'journal'
@@ -2661,21 +2683,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                         ? 'idea'
                         : rawSubtype === 'reference'
                           ? 'reference'
-                          : 'everything_else'; // Default for auto-created logs (not catchall)
+                          : 'everything_else';
 
                 const canonicalType = persistedToCanonical('note', subtype);
-
                 const whyUpdate = appendLineageToWhyString('Auto-organizing via Mind Drop', {
                   originId: unsortedNoteId,
                   source: 'auto_classification',
                 });
 
-                // Fetch existing note to update labels and tags
                 const existingNote = await repo.getById(unsortedNoteId);
                 const existingLabels = (existingNote as any)?.labels || [];
 
-                // Update labels: remove catchall/needs_review, add 'log' for all auto-created logs
-                // (Auto-create path means canonical intent decided this is a log, not unsorted)
                 const updatedLabels = existingLabels.filter(
                   (l: string) => l !== 'catchall' && l !== 'needs_review',
                 );
@@ -2683,18 +2701,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   updatedLabels.push('log');
                 }
 
-                // For list subtype, ensure #list tag is added
                 const shouldAddListTag = subtype === 'list';
                 const updatePatch: any = {
                   subtype,
                   canonicalType,
-                  ai_placed: true, // Auto-created logs are always AI-placed
+                  ai_placed: true,
                   why_string: whyUpdate,
-                  views: { alsoShowIn: ['Hub:Catch-All'] },
-                  labels: updatedLabels, // Add labels to update patch
+                  views: {
+                    alsoShowIn: ['Hub:Catch-All'],
+                    minddrop_stage: 'classified', // Mark classification complete
+                    ai_pending: false,
+                  },
+                  labels: updatedLabels,
                 };
 
-                // If it's a list, add the #list tag to the existing tags
                 if (shouldAddListTag) {
                   const existingTags = (existingNote as any)?.tags || [];
                   const hasListTag = existingTags.some(
@@ -2710,13 +2730,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   patch: updatePatch,
                 });
 
-                // Run background AI prefill for title + tags enrichment (like todos/habits)
-                void backgroundPrefill(updatedNote, cleanedText);
-
-                counts.notes += 1;
                 createdIds.notes.push(updatedNote.id);
                 createdDetails.push({ kind: 'note', noteSubtype: subtype });
               }
+
+              const counts = {
+                todos: createdIds.todos.length,
+                notes: createdIds.notes.length,
+                habits: createdIds.habits.length,
+              };
+
+              // Step 2B: Prefill stage - run AI enhancement for all created entities
+              void runMindDropStageBPrefill({
+                repo,
+                entityIds: createdIds,
+                rawText: cleanedText,
+              });
 
               // Show timing chips for auto-created todos
               if (

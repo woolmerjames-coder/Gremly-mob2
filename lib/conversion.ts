@@ -296,8 +296,8 @@ export const convertUnsortedToTodo = async (
 
     const createdTodo = (await repo.create(todoInput)) as Todo;
 
-    // Run background AI prefill for title + tags enrichment
-    void backgroundPrefill(createdTodo, rawText);
+    // Note: backgroundPrefill is now called by Stage B (runMindDropStageBPrefill)
+    // to avoid duplicate AI requests and race conditions on views updates
 
     const noteWhy = appendLineageToWhyString(note.why_string, {
       originId: createdTodo.id,
@@ -479,6 +479,7 @@ export const convertUnsortedToHabit = async (
       type: 'habit',
       name: habitName,
       frequency,
+      subtype: 'start_habit', // Default: most habits are about starting new behaviors
       notes: derived.notes, // Preserve full Mind Drop text in notes field using shared helper
       space_id: note.space_id ?? null,
       ai_placed: !!note.ai_placed,
@@ -494,8 +495,8 @@ export const convertUnsortedToHabit = async (
 
     const createdHabit = (await repo.create(habitInput)) as Habit;
 
-    // Run background AI prefill for title + tags enrichment
-    void backgroundPrefill(createdHabit, rawText);
+    // Note: backgroundPrefill is now called by Stage B (runMindDropStageBPrefill)
+    // to avoid duplicate AI requests and race conditions on views updates
 
     const noteWhy = appendLineageToWhyString(note.why_string, {
       originId: createdHabit.id,

@@ -18,25 +18,34 @@ function getMindDropVisualState(entity: {
 }): MindDropVisualState {
   const views = entity.views ?? {};
   
-  // Still processing
-  if (views.ai_pending) return 'pending';
+  // Still processing (Phase 4 flag check)
+  if (views.ai_pending === true || views.minddrop_stage === 'pending') {
+    return 'pending';
+  }
   
-  // Explicitly failed
-  if (views.ai_failed) return 'failed';
+  // Explicitly failed (Phase 4 flag check)
+  if (views.ai_failed === true) {
+    return 'failed';
+  }
   
-  // Check if AI enrichment actually happened
-  // If ai_pending is false but no enrichment occurred, treat as failed
-  if (views.ai_pending === false) {
+  // Successfully prefilled (Phase 4 explicit success check)
+  if (views.minddrop_stage === 'prefilled' || views.minddrop_prefilled_v1 === true) {
+    return 'complete';
+  }
+  
+  // Implicit failure: ai_pending is false, not prefilled, and no enrichment signals
+  // This catches cases where Stage B failed or never ran
+  if (views.ai_pending === false && views.minddrop_stage !== 'prefilled') {
     const hasEnrichedTags = Array.isArray(entity.tags) && entity.tags.length > 0;
     const hasCompactTitle = entity.title && entity.title.length > 0 && entity.title.length < 60;
-    const wasPrefilled = views.minddrop_prefilled_v1 === true;
     
-    // If no tags, no compact title, and wasn't prefilled, AI likely didn't enhance it
-    if (!hasEnrichedTags && !hasCompactTitle && !wasPrefilled) {
+    // If no enrichment signals, treat as failed
+    if (!hasEnrichedTags && !hasCompactTitle) {
       return 'failed';
     }
   }
   
+  // Default: complete (backward compatibility for entities without new flags)
   return 'complete';
 }
 
@@ -310,6 +319,154 @@ describe('getMindDropVisualState', () => {
       const entity = {
         views: { ai_pending: false },
         title: '',
+        tags: ['work'],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('complete');
+    });
+  });
+
+  describe('Phase 4 minddrop_stage flag integration', () => {
+    it('should return "pending" when minddrop_stage is "pending"', () => {
+      const entity = {
+        views: { minddrop_stage: 'pending', ai_pending: true, ai_failed: false },
+        title: 'Email Sarah',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('pending');
+    });
+
+    it('should return "pending" when only minddrop_stage is "pending" (ai_pending missing)', () => {
+      const entity = {
+        views: { minddrop_stage: 'pending' },
+        title: 'Email Sarah',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('pending');
+    });
+
+    it('should return "complete" when minddrop_stage is "prefilled"', () => {
+      const entity = {
+        views: { minddrop_stage: 'prefilled', ai_pending: false, ai_failed: false },
+        title: '',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('complete');
+    });
+
+    it('should return "complete" when minddrop_stage is "prefilled" even without other enrichment', () => {
+      const entity = {
+        views: { 
+          minddrop_stage: 'prefilled',
+          minddrop_prefilled_v1: true,
+          ai_pending: false,
+          ai_failed: false,
+        },
+        title: 'Very long title that was not compacted because the AI enrichment focused on other fields like tags and body content',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('complete');
+    });
+
+    it('should return "failed" when minddrop_stage is "classified" and ai_failed is true', () => {
+      const entity = {
+        views: { 
+          minddrop_stage: 'classified',
+          ai_pending: false,
+          ai_failed: true,
+        },
+        title: 'Email Sarah',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('failed');
+    });
+
+    it('should return "failed" when minddrop_stage is "classified", ai_pending is false, and no enrichment', () => {
+      const entity = {
+        views: { 
+          minddrop_stage: 'classified',
+          ai_pending: false,
+          ai_failed: false,
+        },
+        title: 'Very long title that shows no AI compaction happened at all in the enrichment stage',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('failed');
+    });
+
+    it('should return "complete" when minddrop_stage is "classified" but has enriched tags (backward compat)', () => {
+      const entity = {
+        views: { 
+          minddrop_stage: 'classified',
+          ai_pending: false,
+        },
+        title: 'Long title',
+        tags: ['work', 'important'],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('complete');
+    });
+
+    it('should prioritize ai_pending over minddrop_stage', () => {
+      const entity = {
+        views: { 
+          ai_pending: true,
+          minddrop_stage: 'prefilled',
+        },
+        title: 'Title',
+        tags: [],
+      };
+      
+      // Even though stage is prefilled, ai_pending takes precedence
+      expect(getMindDropVisualState(entity)).toBe('pending');
+    });
+
+    it('should prioritize ai_failed over minddrop_stage', () => {
+      const entity = {
+        views: { 
+          ai_failed: true,
+          minddrop_stage: 'prefilled',
+          minddrop_prefilled_v1: true,
+        },
+        title: 'Title',
+        tags: ['tag1'],
+      };
+      
+      // ai_failed takes precedence over successful stage
+      expect(getMindDropVisualState(entity)).toBe('failed');
+    });
+
+    it('should handle transition from pending to classified', () => {
+      // After Stage A completes
+      const entity = {
+        views: { 
+          minddrop_stage: 'classified',
+          ai_pending: true,  // Still pending Stage B
+          ai_failed: false,
+        },
+        title: 'Email Sarah',
+        tags: [],
+      };
+      
+      expect(getMindDropVisualState(entity)).toBe('pending');
+    });
+
+    it('should handle transition from classified to prefilled', () => {
+      // After Stage B completes
+      const entity = {
+        views: { 
+          minddrop_stage: 'prefilled',
+          minddrop_prefilled_v1: true,
+          ai_pending: false,
+          ai_failed: false,
+        },
+        title: 'Email Sarah',
         tags: ['work'],
       };
       
