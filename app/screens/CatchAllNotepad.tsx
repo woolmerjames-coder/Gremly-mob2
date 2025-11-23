@@ -143,6 +143,9 @@ const DUE_STRIP =
 const DUE_CONFIDENCE_FLOOR =
   Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
 
+const MIND_DROP_V3_INSTANT =
+  String(process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT ?? 'off').toLowerCase() === 'on';
+
 function createSubmissionId(): string {
   try {
     if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -501,6 +504,9 @@ export async function saveToUnsortedTray(
     sourceMessageId: validSourceMessageId ?? undefined,
     dropId: dropId ?? undefined,
     tags,
+    views: {
+      ai_pending: true, // Mark for background AI enrichment
+    },
   };
 
   logMindDropDebug('provisional-create', {
@@ -2850,6 +2856,238 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ensureSubmissionAndDropIds,
   ]);
 
+  /**
+   * Mind Drop AI Pipeline - Extracted for v3 instant submission support
+   *
+   * This function contains the AI-heavy logic that classifies user input and creates entities.
+   * In v2 (blocking), onSubmit awaits this before returning.
+   * In v3 (instant), onSubmit returns immediately after creating provisional note,
+   * then runs this pipeline in the background.
+   *
+   * Logic extracted from onSubmit starting at performSave() retry loop.
+   */
+  type MindDropPipelineParams = {
+    trimmed: string;
+    dropId: string;
+    validSourceMessageId: string | null | undefined;
+    textHash: string;
+  };
+
+  async function runMindDropPipeline(params: MindDropPipelineParams): Promise<{
+    success: boolean;
+    result: SaveResult | null;
+    error?: any;
+  }> {
+    const { trimmed, dropId, validSourceMessageId, textHash } = params;
+
+    try {
+      // We'll attempt performSave() up to 2 times total.
+      let attempt = 0;
+      const maxAttempts = 2;
+      let finalResult: SaveResult | null = null;
+      let lastError: any = null;
+
+      while (attempt < maxAttempts) {
+        attempt++;
+        try {
+          // Primary path: existing pipeline
+          // EXPECTED: returns { created: { todos: string[], notes: string[], habits: string[] } }
+          const r = await performSave();
+
+          // Treat an "empty create" result as a failure to trigger retry/fallback.
+          const createdTodos = r?.created?.todos?.length ?? 0;
+          const createdNotes = r?.created?.notes?.length ?? 0;
+          const createdHabits = r?.created?.habits?.length ?? 0;
+          const totalCreated = createdTodos + createdNotes + createdHabits;
+
+          // Ask mode is a success even with 0 items created (user will manually categorize)
+          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0 || r?.decisionMode === 'ask') {
+            finalResult = r;
+            break; // success
+          }
+
+          // No items created -> mark as failure and possibly retry
+          lastError = new Error('EmptySave');
+          if (attempt === 1) {
+            if (TOASTS_ON) {
+              showActionToast({ type: 'success', content: COPY.retrying });
+            }
+            // loop to attempt #2
+          } else {
+            // Second failure — stop retrying
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          if (attempt === 1) {
+            // First failure — show "retrying" toast and try again
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: COPY.retrying,
+              });
+            }
+            // loop to attempt #2
+          } else {
+            // Second failure — stop retrying
+            break;
+          }
+        }
+      }
+
+      if (!finalResult) {
+        // Primary pipeline failed twice. Decide fallback by error type.
+        if (isNetworkError(lastError)) {
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          let offlineRetryId: string | undefined;
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            offlineRetryId = existingUnsortedId;
+            console.debug('[MindDrop][OfflineRetry] Reusing existing unsorted note for drop_id', {
+              dropId,
+              unsortedId: existingUnsortedId,
+            });
+          } else {
+            // Offline-ish path — save locally and reassure
+            offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
+              sourceMessageId: validSourceMessageId ?? undefined,
+              dropId,
+            });
+            if (offlineRetryId) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: offlineRetryId,
+                dropId,
+                mode: 'offline_retry',
+              });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, offlineRetryId);
+            }
+          }
+
+          resetState();
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedOfflineMsg,
+            });
+          }
+          // Optional haptic warning
+          try {
+            if (shouldUseHaptics()) void haptics.warning();
+          } catch (e) {
+            void e;
+          }
+          try {
+            AccessibilityInfo.announceForAccessibility?.(
+              'Saved offline. Will organize when connected.',
+            );
+          } catch (e) {
+            void e;
+          }
+        } else {
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          let unsortedFallbackId: string | undefined;
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            unsortedFallbackId = existingUnsortedId;
+            console.debug(
+              '[MindDrop][UnsortedFallback] Reusing existing unsorted note for drop_id',
+              {
+                dropId,
+                unsortedId: existingUnsortedId,
+              },
+            );
+          } else {
+            // Non-network error: save to Unsorted Tray for manual follow-up
+            unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
+              sourceMessageId: validSourceMessageId ?? undefined,
+              dropId,
+            });
+            if (unsortedFallbackId) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: unsortedFallbackId,
+                dropId,
+                mode: 'fallback_unsorted',
+              });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, unsortedFallbackId);
+            }
+          }
+
+          resetState();
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedUnsortedMsg,
+            });
+          }
+          // Optional haptic warning
+          try {
+            if (shouldUseHaptics()) void haptics.warning();
+          } catch (e) {
+            void e;
+          }
+          try {
+            AccessibilityInfo.announceForAccessibility?.('Saved to Unsorted Tray.');
+          } catch (e) {
+            void e;
+          }
+        }
+        // Nothing created (no Undo set)
+        pendingUndo.current = { todos: [], notes: [], habits: [] };
+        // Refresh recent drops list (counter updates via callback)
+        triggerRecentRefresh();
+        focusGreetingForA11y();
+
+        return { success: false, result: null, error: lastError };
+      }
+
+      // SUCCESS PATH — AI classification complete
+      // Mark all created entities as no longer ai_pending
+      try {
+        const allCreatedIds = [
+          ...(finalResult.created.todos ?? []),
+          ...(finalResult.created.notes ?? []),
+          ...(finalResult.created.habits ?? []),
+        ];
+
+        // Update views.ai_pending = false for all created entities
+        await Promise.allSettled(
+          allCreatedIds.map(async (entityId) => {
+            try {
+              const entity = await repo.getById(entityId);
+              if (!entity) return;
+
+              await repo.update({
+                id: entityId,
+                patch: {
+                  views: {
+                    ...(entity.views ?? {}),
+                    ai_pending: false,
+                  },
+                },
+              });
+            } catch (err) {
+              console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flag:', entityId, err);
+            }
+          }),
+        );
+      } catch (err) {
+        // Non-critical: log but don't fail the pipeline
+        console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flags:', err);
+      }
+
+      return { success: true, result: finalResult };
+    } catch (error) {
+      console.error('[MindDrop][Pipeline] Unexpected error:', error);
+      return { success: false, result: null, error };
+    }
+  }
+
   // COPILOT TASK: Ensure Mind Drop To-Do chip uses the RPC and does NOT leave duplicate unsorted entries.
   //
   // Context:
@@ -3374,167 +3612,49 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
-      // We’ll attempt performSave() up to 2 times total.
-      let attempt = 0;
-      const maxAttempts = 2;
-      let finalResult: any = null;
-      let lastError: any = null;
+      // Branch based on v2 (blocking) vs v3 (instant) mode
+      if (MIND_DROP_V3_INSTANT) {
+        // V3 INSTANT MODE: Fire-and-forget the AI pipeline
+        // The pipeline runs in the background; UI resets immediately
+        void runMindDropPipeline({
+          trimmed,
+          dropId,
+          validSourceMessageId,
+          textHash,
+        });
 
-      while (attempt < maxAttempts) {
-        attempt++;
-        try {
-          // Primary path: existing pipeline
-          // EXPECTED: returns { created: { todos: string[], notes: string[], habits: string[] } }
-          const r = await performSave();
+        // Immediately reset UI state
+        resetState();
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+        lastSubmittedTextRef.current = trimmed;
 
-          // Treat an "empty create" result as a failure to trigger retry/fallback.
-          const createdTodos = r?.created?.todos?.length ?? 0;
-          const createdNotes = r?.created?.notes?.length ?? 0;
-          const createdHabits = r?.created?.habits?.length ?? 0;
-          const totalCreated = createdTodos + createdNotes + createdHabits;
+        // Keep submission mutex behavior: prevent duplicate submissions for same text
+        setTimeout(() => {
+          submissionMutex.current.delete(textHash);
+        }, 2000);
 
-          // Ask mode is a success even with 0 items created (user will manually categorize)
-          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0 || r?.decisionMode === 'ask') {
-            finalResult = r;
-            break; // success
-          }
-
-          // No items created -> mark as failure and possibly retry
-          lastError = new Error('EmptySave');
-          if (attempt === 1) {
-            if (TOASTS_ON) {
-              showActionToast({ type: 'success', content: COPY.retrying });
-            }
-            // loop to attempt #2
-          } else {
-            // Second failure — stop retrying
-            break;
-          }
-        } catch (err: any) {
-          lastError = err;
-          if (attempt === 1) {
-            // First failure — show “retrying” toast and try again
-            if (TOASTS_ON) {
-              showActionToast({
-                type: 'success',
-                content: COPY.retrying,
-              });
-            }
-            // loop to attempt #2
-          } else {
-            // Second failure — stop retrying
-            break;
-          }
-        }
+        // Return early - don't await the pipeline in v3 mode
+        return;
       }
 
+      // V2 BLOCKING MODE: Await the full pipeline before returning
+      const pipelineResult = await runMindDropPipeline({
+        trimmed,
+        dropId,
+        validSourceMessageId,
+        textHash,
+      });
+
+      if (!pipelineResult.success) {
+        // Pipeline handled failure (offline save or unsorted fallback)
+        // resetState, toasts, and triggerRecentRefresh already called in pipeline
+        return;
+      }
+
+      const finalResult = pipelineResult.result;
       if (!finalResult) {
-        // Primary pipeline failed twice. Decide fallback by error type.
-        if (isNetworkError(lastError)) {
-          // Check if we already have an unsorted note for this drop_id
-          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
-
-          let offlineRetryId: string | undefined;
-          if (existingUnsortedId) {
-            // Reuse existing unsorted note for this drop_id
-            offlineRetryId = existingUnsortedId;
-            console.debug('[MindDrop][OfflineRetry] Reusing existing unsorted note for drop_id', {
-              dropId,
-              unsortedId: existingUnsortedId,
-            });
-          } else {
-            // Offline-ish path — save locally and reassure
-            offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
-              sourceMessageId: validSourceMessageId,
-              dropId,
-            });
-            if (offlineRetryId) {
-              logMetrics('minddrop_unsorted_created', {
-                noteId: offlineRetryId,
-                dropId,
-                mode: 'offline_retry',
-              });
-              // Track this drop_id to prevent duplicates
-              unsortedNotesByDropIdRef.current.set(dropId, offlineRetryId);
-            }
-          }
-
-          resetState();
-          if (TOASTS_ON) {
-            showActionToast({
-              type: 'success',
-              content: COPY.savedOfflineMsg,
-            });
-          }
-          // Optional haptic warning
-          try {
-            if (shouldUseHaptics()) void haptics.warning();
-          } catch (e) {
-            void e;
-          }
-          try {
-            AccessibilityInfo.announceForAccessibility?.(
-              'Saved offline. Will organize when connected.',
-            );
-          } catch (e) {
-            void e;
-          }
-        } else {
-          // Check if we already have an unsorted note for this drop_id
-          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
-
-          let unsortedFallbackId: string | undefined;
-          if (existingUnsortedId) {
-            // Reuse existing unsorted note for this drop_id
-            unsortedFallbackId = existingUnsortedId;
-            console.debug(
-              '[MindDrop][UnsortedFallback] Reusing existing unsorted note for drop_id',
-              {
-                dropId,
-                unsortedId: existingUnsortedId,
-              },
-            );
-          } else {
-            // Non-network error: save to Unsorted Tray for manual follow-up
-            unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
-              sourceMessageId: validSourceMessageId,
-              dropId,
-            });
-            if (unsortedFallbackId) {
-              logMetrics('minddrop_unsorted_created', {
-                noteId: unsortedFallbackId,
-                dropId,
-                mode: 'fallback_unsorted',
-              });
-              // Track this drop_id to prevent duplicates
-              unsortedNotesByDropIdRef.current.set(dropId, unsortedFallbackId);
-            }
-          }
-
-          resetState();
-          if (TOASTS_ON) {
-            showActionToast({
-              type: 'success',
-              content: COPY.savedUnsortedMsg,
-            });
-          }
-          // Optional haptic warning
-          try {
-            if (shouldUseHaptics()) void haptics.warning();
-          } catch (e) {
-            void e;
-          }
-          try {
-            AccessibilityInfo.announceForAccessibility?.('Saved to Unsorted Tray.');
-          } catch (e) {
-            void e;
-          }
-        }
-        // Nothing created (no Undo set)
-        pendingUndo.current = { todos: [], notes: [], habits: [] };
-        // Refresh recent drops list (counter updates via callback)
-        triggerRecentRefresh();
-        focusGreetingForA11y();
+        // Shouldn't reach here, but handle gracefully
         return;
       }
 

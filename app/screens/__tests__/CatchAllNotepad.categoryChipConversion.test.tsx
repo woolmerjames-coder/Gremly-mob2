@@ -1,10 +1,15 @@
 /**
  * Test suite for category chip conversion ensuring no duplicates
+ *
+ * Note: Forces V2 (blocking) mode for predictable conversion testing.
  */
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
+
+// Force V2 mode (blocking pipeline)
+process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 
 // Mock dependencies before imports
 const mockRepo = {

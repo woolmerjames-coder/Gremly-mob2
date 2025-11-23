@@ -10,6 +10,9 @@
  *
  * Unlike unit tests that mock individual functions, this test exercises the same
  * code path that production uses when a user submits a Mind Drop.
+ *
+ * Note: This tests the core pipeline logic, independent of V2/V3 mode.
+ * For mode-specific behavior, see minddrop.v2v3.modes.test.tsx
  */
 
 import { cortexDecide } from '../lib/cortex/cortexDecide';
@@ -17,6 +20,9 @@ import type { CortexContext } from '../lib/cortex/cortexDecide';
 import { resolveCanonicalIntent } from '../lib/cortex/intents/canonicalIntent';
 import { detectIntent } from '../lib/cortex/intents/detectIntent';
 import type { DetectedIntent } from '../lib/cortex/intents/types';
+
+// Force V2 mode for predictable pipeline testing
+process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 
 // Mock AI classification to return deterministic results
 jest.mock('../lib/cortex/intents/classifyIntentWithAI', () => ({

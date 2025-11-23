@@ -73,6 +73,19 @@ Example valid outputs:
 Do not include any other fields or commentary. Use "type" as the key.`;
 
 /**
+ * Mapping from AI type strings to IntentKind
+ */
+const AI_TYPE_TO_INTENT_KIND: Record<string, IntentKind> = {
+  todo: 'todo',
+  habit: 'habit',
+  log: 'note',
+  note: 'note',
+  ignore: 'none',
+  none: 'none',
+  question: 'question',
+};
+
+/**
  * Mapping from canonical types to IntentKind
  */
 const CANONICAL_TO_INTENT_KIND: Record<CanonicalType, IntentKind> = {

@@ -203,6 +203,15 @@ const tableFor = (type: AppRecord['type']): string => {
   }
 };
 
+/**
+ * Normalize views JSONB field to avoid null weirdness
+ * Database column is NOT NULL with default '{}', but old records may have been migrated
+ */
+function normalizeViews(input: any): Record<string, any> {
+  if (!input || typeof input !== 'object') return {};
+  return input;
+}
+
 // Helper to map database habit columns to TypeScript fields
 // Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
 // TypeScript has: name, frequency_value, reminders, triggers (fields)
@@ -219,7 +228,7 @@ function mapHabitFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: dbRecord.views ?? {}, // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
   };
 }
 
@@ -242,7 +251,7 @@ function mapTodoFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: dbRecord.views ?? {}, // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
   };
 }
 
@@ -259,7 +268,7 @@ function mapNoteFromDb(dbRecord: any): any {
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: dbRecord.views ?? {}, // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
   };
 }
 

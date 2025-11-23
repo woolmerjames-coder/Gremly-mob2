@@ -6,11 +6,17 @@
  *
  * The mutex uses a hash of the trimmed text and blocks duplicate submissions
  * within a 2-second window.
+ *
+ * Note: Forces V2 (blocking) mode for predictable test behavior.
+ * Mutex works in both V2 and V3 modes - see minddrop.v2v3.modes.test.tsx for V3 tests.
  */
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
+
+// Force V2 mode (blocking pipeline) for predictable mutex testing
+process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 
 // Mock Supabase
 jest.mock('../../../lib/supabase/client', () => ({

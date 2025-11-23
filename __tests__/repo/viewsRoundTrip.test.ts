@@ -2,13 +2,13 @@
  * Tests for views JSONB field round-trip through SupabaseRepo
  *
  * Verifies that:
- * 1. Todos created with views.minddrop_prefilled_v1 retain that value on read
- * 2. Habits created with views.minddrop_prefilled_v1 retain that value on read
- * 3. Notes/logs created with views.minddrop_prefilled_v1 retain that value on read
- * 4. views field preserves all keys, not just minddrop_prefilled_v1
+ * 1. Todos created with views.minddrop_prefilled_v1 and ai_pending retain those values on read
+ * 2. Habits created with views.minddrop_prefilled_v1 and ai_pending retain those values on read
+ * 3. Notes/logs created with views.minddrop_prefilled_v1 and ai_pending retain those values on read
+ * 4. views field preserves all keys, including ai_pending, minddrop_prefilled_v1, and custom flags
  *
  * This ensures isMindDropAiLocked in UnifiedOverlayV2.tsx can see
- * views.minddrop_prefilled_v1 on entity reopen.
+ * views.minddrop_prefilled_v1 and views.ai_pending on entity reopen.
  */
 
 describe('SupabaseRepo views field round-trip', () => {
@@ -25,6 +25,8 @@ describe('SupabaseRepo views field round-trip', () => {
         tags: ['doctor', 'appointment'],
         views: {
           minddrop_prefilled_v1: true,
+          ai_pending: true,
+          custom_flag: 'xyz',
         },
       };
 
@@ -42,6 +44,8 @@ describe('SupabaseRepo views field round-trip', () => {
 
       expect(mapped.views).toBeDefined();
       expect(mapped.views.minddrop_prefilled_v1).toBe(true);
+      expect(mapped.views.ai_pending).toBe(true);
+      expect(mapped.views.custom_flag).toBe('xyz');
     });
 
     it('should default to empty object when views is null', () => {
@@ -92,6 +96,8 @@ describe('SupabaseRepo views field round-trip', () => {
         tags: ['yoga', 'exercise'],
         views: {
           minddrop_prefilled_v1: true,
+          ai_pending: true,
+          custom_flag: 'xyz',
         },
       };
 
@@ -110,6 +116,8 @@ describe('SupabaseRepo views field round-trip', () => {
 
       expect(mapped.views).toBeDefined();
       expect(mapped.views.minddrop_prefilled_v1).toBe(true);
+      expect(mapped.views.ai_pending).toBe(true);
+      expect(mapped.views.custom_flag).toBe('xyz');
     });
 
     it('should default to empty object when views is undefined', () => {
@@ -166,6 +174,8 @@ describe('SupabaseRepo views field round-trip', () => {
         tags: ['grateful', 'journal'],
         views: {
           minddrop_prefilled_v1: true,
+          ai_pending: true,
+          custom_flag: 'xyz',
         },
       };
 
@@ -182,6 +192,8 @@ describe('SupabaseRepo views field round-trip', () => {
 
       expect(mapped.views).toBeDefined();
       expect(mapped.views.minddrop_prefilled_v1).toBe(true);
+      expect(mapped.views.ai_pending).toBe(true);
+      expect(mapped.views.custom_flag).toBe('xyz');
     });
 
     it('should handle empty views object', () => {

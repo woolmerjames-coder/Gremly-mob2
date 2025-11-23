@@ -1,10 +1,16 @@
 /**
  * Integration tests for timing chips on high-confidence todo classification
+ *
+ * Note: These tests force V2 (blocking) mode to verify synchronous pipeline behavior.
+ * For V3 (instant) mode tests, see minddrop.v2v3.modes.test.tsx
  */
 
 import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react-native';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
+
+// Force V2 mode (blocking pipeline) for these tests
+process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 
 // Mock dependencies before imports
 const mockRepo = {
