@@ -68,7 +68,7 @@ export function computePrefillTitle({
 
   if (!source) return undefined;
 
-  // 3. Strip common prefixes like "Todo:", "Remind me to", "I need to", "Just thinking about"
+  // 3. Strip common prefixes like "Todo:", "Remind me to", "I need to", "Just thinking about", "Maybe"
   let s = source.trim();
   s = s.replace(/^todo[:]\s*/i, '');
   s = s.replace(/^remind me to\s+/i, '');
@@ -76,6 +76,8 @@ export function computePrefillTitle({
   s = s.replace(/^i have to\s+/i, '');
   s = s.replace(/^just thinking about\s+/i, '');
   s = s.replace(/^just\s+/i, '');
+  s = s.replace(/^maybe\s+/i, '');
+  s = s.replace(/^perhaps\s+/i, '');
 
   // 4. Collapse whitespace
   s = s.replace(/\s+/g, ' ').trim();
@@ -90,9 +92,8 @@ export function computePrefillTitle({
   // 6. Remove trailing punctuation
   const clean = shortened.replace(/[.!?]+$/, '');
 
-  // 7. Simple sentence case: first letter uppercase, rest as-is
-  const [first, ...rest] = clean;
-  const cased = first ? first.toUpperCase() + rest.join('') : clean;
+  // 7. Sentence case: first letter uppercase, rest lowercase
+  const cased = clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
 
   return cased;
 }
