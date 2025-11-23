@@ -6,13 +6,20 @@
  */
 
 import { MemoryRepo } from '../lib/repo/memory';
-import { runMindDropStageAClassification, runMindDropStageBPrefill } from '../lib/minddrop/pipelineStages';
+import {
+  runMindDropStageAClassification,
+  runMindDropStageBPrefill,
+} from '../lib/minddrop/pipelineStages';
 import type { CortexResponse } from '../lib/cortex/cortexDecide';
 
 // Helper to generate valid UUIDs for testing
 function testUuid(suffix: string): string {
   // Ensure suffix is exactly 12 hex characters
-  const hex = suffix.replace(/[^a-f0-9]/gi, '').toLowerCase().substring(0, 12).padEnd(12, '0');
+  const hex = suffix
+    .replace(/[^a-f0-9]/gi, '')
+    .toLowerCase()
+    .substring(0, 12)
+    .padEnd(12, '0');
   return `00000000-0000-0000-0000-${hex}`;
 }
 
@@ -49,6 +56,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Buy groceries tomorrow',
               due: '2025-11-24T12:00:00Z',
             },
           },
@@ -71,7 +79,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
       // Query all records - should have 1 todo + 1 archived note
       const todosAfterFirst = await repo.listByType('todo');
       const notesAfterFirst = await repo.listByType('note');
-      
+
       expect(todosAfterFirst.length).toBe(1);
       expect(todosAfterFirst[0].id).toBe(firstTodoId);
       expect((todosAfterFirst[0] as any).drop_id).toBe(dropId);
@@ -121,6 +129,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
           {
             type: 'create.habit',
             payload: {
+              name: 'Run daily',
               freq: 'daily',
             },
           },
@@ -188,7 +197,9 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
         actions: [
           {
             type: 'create.todo',
-            payload: {},
+            payload: {
+              title: 'Email client',
+            },
           },
         ],
       };
@@ -282,7 +293,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
 
     it('findTodoByDropId only returns todos owned by current user', async () => {
       const dropId = testUuid('ownership1');
-      
+
       // Create todo as test-user-id
       await repo.create({
         type: 'todo',
@@ -294,7 +305,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
 
       // Create another repo for different user
       const otherRepo = new MemoryRepo('other-user-id');
-      
+
       // Other user shouldn't see the first user's todo
       const found = await otherRepo.findTodoByDropId(dropId);
       expect(found).toBeNull();
@@ -338,6 +349,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Send email',
               due: new Date().toISOString(), // Due today
             },
           },
@@ -410,6 +422,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
           {
             type: 'create.habit',
             payload: {
+              name: 'Morning run',
               freq: 'daily',
             },
           },
@@ -477,7 +490,9 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
         actions: [
           {
             type: 'create.todo',
-            payload: {},
+            payload: {
+              title: 'Check inventory',
+            },
           },
         ],
       };

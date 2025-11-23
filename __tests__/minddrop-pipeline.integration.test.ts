@@ -385,23 +385,19 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
 
       // First decision
       const context1: CortexContext = {
-        text,
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      const decision1 = await cortexDecide(context1);
+      const decision1 = await cortexDecide({ text }, context1);
 
       // Second decision (same dropId - simulates retry/race condition)
       const context2: CortexContext = {
-        text,
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      const decision2 = await cortexDecide(context2);
+      const decision2 = await cortexDecide({ text }, context2);
 
       // Both decisions should be identical (same intent)
       expect(decision1.mode).toBe(decision2.mode);
@@ -422,14 +418,12 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
       const text = 'Morning meditation daily';
 
       const context: CortexContext = {
-        text,
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      const decision1 = await cortexDecide(context);
-      const decision2 = await cortexDecide(context);
+      const decision1 = await cortexDecide({ text }, context);
+      const decision2 = await cortexDecide({ text }, context);
 
       // Both decisions should create same entity type
       expect(decision1.actions).toEqual(decision2.actions);
@@ -456,12 +450,13 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
 
       const decisions = await Promise.all(
         rapidInputs.map((text) =>
-          cortexDecide({
-            text,
-            mode: 'auto',
-            v3Mode: true,
-            instantCreate: true,
-          }),
+          cortexDecide(
+            { text },
+            {
+              userId: 'test-user',
+              uiSurface: 'catchall',
+            },
+          ),
         ),
       );
 
@@ -490,12 +485,13 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
 
       const decisions = await Promise.all(
         ambiguousInputs.map((text) =>
-          cortexDecide({
-            text,
-            mode: 'auto',
-            v3Mode: true,
-            instantCreate: true,
-          }),
+          cortexDecide(
+            { text },
+            {
+              userId: 'test-user',
+              uiSurface: 'catchall',
+            },
+          ),
         ),
       );
 
@@ -521,13 +517,11 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
       const text = 'Write blog post weekly';
 
       const context: CortexContext = {
-        text,
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      await cortexDecide(context);
+      await cortexDecide({ text }, context);
 
       // Note: Actual telemetry happens in pipelineStages.ts
       // This test verifies decision completes without errors
@@ -539,13 +533,11 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
   describe('Error Recovery and Edge Cases', () => {
     it('should handle empty text input gracefully', async () => {
       const context: CortexContext = {
-        text: '',
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      const decision = await cortexDecide(context);
+      const decision = await cortexDecide({ text: '' }, context);
 
       // Should return 'keep' mode (no action)
       expect(decision.mode).toBe('keep');
@@ -556,13 +548,11 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
       const longText = 'Buy groceries '.repeat(100); // 1500+ characters
 
       const context: CortexContext = {
-        text: longText,
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      const decision = await cortexDecide(context);
+      const decision = await cortexDecide({ text: longText }, context);
 
       // Should still process (may truncate internally)
       expect(decision.mode).toBeDefined();
@@ -573,13 +563,11 @@ describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
       const emojiText = '🏃‍♂️ Run daily! #fitness 💪';
 
       const context: CortexContext = {
-        text: emojiText,
-        mode: 'auto',
-        v3Mode: true,
-        instantCreate: true,
+        userId: 'test-user',
+        uiSurface: 'catchall',
       };
 
-      const decision = await cortexDecide(context);
+      const decision = await cortexDecide({ text: emojiText }, context);
 
       // Should process successfully (may classify as todo, habit, or log)
       expect(decision.mode).toBeDefined();

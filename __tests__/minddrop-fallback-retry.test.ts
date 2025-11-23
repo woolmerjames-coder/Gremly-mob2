@@ -37,7 +37,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Call dentist', // Primary field for todos
       title: 'Call dentist',
       origin: 'catchall',
-      dropId: "00000000-0000-0000-0000-000000000123",
+      dropId: '00000000-0000-0000-0000-000000000123',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified', // Stage A succeeded
@@ -60,7 +60,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
 
     // Simulate overlay open retry (mocked implementation)
     mockBackgroundPrefill.mockResolvedValueOnce(undefined); // Success on retry
-    
+
     if (shouldRetry && entity) {
       await mockBackgroundPrefill(entity, 'Call dentist');
 
@@ -94,7 +94,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Book appointment',
       title: 'Book appointment',
       origin: 'catchall',
-      dropId: "00000000-0000-0000-0000-000000000456",
+      dropId: '00000000-0000-0000-0000-000000000456',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified',
@@ -126,7 +126,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Email team',
       title: 'Email team',
       origin: 'catchall',
-      dropId: "00000000-0000-0000-0000-000000000789",
+      dropId: '00000000-0000-0000-0000-000000000789',
       ai_placed: true,
       views: {
         minddrop_stage: 'pending', // Stage A not run yet
@@ -156,7 +156,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Grocery shopping',
       title: 'Grocery shopping',
       origin: 'catchall',
-      dropId: "00000000-0000-0000-0000-0000success",
+      dropId: '00000000-0000-0000-0000-0000success',
       ai_placed: true,
       views: {
         minddrop_stage: 'prefilled', // Successfully prefilled
@@ -186,7 +186,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Fix issue',
       title: 'Fix issue',
       origin: 'catchall',
-      dropId: "00000000-0000-0000-0000-00retryfail",
+      dropId: '00000000-0000-0000-0000-00retryfail',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified',
@@ -277,10 +277,8 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
     }
 
     // Verify only one todo exists for this dropId
-    const allRecords = await repo.list({ ownerId: entity?.owner_id ?? '' });
-    const todosWithDropId = allRecords.filter(
-      (r: any) => r.type === 'todo' && r.dropId === dropId,
-    );
+    const allRecords = await repo.listByType('todo');
+    const todosWithDropId = allRecords.filter((r: any) => r.type === 'todo' && r.dropId === dropId);
 
     expect(todosWithDropId.length).toBe(1);
     expect(todosWithDropId[0].id).toBe(originalTodo.id);
@@ -294,7 +292,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       title: 'Plan meeting',
       tags: ['work', 'urgent'],
       origin: 'catchall',
-      dropId: "00000000-0000-0000-0000-0000000tags",
+      dropId: '00000000-0000-0000-0000-0000000tags',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified',
