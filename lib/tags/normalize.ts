@@ -61,12 +61,17 @@ function sanitizeMentionBody(body: string): string | null {
     return null;
   }
 
-  const collapsed = trimmed.replace(/\s+/g, '');
-  if (!collapsed) {
+  // CP-TAG-3: Normalize @ tags like slugs (lowercase, hyphens for spaces, strip special chars)
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/\s+/g, '-') // Replace spaces with hyphens (e.g., "Sarah Jones" → "sarah-jones")
+    .replace(/[^a-z0-9_-]/g, ''); // Strip special characters, keep alphanumeric, underscore, hyphen
+
+  if (!normalized) {
     return null;
   }
 
-  return `@${collapsed}`;
+  return `@${normalized}`;
 }
 
 export function normalizeTag(rawInput: string): NormalizeResult {
@@ -151,7 +156,9 @@ function toJunkKey(tag: string): string {
 
 function isJunkNormalizedTag(tag: string): boolean {
   if (!tag) return true;
-  if (tag.startsWith('*')) return false;
+
+  // CP-TAG-3: Preserve @ tags (mentions) and * tags (type tags) as first-class citizens
+  if (tag.startsWith('*') || tag.startsWith('@')) return false;
 
   const key = toJunkKey(tag);
   if (!key) return true;
@@ -178,6 +185,9 @@ export function filterAndNormalizeTags(input: string[]): string[] {
   const mentions = new Map<string, string>();
   const collected: string[] = [];
 
+  // Explicit allowlist for valid short tags
+  const SHORT_TAG_ALLOWLIST = new Set(['tax', 'gym', 'job', 'car', 'dr', 'usa']);
+
   for (const raw of input) {
     if (typeof raw !== 'string') continue;
     const trimmed = raw.trim();
@@ -190,14 +200,23 @@ export function filterAndNormalizeTags(input: string[]): string[] {
       .trim();
 
     // Phase 1C: Enforce stricter validation rules
-    // Min length: 3 characters
-    if (stripped.length < 3) continue;
+    // Min length: 3 characters (unless in allowlist)
+    if (stripped.length < 3 && !SHORT_TAG_ALLOWLIST.has(stripped)) continue;
 
     // Max length: 20 characters
     if (stripped.length > 20) continue;
 
-    // Pattern: must start with letter, then letters/numbers/underscores only
-    if (!/^[a-z][a-z0-9_]*$/.test(stripped)) continue;
+    // CP-TAG-3: Pattern must start with letter, then letters/numbers/underscores/hyphens
+    // Allow hyphens for @ tags like @sarah-jones
+    if (!/^[a-z][a-z0-9_-]*$/.test(stripped)) continue;
+
+    // CP-TAG-1: Block contraction fragments (e.g., "don't" → "don", "I've" → "ive")
+    // Detect fragments that end with 't, 've, 'll patterns or are common contractions
+    const isContractionFragment =
+      /^(don|cant|idk|im|ive|dont|wanna|gonna|kinda|shouldnt|wouldnt|couldnt|hasnt|havent|hadnt|wasnt|werent|isnt|arent|wont|didnt)$/.test(
+        stripped,
+      );
+    if (isContractionFragment && !SHORT_TAG_ALLOWLIST.has(stripped)) continue;
 
     // Check against stop words
     if (TAG_STOP_WORDS.has(stripped)) continue;

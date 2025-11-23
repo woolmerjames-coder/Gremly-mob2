@@ -29,14 +29,23 @@ const LOG_SUBTYPE_TAGS: Record<string, string> = {
 /**
  * Merge AI tags with subtype-specific sticky tag for logs
  *
+ * CP-TAG-4: Defensive tag merging sanity
+ * - Filters both AI and existing tags through applyTagQualityFilter (removes junk)
+ * - Strips internal markers (* prefix)
+ * - Normalizes through filterAndNormalizeTags (removes stop words, validates format)
+ * - Adds subtype tag (#journal, #idea, etc.) as sticky metadata
+ * - If all meaningful tags filter out, result may be [#journal] only - this is VALID
+ *
  * Filters out:
  * - Internal markers (e.g., *idea, *journal) - legacy system tags
  * - Old-style hash tags (e.g., #been, #bit, #down) - we re-add subtype tag explicitly
- * - Low-quality tags (via isGoodTag)
+ * - Low-quality tags (via applyTagQualityFilter)
+ * - CP-TAG-1: Contraction fragments (#don, #idk, #soon)
  *
  * Keeps:
  * - High-quality AI tags (overwhelmed, self-care, mindfulness, etc.)
  * - Subtype tag (#idea, #journal, etc.) - marked as sticky
+ * - CP-TAG-3: @ tags (mentions) preserved as first-class citizens
  *
  * Phase 4B: Applies additive theme tags (e.g., #money for bills/rent)
  *

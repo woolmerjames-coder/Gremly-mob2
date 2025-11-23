@@ -374,10 +374,15 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             fullNote.tags_meta,
             text,
           );
+
+          // CP-TAG-4: Defensive guard - always update tags for notes/logs
+          // Even if tags = ["#journal"] (subtype-only), this is valid and meaningful
+          // The quality filtering in mergeLogSubtypeTag ensures no junk leaks through
           updatePayload.tags = tags;
           updatePayload.tags_meta = tags_meta;
         } else {
-          // Fallback if fetch fails: filter AI tags through unified junk filter
+          // CP-TAG-4: Fallback if fetch fails - filter AI tags through unified junk filter
+          // This removes stop words, low-quality tags, and normalizes format
           updatePayload.tags = filterAndNormalizeTags(aiTags ?? []);
         }
         break;
@@ -597,12 +602,14 @@ export async function resummarizeTags(
       case 'todo':
       case 'habit':
         tableName = entity.type === 'todo' ? 'todos' : 'habits';
+        // CP-TAG-4: Filter and normalize AI tags - removes junk, normalizes format
         finalTags = filterAndNormalizeTags(aiTags);
         updatePayload.tags = finalTags;
         break;
       case 'note': {
         tableName = 'notes';
-        // For notes/logs: merge with subtype tag
+        // CP-TAG-4: For notes/logs - merge with subtype tag (#journal, #idea, etc.)
+        // mergeLogSubtypeTag applies quality filtering to both AI and existing tags
         const { tags, tags_meta } = mergeLogSubtypeTag(
           aiTags,
           [], // Don't merge with existing tags - fresh regeneration
