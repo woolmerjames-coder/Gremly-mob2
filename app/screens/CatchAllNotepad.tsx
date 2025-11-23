@@ -93,6 +93,7 @@ import {
 } from '../../lib/conversion';
 import { backgroundPrefill } from '../../lib/minddrop/backgroundPrefill';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
+import MascotIcon from '../../components/MascotIcon';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -704,6 +705,279 @@ type UnifiedDrop = {
   archived?: boolean; // Track archived status to filter out converted notes
   canonical_type?: string | null; // Canonical type from buildCanonicalFromMindDrop: 'todo', 'habit', 'log', 'journal'
   labels?: string[]; // Labels from backend: ['log'], ['habit'], ['todo'], ['catchall', 'needs_review'], etc.
+  views?: any; // For ai_pending, ai_failed, and other view flags
+};
+
+/**
+ * Visual state for Mind Drop items in Recent Drops list
+ * - 'pending': AI enrichment in progress (views.ai_pending = true)
+ * - 'failed': AI enrichment failed (views.ai_failed = true)
+ * - 'complete': AI enrichment complete or not needed
+ */
+type MindDropVisualState = 'pending' | 'failed' | 'complete';
+
+/**
+ * Get visual state for a Mind Drop item based on views flags
+ * Used only for Mind Drop / CatchAll notes to show processing status
+ */
+function getMindDropVisualState(entity: {
+  views?: any;
+  title?: string;
+  tags?: any[];
+}): MindDropVisualState {
+  const views = entity.views ?? {};
+  
+  // Still processing
+  if (views.ai_pending) return 'pending';
+  
+  // Explicitly failed
+  if (views.ai_failed) return 'failed';
+  
+  // Check if AI enrichment actually happened
+  // If ai_pending is false but no enrichment occurred, treat as failed
+  if (views.ai_pending === false) {
+    const hasEnrichedTags = Array.isArray(entity.tags) && entity.tags.length > 0;
+    const hasCompactTitle = entity.title && entity.title.length > 0 && entity.title.length < 60;
+    const wasPrefilled = views.minddrop_prefilled_v1 === true;
+    
+    // If no tags, no compact title, and wasn't prefilled, AI likely didn't enhance it
+    if (!hasEnrichedTags && !hasCompactTitle && !wasPrefilled) {
+      return 'failed';
+    }
+  }
+  
+  return 'complete';
+}
+
+/**
+ * Animated wrapper for Mind Drop card that smoothly transitions
+ * from pending skeleton to final content when AI enrichment completes
+ */
+const AnimatedMindDropCard: React.FC<{
+  item: UnifiedDrop;
+  isPending: boolean;
+  effectiveKind: 'note' | 'todo' | 'habit';
+  displayKind: string;
+  showLegacyUnsortedBadge: boolean | undefined;
+  badgeStyleKey: string;
+  c: any;
+  styles: any;
+  handleEdit: (id: string, kind: UnifiedDrop['kind'], unsorted?: boolean) => void;
+  handleDelete: (id: string, kind: UnifiedDrop['kind']) => void;
+}> = ({
+  item,
+  isPending,
+  effectiveKind,
+  displayKind,
+  showLegacyUnsortedBadge,
+  badgeStyleKey,
+  c,
+  styles,
+  handleEdit,
+  handleDelete,
+}) => {
+  // Track previous pending state to detect transitions
+  const prevPendingRef = useRef(isPending);
+  
+  // Get full visual state for failed detection
+  const visualState = getMindDropVisualState(item);
+  const isFailed = visualState === 'failed';
+  
+  // Animated values for cross-fade transition
+  const skeletonOpacity = useRef(new Animated.Value(isPending ? 1 : 0)).current;
+  const contentOpacity = useRef(new Animated.Value(isPending ? 0 : 1)).current;
+
+  useEffect(() => {
+    const wasPending = prevPendingRef.current;
+    const isNowPending = isPending;
+
+    // Only animate if state actually changed
+    if (wasPending !== isNowPending) {
+      if (isNowPending) {
+        // Transition to pending (rarely happens, but handle it)
+        Animated.parallel([
+          Animated.timing(skeletonOpacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(contentOpacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      } else {
+        // Transition from pending to final (main use case)
+        Animated.parallel([
+          Animated.timing(skeletonOpacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(contentOpacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }
+
+    prevPendingRef.current = isNowPending;
+  }, [isPending, skeletonOpacity, contentOpacity]);
+
+  return (
+    <View
+      key={`${item.kind}:${item.id}`}
+      testID={`minddrop-recent-${item.kind}-${item.id}`}
+      style={styles.recentCard}
+    >
+      {/* Top row: Title (left) + Due/Time (right) */}
+      <View style={styles.recentTopRow}>
+        {/* Skeleton layer - fades out when content loads */}
+        <Animated.View
+          testID="minddrop-skeleton-layer"
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              opacity: skeletonOpacity,
+            },
+          ]}
+          pointerEvents={isPending ? 'auto' : 'none'}
+        >
+          <View style={styles.titleSkeletonContainer}>
+            <View testID="minddrop-title-skeleton" style={styles.titleSkeleton} />
+            <MascotIcon size={16} pose="think" animate={true} />
+          </View>
+          <View testID="minddrop-time-skeleton" style={styles.timeSkeleton} />
+        </Animated.View>
+
+        {/* Content layer - fades in when loading completes */}
+        <Animated.View
+          style={[
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              flex: 1,
+              opacity: contentOpacity,
+            },
+          ]}
+          pointerEvents={isPending ? 'none' : 'auto'}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+            <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
+              {item.title || item.text || '—'}
+            </Text>
+            {effectiveKind === 'note' && (item as any)?.private === true && (
+              <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
+            )}
+          </View>
+
+          {/* Right side: Due date OR time ago */}
+          {effectiveKind === 'todo' ? (
+            <Text
+              testID={`minddrop-recent-todo-due-${item.id}`}
+              style={styles.recentDueBadge}
+            >
+              {formatDue(item.due_date)}
+            </Text>
+          ) : (
+            <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+          )}
+        </Animated.View>
+      </View>
+
+      {/* Second row: Category, tags, and actions */}
+      <View style={styles.recentMetaRow}>
+        {/* Skeleton layer for tags */}
+        <Animated.View
+          testID="minddrop-tag-skeleton-layer"
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              opacity: skeletonOpacity,
+            },
+          ]}
+          pointerEvents={isPending ? 'auto' : 'none'}
+        >
+          <View style={styles.tagSkeletonRow}>
+            <View testID="minddrop-tag-skeleton" style={styles.tagSkeleton} />
+            <View testID="minddrop-tag-skeleton" style={styles.tagSkeleton} />
+            <View testID="minddrop-tag-skeleton" style={[styles.tagSkeleton, { width: 40 }]} />
+          </View>
+        </Animated.View>
+
+        {/* Content layer for category + tags */}
+        <Animated.View
+          style={[
+            styles.recentMetaLeft,
+            {
+              opacity: contentOpacity,
+            },
+          ]}
+          pointerEvents={isPending ? 'none' : 'auto'}
+        >
+          {/* Category pill */}
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+            {displayKind}
+          </Text>
+
+          {showLegacyUnsortedBadge ? (
+            <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>
+              Unsorted
+            </Text>
+          ) : null}
+
+          {/* Tags - single line with truncation */}
+          {Array.isArray(item.tags) && item.tags.length > 0 ? (
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={styles.recentTagsText}
+            >
+              {getDisplayTagsForRecentDrop(item)
+                .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
+                .join('  ')}
+            </Text>
+          ) : isFailed ? (
+            <Text testID="minddrop-failed-hint" style={styles.subtleHint}>Saved as-is</Text>
+          ) : null}
+        </Animated.View>
+
+        {/* Right side: Actions (always visible, no animation) */}
+        <View style={styles.recentMetaRight}>
+          <Pressable
+            onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Edit"
+          >
+            <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
+          </Pressable>
+          <Pressable
+            onPress={() => handleDelete(item.id, item.kind)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Delete"
+          >
+            <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
 };
 
 const relativeTime = (iso: string) => {
@@ -913,6 +1187,7 @@ const RecentDrops: React.FC<{
             archived: n?.archived === true,
             canonical_type: (n as any)?.canonical_type ?? null,
             labels: Array.isArray((n as any)?.labels) ? (n as any).labels : [],
+            views: (n as any)?.views ?? {},
           };
         });
 
@@ -939,6 +1214,7 @@ const RecentDrops: React.FC<{
             drop_id: (t as any)?.drop_id ?? null,
             canonical_type: (t as any)?.canonical_type ?? null,
             labels: Array.isArray((t as any)?.labels) ? (t as any).labels : [],
+            views: (t as any)?.views ?? {},
           };
         });
 
@@ -964,6 +1240,7 @@ const RecentDrops: React.FC<{
             drop_id: (h as any)?.drop_id ?? null,
             canonical_type: (h as any)?.canonical_type ?? null,
             labels: Array.isArray((h as any)?.labels) ? (h as any).labels : [],
+            views: (h as any)?.views ?? {},
           };
         });
 
@@ -1182,86 +1459,24 @@ const RecentDrops: React.FC<{
                       ? 'badge_habit'
                       : 'badge_note';
 
+                // Get visual state for pending/failed/final rendering
+                const visualState = getMindDropVisualState(item);
+                const isPending = visualState === 'pending';
+
                 return (
-                  <View
+                  <AnimatedMindDropCard
                     key={`${item.kind}:${item.id}`}
-                    testID={`minddrop-recent-${item.kind}-${item.id}`}
-                    style={styles.recentCard}
-                  >
-                    {/* Top row: Title (left) + Due/Time (right) */}
-                    <View style={styles.recentTopRow}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                        <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
-                          {item.title || item.text || '—'}
-                        </Text>
-                        {effectiveKind === 'note' && (item as any)?.private === true && (
-                          <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
-                        )}
-                      </View>
-
-                      {/* Right side: Due date OR time ago */}
-                      {effectiveKind === 'todo' ? (
-                        <Text
-                          testID={`minddrop-recent-todo-due-${item.id}`}
-                          style={styles.recentDueBadge}
-                        >
-                          {formatDue(item.due_date)}
-                        </Text>
-                      ) : (
-                        <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                      )}
-                    </View>
-
-                    {/* Second row: Category, tags, and actions */}
-                    <View style={styles.recentMetaRow}>
-                      {/* Left side: Category pill + tags */}
-                      <View style={styles.recentMetaLeft}>
-                        {/* Category pill */}
-                        <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-                          {displayKind}
-                        </Text>
-
-                        {showLegacyUnsortedBadge ? (
-                          <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>
-                            Unsorted
-                          </Text>
-                        ) : null}
-
-                        {/* Tags - single line with truncation */}
-                        {Array.isArray(item.tags) && item.tags.length > 0 ? (
-                          <Text
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                            style={styles.recentTagsText}
-                          >
-                            {getDisplayTagsForRecentDrop(item)
-                              .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
-                              .join('  ')}
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      {/* Right side: Actions */}
-                      <View style={styles.recentMetaRight}>
-                        <Pressable
-                          onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Edit"
-                        >
-                          <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDelete(item.id, item.kind)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Delete"
-                        >
-                          <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
+                    item={item}
+                    isPending={isPending}
+                    effectiveKind={effectiveKind}
+                    displayKind={displayKind}
+                    showLegacyUnsortedBadge={showLegacyUnsortedBadge}
+                    badgeStyleKey={badgeStyleKey}
+                    c={c}
+                    styles={styles}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                  />
                 );
               })}
             </ScrollView>
@@ -4677,6 +4892,48 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
       paddingVertical: 10,
+    },
+    // Skeleton styles for pending state
+    titleSkeletonContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      flex: 1,
+    },
+    titleSkeleton: {
+      height: 14,
+      flex: 1,
+      backgroundColor: c.sageTint,
+      borderRadius: 4,
+      opacity: 0.6,
+    },
+    timeSkeleton: {
+      height: 12,
+      width: 50,
+      backgroundColor: c.sageTint,
+      borderRadius: 4,
+      opacity: 0.6,
+    },
+    tagSkeletonRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      flex: 1,
+    },
+    tagSkeleton: {
+      height: 10,
+      width: 50,
+      backgroundColor: c.sageTint,
+      borderRadius: 6,
+      opacity: 0.6,
+    },
+    // Subtle hint for failed AI enrichment state
+    subtleHint: {
+      color: c.mutedText,
+      fontSize: 11,
+      fontFamily: 'Inter-Regular',
+      fontStyle: 'italic',
+      opacity: 0.7,
     },
     // Photo Drop styles
     photoStrip: {
