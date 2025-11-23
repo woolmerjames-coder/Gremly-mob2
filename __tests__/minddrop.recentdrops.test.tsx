@@ -196,32 +196,6 @@ describe('RecentDrops in Mind Drop', () => {
     }
   });
 
-  test('Explicit "Add to To-Dos" button opens a todo overlay and flips the lane label', async () => {
-    const now = new Date();
-    mockNotesList.mockResolvedValue([makeNote('n1', 'convert me', now, true)]);
-    mockTodosList.mockResolvedValue([]);
-    mockHabitsList.mockResolvedValue([]);
-
-    render(<CatchAllNotepad />);
-
-    const card = await screen.findByTestId('minddrop-recent-note-n1');
-    expect(within(card).getByText('note')).toBeTruthy();
-    expect(within(card).getByText('Unsorted')).toBeTruthy();
-    // This is an explicit button press from Recent Drops, not an auto chip.
-    const convertButton = within(card).getByText('Add to To-Dos');
-    fireEvent.press(convertButton);
-
-    const overlay = useGlobalOverlay();
-    expect(overlay.openCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialEntity: expect.objectContaining({ type: 'todo' }),
-        initialText: 'convert me',
-      }),
-    );
-
-    await waitFor(() => expect(within(card).getByText('todo')).toBeTruthy());
-  });
-
   test('Recent drop badges fall back to legacy note labels when canonical types are disabled', async () => {
     const now = new Date();
     mockNotesList.mockResolvedValue([

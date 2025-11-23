@@ -1115,30 +1115,6 @@ const RecentDrops: React.FC<{
     }
   };
 
-  const handleAddToTodo = useCallback(
-    (item: UnifiedDrop) => {
-      setItems((prev) =>
-        prev.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                optimisticKind: 'todo',
-                unsorted: false,
-              }
-            : entry,
-        ),
-      );
-
-      overlay.openCreate({
-        initialEntity: { type: 'todo', id: undefined, logSubtype: null },
-        initialText: item.text ? String(item.text) : null,
-      });
-
-      onEdited?.();
-    },
-    [overlay, onEdited],
-  );
-
   return (
     <View style={styles.recentRoot}>
       <View style={styles.recentHeaderRow}>
@@ -1279,20 +1255,6 @@ const RecentDrops: React.FC<{
                         </Pressable>
                       </View>
                     </View>
-
-                    {/* Phase 5b: "Add to To-Dos" button for unsorted notes (if needed) */}
-                    {item.kind === 'note' && item.unsorted && !item.optimisticKind ? (
-                      <View style={styles.recentUnsortedActionRow}>
-                        <Pressable
-                          onPress={() => handleAddToTodo(item)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          style={styles.recentUnsortedAction}
-                        >
-                          <Text style={styles.recentUnsortedActionText}>Add to To-Dos</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
                   </View>
                 );
               })}
@@ -2460,16 +2422,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 createdDetails.push({ kind: 'habit' });
               } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
                 // For notes/lists, update the existing unsorted note in place
+                // Priority: 1) action payload, 2) mindDropDecision.logSubtype, 3) default to 'everything_else'
                 const rawSubtype =
                   firstAction.type === 'add.to.list'
                     ? 'list'
-                    : (firstAction.payload.subtype ?? 'catchall');
+                    : (firstAction.payload.subtype ??
+                      decision.mindDropDecision?.logSubtype ??
+                      'everything_else');
+
+                // Normalize to valid log subtypes
                 const subtype =
                   rawSubtype === 'journal'
                     ? 'journal'
                     : rawSubtype === 'list'
                       ? 'list'
-                      : 'catchall';
+                      : rawSubtype === 'idea'
+                        ? 'idea'
+                        : rawSubtype === 'reference'
+                          ? 'reference'
+                          : 'everything_else'; // Default for auto-created logs (not catchall)
+
                 const canonicalType = persistedToCanonical('note', subtype);
 
                 const whyUpdate = appendLineageToWhyString('Auto-organizing via Mind Drop', {
@@ -2477,19 +2449,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   source: 'auto_classification',
                 });
 
+                // Fetch existing note to update labels and tags
+                const existingNote = await repo.getById(unsortedNoteId);
+                const existingLabels = (existingNote as any)?.labels || [];
+
+                // Update labels: remove catchall/needs_review, add 'log' for all auto-created logs
+                // (Auto-create path means canonical intent decided this is a log, not unsorted)
+                const updatedLabels = existingLabels.filter(
+                  (l: string) => l !== 'catchall' && l !== 'needs_review',
+                );
+                if (!updatedLabels.includes('log')) {
+                  updatedLabels.push('log');
+                }
+
                 // For list subtype, ensure #list tag is added
                 const shouldAddListTag = subtype === 'list';
                 const updatePatch: any = {
                   subtype,
                   canonicalType,
-                  ai_placed: subtype !== 'catchall',
+                  ai_placed: true, // Auto-created logs are always AI-placed
                   why_string: whyUpdate,
                   views: { alsoShowIn: ['Hub:Catch-All'] },
+                  labels: updatedLabels, // Add labels to update patch
                 };
 
                 // If it's a list, add the #list tag to the existing tags
                 if (shouldAddListTag) {
-                  const existingNote = await repo.getById(unsortedNoteId);
                   const existingTags = (existingNote as any)?.tags || [];
                   const hasListTag = existingTags.some(
                     (t: string) => t.toLowerCase().replace(/^[#@*]+/, '') === 'list',
@@ -2594,7 +2579,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         }
 
-        if (decision.mode === 'ask' && chipSuggestions.length > 0) {
+        // AUTHORITATIVE: Show chips when decision.mode === 'ask'
+        if (decision.mode === 'ask') {
+          console.log('[MindDrop][Chips] mode=ask detected, showing category chips');
+
           // Check if we already have an unsorted note for this drop_id
           const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 
@@ -2645,6 +2633,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
                 const qualityFiltered = applyTagQualityFilter(fallbackTags);
                 const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
+
+                // Mode='ask' means user needs to pick category, so use 'Awaiting chip selection'
                 const id = await saveToUnsortedTray(repo as any, cleanedText, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
@@ -2679,14 +2669,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const savedUnsortedId = unsortedIdRef.current;
           const confidence = decision.confidence ?? 0;
 
-          // If low confidence or narrative, show category chips instead of suggestions
-          if ((confidence <= 0.85 || classifyNarrative(trimmed)) && savedUnsortedId) {
+          // ALWAYS show category chips when mode='ask' (removed confidence/narrative conditions)
+          if (savedUnsortedId) {
             setLowConfidenceUnsortedId(savedUnsortedId);
             setCategoryChips([
               { kind: 'todo', label: 'Add to To-Do List' },
               { kind: 'log', label: 'Just Save It' },
               { kind: 'habit', label: 'Start a Habit' },
             ]);
+            console.log('[MindDrop][Chips] Category chips set for mode=ask', {
+              unsortedId: savedUnsortedId,
+              confidence,
+            });
             setNote('');
             triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -2715,8 +2709,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
           }
 
-          // If we reach here, show suggestion chips (not category chips)
-          // This happens when confidence > 0.85 and not narrative
+          // Fallback if no unsorted ID (shouldn't normally happen)
+          console.warn('[MindDrop][Chips] mode=ask but no unsortedId available');
           setNote('');
           triggerRecentRefresh();
           pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -2755,9 +2749,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const qualityFiltered = applyTagQualityFilter(fallbackTags);
             const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
 
+            // Only use 'Awaiting chip selection' when mode='ask'
+            // For reflection logs (mode='auto'), use 'Captured via Mind Drop'
+            const whyString =
+              decision?.mode === 'ask' ? 'Awaiting chip selection' : 'Captured via Mind Drop';
+
             const id = await saveToUnsortedTray(repo as any, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
-              whyString: 'Awaiting chip selection',
+              whyString,
               tags: tagsForCreate ?? undefined,
               dropId,
             });
@@ -3816,15 +3815,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               ) : null}
             </View>
           ) : null}
-          {categoryChips.length > 0 ? (
-            <MidConfidenceChips
-              variant="category"
-              categoryChips={categoryChips}
-              onDirectPick={handleCategoryChipPick}
-              prompt="What would you like to do?"
-              autoDismissMs={CHIPS_AUTO_DISMISS_MS}
-            />
-          ) : null}
+          {categoryChips.length > 0
+            ? (() => {
+                console.log('[MindDrop][UI] Rendering category chips', {
+                  chipsCount: categoryChips.length,
+                  chips: categoryChips.map((c) => c.kind),
+                });
+                return (
+                  <MidConfidenceChips
+                    variant="category"
+                    categoryChips={categoryChips}
+                    onDirectPick={handleCategoryChipPick}
+                    prompt="What would you like to do?"
+                    autoDismissMs={CHIPS_AUTO_DISMISS_MS}
+                  />
+                );
+              })()
+            : (() => {
+                console.log('[MindDrop][UI] No category chips to render');
+                return null;
+              })()}
           {timingChips.length > 0 ? (
             <MidConfidenceChips
               variant="timing"
@@ -4540,22 +4550,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontSize: 13,
       fontFamily: 'Inter-Regular',
       flexShrink: 0,
-    },
-    // Phase 5b: "Add to To-Dos" action for unsorted notes
-    recentUnsortedActionRow: {
-      marginTop: 8,
-      paddingTop: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: c.sageMist,
-    },
-    recentUnsortedAction: {
-      alignSelf: 'flex-start',
-    },
-    recentUnsortedActionText: {
-      color: c.mossGreen,
-      fontSize: 12,
-      textDecorationLine: 'underline',
-      fontFamily: 'Inter-Medium',
     },
     recentEmpty: {
       color: c.mutedText,

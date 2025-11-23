@@ -21,7 +21,8 @@ describe('Mind Drop Narrative Chip Suppression', () => {
 
       expect(result.type).toBe('log');
       expect(result.suppressChips).toBe(false); // Don't suppress, but auto-create
-      expect(result.allowAutoCreate).toBe(false); // Low confidence, but still log
+      expect(result.allowAutoCreate).toBe(true); // Reflection boost: auto-create without chips
+      expect(result.reasoning).toContain('Reflection'); // Should trigger reflection boost
 
       // The key: this should be treated as a log, not trigger narrative chips
       expect(result.type).not.toBe('ignore');
