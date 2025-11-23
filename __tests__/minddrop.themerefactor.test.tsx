@@ -5,9 +5,12 @@ import * as RN from 'react-native';
 // Feature flag ON to render the screen path
 jest.mock('@/src/config/featureFlags', () => ({ MIND_DROP_V2: true }));
 
-// Minimal provider mocks
+// Minimal provider mocks - userId undefined to prevent Supabase subscriptions
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ userId: 'user-theme' }),
+  useAuth: () => ({
+    user: { id: 'user-theme' },
+    // userId undefined prevents CatchAllNotepad subscription effects from running
+  }),
 }));
 
 jest.mock('../providers/RepoProvider', () => ({

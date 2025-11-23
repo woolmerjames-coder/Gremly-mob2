@@ -49,9 +49,12 @@ jest.mock('../providers/CortexProvider', () => {
   };
 });
 
-// Mock Auth
+// Mock Auth - userId undefined to prevent Supabase subscription code paths
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    // userId undefined prevents CatchAllNotepad subscription effects from running
+  }),
 }));
 
 // Mock Cortex route to auto-create multiple items

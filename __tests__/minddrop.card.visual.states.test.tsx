@@ -30,6 +30,14 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock Auth - userId undefined to prevent Supabase subscription code paths
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user' },
+    // userId undefined prevents CatchAllNotepad subscription effects from running
+  }),
+}));
+
 // Repo mocks
 const mockNotesList = jest.fn(async () => []);
 const mockTodosList = jest.fn(async () => []);
