@@ -400,7 +400,7 @@ describe('Mind Drop v3: UI Rendering', () => {
     // Create todo with future due_date
     const todo = await freshRepo.create({
       type: 'todo',
-      title: 'Future task with deadline',
+      name: 'Future task with deadline', // Schema: todos use `name`
       origin: 'catchall',
       dropId,
       due_date: futureDateISO,
@@ -409,7 +409,7 @@ describe('Mind Drop v3: UI Rendering', () => {
     const allTodos = await freshRepo.listByType('todo');
     const targetTodo = allTodos.find((t) => t.drop_id === dropId);
     expect(targetTodo).toBeTruthy();
-    expect((targetTodo as any).title).toBe('Future task with deadline');
+    expect((targetTodo as any).name).toBe('Future task with deadline'); // Schema: todos use `name`
 
     // Simulate CatchAll filter logic (Phase 6.1: No due_date filtering)
     const catchallTodos = allTodos.filter((t) => {
@@ -420,7 +420,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Todo with future due_date should remain visible in CatchAll
     expect(catchallTodos.length).toBe(1);
-    expect((catchallTodos[0] as any).title).toBe('Future task with deadline');
+    expect((catchallTodos[0] as any).name).toBe('Future task with deadline'); // Schema: todos use `name`
   });
 
   it('should show todo with due_date=today in Recent Drops (Phase 6.1)', async () => {
@@ -434,7 +434,7 @@ describe('Mind Drop v3: UI Rendering', () => {
     // Create todo with due_date = today
     const todo = await freshRepo.create({
       type: 'todo',
-      title: 'Task due today',
+      name: 'Task due today', // Schema: todos use `name`
       origin: 'catchall',
       dropId,
       due_date: todayISO,
@@ -453,7 +453,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Todo with due_date=today should now be visible (Phase 6.1 change)
     expect(catchallTodos.length).toBe(1);
-    expect((catchallTodos[0] as any).title).toBe('Task due today');
+    expect((catchallTodos[0] as any).name).toBe('Task due today'); // Schema: todos use `name`
   });
 
   // PHASE 6.1 — Recent Drops Filtering Cleanup Tests
@@ -501,9 +501,9 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: All todos should be visible regardless of due_date
     expect(catchallTodos.length).toBe(3);
-    expect(catchallTodos.find((t) => (t as any).title === 'Past due task')).toBeTruthy();
-    expect(catchallTodos.find((t) => (t as any).title === 'Due today task')).toBeTruthy();
-    expect(catchallTodos.find((t) => (t as any).title === 'Future task')).toBeTruthy();
+    expect(catchallTodos.find((t) => (t as any).name === 'Past due task')).toBeTruthy(); // Schema: todos use `name`
+    expect(catchallTodos.find((t) => (t as any).name === 'Due today task')).toBeTruthy();
+    expect(catchallTodos.find((t) => (t as any).name === 'Future task')).toBeTruthy();
   });
 
   it('should show habits with space_id in Recent Drops', async () => {
