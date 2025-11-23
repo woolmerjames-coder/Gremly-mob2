@@ -2081,6 +2081,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
+  const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
 
   // Auto-dismiss category chips after configured interval
@@ -2089,6 +2090,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const timeout = setTimeout(() => setCategoryChips([]), CHIPS_AUTO_DISMISS_MS);
     return () => clearTimeout(timeout);
   }, [categoryChips, CHIPS_AUTO_DISMISS_MS]);
+
+  // Auto-dismiss photo text nudge after 5 seconds
+  useEffect(() => {
+    if (!showPhotoTextNudge) return;
+    const timeout = setTimeout(() => setShowPhotoTextNudge(false), 5000);
+    return () => clearTimeout(timeout);
+  }, [showPhotoTextNudge]);
 
   // Auto-dismiss timing chips after configured interval
   useEffect(() => {
@@ -3984,6 +3992,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         lastUnsortedIdRef.current = null;
       }
 
+      // Auto-dismiss photo text nudge when user starts typing
+      if (showPhotoTextNudge && nextValue.trim().length > 0) {
+        setShowPhotoTextNudge(false);
+      }
+
       setNote(nextValue);
       if (nextValue.length === 0) {
         hasTypedRef.current = false;
@@ -4384,10 +4397,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     // Guard: require text when photos are attached
     const trimmed = note.trim();
     if (pendingPhotoUris.length > 0 && trimmed.length === 0) {
-      showActionToast({
-        type: 'success',
-        content: 'ℹ️ Gremly needs a few words so it can organize your photo.',
-      });
+      setShowPhotoTextNudge(true);
       return;
     }
 
@@ -4605,6 +4615,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Animated.View>
             </Pressable>
           </View>
+          {showPhotoTextNudge && (
+            <View style={styles.photoTextNudge}>
+              <View style={styles.photoTextNudgeHeaderRow}>
+                <Icon name="Info" size="xs" color={c.mutedText} strokeWidth={1.6} />
+                <Text style={styles.photoTextNudgeTitle}>Add a quick note</Text>
+              </View>
+              <Text style={styles.photoTextNudgeBody}>
+                Gremly needs a few words so it can organize your photo.
+              </Text>
+            </View>
+          )}
           {statsVisible ? (
             <View style={styles.trustRow} testID="minddrop-trust">
               <Text style={styles.trustStyled} testID="minddrop-trust-text">
@@ -4995,6 +5016,34 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       fontSize: 14,
       textAlign: 'center',
+    },
+
+    photoTextNudge: {
+      marginTop: space * 1.5,
+      marginBottom: space,
+      marginHorizontal: space * 2,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 16,
+      backgroundColor: c.linenCream,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(191,216,192,0.25)',
+    },
+    photoTextNudgeHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 4,
+      columnGap: 6,
+    },
+    photoTextNudgeTitle: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.text,
+    },
+    photoTextNudgeBody: {
+      fontSize: 13,
+      color: c.mutedText,
+      lineHeight: 18,
     },
 
     submitButtonWrapper: {
