@@ -56,8 +56,14 @@ describe('MindDrop - why_string Logic', () => {
     expect(result).toBe('test-note-id');
     expect(mockCreateNote).toHaveBeenCalledWith(
       expect.objectContaining({
-        text,
+        title: text, // v3 uses title/body, not text
+        body: text,
         labels: ['catchall', 'needs_review'],
+        views: expect.objectContaining({
+          ai_pending: true,
+          ai_failed: false,
+          minddrop_stage: 'pending',
+        }),
       }),
     );
   });

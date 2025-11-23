@@ -248,21 +248,16 @@ describe('Mind Drop Urgent Skip', () => {
     fireEvent.changeText(input, 'Book doctor ASAP');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Expect 2 creates (provisional note + todo) and 1 update (archive note)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
+    // v3 Instant Mode: Expect 1 create (direct todo)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
 
     // Urgent todos should skip timing chips (this is the key behavior)
     expect(queryByTestId('minddrop-timing-chips')).toBeNull();
 
-    // Verify todo was created (second create call)
-    const todoCreateCall = mockRepo.create.mock.calls[1][0];
+    // Verify todo was created
+    const todoCreateCall = mockRepo.create.mock.calls[0][0];
     expect(todoCreateCall.type).toBe('todo');
     expect(todoCreateCall.name).toContain('Book doctor ASAP');
-
-    // Verify provisional note was archived
-    const archiveCall = mockRepo.update.mock.calls[0][0];
-    expect(archiveCall.patch.labels).toContain('archived');
   });
 
   it('detects multiple urgent keywords: urgent, now, immediately, today, asap', async () => {
@@ -285,15 +280,14 @@ describe('Mind Drop Urgent Skip', () => {
       fireEvent.changeText(input, text);
       fireEvent.press(submitButton);
 
-      // Phase 4A: Expect 2 creates (provisional note + todo) and 1 update (archive note)
-      await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-      await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
+      // v3 Instant Mode: Expect 1 create (direct todo)
+      await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
 
       // All urgent keywords should skip timing chips
       expect(queryByTestId('minddrop-timing-chips')).toBeNull();
 
-      // Verify todo was created (second create call)
-      const todoCreateCall = mockRepo.create.mock.calls[1][0];
+      // Verify todo was created
+      const todoCreateCall = mockRepo.create.mock.calls[0][0];
       expect(todoCreateCall.type).toBe('todo');
 
       unmount();
@@ -309,9 +303,8 @@ describe('Mind Drop Urgent Skip', () => {
     fireEvent.changeText(input, 'Review document');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Expect 2 creates (provisional note + todo) and 1 update (archive note)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(1));
+    // v3 Instant Mode: Expect 1 create (direct todo)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
 
     // Timing chips SHOULD appear for non-urgent high-confidence todos
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });

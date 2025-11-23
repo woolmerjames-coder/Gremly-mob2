@@ -283,9 +283,9 @@ describe('Mind Drop Timing Chips', () => {
     fireEvent.changeText(input, 'Call dentist');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Wait for provisional note + conversion
+    // v3 Instant Mode: Wait for direct todo creation (1 create)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(2); // note + todo
+      expect(mockRepo.create).toHaveBeenCalledTimes(1);
     });
 
     const todayChip = await findByTestId('minddrop-timing-today', {}, { timeout: 3000 });
@@ -293,12 +293,13 @@ describe('Mind Drop Timing Chips', () => {
     fireEvent.press(todayChip);
 
     await waitFor(() => {
-      // Expect 2 updates: 1 for archiving note, 1 for setting todo due date
-      expect(mockRepo.update).toHaveBeenCalledTimes(2);
+      // v3: Expect 1 update for setting todo due date (no note archiving)
+      expect(mockRepo.update).toHaveBeenCalled();
     });
 
-    // The second update call is the timing chip selection
-    const updateCall = mockRepo.update.mock.calls[1][0];
+    // Find the update call that sets the due date
+    const updateCalls = mockRepo.update.mock.calls;
+    const updateCall = updateCalls.find((call: any) => call[0]?.patch?.due_date)?.[0];
     expect(updateCall.patch.due_date).toBeDefined();
     expect(updateCall.patch.undefined_due).toBe(false);
 

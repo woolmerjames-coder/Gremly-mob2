@@ -279,9 +279,8 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Review docs');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Wait for provisional note creation + conversion to todo (2 creates)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
+    // v3 Instant Mode: Wait for direct todo creation (1 create)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
 
     await findByTestId('minddrop-timing-chips');
 
@@ -324,9 +323,8 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Important task');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Wait for provisional note + conversion to todo (2 creates)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
+    // v3 Instant Mode: Wait for direct todo creation (1 create)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
 
     await findByTestId('minddrop-timing-chips');
     await act(async () => {
@@ -336,11 +334,15 @@ describe('Mind Drop Timing Fallback', () => {
 
     fireEvent.press(tomorrowChip);
 
-    // Expect 2 updates: 1 for archiving note, 1 for setting todo due date
-    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(2));
+    // v3: Expect 1 update for setting todo due date (no note archiving)
+    await waitFor(() => expect(mockRepo.update).toHaveBeenCalled());
 
-    // The second update call is the timing chip selection
-    const updateCall = mockRepo.update.mock.calls[1][0] as {
+    // Find the update call that sets the due date
+    const updateCalls = mockRepo.update.mock.calls;
+    const timingUpdate = updateCalls.find((call: any) => call[0]?.patch?.due_date);
+    expect(timingUpdate).toBeDefined();
+
+    const updateCall = timingUpdate[0] as {
       patch: { due_date: string; undefined_due: boolean };
     };
 

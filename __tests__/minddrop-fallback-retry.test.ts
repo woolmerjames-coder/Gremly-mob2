@@ -37,7 +37,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Call dentist', // Primary field for todos
       title: 'Call dentist',
       origin: 'catchall',
-      dropId: '00000000-0000-0000-0000-000000000123',
+      dropId: '00000000-0000-4000-8000-000000000123',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified', // Stage A succeeded
@@ -94,7 +94,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Book appointment',
       title: 'Book appointment',
       origin: 'catchall',
-      dropId: '00000000-0000-0000-0000-000000000456',
+      dropId: '00000000-0000-4000-8000-000000000456',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified',
@@ -126,7 +126,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Email team',
       title: 'Email team',
       origin: 'catchall',
-      dropId: '00000000-0000-0000-0000-000000000789',
+      dropId: '00000000-0000-4000-8000-000000000789',
       ai_placed: true,
       views: {
         minddrop_stage: 'pending', // Stage A not run yet
@@ -156,7 +156,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Grocery shopping',
       title: 'Grocery shopping',
       origin: 'catchall',
-      dropId: '00000000-0000-0000-0000-0000success',
+      dropId: '00000000-0000-4000-8000-000000000999',
       ai_placed: true,
       views: {
         minddrop_stage: 'prefilled', // Successfully prefilled
@@ -186,7 +186,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       name: 'Fix issue',
       title: 'Fix issue',
       origin: 'catchall',
-      dropId: '00000000-0000-0000-0000-00retryfail',
+      dropId: '00000000-0000-4000-8000-000000000888',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified',
@@ -239,7 +239,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
   });
 
   it('should not create duplicate entities during retry', async () => {
-    const dropId = 'test-drop-no-duplicates';
+    const dropId = '00000000-0000-4000-8000-000000000666';
 
     // Create todo with failed prefill
     const originalTodo = await repo.create({
@@ -292,7 +292,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
       title: 'Plan meeting',
       tags: ['work', 'urgent'],
       origin: 'catchall',
-      dropId: '00000000-0000-0000-0000-0000000tags',
+      dropId: '00000000-0000-4000-8000-000000000777',
       ai_placed: true,
       views: {
         minddrop_stage: 'classified',

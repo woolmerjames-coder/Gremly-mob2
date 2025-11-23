@@ -163,14 +163,14 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
-    // Phase 4A: Should have created unsorted note + todo
+    // v3 Instant Mode: Should create todo directly (1 create)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(2);
+      expect(mockRepo.create).toHaveBeenCalledTimes(1);
     });
 
-    // Verify created as todo (second create call)
+    // Verify created as todo
     const createCalls = mockRepo.create.mock.calls;
-    const todoCall = createCalls.find((call) => call[0].type === 'todo');
+    const todoCall = createCalls[0];
     expect(todoCall).toBeDefined();
     expect(todoCall[0].type).toBe('todo');
 
@@ -286,14 +286,14 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
-    // Phase 4A: Should have created unsorted note + todo
+    // v3 Instant Mode: Should create todo directly (1 create)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(2);
+      expect(mockRepo.create).toHaveBeenCalledTimes(1);
     });
 
-    // Verify todo creation (second create call)
+    // Verify todo creation
     const createCalls = mockRepo.create.mock.calls;
-    const todoCall = createCalls.find((call) => call[0].type === 'todo');
+    const todoCall = createCalls[0];
     expect(todoCall).toBeDefined();
     expect(todoCall[0].type).toBe('todo');
 

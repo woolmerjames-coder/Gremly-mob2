@@ -38,7 +38,11 @@ describe('saveToUnsortedTray - views.ai_pending flag', () => {
 
     // Verify the captured input has views.ai_pending: true
     expect(capturedInput).toBeDefined();
-    expect(capturedInput.views).toEqual({ ai_pending: true });
+    expect(capturedInput.views).toEqual({
+      ai_pending: true,
+      ai_failed: false,
+      minddrop_stage: 'pending',
+    });
 
     // Verify other expected fields remain unchanged
     expect(capturedInput.subtype).toBe('catchall');
@@ -67,7 +71,11 @@ describe('saveToUnsortedTray - views.ai_pending flag', () => {
     await saveToUnsortedTray(mockRepo, 'Another test note', {});
 
     expect(mockRepo.addUnsorted).toHaveBeenCalledTimes(1);
-    expect(capturedInput.views).toEqual({ ai_pending: true });
+    expect(capturedInput.views).toEqual({
+      ai_pending: true,
+      ai_failed: false,
+      minddrop_stage: 'pending',
+    });
     expect(capturedInput.subtype).toBe('catchall');
     expect(capturedInput.labels).toEqual([CATCHALL_LABEL, UNSORTED_LABEL]);
   });
@@ -96,7 +104,11 @@ describe('saveToUnsortedTray - views.ai_pending flag', () => {
 
     // Verify views.ai_pending is still set in fallback path
     expect(capturedInput).toBeDefined();
-    expect(capturedInput.views).toEqual({ ai_pending: true });
+    expect(capturedInput.views).toEqual({
+      ai_pending: true,
+      ai_failed: false,
+      minddrop_stage: 'pending',
+    });
     expect(capturedInput.subtype).toBe('catchall');
     expect(capturedInput.labels).toEqual([CATCHALL_LABEL, UNSORTED_LABEL]);
     expect(capturedInput.dropId).toBe('drop-456');
@@ -125,7 +137,11 @@ describe('saveToUnsortedTray - views.ai_pending flag', () => {
     });
 
     expect(mockRepo.addUnsorted).toHaveBeenCalledTimes(1);
-    expect(capturedInput.views).toEqual({ ai_pending: true });
+    expect(capturedInput.views).toEqual({
+      ai_pending: true,
+      ai_failed: false,
+      minddrop_stage: 'pending',
+    });
     expect(capturedInput.tags).toBeDefined();
     expect(capturedInput.tags).toEqual(['#doctor', '#appointment']);
   });
