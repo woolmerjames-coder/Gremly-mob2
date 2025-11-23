@@ -455,9 +455,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
         ) : null}
         {photoHintText ? (
           <View style={{ marginTop: 4, paddingHorizontal: 16 }}>
-            <Text style={{ fontSize: 12, color: '#6B7280' }}>
-              {photoHintText}
-            </Text>
+            <Text style={{ fontSize: 12, color: '#6B7280' }}>{photoHintText}</Text>
           </View>
         ) : null}
       </Pressable>
@@ -746,34 +744,34 @@ function getMindDropVisualState(entity: {
   tags?: any[];
 }): MindDropVisualState {
   const views = entity.views ?? {};
-  
+
   // Still processing (Phase 4 flag check)
   if (views.ai_pending === true || views.minddrop_stage === 'pending') {
     return 'pending';
   }
-  
+
   // Explicitly failed (Phase 4 flag check)
   if (views.ai_failed === true) {
     return 'failed';
   }
-  
+
   // Successfully prefilled (Phase 4 explicit success check)
   if (views.minddrop_stage === 'prefilled' || views.minddrop_prefilled_v1 === true) {
     return 'complete';
   }
-  
+
   // Implicit failure: ai_pending is false, not prefilled, and no enrichment signals
   // This catches cases where Stage B failed or never ran
   if (views.ai_pending === false && views.minddrop_stage !== 'prefilled') {
     const hasEnrichedTags = Array.isArray(entity.tags) && entity.tags.length > 0;
     const hasCompactTitle = entity.title && entity.title.length > 0 && entity.title.length < 60;
-    
+
     // If no enrichment signals, treat as failed
     if (!hasEnrichedTags && !hasCompactTitle) {
       return 'failed';
     }
   }
-  
+
   // Default: complete (backward compatibility for entities without new flags)
   return 'complete';
 }
@@ -793,7 +791,7 @@ const PendingSkeleton: React.FC<{
   const [dots, setDots] = React.useState('');
 
   // Gentle fade opacity - 0.5 to 0.9, 3 seconds per cycle
-  const fadeOpacity = React.useRef(new Animated.Value(0.5)).current;
+  const [fadeOpacity] = React.useState(() => new Animated.Value(0.5));
 
   // Animated dots: add one every 500ms, reset after 3
   React.useEffect(() => {
@@ -882,12 +880,12 @@ const AnimatedMindDropCard: React.FC<{
 }) => {
   // Get full visual state
   const visualState = getMindDropVisualState(item);
-  
+
   // If pending, show calm animation
   if (visualState === 'pending') {
     return <PendingSkeleton styles={styles} c={c} />;
   }
-  
+
   // Otherwise show full content
   const isFailed = visualState === 'failed';
 
@@ -910,10 +908,7 @@ const AnimatedMindDropCard: React.FC<{
 
         {/* Right side: Due date OR time ago */}
         {effectiveKind === 'todo' ? (
-          <Text
-            testID={`minddrop-recent-todo-due-${item.id}`}
-            style={styles.recentDueBadge}
-          >
+          <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentDueBadge}>
             {formatDue(item.due_date)}
           </Text>
         ) : (
@@ -925,29 +920,23 @@ const AnimatedMindDropCard: React.FC<{
       <View style={styles.recentMetaRow}>
         <View style={styles.recentMetaLeft}>
           {/* Category pill */}
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {displayKind}
-          </Text>
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>{displayKind}</Text>
 
           {showLegacyUnsortedBadge ? (
-            <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>
-              Unsorted
-            </Text>
+            <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>Unsorted</Text>
           ) : null}
 
           {/* Tags or status hint */}
           {Array.isArray(item.tags) && item.tags.length > 0 ? (
-            <Text
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              style={styles.recentTagsText}
-            >
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.recentTagsText}>
               {getDisplayTagsForRecentDrop(item)
                 .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
                 .join('  ')}
             </Text>
           ) : isFailed ? (
-            <Text testID="minddrop-failed-hint" style={styles.subtleHint}>Saved as-is</Text>
+            <Text testID="minddrop-failed-hint" style={styles.subtleHint}>
+              Saved as-is
+            </Text>
           ) : null}
         </View>
 
@@ -1072,7 +1061,14 @@ const RecentDrops: React.FC<{
   onEdited?: () => void;
   onDeleted?: () => void;
   onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
-  onAddPendingItem?: (callback: (params: { dropId: string; text: string; kind: 'todo' | 'habit' | 'note'; noteSubtype?: string }) => void) => void;
+  onAddPendingItem?: (
+    callback: (params: {
+      dropId: string;
+      text: string;
+      kind: 'todo' | 'habit' | 'note';
+      noteSubtype?: string;
+    }) => void,
+  ) => void;
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
@@ -1116,7 +1112,7 @@ const RecentDrops: React.FC<{
         const title = (record as any).title ?? (record as any).name ?? item.title;
         const tags = Array.isArray((record as any).tags)
           ? (record as any).tags.filter((t: unknown) => typeof t === 'string')
-          : item.tags ?? [];
+          : (item.tags ?? []);
 
         return {
           ...item,
@@ -1126,7 +1122,7 @@ const RecentDrops: React.FC<{
           drop_id: (record as any).drop_id ?? item.drop_id ?? null,
           labels: Array.isArray((record as any).labels)
             ? (record as any).labels
-            : item.labels ?? [],
+            : (item.labels ?? []),
         };
       });
     },
@@ -1193,15 +1189,15 @@ const RecentDrops: React.FC<{
 
   /**
    * Load recent Mind Drops for the Catch-All / Recent Mind Drops list
-   * 
+   *
    * Mind Drop v3 Architecture:
    * - Catch-All = "Raw + in-flight Mind Drops" (pending/classified stage)
    * - Today/Habits/Logs = "Final destinations for converted drops" (prefilled stage)
-   * 
+   *
    * Filter Behavior:
    * - v3: Shows only pending/in-flight notes (not fully processed canonical entities)
    * - v2: Shows all Mind Drop items (notes, todos, habits) regardless of stage
-   * 
+   *
    * This prevents duplication: once a Mind Drop is converted to a canonical todo/habit,
    * it appears only in Today/Habits/Logs, not in Catch-All.
    */
@@ -1258,21 +1254,20 @@ const RecentDrops: React.FC<{
       // - We filter out archived notes and dedupe by drop_id, keeping canonical items
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
-        .filter(
-          (n) => {
-            // Filter to Mind Drop items only
-            const isMindDrop = n?.origin === 'catchall' ||
-              (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL));
-            
-            if (!isMindDrop) return false;
-            
-            // Exclude archived notes (converted unsorted notes)
-            if (n?.archived === true) return false;
+        .filter((n) => {
+          // Filter to Mind Drop items only
+          const isMindDrop =
+            n?.origin === 'catchall' ||
+            (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL));
 
-            // Show all Mind Drop items until explicitly archived
-            return true;
-          },
-        )
+          if (!isMindDrop) return false;
+
+          // Exclude archived notes (converted unsorted notes)
+          if (n?.archived === true) return false;
+
+          // Show all Mind Drop items until explicitly archived
+          return true;
+        })
         .map((n) => {
           const labels = Array.isArray(n?.labels) ? n.labels : [];
           const unsorted = labels.includes(UNSORTED_LABEL);
@@ -1302,18 +1297,16 @@ const RecentDrops: React.FC<{
         });
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
-        .filter(
-          (t) => {
-            // Only include Mind Drop-origin todos
-            if (t?.origin !== 'catchall') return false;
-            
-            // Exclude soft-deleted todos (completed_at is set)
-            if ((t as any)?.completed_at) return false;
-            
-            // Show all Mind Drop todos until explicitly completed
-            return true;
-          },
-        )
+        .filter((t) => {
+          // Only include Mind Drop-origin todos
+          if (t?.origin !== 'catchall') return false;
+
+          // Exclude soft-deleted todos (completed_at is set)
+          if ((t as any)?.completed_at) return false;
+
+          // Show all Mind Drop todos until explicitly completed
+          return true;
+        })
         .map((t) => {
           const rawText = t.name || t.title || '';
           const { compact: derivedTitle } = deriveCompactTitle([t.title, t.name, rawText], {
@@ -1335,18 +1328,16 @@ const RecentDrops: React.FC<{
         });
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
-        .filter(
-          (h) => {
-            // Only include Mind Drop-origin habits
-            if (h?.origin !== 'catchall') return false;
-            
-            // Exclude soft-deleted habits (completed_at is set)
-            if ((h as any)?.completed_at) return false;
-            
-            // Show all Mind Drop habits until explicitly completed
-            return true;
-          },
-        )
+        .filter((h) => {
+          // Only include Mind Drop-origin habits
+          if (h?.origin !== 'catchall') return false;
+
+          // Exclude soft-deleted habits (completed_at is set)
+          if ((h as any)?.completed_at) return false;
+
+          // Show all Mind Drop habits until explicitly completed
+          return true;
+        })
         .map((h) => {
           const rawText = h.name || '';
           const { compact: derivedTitle } = deriveCompactTitle([h.name, rawText], {
@@ -1410,7 +1401,7 @@ const RecentDrops: React.FC<{
 
       console.debug('[MindDrop.UI] Unified items after dedup', {
         count: unified.length,
-        items: unified.map(i => ({
+        items: unified.map((i) => ({
           id: i.id,
           kind: i.kind,
           title: i.title?.substring(0, 30),
@@ -2115,9 +2106,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [timingChips, pendingTodoId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pulseScale = useRef(new Animated.Value(1)).current;
-  const submitScale = useRef(new Animated.Value(1)).current;
-  const microcopyOpacity = useRef(new Animated.Value(0)).current;
+  const [pulseScale] = useState(() => new Animated.Value(1));
+  const [submitScale] = useState(() => new Animated.Value(1));
+  const [microcopyOpacity] = useState(() => new Animated.Value(0));
   const hasTypedRef = useRef(false);
   const lastAppliedHeightRef = useRef(START_HEIGHT);
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -2239,12 +2230,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const noopCallback = useCallback(() => {}, []);
 
   // Ref to hold the addPendingItem callback from RecentDrops component
-  const addPendingItemRef = useRef<((params: { dropId: string; text: string; kind: 'todo' | 'habit' | 'note'; noteSubtype?: string }) => void) | null>(null);
+  const addPendingItemRef = useRef<
+    | ((params: {
+        dropId: string;
+        text: string;
+        kind: 'todo' | 'habit' | 'note';
+        noteSubtype?: string;
+      }) => void)
+    | null
+  >(null);
 
   // Callback to receive addPendingItem from RecentDrops
-  const handleReceiveAddPendingItem = useCallback((callback: (params: { dropId: string; text: string; kind: 'todo' | 'habit' | 'note'; noteSubtype?: string }) => void) => {
-    addPendingItemRef.current = callback;
-  }, []);
+  const handleReceiveAddPendingItem = useCallback(
+    (
+      callback: (params: {
+        dropId: string;
+        text: string;
+        kind: 'todo' | 'habit' | 'note';
+        noteSubtype?: string;
+      }) => void,
+    ) => {
+      addPendingItemRef.current = callback;
+    },
+    [],
+  );
 
   // Callback to sync "X thoughts organized today" counter with actual Today items count
   const handleTodayCountChange = useCallback(
@@ -4177,15 +4186,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Mind Drop v3 UX: Overlay ONLY opens on deliberate user action (tap card/chip),
         // NOT automatically when AI finishes classification or prefill.
         // This prevents interrupting the user's flow.
-        
+
         // OPTIMISTIC UI: Add pending item immediately for instant feedback
         // Use simple heuristic to predict kind (will be replaced when real entity appears)
         const lowerText = trimmed.toLowerCase();
         const seemsLikeTodo =
           /\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
           /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText);
-        const seemsLikeHabit =
-          /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
+        const seemsLikeHabit = /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(
+          lowerText,
+        );
         const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
 
         addPendingItemRef.current?.({
