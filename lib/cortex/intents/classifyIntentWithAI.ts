@@ -14,6 +14,7 @@
 import { callClassify } from '../CortexClient';
 import { classifyIntent } from './intentRules';
 import type { DetectedIntent, IntentKind } from './types';
+import { resolveCanonicalIntent, type CanonicalType } from './canonicalIntent';
 
 /**
  * AI Classification Prompt
@@ -72,12 +73,13 @@ Example valid outputs:
 Do not include any other fields or commentary. Use "type" as the key.`;
 
 /**
- * Mapping from AI types to IntentKind
+ * Mapping from canonical types to IntentKind
  */
-const AI_TYPE_TO_INTENT_KIND: Record<string, IntentKind> = {
+const CANONICAL_TO_INTENT_KIND: Record<CanonicalType, IntentKind> = {
   todo: 'todo',
   habit: 'habit',
-  log: 'note', // AI "log" maps to "note" intent kind
+  log: 'note',
+  meta: 'question',
   ignore: 'none',
 };
 
@@ -196,57 +198,28 @@ export async function classifyIntentWithAI(
     // Extract type from AI response - prefer 'type' field, fall back to 'category' for backward compat
     const rawType = parsed.type ?? parsed.category;
 
-    // Normalize type
-    const aiType = normalizeAIType(rawType);
-    if (!aiType) {
-      if (__DEV__) {
-        console.warn('[classifyIntentWithAI] Invalid AI type, using fallback:', rawType);
-      }
-      return fallback;
-    }
-
     // Parse and validate confidence
     const aiConfidence = parseConfidence(parsed.confidence);
 
-    // REFLECTIVE PATTERN OVERRIDE:
-    // If AI returns 'ignore'/'none' with low confidence AND text contains reflective patterns,
-    // override to 'log' to prevent losing user's thoughts
-    let finalType = aiType;
-    if (
-      (aiType === 'none' || aiType === 'question') &&
-      aiConfidence !== undefined &&
-      aiConfidence < 70
-    ) {
-      const reflectivePatterns = [
-        /\b(thinking|thought|wondering|considering|might|maybe|someday|could|should)\b/i,
-        /\b(just thinking|just thought)\b/i,
-        /\b(vague|planning|contemplating)\b/i,
-        /\b(side hustle|job change|career)\b/i,
-        /\b(messaging|contacting|reaching out to)\b/i,
-      ];
+    // Use canonical intent resolver for unified decision logic
+    const canonical = resolveCanonicalIntent({
+      ruleKind: fallback.kind,
+      ruleConfidence: fallback.confidence,
+      aiCategory: rawType,
+      aiConfidence: aiConfidence ?? 0,
+      text,
+    });
 
-      const hasReflectivePattern = reflectivePatterns.some((pattern) => pattern.test(text));
-      const isNotMetaComment =
-        !/\b(how does this work|what does this do|why did you|this app|doesn't make sense)\b/i.test(
-          text,
-        );
+    // Map canonical type back to IntentKind
+    const finalKind = CANONICAL_TO_INTENT_KIND[canonical.type];
 
-      if (hasReflectivePattern && isNotMetaComment) {
-        if (__DEV__) {
-          console.log(
-            `[classifyIntentWithAI] Override: '${aiType}' (conf=${aiConfidence}) → 'note' (reflective pattern detected)`,
-          );
-        }
-        finalType = 'note'; // Override to 'note' (log)
-      }
-    }
-
-    // Build result with AI classification (using finalType after override)
+    // Build result with canonical classification
     const detectedIntent: DetectedIntent = {
       ...fallback,
-      kind: finalType,
-      confidence: aiConfidence ? aiConfidence / 100 : fallback.confidence, // Normalize to 0-1
+      kind: finalKind,
+      confidence: canonical.confidence,
       aiConfidence, // Keep raw 0-100 score
+      suppressChips: canonical.suppressChips,
       title: text,
     };
 
@@ -254,8 +227,9 @@ export async function classifyIntentWithAI(
     if (__DEV__) {
       const trimmedText = text.length > 120 ? text.slice(0, 120) + '…' : text;
       console.log(
-        `[MindDrop AI] type=${finalType} ai_confidence=${aiConfidence ?? 'null'} text="${trimmedText}"`,
+        `[MindDrop AI] type=${canonical.type} ai_confidence=${aiConfidence ?? 'null'} text="${trimmedText}"`,
       );
+      console.log(`[CanonicalIntent] ${canonical.reasoning}`);
     }
 
     return detectedIntent;
