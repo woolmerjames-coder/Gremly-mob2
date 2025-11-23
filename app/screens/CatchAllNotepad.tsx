@@ -4048,29 +4048,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const now = Date.now();
     const trimmed = note.trim();
 
-    // Photo Drop shortcut: if photos are present, skip AI and open overlay directly
-    if (pendingPhotoUris.length > 0) {
-      try {
-        overlay.openCreate({
-          initialEntity: { type: 'log', id: undefined, logSubtype: 'everything_else' },
-          initialText: trimmed || null,
-          initialLogPhotoUris: pendingPhotoUris,
-          spaceId: null,
-        });
-
-        // Clear local state
-        setNote('');
-        setPendingPhotoUris([]);
-        setIsSubmitting(false);
-        submitLockRef.current = false;
-        return;
-      } catch (error) {
-        console.error('[MindDrop] Photo drop failed:', error);
-        setIsSubmitting(false);
-        submitLockRef.current = false;
-        return;
-      }
-    }
+    // Photos with text now flow through the same pipeline as text-only submissions
+    // The photo text requirement guard (in handleSubmit) ensures trimmed.length > 0 when photos exist
+    // Photos will be attached to the created note via the normal pipeline flow
 
     if (!trimmed) {
       setIsSubmitting(false);
