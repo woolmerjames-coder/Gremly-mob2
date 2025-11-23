@@ -9,7 +9,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 
 jest.mock('../../../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ userId: 'test-user' }),
+  useAuth: () => ({ user: { id: 'test-user' } }),
 }));
 
 // Force feature flag OFF for this file

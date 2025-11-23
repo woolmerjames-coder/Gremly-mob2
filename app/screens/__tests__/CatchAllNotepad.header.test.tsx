@@ -17,7 +17,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 
 jest.mock('../../../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ userId: 'test-user' }),
+  useAuth: () => ({ user: { id: 'test-user' } }),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
