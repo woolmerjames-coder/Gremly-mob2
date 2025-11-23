@@ -19,6 +19,8 @@ const mockRepo = {
   getById: jest.fn(),
   remove: jest.fn(),
   findNoteBySourceMessageId: jest.fn(),
+  findTodoByDropId: jest.fn(),
+  findHabitByDropId: jest.fn(),
   getAll: jest.fn(),
   query: jest.fn(),
   notes: {
@@ -165,6 +167,17 @@ describe('Timing Chips Integration', () => {
 
     mockRepo.remove.mockResolvedValue(undefined);
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
+
+    // Mock findTodoByDropId and findHabitByDropId for pipeline idempotency checks
+    mockRepo.findTodoByDropId = jest.fn().mockImplementation((dropId: string) => {
+      const todo = createdRecords.find((r: any) => r.type === 'todo' && r.drop_id === dropId);
+      return Promise.resolve(todo || null);
+    });
+
+    mockRepo.findHabitByDropId = jest.fn().mockImplementation((dropId: string) => {
+      const habit = createdRecords.find((r: any) => r.type === 'habit' && r.drop_id === dropId);
+      return Promise.resolve(habit || null);
+    });
   });
 
   afterEach(() => {
