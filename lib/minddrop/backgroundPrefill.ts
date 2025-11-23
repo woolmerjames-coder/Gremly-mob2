@@ -340,6 +340,16 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
             aiTitle: aiTitle,
           });
 
+          // DEBUG: Log comparison details
+          console.log('[BackgroundPrefill] Note title comparison', {
+            entityId: entity.id,
+            currentTitle: fullNote.title,
+            computedTitle: nextTitle,
+            aiTitle,
+            isDifferent: nextTitle && nextTitle !== fullNote.title,
+            willUpdate: !!(nextTitle && nextTitle !== fullNote.title),
+          });
+
           // Only update title if nextTitle is defined AND different
           if (nextTitle && nextTitle !== fullNote.title) {
             updatePayload.title = nextTitle;
@@ -376,6 +386,17 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
         return;
     }
 
+    // DEBUG: Log update payload before sending to database
+    console.log('[BackgroundPrefill] Update payload before DB call', {
+      entityId: entity.id,
+      entityType: entity.type,
+      tableName,
+      hasTitle: 'title' in updatePayload,
+      hasTags: 'tags' in updatePayload,
+      payloadKeys: Object.keys(updatePayload),
+      titleValue: updatePayload.title,
+    });
+
     const { data: updatedEntity, error } = await supabase
       .from(tableName)
       .update(updatePayload)
@@ -391,13 +412,24 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
       return;
     }
 
+    const titleWasSet = 'title' in updatePayload || 'name' in updatePayload;
+    const finalTitle = updatePayload.title ?? updatePayload.name ?? null;
+
     console.log('[BackgroundPrefill] Save success', {
       entityId: entity.id,
       freezeApplied: true,
-      titleSet: !!aiTitle,
+      titleSet: titleWasSet,
+      title: finalTitle,
       tagsCount: aiTags.length,
       totalElapsed: Date.now() - startTime,
     });
+
+    if (titleWasSet && finalTitle) {
+      console.log('[BackgroundPrefill] Title saved', {
+        entityId: entity.id,
+        title: finalTitle,
+      });
+    }
   } catch (error) {
     console.error('[BackgroundPrefill] Unexpected error', {
       entityId: entity.id,
