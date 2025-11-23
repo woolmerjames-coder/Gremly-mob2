@@ -1,12 +1,12 @@
 /**
  * Mind Drop v3: UI Rendering Regression Test
- * 
+ *
  * Tests that Mind Drop items appear in the UI after classification/prefill.
- * 
+ *
  * Bug: Items were created in DB but not visible in UI because:
  * - Provisional notes were filtered out once minddrop_stage === 'prefilled'
  * - Canonical todos were filtered out because canonicalType === 'todo' in v3 mode
- * 
+ *
  * Fix: Show items in 'pending' or 'classified' stages, and show canonical todos
  * without due_date (not yet in Today view).
  */
@@ -338,7 +338,7 @@ describe('Mind Drop v3: UI Rendering', () => {
       const isMindDrop = n?.origin === 'catchall' || n?.labels?.includes('catchall');
       if (!isMindDrop) return false;
       if (n?.archived === true) return false;
-      
+
       const views = n?.views ?? {};
       if (views.minddrop_stage === 'pending' || views.minddrop_stage === 'classified') {
         return true;
@@ -384,7 +384,7 @@ describe('Mind Drop v3: UI Rendering', () => {
     expect(todayItems.length).toBe(1);
     expect(todayItems[0].type).toBe('todo');
     expect(todayItems[0].drop_id).toBe(dropId);
-    
+
     // The UI should NOT show "Ready when you are" empty state
     expect(todayItems.length).toBeGreaterThan(0);
   });
@@ -400,19 +400,19 @@ describe('Mind Drop v3: UI Rendering', () => {
     // Create todo with future due_date
     const todo = await freshRepo.create({
       type: 'todo',
-      name: 'Future task with deadline',
+      title: 'Future task with deadline',
       origin: 'catchall',
       dropId,
       due_date: futureDateISO,
     });
 
     const allTodos = await freshRepo.listByType('todo');
-    const targetTodo = allTodos.find(t => t.drop_id === dropId);
+    const targetTodo = allTodos.find((t) => t.drop_id === dropId);
     expect(targetTodo).toBeTruthy();
-    expect((targetTodo as any).name).toBe('Future task with deadline');
+    expect((targetTodo as any).title).toBe('Future task with deadline');
 
     // Simulate CatchAll filter logic (Phase 6.1: No due_date filtering)
-    const catchallTodos = allTodos.filter(t => {
+    const catchallTodos = allTodos.filter((t) => {
       if (t.origin !== 'catchall') return false;
       if ((t as any).completed_at) return false;
       return true; // Show ALL todos regardless of due_date
@@ -420,7 +420,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Todo with future due_date should remain visible in CatchAll
     expect(catchallTodos.length).toBe(1);
-    expect(catchallTodos[0].name).toBe('Future task with deadline');
+    expect((catchallTodos[0] as any).title).toBe('Future task with deadline');
   });
 
   it('should show todo with due_date=today in Recent Drops (Phase 6.1)', async () => {
@@ -434,18 +434,18 @@ describe('Mind Drop v3: UI Rendering', () => {
     // Create todo with due_date = today
     const todo = await freshRepo.create({
       type: 'todo',
-      name: 'Task due today',
+      title: 'Task due today',
       origin: 'catchall',
       dropId,
       due_date: todayISO,
     });
 
     const allTodos = await freshRepo.listByType('todo');
-    const targetTodo = allTodos.find(t => t.drop_id === dropId);
+    const targetTodo = allTodos.find((t) => t.drop_id === dropId);
     expect(targetTodo).toBeTruthy();
 
     // Simulate CatchAll filter logic (Phase 6.1: No due_date filtering)
-    const catchallTodos = allTodos.filter(t => {
+    const catchallTodos = allTodos.filter((t) => {
       if (t.origin !== 'catchall') return false;
       if ((t as any).completed_at) return false;
       return true; // Show ALL todos regardless of due_date
@@ -453,7 +453,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Todo with due_date=today should now be visible (Phase 6.1 change)
     expect(catchallTodos.length).toBe(1);
-    expect(catchallTodos[0].name).toBe('Task due today');
+    expect((catchallTodos[0] as any).title).toBe('Task due today');
   });
 
   // PHASE 6.1 — Recent Drops Filtering Cleanup Tests
@@ -493,7 +493,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // Simulate simplified CatchAll filter (Phase 6.1)
     const allTodos = await freshRepo.listByType('todo');
-    const catchallTodos = allTodos.filter(t => {
+    const catchallTodos = allTodos.filter((t) => {
       if (t.origin !== 'catchall') return false;
       if ((t as any).completed_at) return false;
       return true; // Show ALL todos regardless of due_date
@@ -501,9 +501,9 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: All todos should be visible regardless of due_date
     expect(catchallTodos.length).toBe(3);
-    expect(catchallTodos.find(t => t.name === 'Past due task')).toBeTruthy();
-    expect(catchallTodos.find(t => t.name === 'Due today task')).toBeTruthy();
-    expect(catchallTodos.find(t => t.name === 'Future task')).toBeTruthy();
+    expect(catchallTodos.find((t) => (t as any).title === 'Past due task')).toBeTruthy();
+    expect(catchallTodos.find((t) => (t as any).title === 'Due today task')).toBeTruthy();
+    expect(catchallTodos.find((t) => (t as any).title === 'Future task')).toBeTruthy();
   });
 
   it('should show habits with space_id in Recent Drops', async () => {
@@ -532,7 +532,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // Simulate simplified CatchAll filter (Phase 6.1)
     const allHabits = await freshRepo.listByType('habit');
-    const catchallHabits = allHabits.filter(h => {
+    const catchallHabits = allHabits.filter((h) => {
       if (h.origin !== 'catchall') return false;
       if ((h as any).completed_at) return false;
       return true; // Show ALL habits regardless of space_id
@@ -540,8 +540,8 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Both habits should be visible regardless of space_id
     expect(catchallHabits.length).toBe(2);
-    expect(catchallHabits.find(h => h.name === 'Morning meditation')).toBeTruthy();
-    expect(catchallHabits.find(h => h.name === 'Evening yoga')).toBeTruthy();
+    expect(catchallHabits.find((h) => (h as any).name === 'Morning meditation')).toBeTruthy();
+    expect(catchallHabits.find((h) => (h as any).name === 'Evening yoga')).toBeTruthy();
   });
 
   it('should show canonical logs in Recent Drops', async () => {
@@ -550,12 +550,12 @@ describe('Mind Drop v3: UI Rendering', () => {
     // Create canonical log note (canonical_type = 'log')
     const log = await freshRepo.create({
       type: 'note',
-      subtype: 'log',
+      subtype: 'log' as any,
       title: 'Went for a 5k run',
       body: 'Went for a 5k run',
       origin: 'catchall',
       dropId: testUUID(1101),
-      canonical_type: 'log',
+      canonicalType: 'log' as any,
       views: {
         minddrop_stage: 'prefilled',
         ai_pending: false,
@@ -564,7 +564,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // Simulate simplified CatchAll filter (Phase 6.1)
     const allNotes = await freshRepo.listByType('note');
-    const catchallNotes = allNotes.filter(n => {
+    const catchallNotes = allNotes.filter((n) => {
       const isMindDrop = n?.origin === 'catchall' || n?.labels?.includes('catchall');
       if (!isMindDrop) return false;
       if (n?.archived === true) return false;
@@ -573,7 +573,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Canonical log should be visible
     expect(catchallNotes.length).toBe(1);
-    expect(catchallNotes[0].title).toBe('Went for a 5k run');
+    expect((catchallNotes[0] as any).title).toBe('Went for a 5k run');
     expect(catchallNotes[0].subtype).toBe('log');
   });
 
@@ -614,12 +614,12 @@ describe('Mind Drop v3: UI Rendering', () => {
           ai_pending: false,
           minddrop_prefilled_v1: true,
         },
-      },
+      } as any,
     });
 
     // Simulate simplified CatchAll filter (Phase 6.1)
     const allTodos = await freshRepo.listByType('todo');
-    const catchallTodos = allTodos.filter(t => {
+    const catchallTodos = allTodos.filter((t) => {
       if (t.origin !== 'catchall') return false;
       if ((t as any).completed_at) return false;
       return true; // Show ALL todos regardless of minddrop_stage
@@ -627,7 +627,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Todo should still be visible after full prefill
     expect(catchallTodos.length).toBe(1);
-    expect(catchallTodos[0].name).toBe('Call dentist');
+    expect((catchallTodos[0] as any).name).toBe('Call dentist');
     expect((catchallTodos[0] as any).views.minddrop_stage).toBe('prefilled');
   });
 
@@ -680,7 +680,7 @@ describe('Mind Drop v3: UI Rendering', () => {
       id: completedTodo.id,
       patch: {
         completed_at: new Date().toISOString(),
-      },
+      } as any,
     });
 
     const activeHabit = await freshRepo.create({
@@ -706,7 +706,7 @@ describe('Mind Drop v3: UI Rendering', () => {
       id: completedHabit.id,
       patch: {
         completed_at: new Date().toISOString(),
-      },
+      } as any,
     });
 
     // Simulate simplified CatchAll filter (Phase 6.1)
@@ -714,20 +714,20 @@ describe('Mind Drop v3: UI Rendering', () => {
     const allTodos = await freshRepo.listByType('todo');
     const allHabits = await freshRepo.listByType('habit');
 
-    const visibleNotes = allNotes.filter(n => {
+    const visibleNotes = allNotes.filter((n) => {
       const isMindDrop = n?.origin === 'catchall' || n?.labels?.includes('catchall');
       if (!isMindDrop) return false;
       if (n?.archived === true) return false;
       return true;
     });
 
-    const visibleTodos = allTodos.filter(t => {
+    const visibleTodos = allTodos.filter((t) => {
       if (t.origin !== 'catchall') return false;
       if ((t as any).completed_at) return false;
       return true;
     });
 
-    const visibleHabits = allHabits.filter(h => {
+    const visibleHabits = allHabits.filter((h) => {
       if (h.origin !== 'catchall') return false;
       if ((h as any).completed_at) return false;
       return true;
@@ -735,13 +735,13 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // ASSERT: Only active items should be visible
     expect(visibleNotes.length).toBe(1);
-    expect(visibleNotes[0].title).toBe('Active note');
+    expect((visibleNotes[0] as any).title).toBe('Active note');
 
     expect(visibleTodos.length).toBe(1);
-    expect(visibleTodos[0].name).toBe('Active todo');
+    expect((visibleTodos[0] as any).name).toBe('Active todo');
 
     expect(visibleHabits.length).toBe(1);
-    expect(visibleHabits[0].name).toBe('Active habit');
+    expect((visibleHabits[0] as any).name).toBe('Active habit');
   });
 
   // PHASE 6.1 — Pending Skeleton UI Tests
@@ -762,7 +762,7 @@ describe('Mind Drop v3: UI Rendering', () => {
     });
 
     const allTodos = await freshRepo.listByType('todo');
-    const todo = allTodos.find(t => t.drop_id === testUUID(1401));
+    const todo = allTodos.find((t) => t.drop_id === testUUID(1401));
 
     // ASSERT: Item exists in DB
     expect(todo).toBeTruthy();
@@ -792,7 +792,7 @@ describe('Mind Drop v3: UI Rendering', () => {
     });
 
     const allTodos = await freshRepo.listByType('todo');
-    const todo = allTodos.find(t => t.drop_id === testUUID(1501));
+    const todo = allTodos.find((t) => t.drop_id === testUUID(1501));
 
     // ASSERT: Item exists in DB with enrichment
     expect(todo).toBeTruthy();
@@ -824,7 +824,7 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // Verify pending state
     let allTodos = await freshRepo.listByType('todo');
-    let currentTodo = allTodos.find(t => t.drop_id === testUUID(1601));
+    let currentTodo = allTodos.find((t) => t.drop_id === testUUID(1601));
     expect((currentTodo as any).views.ai_pending).toBe(true);
 
     // Simulate Stage B completion
@@ -842,10 +842,9 @@ describe('Mind Drop v3: UI Rendering', () => {
 
     // Verify complete state
     allTodos = await freshRepo.listByType('todo');
-    currentTodo = allTodos.find(t => t.drop_id === testUUID(1601));
+    currentTodo = allTodos.find((t) => t.drop_id === testUUID(1601));
     expect((currentTodo as any).views.ai_pending).toBe(false);
     expect((currentTodo as any).views.minddrop_stage).toBe('prefilled');
     expect((currentTodo as any).tags).toEqual(['dentist', 'health']);
   });
 });
-

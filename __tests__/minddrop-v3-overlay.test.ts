@@ -16,7 +16,10 @@
  */
 
 import { MemoryRepo } from '../lib/repo/memory';
-import { runMindDropStageAClassification, runMindDropStageBPrefill } from '../lib/minddrop/pipelineStages';
+import {
+  runMindDropStageAClassification,
+  runMindDropStageBPrefill,
+} from '../lib/minddrop/pipelineStages';
 import type { CortexResponse } from '../lib/cortex/cortexDecide';
 
 // Helper to generate valid UUID for testing (schema requires UUID format)
@@ -59,6 +62,7 @@ describe('Mind Drop v3 - Overlay Auto-Open Prevention', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Buy groceries tomorrow',
               due: '2025-11-24T12:00:00Z',
             },
           },
@@ -109,8 +113,8 @@ describe('Mind Drop v3 - Overlay Auto-Open Prevention', () => {
           {
             type: 'create.habit',
             payload: {
-              frequency: 'daily',
-              subtype: 'start_habit',
+              name: 'Morning meditation',
+              freq: 'daily',
             },
           },
         ],
@@ -261,8 +265,8 @@ describe('Mind Drop v3 - Overlay Auto-Open Prevention', () => {
           {
             type: 'create.habit',
             payload: {
-              frequency: 'daily',
-              subtype: 'start_habit',
+              name: 'Run every morning',
+              freq: 'daily',
             },
           },
         ],

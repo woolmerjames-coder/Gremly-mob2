@@ -11,7 +11,10 @@
  */
 
 import { MemoryRepo } from '../lib/repo/memory';
-import { runMindDropStageAClassification, runMindDropStageBPrefill } from '../lib/minddrop/pipelineStages';
+import {
+  runMindDropStageAClassification,
+  runMindDropStageBPrefill,
+} from '../lib/minddrop/pipelineStages';
 import type { CortexResponse } from '../lib/cortex/cortexDecide';
 
 // Helper to generate valid UUID for testing (schema requires UUID format)
@@ -66,6 +69,7 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Buy groceries',
               due: '2025-11-24T12:00:00Z',
             },
           },
@@ -126,10 +130,10 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
         // Mind Drop v3: Catch-All shows only pending/in-flight items
         // Exclude: archived notes, prefilled stage
         if ((n as any).archived) return false;
-        
+
         const stage = (n as any).views?.minddrop_stage;
         if (stage === 'prefilled') return false;
-        
+
         const isUnsorted = n.labels?.includes('catchall');
         return isUnsorted;
       });
@@ -140,7 +144,7 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
       const allTodos = await repo.listByType('todo');
       const todayTodos = allTodos.filter((t) => {
         // Today view shows todos
-        return !((t as any).archived);
+        return !(t as any).archived;
       });
 
       expect(todayTodos.length).toBe(1);
@@ -148,14 +152,9 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
       expect((todayTodos[0] as any).name).toContain('Buy groceries');
 
       // Step 9: Verify no duplicates - same text appears only once
-      const allRecords = [
-        ...allNotes.filter(n => !(n as any).archived),
-        ...todayTodos,
-      ];
-      const textsInUI = allRecords.map(r => 
-        r.type === 'note' ? r.body : (r as any).name
-      );
-      
+      const allRecords = [...allNotes.filter((n) => !(n as any).archived), ...todayTodos];
+      const textsInUI = allRecords.map((r) => (r.type === 'note' ? r.body : (r as any).name));
+
       expect(textsInUI.length).toBe(1); // Only one UI element with this text
     });
 
@@ -181,8 +180,8 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
           {
             type: 'create.habit',
             payload: {
-              frequency: 'daily',
-              subtype: 'start_habit',
+              name: 'Morning meditation',
+              freq: 'daily',
             },
           },
         ],
@@ -213,17 +212,18 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
 
       // Verify Catch-All is empty
       const allNotes = await repo.listByType('note');
-      const catchAll = allNotes.filter(n => 
-        n.labels?.includes('catchall') && 
-        !(n as any).archived &&
-        (n as any).views?.minddrop_stage !== 'prefilled'
+      const catchAll = allNotes.filter(
+        (n) =>
+          n.labels?.includes('catchall') &&
+          !(n as any).archived &&
+          (n as any).views?.minddrop_stage !== 'prefilled',
       );
       expect(catchAll.length).toBe(0);
 
       // Verify habit appears in Habits view
       const allHabits = await repo.listByType('habit');
-      const habitsView = allHabits.filter(h => !((h as any).archived));
-      
+      const habitsView = allHabits.filter((h) => !(h as any).archived);
+
       expect(habitsView.length).toBe(1);
       expect(habitsView[0].id).toBe(habitId);
       expect((habitsView[0] as any).name).toContain('Run');
@@ -251,6 +251,7 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
           {
             type: 'create.note',
             payload: {
+              text: 'Journal entry',
               subtype: 'journal',
             },
           },
@@ -291,28 +292,28 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
 
       // Verify Catch-All filtering (excludes prefilled stage)
       const allNotes = await repo.listByType('note');
-      const catchAll = allNotes.filter(n => 
-        n.labels?.includes('catchall') && 
-        !(n as any).archived &&
-        (n as any).views?.minddrop_stage !== 'prefilled'
+      const catchAll = allNotes.filter(
+        (n) =>
+          n.labels?.includes('catchall') &&
+          !(n as any).archived &&
+          (n as any).views?.minddrop_stage !== 'prefilled',
       );
       expect(catchAll.length).toBe(0);
 
       // Verify note exists in prefilled stage (would appear in Logs/Journal view)
-      const prefilledNotes = allNotes.filter(n => 
-        (n as any).views?.minddrop_stage === 'prefilled' &&
-        !(n as any).archived
+      const prefilledNotes = allNotes.filter(
+        (n) => (n as any).views?.minddrop_stage === 'prefilled' && !(n as any).archived,
       );
       expect(prefilledNotes.length).toBe(1);
       expect(prefilledNotes[0].id).toBe(noteId);
-      expect(prefilledNotes[0].body).toContain('grateful');
+      expect((prefilledNotes[0] as any).body).toContain('grateful');
     });
   });
 
   describe('No Auto-Open Overlay in v3', () => {
     it('should NOT auto-open overlay when creating Mind Drop in v3 mode', () => {
       // This is a documentation test - the actual implementation is in CatchAllNotepad.tsx
-      // 
+      //
       // When EXPO_PUBLIC_MIND_DROP_V3_INSTANT=on:
       // 1. User submits text
       // 2. runMindDropPipeline is called with void (fire-and-forget)
@@ -402,7 +403,9 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
         actions: [
           {
             type: 'create.todo',
-            payload: {},
+            payload: {
+              title: 'Test task',
+            },
           },
         ],
       };
@@ -464,8 +467,8 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
           {
             type: 'create.habit',
             payload: {
-              frequency: 'daily',
-              subtype: 'start_habit',
+              name: 'Daily standup',
+              freq: 'daily',
             },
           },
         ],
@@ -520,6 +523,7 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Buy milk',
               due: '2025-11-24T14:00:00Z',
             },
           },
@@ -578,9 +582,9 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
       // Verify: No duplicate notes or habits
       const allNotes = await repo.listByType('note');
       const allHabits = await repo.listByType('habit');
-      
+
       // Only the original archived note should exist
-      const unarchivedNotes = allNotes.filter(n => !(n as any).archived);
+      const unarchivedNotes = allNotes.filter((n) => !(n as any).archived);
       expect(unarchivedNotes.length).toBe(0);
       expect(allHabits.length).toBe(0);
     });
@@ -589,7 +593,7 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
       // This test simulates race condition scenario:
       // Two pipeline runs start at nearly the same time with same dropId
       // Note: MemoryRepo may create multiple records momentarily, but should converge to one
-      
+
       const dropId = testUuid('0ace01');
       const note = await repo.create({
         type: 'note',
@@ -609,7 +613,9 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
         actions: [
           {
             type: 'create.todo',
-            payload: {},
+            payload: {
+              title: 'Concurrent task',
+            },
           },
         ],
       };
@@ -649,14 +655,14 @@ describe('Mind Drop v3 - End-to-End Behavior', () => {
 
       // Get all todos with this dropId
       const allTodos = await repo.listByType('todo');
-      const todosWithDropId = allTodos.filter(t => (t as any).drop_id === dropId);
-      
+      const todosWithDropId = allTodos.filter((t) => (t as any).drop_id === dropId);
+
       // Should have at most 3 todos (worst case: all concurrent runs created one)
       // But ideally should be 1 (perfect idempotency)
       expect(todosWithDropId.length).toBeLessThanOrEqual(3);
-      
+
       // All todos should have the same dropId
-      todosWithDropId.forEach(t => {
+      todosWithDropId.forEach((t) => {
         expect((t as any).drop_id).toBe(dropId);
       });
 
