@@ -12,9 +12,24 @@
  * - Both modes: Final entities have views.ai_pending: false
  */
 
-import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
-import type { CortexResponse } from '../lib/cortex/cortexDecide';
+// Mock Supabase client FIRST
+jest.mock('../lib/supabase/client', () => ({
+  supabase: {
+    from: jest.fn(() => ({
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        })),
+      })),
+    })),
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnValue({
+        unsubscribe: jest.fn(),
+      }),
+    })),
+  },
+}));
 
 // Mock environment variables before any imports
 const originalEnv = process.env;
@@ -26,6 +41,8 @@ const mockRepo = {
   getById: jest.fn(),
   remove: jest.fn(),
   findNoteBySourceMessageId: jest.fn(),
+  findTodoByDropId: jest.fn(),
+  findHabitByDropId: jest.fn(),
   getAll: jest.fn(),
   query: jest.fn(),
   notes: {
@@ -64,13 +81,17 @@ jest.mock('../providers/CortexProvider', () => ({
   useCortex: () => ({ decideWithContext: mockDecideWithContext }),
 }));
 
-jest.mock('../contexts/OverlayContext', () => ({
-  useGlobalOverlay: () => ({
-    openCreate: jest.fn(),
-  }),
-}));
+// Mock overlay controller - no-op implementation for tests
+const mockOverlayController = {
+  openCreate: jest.fn(),
+  openEdit: jest.fn(),
+  close: jest.fn(),
+};
 
 // Import after mocks
+import React from 'react';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import type { CortexResponse } from '../lib/cortex/cortexDecide';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 describe('Mind Drop V2 vs V3 Mode Tests', () => {
@@ -84,6 +105,8 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
       views: { ai_pending: false },
     });
     mockRepo.findNoteBySourceMessageId.mockResolvedValue(null);
+    mockRepo.findTodoByDropId.mockResolvedValue(null);
+    mockRepo.findHabitByDropId.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -120,7 +143,9 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
         return response;
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByPlaceholderText, getByTestId } = render(
+        <CatchAllNotepad overlayController={mockOverlayController} />,
+      );
 
       const input = getByPlaceholderText(/Mind Drop/i);
       const submitButton = getByTestId('submit-button');
@@ -188,7 +213,9 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
         suggestions: [],
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByPlaceholderText, getByTestId } = render(
+        <CatchAllNotepad overlayController={mockOverlayController} />,
+      );
 
       const input = getByPlaceholderText(/Mind Drop/i);
       const submitButton = getByTestId('submit-button');
@@ -239,7 +266,9 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
         return response;
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByPlaceholderText, getByTestId } = render(
+        <CatchAllNotepad overlayController={mockOverlayController} />,
+      );
 
       const input = getByPlaceholderText(/Mind Drop/i);
       const submitButton = getByTestId('submit-button');
@@ -306,7 +335,9 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
         suggestions: [],
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByPlaceholderText, getByTestId } = render(
+        <CatchAllNotepad overlayController={mockOverlayController} />,
+      );
 
       const input = getByPlaceholderText(/Mind Drop/i);
       const submitButton = getByTestId('submit-button');
@@ -342,7 +373,9 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
         suggestions: [],
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByPlaceholderText, getByTestId } = render(
+        <CatchAllNotepad overlayController={mockOverlayController} />,
+      );
 
       const input = getByPlaceholderText(/Mind Drop/i);
       const submitButton = getByTestId('submit-button');
@@ -391,7 +424,7 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
         suggestions: [],
       });
 
-      const { unmount } = render(<CatchAllNotepad />);
+      const { unmount } = render(<CatchAllNotepad overlayController={mockOverlayController} />);
 
       // Verify V2 behavior would apply here
       // (full test omitted for brevity - covered in V2 tests above)
@@ -403,7 +436,9 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
       process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'on';
 
       // Re-render
-      const { getByPlaceholderText } = render(<CatchAllNotepad />);
+      const { getByPlaceholderText } = render(
+        <CatchAllNotepad overlayController={mockOverlayController} />,
+      );
 
       // Verify V3 mode is now active
       const input = getByPlaceholderText(/Mind Drop/i);
