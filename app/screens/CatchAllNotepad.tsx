@@ -2212,8 +2212,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           );
         }
 
+        // Check canonical intent before forcing chips
+        // Only show chips when:
+        // 1. needsClarification is true (ambiguous intent)
+        // 2. OR no canonical decision available (fallback to heuristic)
+        const shouldSkipChips =
+          decision.mindDropDecision &&
+          decision.mindDropDecision.probableKind === 'log' &&
+          !decision.mindDropDecision.needsClarification;
+
+        if (__DEV__ && decision.mindDropDecision) {
+          console.log('[CanonicalIntent] Chip decision:', {
+            showChips: !shouldSkipChips,
+            reason: shouldSkipChips
+              ? 'confident-log'
+              : decision.mindDropDecision.needsClarification
+                ? 'ambiguous-intent'
+                : 'heuristic-narrative-detection',
+            probableKind: decision.mindDropDecision.probableKind,
+            needsClarification: decision.mindDropDecision.needsClarification,
+          });
+        }
+
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
-        if (classifyNarrative(cleanedText)) {
+        // SKIP this guard if canonical intent says this is a clear log
+        if (classifyNarrative(cleanedText) && !shouldSkipChips) {
           // Check if we already have an unsorted note for this drop_id
           const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 

@@ -5,6 +5,8 @@
  * - Reflection safety rule
  * - Auto-create thresholds
  * - Fallback to 'log'
+ *
+ * Note: aiConfidence uses 0-1 scale (normalized)
  */
 
 import { resolveCanonicalIntent } from '../lib/cortex/intents/canonicalIntent';
@@ -16,7 +18,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'none',
         ruleConfidence: 0,
         aiCategory: 'ignore',
-        aiConfidence: 30,
+        aiConfidence: 0.3, // 0-1 scale
         text: 'Just thinking about maybe starting a side hustle someday',
       });
 
@@ -30,7 +32,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'none',
         ruleConfidence: 0,
         aiCategory: null,
-        aiConfidence: 25,
+        aiConfidence: 0.25, // 0-1 scale
         text: 'Wondering if I should change careers',
       });
 
@@ -43,7 +45,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'none',
         ruleConfidence: 0,
         aiCategory: 'ignore',
-        aiConfidence: 80,
+        aiConfidence: 0.8, // 0-1 scale
         text: 'thinking this app is broken',
       });
 
@@ -57,7 +59,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'todo',
         ruleConfidence: 0.9,
         aiCategory: 'todo',
-        aiConfidence: 95,
+        aiConfidence: 0.95, // 0-1 scale
         text: 'Remind me to buy olive oil',
       });
 
@@ -71,7 +73,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'todo',
         ruleConfidence: 0.7,
         aiCategory: 'todo',
-        aiConfidence: 60,
+        aiConfidence: 0.6, // 0-1 scale
         text: 'Maybe someday I should learn piano',
       });
 
@@ -88,7 +90,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'todo',
         ruleConfidence: 0.6,
         aiCategory: 'todo',
-        aiConfidence: 65,
+        aiConfidence: 0.65, // 0-1 scale
         text: 'Email Sarah about the project',
       });
 
@@ -104,7 +106,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'habit',
         ruleConfidence: 0.85,
         aiCategory: 'habit',
-        aiConfidence: 88,
+        aiConfidence: 0.88, // 0-1 scale
         text: 'Run 3 times a week',
       });
 
@@ -118,7 +120,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'habit',
         ruleConfidence: 0.9,
         aiCategory: 'log',
-        aiConfidence: 40,
+        aiConfidence: 0.4, // 0-1 scale
         text: 'Meditate every morning',
       });
 
@@ -133,7 +135,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'question',
         ruleConfidence: 0.95,
         aiCategory: 'meta',
-        aiConfidence: 85,
+        aiConfidence: 0.85, // 0-1 scale
         text: 'How does this app work?',
       });
 
@@ -146,7 +148,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'none',
         ruleConfidence: 0.8,
         aiCategory: 'ignore',
-        aiConfidence: 85,
+        aiConfidence: 0.85, // 0-1 scale
         text: 'Never mind, forget it',
       });
 
@@ -161,7 +163,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'ambiguous',
         ruleConfidence: 0.3,
         aiCategory: 'log',
-        aiConfidence: 35,
+        aiConfidence: 0.35, // 0-1 scale
         text: 'Had a great conversation with Alex',
       });
 
@@ -175,7 +177,7 @@ describe('Canonical Intent Resolver', () => {
         ruleKind: 'note',
         ruleConfidence: 0.5,
         aiCategory: 'unknown' as any,
-        aiConfidence: 50,
+        aiConfidence: 0.5, // 0-1 scale
         text: 'Some random text',
       });
 

@@ -27,11 +27,11 @@ export interface IntentInputs {
   ruleKind: IntentKind;
   ruleConfidence: number;
   aiCategory?: string | null;
-  aiConfidence?: number | null;
+  aiConfidence?: number | null; // 0-1 scale (normalized)
   text: string;
 }
 
-// Thresholds
+// Thresholds (0-1 scale)
 const AUTO_TASK_FLOOR = 0.85;
 const AUTO_HABIT_FLOOR = 0.8;
 const MIN_AI_FLOOR = 0.4;
@@ -143,7 +143,7 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
   // Prevents "Just thinking about X" from being ignored
   if (
     (normalizedAI === 'ignore' || normalizedAI === null || normalizedRule === 'ignore') &&
-    aiConf < 0.7 &&
+    aiConf < 0.7 && // 0-1 scale (0.7 = 70% confidence)
     hasReflectionKeywords(text)
   ) {
     return {

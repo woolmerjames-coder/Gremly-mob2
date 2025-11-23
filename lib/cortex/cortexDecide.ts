@@ -24,6 +24,7 @@ import {
 import { env } from '../env';
 import { detectIntent } from './intents/detectIntent';
 import { classifyIntentWithAI, isAIClassificationAvailable } from './intents/classifyIntentWithAI';
+import { resolveCanonicalIntent } from './intents/canonicalIntent';
 import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
@@ -58,7 +59,7 @@ export type MindDropDecision = {
   logSubtype?: LogSubtype | null;
   /** Raw tags from AI classification */
   tags?: string[];
-  /** Phase 11.8: AI confidence score 0-100 (optional) */
+  /** Phase 11.8: AI confidence score 0-1 (normalized scale) */
   aiConfidence?: number;
 };
 
@@ -539,6 +540,26 @@ export async function cortexDecide(
     const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
 
+    // Phase 11.9: Resolve canonical intent to determine auto-create vs chips
+    // Use canonical resolver to decide if we should auto-create or show chips
+    const canonicalIntent = resolveCanonicalIntent({
+      ruleKind: detected.kind,
+      ruleConfidence: detectorConfidence,
+      aiCategory: normalized.canonicalType || probable,
+      aiConfidence: (detected.aiConfidence ?? 0) / 100, // Normalize to 0-1 scale
+      text: userText,
+    });
+
+    if (__DEV__) {
+      console.log('[CanonicalIntent]', {
+        type: canonicalIntent.type,
+        confidence: canonicalIntent.confidence.toFixed(2),
+        allowAutoCreate: canonicalIntent.allowAutoCreate,
+        suppressChips: canonicalIntent.suppressChips,
+        reasoning: canonicalIntent.reasoning,
+      });
+    }
+
     // For strong lists, override candidate actions to create.note with list subtype
     let effectiveCandidateActions = candidateActions;
     if (listStrong) {
@@ -554,11 +575,20 @@ export async function cortexDecide(
       ];
     }
 
+    // Phase 11.9: Canonical intent can force auto-create even for lower confidence
+    // When canonicalIntent.allowAutoCreate is true, auto-create without chips
+    const canonicalForceAuto =
+      canonicalIntent.allowAutoCreate &&
+      !canonicalIntent.suppressChips &&
+      (canonicalIntent.type === 'todo' ||
+        canonicalIntent.type === 'habit' ||
+        canonicalIntent.type === 'log');
+
     const shouldAuto =
       !forceListAsk &&
       !forceIdeaAsk &&
       effectiveCandidateActions.length > 0 &&
-      (confidence > autoThreshold || preferHabitAuto || listStrong); // Auto for strong lists
+      (confidence > autoThreshold || preferHabitAuto || listStrong || canonicalForceAuto); // Auto for strong lists and canonical auto-create
 
     let mode: DecisionMode = 'keep';
 
@@ -572,6 +602,20 @@ export async function cortexDecide(
 
     if (forceListAsk || forceIdeaAsk) {
       mode = 'ask';
+    }
+
+    // Phase 11.9: Override 'ask' mode for clear logs (reflection safety)
+    // When canonical says it's a clear log, don't show chips
+    if (
+      mode === 'ask' &&
+      canonicalIntent.type === 'log' &&
+      canonicalIntent.confidence >= 0.6 &&
+      !canonicalIntent.suppressChips
+    ) {
+      mode = 'auto';
+      if (__DEV__) {
+        console.log('[CanonicalIntent] Overriding ask→auto for confident log');
+      }
     }
 
     const listActionLowRisk =
@@ -704,14 +748,14 @@ export async function cortexDecide(
       : undefined;
 
     // Build unified Mind Drop decision for new pipeline
-    // Phase 11.8: Pass through AI confidence from intent detection
+    // Phase 11.8: Pass through AI confidence from intent detection (normalized to 0-1 scale)
     const mindDropDecision = buildMindDropDecision(
       probable,
       confidence,
       mode,
       effectiveCanonicalSubtype,
       engineTags,
-      detected.aiConfidence, // Phase 11.8: AI confidence 0-100
+      detected.aiConfidence, // Phase 11.8: AI confidence 0-1 scale
     );
 
     const result: CortexResponse = {

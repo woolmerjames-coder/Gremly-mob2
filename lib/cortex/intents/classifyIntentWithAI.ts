@@ -206,11 +206,9 @@ export async function classifyIntentWithAI(
       ruleKind: fallback.kind,
       ruleConfidence: fallback.confidence,
       aiCategory: rawType,
-      aiConfidence: aiConfidence ?? 0,
+      aiConfidence: (aiConfidence ?? 0) / 100, // Normalize to 0-1 scale
       text,
-    });
-
-    // Map canonical type back to IntentKind
+    }); // Map canonical type back to IntentKind
     const finalKind = CANONICAL_TO_INTENT_KIND[canonical.type];
 
     // Build result with canonical classification
