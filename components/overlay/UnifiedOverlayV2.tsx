@@ -1495,6 +1495,84 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     loadLogPhotos();
   }, [mode, initialEntity, baseType, repo]);
 
+  // Phase 6 Task 4: Fallback prefill retry on overlay open
+  // When user manually opens overlay for a Mind Drop with ai_failed=true and minddrop_stage='classified',
+  // retry backgroundPrefill once (guarded by minddrop_retry_attempted flag)
+  useEffect(() => {
+    const attemptFallbackPrefill = async () => {
+      if (mode !== 'edit' || !initialEntity) return;
+
+      const entity = initialEntity as any;
+      const views = entity?.views ?? {};
+
+      // Only retry if:
+      // 1. AI failed on Stage B
+      // 2. Entity is still in 'classified' stage (never got prefilled)
+      // 3. Haven't attempted retry before
+      const shouldRetry =
+        views.ai_failed === true &&
+        views.minddrop_stage === 'classified' &&
+        views.minddrop_retry_attempted !== true;
+
+      if (!shouldRetry) return;
+
+      console.debug('[MindDrop.FallbackRetry]', {
+        entityId: entity.id,
+        entityType: entity.type,
+        stage: views.minddrop_stage,
+        retrying: true,
+      });
+
+      try {
+        // Import backgroundPrefill dynamically to avoid circular deps
+        const { backgroundPrefill } = await import('../../lib/minddrop/backgroundPrefill');
+
+        // Get raw text for prefill
+        const rawText =
+          entity.body?.trim() ||
+          entity.title?.trim() ||
+          entity.name?.trim() ||
+          '';
+
+        // Retry prefill
+        await backgroundPrefill(entity, rawText);
+
+        // Mark retry as attempted (even if prefill fails again, don't retry infinitely)
+        await repo.update({
+          id: entity.id,
+          patch: {
+            views: {
+              ...views,
+              minddrop_retry_attempted: true,
+            },
+          },
+        });
+
+        console.log('[MindDrop.FallbackRetry] Retry completed', { entityId: entity.id });
+      } catch (err) {
+        console.error('[MindDrop.FallbackRetry] Retry failed', err);
+
+        // Still mark as attempted to prevent infinite retries
+        try {
+          await repo.update({
+            id: entity.id,
+            patch: {
+              views: {
+                ...views,
+                minddrop_retry_attempted: true,
+                ai_failed: true, // Keep failure state
+              },
+            },
+          });
+        } catch (updateErr) {
+          console.error('[MindDrop.FallbackRetry] Failed to mark retry attempt', updateErr);
+        }
+      }
+    };
+
+    attemptFallbackPrefill();
+  }, [mode, initialEntity, repo]);
+
   // Clear photos when switching away from log type (Phase L5)
   useEffect(() => {
     if (baseType !== 'log') {

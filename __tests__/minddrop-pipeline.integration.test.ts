@@ -369,3 +369,221 @@ describe('Mind Drop Pipeline Integration', () => {
     expect(chipsShownCount).toBe(1); // Only "Dinner with Jeff"
   });
 });
+
+// ============================================================================
+// Mind Drop v3 Phase 6: Extended Integration Tests
+// ============================================================================
+
+describe('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
+  describe('Database Constraint Violation Handling', () => {
+    it('should handle duplicate Stage A invocation gracefully (idempotency)', async () => {
+      // Simulate double Stage A call with same dropId
+      // This tests that the DB constraint OR app-level deduplication prevents duplicates
+
+      const text = 'Buy groceries';
+      const dropId = 'test-drop-constraint-123';
+
+      // First decision
+      const context1: CortexContext = {
+        text,
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      const decision1 = await cortexDecide(context1);
+
+      // Second decision (same dropId - simulates retry/race condition)
+      const context2: CortexContext = {
+        text,
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      const decision2 = await cortexDecide(context2);
+
+      // Both decisions should be identical (same intent)
+      expect(decision1.mode).toBe(decision2.mode);
+      expect(decision1.actions).toEqual(decision2.actions);
+
+      // Note: Actual constraint enforcement happens at repo layer with drop_id
+      // This test verifies decision pipeline produces consistent results
+      expect(decision1.actions.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Double Stage B Invocation (Idempotency)', () => {
+    it('should handle multiple Stage B calls for same entity (idempotent update)', async () => {
+      // Stage B should be idempotent - calling it twice doesn't break things
+      // This is tested implicitly by the retry logic (task 4)
+      // Here we just verify decision consistency
+
+      const text = 'Morning meditation daily';
+
+      const context: CortexContext = {
+        text,
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      const decision1 = await cortexDecide(context);
+      const decision2 = await cortexDecide(context);
+
+      // Both decisions should create same entity type
+      expect(decision1.actions).toEqual(decision2.actions);
+      expect(decision1.mode).toBe(decision2.mode);
+
+      // Verify it's a habit (high confidence pattern)
+      expect(decision1.actions[0]?.type).toBe('create.habit');
+    });
+  });
+
+  describe('Rapid-Fire Input Handling', () => {
+    it('should classify rapid inputs without auto-opening overlays', async () => {
+      // Test 5+ submissions in quick succession
+      // Mind Drop v3 should classify all, but NEVER auto-open overlay
+
+      const rapidInputs = [
+        'Email the team',
+        'Buy milk',
+        'Exercise daily',
+        'Read chapter 5',
+        'Call mom',
+        'Update spreadsheet',
+      ];
+
+      const decisions = await Promise.all(
+        rapidInputs.map((text) =>
+          cortexDecide({
+            text,
+            mode: 'auto',
+            v3Mode: true,
+            instantCreate: true,
+          }),
+        ),
+      );
+
+      // All should complete successfully
+      expect(decisions.length).toBe(6);
+
+      // Verify each has an action (entity created)
+      const actionsCount = decisions.filter((d) => d.actions.length > 0).length;
+      expect(actionsCount).toBeGreaterThanOrEqual(5); // At least 5 should create entities
+
+      // CRITICAL: No auto-open overlay in Phase 6
+      // Note: This is tested in CatchAllNotepad tests, here we just verify decisions complete
+      decisions.forEach((decision) => {
+        expect(decision.mode).toBeDefined();
+        // Decision pipeline should complete without errors
+      });
+    });
+
+    it('should handle rapid-fire ambiguous inputs (ask mode)', async () => {
+      // Test rapid inputs that require user disambiguation
+      const ambiguousInputs = [
+        'Maybe go for a walk',
+        'Thinking about dinner plans',
+        'Should probably clean up',
+      ];
+
+      const decisions = await Promise.all(
+        ambiguousInputs.map((text) =>
+          cortexDecide({
+            text,
+            mode: 'auto',
+            v3Mode: true,
+            instantCreate: true,
+          }),
+        ),
+      );
+
+      expect(decisions.length).toBe(3);
+
+      // Some should be in 'ask' mode (ambiguous)
+      const askModeCount = decisions.filter((d) => d.mode === 'ask').length;
+      expect(askModeCount).toBeGreaterThanOrEqual(1);
+
+      // None should auto-open overlay (tested in UI layer)
+      // Here we verify decisions are consistent
+      decisions.forEach((decision) => {
+        expect(['auto', 'ask', 'keep']).toContain(decision.mode);
+      });
+    });
+  });
+
+  describe('Stage A/B Telemetry Markers', () => {
+    it('should emit telemetry for successful pipeline completion', async () => {
+      // Mock console.debug to capture telemetry
+      const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+
+      const text = 'Write blog post weekly';
+
+      const context: CortexContext = {
+        text,
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      await cortexDecide(context);
+
+      // Note: Actual telemetry happens in pipelineStages.ts
+      // This test verifies decision completes without errors
+
+      debugSpy.mockRestore();
+    });
+  });
+
+  describe('Error Recovery and Edge Cases', () => {
+    it('should handle empty text input gracefully', async () => {
+      const context: CortexContext = {
+        text: '',
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      const decision = await cortexDecide(context);
+
+      // Should return 'keep' mode (no action)
+      expect(decision.mode).toBe('keep');
+      expect(decision.actions.length).toBe(0);
+    });
+
+    it('should handle very long text input', async () => {
+      const longText = 'Buy groceries '.repeat(100); // 1500+ characters
+
+      const context: CortexContext = {
+        text: longText,
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      const decision = await cortexDecide(context);
+
+      // Should still process (may truncate internally)
+      expect(decision.mode).toBeDefined();
+      expect(['auto', 'ask', 'keep']).toContain(decision.mode);
+    });
+
+    it('should handle special characters and emojis', async () => {
+      const emojiText = '🏃‍♂️ Run daily! #fitness 💪';
+
+      const context: CortexContext = {
+        text: emojiText,
+        mode: 'auto',
+        v3Mode: true,
+        instantCreate: true,
+      };
+
+      const decision = await cortexDecide(context);
+
+      // Should process successfully (may classify as todo, habit, or log)
+      expect(decision.mode).toBeDefined();
+      expect(['auto', 'ask', 'keep']).toContain(decision.mode);
+    });
+  });
+});

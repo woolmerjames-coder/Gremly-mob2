@@ -150,7 +150,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should render title skeleton when ai_pending is true', async () => {
       const pendingNote = makePendingNote('pending-1', 'Buy groceries and organize kitchen');
 
-      mockNotesList.mockResolvedValue([pendingNote]);
+      mockNotesList.mockResolvedValue([pendingNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -167,7 +167,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should render tag skeletons when ai_pending is true', async () => {
       const pendingNote = makePendingNote('pending-2', 'Call dentist tomorrow at 2pm');
 
-      mockNotesList.mockResolvedValue([pendingNote]);
+      mockNotesList.mockResolvedValue([pendingNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -186,7 +186,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should not render the actual title text when pending', async () => {
       const pendingNote = makePendingNote('pending-3', 'This is the raw user text');
 
-      mockNotesList.mockResolvedValue([pendingNote]);
+      mockNotesList.mockResolvedValue([pendingNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -203,7 +203,7 @@ describe('Mind Drop Card Visual States', () => {
       const pending1 = makePendingNote('pending-4', 'First pending note');
       const pending2 = makePendingNote('pending-5', 'Second pending note');
 
-      mockNotesList.mockResolvedValue([pending1, pending2]);
+      mockNotesList.mockResolvedValue([pending1, pending2] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -222,7 +222,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should render real title and tags when ai_pending is false with enrichment', async () => {
       const completeNote = makeCompleteNote('complete-1', 'Buy Groceries', ['shopping', 'food']);
 
-      mockNotesList.mockResolvedValue([completeNote]);
+      mockNotesList.mockResolvedValue([completeNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -244,7 +244,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should render compact title without tags when tags are empty', async () => {
       const completeNote = makeCompleteNote('complete-2', 'Doctor Appointment', []);
 
-      mockNotesList.mockResolvedValue([completeNote]);
+      mockNotesList.mockResolvedValue([completeNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -262,7 +262,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should render todos with due dates in complete state', async () => {
       const todo = makeTodo('todo-1', 'Finish report', ['work'], null); // No due date for now
 
-      mockTodosList.mockResolvedValue([todo]);
+      mockTodosList.mockResolvedValue([todo] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -283,7 +283,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should not show skeletons or failed hints for enriched content', async () => {
       const completeNote = makeCompleteNote('complete-3', 'Meeting Notes', ['work', 'meeting']);
 
-      mockNotesList.mockResolvedValue([completeNote]);
+      mockNotesList.mockResolvedValue([completeNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -304,7 +304,7 @@ describe('Mind Drop Card Visual States', () => {
       // Use explicit ai_failed flag - title length doesn't matter when explicitly failed
       const failedNote = makeFailedNote('failed-1', 'Raw note text', true);
 
-      mockNotesList.mockResolvedValue([failedNote]);
+      mockNotesList.mockResolvedValue([failedNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -340,7 +340,7 @@ describe('Mind Drop Card Visual States', () => {
       // Use explicit ai_failed to avoid deriveCompactTitle interference
       const failedNote = makeFailedNote('failed-2', 'Uncategorized thought', true);
 
-      mockNotesList.mockResolvedValue([failedNote]);
+      mockNotesList.mockResolvedValue([failedNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -369,7 +369,7 @@ describe('Mind Drop Card Visual States', () => {
       // Short title with explicit failure
       const failedNote = makeFailedNote('failed-3', 'Raw', true);
 
-      mockNotesList.mockResolvedValue([failedNote]);
+      mockNotesList.mockResolvedValue([failedNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -396,7 +396,7 @@ describe('Mind Drop Card Visual States', () => {
     it('should still show edit and delete actions in failed state', async () => {
       const failedNote = makeFailedNote('failed-4', 'Note', true);
 
-      mockNotesList.mockResolvedValue([failedNote]);
+      mockNotesList.mockResolvedValue([failedNote] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -430,7 +430,7 @@ describe('Mind Drop Card Visual States', () => {
       const failed1 = makeFailedNote('failed-5', 'Note 1', true);
       const failed2 = makeFailedNote('failed-6', 'Note 2', true);
 
-      mockNotesList.mockResolvedValue([failed1, failed2]);
+      mockNotesList.mockResolvedValue([failed1, failed2] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -465,7 +465,7 @@ describe('Mind Drop Card Visual States', () => {
       const complete = makeCompleteNote('mixed-2', 'Complete item', ['tag1']);
       const failed = makeFailedNote('mixed-3', 'Failed item', true);
 
-      mockNotesList.mockResolvedValue([pending, complete, failed]);
+      mockNotesList.mockResolvedValue([pending, complete, failed] as any);
 
       render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -491,7 +491,7 @@ describe('Mind Drop Card Visual States', () => {
       // The actual animation transition would require more complex testing
       const initialPending = makePendingNote('transition-1', 'Processing...');
       
-      mockNotesList.mockResolvedValue([initialPending]);
+      mockNotesList.mockResolvedValue([initialPending] as any);
 
       const { rerender } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -504,7 +504,7 @@ describe('Mind Drop Card Visual States', () => {
 
       // Simulate state update (in real app, this comes from Supabase)
       const completeState = makeCompleteNote('transition-1', 'Processed', ['completed']);
-      mockNotesList.mockResolvedValue([completeState]);
+      mockNotesList.mockResolvedValue([completeState] as any);
 
       // Force re-render with new data
       rerender(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
@@ -523,7 +523,7 @@ describe('Mind Drop Card Visual States', () => {
       // Start with pending state (ai_pending: true)
       const pendingNote = makePendingNote('ai-flip-1', 'Raw user input text here');
 
-      mockNotesList.mockResolvedValue([pendingNote]);
+      mockNotesList.mockResolvedValue([pendingNote] as any);
 
       const { rerender } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -563,7 +563,7 @@ describe('Mind Drop Card Visual States', () => {
         tags: ['productivity', 'ideas'], // AI-generated tags
       } as any;
 
-      mockNotesList.mockResolvedValue([enrichedNote]);
+      mockNotesList.mockResolvedValue([enrichedNote] as any);
 
       // Trigger re-render (in real app, this happens via Supabase real-time subscription)
       rerender(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);

@@ -90,6 +90,13 @@ export async function runMindDropStageAClassification(
     unsortedNoteId,
   } = params;
 
+  // Telemetry: Stage A start
+  console.debug('[MindDrop.StageA.Start]', {
+    dropId,
+    mode: decision.mode,
+    actionCount: decision.actions?.length ?? 0,
+  });
+
   const createdIds = {
     todos: [] as string[],
     habits: [] as string[],
@@ -129,6 +136,11 @@ export async function runMindDropStageAClassification(
       if (dropId) {
         const existingTodo = await repo.findTodoByDropId(dropId);
         if (existingTodo) {
+          // Telemetry: Duplicate prevention triggered for todo
+          console.debug('[MindDrop.Idempotency.TodoExists]', {
+            id: existingTodo.id,
+            dropId,
+          });
           console.log('[StageA] Todo already exists for dropId, using existing', {
             id: existingTodo.id,
             dropId,
@@ -207,6 +219,11 @@ export async function runMindDropStageAClassification(
       if (dropId) {
         const existingHabit = await repo.findHabitByDropId(dropId);
         if (existingHabit) {
+          // Telemetry: Duplicate prevention triggered for habit
+          console.debug('[MindDrop.Idempotency.HabitExists]', {
+            id: existingHabit.id,
+            dropId,
+          });
           console.log('[StageA] Habit already exists for dropId, using existing', {
             id: existingHabit.id,
             dropId,
@@ -309,6 +326,11 @@ export async function runMindDropStageAClassification(
       }
     }
   } catch (err) {
+    // Telemetry: Stage A failed
+    console.debug('[MindDrop.StageA.Failed]', {
+      dropId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     console.error('[StageA] Classification failed', err);
     
     // Mark failure on unsorted note
@@ -336,6 +358,14 @@ export async function runMindDropStageAClassification(
     throw err;
   }
 
+  // Telemetry: Stage A complete
+  console.debug('[MindDrop.StageA.Complete]', {
+    dropId,
+    todosCreated: createdIds.todos.length,
+    habitsCreated: createdIds.habits.length,
+    notesCreated: createdIds.notes.length,
+  });
+
   return {
     entities: createdIds,
     entityDetails,
@@ -362,6 +392,13 @@ export async function runMindDropStageAClassification(
  */
 export async function runMindDropStageBPrefill(params: StageBParams): Promise<StageBResult> {
   const { repo, entityIds, rawText } = params;
+
+  // Telemetry: Stage B start
+  console.debug('[MindDrop.StageB.Start]', {
+    todoCount: entityIds.todos.length,
+    habitCount: entityIds.habits.length,
+    noteCount: entityIds.notes.length,
+  });
 
   let enrichedCount = 0;
   const failures: string[] = [];
@@ -470,6 +507,13 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
       }
     }
   }
+
+  // Telemetry: Stage B complete
+  console.debug('[MindDrop.StageB.Complete]', {
+    enrichedCount,
+    failureCount: failures.length,
+    failures: failures.length > 0 ? failures : undefined,
+  });
 
   return {
     enrichedCount,

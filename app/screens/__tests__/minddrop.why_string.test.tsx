@@ -23,10 +23,8 @@ describe('MindDrop - why_string Logic', () => {
     mockCreateNote = jest.fn().mockResolvedValue({ id: 'test-note-id' });
 
     mockRepo = {
-      notes: {
-        create: mockCreateNote,
-      } as any,
-    };
+      create: mockCreateNote,
+    } as any;
   });
 
   /**

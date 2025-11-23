@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { isToday, parseISO } from 'date-fns';
 import { Alert, Platform, ToastAndroid } from 'react-native';
-import type { AppRecord, Note, Todo, ID, Space, Tag, Person, EntityType } from '../types';
+import type { AppRecord, Note, Todo, Habit, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
   todoZ,

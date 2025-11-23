@@ -377,4 +377,116 @@ describe('RecentDrops in Mind Drop', () => {
       expect(after).toBeGreaterThan(before);
     });
   });
+
+  test('re-renders when real-time UPDATE clears ai_pending', async () => {
+    // Arrange: mock repo.todos.list to return a single pending todo
+    const now = new Date();
+    const pendingTodo = {
+      id: 'todo-1',
+      owner_id: 'user-1',
+      origin: 'catchall',
+      name: 'Email Sarah',
+      title: 'Email Sarah',
+      body: 'Email Sarah about the Q4 budget',
+      created_at: now.toISOString(),
+      due_date: null,
+      labels: ['todo'],
+      tags: [],
+      views: { ai_pending: true, minddrop_stage: 'pending' },
+      drop_id: 'drop-1',
+      archived: false,
+    };
+
+    mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([pendingTodo]);
+    mockHabitsList.mockResolvedValue([]);
+
+    const { rerender } = render(<CatchAllNotepad />);
+
+    // Wait for initial load
+    await waitFor(() => expect(mockTodosList).toHaveBeenCalled());
+
+    // Assert initial state shows the skeleton with calm pending message
+    await waitFor(() => {
+      const skeleton = screen.queryByText(/Organizing/);
+      expect(skeleton).toBeTruthy();
+    });
+
+    // The enriched title should not be visible yet
+    expect(screen.queryByText('Email Sarah about Q4 budget')).toBeNull();
+
+    // Act: simulate Stage B enrichment - update the todo with ai_pending=false
+    const enrichedTodo = {
+      ...pendingTodo,
+      title: 'Email Sarah about Q4 budget',
+      name: 'Email Sarah about Q4 budget',
+      views: { ai_pending: false, minddrop_stage: 'prefilled' },
+      tags: ['@sarah', '#budget'],
+    };
+
+    mockTodosList.mockResolvedValue([enrichedTodo]);
+
+    // Trigger a reload by bumping refreshSignal
+    rerender(<CatchAllNotepad />);
+
+    // Wait for React to flush state and reload to complete
+    await waitFor(
+      () => {
+        // Skeleton should be gone
+        expect(screen.queryByText('Organizing…')).toBeNull();
+      },
+      { timeout: 3000 },
+    );
+
+    // The enriched title should now be visible
+    await waitFor(
+      () => {
+        expect(screen.queryByText('Email Sarah about Q4 budget')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  test('todo with ai_pending=false and enriched title renders complete card', async () => {
+    const now = new Date();
+    const enrichedTodo = {
+      id: 'todo-enriched',
+      owner_id: 'user-1',
+      origin: 'catchall',
+      name: 'Email Sarah about Q4 budget',
+      title: 'Email Sarah about Q4 budget',
+      body: 'Email Sarah about the Q4 budget by Friday',
+      created_at: now.toISOString(),
+      due_date: null,
+      labels: ['todo'],
+      tags: ['@sarah', '#budget'],
+      views: { ai_pending: false, minddrop_stage: 'prefilled' },
+      drop_id: 'drop-enriched',
+      archived: false,
+    };
+
+    mockNotesList.mockResolvedValue([]);
+    mockTodosList.mockResolvedValue([enrichedTodo]);
+    mockHabitsList.mockResolvedValue([]);
+
+    render(<CatchAllNotepad />);
+
+    // Wait for initial load
+    await waitFor(() => expect(mockTodosList).toHaveBeenCalled());
+
+    await waitFor(
+      () => {
+        // Skeleton should NOT be present for an already enriched item
+        expect(screen.queryByText('Organizing…')).toBeNull();
+      },
+      { timeout: 3000 },
+    );
+
+    // The enriched title should be visible
+    expect(screen.getByText('Email Sarah about Q4 budget')).toBeTruthy();
+
+    // And tags should be rendered - check for the tag text content
+    const tagText = screen.getByText('@sarah  #budget');
+    expect(tagText).toBeTruthy();
+  });
 });

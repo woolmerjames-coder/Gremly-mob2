@@ -153,6 +153,7 @@ describe('Mind Drop v3 - Overlay Auto-Open Prevention', () => {
           {
             type: 'create.note',
             payload: {
+              text: 'Feeling grateful today',
               subtype: 'journal',
             },
           },
@@ -199,6 +200,7 @@ describe('Mind Drop v3 - Overlay Auto-Open Prevention', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Buy groceries tomorrow',
               due: '2025-11-24T12:00:00Z',
             },
           },
@@ -317,6 +319,7 @@ describe('Mind Drop v3 - Overlay Auto-Open Prevention', () => {
           {
             type: 'create.todo',
             payload: {
+              title: 'Call dentist tomorrow at 2pm',
               due: '2025-11-24T14:00:00Z',
             },
           },

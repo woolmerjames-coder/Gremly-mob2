@@ -121,12 +121,12 @@ const THINKING_MICROCOPY = [
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
 // Auto-grow constants: aligned for deterministic behavior
-const LINE_HEIGHT = 22; // Must match styles.input lineHeight
-const INPUT_VERTICAL_PADDING = 8; // paddingTop (4) + paddingBottom (4) from styles.input
-const MAX_LINES = 6;
-const START_HEIGHT = 100;
-const MIN_HEIGHT = 80;
-const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 22*6 + 8 + 8 = 148 (small safety buffer)
+const LINE_HEIGHT = 24; // Must match styles.input lineHeight (increased for better readability)
+const INPUT_VERTICAL_PADDING = 24; // paddingTop (12) + paddingBottom (12) from styles.input
+const MAX_LINES = 8;
+const START_HEIGHT = 140; // Show ~4-5 lines initially for a more spacious input area
+const MIN_HEIGHT = 120;
+const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
 
 export const INPUT_LINE_HEIGHT = LINE_HEIGHT;
 export { START_HEIGHT as START_HEIGHT, MIN_HEIGHT as MIN_HEIGHT, MAX_HEIGHT as MAX_HEIGHT };
@@ -726,6 +726,10 @@ type MindDropVisualState = 'pending' | 'failed' | 'complete';
  * Get visual state for a Mind Drop item based on views flags
  * Used only for Mind Drop / CatchAll notes to show processing status
  */
+/**
+ * Get visual state for a Mind Drop item based on views flags
+ * Used only for Mind Drop / CatchAll notes to show processing status
+ */
 function getMindDropVisualState(entity: {
   views?: any;
   title?: string;
@@ -765,6 +769,79 @@ function getMindDropVisualState(entity: {
 }
 
 /**
+ * Pending skeleton component with shimmer animation
+ * Shows while AI enrichment is in progress
+ */
+/**
+ * Calm pending animation for MindDrop v3
+ * Simple fade with animated dots - no scaling, no pulsing, no transforms
+ */
+const PendingSkeleton: React.FC<{
+  styles: any;
+  c: any;
+}> = ({ styles, c }) => {
+  const [dots, setDots] = React.useState('');
+
+  // Gentle fade opacity - 0.5 to 0.9, 3 seconds per cycle
+  const fadeOpacity = React.useRef(new Animated.Value(0.5)).current;
+
+  // Animated dots: add one every 500ms, reset after 3
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => {
+    // Gentle fade: opacity 0.5 -> 0.9 -> 0.5 over 3s (no pulsing, no scaling)
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeOpacity, {
+          toValue: 0.9,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeOpacity, {
+          toValue: 0.5,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+  }, [fadeOpacity]);
+
+  return (
+    <View
+      testID="minddrop-pending-skeleton"
+      style={[
+        styles.recentCard,
+        {
+          height: 60, // Fixed height to prevent jumping
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: 'transparent', // No pulsing background
+        },
+      ]}
+    >
+      <Animated.Text
+        style={{
+          fontSize: 16, // Soft, not aggressive
+          fontWeight: '500',
+          textAlign: 'center',
+          color: '#6B7280', // Soft gray, not bold/colored
+          opacity: fadeOpacity,
+        }}
+      >
+        Organizing{dots}
+      </Animated.Text>
+    </View>
+  );
+};
+
+/**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
  */
@@ -777,6 +854,7 @@ const AnimatedMindDropCard: React.FC<{
   badgeStyleKey: string;
   c: any;
   styles: any;
+  mode: string;
   handleEdit: (id: string, kind: UnifiedDrop['kind'], unsorted?: boolean) => void;
   handleDelete: (id: string, kind: UnifiedDrop['kind']) => void;
 }> = ({
@@ -788,59 +866,20 @@ const AnimatedMindDropCard: React.FC<{
   badgeStyleKey,
   c,
   styles,
+  mode,
   handleEdit,
   handleDelete,
 }) => {
-  // Track previous pending state to detect transitions
-  const prevPendingRef = useRef(isPending);
-  
-  // Get full visual state for failed detection
+  // Get full visual state
   const visualState = getMindDropVisualState(item);
-  const isFailed = visualState === 'failed';
   
-  // Animated values for cross-fade transition
-  const skeletonOpacity = useRef(new Animated.Value(isPending ? 1 : 0)).current;
-  const contentOpacity = useRef(new Animated.Value(isPending ? 0 : 1)).current;
-
-  useEffect(() => {
-    const wasPending = prevPendingRef.current;
-    const isNowPending = isPending;
-
-    // Only animate if state actually changed
-    if (wasPending !== isNowPending) {
-      if (isNowPending) {
-        // Transition to pending (rarely happens, but handle it)
-        Animated.parallel([
-          Animated.timing(skeletonOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(contentOpacity, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      } else {
-        // Transition from pending to final (main use case)
-        Animated.parallel([
-          Animated.timing(skeletonOpacity, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(contentOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      }
-    }
-
-    prevPendingRef.current = isNowPending;
-  }, [isPending, skeletonOpacity, contentOpacity]);
+  // If pending, show calm animation
+  if (visualState === 'pending') {
+    return <PendingSkeleton styles={styles} c={c} />;
+  }
+  
+  // Otherwise show full content
+  const isFailed = visualState === 'failed';
 
   return (
     <View
@@ -850,100 +889,31 @@ const AnimatedMindDropCard: React.FC<{
     >
       {/* Top row: Title (left) + Due/Time (right) */}
       <View style={styles.recentTopRow}>
-        {/* Skeleton layer - fades out when content loads */}
-        <Animated.View
-          testID="minddrop-skeleton-layer"
-          style={[
-            {
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: 0,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              opacity: skeletonOpacity,
-            },
-          ]}
-          pointerEvents={isPending ? 'auto' : 'none'}
-        >
-          <View style={styles.titleSkeletonContainer}>
-            <View testID="minddrop-title-skeleton" style={styles.titleSkeleton} />
-            <MascotIcon size={16} pose="think" animate={true} />
-          </View>
-          <View testID="minddrop-time-skeleton" style={styles.timeSkeleton} />
-        </Animated.View>
-
-        {/* Content layer - fades in when loading completes */}
-        <Animated.View
-          style={[
-            {
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              flex: 1,
-              opacity: contentOpacity,
-            },
-          ]}
-          pointerEvents={isPending ? 'none' : 'auto'}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-            <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
-              {item.title || item.text || '—'}
-            </Text>
-            {effectiveKind === 'note' && (item as any)?.private === true && (
-              <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
-            )}
-          </View>
-
-          {/* Right side: Due date OR time ago */}
-          {effectiveKind === 'todo' ? (
-            <Text
-              testID={`minddrop-recent-todo-due-${item.id}`}
-              style={styles.recentDueBadge}
-            >
-              {formatDue(item.due_date)}
-            </Text>
-          ) : (
-            <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+          <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
+            {item.title || item.text || '—'}
+          </Text>
+          {effectiveKind === 'note' && (item as any)?.private === true && (
+            <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
           )}
-        </Animated.View>
+        </View>
+
+        {/* Right side: Due date OR time ago */}
+        {effectiveKind === 'todo' ? (
+          <Text
+            testID={`minddrop-recent-todo-due-${item.id}`}
+            style={styles.recentDueBadge}
+          >
+            {formatDue(item.due_date)}
+          </Text>
+        ) : (
+          <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+        )}
       </View>
 
       {/* Second row: Category, tags, and actions */}
       <View style={styles.recentMetaRow}>
-        {/* Skeleton layer for tags */}
-        <Animated.View
-          testID="minddrop-tag-skeleton-layer"
-          style={[
-            {
-              position: 'absolute',
-              left: 0,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 4,
-              opacity: skeletonOpacity,
-            },
-          ]}
-          pointerEvents={isPending ? 'auto' : 'none'}
-        >
-          <View style={styles.tagSkeletonRow}>
-            <View testID="minddrop-tag-skeleton" style={styles.tagSkeleton} />
-            <View testID="minddrop-tag-skeleton" style={styles.tagSkeleton} />
-            <View testID="minddrop-tag-skeleton" style={[styles.tagSkeleton, { width: 40 }]} />
-          </View>
-        </Animated.View>
-
-        {/* Content layer for category + tags */}
-        <Animated.View
-          style={[
-            styles.recentMetaLeft,
-            {
-              opacity: contentOpacity,
-            },
-          ]}
-          pointerEvents={isPending ? 'none' : 'auto'}
-        >
+        <View style={styles.recentMetaLeft}>
           {/* Category pill */}
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
             {displayKind}
@@ -955,7 +925,7 @@ const AnimatedMindDropCard: React.FC<{
             </Text>
           ) : null}
 
-          {/* Tags - single line with truncation */}
+          {/* Tags or status hint */}
           {Array.isArray(item.tags) && item.tags.length > 0 ? (
             <Text
               numberOfLines={1}
@@ -969,9 +939,9 @@ const AnimatedMindDropCard: React.FC<{
           ) : isFailed ? (
             <Text testID="minddrop-failed-hint" style={styles.subtleHint}>Saved as-is</Text>
           ) : null}
-        </Animated.View>
+        </View>
 
-        {/* Right side: Actions (always visible, no animation) */}
+        {/* Right side: Actions */}
         <View style={styles.recentMetaRight}>
           <Pressable
             onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
@@ -1092,6 +1062,7 @@ const RecentDrops: React.FC<{
   onEdited?: () => void;
   onDeleted?: () => void;
   onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
+  onAddPendingItem?: (callback: (params: { dropId: string; text: string; kind: 'todo' | 'habit' | 'note'; noteSubtype?: string }) => void) => void;
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
@@ -1100,22 +1071,115 @@ const RecentDrops: React.FC<{
   onEdited,
   onDeleted,
   onTodayCountChange,
+  onAddPendingItem,
   refreshSignal,
   initiallyOpen = true,
   eagerLoad = false,
 }) => {
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
+  const { userId } = useAuth();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
 
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
+  const [pendingItems, setPendingItems] = React.useState<UnifiedDrop[]>([]); // Optimistic items shown before DB creation
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
   const canonicalTypesOn = env.feature.canonicalTypes;
 
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
+
+  /**
+   * Helper to merge a DB record into the local items state
+   * Used when real-time updates arrive from Supabase
+   */
+  const mergeDbRecordIntoItems = React.useCallback(
+    (prev: UnifiedDrop[], record: any, kind: 'todo' | 'habit' | 'note'): UnifiedDrop[] => {
+      if (!record?.id) return prev;
+
+      return prev.map((item) => {
+        if (item.id !== record.id || item.kind !== kind) return item;
+
+        const views = (record as any).views ?? item.views ?? {};
+        const title = (record as any).title ?? (record as any).name ?? item.title;
+        const tags = Array.isArray((record as any).tags)
+          ? (record as any).tags.filter((t: unknown) => typeof t === 'string')
+          : item.tags ?? [];
+
+        return {
+          ...item,
+          title,
+          tags,
+          views,
+          drop_id: (record as any).drop_id ?? item.drop_id ?? null,
+          labels: Array.isArray((record as any).labels)
+            ? (record as any).labels
+            : item.labels ?? [],
+        };
+      });
+    },
+    [],
+  );
+
+  /**
+   * Add an optimistic pending item to the Recent Drops list
+   * This item appears immediately when user submits, before DB creation
+   */
+  const addPendingItem = React.useCallback(
+    (params: {
+      dropId: string;
+      text: string;
+      kind: 'todo' | 'habit' | 'note';
+      noteSubtype?: string;
+    }) => {
+      const { dropId, text, kind, noteSubtype } = params;
+      const tempId = `local-${dropId}`;
+      const shortTitle = text.substring(0, 60) + (text.length > 60 ? '…' : '');
+
+      const pendingItem: UnifiedDrop = {
+        id: tempId,
+        kind,
+        title: shortTitle,
+        text,
+        created_at: new Date().toISOString(),
+        drop_id: dropId,
+        noteSubtype: kind === 'note' ? noteSubtype : null,
+        tags: [],
+        labels: [],
+        views: {
+          ai_pending: true,
+          minddrop_stage: 'pending',
+        },
+      };
+
+      setPendingItems((prev) => [pendingItem, ...prev]);
+      console.debug('[MindDrop.Optimistic] Added pending item', { dropId, kind, tempId });
+    },
+    [],
+  );
+
+  // Expose addPendingItem to parent component
+  React.useEffect(() => {
+    if (onAddPendingItem) {
+      onAddPendingItem(addPendingItem);
+    }
+  }, [onAddPendingItem, addPendingItem]);
+
+  /**
+   * Remove pending item(s) by drop_id when real entity appears
+   * Called after Stage A creates the real entity in the database
+   */
+  const removePendingItem = React.useCallback((dropId: string) => {
+    setPendingItems((prev) => {
+      const filtered = prev.filter((item) => item.drop_id !== dropId);
+      if (filtered.length < prev.length) {
+        console.debug('[MindDrop.Optimistic] Removed pending item', { dropId });
+      }
+      return filtered;
+    });
+  }, []);
 
   /**
    * Load recent Mind Drops for the Catch-All / Recent Mind Drops list
@@ -1195,23 +1259,7 @@ const RecentDrops: React.FC<{
             // Exclude archived notes (converted unsorted notes)
             if (n?.archived === true) return false;
 
-            // Mind Drop v3: Catch-All shows only pending/in-flight items
-            // This makes Catch-All feel like "recent & in-flight drops" rather than
-            // a permanent home for fully-processed items that now live in Today/Habits/Logs
-            if (MIND_DROP_V3_INSTANT) {
-              const views = (n as any)?.views ?? {};
-              
-              // Include if AI processing is still pending
-              if (views.ai_pending === true) return true;
-              
-              // Include if not yet fully prefilled
-              if (views.minddrop_stage !== 'prefilled') return true;
-              
-              // Exclude fully processed items (they show up in canonical views)
-              return false;
-            }
-
-            // Mind Drop v2: Show all non-archived catchall items
+            // Show all Mind Drop items until explicitly archived
             return true;
           },
         )
@@ -1252,14 +1300,7 @@ const RecentDrops: React.FC<{
             // Exclude soft-deleted todos (completed_at is set)
             if ((t as any)?.completed_at) return false;
             
-            // Mind Drop v3: Exclude canonical todos - they appear in Today/Habits views
-            // Catch-All shows only raw/in-flight Mind Drop notes, not their converted entities
-            if (MIND_DROP_V3_INSTANT) {
-              // If this is a canonical todo (converted from Mind Drop note), exclude it
-              // It will appear in Today if it has a due_date
-              if ((t as any)?.canonicalType === 'todo') return false;
-            }
-            
+            // Show all Mind Drop todos until explicitly completed
             return true;
           },
         )
@@ -1292,14 +1333,7 @@ const RecentDrops: React.FC<{
             // Exclude soft-deleted habits (completed_at is set)
             if ((h as any)?.completed_at) return false;
             
-            // Mind Drop v3: Exclude canonical habits - they appear in Today/Habits views
-            // Catch-All shows only raw/in-flight Mind Drop notes, not their converted entities
-            if (MIND_DROP_V3_INSTANT) {
-              // If this is a canonical habit (converted from Mind Drop note), exclude it
-              // It will appear in Habits view
-              if ((h as any)?.canonicalType === 'habit') return false;
-            }
-            
+            // Show all Mind Drop habits until explicitly completed
             return true;
           },
         )
@@ -1364,6 +1398,18 @@ const RecentDrops: React.FC<{
       // Combine deduplicated items with no-drop-id items
       unified = [...Array.from(dropIdMap.values()), ...noDropIdItems];
 
+      console.debug('[MindDrop.UI] Unified items after dedup', {
+        count: unified.length,
+        items: unified.map(i => ({
+          id: i.id,
+          kind: i.kind,
+          title: i.title?.substring(0, 30),
+          drop_id: i.drop_id,
+          due_date: (i as any).due_date,
+          space_id: (i as any).space_id,
+        })),
+      });
+
       // Calculate today count before any filtering
       const todayItems = unified.filter((i) => {
         const ts = new Date(i.created_at).getTime();
@@ -1379,6 +1425,41 @@ const RecentDrops: React.FC<{
         .slice(0, 25); // keep snappy; scroll handles overflow
 
       setItems(unified);
+
+      // Log loaded items with their visual states for debugging
+      const visualStates = unified.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        drop_id: item.drop_id,
+        visualState: getMindDropVisualState(item),
+      }));
+      console.debug('[RecentDrops] Loaded items:', {
+        total: unified.length,
+        pending: visualStates.filter((s) => s.visualState === 'pending').length,
+        complete: visualStates.filter((s) => s.visualState === 'complete').length,
+        failed: visualStates.filter((s) => s.visualState === 'failed').length,
+      });
+
+      // Remove pending items that now have real counterparts (auto-cleanup)
+      {
+        const realDropIds = new Set(unified.map((item) => item.drop_id).filter(Boolean));
+        setPendingItems((prev) => {
+          if (prev.length === 0) return prev;
+          const filtered = prev.filter((p) => !realDropIds.has(p.drop_id));
+          console.debug('[RecentDrops] Auto-cleanup pendingItems', {
+            before: prev.length,
+            after: filtered.length,
+          });
+          if (filtered.length < prev.length) {
+            console.debug('[RecentDrops] Auto-cleanup removed pending items:', {
+              before: prev.length,
+              after: filtered.length,
+              removed: prev.length - filtered.length,
+            });
+          }
+          return filtered;
+        });
+      }
 
       // Notify parent of today count (for "X thoughts organized today" counter)
       // This ensures the counter always matches the actual number of items in Today section
@@ -1417,6 +1498,123 @@ const RecentDrops: React.FC<{
     });
     return unsub;
   }, [load]);
+
+  // Real-time subscription for Mind Drop items (Stage A/B enrichment)
+  useEffect(() => {
+    if (!userId) return;
+
+    console.debug('[RecentDrops] Setting up real-time subscriptions for userId:', userId);
+
+    // Subscribe to todos, habits, and notes for Mind Drop origin items
+    const todosChannel = supabase
+      .channel('minddrop-todos')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'todos',
+          filter: `owner_id=eq.${userId}`,
+        },
+        (payload) => {
+          const record = payload.new as any;
+          if (!record || record.origin !== 'catchall') return;
+
+          console.debug('[RecentDrops] Todos DB update:', {
+            event: payload.eventType,
+            id: record.id,
+            drop_id: record.drop_id,
+            views: record.views ?? null,
+          });
+
+          if (record.drop_id) {
+            removePendingItem(record.drop_id);
+          }
+
+          // Local merge so we don't rely solely on a refetch
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
+
+          // Safety: still perform a full reload to keep everything in sync
+          void load();
+        },
+      )
+      .subscribe();
+
+    const habitsChannel = supabase
+      .channel('minddrop-habits')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'habits',
+          filter: `owner_id=eq.${userId}`,
+        },
+        (payload) => {
+          const record = payload.new as any;
+          if (!record || record.origin !== 'catchall') return;
+
+          console.debug('[RecentDrops] Habits DB update:', {
+            event: payload.eventType,
+            id: record.id,
+            drop_id: record.drop_id,
+            views: record.views ?? null,
+          });
+
+          if (record.drop_id) {
+            removePendingItem(record.drop_id);
+          }
+
+          // Local merge so we don't rely solely on a refetch
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
+
+          // Safety: still perform a full reload to keep everything in sync
+          void load();
+        },
+      )
+      .subscribe();
+
+    const notesChannel = supabase
+      .channel('minddrop-notes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notes',
+          filter: `owner_id=eq.${userId}`,
+        },
+        (payload) => {
+          const record = payload.new as any;
+          if (!record || record.origin !== 'catchall') return;
+
+          console.debug('[RecentDrops] Notes DB update:', {
+            event: payload.eventType,
+            id: record.id,
+            drop_id: record.drop_id,
+            views: record.views ?? null,
+          });
+
+          if (record.drop_id) {
+            removePendingItem(record.drop_id);
+          }
+
+          // Local merge so we don't rely solely on a refetch
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
+
+          // Safety: still perform a full reload to keep everything in sync
+          void load();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      console.debug('[RecentDrops] Cleaning up real-time subscriptions');
+      void todosChannel.unsubscribe();
+      void habitsChannel.unsubscribe();
+      void notesChannel.unsubscribe();
+    };
+  }, [userId, load, removePendingItem, mergeDbRecordIntoItems]);
 
   const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
     try {
@@ -1516,7 +1714,7 @@ const RecentDrops: React.FC<{
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && pendingItems.length === 0 ? (
             <Text style={styles.recentEmpty}>
               {showOlder ? 'No drops yet.' : 'Ready when you are'}
             </Text>
@@ -1525,6 +1723,36 @@ const RecentDrops: React.FC<{
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
             >
+              {/* Pending items (optimistic UI) */}
+              {pendingItems.map((item) => {
+                const effectiveKind = item.kind;
+                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
+                const badgeStyleKey =
+                  effectiveKind === 'todo'
+                    ? 'badge_todo'
+                    : effectiveKind === 'habit'
+                      ? 'badge_habit'
+                      : 'badge_note';
+                const isPending = true; // Always pending for optimistic items
+
+                return (
+                  <AnimatedMindDropCard
+                    key={item.id}
+                    item={item}
+                    isPending={isPending}
+                    effectiveKind={effectiveKind}
+                    displayKind={displayKind}
+                    showLegacyUnsortedBadge={undefined}
+                    badgeStyleKey={badgeStyleKey}
+                    c={c}
+                    styles={styles}
+                    mode={themeMode}
+                    handleEdit={() => {}} // No-op for pending
+                    handleDelete={() => {}} // No-op for pending
+                  />
+                );
+              })}
+              {/* Real items from database */}
               {items.map((item) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
@@ -1552,6 +1780,7 @@ const RecentDrops: React.FC<{
                     badgeStyleKey={badgeStyleKey}
                     c={c}
                     styles={styles}
+                    mode={themeMode}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
                   />
@@ -1832,7 +2061,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
   const [inputDynHeight, setInputDynHeight] = useState(START_HEIGHT);
-  const [inputScrollEnabled, setInputScrollEnabled] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
@@ -1895,10 +2123,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Deterministic height calculation: clamp between START and MAX
       const target = Math.max(START_HEIGHT, Math.min(raw, MAX_HEIGHT));
 
-      // Enable scrolling only when content exceeds MAX_HEIGHT
-      const shouldScroll = raw > MAX_HEIGHT;
-      setInputScrollEnabled(shouldScroll);
-
       // Only update if change is significant (avoid jitter from sub-pixel changes)
       if (Math.abs(target - lastAppliedHeightRef.current) < 2) {
         return;
@@ -1913,12 +2137,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           raw,
           target,
           last: lastAppliedHeightRef.current,
-          shouldScroll,
           max: MAX_HEIGHT,
         });
       }
     },
-    [setInputDynHeight, setInputScrollEnabled],
+    [setInputDynHeight],
   );
 
   // Mind Drop P4: submit lifecycle & guardrails
@@ -1991,6 +2214,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
+
+  // Ref to hold the addPendingItem callback from RecentDrops component
+  const addPendingItemRef = useRef<((params: { dropId: string; text: string; kind: 'todo' | 'habit' | 'note'; noteSubtype?: string }) => void) | null>(null);
+
+  // Callback to receive addPendingItem from RecentDrops
+  const handleReceiveAddPendingItem = useCallback((callback: (params: { dropId: string; text: string; kind: 'todo' | 'habit' | 'note'; noteSubtype?: string }) => void) => {
+    addPendingItemRef.current = callback;
+  }, []);
 
   // Callback to sync "X thoughts organized today" counter with actual Today items count
   const handleTodayCountChange = useCallback(
@@ -2256,7 +2487,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsThinking(false);
     setConfirmations([]);
     setInputDynHeight(START_HEIGHT);
-    setInputScrollEnabled(false);
     hasTypedRef.current = false;
     lastAppliedHeightRef.current = START_HEIGHT;
   }, []);
@@ -2804,11 +3034,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               };
 
               // Step 2B: Prefill stage - run AI enhancement for all created entities
-              void runMindDropStageBPrefill({
+              runMindDropStageBPrefill({
                 repo,
                 entityIds: createdIds,
                 rawText: cleanedText,
-              });
+              })
+                .then(() => {
+                  // Ensure Recent Drops reflect enriched titles/tags once Stage B finishes
+                  // This is important even if Supabase Realtime is flaky.
+                  console.debug('[MindDrop.StageB.UI] Refreshing RecentDrops after StageB');
+                  triggerRecentRefresh();
+                })
+                .catch((error) => {
+                  // Non-fatal: the todo/note/habit still exists, just without enrichment
+                  console.warn('[MindDrop.StageB.UI] Prefill failed', error);
+                });
 
               // Show timing chips for auto-created todos
               if (
@@ -3733,7 +3973,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (nextValue.length === 0) {
         hasTypedRef.current = false;
         setInputDynHeight(START_HEIGHT);
-        setInputScrollEnabled(false);
         lastAppliedHeightRef.current = START_HEIGHT;
         return;
       }
@@ -3751,9 +3990,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (fallbackHeight > lastAppliedHeightRef.current) {
         lastAppliedHeightRef.current = fallbackHeight;
         setInputDynHeight(fallbackHeight);
-
-        const shouldScroll = lines * LINE_HEIGHT + INPUT_VERTICAL_PADDING > MAX_HEIGHT;
-        setInputScrollEnabled(shouldScroll);
 
         if (__DEV__) {
           // eslint-disable-next-line no-console
@@ -3933,6 +4169,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Mind Drop v3 UX: Overlay ONLY opens on deliberate user action (tap card/chip),
         // NOT automatically when AI finishes classification or prefill.
         // This prevents interrupting the user's flow.
+        
+        // OPTIMISTIC UI: Add pending item immediately for instant feedback
+        // Use simple heuristic to predict kind (will be replaced when real entity appears)
+        const lowerText = trimmed.toLowerCase();
+        const seemsLikeTodo =
+          /\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
+          /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText);
+        const seemsLikeHabit =
+          /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
+        const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
+
+        addPendingItemRef.current?.({
+          dropId,
+          text: trimmed,
+          kind: probableKind,
+          noteSubtype: probableKind === 'note' ? 'everything_else' : undefined,
+        });
+
         void runMindDropPipeline({
           trimmed,
           dropId,
@@ -4191,7 +4445,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               onFocusChange={handleInputFocusChange}
               autoFocus
               onContentSizeChange={handleInputContentSizeChange}
-              scrollEnabled={inputScrollEnabled}
+              scrollEnabled
               showHud={false}
               iconContainerStyle={styles.inputIconCluster}
               iconButtonStyle={styles.inputIconButton}
@@ -4324,19 +4578,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 </View>
               </Animated.View>
             </Pressable>
-            <View style={styles.submitMicrocopyContainer} pointerEvents="none">
-              {isProcessing ? (
-                <AnimatedMicrocopyText
-                  style={[
-                    styles.submitMicrocopy,
-                    reduceMotion ? null : { opacity: microcopyOpacity },
-                  ]}
-                  accessibilityLiveRegion="polite"
-                >
-                  {THINKING_MICROCOPY[microcopyIndex]}
-                </AnimatedMicrocopyText>
-              ) : null}
-            </View>
           </View>
           {statsVisible ? (
             <View style={styles.trustRow} testID="minddrop-trust">
@@ -4359,6 +4600,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onEdited={noopCallback}
             onDeleted={noopCallback}
             onTodayCountChange={handleTodayCountChange}
+            onAddPendingItem={handleReceiveAddPendingItem}
             initiallyOpen={true}
           />
         </View>
@@ -4390,7 +4632,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleTodayCountChange,
     overlay,
     inputDynHeight,
-    inputScrollEnabled,
     handleBack,
     handleInfoOpen,
   ]);
@@ -4562,11 +4803,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       borderRadius: 16,
       paddingHorizontal: INPUT_PADDING_LEFT,
-      paddingVertical: 16,
+      paddingVertical: 12,
       backgroundColor: c.linenCream ?? '#F9F6F1',
       borderWidth: 1,
       borderColor: '#E0E0E0',
-      minHeight: 100,
+      minHeight: 140,
     },
     inputContainerFocused: {
       borderRadius: 16,
@@ -4581,7 +4822,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       color: c.charcoalInk,
       fontSize: 18,
-      lineHeight: 22,
+      lineHeight: 24,
       paddingRight: INPUT_ICON_PADDING_RIGHT,
       backgroundColor: 'transparent',
       borderWidth: 0,
@@ -4589,8 +4830,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       padding: 0,
       margin: 0,
-      paddingTop: 4,
-      paddingBottom: 4,
+      paddingTop: 12,
+      paddingBottom: 12,
     },
     inputFocused: {},
     inputHeightWrapper: {
@@ -4736,7 +4977,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
     },
     submitButtonWrapperNoStats: {
-      marginBottom: space * 2,
+      marginBottom: space,
     },
     submitPressable: {
       width: '100%',
@@ -4799,7 +5040,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     trustRow: {
-      marginTop: space * 3,
+      marginTop: space * 2,
+      marginBottom: space * 2,
       alignItems: 'center',
       minHeight: 20,
     },
@@ -4814,8 +5056,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     sectionDivider: {
       height: 1,
       backgroundColor: 'rgba(191,216,192,0.25)',
-      marginTop: space * 3,
-      marginBottom: space,
+      marginTop: space,
+      marginBottom: 6,
       marginHorizontal: space * 2,
       borderRadius: 999,
       alignSelf: 'stretch',
@@ -4826,7 +5068,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     // Phase 5A: recentRoot now fills scrollableSection container
     recentRoot: {
-      marginTop: 0,
+      marginTop: 20,
       flex: 1, // Takes full height of scrollableSection
     },
     recentHeaderRow: {
@@ -4882,7 +5124,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     // Phase 5A: recentList now takes remaining vertical space for scrolling
     recentList: {
-      marginTop: space,
+      marginTop: 4,
       flex: 1, // Takes remaining vertical space in scrollableSection
     },
     recentScrollContent: {
@@ -5015,6 +5257,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: c.sageTint,
       borderRadius: 4,
       opacity: 0.6,
+    },
+    recentSkeletonLabel: {
+      marginLeft: 8,
+      fontSize: 13,
+      color: c.mutedText,
     },
     tagSkeletonRow: {
       flexDirection: 'row',
