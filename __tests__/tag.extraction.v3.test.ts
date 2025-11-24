@@ -179,7 +179,7 @@ describe('Tag Extraction v3 - Core Rules', () => {
     it('extracts doctor names', () => {
       const tags = extractMeaningfulTags('Appointment with Dr. Johnson');
 
-      expect(tags).toContain('dr-johnson');
+      expect(tags).toContain('@dr-johnson');
     });
 
     it('limits to 2 people max', () => {
