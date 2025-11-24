@@ -277,7 +277,7 @@ describe('Mind Drop v3 Phase 6: Fallback Prefill Retry', () => {
     }
 
     // Verify only one todo exists for this dropId
-    const allRecords = await repo.listByType('todo');
+    const allRecords = await repo.getAll();
     const todosWithDropId = allRecords.filter((r: any) => r.type === 'todo' && r.dropId === dropId);
 
     expect(todosWithDropId.length).toBe(1);
