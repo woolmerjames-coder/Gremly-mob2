@@ -176,7 +176,7 @@ describe('Mind Drop input auto-grow', () => {
     await waitFor(() => {
       expect(getInputHeight(getByTestId)).toBe(140);
     });
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
+    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
     fireEvent(input, 'contentSizeChange', {
       nativeEvent: { contentSize: { height: MAX_DYNAMIC_HEIGHT - 5, width: 300 } },
@@ -185,7 +185,7 @@ describe('Mind Drop input auto-grow', () => {
     await waitFor(() => {
       expect(getInputHeight(getByTestId)).toBe(MAX_DYNAMIC_HEIGHT - 5);
     });
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
+    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
     fireEvent(input, 'contentSizeChange', {
       nativeEvent: { contentSize: { height: MAX_DYNAMIC_HEIGHT + 120, width: 300 } },
@@ -238,7 +238,7 @@ describe('Mind Drop input auto-grow', () => {
       expect(getInputHeight(getByTestId)).toBe(140);
     });
     expect(timingSpy).not.toHaveBeenCalled();
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
+    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
     timingSpy.mockRestore();
   });
