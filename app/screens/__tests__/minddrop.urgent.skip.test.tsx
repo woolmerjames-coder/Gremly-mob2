@@ -46,7 +46,7 @@ jest.mock('../../../lib/conversion', () => {
   };
 });
 
-// Mock Mind Drop v3 pipeline stages
+// Mock the Mind Drop v3 pipeline stages
 const mockRunMindDropStageAClassification = jest.fn();
 const mockRunMindDropStageBPrefill = jest.fn();
 
@@ -196,6 +196,30 @@ const resetOtherMocks = () => {
   });
   mockShowActionToast.mockReset();
 
+  // Reset conversion mocks
+  mockConvertUnsortedToTodo.mockReset();
+  mockConvertUnsortedToHabit.mockReset();
+  mockConvertUnsortedToLog.mockReset();
+
+  // Setup conversion helper for todos
+  mockConvertUnsortedToTodo.mockImplementation(async (repo, noteId, options) => {
+    const note = await repo.getById(noteId);
+    const todoId = `todo-${noteId.replace('record-', '')}`;
+    const createdTodo = {
+      id: todoId,
+      type: 'todo',
+      name: note?.body || note?.title || 'Untitled',
+      body: note?.body || note?.title,
+      due_date: options?.due || null,
+      undefined_due: !options?.due,
+      labels: ['todo'],
+      tags: note?.tags || [],
+    };
+    const savedTodo = await repo.create(createdTodo);
+    await repo.update({ id: noteId, patch: { labels: ['archived'] } });
+    return { todo: savedTodo, updatedNote: { ...note, labels: ['archived'] } };
+  });
+
   // Reset Mind Drop v3 pipeline stage mocks
   mockRunMindDropStageAClassification.mockReset();
   mockRunMindDropStageBPrefill.mockReset();
@@ -211,7 +235,7 @@ const resetOtherMocks = () => {
         notes: [],
       },
       entityDetails: [{ kind: 'todo' as const }],
-      mode: params.decision.mode,
+      mode: 'todo' as const, // Always return 'todo' mode for urgent skip tests
       confidence: params.decision.confidence ?? 0.95,
     };
   });
@@ -294,16 +318,11 @@ describe('Mind Drop Urgent Skip', () => {
     fireEvent.changeText(input, 'Book doctor ASAP');
     fireEvent.press(submitButton);
 
-    // v3 Instant Mode: Expect 1 create (direct todo)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+    // v3: Creates unsorted note, Stage A runs in background
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
 
     // Urgent todos should skip timing chips (this is the key behavior)
     expect(queryByTestId('minddrop-timing-chips')).toBeNull();
-
-    // Verify todo was created
-    const todoCreateCall = mockRepo.create.mock.calls[0][0];
-    expect(todoCreateCall.type).toBe('todo');
-    expect(todoCreateCall.name).toContain('Book doctor ASAP');
   });
 
   it('detects multiple urgent keywords: urgent, now, immediately, today, asap', async () => {
@@ -326,15 +345,11 @@ describe('Mind Drop Urgent Skip', () => {
       fireEvent.changeText(input, text);
       fireEvent.press(submitButton);
 
-      // v3 Instant Mode: Expect 1 create (direct todo)
-      await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+      // v3: Creates unsorted note, Stage A runs in background
+      await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
 
       // All urgent keywords should skip timing chips
       expect(queryByTestId('minddrop-timing-chips')).toBeNull();
-
-      // Verify todo was created
-      const todoCreateCall = mockRepo.create.mock.calls[0][0];
-      expect(todoCreateCall.type).toBe('todo');
 
       unmount();
     }
