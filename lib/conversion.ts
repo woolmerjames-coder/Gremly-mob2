@@ -1,5 +1,5 @@
 import type { CreateRecordInput, IRepo } from './repo/IRepo';
-import type { Note, Todo, Habit } from './types';
+import type { Note, Todo, Habit, ID } from './types';
 import {
   logConversionStart,
   logConversionSuccess,
@@ -8,6 +8,7 @@ import {
 import { buildCanonicalFromMindDrop } from './minddrop/buildCanonicalFromMindDrop';
 import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
 import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
+import { parseTextToListItems } from './lists/helpers';
 
 type LineageMeta = {
   originId: string;
@@ -176,11 +177,13 @@ export const convertTodoToLogList = async (
       source: 'todo',
     });
 
+    // Lists are no longer a subtype. Use has_list + list_items instead.
+    // Use 'reference' as the subtype since DB constraint requires a valid NoteSubtype.
     const noteInput: CreateRecordInput = {
       type: 'note',
       title: todo.name,
       body: noteBody,
-      subtype: 'list',
+      subtype: 'reference',
       fmt: 'checkboxes',
       space_id: todo.space_id ?? null,
       ai_placed: !!todo.ai_placed,
@@ -189,6 +192,8 @@ export const convertTodoToLogList = async (
       canonicalType: 'log',
       labels: todo.labels,
       views: todo.views,
+      has_list: true,
+      list_items: parseTextToListItems(noteBody),
     };
 
     const createdNote = (await repo.create(noteInput)) as Note;
@@ -290,6 +295,8 @@ export const convertUnsortedToTodo = async (
       tags_meta: canonical.tags_meta,
       views: note.views,
       dropId: (note as any).drop_id,
+      has_list: canonical.has_list,
+      list_items: canonical.list_items,
     };
 
     const createdTodo = (await repo.create(todoInput)) as Todo;
@@ -338,9 +345,9 @@ export const convertUnsortedToTodo = async (
  */
 export const convertUnsortedToLog = async (
   repo: IRepo,
-  noteId: string,
+  noteId: ID,
   options: {
-    subtype?: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+    subtype?: 'journal' | 'idea' | 'reference' | 'plain';
     skipAI?: boolean; // For photo-only logs or manual override cases
   } = {},
 ): Promise<{ note: Note }> => {
@@ -355,7 +362,8 @@ export const convertUnsortedToLog = async (
     const note = record as Note;
 
     // Determine subtype: manual override > AI classification > fallback to 'journal'
-    let targetSubtype: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+    // Note: Lists are now an attribute (has_list), not a subtype
+    let targetSubtype: 'journal' | 'idea' | 'reference' | 'plain';
 
     if (options.subtype) {
       // Manual override provided
@@ -367,7 +375,10 @@ export const convertUnsortedToLog = async (
       // Use AI classification
       const rawText = note.body ?? note.title ?? '';
       try {
-        targetSubtype = await getEffectiveLogSubtype(rawText);
+        const aiSubtype = await getEffectiveLogSubtype(rawText);
+        // Map 'list' to 'reference' since lists are now an attribute, not a subtype
+        targetSubtype =
+          aiSubtype === 'list' ? 'reference' : (aiSubtype as 'journal' | 'idea' | 'reference');
       } catch (err) {
         console.warn(
           '[convertUnsortedToLog] AI subtype classification failed, using fallback',
@@ -492,6 +503,8 @@ export const convertUnsortedToHabit = async (
       tags_meta: canonical.tags_meta,
       views: note.views,
       dropId: (note as any).drop_id,
+      has_list: canonical.has_list,
+      list_items: canonical.list_items,
     };
 
     const createdHabit = (await repo.create(habitInput)) as Habit;

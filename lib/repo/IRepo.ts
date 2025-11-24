@@ -71,6 +71,11 @@ export interface CreateRecordInput {
   mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
   fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only
+
+  // Phase 7 Lists support - for all record types
+  has_list?: boolean;
+  list_items?: import('../lists/types').ListItem[] | null;
+  body_legacy?: string | null;
 }
 
 /**

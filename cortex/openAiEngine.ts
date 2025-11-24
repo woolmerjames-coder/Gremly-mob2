@@ -481,9 +481,11 @@ function normaliseToCortexOutput(raw: RawClassification): CortexOutput {
   }
 
   const subtype =
-    raw.subtype === 'journal' || raw.subtype === 'list' || raw.subtype === 'idea'
+    raw.subtype === 'journal' || raw.subtype === 'idea' || raw.subtype === 'reference'
       ? raw.subtype
-      : 'catchall';
+      : raw.subtype === 'list'
+        ? 'reference' // Map legacy 'list' to 'reference'
+        : 'catchall';
   return {
     type: 'note',
     subtype,
@@ -573,10 +575,10 @@ export class OpenAiEngine implements ICortexEngine {
           );
         }
         if (isNonActionIdeasNote(text) && out.type === 'todo') {
-          if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
+          if (DEBUG) console.log('[CORTEX][LLM] safety override → note.reference for ideas input');
           out = {
             type: 'note',
-            subtype: 'list',
+            subtype: 'reference',
             aiPlaced: true,
             whyString: 'Ideas/list capture',
             tags: [],
@@ -658,7 +660,7 @@ export class OpenAiEngine implements ICortexEngine {
           role: 'assistant',
           content: JSON.stringify({
             type: 'note',
-            subtype: 'list',
+            subtype: 'reference',
             aiPlaced: true,
             whyString: 'Multi-line checklist detected.',
             frequency: 'daily',
@@ -747,10 +749,10 @@ export class OpenAiEngine implements ICortexEngine {
       const result = normaliseToCortexOutput(normalized);
       let finalResult = result;
       if (isNonActionIdeasNote(text) && result.type === 'todo') {
-        if (DEBUG) console.log('[CORTEX][LLM] safety override → note.list for ideas input');
+        if (DEBUG) console.log('[CORTEX][LLM] safety override → note.reference for ideas input');
         finalResult = {
           type: 'note',
-          subtype: 'list',
+          subtype: 'reference',
           aiPlaced: true,
           whyString: 'Ideas/list capture',
           tags: [],

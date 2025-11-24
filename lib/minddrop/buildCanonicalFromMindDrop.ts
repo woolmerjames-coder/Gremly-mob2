@@ -29,6 +29,8 @@ import { applyTagQualityFilter } from '../tags/quality';
 import { type LogSubtype } from '../cortex/classifyLogSubtype';
 import { getEffectiveLogSubtype } from '../logs/getEffectiveLogSubtype';
 import { normalizeTodoTitle } from './normalizeTodoTitle';
+import { hasListLikeStructure, parseTextToListItems } from '../lists/helpers';
+import type { ListItem } from '../lists/types';
 
 // Import domain-specific tag filters from overlay
 import {
@@ -65,7 +67,11 @@ export interface CanonicalPayload {
   body?: string; // For log & todo
   notes?: string; // For habit
   details?: string; // Alternative to body for todos
-  subtype?: LogSubtype | null; // For logs: journal | list | reference | idea | plain
+  subtype?: LogSubtype | null; // For logs: journal | reference | idea | plain (NOTE: 'list' removed - now an attribute)
+
+  // Phase 7 Lists: List support for all entity types
+  has_list: boolean;
+  list_items: ListItem[] | null;
 }
 
 /**
@@ -362,7 +368,16 @@ export async function buildCanonicalFromMindDrop(
       // For logs: Use AI title if available, otherwise raw text
       const title = compactTitle(trimmedRawText, aiTitle);
       // Classify log subtype using AI with deterministic fallback
-      const subtype = await getEffectiveLogSubtype(trimmedRawText);
+      let subtype: LogSubtype | null = await getEffectiveLogSubtype(trimmedRawText);
+
+      // Phase 7 Lists: Detect list as an attribute, not a subtype
+      const hasListStructure = hasListLikeStructure(trimmedRawText);
+      const listItems = hasListStructure ? parseTextToListItems(trimmedRawText) : null;
+
+      // If subtype is 'list', change it to null (plain) since list is now an attribute
+      if (subtype === 'list') {
+        subtype = null;
+      }
 
       return {
         title,
@@ -375,12 +390,18 @@ export async function buildCanonicalFromMindDrop(
         labels: [kind],
         body: trimmedRawText, // Full raw text goes in body
         subtype: subtype === 'plain' ? null : subtype, // null for plain, otherwise set subtype
+        has_list: hasListStructure,
+        list_items: listItems,
       };
     }
 
     case 'todo': {
       // For todos: Use normalizeTodoTitle for proper title extraction (first line, temporal preservation)
       const title = normalizeTodoTitle(trimmedRawText, aiTitle);
+
+      // Phase 7 Lists: Detect list as an attribute
+      const hasListStructure = hasListLikeStructure(trimmedRawText);
+      const listItems = hasListStructure ? parseTextToListItems(trimmedRawText) : null;
 
       return {
         title,
@@ -394,6 +415,8 @@ export async function buildCanonicalFromMindDrop(
         name: title, // Use normalized title in name field
         body: trimmedRawText, // Full raw text in body/details
         details: trimmedRawText, // Alternative field name
+        has_list: hasListStructure,
+        list_items: listItems,
       };
     }
 
@@ -408,6 +431,10 @@ export async function buildCanonicalFromMindDrop(
         title = firstLine || trimmedRawText;
       }
 
+      // Phase 7 Lists: Detect list as an attribute
+      const hasListStructure = hasListLikeStructure(trimmedRawText);
+      const listItems = hasListStructure ? parseTextToListItems(trimmedRawText) : null;
+
       return {
         title,
         tags,
@@ -419,6 +446,8 @@ export async function buildCanonicalFromMindDrop(
         labels: [kind],
         name: title, // Use compact title in name field
         notes: trimmedRawText, // Full raw text in notes field
+        has_list: hasListStructure,
+        list_items: listItems,
       };
     }
   }

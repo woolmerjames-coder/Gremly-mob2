@@ -45,7 +45,8 @@ describe('cortexDecide list heuristics', () => {
     // Heuristic metadata should be present
     expect(result.meta?.heuristics?.list?.applied).toBe(true);
     expect(result.meta?.heuristics?.list?.score).toBeGreaterThanOrEqual(0.7);
-    expect(result.meta?.canonicalSubtype).toBe('list');
+    // Lists are no longer a subtype; canonical subtype should be null
+    expect(result.meta?.canonicalSubtype).toBe(null);
     expect(result.meta?.canonicalHint).toEqual(
       expect.objectContaining({ source: 'list-heuristic' }),
     );

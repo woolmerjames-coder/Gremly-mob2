@@ -94,7 +94,8 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
       const listNote = chips.find(
         (chip) => chip.type === 'create.note' && chip.label === 'Save as list',
       );
-      expect(listNote).toMatchObject({ reason: 'list-heuristic', payload: { subtype: 'list' } });
+      // Lists are no longer a subtype; list detection happens via has_list attribute
+      expect(listNote).toMatchObject({ reason: 'list-heuristic', payload: { subtype: null } });
 
       const checklist = chips.find(
         (chip) => chip.type === 'create.todo' && chip.label === 'Create To-do checklist',

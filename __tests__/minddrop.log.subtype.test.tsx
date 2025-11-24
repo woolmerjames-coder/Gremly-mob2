@@ -99,13 +99,14 @@ describe('Mind Drop Log Subtype Handling', () => {
     it('should respect explicit subtype option if provided', async () => {
       const noteId = 'test-note-456';
 
-      const result = await convertUnsortedToLog(mockRepo, noteId, { subtype: 'list' });
+      // Lists are no longer a subtype - use 'reference' instead
+      const result = await convertUnsortedToLog(mockRepo, noteId, { subtype: 'reference' });
 
       expect(mockRepo.update).toHaveBeenCalledWith(
         expect.objectContaining({
           id: noteId,
           patch: expect.objectContaining({
-            subtype: 'list',
+            subtype: 'reference',
           }),
         }),
       );

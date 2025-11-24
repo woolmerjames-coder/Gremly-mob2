@@ -27,7 +27,6 @@ export const recordTypeZ = z.union([
 
 export const noteSubtypeZ = z.union([
   z.literal('journal'),
-  z.literal('list'),
   z.literal('catchall'),
   z.literal('idea'),
   z.literal('reference'),
@@ -51,6 +50,13 @@ const tagsMetaZ = z
   })
   .nullable()
   .optional();
+
+// Phase 7 Lists: Schema for list items
+const listItemZ = z.object({
+  id: z.string().uuid(),
+  text: z.string(),
+  checked: z.boolean(),
+});
 
 // ==========================
 // ROW SCHEMAS (from database)
@@ -106,6 +112,10 @@ export const habitZ = baseRecordZ.extend({
   triggers: z.array(z.string()).nullable().optional(),
   replacement_habit_id: z.string().nullable().optional(),
   replacement_text: z.string().nullable().optional(),
+  // List support (Phase 7 Lists)
+  has_list: z.boolean().default(false),
+  list_items: z.array(listItemZ).nullable(),
+  body_legacy: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const todoZ = baseRecordZ.extend({
@@ -124,6 +134,10 @@ export const todoZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   notes: z.string().nullable().optional(), // Additional notes
   tags: tagsZ, // Searchable, AI-editable JSON array persisted in DB
+  // List support (Phase 7 Lists)
+  has_list: z.boolean().default(false),
+  list_items: z.array(listItemZ).nullable(),
+  body_legacy: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({
@@ -148,6 +162,10 @@ export const noteZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  // List support (Phase 7 Lists)
+  has_list: z.boolean().default(false),
+  list_items: z.array(listItemZ).nullable(),
+  body_legacy: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
@@ -191,6 +209,10 @@ export const habitInsertSchema = z
     triggers_json: z.array(z.string()).nullable().optional(), // Maps to triggers_json column (jsonb) - nullable
     replacement_habit_id: z.string().uuid().nullable().optional(),
     replacement_text: z.string().nullable().optional(),
+    // List support (Phase 7 Lists) - stored as jsonb in database
+    has_list: z.boolean().default(false),
+    list_items_json: z.array(listItemZ).nullable().optional(),
+    body_legacy: z.string().nullable().optional(),
   })
   .passthrough(); // Allow additional fields to pass through
 
@@ -222,6 +244,10 @@ export const todoInsertSchema = z.object({
     })
     .optional(),
   tags_meta: tagsMetaZ,
+  // List support (Phase 7 Lists) - stored as jsonb in database
+  has_list: z.boolean().default(false),
+  list_items_json: z.array(listItemZ).nullable().optional(),
+  body_legacy: z.string().nullable().optional(),
 });
 
 export const noteInsertSchema = z.object({
@@ -249,6 +275,10 @@ export const noteInsertSchema = z.object({
   reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  // List support (Phase 7 Lists) - stored as jsonb in database
+  has_list: z.boolean().default(false),
+  list_items_json: z.array(listItemZ).nullable().optional(),
+  body_legacy: z.string().nullable().optional(),
 });
 
 // ==========================

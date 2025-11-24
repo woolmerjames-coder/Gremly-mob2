@@ -1,4 +1,11 @@
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
+import type { ListItem } from '../../lib/lists/types';
+import {
+  parseTextToListItems,
+  toggleListItemChecked,
+  addListItem,
+  removeListItem,
+} from '../../lib/lists/helpers';
 
 export type BaseType = 'log' | 'todo' | 'habit';
 
@@ -6,7 +13,15 @@ export type TagKey = string;
 
 export type LogKind = 'journal' | 'idea' | 'list' | 'basic';
 
-export type LogState = { body: string; title: string; kind: LogKind; private: boolean };
+export type LogState = {
+  body: string;
+  title: string;
+  kind: LogKind;
+  private: boolean;
+  // Phase 7 Lists
+  has_list: boolean;
+  list_items: ListItem[] | null;
+};
 
 /**
  * Classify log kind based on content heuristics.
@@ -39,13 +54,23 @@ export function classifyLogKind(raw: string): LogKind {
   return 'basic';
 }
 
-export type TodoState = { title: string; details: string; due_at?: string | null };
+export type TodoState = {
+  title: string;
+  details: string;
+  due_at?: string | null;
+  // Phase 7 Lists
+  has_list: boolean;
+  list_items: ListItem[] | null;
+};
 export type HabitState = {
   title: string;
   notes: string;
   schedule?: 'daily' | 'weekly' | 'custom';
   frequency_json?: any; // Structured frequency configuration
   subtype?: 'start_habit' | 'break_habit' | 'routine'; // Habit mode
+  // Phase 7 Lists
+  has_list: boolean;
+  list_items: ListItem[] | null;
 };
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
@@ -104,9 +129,16 @@ export const initialV2State: V2State = {
   compactTitle: '',
   compactTitleSource: '',
   userEditedTitle: false,
-  log: { title: '', body: '', kind: 'basic', private: false },
-  todo: { title: '', details: '', due_at: null },
-  habit: { title: '', notes: '', schedule: 'custom', subtype: 'start_habit' },
+  log: { title: '', body: '', kind: 'basic', private: false, has_list: false, list_items: null },
+  todo: { title: '', details: '', due_at: null, has_list: false, list_items: null },
+  habit: {
+    title: '',
+    notes: '',
+    schedule: 'custom',
+    subtype: 'start_habit',
+    has_list: false,
+    list_items: null,
+  },
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
   logIsPrivate: false, // Phase L9: Private flag for journal logs
@@ -139,7 +171,15 @@ type Action =
   | { type: 'SET_LOG_SUBTYPE_OVERRIDE'; value: LogSubtypeOverride }
   | { type: 'SET_LOG_IS_PRIVATE'; value: boolean }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
-  | { type: 'UNDO_LAST' };
+  | { type: 'UNDO_LAST' }
+  // Phase 7 Lists actions
+  | { type: 'ENABLE_CHECKLIST'; autoParseFrom?: string }
+  | { type: 'DISABLE_CHECKLIST' }
+  | { type: 'SET_LIST_ITEMS'; items: ListItem[] | null }
+  | { type: 'TOGGLE_CHECKLIST_ITEM'; itemId: string }
+  | { type: 'ADD_CHECKLIST_ITEM'; text: string }
+  | { type: 'REMOVE_CHECKLIST_ITEM'; itemId: string }
+  | { type: 'UPDATE_CHECKLIST_ITEM'; itemId: string; text: string };
 
 export function v2Reducer(state: V2State, action: Action): V2State {
   switch (action.type) {
@@ -355,6 +395,162 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, logSubtypeOverride: action.value };
     case 'SET_LOG_IS_PRIVATE':
       return { ...state, logIsPrivate: action.value };
+
+    // Phase 7 Lists handlers
+    case 'ENABLE_CHECKLIST': {
+      const { baseType } = state;
+
+      let items: ListItem[] | null = null;
+      if (action.autoParseFrom) {
+        items = parseTextToListItems(action.autoParseFrom);
+      }
+
+      if (baseType === 'todo') {
+        return { ...state, todo: { ...state.todo, has_list: true, list_items: items } };
+      } else if (baseType === 'habit') {
+        return { ...state, habit: { ...state.habit, has_list: true, list_items: items } };
+      } else if (baseType === 'log') {
+        return { ...state, log: { ...state.log, has_list: true, list_items: items } };
+      }
+      return state;
+    }
+    case 'DISABLE_CHECKLIST': {
+      const { baseType } = state;
+      if (baseType === 'todo') {
+        return { ...state, todo: { ...state.todo, has_list: false, list_items: null } };
+      } else if (baseType === 'habit') {
+        return { ...state, habit: { ...state.habit, has_list: false, list_items: null } };
+      } else if (baseType === 'log') {
+        return { ...state, log: { ...state.log, has_list: false, list_items: null } };
+      }
+      return state;
+    }
+    case 'SET_LIST_ITEMS': {
+      const { baseType } = state;
+      if (baseType === 'todo') {
+        return { ...state, todo: { ...state.todo, list_items: action.items } };
+      } else if (baseType === 'habit') {
+        return { ...state, habit: { ...state.habit, list_items: action.items } };
+      } else if (baseType === 'log') {
+        return { ...state, log: { ...state.log, list_items: action.items } };
+      }
+      return state;
+    }
+    case 'TOGGLE_CHECKLIST_ITEM': {
+      const { baseType } = state;
+
+      if (baseType === 'todo') {
+        const items = state.todo.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          todo: { ...state.todo, list_items: toggleListItemChecked(items, action.itemId) },
+        };
+      } else if (baseType === 'habit') {
+        const items = state.habit.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          habit: { ...state.habit, list_items: toggleListItemChecked(items, action.itemId) },
+        };
+      } else if (baseType === 'log') {
+        const items = state.log.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          log: { ...state.log, list_items: toggleListItemChecked(items, action.itemId) },
+        };
+      }
+      return state;
+    }
+    case 'ADD_CHECKLIST_ITEM': {
+      const { baseType } = state;
+
+      if (baseType === 'todo') {
+        const items = state.todo.list_items || [];
+        return { ...state, todo: { ...state.todo, list_items: addListItem(items, action.text) } };
+      } else if (baseType === 'habit') {
+        const items = state.habit.list_items || [];
+        return {
+          ...state,
+          habit: { ...state.habit, list_items: addListItem(items, action.text) },
+        };
+      } else if (baseType === 'log') {
+        const items = state.log.list_items || [];
+        return { ...state, log: { ...state.log, list_items: addListItem(items, action.text) } };
+      }
+      return state;
+    }
+    case 'REMOVE_CHECKLIST_ITEM': {
+      const { baseType } = state;
+
+      if (baseType === 'todo') {
+        const items = state.todo.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          todo: { ...state.todo, list_items: removeListItem(items, action.itemId) },
+        };
+      } else if (baseType === 'habit') {
+        const items = state.habit.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          habit: { ...state.habit, list_items: removeListItem(items, action.itemId) },
+        };
+      } else if (baseType === 'log') {
+        const items = state.log.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          log: { ...state.log, list_items: removeListItem(items, action.itemId) },
+        };
+      }
+      return state;
+    }
+    case 'UPDATE_CHECKLIST_ITEM': {
+      const { baseType } = state;
+
+      if (baseType === 'todo') {
+        const items = state.todo.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          todo: {
+            ...state.todo,
+            list_items: items.map((item) =>
+              item.id === action.itemId ? { ...item, text: action.text } : item,
+            ),
+          },
+        };
+      } else if (baseType === 'habit') {
+        const items = state.habit.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          habit: {
+            ...state.habit,
+            list_items: items.map((item) =>
+              item.id === action.itemId ? { ...item, text: action.text } : item,
+            ),
+          },
+        };
+      } else if (baseType === 'log') {
+        const items = state.log.list_items;
+        if (!items) return state;
+        return {
+          ...state,
+          log: {
+            ...state.log,
+            list_items: items.map((item) =>
+              item.id === action.itemId ? { ...item, text: action.text } : item,
+            ),
+          },
+        };
+      }
+      return state;
+    }
+
     default:
       return state;
   }

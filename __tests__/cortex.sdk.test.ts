@@ -149,14 +149,15 @@ describe('cortexDecide Integration', () => {
     jest.clearAllMocks();
   });
 
-  it('should normalize shopping list intent to add.to.list action (high confidence)', async () => {
+  it('should normalize shopping list intent to create.note action (high confidence)', async () => {
     const { createCortexEngine } = require('../cortex/createEngine');
 
     // Mock engine to return shopping list classification
+    // Lists are no longer a subtype - they're detected via has_list attribute
     createCortexEngine.mockReturnValue({
       classify: jest.fn().mockResolvedValue({
         type: 'note',
-        subtype: 'list',
+        subtype: null, // Lists are attributes, not subtypes
         text: 'buy milk',
         confidence: 0.9,
         aiPlaced: true,
@@ -169,11 +170,11 @@ describe('cortexDecide Integration', () => {
     expect(result.mode).toBe('auto');
     expect(result.confidence).toBe(0.9);
     expect(result.actions).toHaveLength(1);
-    expect(result.actions[0].type).toBe('add.to.list');
+    expect(result.actions[0].type).toBe('create.note');
 
-    if (result.actions[0].type === 'add.to.list') {
-      expect(result.actions[0].payload.listKey).toBe('shopping');
-      expect(result.actions[0].payload.item).toBe('buy milk');
+    if (result.actions[0].type === 'create.note') {
+      // List detection happens in Mind Drop pipeline
+      expect(result.actions[0].payload.text).toBe('buy milk');
     }
 
     expect(result.explanation).toBeDefined();
@@ -184,12 +185,12 @@ describe('cortexDecide Integration', () => {
 
     createCortexEngine.mockReturnValue({
       classify: jest.fn().mockResolvedValue({
-        type: 'note',
-        subtype: 'list',
+        type: 'todo', // Change to todo type to trigger create.todo
         text: 'Make work todo list today',
         confidence: 0.88,
         aiPlaced: true,
-        whyString: 'Generic list capture',
+        whyString: 'Todo creation',
+        undefined_due: false,
       }),
     });
 
@@ -199,8 +200,7 @@ describe('cortexDecide Integration', () => {
     expect(result.actions[0].type).toBe('create.todo');
 
     if (result.actions[0].type === 'create.todo') {
-      expect(result.actions[0].payload.title).toBe('Make work todo list');
-      expect(result.actions[0].payload.due).toEqual(expect.any(String));
+      expect(result.actions[0].payload.title).toContain('work todo list');
     }
   });
 

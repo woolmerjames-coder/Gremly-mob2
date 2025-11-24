@@ -408,13 +408,15 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
             tags: canonical.tags,
             tags_meta: canonical.tags_meta,
             subtype: canonical.subtype as NoteSubtype | null,
+            has_list: canonical.has_list,
+            list_items: canonical.list_items,
             views: {
               ...(note.views ?? {}),
               minddrop_stage: 'classified',
               ai_pending: true, // Still waiting for prefill
               ai_failed: false,
             },
-          },
+          } as any,
         });
 
         createdIds.notes.push(unsortedNoteId);

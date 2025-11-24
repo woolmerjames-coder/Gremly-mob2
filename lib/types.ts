@@ -3,12 +3,14 @@
  * Includes owner_id for multi-user support.
  */
 
+import type { ListItem } from './lists/types';
+
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
-export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
+export type NoteSubtype = 'journal' | 'catchall' | 'idea' | 'reference';
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
-export type LogSubtype = 'journal' | 'idea' | 'person' | 'list' | 'everything_else';
+export type LogSubtype = 'journal' | 'idea' | 'person' | 'everything_else';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';
@@ -18,6 +20,9 @@ export interface TagsMeta {
   sticky?: string[];
   tombstones?: string[];
 }
+
+// Re-export ListItem for convenience
+export type { ListItem } from './lists/types';
 
 /**
  * Habit - recurring activity tracked by user (tags stored as searchable, AI/editable JSON array)
@@ -79,6 +84,11 @@ export interface Habit {
   triggers?: string[] | null;
   replacement_habit_id?: ID | null;
   replacement_text?: string | null;
+
+  // List support (Phase 7 Lists)
+  has_list: boolean;
+  list_items: ListItem[] | null;
+  body_legacy?: string | null;
 }
 
 /**
@@ -124,6 +134,11 @@ export interface Todo {
   commitment_archived_at?: string | null;
 
   tags_meta?: TagsMeta | null;
+
+  // List support (Phase 7 Lists)
+  has_list: boolean;
+  list_items: ListItem[] | null;
+  body_legacy?: string | null;
 }
 
 /**
@@ -167,6 +182,11 @@ export interface Note {
   reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
   tags_meta?: TagsMeta | null;
+
+  // List support (Phase 7 Lists)
+  has_list: boolean;
+  list_items: ListItem[] | null;
+  body_legacy?: string | null;
 }
 
 /**

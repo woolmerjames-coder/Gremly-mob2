@@ -231,6 +231,10 @@ function mapHabitFromDb(dbRecord: any): any {
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
     views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    // Phase 7 Lists: Deserialize JSONB list fields
+    list_items: dbRecord.list_items_json !== undefined ? dbRecord.list_items_json : null,
+    has_list: dbRecord.has_list ?? false,
+    body_legacy: dbRecord.body_legacy !== undefined ? dbRecord.body_legacy : null,
   };
 }
 
@@ -254,6 +258,10 @@ function mapTodoFromDb(dbRecord: any): any {
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
     views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    // Phase 7 Lists: Deserialize JSONB list fields
+    list_items: dbRecord.list_items_json !== undefined ? dbRecord.list_items_json : null,
+    has_list: dbRecord.has_list ?? false,
+    body_legacy: dbRecord.body_legacy !== undefined ? dbRecord.body_legacy : null,
   };
 }
 
@@ -271,6 +279,10 @@ function mapNoteFromDb(dbRecord: any): any {
     source_message_id: dbRecord.source_message_id ?? null,
     drop_id: dbRecord.drop_id ?? null,
     views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    // Phase 7 Lists: Deserialize JSONB list fields
+    list_items: dbRecord.list_items_json !== undefined ? dbRecord.list_items_json : null,
+    has_list: dbRecord.has_list ?? false,
+    body_legacy: dbRecord.body_legacy !== undefined ? dbRecord.body_legacy : null,
   };
 }
 
@@ -387,6 +399,10 @@ export class SupabaseRepo implements IRepo {
           triggers_json: input.triggers ?? undefined,
           replacement_habit_id: input.replacement_habit_id ?? null,
           replacement_text: input.replacement_text ?? null,
+          // Phase 7 Lists support - map TypeScript fields to JSONB columns
+          has_list: input.has_list ?? false,
+          list_items_json: input.list_items ?? null,
+          body_legacy: input.body_legacy ?? null,
         }),
       );
 
@@ -426,6 +442,10 @@ export class SupabaseRepo implements IRepo {
           drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
+          // Phase 7 Lists support - map TypeScript fields to JSONB columns
+          has_list: input.has_list ?? false,
+          list_items_json: input.list_items ?? null,
+          body_legacy: input.body_legacy ?? null,
         }),
       );
 
@@ -477,6 +497,10 @@ export class SupabaseRepo implements IRepo {
           tags: input.tags ?? null,
           tags_meta: tagsMeta,
           journal_subtype: input.journal_subtype ?? null, // AI-only
+          // Phase 7 Lists support - map TypeScript fields to JSONB columns
+          has_list: input.has_list ?? false,
+          list_items_json: input.list_items ?? null,
+          body_legacy: input.body_legacy ?? null,
         }),
       );
 

@@ -537,12 +537,12 @@ export class HeuristicEngine implements ICortexEngine {
       };
     }
     if (t.split('\n').some((line) => LIST_MARKERS.some((m) => line.startsWith(m)))) {
-      const tags = generateTags(text, 'note', 'list');
+      const tags = generateTags(text, 'note', 'reference');
       return {
         type: 'note',
-        subtype: 'list',
+        subtype: 'reference',
         aiPlaced: true,
-        whyString: 'Detected list markers (- or *).',
+        whyString: 'Detected list markers (- or *). Lists are now an attribute.',
         tags,
       };
     }

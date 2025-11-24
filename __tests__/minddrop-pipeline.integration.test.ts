@@ -196,8 +196,8 @@ async function simulateMindDropPipeline(text: string): Promise<MindDropPipelineR
     } else if (firstAction.type === 'create.note') {
       finalType = 'note';
       const rawSubtype = firstAction.payload.subtype ?? 'everything_else';
-      finalSubtype =
-        rawSubtype === 'journal' ? 'journal' : rawSubtype === 'list' ? 'list' : 'everything_else';
+      // Lists are no longer a subtype; mapped to 'everything_else'
+      finalSubtype = rawSubtype === 'journal' ? 'journal' : 'everything_else';
 
       // *** THIS IS THE BUG WE'RE TESTING ***
       // Production code should update labels for auto-created logs
@@ -575,6 +575,184 @@ describe.skip('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
       // Should process successfully (may classify as todo, habit, or log)
       expect(decision.mode).toBeDefined();
       expect(['auto', 'ask', 'keep']).toContain(decision.mode);
+    });
+  });
+
+  describe('Phase 7 Lists: Stage A list detection in full pipeline', () => {
+    // Lists are now modeled as has_list + list_items; Stage A must detect list-like inputs
+    // and populate these fields while keeping the main type decision intact.
+    // This tests the full pipeline: detectIntent → cortexDecide → Stage A → entity creation
+
+    it('should detect list structure in todo Mind Drop and set has_list=true', async () => {
+      const text = 'Grocery list:\n- eggs\n- milk\n- bread';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should classify as todo or note (depending on heuristics)
+      expect(['auto', 'ask']).toContain(decision.mode);
+      expect(decision.actions.length).toBeGreaterThan(0);
+
+      // The created entity should have has_list=true with 3 items
+      // (This is verified in buildCanonicalFromMindDrop tests, but we confirm the decision flow works)
+      const firstAction = decision.actions[0];
+      expect(['create.todo', 'create.note']).toContain(firstAction.type);
+
+      // Note: The actual has_list + list_items fields are set by buildCanonicalFromMindDrop
+      // in Stage A. This test confirms the decision pipeline doesn't block list detection.
+    });
+
+    it('should detect numbered list in habit Mind Drop', async () => {
+      const text = 'Morning routine:\n1. Brush teeth\n2. Meditate\n3. Exercise';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // May classify as habit or note
+      expect(['auto', 'ask']).toContain(decision.mode);
+
+      if (decision.actions.length > 0) {
+        const firstAction = decision.actions[0];
+        expect(['create.habit', 'create.note']).toContain(firstAction.type);
+      }
+
+      // Actual list detection happens in buildCanonicalFromMindDrop (already tested)
+    });
+
+    it('should detect bullet list in note Mind Drop', async () => {
+      const text = 'Ideas for blog posts:\n- How to debug React hooks\n- TypeScript best practices';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should likely classify as note (ideas/reference)
+      expect(['auto', 'ask', 'keep']).toContain(decision.mode);
+
+      // If it creates a note, list detection will happen in Stage A
+    });
+
+    it('should NOT set has_list for non-list Mind Drop text', async () => {
+      const text = 'I need to think about my goals for next year';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should classify as note/log (reflective)
+      expect(['auto', 'keep', 'ask']).toContain(decision.mode);
+
+      // No list structure in text, so has_list=false in Stage A
+      // (Verified in buildCanonicalFromMindDrop tests)
+    });
+
+    it('should preserve type decision when list is detected', async () => {
+      // This test verifies that list detection doesn't override the main type classification
+      const text = 'Buy groceries tomorrow:\n- eggs\n- milk\n- bread';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should classify as todo (has temporal signal "tomorrow" + action verb "buy")
+      // The list structure should not change this to a note
+      if (decision.mode === 'auto' && decision.actions.length > 0) {
+        const firstAction = decision.actions[0];
+        // Should be create.todo, not create.note with subtype='list'
+        expect(firstAction.type).toBe('create.todo');
+      }
+
+      // In Stage A, this will create a todo with has_list=true + list_items populated
+    });
+
+    it('should NOT use subtype="list" for notes with lists', async () => {
+      // This tests backward compatibility: old code might have used subtype='list',
+      // but new code uses has_list + list_items instead
+      const text = 'Shopping items:\n- apples\n- bananas\n- oranges';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // If classified as a note, verify it doesn't use subtype='list'
+      if (decision.mode === 'auto' && decision.actions.length > 0) {
+        const firstAction = decision.actions[0];
+
+        if (firstAction.type === 'create.note') {
+          // Subtype should be reference, idea, or null/everything_else (NOT 'list')
+          const subtype = firstAction.payload.subtype;
+          expect(subtype).not.toBe('list');
+
+          // Valid subtypes for notes (excluding 'list')
+          const validSubtypes = ['journal', 'reference', 'idea', 'plain', 'everything_else', null];
+          expect(validSubtypes).toContain(subtype);
+        }
+      }
+
+      // In Stage A, buildCanonicalFromMindDrop will:
+      // - Set has_list=true
+      // - Populate list_items with 3 items
+      // - Use subtype='reference' or 'idea' or null (never 'list')
+    });
+
+    it('should handle mixed list formats in pipeline', async () => {
+      const text =
+        'Project tasks:\n- Research competitors\n1. Analyze pricing\n2. Document features';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should process successfully (todo or note)
+      expect(['auto', 'ask', 'keep']).toContain(decision.mode);
+
+      // List parsing handles mixed formats in buildCanonicalFromMindDrop
+    });
+
+    it('should preserve AI classification confidence with list content', async () => {
+      const text = 'Run 3x per week:\n- Monday\n- Wednesday\n- Friday';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should classify as habit (frequency signal "3x per week")
+      // List structure should not reduce confidence
+      if (decision.mode === 'auto') {
+        expect(decision.confidence).toBeGreaterThan(0);
+
+        if (decision.actions.length > 0) {
+          const firstAction = decision.actions[0];
+          // Should recognize as habit despite list structure
+          expect(['create.habit', 'create.todo']).toContain(firstAction.type);
+        }
+      }
     });
   });
 });

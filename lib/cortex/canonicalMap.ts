@@ -9,7 +9,7 @@ export function persistedToCanonical(
   if (recordType === 'habit') return 'habit';
   if (recordType === 'todo') return 'todo';
 
-  if (subtype === 'journal' || subtype === 'idea' || subtype === 'list') {
+  if (subtype === 'journal' || subtype === 'idea') {
     return 'log';
   }
 

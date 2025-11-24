@@ -570,7 +570,8 @@ export async function cortexDecide(
       });
     }
 
-    // For strong lists, override candidate actions to create.note with list subtype
+    // For strong lists, override candidate actions to create.note
+    // List detection will happen in buildCanonicalFromMindDrop via hasListLikeStructure
     let effectiveCandidateActions = candidateActions;
     if (listStrong) {
       effectiveCandidateActions = [
@@ -578,7 +579,7 @@ export async function cortexDecide(
           type: 'create.note' as const,
           payload: {
             text: userText,
-            subtype: 'list' as const,
+            subtype: null,
             spaceId: null,
           },
         },
@@ -646,7 +647,6 @@ export async function cortexDecide(
         ];
       } else if (
         effectiveType === 'log' &&
-        normalized.canonicalSubtype !== 'list' && // Don't add create.note for lists (will use add.to.list)
         !effectiveCandidateActions.some((a) => a.type === 'create.note')
       ) {
         effectiveCandidateActions = [
@@ -849,10 +849,11 @@ export async function cortexDecide(
         : generateExplanation(effectiveCandidateActions, mode, tone, normalizedCtx);
 
     const candidateCanonical = canonicalFromAction(effectiveCandidateActions[0]);
+    // Lists are no longer a subtype - they're an attribute (has_list)
     const canonicalHint = listHeuristicApplied
       ? {
           canonicalType: 'log' as CanonicalType,
-          canonicalSubtype: 'list' as LogSubtype,
+          canonicalSubtype: null, // Lists are attributes, not subtypes
           score: listAnalysis.score,
           reasons: [...listAnalysis.reasons],
           source: 'list-heuristic' as const,
@@ -1020,6 +1021,7 @@ function buildListHeuristicChips(text: string): ChipSuggestion[] {
   const due = todoFields.due ?? null;
   const listNoteLabel = canonicalTypesOn ? 'Save as list' : 'Save as note (list)';
 
+  // Lists are no longer a subtype. List detection happens in buildCanonicalFromMindDrop.
   return [
     {
       type: 'create.note',
@@ -1027,7 +1029,7 @@ function buildListHeuristicChips(text: string): ChipSuggestion[] {
       payload: {
         title: heading,
         body: trimmed,
-        subtype: 'list',
+        subtype: null,
       },
       reason: 'list-heuristic',
     },
@@ -1161,7 +1163,6 @@ function canonicalFromAction(action: CortexAction | undefined): {
       switch (subtype) {
         case 'journal':
         case 'idea':
-        case 'list':
           return { canonicalType: 'log', canonicalSubtype: subtype };
         case 'reference':
           return { canonicalType: 'log', canonicalSubtype: 'everything_else' };
@@ -1171,7 +1172,8 @@ function canonicalFromAction(action: CortexAction | undefined): {
       }
     }
     case 'add.to.list':
-      return { canonicalType: 'log', canonicalSubtype: 'list' };
+      // Lists are no longer a subtype - they're an attribute (has_list)
+      return { canonicalType: 'log', canonicalSubtype: null };
     default:
       return { canonicalType: undefined, canonicalSubtype: null };
   }
@@ -1243,10 +1245,6 @@ function normalizeEngineOutput(
         canonicalType = 'log';
         canonicalSubtype = 'person';
         break;
-      case 'list':
-        canonicalType = 'log';
-        canonicalSubtype = 'list';
-        break;
       case 'catchall':
       case '':
         canonicalType = 'unsorted';
@@ -1282,35 +1280,6 @@ function normalizeEngineOutput(
         spaceId: ctx.activeSpaceId,
       },
     });
-  } else if (canonicalType === 'log' && canonicalSubtype === 'list') {
-    const todoOverride = convertTodoListCommandToTodo(fallbackText);
-    if (todoOverride) {
-      actions.push({
-        type: 'create.todo',
-        payload: {
-          title: todoOverride.title,
-          due: todoOverride.due,
-          spaceId: ctx.activeSpaceId,
-        },
-      });
-    } else {
-      const whyString = engineOutput.whyString || '';
-      const isShoppingIntent =
-        /shopping|grocery|groceries/i.test(fallbackText) ||
-        /shopping|grocery|groceries/i.test(whyString);
-
-      const item = extractItemFromText(fallbackText);
-      const listKey = isShoppingIntent ? 'shopping' : detectListType(fallbackText, ctx);
-
-      actions.push({
-        type: 'add.to.list',
-        payload: {
-          listKey,
-          item,
-          spaceId: ctx.activeSpaceId,
-        },
-      });
-    }
   } else if (canonicalType === 'log' || canonicalType === 'unsorted') {
     const mapping = canonicalToPersisted(canonicalType, canonicalSubtype ?? null);
     actions.push({

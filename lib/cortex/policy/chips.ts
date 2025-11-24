@@ -27,7 +27,7 @@ export type ChipSuggestion =
     })
   | (BaseChipSuggestion & {
       type: 'create.note';
-      payload: { title: string; body: string; subtype: 'list' | 'journal' | 'idea' };
+      payload: { title: string; body: string; subtype: 'journal' | 'idea' | null };
     })
   | (BaseChipSuggestion & {
       type: 'convert.log-list-to-todo';
@@ -249,10 +249,11 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
     const due = todoFields.due ?? null;
     const listNoteLabel = canonicalTypesOn ? LABELS.list : 'Save as note (list)';
 
+    // Lists are no longer a subtype. List detection happens in buildCanonicalFromMindDrop.
     chips.push({
       type: 'create.note',
       label: listNoteLabel,
-      payload: { title: heading, body: t, subtype: 'list' },
+      payload: { title: heading, body: t, subtype: null },
       reason: 'list-heuristic',
     });
 

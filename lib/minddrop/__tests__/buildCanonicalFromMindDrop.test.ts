@@ -305,6 +305,262 @@ describe('buildCanonicalFromMindDrop', () => {
     });
   });
 
+  describe('Phase 7 Lists: list attribute detection (Stage A)', () => {
+    // Lists are now modeled as has_list + list_items; Stage A must detect list-like inputs
+    // and populate these fields while keeping the main type decision intact.
+
+    describe('list-like todo inputs', () => {
+      it('should detect bullet list in todo and populate has_list + list_items', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Grocery list:\n- eggs\n- milk\n- bread',
+          aiTags: ['groceries', 'shopping'],
+        });
+
+        expect(result.canonicalType).toBe('todo');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('eggs');
+        expect(result.list_items?.[1].text).toBe('milk');
+        expect(result.list_items?.[2].text).toBe('bread');
+        expect(result.list_items?.every((item) => item.checked === false)).toBe(true);
+        expect(result.list_items?.every((item) => item.id)).toBe(true);
+        // subtype must NOT be 'list' (todos don't have subtype)
+        expect(result.subtype).toBeUndefined();
+      });
+
+      it('should detect numbered list in todo', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Packing for Mexico:\n1. swimsuit\n2. passport\n3. charger',
+          aiTags: ['travel', 'packing'],
+        });
+
+        expect(result.canonicalType).toBe('todo');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('swimsuit');
+        expect(result.list_items?.[1].text).toBe('passport');
+        expect(result.list_items?.[2].text).toBe('charger');
+        expect(result.list_items?.every((item) => item.checked === false)).toBe(true);
+      });
+
+      it('should detect asterisk list in todo', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Meeting prep:\n* Review slides\n* Print handouts\n* Test projector',
+          aiTags: ['meeting', 'prep'],
+        });
+
+        expect(result.canonicalType).toBe('todo');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('Review slides');
+        expect(result.list_items?.[1].text).toBe('Print handouts');
+        expect(result.list_items?.[2].text).toBe('Test projector');
+      });
+    });
+
+    describe('list-like note/log inputs', () => {
+      it('should detect bullet list in note and populate has_list + list_items', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText:
+            'Ideas for blog posts:\n- How to debug React hooks\n- TypeScript best practices\n- Testing async code',
+          aiTags: ['blog', 'writing', 'ideas'],
+        });
+
+        expect(result.canonicalType).toBe('log');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('How to debug React hooks');
+        expect(result.list_items?.[1].text).toBe('TypeScript best practices');
+        expect(result.list_items?.[2].text).toBe('Testing async code');
+        // Subtype must NOT be 'list' (list is now an attribute)
+        expect(result.subtype).not.toBe('list');
+        // Should be classified as reference, idea, or null
+        expect(['reference', 'idea', null]).toContain(result.subtype);
+      });
+
+      it('should detect numbered list in note', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText: 'Things to remember:\n1. Call dentist\n2. Update resume\n3. Water plants',
+          aiTags: ['reminders', 'tasks'],
+        });
+
+        expect(result.canonicalType).toBe('log');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('Call dentist');
+        expect(result.list_items?.[1].text).toBe('Update resume');
+        expect(result.list_items?.[2].text).toBe('Water plants');
+        expect(result.subtype).not.toBe('list');
+      });
+    });
+
+    describe('list-like habit inputs', () => {
+      it('should detect bullet list in habit and populate has_list + list_items', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'habit',
+          rawText: 'Morning routine:\n- Brush teeth\n- Meditate\n- Exercise',
+          aiTags: ['morning', 'routine'],
+        });
+
+        expect(result.canonicalType).toBe('habit');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('Brush teeth');
+        expect(result.list_items?.[1].text).toBe('Meditate');
+        expect(result.list_items?.[2].text).toBe('Exercise');
+        expect(result.list_items?.every((item) => item.checked === false)).toBe(true);
+        // Habits don't have subtype
+        expect(result.subtype).toBeUndefined();
+      });
+
+      it('should detect numbered list in habit', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'habit',
+          rawText: 'Bedtime checklist:\n1. Floss\n2. Read 10 pages\n3. Set alarm',
+          aiTags: ['bedtime', 'sleep'],
+        });
+
+        expect(result.canonicalType).toBe('habit');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('Floss');
+        expect(result.list_items?.[1].text).toBe('Read 10 pages');
+        expect(result.list_items?.[2].text).toBe('Set alarm');
+      });
+    });
+
+    describe('non-list inputs (control tests)', () => {
+      it('should not detect list for plain todo text', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Buy milk tomorrow morning',
+          aiTags: ['shopping'],
+        });
+
+        expect(result.canonicalType).toBe('todo');
+        expect(result.has_list).toBe(false);
+        expect(result.list_items).toBe(null);
+      });
+
+      it('should not detect list for plain note text', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText: 'I need to think about my goals for next year',
+          aiTags: ['reflection', 'goals'],
+        });
+
+        expect(result.canonicalType).toBe('log');
+        expect(result.has_list).toBe(false);
+        expect(result.list_items).toBe(null);
+      });
+
+      it('should not detect list for plain habit text', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'habit',
+          rawText: 'Meditate daily at 7am',
+          aiTags: ['meditation'],
+        });
+
+        expect(result.canonicalType).toBe('habit');
+        expect(result.has_list).toBe(false);
+        expect(result.list_items).toBe(null);
+      });
+
+      it('should not detect list for text with single bullet (not a list)', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText: 'Just one note - remember to call Sarah',
+          aiTags: ['reminder'],
+        });
+
+        expect(result.canonicalType).toBe('log');
+        expect(result.has_list).toBe(false);
+        expect(result.list_items).toBe(null);
+      });
+    });
+
+    describe('edge cases for list detection', () => {
+      it('should handle list with title prefix', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Shopping list for dinner:\n- chicken\n- rice\n- vegetables',
+          aiTags: ['shopping', 'dinner'],
+        });
+
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        // Title should include the prefix
+        expect(result.title).toContain('Shopping list');
+      });
+
+      it('should handle mixed list formats (bullets and numbers)', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText:
+            'Project tasks:\n- Research competitors\n1. Analyze pricing\n2. Document features',
+          aiTags: ['project', 'research'],
+        });
+
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toBeDefined();
+        // Should parse all list items regardless of mixed format
+        expect(result.list_items!.length).toBeGreaterThan(0);
+      });
+
+      it('should handle list with empty lines between items', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Weekend tasks:\n- Clean garage\n\n- Fix bicycle\n\n- Water garden',
+          aiTags: ['weekend', 'chores'],
+        });
+
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('Clean garage');
+        expect(result.list_items?.[1].text).toBe('Fix bicycle');
+        expect(result.list_items?.[2].text).toBe('Water garden');
+      });
+
+      it('should preserve list structure when AI title provided', async () => {
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'todo',
+          rawText: 'Grocery list:\n- eggs\n- milk\n- bread',
+          aiTitle: 'Groceries',
+          aiTags: ['shopping'],
+        });
+
+        expect(result.title).toBe('Groceries'); // AI title used
+        expect(result.has_list).toBe(true); // List detection still works
+        expect(result.list_items).toHaveLength(3);
+      });
+    });
+
+    describe('subtype behavior for notes with lists', () => {
+      it('should NOT use "list" subtype even if AI suggests it', async () => {
+        // This tests the migration path: old AI might suggest subtype='list',
+        // but Stage A should convert it to null and use has_list instead
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText: 'Shopping items:\n- apples\n- bananas\n- oranges',
+          aiTags: ['shopping', 'list'],
+        });
+
+        expect(result.canonicalType).toBe('log');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toHaveLength(3);
+        // Subtype must NOT be 'list' (it's an attribute now)
+        expect(result.subtype).not.toBe('list');
+        // Should use reference, idea, or null as fallback
+        expect(['reference', 'idea', null]).toContain(result.subtype);
+      });
+    });
+  });
+
   describe('edge cases', () => {
     it('should handle empty aiTags array', async () => {
       // Mock AI extraction

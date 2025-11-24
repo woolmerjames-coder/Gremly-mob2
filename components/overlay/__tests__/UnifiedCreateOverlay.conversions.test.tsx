@@ -72,10 +72,11 @@ import { UnifiedCreateOverlay } from '../UnifiedCreateOverlay';
 describe('UnifiedCreateOverlay conversions overflow menu', () => {
   const originalCanonicalFlag = env.feature.canonicalConversions;
 
+  // Lists are no longer a subtype; they are expressed as has_list + list_items
   const baseNote: any = {
     id: 'note-1',
     type: 'note',
-    subtype: 'list',
+    subtype: 'reference',
     body: '- [ ] Pack\n- [x] Brush',
     space_id: null,
     ai_placed: false,
@@ -90,6 +91,11 @@ describe('UnifiedCreateOverlay conversions overflow menu', () => {
     owner_id: 'user-1',
     fmt: 'checkboxes',
     tags: null,
+    has_list: true,
+    list_items: [
+      { id: 'item-1', text: 'Pack', checked: false },
+      { id: 'item-2', text: 'Brush', checked: true },
+    ],
   };
 
   afterEach(() => {
@@ -136,12 +142,12 @@ describe('UnifiedCreateOverlay conversions overflow menu', () => {
       <UnifiedCreateOverlay
         visible
         mode="edit"
-        initialEntity={{ type: 'log', id: baseNote.id, logSubtype: 'list' }}
+        initialEntity={{ type: 'log', id: baseNote.id, logSubtype: 'everything_else' }}
         onClose={jest.fn()}
       />,
     );
 
-  return { ...utils, repoMock: mockRepo };
+    return { ...utils, repoMock: mockRepo };
   };
 
   it('shows overflow button when conversions flag is enabled and checklist present', async () => {

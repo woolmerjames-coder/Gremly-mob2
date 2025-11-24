@@ -14,7 +14,7 @@ jest.mock('../../cortex/createEngine', () => ({
   createCortexEngine: jest.fn(() => ({
     classify: jest.fn(async () => ({
       type: 'note',
-      subtype: 'list',
+      subtype: 'reference', // Lists are attributes, not subtypes
       text: 'test item',
       confidence: 0.9, // High confidence to trigger 'auto' mode
       aiPlaced: true,
@@ -45,7 +45,7 @@ describe('Space Chat rules', () => {
     createCortexEngine.mockReturnValue({
       classify: jest.fn().mockResolvedValue({
         type: 'note',
-        subtype: 'list',
+        subtype: 'reference', // Lists are attributes, not subtypes
         text: 'test item',
         confidence: 0.9,
         aiPlaced: true,

@@ -37,7 +37,7 @@ const makeNote = (overrides: Partial<Note> = {}): Note => {
     type: 'note',
     title: 'Daily Log',
     body: '- [ ] Stretch\n- [x] Meditate',
-    subtype: 'list',
+    subtype: 'reference',
     space_id: null,
     ai_placed: false,
     archived: false,
@@ -55,6 +55,12 @@ const makeNote = (overrides: Partial<Note> = {}): Note => {
     mood: null,
     reminders: null,
     journal_subtype: null,
+    has_list: true,
+    list_items: [
+      { id: 'item-1', text: 'Stretch', checked: false },
+      { id: 'item-2', text: 'Meditate', checked: true },
+    ],
+    body_legacy: null,
     ...overrides,
   };
 };
@@ -85,6 +91,9 @@ const makeTodo = (overrides: Partial<Todo> = {}): Todo => {
     created_at: iso,
     updated_at: iso,
     owner_id: 'user-1',
+    has_list: false,
+    list_items: null,
+    body_legacy: null,
     ...overrides,
   };
 };
@@ -200,9 +209,19 @@ describe('convertTodoToLogList', () => {
       type: 'note',
       title: 'Follow up',
       body: '- [ ] Email team\n- [x] Update doc',
-      subtype: 'list',
+      subtype: 'reference',
       fmt: 'checkboxes',
       why_string: 'origin:todo-1;source:todo',
+      has_list: true,
+    });
+    expect(capturedCreate?.list_items).toHaveLength(2);
+    expect(capturedCreate?.list_items?.[0]).toMatchObject({
+      text: 'Email team',
+      checked: false,
+    });
+    expect(capturedCreate?.list_items?.[1]).toMatchObject({
+      text: 'Update doc',
+      checked: true,
     });
 
     expect(capturedUpdate).toMatchObject({

@@ -138,7 +138,7 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
     it('should use preferredListKeys when detecting list intent', async () => {
       mockEngine.classify.mockResolvedValue({
         type: 'note',
-        subtype: 'list',
+        subtype: null, // Lists are attributes, not subtypes
         confidence: 0.8,
         text: 'add socks',
       });
@@ -160,16 +160,18 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const candidate = (result.meta?.candidateActions ?? []) as any[];
       expect(candidate).toHaveLength(1);
-      expect(candidate[0].type).toBe('add.to.list');
-      if (candidate[0].type === 'add.to.list') {
-        expect(candidate[0].payload.listKey).toBe('packing');
+      // Lists are no longer add.to.list - they're create.note with has_list attribute
+      expect(candidate[0].type).toBe('create.note');
+      if (candidate[0].type === 'create.note') {
+        // List biasing may be handled differently now
+        expect(candidate[0].payload.text).toContain('socks');
       }
     });
 
     it('should fallback to heuristics when no preferred keys match', async () => {
       mockEngine.classify.mockResolvedValue({
         type: 'note',
-        subtype: 'list',
+        subtype: null, // Lists are attributes, not subtypes
         confidence: 0.8,
         text: 'buy milk',
       });
@@ -191,9 +193,10 @@ describe('Cortex biasing with space defaults (Phase 10.4)', () => {
 
       const candidate = (result.meta?.candidateActions ?? []) as any[];
       expect(candidate).toHaveLength(1);
-      expect(candidate[0].type).toBe('add.to.list');
-      if (candidate[0].type === 'add.to.list') {
-        expect(candidate[0].payload.listKey).toBe('shopping');
+      // Lists are no longer add.to.list - they're create.note with has_list attribute
+      expect(candidate[0].type).toBe('create.note');
+      if (candidate[0].type === 'create.note') {
+        expect(candidate[0].payload.text).toContain('milk');
       }
     });
   });

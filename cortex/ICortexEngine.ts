@@ -19,7 +19,7 @@ export type CortexOutput =
     }
   | {
       type: 'note';
-      subtype: 'journal' | 'list' | 'idea' | 'catchall';
+      subtype: 'journal' | 'idea' | 'catchall' | 'reference';
       aiPlaced: boolean;
       whyString: string;
       /** AI-suggested tags the user can edit before saving */

@@ -79,6 +79,7 @@ import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
+import { Checklist } from '../lists/Checklist';
 // Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
@@ -941,6 +942,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const rawSubtype = entity?.subtype as string | undefined;
     if (
       rawSubtype === 'journal' ||
+      // Legacy guard: Very old data may have subtype='list' stored before migration
       rawSubtype === 'list' ||
       rawSubtype === 'reference' ||
       rawSubtype === 'idea'
@@ -2442,6 +2444,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+          // Phase 7 Lists
+          has_list: s.todo.has_list,
+          list_items: s.todo.list_items,
         };
       }
 
@@ -2475,6 +2480,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+        // Phase 7 Lists
+        has_list: s.todo.has_list,
+        list_items: s.todo.list_items,
       };
     }
     if (baseType === 'habit') {
@@ -2504,6 +2512,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+          // Phase 7 Lists
+          has_list: s.habit.has_list,
+          list_items: s.habit.list_items,
         };
       }
 
@@ -2524,6 +2535,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+        // Phase 7 Lists
+        has_list: s.habit.has_list,
+        list_items: s.habit.list_items,
       };
     }
 
@@ -3306,7 +3320,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               {/* Main text field - moved above tags */}
               <Box px={4} mt={3}>
                 <View style={{ position: 'relative' }}>
-                  {/* Conditional rendering: ChecklistInput for lists, TextInput otherwise */}
+                  {/* Legacy: ChecklistInput shown for old subtype='list' notes (new data uses has_list attribute) */}
                   {effectiveLogSubtype === 'list' ? (
                     <ChecklistInput
                       text={currentText}
@@ -3711,6 +3725,88 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </View>
                   </Box>
                 ) : null}
+
+                {/* Phase 7 Lists: Checklist UI for todos, habits, and notes */}
+                {(baseType === 'todo' || baseType === 'habit' || baseType === 'log') && (
+                  <Box mt={3} px={4}>
+                    {(() => {
+                      const currentState =
+                        baseType === 'todo'
+                          ? state.todo
+                          : baseType === 'habit'
+                            ? state.habit
+                            : state.log;
+                      const hasChecklist = currentState.has_list;
+                      const items = currentState.list_items;
+                      const bodyText =
+                        baseType === 'todo'
+                          ? state.todo.details
+                          : baseType === 'habit'
+                            ? state.habit.notes
+                            : state.log.body;
+
+                      if (!hasChecklist) {
+                        // Show "Add checklist" button when no checklist exists
+                        return (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={() => {
+                              // Auto-parse from body text if it contains list-like content
+                              dispatch({
+                                type: 'ENABLE_CHECKLIST',
+                                autoParseFrom: bodyText || undefined,
+                              });
+                            }}
+                            title="+ Add checklist"
+                          />
+                        );
+                      }
+
+                      // Show checklist when enabled
+                      return (
+                        <View>
+                          <Checklist
+                            items={items || []}
+                            onToggle={(itemId) => {
+                              dispatch({ type: 'TOGGLE_CHECKLIST_ITEM', itemId });
+                            }}
+                            onAdd={(text) => {
+                              dispatch({ type: 'ADD_CHECKLIST_ITEM', text });
+                            }}
+                            onRemove={(itemId) => {
+                              dispatch({ type: 'REMOVE_CHECKLIST_ITEM', itemId });
+                            }}
+                            onUpdateText={(itemId, text) => {
+                              dispatch({ type: 'UPDATE_CHECKLIST_ITEM', itemId, text });
+                            }}
+                          />
+                          <Box mt={2}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onPress={() => {
+                                Alert.alert(
+                                  'Remove checklist?',
+                                  'This will remove the checklist but keep your content.',
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Remove',
+                                      style: 'destructive',
+                                      onPress: () => dispatch({ type: 'DISABLE_CHECKLIST' }),
+                                    },
+                                  ],
+                                );
+                              }}
+                              title="Remove checklist"
+                            />
+                          </Box>
+                        </View>
+                      );
+                    })()}
+                  </Box>
+                )}
 
                 <Box mt={3.5} row style={{ alignItems: 'center' }}>
                   <Button
@@ -5566,17 +5662,23 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         notes: habitLongText,
         schedule: 'custom',
         frequency_json: (entity as any)?.frequency_value ?? null, // Load frequency_json from DB
+        has_list: (entity as any)?.has_list ?? false,
+        list_items: (entity as any)?.list_items ?? null,
       },
       todo: {
         title: compactTitle,
         details: habitLongText,
         due_at: null,
+        has_list: false,
+        list_items: null,
       },
       log: {
         title: compactTitle,
         body: habitLongText,
         kind: classifyLogKind(habitLongText),
         private: false, // Default for logs (Phase L7)
+        has_list: false,
+        list_items: null,
       },
       tags: extractedTags,
       stickyTags: normalizeMetaValues(tagsMeta?.sticky),
@@ -5630,6 +5732,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const rawSubtype = (entity as any)?.subtype as string | undefined;
   let logSubtypeOverride: 'journal' | 'list' | 'idea' | 'plain' | null = null;
   if (baseType === 'log') {
+    // Legacy guard: Support old subtype='list' data before migration to has_list attribute
     if (rawSubtype === 'journal' || rawSubtype === 'list' || rawSubtype === 'idea') {
       logSubtypeOverride = rawSubtype;
     } else if (rawSubtype === null || rawSubtype === undefined || rawSubtype === 'catchall') {
@@ -5652,16 +5755,22 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       body: logBody,
       kind: classifyLogKind(logBody),
       private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
+      has_list: (entity as any)?.has_list ?? false,
+      list_items: (entity as any)?.list_items ?? null,
     },
     todo: {
       title: todoTitle,
       details: todoDetails,
       due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
+      has_list: (entity as any)?.has_list ?? false,
+      list_items: (entity as any)?.list_items ?? null,
     },
     habit: {
       title: name || title || '',
       notes: rawDetails || '',
       schedule: 'custom',
+      has_list: (entity as any)?.has_list ?? false,
+      list_items: (entity as any)?.list_items ?? null,
     },
     tags: extractedTags, // Initialize tags from entity for all types
     stickyTags: normalizeMetaValues(tagsMeta?.sticky),

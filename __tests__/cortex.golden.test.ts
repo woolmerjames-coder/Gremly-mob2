@@ -42,12 +42,12 @@ describe('Cortex Golden Phrase Tests', () => {
   });
 
   describe('G1 - Shopping list intent (auto)', () => {
-    it('should normalize shopping list add to add.to.list action with high confidence', async () => {
+    it('should create note action for shopping list with high confidence', async () => {
       // Mock engine returns high-confidence list intent
-      // Note: Engine returns note with list subtype, normalization detects shopping keyword
+      // Note: Lists are no longer a subtype; they're detected as has_list attribute
       mockEngine.classify.mockResolvedValue({
         type: 'note',
-        subtype: 'list',
+        subtype: null, // Lists are attributes, not subtypes
         aiPlaced: true,
         whyString: 'User wants to add oats to shopping list',
         confidence: 0.92,
@@ -66,17 +66,16 @@ describe('Cortex Golden Phrase Tests', () => {
       expect(result.mode).toBe('auto');
       expect(result.confidence).toBeGreaterThanOrEqual(0.85);
 
-      // Expect normalized action
+      // Expect create.note action (lists are no longer add.to.list)
       expect(result.actions).toHaveLength(1);
-      expect(result.actions[0].type).toBe('add.to.list');
-      if (result.actions[0].type === 'add.to.list') {
-        expect(result.actions[0].payload.listKey).toBe('shopping');
-        expect(result.actions[0].payload.item).toContain('oats');
+      expect(result.actions[0].type).toBe('create.note');
+      if (result.actions[0].type === 'create.note') {
+        // List detection happens in Mind Drop pipeline via has_list attribute
+        expect(result.actions[0].payload.text).toContain('oats');
       }
 
       // Expect friendly explanation
       expect(result.explanation).toBeTruthy();
-      expect(result.explanation).toContain('Shopping');
     });
   });
 

@@ -800,8 +800,8 @@ function extractTopics(
     [...people, ...places].map((tag) => tag.replace(/^@/, '')),
   );
 
-  // For lists, check for common list items
-  if (subtype === 'list' || lowerText.match(/[-*•]\s/)) {
+  // For lists (detected by text pattern), check for common list items
+  if (lowerText.match(/[-*•]\s/)) {
     if (lowerText.match(/\b(milk|eggs|bread|butter|cheese)\b/)) {
       topics.push('groceries');
     }

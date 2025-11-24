@@ -45,6 +45,8 @@ const seed = (ownerId: string): AppRecord[] => {
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
+    has_list: false,
+    list_items: null,
   };
 
   const t1: Todo = {
@@ -62,6 +64,8 @@ const seed = (ownerId: string): AppRecord[] => {
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
+    has_list: false,
+    list_items: null,
   };
 
   const n1: Note = {
@@ -78,6 +82,8 @@ const seed = (ownerId: string): AppRecord[] => {
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
+    has_list: false,
+    list_items: null,
   };
 
   return [h1, t1, n1];
@@ -180,6 +186,10 @@ export class MemoryRepo implements IRepo {
         triggers: input.triggers ?? null,
         replacement_habit_id: input.replacement_habit_id ?? null,
         replacement_text: input.replacement_text ?? null,
+        // Phase 7 Lists support
+        has_list: input.has_list ?? false,
+        list_items: input.list_items ?? null,
+        body_legacy: input.body_legacy ?? null,
       };
     } else if (input.type === 'todo') {
       // Phase 7+: name is the primary required field
@@ -209,6 +219,10 @@ export class MemoryRepo implements IRepo {
         labels: input.labels,
         views: input.views,
         drop_id: input.dropId ?? null,
+        // Phase 7 Lists support
+        has_list: input.has_list ?? false,
+        list_items: input.list_items ?? null,
+        body_legacy: input.body_legacy ?? null,
       };
     } else {
       // note - subtype is optional in database schema (can be null)
@@ -238,6 +252,10 @@ export class MemoryRepo implements IRepo {
         journal_subtype: input.journal_subtype ?? null,
         source_message_id: input.sourceMessageId ?? null,
         drop_id: input.dropId ?? null,
+        // Phase 7 Lists support
+        has_list: input.has_list ?? false,
+        list_items: input.list_items ?? null,
+        body_legacy: input.body_legacy ?? null,
       };
     }
 
@@ -1579,6 +1597,8 @@ export class MemoryRepo implements IRepo {
       updated_at: now,
       owner_id: input.user_id,
       space_id: input.space_id,
+      has_list: false,
+      list_items: null,
     };
 
     this.data.push(note);

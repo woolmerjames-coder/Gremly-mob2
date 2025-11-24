@@ -18,8 +18,9 @@ describe('HeuristicEngine', () => {
   test('detects list', async () => {
     const out = await heuristicEngine.classify({ text: '- buy milk\n- eggs' });
     expect(out.type).toBe('note');
+    // Lists are no longer a subtype - heuristicEngine returns 'reference'
     // @ts-expect-error - accessing discriminated union property
-    expect(out.subtype).toBe('list');
+    expect(out.subtype).toBe('reference');
   });
 
   test('default catchall', async () => {

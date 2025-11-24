@@ -58,7 +58,7 @@ describe('schemas', () => {
       id: 'x',
       type: 'note',
       title: 'List',
-      subtype: 'list',
+      subtype: 'reference',
       body: '- a\n- b',
       space_id: null,
       ai_placed: false,
@@ -66,6 +66,12 @@ describe('schemas', () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       owner_id: 'test-user',
+      has_list: true,
+      list_items: [
+        { id: 'item-1', text: 'a', checked: false },
+        { id: 'item-2', text: 'b', checked: false },
+      ],
+      body_legacy: null,
     });
     expect(r.type).toBe('note');
   });

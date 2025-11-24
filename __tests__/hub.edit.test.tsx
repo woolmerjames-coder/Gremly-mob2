@@ -58,11 +58,17 @@ const mockDataStore = {
     {
       id: 'note-edit-1',
       type: 'note',
-      subtype: 'list',
+      subtype: 'reference',
       title: 'Grocery List',
       body: '- Milk\n- Eggs\n- Bread',
       space_id: null,
       ai_placed: false,
+      has_list: true,
+      list_items: [
+        { id: 'item-1', text: 'Milk', checked: false },
+        { id: 'item-2', text: 'Eggs', checked: false },
+        { id: 'item-3', text: 'Bread', checked: false },
+      ],
       created_at: '2025-01-05T00:00:00Z',
       updated_at: '2025-01-19T10:00:00Z',
       owner_id: 'test-user-id',

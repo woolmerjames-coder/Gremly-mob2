@@ -223,7 +223,8 @@ describe('Spaces v2 - Space Selectors', () => {
         createNote({ subtype: 'journal' }),
         createNote({ subtype: 'idea' }),
         createNote({ subtype: 'journal' }),
-        createNote({ subtype: 'list' }),
+        // Lists are no longer a subtype; they are expressed as has_list + list_items
+        createNote({ subtype: 'reference', has_list: true }),
       ];
 
       const journals = listNotesForSpace(items, spaceId, { subtype: 'journal' });
@@ -245,7 +246,7 @@ describe('Spaces v2 - Space Selectors', () => {
         createNote({ subtype: 'idea' }),
         createNote({ subtype: 'idea' }),
         createNote({ subtype: 'idea' }),
-        createNote({ subtype: 'list' }),
+        createNote({ subtype: 'reference', has_list: true }),
       ];
 
       const ideas = listNotesForSpace(items, spaceId, { subtype: 'idea', limit: 2 });

@@ -227,11 +227,11 @@ function DestinationPickerSheet({
           await repo.update({ id: itemId, patch: { archived: true, ai_placed: false } });
         }
       } else if (destination === 'list') {
-        if (itemType === 'note' && itemSubtype !== 'list') {
-          // Update existing note to list subtype
+        if (itemType === 'note' && !(currentItem as Note).has_list) {
+          // Update existing note to have list attribute
           await repo.update({
             id: itemId,
-            patch: { subtype: 'list', ai_placed: false } as Partial<Note>,
+            patch: { has_list: true, subtype: 'reference', ai_placed: false } as Partial<Note>,
           });
         } else if (itemType !== 'note') {
           // Create new list note, archive original
@@ -239,7 +239,8 @@ function DestinationPickerSheet({
             type: 'note',
             title,
             body: (currentItem as Note).body ?? undefined,
-            subtype: 'list',
+            subtype: 'reference',
+            has_list: true,
             origin: origin ?? 'catchall',
           });
           await repo.update({ id: itemId, patch: { archived: true, ai_placed: false } });
