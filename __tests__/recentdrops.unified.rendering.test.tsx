@@ -33,6 +33,14 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock AuthProvider
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user' },
+    userId: undefined, // IMPORTANT: Disable Supabase subscriptions in tests
+  }),
+}));
+
 // Repo mocks
 const mockNotesList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
 const mockTodosList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
