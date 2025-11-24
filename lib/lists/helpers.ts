@@ -7,6 +7,7 @@
 
 import { genId } from '../types';
 import type { ListItem } from './types';
+import { randomUUID } from 'crypto';
 
 /**
  * Regular expressions for detecting list patterns
@@ -63,7 +64,7 @@ export function parseTextToListItems(body: string): ListItem[] {
     if (checkboxMatch) {
       const [, checkmark, text] = checkboxMatch;
       items.push({
-        id: genId('list-item'),
+        id: randomUUID(),
         text: text.trim(),
         checked: checkmark.toLowerCase() === 'x',
       });
@@ -74,7 +75,7 @@ export function parseTextToListItems(body: string): ListItem[] {
     const bulletMatch = trimmed.match(LIST_PATTERNS.bullet);
     if (bulletMatch) {
       items.push({
-        id: genId('list-item'),
+        id: randomUUID(),
         text: bulletMatch[1].trim(),
         checked: false,
       });
@@ -85,7 +86,7 @@ export function parseTextToListItems(body: string): ListItem[] {
     const numberedMatch = trimmed.match(LIST_PATTERNS.numbered);
     if (numberedMatch) {
       items.push({
-        id: genId('list-item'),
+        id: randomUUID(),
         text: numberedMatch[1].trim(),
         checked: false,
       });
@@ -137,7 +138,7 @@ export function addListItem(items: ListItem[], text: string): ListItem[] {
   return [
     ...items,
     {
-      id: genId('list-item'),
+      id: randomUUID(),
       text: trimmedText,
       checked: false,
     },
