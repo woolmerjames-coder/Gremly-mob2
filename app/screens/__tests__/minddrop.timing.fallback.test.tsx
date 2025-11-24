@@ -128,6 +128,15 @@ jest.mock('../../../lib/conversion', () => {
   };
 });
 
+// Mock Mind Drop v3 pipeline stages
+const mockRunMindDropStageAClassification = jest.fn();
+const mockRunMindDropStageBPrefill = jest.fn();
+
+jest.mock('../../../lib/minddrop/pipelineStages', () => ({
+  runMindDropStageAClassification: (...args: any[]) => mockRunMindDropStageAClassification(...args),
+  runMindDropStageBPrefill: (...args: any[]) => mockRunMindDropStageBPrefill(...args),
+}));
+
 const RealDate = Date;
 
 const setFixedDate = (value: string | number | Date) => {
@@ -189,6 +198,31 @@ const resetOtherMocks = () => {
   mockDecideWithContext.mockReset();
   mockDecideWithContext.mockImplementation(async () => createAutoTodoDecision());
   mockShowActionToast.mockReset();
+
+  // Reset Mind Drop v3 pipeline stage mocks
+  mockRunMindDropStageAClassification.mockReset();
+  mockRunMindDropStageBPrefill.mockReset();
+
+  // Default Stage A behavior: successfully create a todo
+  let stageACounter = 0;
+  mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+    const todoId = `todo-stage-a-${++stageACounter}`;
+    return {
+      entities: {
+        todos: [todoId],
+        habits: [],
+        notes: [],
+      },
+      entityDetails: [{ kind: 'todo' as const }],
+      mode: params.decision.mode,
+      confidence: params.decision.confidence ?? 0.92,
+    };
+  });
+
+  // Default Stage B behavior: prefill succeeds
+  mockRunMindDropStageBPrefill.mockImplementation(async () => {
+    return { success: true };
+  });
 };
 
 const runTimingFallbackTimers = async () => {

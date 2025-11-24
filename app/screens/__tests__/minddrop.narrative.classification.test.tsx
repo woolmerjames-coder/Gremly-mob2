@@ -64,6 +64,14 @@ jest.mock('../../../lib/conversion', () => ({
     mockConvertUnsortedToLog(repo, noteId, options),
 }));
 
+// Mock Mind Drop v3 pipeline stages
+const mockRunMindDropStageAClassification = jest.fn();
+const mockRunMindDropStageBPrefill = jest.fn();
+jest.mock('../../../lib/minddrop/pipelineStages', () => ({
+  runMindDropStageAClassification: (...args: any[]) => mockRunMindDropStageAClassification(...args),
+  runMindDropStageBPrefill: (...args: any[]) => mockRunMindDropStageBPrefill(...args),
+}));
+
 const mockShowActionToast = jest.fn();
 jest.mock('../../../src/hooks/useActionToast', () => ({
   useActionToast: () => ({
