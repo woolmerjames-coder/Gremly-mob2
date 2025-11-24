@@ -352,7 +352,7 @@ export const convertUnsortedToLog = async (
   repo: IRepo,
   noteId: ID,
   options: {
-    subtype?: 'journal' | 'idea' | 'reference' | 'plain';
+    subtype?: 'journal' | 'idea' | 'catchall';
     skipAI?: boolean; // For photo-only logs or manual override cases
   } = {},
 ): Promise<{ note: Note }> => {
@@ -366,30 +366,31 @@ export const convertUnsortedToLog = async (
 
     const note = record as Note;
 
-    // Determine subtype: manual override > AI classification > fallback to 'journal'
-    // Note: Lists are now an attribute (has_list), not a subtype
-    let targetSubtype: 'journal' | 'idea' | 'reference' | 'plain';
+    // Determine subtype: manual override > AI classification > fallback to 'catchall'
+    // LS3: Use LS1 classifier via getEffectiveLogSubtype
+    let targetSubtype: 'journal' | 'idea' | 'catchall';
 
     if (options.subtype) {
       // Manual override provided
       targetSubtype = options.subtype;
     } else if (options.skipAI) {
       // Skip AI (e.g., photo-only logs) - use fallback
-      targetSubtype = 'plain';
+      targetSubtype = 'catchall';
     } else {
-      // Use AI classification
+      // Use LS1 classification via getEffectiveLogSubtype
       const rawText = note.body ?? note.title ?? '';
       try {
         const aiSubtype = await getEffectiveLogSubtype(rawText);
-        // Map 'list' to 'reference' since lists are now an attribute, not a subtype
+        // getEffectiveLogSubtype returns NoteSubtype (journal | idea | catchall | reference | null)
+        // Map to LS2 subtypes
         targetSubtype =
-          aiSubtype === 'list' ? 'reference' : (aiSubtype as 'journal' | 'idea' | 'reference');
+          aiSubtype === 'journal' ? 'journal' : aiSubtype === 'idea' ? 'idea' : 'catchall';
       } catch (err) {
         console.warn(
-          '[convertUnsortedToLog] AI subtype classification failed, using fallback',
+          '[convertUnsortedToLog] LS1 classification failed, using catchall fallback',
           err,
         );
-        targetSubtype = 'journal'; // Fallback to journal on AI failure
+        targetSubtype = 'catchall'; // Fallback to catchall on classification failure
       }
     }
 
@@ -405,8 +406,8 @@ export const convertUnsortedToLog = async (
       source: 'log_confirmation',
     });
 
-    // Convert 'plain' to null for database (plain means no specific subtype)
-    const subtypeForDb = targetSubtype === 'plain' ? null : targetSubtype;
+    // Convert 'catchall' to null for database (LS2 convention)
+    const subtypeForDb = targetSubtype === 'catchall' ? null : targetSubtype;
 
     const updatedNote = (await repo.update({
       id: note.id,

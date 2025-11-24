@@ -37,7 +37,7 @@ interface TitleInputs {
   entityType: 'todo' | 'habit' | 'note';
   originalTitle?: string | null; // what was stored at create time
   body?: string | null; // full text of the drop
-  aiTitle?: string | null; // from Cortex
+  aiTitle?: string | null; // From Cortex worker classification.title field
 }
 
 /**
@@ -197,8 +197,8 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
     // Log AI tags for debugging, but DO NOT save them to DB (tags come from Stage A)
     console.log('[BackgroundPrefill.EnrichmentOnly] Cortex result (tags logged only, not saved)', {
       entityId: entity.id,
-      aiTitle,
-      aiTagsDebug: aiTags,
+      classificationTitle: aiTitle, // From worker classification.title
+      classificationTags: aiTags, // From worker classification.tags (not persisted)
       elapsed: Date.now() - startTime,
     });
 

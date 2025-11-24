@@ -39,6 +39,7 @@ import {
   ChevronRight,
   Trash2,
   Camera,
+  Lightbulb,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -137,12 +138,12 @@ const SHORT_DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 // Smart list detection helper (Prompt 3)
 type ListDetectionResult =
-  | { kind: 'plain' }
+  | { kind: 'catchall' }
   | { kind: 'list'; items: Array<{ id: string; label: string; checked?: boolean }> };
 
 function detectListFromText(text: string): ListDetectionResult {
   if (!text || text.trim().length === 0) {
-    return { kind: 'plain' };
+    return { kind: 'catchall' };
   }
 
   const lines = text
@@ -151,7 +152,7 @@ function detectListFromText(text: string): ListDetectionResult {
     .filter((line) => line.length > 0);
 
   if (lines.length < 2) {
-    return { kind: 'plain' };
+    return { kind: 'catchall' };
   }
 
   // List patterns to detect
@@ -206,7 +207,7 @@ function detectListFromText(text: string): ListDetectionResult {
     return { kind: 'list', items };
   }
 
-  return { kind: 'plain' };
+  return { kind: 'catchall' };
 }
 
 // Helper: format time from "HH:mm" to "h:mm AM/PM"
@@ -881,22 +882,20 @@ function formatLogTimestamp(mode: 'create' | 'edit', entity: any | null): string
   }
 }
 
-// Helper to get log subtype chip label
-function getLogSubtypeChipLabel(
-  subtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain',
-): string | null {
+// Helper to get log subtype chip label (LS3)
+function getLogSubtypeChipLabel(subtype: 'journal' | 'idea' | 'catchall'): string | null {
   switch (subtype) {
     case 'journal':
       return 'Journal';
-    case 'list':
-      return 'List';
-    case 'reference':
-      return 'Reference';
     case 'idea':
       return 'Idea';
-    case 'plain':
+    case 'catchall':
+      return 'General';
     default:
-      return null;
+      if (__DEV__) {
+        console.warn('[getLogSubtypeChipLabel] Unexpected subtype:', subtype);
+      }
+      return 'General';
   }
 }
 
@@ -927,37 +926,67 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isIdeaLog = isLog && logKind === 'idea';
   const isListLog = isLog && logKind === 'list';
 
-  // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
-  // Priority order: manual override > tags > entity subtype > AI classification > fallback
-  const effectiveLogSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' = useMemo(() => {
-    if (!isLog) return 'plain';
+  // LS3: Derive effective log subtype from entity or fallback to 'catchall'
+  // Priority order: entity subtype (from LS2) > fallback to 'catchall'
+  const effectiveLogSubtype: 'journal' | 'idea' | 'catchall' = useMemo(() => {
+    if (!isLog) return 'catchall';
 
     // 1. Manual override takes HIGHEST precedence (user explicitly chose)
-    if (state.logSubtypeOverride) return state.logSubtypeOverride;
-
-    // 2. Tag-based detection (auto-detection from #list, #journal, etc.)
-    if (state.tags.includes('list')) return 'list';
-    if (state.tags.includes('journal')) return 'journal';
-    if (state.tags.includes('idea')) return 'idea';
-    if (state.tags.includes('reference')) return 'reference';
-
-    // 3. Fallback to entity.subtype if present (edit mode)
-    const entity = initialEntity as any;
-    const rawSubtype = entity?.subtype as string | undefined;
-    if (
-      rawSubtype === 'journal' ||
-      // Legacy guard: Very old data may have subtype='list' stored before migration
-      rawSubtype === 'list' ||
-      rawSubtype === 'reference' ||
-      rawSubtype === 'idea'
-    ) {
-      return rawSubtype;
+    if (state.logSubtypeOverride) {
+      // Map old overrides to LS2 subtypes
+      if (state.logSubtypeOverride === 'journal') return 'journal';
+      if (state.logSubtypeOverride === 'idea') return 'idea';
+      // Map deprecated subtypes to catchall
+      return 'catchall';
     }
 
-    // For new logs or when entity has no subtype, AI classification will be used in toCreateOrUpdateInput
-    // Return 'plain' here as placeholder - actual AI classification happens at save time
-    return 'plain';
+    // 2. Tag-based detection (auto-detection from #journal, #idea)
+    if (state.tags.includes('journal')) return 'journal';
+    if (state.tags.includes('idea')) return 'idea';
+
+    // 3. Read from entity.subtype if present (edit mode - this is the LS2 persisted value)
+    const entity = initialEntity as any;
+    const rawSubtype = entity?.subtype as string | undefined;
+    if (rawSubtype === 'journal') return 'journal';
+    if (rawSubtype === 'idea') return 'idea';
+    if (rawSubtype === 'catchall') return 'catchall';
+
+    // 4. Fallback to 'catchall' for new logs or null subtype
+    if (__DEV__ && rawSubtype && rawSubtype !== 'reference') {
+      console.warn('[effectiveLogSubtype] Unexpected subtype, using catchall:', rawSubtype);
+    }
+    return 'catchall';
   }, [isLog, state.logSubtypeOverride, initialEntity, state.tags]);
+
+  // Debug log for effective subtype computation
+  useEffect(() => {
+    if (!isLog || !visible) return;
+    const entity = initialEntity as any;
+    console.log('[OVERLAY][EFFECTIVE_SUBTYPE_UI]', {
+      effectiveSubtype: effectiveLogSubtype,
+      entitySubtype: entity?.subtype,
+      entityId: entity?.id,
+      tags: state.tags,
+    });
+  }, [isLog, visible, effectiveLogSubtype, initialEntity, state.tags]);
+
+  // DEBUG: Log subtype computation in overlay (only for logs)
+  useEffect(() => {
+    if (!isLog || !visible) return;
+
+    const entity = initialEntity as any;
+    const rawSubtype = entity?.subtype;
+    const noteId = entity?.id;
+
+    console.log('[UnifiedOverlayV2.LogSubtype]', {
+      scope: 'UnifiedOverlayV2.LogSubtype',
+      noteId,
+      rawSubtype,
+      tags: state.tags.slice(0, 5), // First 5 tags
+      overrideSubtype: state.logSubtypeOverride,
+      effectiveLogSubtype,
+    });
+  }, [isLog, visible, effectiveLogSubtype, initialEntity, state.tags, state.logSubtypeOverride]);
 
   // Journal detection for mood selector (Phase L4) - now uses effectiveLogSubtype
   const isJournal = isLog && effectiveLogSubtype === 'journal';
@@ -967,7 +996,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Prompt 3: Smart list detection for logs
   const listDetection = useMemo(() => {
-    if (!isLog) return { kind: 'plain' } as const;
+    if (!isLog) return { kind: 'catchall' } as const;
     return detectListFromText(state.log.body);
   }, [isLog, state.log.body]);
 
@@ -1701,8 +1730,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Determine subtype for tag extraction
     let extractionSubtype: string | undefined;
     if (baseType === 'log') {
-      // Use effectiveLogSubtype for logs
-      extractionSubtype = effectiveLogSubtype === 'plain' ? undefined : effectiveLogSubtype;
+      // Use effectiveLogSubtype for logs (LS3: catchall maps to undefined for generic extraction)
+      extractionSubtype = effectiveLogSubtype === 'catchall' ? undefined : effectiveLogSubtype;
     }
 
     // Extract meaningful tags deterministically
@@ -2123,7 +2152,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Determine subtype for tag extraction
       let extractionSubtype: string | undefined;
       if (baseType === 'log') {
-        extractionSubtype = effectiveLogSubtype === 'plain' ? undefined : effectiveLogSubtype;
+        extractionSubtype = effectiveLogSubtype === 'catchall' ? undefined : effectiveLogSubtype;
       }
 
       // Extract tags deterministically
@@ -2157,13 +2186,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }, 1000) as unknown as number;
   }, []);
 
-  // Handle log subtype chip press - open selector for manual override
+  // Handle log subtype chip press - open selector for manual override (LS3)
   const handleLogSubtypeChipPress = useCallback(() => {
     if (!isLog) return;
 
-    const options = ['Journal', 'List', 'Reference', 'Idea', 'Clear subtype', 'Cancel'];
-    const destructiveButtonIndex = 4; // Clear subtype
-    const cancelButtonIndex = 5;
+    const options = ['Journal', 'Idea', 'General', 'Clear subtype', 'Cancel'];
+    const destructiveButtonIndex = 3; // Clear subtype
+    const cancelButtonIndex = 4;
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -2176,12 +2205,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         (buttonIndex) => {
           if (buttonIndex === cancelButtonIndex) return;
 
-          const subtypeMap: Record<number, 'journal' | 'list' | 'reference' | 'idea' | null> = {
+          const subtypeMap: Record<number, 'journal' | 'idea' | 'catchall' | null> = {
             0: 'journal',
-            1: 'list',
-            2: 'reference',
-            3: 'idea',
-            4: null, // Clear subtype
+            1: 'idea',
+            2: 'catchall',
+            3: null, // Clear subtype
           };
 
           const value = subtypeMap[buttonIndex];
@@ -2196,16 +2224,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'journal' }),
         },
         {
-          text: 'List',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'list' }),
-        },
-        {
-          text: 'Reference',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'reference' }),
-        },
-        {
           text: 'Idea',
           onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'idea' }),
+        },
+        {
+          text: 'General',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'catchall' }),
         },
         {
           text: 'Clear subtype',
@@ -2685,28 +2709,42 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
     mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
-    effectiveLogSubtype?: 'journal' | 'list' | 'reference' | 'idea' | 'plain', // Phase L8: Manual log subtype
+    effectiveLogSubtype?: 'journal' | 'idea' | 'catchall', // LS3: LS2 log subtypes
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
 
-    // For logs: if effectiveLogSubtype is 'plain', use AI to classify the subtype
-    // BUT: Skip AI classification for Mind Drop edits since buildCanonicalFromMindDrop already does it
-    let aiClassifiedSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' | undefined;
+    // LS3: For new logs with catchall subtype, use LS1 classifier (via getEffectiveLogSubtype)
+    // Skip classification for Mind Drop edits since buildCanonicalFromMindDrop (LS2) already does it
+    let aiClassifiedSubtype: 'journal' | 'idea' | 'catchall' | undefined;
 
-    if (baseType === 'log' && effectiveLogSubtype === 'plain' && s.log.body && !isEditingMindDrop) {
+    if (
+      baseType === 'log' &&
+      effectiveLogSubtype === 'catchall' &&
+      s.log.body &&
+      !isEditingMindDrop
+    ) {
       try {
-        aiClassifiedSubtype = await getEffectiveLogSubtype(s.log.body);
-        console.log('[UnifiedOverlayV2] AI classified log subtype:', aiClassifiedSubtype);
+        const classified = await getEffectiveLogSubtype(s.log.body);
+        // getEffectiveLogSubtype returns NoteSubtype (journal | idea | catchall | reference | null)
+        // Map to LS2 subtypes
+        aiClassifiedSubtype =
+          classified === 'journal' ? 'journal' : classified === 'idea' ? 'idea' : 'catchall';
+        if (__DEV__) {
+          console.log(
+            '[UnifiedOverlayV2] LS1 classified log subtype:',
+            aiClassifiedSubtype,
+            '(raw:',
+            classified,
+            ')',
+          );
+        }
       } catch (err) {
-        console.warn(
-          '[UnifiedOverlayV2] AI log subtype classification failed, using fallback',
-          err,
-        );
-        aiClassifiedSubtype = 'journal'; // Fallback to journal on AI failure
+        console.warn('[UnifiedOverlayV2] LS1 classification failed, using catchall fallback', err);
+        aiClassifiedSubtype = 'catchall'; // Fallback to catchall on classification failure
       }
     }
 
-    // Use AI-classified subtype if available, otherwise use the provided effectiveLogSubtype
+    // Use LS1-classified subtype if available, otherwise use the provided effectiveLogSubtype
     const finalLogSubtype = aiClassifiedSubtype ?? effectiveLogSubtype;
 
     const textForTags =
@@ -2962,10 +3000,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const reminderIso = coerceIsoTimestamp(s.reminderAt);
       const datePatch = reminderIso ? { date: reminderIso } : {};
 
-      // Phase L8: Use effective log subtype for Mind Drop logs
-      // For list/journal/idea, use the detected subtype
-      // For plain, use null (database allows null subtypes)
-      const subtype = finalLogSubtype === 'plain' ? null : finalLogSubtype;
+      // LS3: Use LS2 subtype for Mind Drop logs
+      // For journal/idea, use the detected subtype
+      // For catchall, use null (database allows null subtypes)
+      const subtype = finalLogSubtype === 'catchall' ? null : finalLogSubtype;
 
       // For Mind Drop logs confirmed as logs, ensure canonicalType and labels are set
       // This clears catchall/needs_review labels and marks the item as a confirmed log
@@ -3002,10 +3040,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       };
     }
 
-    // Phase L8: Use effective log subtype for base note payload
-    // For list/journal/idea, use the detected subtype
-    // For plain, use null (database allows null subtypes)
-    const subtype2 = finalLogSubtype === 'plain' ? null : finalLogSubtype;
+    // LS3: Use LS2 subtype for base note payload
+    // For journal/idea, use the detected subtype
+    // For catchall, use null (database allows null subtypes)
+    const subtype2 = finalLogSubtype === 'catchall' ? null : finalLogSubtype;
 
     // Preserve AI-generated title when editing existing entities
     // Only use fallback (firstLine) for new entities or when user explicitly cleared title
@@ -3521,6 +3559,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}>
+                    {/* LS3: Idea icon for idea logs */}
+                    {isLog && effectiveLogSubtype === 'idea' ? (
+                      <Lightbulb
+                        size={18}
+                        color={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.8)' : '#4A5568'}
+                        style={{ marginRight: -4 }}
+                      />
+                    ) : null}
                     <Text
                       variant="title"
                       style={{
@@ -3714,47 +3760,35 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               {/* Main text field - moved above tags */}
               <Box px={4} mt={3}>
                 <View style={{ position: 'relative' }}>
-                  {/* Legacy: ChecklistInput shown for old subtype='list' notes (new data uses has_list attribute) */}
-                  {effectiveLogSubtype === 'list' ? (
-                    <ChecklistInput
-                      text={currentText}
-                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                      colorMode={colorMode}
-                      onFocus={() => setBodyFocused(true)}
-                      onBlur={() => setBodyFocused(false)}
-                      hasCamera={isLog}
-                    />
-                  ) : (
-                    <TextInput
-                      ref={textInputRef}
-                      value={currentText}
-                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                      accessibilityLabel="Overlay content input"
-                      onFocus={() => setBodyFocused(true)}
-                      onBlur={() => setBodyFocused(false)}
-                      placeholder="Add notes..."
-                      placeholderTextColor={lightTokens.colors.subtle}
-                      multiline
-                      scrollEnabled={false}
-                      autoFocus
-                      textAlignVertical="top"
-                      style={[
-                        styles.textArea,
-                        {
-                          color: lightTokens.colors.text,
-                          backgroundColor:
-                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                          borderWidth: 1,
-                          borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                          shadowColor: '#000',
-                          shadowOpacity: 0.03,
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowRadius: 2,
-                          paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                        },
-                      ]}
-                    />
-                  )}
+                  {/* LS3: All logs use standard TextInput (list detection handled separately via has_list) */}
+                  <TextInput
+                    ref={textInputRef}
+                    value={currentText}
+                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                    accessibilityLabel="Overlay content input"
+                    onFocus={() => setBodyFocused(true)}
+                    onBlur={() => setBodyFocused(false)}
+                    placeholder="Add notes..."
+                    placeholderTextColor={lightTokens.colors.subtle}
+                    multiline
+                    scrollEnabled={false}
+                    autoFocus
+                    textAlignVertical="top"
+                    style={[
+                      styles.textArea,
+                      {
+                        color: lightTokens.colors.text,
+                        backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                        borderWidth: 1,
+                        borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                        shadowColor: '#000',
+                        shadowOpacity: 0.03,
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowRadius: 2,
+                        paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                      },
+                    ]}
+                  />
                   {/* Camera button inside text area for logs only */}
                   {isLog && (
                     <Pressable
@@ -6193,15 +6227,17 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
   const tagsMeta = (entity as any)?.tags_meta ?? {};
 
-  // Phase L8: Hydrate logSubtypeOverride from entity.subtype for logs
+  // LS3: Hydrate logSubtypeOverride from entity.subtype for logs
   const rawSubtype = (entity as any)?.subtype as string | undefined;
-  let logSubtypeOverride: 'journal' | 'list' | 'idea' | 'plain' | null = null;
+  let logSubtypeOverride: 'journal' | 'idea' | 'catchall' | null = null;
   if (baseType === 'log') {
-    // Legacy guard: Support old subtype='list' data before migration to has_list attribute
-    if (rawSubtype === 'journal' || rawSubtype === 'list' || rawSubtype === 'idea') {
-      logSubtypeOverride = rawSubtype;
-    } else if (rawSubtype === null || rawSubtype === undefined || rawSubtype === 'catchall') {
-      logSubtypeOverride = 'plain';
+    // Map entity subtype to LS2 subtypes
+    if (rawSubtype === 'journal') logSubtypeOverride = 'journal';
+    else if (rawSubtype === 'idea') logSubtypeOverride = 'idea';
+    else if (rawSubtype === 'catchall') logSubtypeOverride = 'catchall';
+    // Deprecated subtypes or null/undefined map to catchall
+    else if (rawSubtype === 'reference' || rawSubtype === 'list' || !rawSubtype) {
+      logSubtypeOverride = 'catchall';
     }
   }
 

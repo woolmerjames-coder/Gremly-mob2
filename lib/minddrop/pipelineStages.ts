@@ -633,6 +633,17 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
           } as any,
         });
 
+        // DEBUG: Stage A persistence - what subtype are we actually writing to DB?
+        console.log('[MindDrop.StageA.Persist]', {
+          scope: 'MindDrop.StageA.Persist',
+          dropId,
+          noteId: unsortedNoteId,
+          canonicalType: canonical.canonicalType,
+          subtype: canonical.subtype,
+          labels: canonical.labels,
+          tags: canonical.tags.slice(0, 5), // First 5 tags to avoid clutter
+        });
+
         createdIds.notes.push(unsortedNoteId);
         entityDetails.push({
           kind: 'note',

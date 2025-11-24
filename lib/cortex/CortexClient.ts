@@ -271,12 +271,30 @@ export async function callComplete(
   });
 }
 
+/**
+ * Classification result from Cloudflare Worker
+ *
+ * Worker response shape:
+ * {
+ *   id: "cmpl-...",
+ *   classification: {
+ *     category: "todo" | "habit" | "log" | "ignore",
+ *     tags: ["#tag1", "#tag2"],
+ *     spaceName: "Work" | null,
+ *     confidence: 0.0-1.0,
+ *     title: "AI-generated title" | null
+ *   }
+ * }
+ *
+ * IMPORTANT: There are NO separate aiTitle or aiTagsDebug fields at the top level.
+ * These are derived locally from classification.title and classification.tags.
+ */
 export type ClassificationResult = {
   category: string;
   tags: string[];
   spaceName: string | null;
   confidence: number;
-  title: string | null;
+  title: string | null; // AI-generated title (may be null if worker couldn't generate one)
 };
 
 export type CallClassifyResult =

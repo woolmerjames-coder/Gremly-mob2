@@ -373,19 +373,17 @@ export async function buildCanonicalFromMindDrop(
       const logSubtypeSignal = classifyLogSubtype(trimmedRawText);
       const subtype: NoteSubtype = getEffectiveLogSubtype(trimmedRawText);
 
-      // LS2 Debug logging
-      if (__DEV__) {
-        console.log('[LS2] Log subtype classification', {
-          textPreview: trimmedRawText.slice(0, 80),
-          ls1Subtype: logSubtypeSignal.subtype,
-          noteSubtype: subtype,
-          journalConfidence: logSubtypeSignal.journalConfidence,
-          ideaConfidence: logSubtypeSignal.ideaConfidence,
-          textLength: logSubtypeSignal.debug.textLength,
-          journalReasons: logSubtypeSignal.debug.journalReasons,
-          ideaReasons: logSubtypeSignal.debug.ideaReasons,
-        });
-      }
+      // DEBUG: LS2 Stage A - Log subtype classification
+      console.log('[MindDrop.StageA.LS2]', {
+        scope: 'MindDrop.StageA.LS2',
+        textPreview: trimmedRawText.slice(0, 100),
+        ls1Subtype: logSubtypeSignal.subtype,
+        journalConfidence: logSubtypeSignal.journalConfidence,
+        ideaConfidence: logSubtypeSignal.ideaConfidence,
+        journalReasons: logSubtypeSignal.debug.journalReasons,
+        ideaReasons: logSubtypeSignal.debug.ideaReasons,
+        noteSubtype: subtype,
+      });
 
       // Phase 7 Lists: Detect list as an attribute, not a subtype
       const hasListStructure = hasListLikeStructure(trimmedRawText);

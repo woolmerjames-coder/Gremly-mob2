@@ -2795,6 +2795,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               }
               unsortedIdRef.current = id ?? null;
 
+              console.log('[ASK_MODE][ANCHOR_CREATED]', {
+                anchorId: unsortedIdRef.current,
+                mode: 'ask',
+                textPreview: trimmed,
+              });
+
               // Track this submission to prevent duplicates
               lastSubmittedTextRef.current = trimmed;
               lastUnsortedIdRef.current = unsortedIdRef.current;
@@ -2932,6 +2938,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               unsortedNoteId = createdId ?? null;
               unsortedIdRef.current = unsortedNoteId;
 
+              console.log('[ASK_MODE][ANCHOR_CREATED]', {
+                anchorId: unsortedIdRef.current,
+                mode: 'ask',
+                textPreview: cleanedText,
+              });
+
               if (unsortedNoteId) {
                 // Track this drop_id to prevent duplicates
                 unsortedNotesByDropIdRef.current.set(dropId, unsortedNoteId);
@@ -2992,79 +3004,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 createdIds.habits = stageAResult.entities.habits;
                 createdDetails.push(...stageAResult.entityDetails);
               } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
-                // Handle notes inline (complex logic with UI dependencies)
-                const rawSubtype =
-                  firstAction.type === 'add.to.list'
-                    ? 'list'
-                    : (firstAction.payload.subtype ??
-                      decision.mindDropDecision?.logSubtype ??
-                      'everything_else');
-
-                const subtype =
-                  rawSubtype === 'journal'
-                    ? 'journal'
-                    : rawSubtype === 'list'
-                      ? 'list'
-                      : rawSubtype === 'idea'
-                        ? 'idea'
-                        : rawSubtype === 'reference'
-                          ? 'reference'
-                          : 'everything_else';
-
-                const canonicalType = persistedToCanonical('note', subtype);
-                const whyUpdate = appendLineageToWhyString('Auto-organizing via Mind Drop', {
-                  originId: unsortedNoteId,
-                  source: 'auto_classification',
+                // Use Stage A for notes - applies LS1 classification via buildCanonicalFromMindDrop
+                const stageAResult = await runMindDropStageAClassification({
+                  repo,
+                  text: trimmed,
+                  cleanedText,
+                  decision,
+                  dropId,
+                  sourceMessageId: validSourceMessageId ?? null,
+                  parsedDue: parsedIso,
+                  unsortedNoteId,
                 });
 
-                const existingNote = await repo.getById(unsortedNoteId);
-                const existingLabels = (existingNote as any)?.labels || [];
-
-                const updatedLabels = existingLabels.filter(
-                  (l: string) => l !== 'catchall' && l !== 'needs_review',
-                );
-                if (!updatedLabels.includes('log')) {
-                  updatedLabels.push('log');
-                }
-
-                // Phase 7 Lists: Detect list structure in note body and populate list fields
-                const noteBody = (existingNote as any)?.body || '';
-                const hasListStructure = hasListLikeStructure(noteBody);
-                const listItems = hasListStructure ? parseTextToListItems(noteBody) : null;
-
-                const shouldAddListTag = subtype === 'list';
-                const updatePatch: any = {
-                  subtype,
-                  canonicalType,
-                  ai_placed: true,
-                  why_string: whyUpdate,
-                  views: {
-                    alsoShowIn: ['Hub:Catch-All'],
-                    minddrop_stage: 'classified', // Mark classification complete (Stage A equivalent)
-                    ai_pending: true, // Still waiting for Stage B prefill
-                  },
-                  labels: updatedLabels,
-                  has_list: hasListStructure, // Set list attribute
-                  list_items: listItems, // Populate parsed list items
-                };
-
-                if (shouldAddListTag) {
-                  const existingTags = (existingNote as any)?.tags || [];
-                  const hasListTag = existingTags.some(
-                    (t: string) => t.toLowerCase().replace(/^[#@*]+/, '') === 'list',
-                  );
-                  if (!hasListTag) {
-                    updatePatch.tags = [...existingTags, 'list'];
-                  }
-                }
-
-                const updatedNote = await repo.update({
-                  id: unsortedNoteId,
-                  patch: updatePatch,
-                });
-
-                createdIds.notes.push(updatedNote.id);
-                createdDetails.push({ kind: 'note', noteSubtype: subtype });
+                createdIds.notes = stageAResult.entities.notes;
+                createdDetails.push(...stageAResult.entityDetails);
               }
 
               const counts = {
@@ -3185,74 +3138,66 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               dropId,
               unsortedId: existingUnsortedId,
             });
-          } else {
-            // Duplicate prevention: only save if no existing unsorted note OR text is different
-            const shouldSaveNew =
-              unsortedIdRef.current == null && lastSubmittedTextRef.current !== cleanedText;
+          } else if (unsortedIdRef.current == null) {
+            // Create new unsorted note with LS1-driven canonical fields
+            try {
+              // Use buildCanonicalFromMindDrop to get proper LS1 classification
+              const canonical = await buildCanonicalFromMindDrop({
+                kind: 'log',
+                rawText: cleanedText,
+                aiTitle: undefined, // No AI title yet (Stage B will provide)
+                aiTags: undefined, // Let LS1 determine tags
+                existing: undefined, // New note
+              });
 
-            if (shouldSaveNew) {
-              try {
-                const decisionMeta = decision.meta as
-                  | (Record<string, unknown> & {
-                      engineOutput?: { tags?: unknown };
-                      classification?: { tags?: unknown };
-                      canonicalSubtype?: LogSubtype | null;
-                    })
-                  | undefined;
-                const engineTags = Array.isArray(decisionMeta?.engineOutput?.tags)
-                  ? (decisionMeta?.engineOutput?.tags as string[])
-                  : [];
-                const classificationTagsMeta = Array.isArray(decisionMeta?.classification?.tags)
-                  ? (decisionMeta?.classification?.tags as string[])
-                  : [];
-                const classificationTags = filterAndNormalizeTags([
-                  ...engineTags,
-                  ...classificationTagsMeta,
-                ]);
-                const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
-                const fallbackSubtype =
-                  canonicalSubtypeMeta === 'journal' || canonicalSubtypeMeta === 'idea'
-                    ? (canonicalSubtypeMeta as NoteSubtype)
-                    : 'catchall';
-                const extractionSubtype =
-                  fallbackSubtype === 'catchall' ? undefined : fallbackSubtype;
-                const fallbackTags =
-                  classificationTags.length > 0
-                    ? classificationTags
-                    : extractMeaningfulTags(cleanedText, extractionSubtype);
-                // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
-                const qualityFiltered = applyTagQualityFilter(fallbackTags);
-                const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
+              // Create unsorted note with canonical fields (LS1-driven subtype)
+              const createdNote = await repo.create({
+                type: 'note' as const,
+                title: canonical.title,
+                body: canonical.body,
+                subtype: canonical.subtype,
+                tags: canonical.tags,
+                tags_meta: canonical.tags_meta,
+                has_list: canonical.has_list,
+                list_items: canonical.list_items,
+                ai_placed: false, // Awaiting user chip selection
+                origin: 'catchall' as const,
+                labels: canonical.labels,
+                why_string: 'Awaiting chip selection',
+                canonicalType: canonical.canonicalType,
+                sourceMessageId: validSourceMessageId ?? undefined,
+                dropId: dropId ?? undefined,
+                views: {
+                  ai_pending: true,
+                  ai_failed: false,
+                  minddrop_stage: 'pending', // Awaiting user choice
+                },
+              } as any);
 
-                // Mode='ask' means user needs to pick category, so use 'Awaiting chip selection'
-                const id = await saveToUnsortedTray(repo as any, cleanedText, {
-                  sourceMessageId: validSourceMessageId ?? undefined,
-                  whyString: 'Awaiting chip selection',
-                  tags: tagsForCreate ?? undefined,
+              if (createdNote?.id) {
+                unsortedIdRef.current = createdNote.id;
+                unsortedNotesByDropIdRef.current.set(dropId, createdNote.id);
+                lastSubmittedTextRef.current = trimmed;
+                lastUnsortedIdRef.current = createdNote.id;
+
+                logMetrics('minddrop_unsorted_created', {
+                  noteId: createdNote.id,
+                  dropId,
+                  mode: decision.mode,
+                  subtype: canonical.subtype,
+                });
+
+                console.log('[MindDrop][Ask] Created unsorted note with LS1 classification', {
+                  noteId: createdNote.id,
+                  subtype: canonical.subtype,
                   dropId,
                 });
-                if (id) {
-                  logMetrics('minddrop_unsorted_created', {
-                    noteId: id,
-                    dropId,
-                    mode: decision.mode,
-                  });
-                  // Track this drop_id to prevent duplicates
-                  unsortedNotesByDropIdRef.current.set(dropId, id);
-                }
-                unsortedIdRef.current = id ?? null;
-
-                // Track this submission to prevent duplicates
-                lastSubmittedTextRef.current = trimmed;
-                lastUnsortedIdRef.current = unsortedIdRef.current;
-              } catch (e) {
-                console.warn('[MindDrop][Ask] failed to save to Unsorted', e);
+              } else {
+                throw new Error('Failed to create unsorted note');
               }
-            } else {
-              // Reuse existing unsorted note
-              console.debug(
-                '[MindDrop][Ask] Reusing existing unsorted note, not creating duplicate',
-              );
+            } catch (e) {
+              console.error('[MindDrop][Ask] Failed to create unsorted note with LS1', e);
+              unsortedIdRef.current = null;
             }
           }
 
@@ -3300,6 +3245,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
 
           // Fallback if no unsorted ID (shouldn't normally happen)
+          console.log('[ASK_MODE][WARNING_NO_ANCHOR]', {
+            mode: 'ask',
+            textPreview: note,
+          });
           console.warn('[MindDrop][Chips] mode=ask but no unsortedId available');
           setNote('');
           triggerRecentRefresh();
@@ -3683,6 +3632,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
+      console.log('[CHIPS][USER_PICKED]', {
+        pickedKind: kind,
+        dropId: dropIdRef.current,
+        anchorId: unsortedIdRef.current,
+        textPreview: note,
+      });
+
       // Prevent duplicate conversions from rapid clicks using ref for immediate sync check
       if (submitLockRef.current) {
         console.warn('[MindDrop][CategoryChip] Already processing, ignoring duplicate click');
@@ -3874,16 +3830,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             }
           }
         } else {
-          // Log: Convert unsorted note to canonical log using AI subtype classification
+          // Log: Preserve LS1-driven subtype from unsorted note creation
           try {
             const originalNote = await repo.getById(unsortedId);
             if (!originalNote) {
               throw new Error('Original note not found');
             }
 
-            // Do NOT pass subtype - let convertUnsortedToLog use AI classification
-            // This ensures AI determines the best subtype (journal/list/reference/idea/plain)
-            const { note: convertedLog } = await convertUnsortedToLog(repo, unsortedId);
+            // Preserve the LS1 subtype that was set when the unsorted note was created
+            const existingSubtype = (originalNote as any)?.subtype as
+              | 'journal'
+              | 'idea'
+              | 'catchall'
+              | null;
+            const preservedSubtype =
+              existingSubtype && (existingSubtype === 'journal' || existingSubtype === 'idea')
+                ? existingSubtype
+                : 'catchall';
+
+            // Pass existing subtype to avoid re-running LS1 classification
+            const { note: convertedLog } = await convertUnsortedToLog(repo, unsortedId, {
+              subtype: preservedSubtype,
+            });
 
             setOrganizedToday((prev) => prev + 1);
             triggerRecentRefresh();
@@ -4581,6 +4549,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 console.log('[MindDrop][UI] Rendering category chips', {
                   chipsCount: categoryChips.length,
                   chips: categoryChips.map((c) => c.kind),
+                });
+                console.log('[CHIPS][SHOWING]', {
+                  probableKind: null,
+                  showChips: true,
+                  suppressChips: false,
+                  chipOptions: categoryChips.map((c) => c.kind),
+                  textPreview: note,
                 });
                 return (
                   <MidConfidenceChips

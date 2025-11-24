@@ -76,7 +76,8 @@ export type HabitState = {
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
 export type MoodValue = 'pos' | 'neu' | 'neg';
-export type LogSubtypeOverride = 'journal' | 'list' | 'reference' | 'idea' | 'plain' | null;
+// LS3: Log subtype override using LS2 subtypes
+export type LogSubtypeOverride = 'journal' | 'idea' | 'catchall' | null;
 
 export type V2State = {
   baseType: BaseType;
