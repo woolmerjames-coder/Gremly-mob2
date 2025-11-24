@@ -314,6 +314,10 @@ export class MemoryRepo implements IRepo {
     return this.data.find((r) => r.id === id) ?? null;
   }
 
+  async getAll(): Promise<AppRecord[]> {
+    return this.data;
+  }
+
   async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
     if (!sourceMessageId) return null;
     const match = this.data.find((r): r is Note => {

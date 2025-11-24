@@ -119,6 +119,7 @@ export interface IRepo {
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;
+  getAll(): Promise<AppRecord[]>;
   listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
   listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;

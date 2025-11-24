@@ -890,6 +890,32 @@ export class SupabaseRepo implements IRepo {
     return null;
   }
 
+  async getAll(): Promise<AppRecord[]> {
+    const userId = this.ensureUserId();
+    const results: AppRecord[] = [];
+
+    // Query each table and combine results
+    for (const type of ['habit', 'todo', 'note'] as const) {
+      const table = tableFor(type);
+      const { data, error } = await supabase.from(table).select('*').eq('owner_id', userId);
+
+      if (error) {
+        throw new Error(`Error querying ${table}: ${error.message}`);
+      }
+
+      if (data) {
+        for (const row of data) {
+          const record = { ...row, type };
+          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)));
+          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)));
+          else results.push(noteZ.parse(mapNoteFromDb(record)));
+        }
+      }
+    }
+
+    return results;
+  }
+
   async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
     const userId = this.ensureUserId();
     if (!sourceMessageId) return null;
