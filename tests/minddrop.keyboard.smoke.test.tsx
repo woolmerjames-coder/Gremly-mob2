@@ -1,7 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Animated } from 'react-native';
-import CatchAllNotepad, { MAX_DYNAMIC_HEIGHT } from '../app/screens/CatchAllNotepad';
 
 const mockClassify = jest.fn(async () => ({
   type: 'note' as const,
@@ -62,7 +61,7 @@ const mockDecideWithContext = jest.fn(async () => ({
 
 jest.mock('../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({ user: { id: 'test-user-1' } }),
 }));
 
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
@@ -99,6 +98,8 @@ jest.mock('../providers/CortexProvider', () => ({
     decideWithContext: mockDecideWithContext,
   }),
 }));
+
+import CatchAllNotepad, { MAX_DYNAMIC_HEIGHT } from '../app/screens/CatchAllNotepad';
 
 describe('Mind Drop keyboard smoke test', () => {
   const stubTiming = () => {

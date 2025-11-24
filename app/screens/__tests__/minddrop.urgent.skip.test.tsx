@@ -79,6 +79,18 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
   useUnifiedOverlayController: () => ({ close: jest.fn() }),
 }));

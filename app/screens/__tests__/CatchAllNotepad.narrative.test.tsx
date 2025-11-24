@@ -7,6 +7,18 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
 // Mock dependencies before imports
 const mockRepo = {
   create: jest.fn(),

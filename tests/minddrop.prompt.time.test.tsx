@@ -1,6 +1,5 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 jest.mock('@/src/config/featureFlags', () => ({
   __esModule: true,
@@ -33,7 +32,7 @@ const mockHabitsList = jest.fn(async () => []);
 
 jest.mock('../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ userId: 'user-ctx' }),
+  useAuth: () => ({ user: { id: 'test-user-1' } }),
 }));
 
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
@@ -58,6 +57,9 @@ jest.mock('../providers/RepoProvider', () => ({
     habits: { list: mockHabitsList },
   }),
 }));
+
+// Import after all mocks to ensure supabase mock is in place
+import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 describe('Mind Drop contextual prompt', () => {
   beforeEach(() => {

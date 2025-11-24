@@ -1,7 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Animated, AccessibilityInfo, StyleSheet } from 'react-native';
-import CatchAllNotepad, { MAX_DYNAMIC_HEIGHT } from '../app/screens/CatchAllNotepad';
 
 const MAX_INPUT_CHARACTERS = 2000;
 
@@ -64,7 +63,7 @@ const mockDecideWithContext = jest.fn(async () => ({
 
 jest.mock('../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({ user: { id: 'test-user-1' } }),
 }));
 
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
@@ -101,6 +100,8 @@ jest.mock('../providers/CortexProvider', () => ({
     decideWithContext: mockDecideWithContext,
   }),
 }));
+
+import CatchAllNotepad, { MAX_DYNAMIC_HEIGHT } from '../app/screens/CatchAllNotepad';
 
 const getInputHeight = (getByTestId: (testId: string) => { props: { style: unknown } }) => {
   const styleProp = getByTestId('minddrop-input-height-wrapper').props.style;

@@ -4,6 +4,22 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
+jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
+  useUnifiedOverlayController: () => ({ close: jest.fn() }),
+}));
+
 const mockRepo = {
   create: jest.fn(),
   update: jest.fn(),

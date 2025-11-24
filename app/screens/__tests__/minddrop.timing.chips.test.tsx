@@ -81,6 +81,18 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100,
 }));
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
   useUnifiedOverlayController: () => ({ close: jest.fn() }),
 }));
