@@ -57,7 +57,13 @@ jest.mock('../providers/CortexProvider', () => ({
 
 jest.mock('../contexts/OverlayContext', () => ({
   useGlobalOverlay: () => ({
+    state: {
+      visible: false,
+      mode: 'create' as const,
+    },
     openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    close: jest.fn(),
   }),
 }));
 

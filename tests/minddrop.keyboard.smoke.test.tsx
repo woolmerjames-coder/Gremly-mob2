@@ -65,6 +65,19 @@ jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({ userId: 'user-1' }),
 }));
 
+jest.mock('../hooks/useUnifiedOverlayController', () => ({
+  useUnifiedOverlayController: () => ({
+    state: {
+      mode: 'create' as const,
+      visible: false,
+    },
+    openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    openView: jest.fn(),
+    close: jest.fn(),
+  }),
+}));
+
 jest.mock('../providers/RepoProvider', () => ({
   __esModule: true,
   useRepo: () => ({
