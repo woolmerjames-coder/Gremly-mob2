@@ -83,7 +83,7 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
     });
   });
 
-  describe('BackgroundPrefill tag merging (mergeLogSubtypeTag)', () => {
+  describe('Stage A tag merging (mergeLogSubtypeTag)', () => {
     it('filters junk existing tags when AI returns no tags', () => {
       const aiTags: string[] = [];
       const existingTags = ['#work', '#has', '#lately', '#been', '#stuff'];
@@ -204,7 +204,7 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
     });
   });
 
-  describe('End-to-end: Unsorted Note → BackgroundPrefill → Final Log', () => {
+  describe('End-to-end: Unsorted Note → Stage A Classification → Final Log', () => {
     it('cleans up junk tags through complete pipeline', () => {
       // Step 1: Initial unsorted note creation (buildFallbackTags via extractMeaningfulTags)
       const userInput = 'Work stuff has been a lot lately';
@@ -219,10 +219,10 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
       expect(initialTags).not.toContain('#lot');
       expect(initialTags).not.toContain('#work'); // v3: excluded as generic filler
 
-      // Step 2: AI returns empty tags (backgroundPrefill scenario)
+      // Step 2: AI returns empty tags (Stage A classification scenario)
       const aiTags: string[] = [];
 
-      // Step 3: Merge with quality filter (mergeLogSubtypeTag)
+      // Step 3: Merge with quality filter in Stage A (mergeLogSubtypeTag)
       const finalResult = mergeLogSubtypeTag(aiTags, initialTags, 'journal', ['log'], null);
 
       // Final tags should be clean
@@ -254,10 +254,10 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
       expect(initialTags).not.toContain('#before'); // preposition
       expect(initialTags).not.toContain('#about'); // preposition
 
-      // Step 2: AI enriches with additional tag
+      // Step 2: AI enriches with additional tag (in Stage A)
       const aiTags = ['deadline'];
 
-      // Step 3: Merge (simulating todo/habit tag fallback in backgroundPrefill)
+      // Step 3: Merge in Stage A (todo/habit tag fallback)
       const { applyTagQualityFilter } = require('../lib/tags/quality');
       const { filterAndNormalizeTags } = require('../lib/tags/normalize');
 
@@ -358,10 +358,10 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
       expect(tags).not.toContain('#really');
     });
 
-    it('handles BackgroundPrefill Case B: empty AI tags → empty final tags', () => {
+    it('handles Stage A Case B: empty AI tags → empty final tags', () => {
       const { applyTagQualityFilter } = require('../lib/tags/quality');
 
-      // Simulate BackgroundPrefill scenario
+      // Simulate Stage A classification scenario
       const existingJunkTags = ['#has', '#been', '#lot', '#stuff'];
       const aiTags: string[] = []; // AI returned nothing
 
@@ -405,7 +405,7 @@ describe('Tag Quality Integration - Mind Drop Pipeline', () => {
       expect(initialTags).toContain('*journal');
       expect(initialTags).not.toContain('#feeling');
 
-      // Step 2: Convert to log and merge with BackgroundPrefill (aiTags empty)
+      // Step 2: Convert to log and merge in Stage A (aiTags empty)
       const aiTags: string[] = [];
       const subtype = 'journal';
       const labels = ['log'];

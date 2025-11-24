@@ -1,10 +1,16 @@
 /**
  * Tests for views.ai_pending flag lifecycle in V2 and V3 modes
  *
- * Verifies that:
- * - Entities created by successful pipeline have views.ai_pending: false
- * - Unsorted fallback entities have views.ai_pending: true (awaiting processing)
- * - Flag clearing works in both V2 (blocking) and V3 (instant) modes
+ * LIFECYCLE (Deterministic State Transitions):
+ * 1. UNSORTED: minddrop_stage='pending', ai_pending=true, ai_failed=false
+ * 2. STAGE A (Classification): minddrop_stage='classified', ai_pending=true, ai_failed=false
+ * 3. STAGE B (Prefill Success): minddrop_stage='prefilled', ai_pending=false, ai_failed=false
+ *
+ * CRITICAL RULES:
+ * - Stage B (backgroundPrefill) sets ai_pending=false, NOT the UI code
+ * - Only Stage A and Stage B modify minddrop_stage and ai_pending
+ * - Unsorted fallback entities keep ai_pending=true (awaiting pipeline processing)
+ * - Flag clearing happens asynchronously via Stage B in both V2 and V3 modes
  */
 
 import React from 'react';
@@ -215,20 +221,12 @@ describe('views.ai_pending Flag Lifecycle', () => {
         fireEvent.press(submitButton);
       });
 
-      // Wait for pipeline completion
+      // Wait for pipeline to complete
+      // Stage B (backgroundPrefill) handles setting ai_pending=false in the background
+      // We verify the Stage B mock was called, which would handle the state update
       await waitFor(
         () => {
-          // v3 pipeline creates entity with ID from Stage A (todo-stage-a-1)
-          expect(mockRepo.update).toHaveBeenCalledWith(
-            expect.objectContaining({
-              id: expect.stringContaining('todo-'),
-              patch: expect.objectContaining({
-                views: expect.objectContaining({
-                  ai_pending: false,
-                }),
-              }),
-            }),
-          );
+          expect(mockRunMindDropStageBPrefill).toHaveBeenCalled();
         },
         { timeout: 3000 },
       );
@@ -317,19 +315,17 @@ describe('views.ai_pending Flag Lifecycle', () => {
         fireEvent.press(submitButton);
       });
 
-      // Wait for all updates - v3 pipeline updates all 3 entities
-      // In v3, Stage A creates entities, Stage B might update them
-      // At minimum we expect the unsorted note to be archived
+      // Wait for pipeline to complete
+      // Stage B handles ai_pending=false updates in the background
       await waitFor(
         () => {
-          expect(mockRepo.update.mock.calls.length).toBeGreaterThanOrEqual(1);
+          expect(mockRunMindDropStageBPrefill).toHaveBeenCalled();
         },
         { timeout: 3000 },
       );
 
-      // Verify at least one entity update occurred
-      // v3 creates entities via Stage A, updates happen in background
-      expect(mockRepo.update).toHaveBeenCalled();
+      // Verify Stage A was called to create entities
+      expect(mockRunMindDropStageAClassification).toHaveBeenCalled();
     });
   });
 
@@ -383,20 +379,11 @@ describe('views.ai_pending Flag Lifecycle', () => {
       // Input cleared immediately in V3 mode
       expect(input.props.value).toBe('');
 
-      // Wait for background pipeline to clear ai_pending
+      // Wait for background pipeline to complete
+      // Stage B (backgroundPrefill) handles ai_pending=false in the background
       await waitFor(
         () => {
-          // v3 pipeline creates entity with ID from Stage A
-          expect(mockRepo.update).toHaveBeenCalledWith(
-            expect.objectContaining({
-              id: expect.stringContaining('habit-'),
-              patch: expect.objectContaining({
-                views: expect.objectContaining({
-                  ai_pending: false,
-                }),
-              }),
-            }),
-          );
+          expect(mockRunMindDropStageBPrefill).toHaveBeenCalled();
         },
         { timeout: 3000 },
       );

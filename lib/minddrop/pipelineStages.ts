@@ -1,16 +1,50 @@
 /**
  * Mind Drop Pipeline - Two-Stage Architecture (Phase 4B)
  *
- * Stage A: Classification
- * - Intent detection + canonical resolution
- * - Create/update entities (todo/habit/log)
- * - Set views.minddrop_stage = 'classified'
+ * LIFECYCLE (Deterministic State Transitions):
+ * ============================================
  *
- * Stage B: Prefill
- * - AI enhancement (title, tags, subtypes)
- * - Update entity with enriched data
- * - Set views.minddrop_stage = 'prefilled'
- * - Set views.minddrop_prefilled_v1 = true
+ * 1. UNSORTED (Initial State)
+ *    - User submits text → saveToUnsortedTray creates provisional note
+ *    - views.minddrop_stage = 'pending'
+ *    - views.ai_pending = true
+ *    - views.ai_failed = false
+ *
+ * 2. STAGE A: CLASSIFICATION (Intent Detection + Entity Creation)
+ *    - Cortex decides intent → creates canonical entity (todo/habit/note)
+ *    - On SUCCESS:
+ *      - views.minddrop_stage = 'classified'
+ *      - views.ai_pending = true (still waiting for prefill)
+ *      - views.ai_failed = false
+ *    - On FAILURE:
+ *      - views.ai_pending = false
+ *      - views.ai_failed = true
+ *      - minddrop_stage stays 'pending'
+ *
+ * 3. STAGE B: PREFILL (AI Enrichment)
+ *    - backgroundPrefill enhances title (tags come from Stage A only)
+ *    - On SUCCESS:
+ *      - views.minddrop_stage = 'prefilled'
+ *      - views.ai_pending = false
+ *      - views.ai_failed = false
+ *      - views.minddrop_prefilled_v1 = true
+ *    - On NETWORK ERROR:
+ *      - views.ai_pending = true (keep for retry)
+ *      - minddrop_stage stays 'classified' (don't advance)
+ *      - views.ai_error = error message
+ *    - On OTHER ERROR:
+ *      - views.ai_pending = false
+ *      - views.ai_failed = true
+ *      - minddrop_stage stays 'classified'
+ *
+ * CRITICAL RULES:
+ * ===============
+ * - ONLY Stage A sets minddrop_stage = 'classified'
+ * - ONLY Stage B sets minddrop_stage = 'prefilled'
+ * - ONLY Stage A and Stage B modify ai_pending and minddrop_stage
+ * - NO other code should write to these fields
+ * - Tags are ONLY set in Stage A via buildCanonicalFromMindDrop
+ * - Stage B enriches title ONLY, never modifies tags or subtype
  */
 
 import type { IRepo } from '../repo/IRepo';
@@ -19,6 +53,7 @@ import type { CortexResponse, CortexContext } from '../cortex/cortexDecide';
 import { convertUnsortedToTodo } from '../conversion';
 import { convertUnsortedToHabit } from '../conversion';
 import { backgroundPrefill } from './backgroundPrefill';
+import { buildCanonicalFromMindDrop } from './buildCanonicalFromMindDrop';
 
 export interface StageAParams {
   repo: IRepo;
@@ -65,30 +100,20 @@ export interface StageBResult {
  *
  * Intent detection + canonical resolution → entity creation
  * Sets views.minddrop_stage = 'classified'
- * 
+ *
  * On success:
  * - views.minddrop_stage = 'classified'
  * - views.ai_pending = true (still waiting for prefill)
  * - views.ai_failed = false
- * 
+ *
  * On failure:
  * - views.ai_pending = false
  * - views.ai_failed = true
  * - minddrop_stage stays 'pending'
  */
-export async function runMindDropStageAClassification(
-  params: StageAParams,
-): Promise<StageAResult> {
-  const {
-    repo,
-    text,
-    cleanedText,
-    decision,
-    dropId,
-    sourceMessageId,
-    parsedDue,
-    unsortedNoteId,
-  } = params;
+export async function runMindDropStageAClassification(params: StageAParams): Promise<StageAResult> {
+  const { repo, text, cleanedText, decision, dropId, sourceMessageId, parsedDue, unsortedNoteId } =
+    params;
 
   // Telemetry: Stage A start
   console.debug('[MindDrop.StageA.Start]', {
@@ -148,7 +173,7 @@ export async function runMindDropStageAClassification(
           createdTodo = existingTodo;
           createdIds.todos.push(existingTodo.id);
           entityDetails.push({ kind: 'todo' });
-          
+
           // Update stage to classified (in case retry happened during Stage A)
           await repo.update({
             id: existingTodo.id,
@@ -161,7 +186,7 @@ export async function runMindDropStageAClassification(
               },
             },
           });
-          
+
           // Archive the unsorted note if it's not already archived
           if (unsortedNoteId) {
             const unsortedNote = await repo.getById(unsortedNoteId);
@@ -174,7 +199,7 @@ export async function runMindDropStageAClassification(
               });
             }
           }
-          
+
           // Don't create a new todo - use existing
           return {
             entities: createdIds,
@@ -184,7 +209,7 @@ export async function runMindDropStageAClassification(
           };
         }
       }
-      
+
       // No existing todo found - create new one
       const due = firstAction.payload.due ?? parsedDue ?? null;
       const result = await convertUnsortedToTodo(repo, unsortedNoteId, {
@@ -231,7 +256,7 @@ export async function runMindDropStageAClassification(
           createdHabit = existingHabit;
           createdIds.habits.push(existingHabit.id);
           entityDetails.push({ kind: 'habit' });
-          
+
           // Update stage to classified (in case retry happened during Stage A)
           await repo.update({
             id: existingHabit.id,
@@ -244,7 +269,7 @@ export async function runMindDropStageAClassification(
               },
             },
           });
-          
+
           // Archive the unsorted note if it's not already archived
           if (unsortedNoteId) {
             const unsortedNote = await repo.getById(unsortedNoteId);
@@ -257,7 +282,7 @@ export async function runMindDropStageAClassification(
               });
             }
           }
-          
+
           // Don't create a new habit - use existing
           return {
             entities: createdIds,
@@ -267,7 +292,7 @@ export async function runMindDropStageAClassification(
           };
         }
       }
-      
+
       // No existing habit found - create new one
       const freqRaw = firstAction.payload.freq;
       const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
@@ -298,16 +323,93 @@ export async function runMindDropStageAClassification(
         stage: 'classified',
       });
     } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
-      // For notes: Stage A just marks as classified
+      // For notes: Stage A applies canonical mapping and marks as classified
+      // Check if a note with this dropId already exists (idempotency)
+      const targetNote: Note | null = null;
+
+      if (dropId) {
+        const existingNote = await repo.findNoteByDropId(dropId);
+        if (existingNote && existingNote.id !== unsortedNoteId) {
+          // A different note already exists for this dropId - telemetry and reuse
+          console.debug('[MindDrop.Idempotency.NoteExists]', {
+            id: existingNote.id,
+            dropId,
+            unsortedNoteId,
+          });
+          console.log('[StageA] Note already exists for dropId, using existing', {
+            id: existingNote.id,
+            dropId,
+          });
+
+          // Update stage to classified (in case retry happened during Stage A)
+          await repo.update({
+            id: existingNote.id,
+            patch: {
+              views: {
+                ...(existingNote.views ?? {}),
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                ai_failed: false,
+              },
+            },
+          });
+
+          // Archive the unsorted note if it's different and not already archived
+          if (unsortedNoteId && unsortedNoteId !== existingNote.id) {
+            const unsortedNote = await repo.getById(unsortedNoteId);
+            if (unsortedNote && !(unsortedNote as any).archived) {
+              await repo.update({
+                id: unsortedNoteId,
+                patch: {
+                  archived: true,
+                },
+              });
+            }
+          }
+
+          createdIds.notes.push(existingNote.id);
+          entityDetails.push({
+            kind: 'note',
+            noteSubtype: existingNote.subtype ?? undefined,
+          });
+
+          // Don't process the note again - use existing
+          return {
+            entities: createdIds,
+            entityDetails,
+            mode: decision.mode,
+            confidence: decision.confidence ?? 0,
+          };
+        }
+      }
+
+      // No existing note found (or unsorted note is the same entity) - process normally
       const existingNote = await repo.getById(unsortedNoteId);
-      
+
       if (existingNote && existingNote.type === 'note') {
-        // Mark classification complete (success transition)
+        const note = existingNote as Note;
+        const rawText = note.body ?? note.title ?? '';
+
+        // Use buildCanonicalFromMindDrop to get canonical fields
+        const canonical = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText,
+          aiTitle: undefined, // Stage A doesn't use AI title yet
+          aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined, // Reuse existing tags if available
+          existing: note, // Pass existing note to preserve tags_meta
+        });
+
+        // Update note with canonical fields
         await repo.update({
           id: unsortedNoteId,
           patch: {
+            title: canonical.title,
+            body: canonical.body,
+            tags: canonical.tags,
+            tags_meta: canonical.tags_meta,
+            subtype: canonical.subtype as NoteSubtype | null,
             views: {
-              ...(existingNote.views ?? {}),
+              ...(note.views ?? {}),
               minddrop_stage: 'classified',
               ai_pending: true, // Still waiting for prefill
               ai_failed: false,
@@ -316,12 +418,16 @@ export async function runMindDropStageAClassification(
         });
 
         createdIds.notes.push(unsortedNoteId);
-        entityDetails.push({ kind: 'note' });
+        entityDetails.push({
+          kind: 'note',
+          noteSubtype: canonical.subtype ?? undefined,
+        });
 
-        console.log('[StageA] Marked note as classified', {
+        console.log('[StageA] Marked note as classified with canonical fields', {
           id: unsortedNoteId,
           dropId,
           stage: 'classified',
+          subtype: canonical.subtype,
         });
       }
     }
@@ -332,7 +438,7 @@ export async function runMindDropStageAClassification(
       error: err instanceof Error ? err.message : String(err),
     });
     console.error('[StageA] Classification failed', err);
-    
+
     // Mark failure on unsorted note
     if (unsortedNoteId) {
       try {
@@ -354,7 +460,7 @@ export async function runMindDropStageAClassification(
         console.error('[StageA] Failed to mark failure state', updateErr);
       }
     }
-    
+
     throw err;
   }
 
@@ -378,13 +484,13 @@ export async function runMindDropStageAClassification(
  * Stage B: Prefill
  *
  * AI enhancement (title, tags, subtypes) for classified entities
- * 
+ *
  * On success:
  * - views.minddrop_stage = 'prefilled'
  * - views.minddrop_prefilled_v1 = true
  * - views.ai_pending = false
  * - views.ai_failed = false
- * 
+ *
  * On failure:
  * - views.ai_pending = false
  * - views.ai_failed = true
@@ -415,7 +521,7 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
     } catch (err) {
       console.error('[StageB] Failed to enrich todo', { id: todoId, error: err });
       failures.push(todoId);
-      
+
       // Mark failure on entity
       try {
         const failedTodo = await repo.getById(todoId);
@@ -450,7 +556,7 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
     } catch (err) {
       console.error('[StageB] Failed to enrich habit', { id: habitId, error: err });
       failures.push(habitId);
-      
+
       // Mark failure on entity
       try {
         const failedHabit = await repo.getById(habitId);
@@ -485,7 +591,7 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
     } catch (err) {
       console.error('[StageB] Failed to enrich note', { id: noteId, error: err });
       failures.push(noteId);
-      
+
       // Mark failure on entity
       try {
         const failedNote = await repo.getById(noteId);

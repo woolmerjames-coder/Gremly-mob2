@@ -1,16 +1,18 @@
 /**
- * Tests for Mind Drop narrative chip suppression
+ * Tests for Mind Drop canonical intent resolution
  *
- * Verifies that canonical intent prevents forced chips for clear logs.
- * Clear reflective text should auto-log without chips.
- * Ambiguous text should show chips for clarification.
+ * Verifies that canonical intent correctly classifies different text types.
+ * This tests CLASSIFICATION LOGIC, not chip display.
+ *
+ * Chip display is now simplified: chips show based on final entity type from Stage A,
+ * not on confidence scores or suppression flags.
  */
 
 import { resolveCanonicalIntent } from '../lib/cortex/intents/canonicalIntent';
 
-describe('Mind Drop Narrative Chip Suppression', () => {
-  describe('Clear reflective logs - NO chips', () => {
-    it('should NOT show chips for "Just thinking about maybe starting a side hustle someday"', () => {
+describe('Mind Drop Canonical Intent Resolution', () => {
+  describe('Clear reflective logs', () => {
+    it('should classify "Just thinking about maybe starting a side hustle someday" as log', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'note',
         ruleConfidence: 0.45,
@@ -20,15 +22,15 @@ describe('Mind Drop Narrative Chip Suppression', () => {
       });
 
       expect(result.type).toBe('log');
-      expect(result.suppressChips).toBe(false); // Don't suppress, but auto-create
-      expect(result.allowAutoCreate).toBe(true); // Reflection boost: auto-create without chips
+      expect(result.suppressChips).toBe(false); // suppressChips deprecated - chips based on entity type
+      expect(result.allowAutoCreate).toBe(true); // Reflection boost: auto-create
       expect(result.reasoning).toContain('Reflection'); // Should trigger reflection boost
 
-      // The key: this should be treated as a log, not trigger narrative chips
+      // The key: this should be treated as a log
       expect(result.type).not.toBe('ignore');
     });
 
-    it('should auto-log "Wondering if I should change careers"', () => {
+    it('should auto-classify "Wondering if I should change careers" as log', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'note',
         ruleConfidence: 0.5,
@@ -38,10 +40,10 @@ describe('Mind Drop Narrative Chip Suppression', () => {
       });
 
       expect(result.type).toBe('log');
-      expect(result.suppressChips).toBe(false);
+      expect(result.suppressChips).toBe(false); // suppressChips deprecated
     });
 
-    it('should auto-log "Had a really productive conversation with Alex today"', () => {
+    it('should auto-classify "Had a really productive conversation with Alex today" as log', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'note',
         ruleConfidence: 0.6,
@@ -55,8 +57,8 @@ describe('Mind Drop Narrative Chip Suppression', () => {
     });
   });
 
-  describe('Ambiguous cases - SHOW chips', () => {
-    it('should show chips for "Maybe I should finally email my accountant" (todo vs log)', () => {
+  describe('Ambiguous cases', () => {
+    it('should classify ambiguous "Maybe I should finally email my accountant" as todo', () => {
       // This is ambiguous - could be a todo or just a thought
       const result = resolveCanonicalIntent({
         ruleKind: 'todo',
@@ -69,10 +71,10 @@ describe('Mind Drop Narrative Chip Suppression', () => {
       // Should be todo, but not auto-create due to "maybe" vagueness
       expect(result.type).toBe('todo');
       expect(result.allowAutoCreate).toBe(false);
-      expect(result.suppressChips).toBe(false);
+      expect(result.suppressChips).toBe(false); // suppressChips deprecated
     });
 
-    it('should show chips for medium-confidence todo', () => {
+    it('should classify medium-confidence todo correctly', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'todo',
         ruleConfidence: 0.7,
@@ -83,7 +85,7 @@ describe('Mind Drop Narrative Chip Suppression', () => {
 
       expect(result.type).toBe('todo');
       expect(result.allowAutoCreate).toBe(false); // Below 0.85 threshold
-      expect(result.suppressChips).toBe(false); // Should show chips
+      expect(result.suppressChips).toBe(false); // suppressChips deprecated
     });
   });
 

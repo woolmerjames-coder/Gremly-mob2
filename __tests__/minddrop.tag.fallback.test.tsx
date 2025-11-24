@@ -92,7 +92,7 @@ describe('Mind Drop Tag Fallback', () => {
       expect(result.todo.tags).toEqual(sourceTags);
     });
 
-    test('GIVEN unsorted note with tags WHEN converting to habit AND AI returns no tags THEN habit gets source note tags', async () => {
+    test('GIVEN unsorted note with tags WHEN converting to habit AND AI returns no tags THEN habit gets filtered tags (max 2)', async () => {
       const unsortedNoteId = 'note-habit-tags-456';
       const sourceTags = ['#meditation', '#wellness', '#mindfulness'];
 
@@ -121,7 +121,7 @@ describe('Mind Drop Tag Fallback', () => {
         frequency: 'daily',
         subtype: 'start_habit',
         notes: 'Meditate for 10 minutes every morning',
-        tags: sourceTags, // Should inherit from note
+        tags: ['#meditation', '#wellness'], // Filtered to max 2 tags per habit rules
         tags_meta: unsortedNote.tags_meta,
         labels: ['habit'],
         archived: false,
@@ -141,11 +141,11 @@ describe('Mind Drop Tag Fallback', () => {
         frequency: 'daily',
       });
 
-      // Verify habit was created with source tags
+      // Verify habit was created with filtered tags (max 2 per canonical habit rules)
       expect(mockRepo.create).toHaveBeenCalled();
       const createCall = (mockRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createCall.tags).toEqual(sourceTags);
-      expect(result.habit.tags).toEqual(sourceTags);
+      expect(createCall.tags).toEqual(['#meditation', '#wellness']); // Only first 2 tags kept
+      expect(result.habit.tags).toEqual(['#meditation', '#wellness']);
     });
 
     test('GIVEN unsorted note without tags WHEN converting to todo THEN todo gets tags extracted from text', async () => {
@@ -204,6 +204,8 @@ describe('Mind Drop Tag Fallback', () => {
     test('GIVEN unsorted note with complex tags WHEN converting to todo THEN todo preserves all source tags', async () => {
       const unsortedNoteId = 'note-complex-tags-101';
       const complexTags = ['#email', '#accountant', '#tax', '#deadline', '#important', '#finance'];
+      // Theme tags will be added: #work (from "deadline"), #money (from "tax", "accountant", "finance")
+      const expectedTags = [...complexTags, '#work', '#money'];
 
       const unsortedNote: Note = {
         id: unsortedNoteId,
@@ -230,7 +232,7 @@ describe('Mind Drop Tag Fallback', () => {
         body: 'Email accountant about tax deadline',
         due_date: null,
         undefined_due: true,
-        tags: complexTags, // All tags preserved
+        tags: expectedTags, // All tags preserved + theme tags added
         tags_meta: unsortedNote.tags_meta,
         labels: ['todo'],
         archived: false,
@@ -248,12 +250,12 @@ describe('Mind Drop Tag Fallback', () => {
 
       const result = await convertUnsortedToTodo(mockRepo, unsortedNoteId);
 
-      // Verify all source tags were preserved
+      // Verify all source tags were preserved + theme tags added
       expect(mockRepo.create).toHaveBeenCalled();
       const createCall = (mockRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createCall.tags).toEqual(complexTags);
-      expect(createCall.tags).toHaveLength(6);
-      expect(result.todo.tags).toEqual(complexTags);
+      expect(createCall.tags).toEqual(expectedTags);
+      expect(createCall.tags).toHaveLength(8); // 6 original + 2 theme tags
+      expect(result.todo.tags).toEqual(expectedTags);
 
       // Verify tags_meta was also preserved
       expect(createCall.tags_meta).toEqual(unsortedNote.tags_meta);
@@ -326,7 +328,7 @@ describe('Mind Drop Tag Fallback', () => {
       expect(result.todo.tags).toEqual(sourceTags);
     });
 
-    test('GIVEN habit with tags WHEN converting from note THEN tags and sticky meta are preserved', async () => {
+    test('GIVEN habit with tags WHEN converting from note THEN tags are filtered per canonical rules (max 2)', async () => {
       const mockRepo: jest.Mocked<IRepo> = {
         getById: jest.fn(),
         create: jest.fn(),
@@ -360,7 +362,7 @@ describe('Mind Drop Tag Fallback', () => {
         frequency: 'daily',
         subtype: 'start_habit',
         notes: 'Run 5km every morning',
-        tags: sourceTags, // Tags preserved
+        tags: ['#fitness', '#exercise'], // Filtered to max 2 tags per habit rules
         tags_meta: unsortedNote.tags_meta, // Sticky meta preserved
         labels: ['habit'],
         archived: false,
@@ -380,12 +382,13 @@ describe('Mind Drop Tag Fallback', () => {
         frequency: 'daily',
       });
 
-      // Verify tags and tags_meta (including sticky) were preserved
+      // Verify tags were filtered to max 2 per canonical habit rules (filterHabitTags)
+      // Tags pass through buildCanonicalFromMindDrop which applies domain-specific filtering
       const createCall = (mockRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createCall.tags).toEqual(sourceTags);
-      expect(createCall.tags_meta).toEqual(unsortedNote.tags_meta);
+      expect(createCall.tags).toEqual(['#fitness', '#exercise']); // Only first 2 tags kept
+      expect(createCall.tags_meta).toEqual(unsortedNote.tags_meta); // tags_meta preserved
       expect(createCall.tags_meta.sticky).toEqual(stickyTags);
-      expect(result.habit.tags).toEqual(sourceTags);
+      expect(result.habit.tags).toEqual(['#fitness', '#exercise']);
     });
   });
 });

@@ -88,7 +88,7 @@ import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
-import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
+import { resummarizeTitle } from '../../lib/minddrop/backgroundPrefill';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -1528,11 +1528,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const { backgroundPrefill } = await import('../../lib/minddrop/backgroundPrefill');
 
         // Get raw text for prefill
-        const rawText =
-          entity.body?.trim() ||
-          entity.title?.trim() ||
-          entity.name?.trim() ||
-          '';
+        const rawText = entity.body?.trim() || entity.title?.trim() || entity.name?.trim() || '';
 
         // Retry prefill
         await backgroundPrefill(entity, rawText);

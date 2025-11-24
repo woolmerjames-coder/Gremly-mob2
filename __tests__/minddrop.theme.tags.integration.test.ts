@@ -1,8 +1,10 @@
 /**
- * Integration tests for theme tag enrichment in BackgroundPrefill
+ * Integration tests for theme tag enrichment in Stage A
  *
  * These tests verify that theme tags are properly added to todos and habits
- * during the BackgroundPrefill process, while maintaining tag quality filters.
+ * during Stage A classification (via buildCanonicalFromMindDrop), while maintaining tag quality filters.
+ *
+ * IMPORTANT: Stage B (backgroundPrefill) NEVER modifies tags. All tag enrichment happens in Stage A.
  */
 
 import { applyThemeTags } from '../lib/tags/themes';
@@ -12,7 +14,7 @@ import { filterAndNormalizeTags } from '../lib/tags/normalize';
 describe('Theme Tag Integration', () => {
   describe('Habit theme enrichment', () => {
     it('adds #exercise to running habit', () => {
-      // Simulate the flow in BackgroundPrefill for habits
+      // Simulate the tag pipeline flow in Stage A (via buildCanonicalFromMindDrop)
       const rawSentence = 'Start running every morning';
       const aiTags = ['running', 'morning routine'];
       const existingTags = ['#running']; // From initial creation
@@ -239,7 +241,7 @@ describe('Theme Tag Integration', () => {
   });
 
   // Phase 4B: Additive theme tags integration tests
-  describe('Phase 4B: Additive theme tags in BackgroundPrefill', () => {
+  describe('Phase 4B: Additive theme tags in Stage A Classification', () => {
     describe('Habits with exercise theme', () => {
       it('"Start running every morning" → #running + #exercise', () => {
         const rawSentence = 'Start running every morning';

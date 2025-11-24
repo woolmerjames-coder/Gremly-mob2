@@ -9,7 +9,7 @@ describe('Overlay Mind Drop Updates', () => {
   describe('Todo updates', () => {
     it('should use canonical mapper for editing haircut todo', async () => {
       const rawText = 'Book haircut tomorrow at 3pm';
-      const aiTitle = 'Haircut appointment tomorrow';
+      const aiTitle = 'Haircut tomorrow'; // Shorter than raw text to pass normalizeTodoTitle validation
       const aiTags = ['#haircut', '#appointment'];
 
       const canonical = await buildCanonicalFromMindDrop({
@@ -25,11 +25,11 @@ describe('Overlay Mind Drop Updates', () => {
 
       // Verify canonical fields are correct
       expect(canonical.canonicalType).toBe('todo');
-      expect(canonical.title).toBe('Haircut appointment tomorrow');
-      expect(canonical.name).toBe('Haircut appointment tomorrow');
+      expect(canonical.title).toBe('Haircut tomorrow');
+      expect(canonical.name).toBe('Haircut tomorrow');
       expect(canonical.body).toBe('Book haircut tomorrow at 3pm');
       expect(canonical.details).toBe('Book haircut tomorrow at 3pm');
-      expect(canonical.tags).toEqual(['#haircut', '#appointment']);
+      expect(canonical.tags).toEqual(['#haircut', '#appointment', '#health']); // Theme tag added
       expect(canonical.labels).toEqual(['todo']);
 
       // Simulates overlay save path spreading canonical into update patch
@@ -41,9 +41,9 @@ describe('Overlay Mind Drop Updates', () => {
         commitment: false,
       };
 
-      expect(updatePatch.title).toBe('Haircut appointment tomorrow');
+      expect(updatePatch.title).toBe('Haircut tomorrow');
       expect(updatePatch.body).toBe('Book haircut tomorrow at 3pm');
-      expect(updatePatch.tags).toEqual(['#haircut', '#appointment']);
+      expect(updatePatch.tags).toEqual(['#haircut', '#appointment', '#health']); // Theme tag added
     });
 
     it('should preserve full raw text in body after title edit', async () => {
@@ -99,7 +99,7 @@ describe('Overlay Mind Drop Updates', () => {
       expect(canonical.title).toBe('Morning walk');
       expect(canonical.name).toBe('Morning walk');
       expect(canonical.notes).toBe('Go for a 20-minute walk every morning');
-      expect(canonical.tags).toEqual(['#walk']);
+      expect(canonical.tags).toEqual(['#walk', '#exercise']); // Theme tag added
       expect(canonical.labels).toEqual(['habit']);
       expect(canonical.body).toBeUndefined(); // Habits don't have body
 
@@ -112,7 +112,7 @@ describe('Overlay Mind Drop Updates', () => {
       };
 
       expect(updatePatch.notes).toBe('Go for a 20-minute walk every morning');
-      expect(updatePatch.tags).toEqual(['#walk']);
+      expect(updatePatch.tags).toEqual(['#walk', '#exercise']); // Theme tag added
     });
 
     it('should preserve full sentence in notes after title edit', async () => {
@@ -141,8 +141,8 @@ describe('Overlay Mind Drop Updates', () => {
         aiTags: userTags,
       });
 
-      // Only meaningful tag preserved
-      expect(canonical.tags).toEqual(['#walk']);
+      // Only meaningful tag preserved + theme tag added
+      expect(canonical.tags).toEqual(['#walk', '#exercise']);
     });
   });
 
@@ -167,7 +167,7 @@ describe('Overlay Mind Drop Updates', () => {
       expect(canonical.canonicalType).toBe('log');
       expect(canonical.title).toBe('Feeling Overwhelmed After Work');
       expect(canonical.body).toBe('Felt overwhelmed after work but calmed down after a walk');
-      expect(canonical.tags).toEqual(['#overwhelmed', '#calm', '#walk']);
+      expect(canonical.tags).toEqual(['#overwhelmed', '#calm', '#walk', '#exercise', '#work']); // Theme tags added
       expect(canonical.labels).toEqual(['log']);
       expect(canonical.name).toBeUndefined(); // Logs don't have name
       expect(canonical.notes).toBeUndefined(); // Logs don't have notes
@@ -184,7 +184,7 @@ describe('Overlay Mind Drop Updates', () => {
 
       expect(updatePatch.title).toBe('Feeling Overwhelmed After Work');
       expect(updatePatch.body).toBe('Felt overwhelmed after work but calmed down after a walk');
-      expect(updatePatch.tags).toEqual(['#overwhelmed', '#calm', '#walk']);
+      expect(updatePatch.tags).toEqual(['#overwhelmed', '#calm', '#walk', '#exercise', '#work']); // Theme tags added
     });
 
     it('should preserve full story in body with compact title', async () => {
@@ -213,8 +213,8 @@ describe('Overlay Mind Drop Updates', () => {
         aiTags: userTags,
       });
 
-      // Emotion tags preserved, filler removed
-      expect(canonical.tags).toEqual(['#overwhelmed', '#calm', '#walk']);
+      // Emotion tags preserved, filler removed, theme tags added
+      expect(canonical.tags).toEqual(['#overwhelmed', '#calm', '#walk', '#exercise', '#work']);
     });
 
     it('should preserve *journal marker in log tags', async () => {

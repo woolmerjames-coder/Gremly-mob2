@@ -47,12 +47,12 @@ describe('buildCanonicalFromMindDrop', () => {
       const result = await buildCanonicalFromMindDrop({
         kind: 'todo',
         rawText: 'Book haircut tomorrow at 3pm',
-        aiTitle: 'Haircut appointment tomorrow',
+        aiTitle: 'Haircut tomorrow', // Shorter than raw text to pass validation
         aiTags: ['haircut', 'appointment'],
       });
 
-      expect(result.title).toBe('Haircut appointment tomorrow');
-      expect(result.name).toBe('Haircut appointment tomorrow');
+      expect(result.title).toBe('Haircut tomorrow');
+      expect(result.name).toBe('Haircut tomorrow');
       expect(result.body).toBe('Book haircut tomorrow at 3pm'); // Full raw text preserved
       // Should have tags
       expect(result.tags.length).toBeGreaterThan(0);
@@ -95,8 +95,8 @@ describe('buildCanonicalFromMindDrop', () => {
         rawText: longText,
       });
 
-      // Title is not compacted here - that happens in UnifiedOverlayV2
-      expect(result.title).toBe(longText);
+      // Title is compacted via normalizeTodoTitle (first 7 words + ellipsis)
+      expect(result.title).toBe('This is a very long task description...');
       expect(result.body).toBe(longText); // Full text preserved in body
     });
   });
@@ -251,8 +251,8 @@ describe('buildCanonicalFromMindDrop', () => {
       expect(tagText).toContain('anxious');
       // Should add 1-2 context tags
       expect(tagText).toMatch(/meeting|partner/);
-      // Should not have too many tags
-      expect(result.tags.length).toBeLessThanOrEqual(5);
+      // Should not have too many tags (up to 7 with theme tags like #work, #relationships)
+      expect(result.tags.length).toBeLessThanOrEqual(7);
     });
 
     it.skip('should extract tags using AI when none provided', async () => {
@@ -364,12 +364,14 @@ describe('buildCanonicalFromMindDrop', () => {
         aiTags: ['Walk', 'WALK', 'walk', 'fitness'],
       });
 
-      // Should dedupe "Walk" and keep max 2
-      expect(result.tags.length).toBeLessThanOrEqual(2);
+      // Should dedupe "Walk" and keep max 2 base tags + theme tag (#exercise)
+      expect(result.tags.length).toBeLessThanOrEqual(3); // 2 base tags + 1 theme tag
       // Should have "walk" and "fitness" (deduped Walk/WALK/walk)
       const tagText = result.tags.join(' ').toLowerCase();
       expect(tagText).toContain('walk');
       expect(tagText).toContain('fitness');
+      // Theme tag #exercise should be added
+      expect(tagText).toContain('exercise');
     });
   });
 });

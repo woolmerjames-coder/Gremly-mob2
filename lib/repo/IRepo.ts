@@ -116,6 +116,7 @@ export interface IRepo {
   findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null>;
   findTodoByDropId(dropId: string): Promise<Todo | null>;
   findHabitByDropId(dropId: string): Promise<import('../types').Habit | null>;
+  findNoteByDropId(dropId: string): Promise<Note | null>;
 
   // Query operations
   getById(id: ID): Promise<AppRecord | null>;

@@ -1,14 +1,28 @@
 /**
  * Mind Drop Views State Integration Test
  *
- * Verifies that views flags (minddrop_stage, ai_pending, ai_failed, minddrop_prefilled_v1)
- * are correctly set throughout the Mind Drop pipeline.
+ * Verifies the complete deterministic lifecycle for views flags:
+ *
+ * LIFECYCLE:
+ * 1. UNSORTED: minddrop_stage='pending', ai_pending=true, ai_failed=false
+ * 2. STAGE A (Classification): minddrop_stage='classified', ai_pending=true, ai_failed=false
+ * 3. STAGE B (Prefill Success): minddrop_stage='prefilled', ai_pending=false, ai_failed=false
+ * 4. STAGE B (Prefill Failure): minddrop_stage='classified', ai_pending=false, ai_failed=true
+ * 5. STAGE A (Classification Failure): minddrop_stage='pending', ai_pending=false, ai_failed=true
+ *
+ * CRITICAL RULES:
+ * - ONLY Stage A sets minddrop_stage='classified'
+ * - ONLY Stage B sets minddrop_stage='prefilled'
+ * - NO other code modifies these flags
  *
  * Tests both success and failure paths.
  */
 
 import { MemoryRepo } from '../lib/repo/memory';
-import { runMindDropStageAClassification, runMindDropStageBPrefill } from '../lib/minddrop/pipelineStages';
+import {
+  runMindDropStageAClassification,
+  runMindDropStageBPrefill,
+} from '../lib/minddrop/pipelineStages';
 import type { CortexResponse } from '../lib/cortex/cortexDecide';
 import type { IRepo } from '../lib/repo/IRepo';
 
@@ -68,7 +82,7 @@ describe('Mind Drop Views State Integration', () => {
       expect(todoAfterStageA).toBeDefined();
       expect(todoAfterStageA!.views).toMatchObject({
         minddrop_stage: 'classified',
-        ai_pending: true,  // Still waiting for prefill
+        ai_pending: true, // Still waiting for prefill
         ai_failed: false,
       });
 
@@ -161,7 +175,9 @@ describe('Mind Drop Views State Integration', () => {
 
       const decision: CortexResponse = {
         mode: 'auto',
-        actions: [{ type: 'create.note', payload: { text: 'Thinking out loud', subtype: 'journal' } }],
+        actions: [
+          { type: 'create.note', payload: { text: 'Thinking out loud', subtype: 'journal' } },
+        ],
         confidence: 0.48,
       };
 

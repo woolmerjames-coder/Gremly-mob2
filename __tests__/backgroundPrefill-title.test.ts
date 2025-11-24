@@ -1,5 +1,9 @@
 /**
  * Test BackgroundPrefill title computation for logs
+ *
+ * IMPORTANT: backgroundPrefill is Stage B (enrichment-only).
+ * Stage B only updates title and views flags. Tags are NEVER modified in Stage B.
+ * Tags are set in Stage A via buildCanonicalFromMindDrop.
  */
 
 import { computePrefillTitle } from '../lib/minddrop/backgroundPrefill';

@@ -7,20 +7,28 @@
  * - Title: Prefers AI-generated compact title over raw text
  * - Tags: Extracted via AI with deterministic fallback, then filtered per-type
  *
- * Tag extraction strategy:
+ * Tag extraction strategy (COMPLETE PIPELINE - STAGE A ONLY):
  * 1. Use provided aiTags if available (from background prefill)
  * 2. Otherwise, call getEffectiveTags for AI extraction with fallback
  * 3. Apply domain-specific filters:
  *    - Todos: filterMindDropTodoTags (removes "book" for appointment bookings)
  *    - Habits: filterHabitTags (max 2 single-word tags)
  *    - Logs: mergeLogTags (preserves emotions + journal marker)
+ * 4. Apply theme tags (applyThemeTags) - adds context tags like #work, #exercise, #health
+ * 5. Apply quality filter (applyTagQualityFilter) - removes junk/stop words
+ * 6. Final normalization (filterAndNormalizeTags) - dedupes and formats
+ *
+ * NOTE: Stage B (backgroundPrefill) NEVER modifies tags - all tag logic is here in Stage A.
  */
 
 import { filterAndNormalizeTags } from '../tags/normalize';
 import { TAG_STOP_WORDS } from '../tags/constants';
 import { getEffectiveTags } from '../tags/getEffectiveTags';
+import { applyThemeTags } from '../tags/themes';
+import { applyTagQualityFilter } from '../tags/quality';
 import { type LogSubtype } from '../cortex/classifyLogSubtype';
 import { getEffectiveLogSubtype } from '../logs/getEffectiveLogSubtype';
+import { normalizeTodoTitle } from './normalizeTodoTitle';
 
 // Import domain-specific tag filters from overlay
 import {
@@ -222,7 +230,12 @@ function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
 
 /**
  * Build tags for Mind Drop items using AI extraction with deterministic fallback.
- * Applies domain-specific filtering based on entity type.
+ * Applies complete tag enrichment pipeline in Stage A:
+ * 1. Extract tags (AI with fallback via getEffectiveTags)
+ * 2. Apply domain-specific filtering (todos/habits/logs have different rules)
+ * 3. Add theme tags (#work, #exercise, #health, etc.)
+ * 4. Apply quality filter (remove junk/stop words)
+ * 5. Final normalization (dedupe, format)
  *
  * @param rawText - Full Mind Drop sentence
  * @param aiTags - Optional pre-extracted tags (from background prefill)
@@ -248,17 +261,19 @@ async function buildCleanedTags(
     }
 
     // Step 2: Apply domain-specific filtering
+    let domainFiltered: string[];
     switch (kind) {
       case 'todo': {
         // For todos: add # prefix and filter "book" heuristic
         const withPrefix = extractedTags.map((tag) => (tag.startsWith('#') ? tag : `#${tag}`));
-        const filtered = filterMindDropTodoTags(rawText, withPrefix);
-        return filterAndNormalizeTags(filtered);
+        domainFiltered = filterMindDropTodoTags(rawText, withPrefix);
+        break;
       }
 
       case 'habit': {
         // For habits: max 2 single-word tags
-        return filterHabitTags(extractedTags);
+        domainFiltered = filterHabitTags(extractedTags);
+        break;
       }
 
       case 'log': {
@@ -270,19 +285,32 @@ async function buildCleanedTags(
 
         if (hasJournalMarker) {
           // Preserve *journal marker and merge with AI tags
-          return mergeLogTags(existing, extractedTags);
+          domainFiltered = mergeLogTags(existing, extractedTags);
+        } else {
+          // For non-journal logs, just normalize and filter the extracted tags
+          const withPrefix = extractedTags.map((tag) =>
+            tag.startsWith('#') || tag.startsWith('*') ? tag : `#${tag}`,
+          );
+          domainFiltered = withPrefix;
         }
-
-        // For non-journal logs, just normalize and filter the extracted tags
-        const withPrefix = extractedTags.map((tag) =>
-          tag.startsWith('#') || tag.startsWith('*') ? tag : `#${tag}`,
-        );
-        return filterAndNormalizeTags(withPrefix);
+        break;
       }
 
       default:
-        return filterAndNormalizeTags(extractedTags);
+        domainFiltered = extractedTags;
     }
+
+    // Step 3: Normalize before theme enrichment
+    const normalized = filterAndNormalizeTags(domainFiltered);
+
+    // Step 4: Add theme tags (#work, #exercise, #health, etc.)
+    const withThemes = applyThemeTags(rawText, normalized);
+
+    // Step 5: Apply quality filter (removes junk/stop words)
+    const qualityFiltered = applyTagQualityFilter(withThemes);
+
+    // Step 6: Final normalization (dedupe, format)
+    return filterAndNormalizeTags(qualityFiltered);
   } catch (error) {
     // AI failure should never block - return empty tags
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -323,50 +351,75 @@ export async function buildCanonicalFromMindDrop(
   const { kind, rawText, aiTitle, aiTags, existing } = input;
 
   const trimmedRawText = rawText.trim();
-  // Phase 2: Use AI-generated title if available, otherwise use raw text
-  const title = compactTitle(trimmedRawText, aiTitle);
+
   // Extract tags using AI with domain-specific filtering
   const existingTagsForLogs = existing?.tags ?? [];
   const tags = await buildCleanedTags(trimmedRawText, aiTags, kind, existingTagsForLogs);
 
-  // Build common fields
-  const common = {
-    title,
-    tags,
-    tags_meta: existing?.tags_meta ?? {
-      sticky: [],
-      tombstones: [],
-    },
-    canonicalType: kind,
-    labels: [kind], // Each type gets its own label
-  };
-
   // Type-specific field mapping
   switch (kind) {
     case 'log': {
+      // For logs: Use AI title if available, otherwise raw text
+      const title = compactTitle(trimmedRawText, aiTitle);
       // Classify log subtype using AI with deterministic fallback
       const subtype = await getEffectiveLogSubtype(trimmedRawText);
 
       return {
-        ...common,
+        title,
+        tags,
+        tags_meta: existing?.tags_meta ?? {
+          sticky: [],
+          tombstones: [],
+        },
+        canonicalType: kind,
+        labels: [kind],
         body: trimmedRawText, // Full raw text goes in body
         subtype: subtype === 'plain' ? null : subtype, // null for plain, otherwise set subtype
       };
     }
 
-    case 'todo':
+    case 'todo': {
+      // For todos: Use normalizeTodoTitle for proper title extraction (first line, temporal preservation)
+      const title = normalizeTodoTitle(trimmedRawText, aiTitle);
+
       return {
-        ...common,
-        name: title, // Use compact title in name field
+        title,
+        tags,
+        tags_meta: existing?.tags_meta ?? {
+          sticky: [],
+          tombstones: [],
+        },
+        canonicalType: kind,
+        labels: [kind],
+        name: title, // Use normalized title in name field
         body: trimmedRawText, // Full raw text in body/details
         details: trimmedRawText, // Alternative field name
       };
+    }
 
-    case 'habit':
+    case 'habit': {
+      // For habits: Extract first line for name, use AI title if available
+      let title: string;
+      if (aiTitle) {
+        title = aiTitle.trim();
+      } else {
+        // Extract first line for habit name (like todos)
+        const firstLine = trimmedRawText.split('\n')[0].trim();
+        title = firstLine || trimmedRawText;
+      }
+
       return {
-        ...common,
+        title,
+        tags,
+        tags_meta: existing?.tags_meta ?? {
+          sticky: [],
+          tombstones: [],
+        },
+        canonicalType: kind,
+        labels: [kind],
         name: title, // Use compact title in name field
         notes: trimmedRawText, // Full raw text in notes field
       };
+    }
   }
 }

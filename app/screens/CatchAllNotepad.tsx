@@ -3034,8 +3034,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   why_string: whyUpdate,
                   views: {
                     alsoShowIn: ['Hub:Catch-All'],
-                    minddrop_stage: 'classified', // Mark classification complete
-                    ai_pending: false,
+                    minddrop_stage: 'classified', // Mark classification complete (Stage A equivalent)
+                    ai_pending: true, // Still waiting for Stage B prefill
                   },
                   labels: updatedLabels,
                 };
@@ -3082,10 +3082,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   console.warn('[MindDrop.StageB.UI] Prefill failed', error);
                 });
 
-              // Show timing chips for auto-created todos
+              // Show timing chips for auto-created todos (based on final entity type, not confidence)
+              // Stage A already decided this is a todo - chips help user refine timing
               if (
                 firstTodoId &&
-                (decision.confidence ?? 0) >= 0.8 &&
                 !isUrgent(cleanedText) &&
                 !parsedIso &&
                 timingAskedRef.current !== submissionIdRef.current
@@ -3098,7 +3098,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 metricsRef.current.timingShown += 1;
                 logMetrics('timing_options_shown', {
                   todoId: firstTodoId,
-                  confidence: decision.confidence,
                   timingOptions: getTimingChips().map((c) => c.option),
                 });
               }
@@ -3626,39 +3625,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
 
       // SUCCESS PATH — AI classification complete
-      // Mark all created entities as no longer ai_pending
-      try {
-        const allCreatedIds = [
-          ...(finalResult.created.todos ?? []),
-          ...(finalResult.created.notes ?? []),
-          ...(finalResult.created.habits ?? []),
-        ];
-
-        // Update views.ai_pending = false for all created entities
-        await Promise.allSettled(
-          allCreatedIds.map(async (entityId) => {
-            try {
-              const entity = await repo.getById(entityId);
-              if (!entity) return;
-
-              await repo.update({
-                id: entityId,
-                patch: {
-                  views: {
-                    ...(entity.views ?? {}),
-                    ai_pending: false,
-                  },
-                },
-              });
-            } catch (err) {
-              console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flag:', entityId, err);
-            }
-          }),
-        );
-      } catch (err) {
-        // Non-critical: log but don't fail the pipeline
-        console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flags:', err);
-      }
+      // Stage B (backgroundPrefill) handles setting:
+      // - views.minddrop_stage = 'prefilled'
+      // - views.ai_pending = false
+      // - views.minddrop_prefilled_v1 = true
+      // No need to manually update these flags here.
 
       return { success: true, result: finalResult };
     } catch (error) {

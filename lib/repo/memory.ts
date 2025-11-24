@@ -353,6 +353,19 @@ export class MemoryRepo implements IRepo {
     return match ?? null;
   }
 
+  /**
+   * Find a note by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findNoteByDropId(dropId: string): Promise<Note | null> {
+    if (!dropId) return null;
+    const match = this.data.find((r): r is Note => {
+      if (r.type !== 'note' || r.owner_id !== this.currentUserId) return false;
+      return ((r as any).drop_id ?? null) === dropId;
+    });
+    return match ?? null;
+  }
+
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     let results = this.data.filter((r) => r.type === type && r.owner_id === this.currentUserId);
 

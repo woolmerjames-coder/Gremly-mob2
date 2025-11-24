@@ -5,7 +5,7 @@ import {
   logConversionSuccess,
   logConversionError,
 } from './conversionTelemetry';
-import { buildMindDropDerivedFields } from './minddrop/minddropShared';
+import { buildCanonicalFromMindDrop } from './minddrop/buildCanonicalFromMindDrop';
 import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
 import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
 
@@ -248,20 +248,19 @@ export const convertUnsortedToTodo = async (
     // Derive todo name from note: prefer body (Mind Drop text), then title
     const rawText = note.body ?? note.title ?? '';
 
-    // Use shared Mind Drop helper for consistent tag cleaning
-    const derived = await buildMindDropDerivedFields('todo', {
+    // Use buildCanonicalFromMindDrop as the ONLY source of canonicalization
+    // Pass existing note tags if available to avoid re-extracting
+    const canonical = await buildCanonicalFromMindDrop({
+      kind: 'todo',
       rawText,
-      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
+      aiTitle: undefined, // Stage A doesn't use AI title yet
+      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined, // Reuse existing tags if available
+      existing: note, // Pass existing note to preserve tags_meta
     });
 
-    // Create a short, clean title using the normalization helper
-    // This will be the initial title (BackgroundPrefill may refine it later with AI)
-    const todoName = options.nameOverride ?? normalizeTodoTitle(rawText);
+    // Use canonical payload for all fields
+    const todoName = options.nameOverride ?? canonical.name ?? rawText;
     const due = options.due ?? null;
-
-    // Preserve the original full Mind Drop text in body field
-    // This ensures the overlay shows the complete original text, not just the short title
-    const todoBody = note.body ?? note.title ?? undefined;
 
     // Filter labels: remove catchall/needs_review, add todo
     const originalLabels = note.labels ?? [];
@@ -280,15 +279,15 @@ export const convertUnsortedToTodo = async (
       name: todoName,
       due_date: due,
       undefined_due: !due,
-      body: todoBody, // Preserve full Mind Drop text in body field
+      body: canonical.body ?? rawText, // Use canonical body
       space_id: note.space_id ?? null,
       ai_placed: !!note.ai_placed,
       why_string: todoWhy ?? 'Confirmed as todo via category chip',
       origin: note.origin ?? 'catchall',
-      canonicalType: 'todo',
+      canonicalType: canonical.canonicalType,
       labels: todoLabels,
-      tags: derived.tags, // Use cleaned tags from shared helper
-      tags_meta: note.tags_meta,
+      tags: canonical.tags, // Use canonical tags
+      tags_meta: canonical.tags_meta,
       views: note.views,
       dropId: (note as any).drop_id,
     };
@@ -451,15 +450,18 @@ export const convertUnsortedToHabit = async (
     // Derive habit name from note: prefer body (Mind Drop text), then title
     const rawText = note.body ?? note.title ?? '';
 
-    // Use shared Mind Drop helper for consistent tag cleaning
-    const derived = await buildMindDropDerivedFields('habit', {
+    // Use buildCanonicalFromMindDrop as the ONLY source of canonicalization
+    // Pass existing note tags if available to avoid re-extracting
+    const canonical = await buildCanonicalFromMindDrop({
+      kind: 'habit',
       rawText,
-      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined,
+      aiTitle: undefined, // Stage A doesn't use AI title yet
+      aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined, // Reuse existing tags if available
+      existing: note, // Pass existing note to preserve tags_meta
     });
 
-    // For conversion, use nameOverride or extract first line (unlike direct Mind Drop creation which can use full text)
-    const firstLine = rawText.split('\n')[0].trim().slice(0, 80);
-    const habitName = options.nameOverride ?? (firstLine || 'New habit');
+    // Use canonical payload for all fields
+    const habitName = options.nameOverride ?? canonical.name ?? rawText;
     const frequency = options.frequency ?? 'daily';
 
     // Filter labels: remove catchall/needs_review, add habit
@@ -479,15 +481,15 @@ export const convertUnsortedToHabit = async (
       name: habitName,
       frequency,
       subtype: 'start_habit', // Default: most habits are about starting new behaviors
-      notes: derived.notes, // Preserve full Mind Drop text in notes field using shared helper
+      notes: canonical.notes ?? rawText, // Use canonical notes
       space_id: note.space_id ?? null,
       ai_placed: !!note.ai_placed,
       why_string: habitWhy ?? 'Confirmed as habit via category chip',
       origin: note.origin ?? 'catchall',
-      canonicalType: 'habit',
+      canonicalType: canonical.canonicalType,
       labels: habitLabels,
-      tags: derived.tags, // Use cleaned tags from shared helper
-      tags_meta: note.tags_meta,
+      tags: canonical.tags, // Use canonical tags
+      tags_meta: canonical.tags_meta,
       views: note.views,
       dropId: (note as any).drop_id,
     };
