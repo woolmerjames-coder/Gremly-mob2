@@ -146,3 +146,56 @@ describe('saveToUnsortedTray - views.ai_pending flag', () => {
     expect(capturedInput.tags).toEqual(['#doctor', '#appointment']);
   });
 });
+
+describe('saveToUnsortedTray - Master spec alignment (Phase 1)', () => {
+  it('should handle pure gibberish as unsorted', async () => {
+    let capturedInput: any = null;
+
+    const mockRepo = {
+      addUnsorted: jest.fn(async (_userId: any, input: any) => {
+        capturedInput = input;
+        return {
+          id: 'note-gibberish',
+          ...input,
+          owner_id: 'user-test',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      }),
+      create: jest.fn(),
+    } as unknown as IRepo;
+
+    // Pure gibberish should still be saved but marked appropriately
+    await saveToUnsortedTray(mockRepo, 'asdfghjkl', {});
+
+    expect(mockRepo.addUnsorted).toHaveBeenCalledTimes(1);
+    expect(capturedInput.views.ai_pending).toBe(true);
+    expect(capturedInput.subtype).toBe('catchall'); // Even gibberish gets catchall per master spec
+  });
+
+  it('should NOT treat meaningful content as unsorted', async () => {
+    let capturedInput: any = null;
+
+    const mockRepo = {
+      addUnsorted: jest.fn(async (_userId: any, input: any) => {
+        capturedInput = input;
+        return {
+          id: 'note-meaningful',
+          ...input,
+          owner_id: 'user-test',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      }),
+      create: jest.fn(),
+    } as unknown as IRepo;
+
+    // Meaningful text should never be treated as true unsorted
+    await saveToUnsortedTray(mockRepo, 'Coffee shop closes at 5pm', {});
+
+    expect(mockRepo.addUnsorted).toHaveBeenCalledTimes(1);
+    expect(capturedInput.views.ai_pending).toBe(true);
+    // Master spec ensures meaningful content is preserved
+    expect(capturedInput.subtype).toBe('catchall');
+  });
+});

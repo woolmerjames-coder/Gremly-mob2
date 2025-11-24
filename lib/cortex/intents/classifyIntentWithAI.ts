@@ -165,11 +165,11 @@ export async function classifyIntentWithAI(
   }
 
   try {
-    // Call AI classifier
+    // Call AI classifier with full text (no truncation for better accuracy)
     const result = await callClassify({
       messages: [
         { role: 'system', content: AI_CLASSIFICATION_PROMPT },
-        { role: 'user', content: text.slice(0, 500) }, // Limit to 500 chars
+        { role: 'user', content: text }, // Pass full text, not truncated
       ],
       timeoutMs,
     });

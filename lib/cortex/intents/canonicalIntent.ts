@@ -9,9 +9,17 @@
  * - Reflection safety: Prevents "thinking about X" from being ignored
  * - Auto-create thresholds: High-confidence todos/habits can be auto-created
  * - Default to 'log': Never lose meaningful text
+ *
+ * Phase 1: Now integrates with master classifier spec for consistent categorization.
  */
 
 import type { IntentKind } from './types';
+import {
+  getPreferredMasterCategoryFromTextOnly,
+  MASTER_CLASSIFIER_THRESHOLDS,
+  type MasterCategory,
+  hasRealWords,
+} from './masterClassifierSpec';
 
 export type CanonicalType = 'todo' | 'habit' | 'log' | 'meta' | 'ignore';
 
@@ -305,13 +313,136 @@ function normalizeRuleKind(kind: IntentKind): CanonicalType {
 }
 
 /**
+ * Map AI category to MasterCategory
+ */
+function mapAIToMasterCategory(aiCategory: string | null | undefined): MasterCategory | null {
+  if (!aiCategory) return null;
+
+  const normalized = aiCategory.toLowerCase().trim();
+  switch (normalized) {
+    case 'todo':
+    case 'task':
+      return 'todo';
+    case 'habit':
+      return 'habit';
+    case 'log':
+    case 'note':
+    case 'journal':
+      return 'log_general';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Map rule kind to MasterCategory
+ */
+function mapRuleKindToMasterCategory(kind: IntentKind): MasterCategory {
+  switch (kind) {
+    case 'todo':
+      return 'todo';
+    case 'habit':
+      return 'habit';
+    case 'note':
+    case 'reflection':
+    case 'ambiguous':
+      return 'log_general';
+    case 'none':
+    case 'question':
+      // Check context - if meaningful text, should be log_general
+      // Will be handled by pickMasterCategory
+      return 'unsorted';
+    default:
+      return 'log_general';
+  }
+}
+
+/**
+ * Pick the best MasterCategory from text, rules, and AI signals
+ *
+ * Priority:
+ * 1. Strong AI signal (>= threshold)
+ * 2. Strong rule signal (>= threshold)
+ * 3. Text-based category (if has real words)
+ * 4. Force log_general for meaningful text (never lose content)
+ * 5. Unsorted only for pure gibberish
+ */
+function pickMasterCategory({
+  textCategory,
+  rulesCategory,
+  aiCategory,
+  rulesConfidence,
+  aiConfidence,
+  text,
+}: {
+  textCategory: MasterCategory;
+  rulesCategory: MasterCategory;
+  aiCategory: MasterCategory | null;
+  rulesConfidence: number;
+  aiConfidence: number;
+  text: string;
+}): MasterCategory {
+  const threshold = MASTER_CLASSIFIER_THRESHOLDS.MIN_CATEGORY_CONFIDENCE;
+  const hasWords = hasRealWords(text);
+
+  // 1. Prefer strong AI if above threshold
+  if (aiCategory && aiConfidence >= threshold) {
+    return aiCategory;
+  }
+
+  // 2. Prefer strong rule result if above threshold
+  if (rulesCategory !== 'unsorted' && rulesConfidence >= threshold) {
+    return rulesCategory;
+  }
+
+  // 3. If there's meaningful text, fallback to textCategory → but force log_general if textCategory === "unsorted"
+  if (hasWords) {
+    if (textCategory === 'unsorted') return 'log_general';
+    return textCategory;
+  }
+
+  // 4. Only pure gibberish goes to unsorted
+  return 'unsorted';
+}
+
+/**
+ * Map MasterCategory to CanonicalType
+ */
+function masterCategoryToCanonicalType(category: MasterCategory): CanonicalType {
+  switch (category) {
+    case 'todo':
+      return 'todo';
+    case 'habit':
+      return 'habit';
+    case 'log_journal':
+    case 'log_idea':
+    case 'log_general':
+      return 'log';
+    case 'unsorted':
+      // Never expose unsorted - convert to log
+      return 'log';
+    default:
+      return 'log';
+  }
+}
+
+/**
  * Resolve canonical intent from rule-based and AI classification
  *
  * This is the SINGLE SOURCE OF TRUTH for intent decisions.
  * Implements reflection safety, auto-create thresholds, and fallback logic.
+ *
+ * Phase 1: Now uses master classifier spec for consistent categorization.
  */
 export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentResult {
   const { ruleKind, ruleConfidence, aiCategory, aiConfidence, text } = inputs;
+
+  // Get text-based category from master spec (pure heuristics)
+  const textCategory = getPreferredMasterCategoryFromTextOnly(text);
+
+  // Map AI and rules to MasterCategory
+  const aiMasterCategory = mapAIToMasterCategory(aiCategory);
+  const rulesMasterCategory = mapRuleKindToMasterCategory(ruleKind);
 
   // Normalize inputs
   const normalizedAI = normalizeAICategory(aiCategory);
@@ -383,15 +514,26 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
     };
   }
 
-  if (normalizedAI === 'ignore' && aiConf >= 0.8) {
+  // Don't auto-ignore unless extremely confident - prefer log_general via master spec
+  if (normalizedAI === 'ignore' && aiConf >= 0.9 && !hasRealWords(text)) {
     return {
       type: 'ignore',
       confidence: aiConf,
       allowAutoCreate: false,
       suppressChips: true,
-      reasoning: 'High-confidence ignore from AI',
+      reasoning: 'High-confidence ignore from AI (gibberish)',
     };
   }
+
+  // Pick master category using unified logic
+  const masterCategory = pickMasterCategory({
+    textCategory,
+    rulesCategory: rulesMasterCategory,
+    aiCategory: aiMasterCategory,
+    rulesConfidence: ruleConf,
+    aiConfidence: aiConf,
+    text,
+  });
 
   // Combine AI and rule confidence for todo/habit
   const combinedTodoConf = Math.max(
@@ -407,7 +549,7 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
   // AUTO TODO RULE (Block 3)
   // High-confidence todos auto-create
   if (
-    (normalizedRule === 'todo' || normalizedAI === 'todo') &&
+    masterCategory === 'todo' &&
     combinedTodoConf >= HIGH_CONF_ACTION &&
     !isVagueReflection(text)
   ) {
@@ -422,10 +564,7 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
 
   // AUTO HABIT RULE (Block 3)
   // High-confidence habits auto-create
-  if (
-    (normalizedRule === 'habit' || normalizedAI === 'habit') &&
-    combinedHabitConf >= HIGH_CONF_ACTION
-  ) {
+  if (masterCategory === 'habit' && combinedHabitConf >= HIGH_CONF_ACTION) {
     return {
       type: 'habit',
       confidence: combinedHabitConf,
@@ -564,13 +703,20 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
     };
   }
 
-  // DEFAULT FALLBACK: log
-  // Never lose meaningful text - if we're not confident it's todo/habit/meta/ignore, make it a log
+  // Map master category to canonical type
+  const canonicalType = masterCategoryToCanonicalType(masterCategory);
+
+  // For log types, use confidence from AI/rules if available
+  const finalConfidence =
+    canonicalType === 'log' ? Math.max(ruleConf, aiConf, 0.5) : Math.max(ruleConf, aiConf, 0.4);
+
+  // DEFAULT: Use master spec decision
+  // Never lose meaningful text - master spec biases toward log_general over unsorted
   return {
-    type: 'log',
-    confidence: Math.max(ruleConf, aiConf, 0.4),
-    allowAutoCreate: false,
+    type: canonicalType,
+    confidence: finalConfidence,
+    allowAutoCreate: canonicalType === 'log', // Auto-create logs
     suppressChips: false,
-    reasoning: 'Default fallback to log (preserve user input)',
+    reasoning: `Master spec classification: ${masterCategory} → ${canonicalType}`,
   };
 }

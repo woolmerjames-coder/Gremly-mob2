@@ -299,6 +299,74 @@ describe('LS2: Log Subtype Stage A Integration', () => {
     });
   });
 
+  describe('LS2: Sacred examples from master spec (Phase 1)', () => {
+    test('LS2.SACRED.A: "Feeling overwhelmed about work" → journal', async () => {
+      const input = 'Feeling overwhelmed about work';
+
+      // Verify LS1 classification
+      const ls1Signal = classifyLogSubtype(input);
+      expect(ls1Signal.subtype).toBe('journal');
+
+      // Verify mapping to note subtype
+      const noteSubtype = getEffectiveLogSubtype(input);
+      expect(noteSubtype).toBe('journal');
+
+      // Verify Stage A canonical output
+      const canonical = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: input,
+      });
+
+      expect(canonical.canonicalType).toBe('log');
+      expect(canonical.subtype).toBe('journal');
+      expect(canonical.body).toBe(input);
+    });
+
+    test('LS2.SACRED.B: "App idea: mood tracking for pets" → idea', async () => {
+      const input = 'App idea: mood tracking for pets';
+
+      // Verify LS1 classification
+      const ls1Signal = classifyLogSubtype(input);
+      expect(ls1Signal.subtype).toBe('idea');
+
+      // Verify mapping to note subtype
+      const noteSubtype = getEffectiveLogSubtype(input);
+      expect(noteSubtype).toBe('idea');
+
+      // Verify Stage A canonical output
+      const canonical = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: input,
+      });
+
+      expect(canonical.canonicalType).toBe('log');
+      expect(canonical.subtype).toBe('idea');
+      expect(canonical.body).toBe(input);
+    });
+
+    test('LS2.SACRED.C: "Coffee shop closes at 5pm" → general/catchall', async () => {
+      const input = 'Coffee shop closes at 5pm';
+
+      // Verify LS1 classification
+      const ls1Signal = classifyLogSubtype(input);
+      expect(ls1Signal.subtype).toBe('general');
+
+      // Verify mapping to note subtype
+      const noteSubtype = getEffectiveLogSubtype(input);
+      expect(noteSubtype).toBe('catchall');
+
+      // Verify Stage A canonical output
+      const canonical = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: input,
+      });
+
+      expect(canonical.canonicalType).toBe('log');
+      expect(canonical.subtype).toBe('catchall');
+      expect(canonical.body).toBe(input);
+    });
+  });
+
   describe('LS2: Determinism verification', () => {
     test('LS2.DETERMINISM: Same input produces same subtype', async () => {
       const input = "I'm feeling stressed about the deadline";

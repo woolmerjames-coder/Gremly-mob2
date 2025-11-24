@@ -214,9 +214,9 @@ describe('canonicalIntent - Ambiguous Social Plans', () => {
 
     const result = resolveCanonicalIntent(inputs);
 
-    // Should fall through to default fallback, not ambiguous social plan
+    // Should fall through to master spec classification, not ambiguous social plan
     expect(result.mode).toBeUndefined();
-    expect(result.reasoning).toContain('Default fallback');
+    expect(result.reasoning).toContain('Master spec'); // Changed from 'Default fallback' to 'Master spec'
   });
 });
 
@@ -352,5 +352,115 @@ describe('canonicalIntent - High-Confidence Actions', () => {
     expect(result.allowAutoCreate).toBe(true);
     expect(result.mode).toBeUndefined();
     expect(result.reasoning).toContain('High-confidence todo');
+  });
+});
+
+describe('canonicalIntent - Master Spec Integration (Phase 1)', () => {
+  /**
+   * Test high-confidence AI picks category correctly
+   */
+  it('should prefer strong AI signal when above threshold', () => {
+    const inputs: IntentInputs = {
+      ruleKind: 'none',
+      ruleConfidence: 0.3,
+      aiCategory: 'todo',
+      aiConfidence: 0.7, // Above MIN_CATEGORY_CONFIDENCE (0.4)
+      text: 'Send the report',
+    };
+
+    const result = resolveCanonicalIntent(inputs);
+
+    expect(result.type).toBe('todo');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.7);
+  });
+
+  /**
+   * Test strong rule result with low AI confidence
+   */
+  it('should prefer strong rule result when AI is low', () => {
+    const inputs: IntentInputs = {
+      ruleKind: 'habit',
+      ruleConfidence: 0.8,
+      aiCategory: 'log',
+      aiConfidence: 0.3,
+      text: 'Exercise daily',
+    };
+
+    const result = resolveCanonicalIntent(inputs);
+
+    expect(result.type).toBe('habit');
+  });
+
+  /**
+   * Test meaningful text never becomes unsorted
+   */
+  it('should convert unsorted to log_general for meaningful text', () => {
+    const inputs: IntentInputs = {
+      ruleKind: 'none',
+      ruleConfidence: 0.1,
+      aiCategory: null,
+      aiConfidence: 0,
+      text: 'Coffee shop closes at 5pm',
+    };
+
+    const result = resolveCanonicalIntent(inputs);
+
+    expect(result.type).toBe('log');
+    expect(result.reasoning).toContain('Master spec');
+  });
+
+  /**
+   * Test text-based category fallback when AI/rules are weak
+   */
+  it('should use text-based category when AI and rules are weak', () => {
+    const inputs: IntentInputs = {
+      ruleKind: 'none',
+      ruleConfidence: 0.2,
+      aiCategory: null,
+      aiConfidence: 0,
+      text: 'I feel overwhelmed about work',
+    };
+
+    const result = resolveCanonicalIntent(inputs);
+
+    expect(result.type).toBe('log');
+    // Should be auto-created as it's meaningful content
+  });
+
+  /**
+   * Test gibberish detection
+   */
+  it('should treat pure gibberish as unsorted but still convert to log', () => {
+    const inputs: IntentInputs = {
+      ruleKind: 'none',
+      ruleConfidence: 0,
+      aiCategory: null,
+      aiConfidence: 0,
+      text: 'asdfghjkl',
+    };
+
+    const result = resolveCanonicalIntent(inputs);
+
+    // Even gibberish should be log (not ignore) per master spec bias
+    expect(result.type).toBe('log');
+  });
+
+  /**
+   * Test combined confidence selection
+   */
+  it('should combine AI and rule confidence for todo decision', () => {
+    const inputs: IntentInputs = {
+      ruleKind: 'todo',
+      ruleConfidence: 0.6,
+      aiCategory: 'todo',
+      aiConfidence: 0.7,
+      text: 'Book flight to NYC',
+    };
+
+    const result = resolveCanonicalIntent(inputs);
+
+    expect(result.type).toBe('todo');
+    // Combined should be max(0.6, 0.7) = 0.7
+    expect(result.confidence).toBeGreaterThanOrEqual(0.6);
   });
 });

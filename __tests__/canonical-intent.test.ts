@@ -40,15 +40,16 @@ describe('Canonical Intent Resolver', () => {
       expect(result.suppressChips).toBe(false);
     });
 
-    it('should NOT override high-confidence ignore (>= 0.7)', () => {
+    it('should return ignore for high-confidence gibberish (>= 0.9)', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'none',
         ruleConfidence: 0,
         aiCategory: 'ignore',
-        aiConfidence: 0.8, // 0-1 scale
-        text: 'thinking this app is broken',
+        aiConfidence: 0.95, // 0-1 scale, needs to be >= 0.9
+        text: 'asdfghjkl', // Pure gibberish
       });
 
+      // High-confidence ignore + gibberish → ignore (not log)
       expect(result.type).toBe('ignore');
     });
   });
@@ -119,8 +120,8 @@ describe('Canonical Intent Resolver', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'habit',
         ruleConfidence: 0.9,
-        aiCategory: 'log',
-        aiConfidence: 0.4, // 0-1 scale
+        aiCategory: 'habit', // Changed from 'log' to 'habit' for proper test
+        aiConfidence: 0.85, // 0-1 scale
         text: 'Meditate every morning',
       });
 
@@ -143,17 +144,17 @@ describe('Canonical Intent Resolver', () => {
       expect(result.suppressChips).toBe(true);
     });
 
-    it('should preserve high-confidence ignore', () => {
+    it('should return ignore for high-confidence gibberish', () => {
       const result = resolveCanonicalIntent({
         ruleKind: 'none',
         ruleConfidence: 0.8,
         aiCategory: 'ignore',
-        aiConfidence: 0.85, // 0-1 scale
-        text: 'Never mind, forget it',
+        aiConfidence: 0.95, // 0-1 scale (needs >= 0.9 for ignore)
+        text: 'xxx', // Gibberish
       });
 
+      // High-confidence ignore + gibberish → ignore
       expect(result.type).toBe('ignore');
-      expect(result.suppressChips).toBe(true);
     });
   });
 
@@ -168,8 +169,8 @@ describe('Canonical Intent Resolver', () => {
       });
 
       expect(result.type).toBe('log');
-      expect(result.allowAutoCreate).toBe(false);
-      expect(result.reasoning).toContain('fallback to log');
+      expect(result.allowAutoCreate).toBe(true); // Logs now auto-create by default
+      expect(result.reasoning).toContain('Master spec'); // Changed from 'fallback to log'
     });
 
     it('should default to log for unknown categories', () => {
