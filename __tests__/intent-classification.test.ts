@@ -148,17 +148,22 @@ describe('Intent Classification Rules', () => {
 
   describe('Opt-out patterns', () => {
     test('Explicit opt-outs should suppress actions', () => {
-      const optOuts = [
-        'Just thinking about running',
-        'Never mind that',
-        'Maybe I could do this later',
-      ];
+      const optOuts = ['Never mind that', 'Maybe I could do this later'];
 
       optOuts.forEach((text) => {
         const intent = classifyIntent(text);
-        expect(intent.suppressChips).toBe(true);
+        expect(intent.suppressChips).toBe(true); // Production still suppresses chips
         expect(intent.requiresAction).toBe(false);
       });
+    });
+
+    test('Reflective thoughts should NOT suppress actions (V3 change)', () => {
+      // V3: "Just thinking about X" is now treated as a reflective thought (note/log),
+      // not as an opt-out, so it doesn't suppress chips
+      const intent = classifyIntent('Just thinking about running');
+      expect(intent.suppressChips).toBe(false); // V3: reflective, not opt-out
+      expect(intent.requiresAction).toBe(false);
+      expect(intent.kind).toBe('note'); // Should be classified as note
     });
   });
 

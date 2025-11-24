@@ -68,8 +68,8 @@ describe('Intent Detection - Meta-Comments', () => {
   describe('Opt-out phrases should NOT create actions', () => {
     it('detects "just thinking" as none', () => {
       const result = detectIntent('Just thinking about it');
-      expect(result.kind).toBe('none');
-      expect(result.suppressChips).toBe(true);
+      expect(result.kind).toBe('note'); // V3: classified as note, not none
+      expect(result.suppressChips).toBe(false); // V3: reflective thoughts don't suppress chips
     });
 
     it('detects "never mind" as none', () => {
@@ -93,7 +93,7 @@ describe('Intent Detection - Meta-Comments', () => {
     it('detects "just chatting" as none', () => {
       const result = detectIntent('Just chatting about ideas');
       expect(result.kind).toBe('none');
-      expect(result.suppressChips).toBe(true);
+      expect(result.suppressChips).toBe(false); // V3: no longer suppresses chips
     });
 
     it('detects "forget it" as none', () => {

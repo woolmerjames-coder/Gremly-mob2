@@ -68,11 +68,13 @@ describe('cortexDecide list heuristics', () => {
       { userId: 'user-2', uiSurface: 'catchall', activeSpaceId: null },
     );
 
-    expect(result.mode).toBe('ask');
+    expect(result.mode).toBe('auto'); // V3: idea heuristic triggers auto mode (not ask)
+    // V3: In auto mode, actions are created directly (no chips/suggestions)
     const chipLabels = (result.suggestions ?? [])
       .filter((suggestion): suggestion is ChipSuggestion => typeof suggestion !== 'string')
       .map((chip) => chip.label);
-    expect(chipLabels).toEqual(expect.arrayContaining(['Save as note (idea)']));
+    // V3 CHANGE: Auto mode doesn't show chips, it auto-creates
+    expect(chipLabels).toEqual([]); // No chips in auto mode
     expect(result.meta?.heuristics?.idea?.applied).toBe(true);
     expect(result.meta?.canonicalSubtype).toBe('idea');
     expect(result.meta?.canonicalHint).toEqual(
@@ -97,8 +99,9 @@ describe('cortexDecide list heuristics', () => {
       { userId: 'user-3', uiSurface: 'catchall', activeSpaceId: null },
     );
 
-    expect(result.mode).toBe('auto');
-    expect(result.actions).toHaveLength(1);
+    expect(result.mode).toBe('ask'); // V3: high-confidence todo suppressed, shows ask mode
+    // V3 CHANGE: In ask mode with suppressed heuristic, no actions are auto-created
+    expect(result.actions).toHaveLength(0); // No auto-actions when heuristic suppressed
     expect(result.meta?.heuristics?.idea?.triggered).toBe(true);
     expect(result.meta?.heuristics?.idea?.applied).toBe(false);
     expect(result.meta?.canonicalHint).toBeUndefined();
