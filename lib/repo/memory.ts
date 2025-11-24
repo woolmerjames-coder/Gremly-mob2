@@ -1743,6 +1743,36 @@ export class MemorySpaceChatRepo {
       updated_at: nowIso(),
     };
   }
+
+  // ========================================================================
+  // Phase 4: List Templates (stub implementations for MemoryRepo)
+  // ========================================================================
+
+  async getListTemplates(
+    _scope?: 'any' | 'todo' | 'habit' | 'note',
+  ): Promise<import('../lists/types').ListTemplate[]> {
+    throw new Error('List templates not supported in MemoryRepo');
+  }
+
+  async getListTemplateById(
+    _templateId: string,
+  ): Promise<import('../lists/types').ListTemplate | null> {
+    throw new Error('List templates not supported in MemoryRepo');
+  }
+
+  async createListTemplate(_input: {
+    name: string;
+    scope: 'any' | 'todo' | 'habit' | 'note';
+    items: import('../lists/types').ListItem[];
+    sourceEntityType?: 'todo' | 'note' | 'habit';
+    sourceEntityId?: string;
+  }): Promise<import('../lists/types').ListTemplate> {
+    throw new Error('List templates not supported in MemoryRepo');
+  }
+
+  async deleteListTemplate(_templateId: string): Promise<void> {
+    throw new Error('List templates not supported in MemoryRepo');
+  }
 }
 
 // Default instance for dev

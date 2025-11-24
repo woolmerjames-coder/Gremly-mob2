@@ -142,7 +142,7 @@ describe('UnifiedCreateOverlay conversions overflow menu', () => {
       <UnifiedCreateOverlay
         visible
         mode="edit"
-        initialEntity={{ type: 'log', id: baseNote.id, logSubtype: 'everything_else' }}
+        initialEntity={{ type: 'log', id: baseNote.id, logSubtype: null }} // plain
         onClose={jest.fn()}
       />,
     );

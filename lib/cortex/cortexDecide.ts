@@ -154,6 +154,11 @@ export interface CortexResponse {
     empathy_triggered?: boolean; // Empathy mode flag
     [key: string]: any;
   };
+  /** Phase 3 Lists: Actionable list context (e.g., "time to do my shopping list") */
+  context?: {
+    actionableListName?: string; // Name of list to convert to todo
+    [key: string]: any;
+  };
   /** Raw tags from engine classification (if provided) */
   engineTags?: string[];
   /** Phase 2A: Original user input text for background prefill */
@@ -296,6 +301,13 @@ export async function cortexDecide(
     const listHeuristicTriggered = listAnalysis.score >= 0.6;
     const ideaHeuristicTriggered = ideaAnalysis.score >= 0.5;
 
+    // Phase 3 Lists: Detect actionable list intent ("time to do my shopping list")
+    const actionableListName = detectActionableList(userText);
+    if (actionableListName) {
+      console.log('[DEBUG][cortexDecide] Actionable list detected:', actionableListName);
+      safeResult.context = { actionableListName };
+    }
+
     console.log('[DEBUG][cortexDecide] Intent detected:', {
       text: userText.substring(0, 50),
       kind: detected.kind,
@@ -303,6 +315,7 @@ export async function cortexDecide(
       aiConfidence: detected.aiConfidence, // Phase 11.8: Log AI confidence
       suppressChips: detected.suppressChips,
       isMetaComment: (detected as any).isMetaComment,
+      actionableList: actionableListName || 'none',
       listHeuristic: {
         score: Number(listAnalysis.score.toFixed(2)),
         matches: listAnalysis.matches,
@@ -1108,6 +1121,35 @@ function extractItemFromText(text: string): string {
   }
 
   return text.trim(); // ultimate fallback
+}
+
+/**
+ * Phase 3 Lists: Detect actionable list intent
+ * Patterns: "time to do my X list", "let's do my X list", "execute my X list"
+ * Returns the list name if detected, null otherwise
+ */
+function detectActionableList(text: string): string | null {
+  const lowerText = text.toLowerCase().trim();
+
+  // Patterns for actionable list intent
+  const patterns = [
+    /(?:time\s+to|let'?s|gonna|going\s+to)\s+(?:do|complete|work\s+on|tackle|execute|use)\s+(?:my\s+)?(.+?)\s+list/i,
+    /(?:do|complete|work\s+on|tackle|execute)\s+(?:my\s+)?(.+?)\s+list\s+now/i,
+    /(?:start|begin)\s+(?:my\s+)?(.+?)\s+list/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = lowerText.match(pattern);
+    if (match && match[1]) {
+      const listName = match[1].trim();
+      // Filter out common false positives
+      if (listName && !['to', 'a', 'the', 'this', 'that'].includes(listName)) {
+        return listName;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**

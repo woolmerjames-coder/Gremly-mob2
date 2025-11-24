@@ -83,6 +83,8 @@ import { Checklist } from '../lists/Checklist';
 // Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
+import { convertLogListToTodo } from '../../lib/lists/convertLogListToTodo';
+import { convertTodoToLogList } from '../../lib/lists/convertTodoToLogList';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
 import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
@@ -90,6 +92,8 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle } from '../../lib/minddrop/backgroundPrefill';
+import { buildTemplateFromList, applyTemplateToList } from '../../lib/lists/templates/helpers';
+import type { ListTemplate } from '../../lib/types';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -2231,6 +2235,396 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [dispatch, showDueToast],
   );
 
+  // Phase 3 Lists: Convert list-based log to todo
+  const handleConvertLogToTodo = useCallback(async () => {
+    if (mode !== 'edit' || !fullEntity || fullEntity.type !== 'note') {
+      console.warn('[handleConvertLogToTodo] Not in edit mode or wrong entity type');
+      return;
+    }
+
+    if (!fullEntity.has_list || !fullEntity.list_items || fullEntity.list_items.length === 0) {
+      Alert.alert('Conversion unavailable', 'This note does not have a checklist to convert.');
+      return;
+    }
+
+    try {
+      const { todo } = await convertLogListToTodo(repo, fullEntity.id, {
+        preserveCheckedState: false, // Reset checked items for fresh todo
+      });
+
+      // Close overlay and emit event to reopen with new todo
+      onClose();
+      setTimeout(() => {
+        eventBus.emit('ItemUpdated', { id: todo.id });
+      }, 100);
+
+      console.log('[handleConvertLogToTodo] Converted note → todo', {
+        noteId: fullEntity.id,
+        todoId: todo.id,
+      });
+    } catch (error) {
+      console.error('[handleConvertLogToTodo] Conversion failed', error);
+      Alert.alert('Conversion failed', 'Unable to convert this note to a task right now.');
+    }
+  }, [mode, fullEntity, repo, onClose]);
+
+  // Phase 3 Lists: Convert list-based todo to log
+  const handleConvertTodoToLog = useCallback(async () => {
+    if (mode !== 'edit' || !fullEntity || fullEntity.type !== 'todo') {
+      console.warn('[handleConvertTodoToLog] Not in edit mode or wrong entity type');
+      return;
+    }
+
+    if (!fullEntity.has_list || !fullEntity.list_items || fullEntity.list_items.length === 0) {
+      Alert.alert('Conversion unavailable', 'This task does not have a checklist to convert.');
+      return;
+    }
+
+    try {
+      const { note } = await convertTodoToLogList(repo, fullEntity.id, {
+        preserveCheckedState: true, // Keep checked state in log
+      });
+
+      // Close overlay and emit event to reopen with new note
+      onClose();
+      setTimeout(() => {
+        eventBus.emit('ItemUpdated', { id: note.id });
+      }, 100);
+
+      console.log('[handleConvertTodoToLog] Converted todo → note', {
+        todoId: fullEntity.id,
+        noteId: note.id,
+      });
+    } catch (error) {
+      console.error('[handleConvertTodoToLog] Conversion failed', error);
+      Alert.alert('Conversion failed', 'Unable to convert this task to a note right now.');
+    }
+  }, [mode, fullEntity, repo, onClose]);
+
+  // Phase 4: Save list as template
+  const handleSaveListAsTemplate = useCallback(async () => {
+    if (mode !== 'edit' || !fullEntity) {
+      console.warn('[handleSaveListAsTemplate] Not in edit mode or no entity');
+      return;
+    }
+
+    if (!fullEntity.has_list || !fullEntity.list_items || fullEntity.list_items.length === 0) {
+      Alert.alert('No checklist', 'This item does not have a checklist to save as a template.');
+      return;
+    }
+
+    // Determine default template name from entity
+    const defaultName =
+      fullEntity.type === 'note'
+        ? (fullEntity as any).title || 'New list template'
+        : fullEntity.type === 'todo'
+          ? (fullEntity as any).name || 'Checklist template'
+          : fullEntity.type === 'habit'
+            ? (fullEntity as any).name || 'Routine template'
+            : 'List template';
+
+    // Prompt for template name
+    Alert.prompt(
+      'Save as template',
+      'Enter a name for this checklist template:',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Save',
+          onPress: async (templateName?: string) => {
+            const name = (templateName || '').trim();
+            if (!name) {
+              Alert.alert('Invalid name', 'Template name cannot be empty.');
+              return;
+            }
+
+            try {
+              // Determine scope based on entity type
+              const scope =
+                fullEntity.type === 'note'
+                  ? 'note'
+                  : fullEntity.type === 'todo'
+                    ? 'todo'
+                    : fullEntity.type === 'habit'
+                      ? 'habit'
+                      : 'any';
+
+              // Build template using helper
+              const templateData = buildTemplateFromList({
+                name,
+                items: fullEntity.list_items,
+                scope,
+                sourceEntityType: fullEntity.type as 'todo' | 'note' | 'habit',
+                sourceEntityId: fullEntity.id,
+              });
+
+              // Create template in database
+              await repo.createListTemplate(templateData);
+
+              // Show success message
+              Alert.alert('Template saved', `"${name}" is now available as a template.`);
+
+              console.log('[handleSaveListAsTemplate] Template created', {
+                name,
+                scope,
+                itemCount: fullEntity.list_items.length,
+              });
+            } catch (error: any) {
+              console.error('[handleSaveListAsTemplate] Failed to save template', error);
+
+              // Check for duplicate name error
+              if (error.message && error.message.includes('already exists')) {
+                Alert.alert('Duplicate name', error.message);
+              } else {
+                Alert.alert('Save failed', 'Unable to save template right now.');
+              }
+            }
+          },
+        },
+      ],
+      'plain-text',
+      defaultName,
+    );
+  }, [mode, fullEntity, repo]);
+
+  // Phase 4: Apply template to current list
+  const handleApplyTemplate = useCallback(async () => {
+    if (mode !== 'edit' || !fullEntity) {
+      console.warn('[handleApplyTemplate] Not in edit mode or no entity');
+      return;
+    }
+
+    try {
+      // Determine scope for template filtering
+      const entityType = fullEntity.type;
+      const scope = entityType === 'note' ? 'note' : entityType === 'todo' ? 'todo' : 'habit';
+
+      // Fetch templates (scope + 'any' templates)
+      const templates = await repo.getListTemplates(scope);
+
+      if (templates.length === 0) {
+        Alert.alert(
+          'No templates',
+          `You don't have any templates yet. Save a checklist as a template first.`,
+        );
+        return;
+      }
+
+      // Show template picker
+      const templateOptions = templates.map((t) => ({
+        text: `${t.name} (${t.scope})`,
+        onPress: async () => applySelectedTemplate(t),
+      }));
+
+      templateOptions.push({
+        text: 'Cancel',
+        onPress: async () => {},
+      });
+
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: templateOptions.map((o) => o.text),
+            cancelButtonIndex: templateOptions.length - 1,
+          },
+          (buttonIndex) => {
+            if (buttonIndex < templateOptions.length - 1) {
+              void templateOptions[buttonIndex].onPress();
+            }
+          },
+        );
+      } else {
+        // Android: Use Alert with buttons
+        Alert.alert(
+          'Choose template',
+          'Select a template to apply:',
+          templateOptions.map((o) => ({
+            text: o.text,
+            onPress: o.onPress,
+          })),
+        );
+      }
+    } catch (error) {
+      console.error('[handleApplyTemplate] Failed to load templates', error);
+      Alert.alert('Error', 'Unable to load templates right now.');
+    }
+
+    async function applySelectedTemplate(template: ListTemplate) {
+      // Ask user: Replace or Merge?
+      Alert.alert(
+        'Apply template',
+        'How should the template be applied?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Replace',
+            onPress: () => applyWithMode(template, 'replace'),
+          },
+          {
+            text: 'Merge',
+            onPress: () => applyWithMode(template, 'merge'),
+          },
+        ],
+        { cancelable: true },
+      );
+    }
+
+    async function applyWithMode(template: ListTemplate, mode: 'replace' | 'merge') {
+      try {
+        if (!fullEntity) return;
+
+        const currentItems = fullEntity.list_items || [];
+
+        // Apply template using helper
+        const newItems = applyTemplateToList(currentItems, template.items, mode);
+
+        // Update entity based on type
+        if (fullEntity.type === 'todo') {
+          await repo.update({
+            id: fullEntity.id,
+            patch: {
+              has_list: true,
+              list_items: newItems,
+            },
+          });
+        } else if (fullEntity.type === 'note') {
+          await repo.update({
+            id: fullEntity.id,
+            patch: {
+              has_list: true,
+              list_items: newItems,
+            },
+          });
+        } else if (fullEntity.type === 'habit') {
+          await repo.update({
+            id: fullEntity.id,
+            patch: {
+              has_list: true,
+              list_items: newItems,
+            },
+          });
+        }
+
+        // Refresh overlay by emitting update event
+        eventBus.emit('ItemUpdated', { id: fullEntity.id });
+
+        Alert.alert(
+          'Template applied',
+          mode === 'replace'
+            ? 'Checklist replaced with template items.'
+            : 'Template items merged into checklist.',
+        );
+
+        console.log('[handleApplyTemplate] Template applied', {
+          templateId: template.id,
+          mode,
+          newItemCount: newItems.length,
+        });
+      } catch (error) {
+        console.error('[handleApplyTemplate] Failed to apply template', error);
+        Alert.alert('Apply failed', 'Unable to apply template right now.');
+      }
+    }
+  }, [mode, fullEntity, repo]);
+
+  /**
+   * Attach template handler (habits only)
+   * Links a template to a habit for daily checklist reset
+   */
+  const handleAttachTemplate = useCallback(async () => {
+    if (!fullEntity || fullEntity.type !== 'habit') return;
+
+    try {
+      // Get habit-compatible templates
+      const allTemplates = await repo.getListTemplates('habit');
+
+      if (allTemplates.length === 0) {
+        Alert.alert(
+          'No templates',
+          'Create a template first by using "Save as template" on a checklist.',
+        );
+        return;
+      }
+
+      // Show template picker
+      if (Platform.OS === 'ios') {
+        const options = ['Cancel', ...allTemplates.map((t) => t.name)];
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options,
+            cancelButtonIndex: 0,
+          },
+          async (buttonIndex) => {
+            if (buttonIndex === 0) return;
+            const template = allTemplates[buttonIndex - 1];
+            await attachTemplateToHabit(template);
+          },
+        );
+      } else {
+        // Android: use Alert with buttons
+        const buttons = [
+          ...allTemplates.map((t) => ({
+            text: t.name,
+            onPress: () => attachTemplateToHabit(t),
+          })),
+          { text: 'Cancel', style: 'cancel' as const },
+        ];
+        Alert.alert('Select template', 'Choose a template to attach to this habit', buttons);
+      }
+    } catch (error) {
+      console.error('[handleAttachTemplate] Failed to load templates', error);
+      Alert.alert('Load failed', 'Unable to load templates right now.');
+    }
+
+    async function attachTemplateToHabit(template: ListTemplate) {
+      try {
+        if (!fullEntity || fullEntity.type !== 'habit') return;
+
+        // Seed initial list_items if habit has no items yet
+        const currentItems = fullEntity.list_items || [];
+        const shouldSeedItems = currentItems.length === 0;
+        const newItems = shouldSeedItems
+          ? applyTemplateToList([], template.items, 'replace')
+          : currentItems;
+
+        // Update habit with template linkage
+        await repo.update({
+          id: fullEntity.id,
+          patch: {
+            list_template_id: template.id,
+            has_list: true,
+            list_items: newItems,
+          },
+        });
+
+        // Refresh overlay
+        eventBus.emit('ItemUpdated', { id: fullEntity.id });
+
+        Alert.alert(
+          'Template attached',
+          `"${template.name}" will reset this habit's checklist daily.${
+            shouldSeedItems ? ' Initial items loaded.' : ''
+          }`,
+        );
+
+        console.log('[handleAttachTemplate] Template attached', {
+          habitId: fullEntity.id,
+          templateId: template.id,
+          seededItems: shouldSeedItems,
+        });
+      } catch (error) {
+        console.error('[handleAttachTemplate] Failed to attach template', error);
+        Alert.alert('Attach failed', 'Unable to attach template right now.');
+      }
+    }
+  }, [fullEntity, repo]);
+
   // Phase 2: Removed prefill suggestion normalization effect - overlay no longer runs AI prefill
 
   // theme / background for overlay (phase‑8 visual polish)
@@ -3806,6 +4200,77 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       );
                     })()}
                   </Box>
+                )}
+
+                {/* Phase 3 Lists: Conversion buttons for list-based entities */}
+                {mode === 'edit' && fullEntity && (
+                  <>
+                    {/* Convert log list to todo */}
+                    {fullEntity.type === 'note' &&
+                      fullEntity.has_list &&
+                      fullEntity.list_items &&
+                      fullEntity.list_items.length > 0 && (
+                        <Box mt={2} px={4}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={handleConvertLogToTodo}
+                            title="Convert to Task"
+                          />
+                        </Box>
+                      )}
+
+                    {/* Convert todo list to log */}
+                    {fullEntity.type === 'todo' &&
+                      fullEntity.has_list &&
+                      fullEntity.list_items &&
+                      fullEntity.list_items.length > 0 && (
+                        <Box mt={2} px={4}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={handleConvertTodoToLog}
+                            title="Convert to Note"
+                          />
+                        </Box>
+                      )}
+
+                    {/* Phase 4: Template actions - show for any entity with a checklist */}
+                    {fullEntity.has_list &&
+                      fullEntity.list_items &&
+                      fullEntity.list_items.length > 0 && (
+                        <Box mt={2} px={4} row style={{ gap: 8 }}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={handleSaveListAsTemplate}
+                            title="Save as template"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onPress={handleApplyTemplate}
+                            title="Apply template"
+                          />
+                        </Box>
+                      )}
+
+                    {/* Phase 4: Attach template (habits only) - link template for daily reset */}
+                    {fullEntity.type === 'habit' && fullEntity.has_list && (
+                      <Box mt={2} px={4}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onPress={handleAttachTemplate}
+                          title={
+                            fullEntity.list_template_id
+                              ? '🔗 Change template'
+                              : '🔗 Attach template'
+                          }
+                        />
+                      </Box>
+                    )}
+                  </>
                 )}
 
                 <Box mt={3.5} row style={{ alignItems: 'center' }}>

@@ -388,6 +388,7 @@ const EXCLUDED_ADJECTIVES = new Set([
   'low',
   'early',
   'late',
+  'really', // Added to fix "Really" being extracted as @really place tag
 ]);
 
 const EXCLUDED_GENERIC = new Set([
@@ -632,8 +633,13 @@ export function extractMeaningfulTags(rawText: string, subtype?: string): string
  */
 function extractPeople(text: string): string[] {
   const people: string[] = [];
-  const tokens = text.split(/\s+/);
+  // Strip possessive forms before tokenization to fix "Sarah's" → @sarah bug
+  const normalizedText = text.replace(/'s\b/g, '').replace(/s'\b/g, 's');
+  const tokens = normalizedText.split(/\s+/);
   const capitalizedRegex = /^[A-Z][a-z]{2,}$/;
+
+  // Track extracted name roots to avoid duplicates like @sarah and @sarahs
+  const extractedRoots = new Set<string>();
 
   // CP-TAG-2: Family and role names that count as people even if lowercase
   const familyRoleNames = new Set([
@@ -685,9 +691,13 @@ function extractPeople(text: string): string[] {
 
     const tokenLower = token.toLowerCase();
 
+    // Skip if we've already extracted this name (avoid duplicates like @sarah + @sarahs)
+    if (extractedRoots.has(tokenLower)) continue;
+
     // CP-TAG-2: Check for family/role names (e.g., "mom", "boss") even if lowercase
     if (familyRoleNames.has(tokenLower)) {
       people.push(`@${toTagSlug(tokenLower)}`);
+      extractedRoots.add(tokenLower);
       continue;
     }
 
@@ -701,6 +711,8 @@ function extractPeople(text: string): string[] {
     const prevToken = i > 0 ? tokens[i - 1] : '';
     if (prevToken.match(/^Dr\.?$/i)) {
       people.push(`@${toTagSlug(`dr-${tokenLower}`)}`);
+      extractedRoots.add(tokenLower);
+      extractedRoots.add(`dr-${tokenLower}`);
       continue;
     }
 
@@ -708,8 +720,11 @@ function extractPeople(text: string): string[] {
     const nextToken = tokens[i + 1]?.replace(/[^A-Za-z]/g, '') ?? '';
     if (nextToken && capitalizedRegex.test(nextToken)) {
       const nextLower = nextToken.toLowerCase();
-      if (!isExcludedWord(nextLower)) {
+      if (!isExcludedWord(nextLower) && !extractedRoots.has(nextLower)) {
         people.push(`@${toTagSlug(`${tokenLower}-${nextLower}`)}`);
+        extractedRoots.add(tokenLower);
+        extractedRoots.add(nextLower);
+        extractedRoots.add(`${tokenLower}-${nextLower}`);
         i++; // Skip next token
         continue;
       }
@@ -719,6 +734,7 @@ function extractPeople(text: string): string[] {
     // CP-TAG-2: Minimum length 3 for capitalized names (was already >= 3)
     if (token.length >= 3) {
       people.push(`@${toTagSlug(tokenLower)}`);
+      extractedRoots.add(tokenLower);
     }
   }
 
@@ -731,7 +747,9 @@ function extractPeople(text: string): string[] {
  */
 function extractPlaces(text: string, excludePeople: string[]): string[] {
   const places: string[] = [];
-  const tokens = text.split(/\s+/);
+  // Strip possessive forms before tokenization (same as extractPeople)
+  const normalizedText = text.replace(/'s\b/g, '').replace(/s'\b/g, 's');
+  const tokens = normalizedText.split(/\s+/);
   const capitalizedRegex = /^[A-Z][a-z]{2,}$/;
 
   // CP-TAG-2: excludePeople now contains @-prefixed tags, need to strip @ for comparison
@@ -772,7 +790,8 @@ function extractPlaces(text: string, excludePeople: string[]): string[] {
       }
 
       // Standalone capitalized word (4+ chars) likely a place (e.g., "London", "Starbucks")
-      if (token.length >= 4) {
+      // But NOT if it's an excluded word like "Really"
+      if (token.length >= 4 && !isExcludedWord(tokenLower)) {
         places.push(`@${toTagSlug(tokenLower)}`);
       }
     }
@@ -796,9 +815,25 @@ function extractTopics(
 
   // CP-TAG-2: Create a set of already-extracted words (from people/places) to avoid duplicates
   // Strip @ prefix since people/places now have @ prefix but we're comparing against raw words
-  const alreadyExtracted = new Set<string>(
-    [...people, ...places].map((tag) => tag.replace(/^@/, '')),
-  );
+  // Also add possessive variants to prevent "Mark's" → extracting both @mark and marks
+  const alreadyExtracted = new Set<string>();
+  for (const tag of [...people, ...places]) {
+    const word = tag.replace(/^@/, '');
+    alreadyExtracted.add(word);
+    alreadyExtracted.add(word.replace(/-/g, '')); // Also add without dashes (dr-smith → drsmith)
+    // Add possessive variants to filter out "marks" if we have "@mark"
+    alreadyExtracted.add(word + 's');
+    alreadyExtracted.add(word + 'es');
+    // Also track individual parts of multi-word tags (@sarah-jones → block both sarah and jones)
+    const parts = word.split('-');
+    for (const part of parts) {
+      if (part.length >= 3) {
+        alreadyExtracted.add(part);
+        alreadyExtracted.add(part + 's');
+        alreadyExtracted.add(part + 'es');
+      }
+    }
+  }
 
   // For lists (detected by text pattern), check for common list items
   if (lowerText.match(/[-*•]\s/)) {
@@ -835,6 +870,7 @@ function extractTopics(
   for (const word of words) {
     if (isExcludedWord(word)) continue;
     if (usedWords.has(word)) continue;
+    if (alreadyExtracted.has(word)) continue; // Don't extract person/place names as topics
 
     frequency.set(word, (frequency.get(word) || 0) + 1);
   }

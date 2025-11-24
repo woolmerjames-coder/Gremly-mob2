@@ -25,6 +25,7 @@ export const recordTypeZ = z.union([
   z.literal('note'),
 ]) as z.ZodType<RecordType>;
 
+// Deprecated: 'list' is no longer a valid subtype; lists are now modeled via has_list + list_items.
 export const noteSubtypeZ = z.union([
   z.literal('journal'),
   z.literal('catchall'),
@@ -144,13 +145,10 @@ export const noteZ = baseRecordZ.extend({
   type: z.literal('note'),
   title: z.string().optional().nullable(),
   body: z.string().optional().nullable(),
+  // Deprecated: 'list' removed from validation; lists are now modeled via has_list + list_items.
   subtype: z.preprocess(
     (val) =>
-      val === 'journal' ||
-      val === 'list' ||
-      val === 'catchall' ||
-      val === 'idea' ||
-      val === 'reference'
+      val === 'journal' || val === 'catchall' || val === 'idea' || val === 'reference'
         ? val
         : 'catchall',
     noteSubtypeZ,
@@ -213,6 +211,8 @@ export const habitInsertSchema = z
     has_list: z.boolean().default(false),
     list_items_json: z.array(listItemZ).nullable().optional(),
     body_legacy: z.string().nullable().optional(),
+    // Template linkage (Phase 4: List Templates for Habits)
+    list_template_id: z.string().uuid().nullable().optional(),
   })
   .passthrough(); // Allow additional fields to pass through
 
@@ -254,7 +254,8 @@ export const noteInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
   title: z.string().min(1), // Required - DATABASE TRUTH: notes table has 'title' column (NO 'name')
   body: z.string().optional().nullable(),
-  subtype: z.enum(['journal', 'list', 'catchall', 'idea', 'reference']).nullable().optional(), // Optional in database
+  // Deprecated: 'list' removed from valid subtypes; lists are now modeled via has_list + list_items.
+  subtype: z.enum(['journal', 'catchall', 'idea', 'reference']).nullable().optional(), // Optional in database
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
   origin: z.literal('catchall').optional(),

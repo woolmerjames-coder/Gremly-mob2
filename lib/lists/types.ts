@@ -21,3 +21,20 @@ export interface HasList {
   list_items: ListItem[] | null; // Array of list items (null if no list)
   body_legacy?: string | null; // Original body text before list parsing (for reference/rollback)
 }
+
+/**
+ * ListTemplate represents a reusable list pattern saved by a user.
+ * Can be applied to todos, notes, or habits.
+ * Stored in the `list_templates` table (Phase 4).
+ */
+export interface ListTemplate {
+  id: string; // UUID primary key
+  owner_id: string; // User who owns this template
+  name: string; // Human-readable name (e.g., "Grocery List", "Beach Packing")
+  scope: 'any' | 'todo' | 'habit' | 'note'; // Allowed usage scope
+  items: ListItem[]; // List items (same structure as list_items on entities)
+  source_entity_type: 'todo' | 'note' | 'habit' | null; // Optional: Original entity type
+  source_entity_id: string | null; // Optional: Original entity ID
+  created_at: string; // ISO timestamp
+  updated_at: string; // ISO timestamp
+}

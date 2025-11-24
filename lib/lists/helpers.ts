@@ -7,7 +7,7 @@
 
 import { genId } from '../types';
 import type { ListItem } from './types';
-import { randomUUID } from 'crypto';
+import { safeRandomId } from '../utils/safeRandomId';
 
 /**
  * Regular expressions for detecting list patterns
@@ -17,8 +17,8 @@ const LIST_PATTERNS = {
   bullet: /^\s*[-*•]\s+(.+)$/,
   // Matches: "1. item", "2) item", "3: item"
   numbered: /^\s*\d+[.):]\s+(.+)$/,
-  // Matches: "[ ] item" or "[x] item" (checkbox style)
-  checkbox: /^\s*\[([x\s])\]\s+(.+)$/i,
+  // Matches: "[ ] item", "[x] item", or "- [ ] item" (checkbox style, with or without bullet)
+  checkbox: /^\s*(?:[-*•]\s*)?\[([x\s])\]\s+(.+)$/i,
 };
 
 /**
@@ -64,7 +64,7 @@ export function parseTextToListItems(body: string): ListItem[] {
     if (checkboxMatch) {
       const [, checkmark, text] = checkboxMatch;
       items.push({
-        id: randomUUID(),
+        id: safeRandomId(),
         text: text.trim(),
         checked: checkmark.toLowerCase() === 'x',
       });
@@ -75,7 +75,7 @@ export function parseTextToListItems(body: string): ListItem[] {
     const bulletMatch = trimmed.match(LIST_PATTERNS.bullet);
     if (bulletMatch) {
       items.push({
-        id: randomUUID(),
+        id: safeRandomId(),
         text: bulletMatch[1].trim(),
         checked: false,
       });
@@ -86,7 +86,7 @@ export function parseTextToListItems(body: string): ListItem[] {
     const numberedMatch = trimmed.match(LIST_PATTERNS.numbered);
     if (numberedMatch) {
       items.push({
-        id: randomUUID(),
+        id: safeRandomId(),
         text: numberedMatch[1].trim(),
         checked: false,
       });
@@ -138,7 +138,7 @@ export function addListItem(items: ListItem[], text: string): ListItem[] {
   return [
     ...items,
     {
-      id: randomUUID(),
+      id: safeRandomId(),
       text: trimmedText,
       checked: false,
     },

@@ -3,10 +3,11 @@ import { TAG_STOP_WORDS } from './constants';
 
 const STAR_TAGS = ['*journal', '*list', '*meeting', '*idea'] as const;
 
-const STAR_TAG_SUBTYPE: Record<(typeof STAR_TAGS)[number], LogSubtype> = {
+// Phase 7: *list and *meeting map to null since list is now an attribute
+const STAR_TAG_SUBTYPE: Record<(typeof STAR_TAGS)[number], LogSubtype | null> = {
   '*journal': 'journal',
-  '*list': 'list',
-  '*meeting': 'list',
+  '*list': null,
+  '*meeting': null,
   '*idea': 'idea',
 };
 
@@ -298,15 +299,15 @@ export function recordRemovedTags(
   return nextNormalized;
 }
 
-export function deriveLogSubtypeFromTags(tags?: string[]): LogSubtype {
+export function deriveLogSubtypeFromTags(tags?: string[]): LogSubtype | null {
   const normalized = normalizeTags(tags ?? []);
   const starTag = normalized.find((tag) => tag.startsWith('*')) as
     | (typeof STAR_TAGS)[number]
     | undefined;
 
   if (!starTag) {
-    return 'everything_else';
+    return null; // plain
   }
 
-  return STAR_TAG_SUBTYPE[starTag] ?? 'everything_else';
+  return STAR_TAG_SUBTYPE[starTag] ?? null;
 }

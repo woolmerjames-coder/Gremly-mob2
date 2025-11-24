@@ -293,7 +293,12 @@ export const convertUnsortedToTodo = async (
       labels: todoLabels,
       tags: canonical.tags, // Use canonical tags
       tags_meta: canonical.tags_meta,
-      views: note.views,
+      views: {
+        ...note.views,
+        minddrop_stage: 'classified', // Mark Stage A complete (chip-confirmed)
+        ai_pending: true, // Mark for Stage B enrichment
+        ai_failed: false,
+      },
       dropId: (note as any).drop_id,
       has_list: canonical.has_list,
       list_items: canonical.list_items,
@@ -412,6 +417,11 @@ export const convertUnsortedToLog = async (
         canonicalType: 'log',
         labels: logLabels,
         why_string: whyUpdate,
+        views: {
+          minddrop_stage: 'classified', // Mark Stage A complete
+          ai_pending: true, // Mark for Stage B enrichment
+          ai_failed: false,
+        },
       },
     })) as Note;
 
@@ -501,7 +511,12 @@ export const convertUnsortedToHabit = async (
       labels: habitLabels,
       tags: canonical.tags, // Use canonical tags
       tags_meta: canonical.tags_meta,
-      views: note.views,
+      views: {
+        ...note.views,
+        minddrop_stage: 'classified', // Mark Stage A complete (chip-confirmed)
+        ai_pending: true, // Mark for Stage B enrichment
+        ai_failed: false,
+      },
       dropId: (note as any).drop_id,
       has_list: canonical.has_list,
       list_items: canonical.list_items,

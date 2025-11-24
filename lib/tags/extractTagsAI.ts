@@ -17,11 +17,15 @@ const TAG_EXTRACTION_PROMPT = `Extract meaningful tags from this text.
 
 Rules:
 - ONLY extract: proper names (people/places), specific topics, concrete objects, activities
-- DO NOT extract: verbs (know, think, feel), adjectives (good, bad, amazing), filler words
+- DO NOT extract: verbs (know, think, feel), adjectives (good, bad, amazing), filler words, possessive forms
 - Prefer specificity: "dentist" over "appointment", "meditation" over "relax"
+- For people: use @name format (e.g., @sarah, @mom, @dr-smith)
+- For places: use @place format (e.g., @gym, @starbucks, @london)
+- For topics: use plain words (e.g., anxiety, work, groceries)
 - 3–6 tags max
+- Normalize possessives: "Sarah's" → @sarah, not @sarahs
 
-Return ONLY the tags as a JSON array of strings, like: ["tag1", "tag2", "tag3"]`;
+Return ONLY the tags as a JSON array of strings, like: ["@sarah", "anxiety", "work"]`;
 
 /**
  * Validate and normalize a single tag string.

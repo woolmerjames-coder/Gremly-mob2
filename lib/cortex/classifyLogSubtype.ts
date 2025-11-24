@@ -1,154 +1,301 @@
 /**
  * Log Subtype Classifier
  *
- * Classifies log entries into specific subtypes using AI classification with deterministic fallback.
+ * Pure, deterministic classifier for Mind Drop logs.
+ * Distinguishes between:
+ * - "journal" - Personal reflections, emotions, experiences
+ * - "idea" - Creative thoughts, possibilities, future plans
+ * - "general" - Everything else or mixed signals
  *
- * Subtypes:
- * - "journal": Personal reflections, feelings, or daily experiences
- * - "list": Items to check off or remember
- * - "reference": Information to remember later
- * - "idea": Creative thoughts or brainstorming
- * - "plain": Default/unknown (fallback)
+ * Constraints:
+ * - Synchronous, no async
+ * - No crypto, randomness, or network calls
+ * - No Date.now() or non-deterministic operations
+ * - Uses only string/regex heuristics
  */
 
-import { callClassify } from './CortexClient';
+export type LogSubtype = 'journal' | 'idea' | 'general';
 
-export type LogSubtype = 'journal' | 'list' | 'reference' | 'idea' | 'plain';
-
-/**
- * AI classification prompt for log subtype detection.
- */
-const CLASSIFICATION_PROMPT = `You are a classifier that analyzes text to determine what type of log entry it is.
-
-Analyze the following text and respond with ONLY ONE WORD from this list:
-- journal (personal reflections, feelings, daily experiences, "I feel...", "Today was...")
-- list (items to check off, shopping lists, todos, bullet points, numbered items)
-- reference (information to save, passwords, links, contact info, facts to remember)
-- idea (creative thoughts, brainstorming, "what if...", proposals, concepts)
-- plain (anything else that doesn't fit above categories)
-
-Respond with exactly one word: journal, list, reference, idea, or plain.`;
-
-/**
- * Classify log subtype using AI with deterministic fallback.
- *
- * Attempts AI classification first. If AI fails or is disabled, falls back to
- * pattern-matching logic for reliability.
- */
-export async function classifyLogSubtype(text: string): Promise<LogSubtype> {
-  if (!text || text.trim().length === 0) {
-    return 'plain';
-  }
-
-  // Try AI classification first
-  try {
-    const result = await callClassify({
-      messages: [
-        { role: 'system', content: CLASSIFICATION_PROMPT },
-        { role: 'user', content: text.slice(0, 500) }, // Limit to first 500 chars
-      ],
-      timeoutMs: 3000, // Fast 3s timeout
-    });
-
-    if (result.ok) {
-      // Parse the category from AI response
-      const category = result.classification.category.toLowerCase().trim();
-
-      // Validate it's one of our known subtypes
-      const validSubtypes: LogSubtype[] = ['journal', 'list', 'reference', 'idea', 'plain'];
-      if (validSubtypes.includes(category as LogSubtype)) {
-        return category as LogSubtype;
-      }
-    }
-  } catch (error) {
-    // AI failed, fall through to deterministic logic
-    console.log('[classifyLogSubtype] AI classification failed, using fallback:', error);
-  }
-
-  // FALLBACK: Deterministic pattern matching
-  return classifyLogSubtypeSync(text);
+export interface LogSubtypeSignal {
+  journalConfidence: number; // 0–100
+  ideaConfidence: number; // 0–100
+  subtype: LogSubtype;
+  debug: {
+    journalReasons: string[];
+    ideaReasons: string[];
+    textLength: number;
+  };
 }
 
-/**
- * Synchronous/deterministic classifier using pattern matching.
- * Used as fallback when AI is unavailable or as standalone classifier.
- *
- * Priority order:
- * 1. List (highest priority - structural pattern)
- * 2. Journal (emotional/reflective language)
- * 3. Idea (creative/speculative language)
- * 4. Reference (information storage)
- * 5. Plain (default)
- */
-export function classifyLogSubtypeSync(text: string): LogSubtype {
-  if (!text || text.trim().length === 0) {
-    return 'plain';
-  }
+// ====================================
+// HELPER CONSTANTS
+// ====================================
 
-  const lowerText = text.toLowerCase();
-  const firstChunk = lowerText.slice(0, 300); // Analyze first 300 chars
+const EMOTION_WORDS = [
+  'overwhelmed',
+  'overwhelming',
+  'stressed',
+  'stressed out',
+  'stressful',
+  'anxious',
+  'anxiety',
+  'sad',
+  'upset',
+  'angry',
+  'mad',
+  'frustrated',
+  'frustrating',
+  'tired',
+  'exhausted',
+  'exhausting',
+  'burned out',
+  'burnt out',
+  'worried',
+  'worrying',
+  'scared',
+  'afraid',
+  'happy',
+  'excited',
+  'exciting',
+  'grateful',
+  'thankful',
+  'lonely',
+  'depressed',
+  'depressing',
+  'low',
+];
 
-  // PRIORITY 1: List detection - structural patterns take precedence
-  // Multiple lines with bullets/numbers/checkboxes indicate a list
-  const lines = text.split(/\r?\n/);
-  const listPatterns = /^\s*([-*•]|\d+\.|\[([ xX])\])\s+/;
-  const listLikeLines = lines.filter((line) => listPatterns.test(line));
+const IDEA_MARKERS = [
+  'idea:',
+  'app idea:',
+  'business idea:',
+  'startup idea:',
+  'what if we',
+  'what if i',
+  'what if you',
+  'we could',
+  'we should',
+  'maybe we could',
+  'maybe we should',
+  'would be cool if',
+  'it would be cool if',
+];
 
-  if (listLikeLines.length >= 2) {
-    return 'list';
-  }
+const POSSIBILITY_WORDS = ['could', 'might', 'maybe', 'potentially', 'perhaps', 'would'];
 
-  // Check for single-line list indicators
-  const singleLineListPatterns = [
-    /\b(groceries|shopping list|to buy|items to|things to pack)\b/,
-    /\b(checklist|todo list|task list)\b/,
+const CREATIVE_VERBS = [
+  'build',
+  'create',
+  'design',
+  'make',
+  'try',
+  'experiment',
+  'prototype',
+  'add',
+  'change',
+  'improve',
+];
+
+// ====================================
+// HELPER UTILITIES
+// ====================================
+
+function containsAny(text: string, list: string[]): boolean {
+  const lower = text.toLowerCase();
+  return list.some((item) => lower.includes(item.toLowerCase()));
+}
+
+function matchesPattern(text: string, regex: RegExp): boolean {
+  return regex.test(text);
+}
+
+function wordCount(text: string): number {
+  const trimmed = text.trim();
+  if (trimmed === '') return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+function isShort(text: string): boolean {
+  return text.length < 50 && wordCount(text) <= 8;
+}
+
+// ====================================
+// JOURNAL CONFIDENCE
+// ====================================
+
+interface ConfidenceResult {
+  confidence: number;
+  reasons: string[];
+}
+
+function calculateJournalConfidence(text: string): ConfidenceResult {
+  let confidence = 0;
+  const reasons: string[] = [];
+  const lower = text.toLowerCase();
+
+  // Rule 1: Strong first-person emotion pattern -> at least 80
+  const strongEmotionPatterns = [
+    /\b(i feel|i'm feeling|i am feeling|i am so)\b/i,
+    /\b(i'm|i am)\s+(overwhelmed|stressed|anxious|sad|exhausted|tired|worried|upset|angry|low)\b/i,
   ];
-  const isSingleLineList = singleLineListPatterns.some((pattern) => pattern.test(firstChunk));
-  if (isSingleLineList) {
-    return 'list';
+
+  const hasStrongEmotion =
+    strongEmotionPatterns.some((pattern) => matchesPattern(text, pattern)) ||
+    lower.includes("can't stop thinking about") ||
+    lower.includes('cannot stop thinking about');
+
+  if (hasStrongEmotion) {
+    confidence = Math.max(confidence, 80);
+    reasons.push('strong_first_person_emotion');
   }
 
-  // PRIORITY 2: Journal detection - emotional/reflective language
-  const journalPatterns = [
-    /\b(i feel|i'm feeling|feeling|felt|today\b|tonight\b|this morning\b|this evening\b)/,
-    /\b(i am|i was|i've been|i have been|i realized|i noticed)/,
-    /\b(grateful|thankful|anxious|worried|excited|happy|sad|angry|frustrated)/,
-    /\b(reflecting|reflection|my thoughts|my mood|my emotions?)/,
-    /\b(had a|it was a|been a)\s+(great|good|bad|rough|tough|hard|amazing|terrible) (day|time|week)/,
-  ];
+  // Rule 2: Personal reflection pattern -> bump to at least 70
+  const timeMarkerPattern = /\b(today|yesterday|this morning|this evening|tonight)\b/i;
+  const hasTimeMarker = matchesPattern(text, timeMarkerPattern);
+  const hasFirstPerson = /\b(i|my)\b/i.test(text);
+  const hasEmotionWord = containsAny(text, EMOTION_WORDS);
 
-  const journalMatches = journalPatterns.filter((pattern) => pattern.test(firstChunk)).length;
-  if (journalMatches >= 1) {
-    // At least 1 strong journal indicator
-    return 'journal';
+  // Time marker + first person OR time marker + emotion word (implies personal reflection)
+  if ((hasTimeMarker && hasFirstPerson) || (hasTimeMarker && hasEmotionWord)) {
+    confidence = Math.max(confidence, 70);
+    reasons.push('personal_reflection');
   }
 
-  // PRIORITY 3: Idea detection - creative/speculative language
-  const ideaPatterns = [
-    /\b(idea\b|what if|maybe we could|could we|we should|brainstorm)/,
-    /\b(think about|consider|imagine|concept|proposal|suggestion)/,
-    /\b(potential|opportunity|innovation|innovative|creative)/,
-    /\b(thought:|thoughts:|thinking:)/,
-  ];
-
-  const ideaMatches = ideaPatterns.filter((pattern) => pattern.test(firstChunk)).length;
-  if (ideaMatches >= 1) {
-    return 'idea';
+  // Rule 3: Short emotional statement -> at least 65
+  if (isShort(text) && containsAny(text, EMOTION_WORDS)) {
+    confidence = Math.max(confidence, 65);
+    reasons.push('short_emotional_statement');
   }
 
-  // PRIORITY 4: Reference detection - information storage
-  const referencePatterns = [
-    /\b(remember|note:|mentioned|said that|told me|reference)/,
-    /\b(password|code|pin|link|url|website|email|phone|address)/,
-    /\b(info|information|details|data|facts|instructions)/,
-    /\b(the\s+\w+\s+is)\b/, // "the password is", "the code is"
-  ];
+  // Rule 4: Third-person only -> keep low
+  const hasThirdPerson = /\b(he|she|they|their|his|her|the)\b/i.test(text);
+  const hasFirstPersonStrict = /\b(i|my|i'm|i am)\b/i.test(text);
 
-  const referenceMatches = referencePatterns.filter((pattern) => pattern.test(firstChunk)).length;
-  if (referenceMatches >= 1) {
-    return 'reference';
+  if (hasThirdPerson && !hasFirstPersonStrict) {
+    confidence = Math.min(confidence, 50);
+    reasons.push('third_person_only');
   }
 
-  // PRIORITY 5: Default to plain if no clear category
-  return 'plain';
+  // Clamp to [0, 100]
+  confidence = Math.max(0, Math.min(100, confidence));
+
+  return { confidence, reasons };
+}
+
+// ====================================
+// IDEA CONFIDENCE
+// ====================================
+
+function calculateIdeaConfidence(text: string): ConfidenceResult {
+  let confidence = 0;
+  const reasons: string[] = [];
+  const lower = text.toLowerCase();
+
+  // Rule 1: Explicit idea markers -> at least 85
+  if (containsAny(text, IDEA_MARKERS)) {
+    confidence = Math.max(confidence, 85);
+    reasons.push('explicit_idea_marker');
+  }
+
+  // Rule 2: Creative future language -> at least 75
+  const futureWords = ['will', 'would', 'could', 'might', 'maybe'];
+  const hasFutureWord = futureWords.some((word) => new RegExp(`\\b${word}\\b`, 'i').test(text));
+  const hasCreativeVerb = containsAny(text, CREATIVE_VERBS);
+
+  if (hasFutureWord && hasCreativeVerb) {
+    confidence = Math.max(confidence, 75);
+    reasons.push('creative_future_language');
+  }
+
+  // Rule 3: Soft possibilities -> at least 65
+  const hasPossibilityWord = containsAny(text, POSSIBILITY_WORDS);
+  const changeVerbs = ['add', 'change', 'improve', 'try'];
+  const hasChangeVerb = changeVerbs.some((verb) => new RegExp(`\\b${verb}\\b`, 'i').test(text));
+
+  if (hasPossibilityWord && hasChangeVerb) {
+    confidence = Math.max(confidence, 65);
+    reasons.push('soft_possibility');
+  }
+
+  // Rule 4: Imperative commands (not ideas) -> keep low
+  const commandVerbs = ['fix', 'email', 'call', 'send', 'update', 'check'];
+  const startsWithCommand = commandVerbs.some((verb) =>
+    new RegExp(`^${verb}\\b`, 'i').test(text.trim()),
+  );
+
+  const hasNoIdeaSignals =
+    !containsAny(text, IDEA_MARKERS) && !hasPossibilityWord && confidence < 60;
+
+  if (startsWithCommand && hasNoIdeaSignals) {
+    confidence = Math.min(confidence, 40);
+    reasons.push('plain_command');
+  }
+
+  // Clamp to [0, 100]
+  confidence = Math.max(0, Math.min(100, confidence));
+
+  return { confidence, reasons };
+}
+
+// ====================================
+// MASTER CLASSIFIER
+// ====================================
+
+export function classifyLogSubtype(text: string): LogSubtypeSignal {
+  // Normalize
+  const trimmed = text.trim();
+  const length = trimmed.length;
+
+  // Handle empty input
+  if (trimmed === '') {
+    return {
+      subtype: 'general',
+      journalConfidence: 0,
+      ideaConfidence: 0,
+      debug: {
+        journalReasons: [],
+        ideaReasons: [],
+        textLength: 0,
+      },
+    };
+  }
+
+  // Compute confidences
+  const { confidence: journalConf, reasons: journalReasons } = calculateJournalConfidence(trimmed);
+  const { confidence: ideaConf, reasons: ideaReasons } = calculateIdeaConfidence(trimmed);
+
+  // Decide subtype using exact rules
+  let subtype: LogSubtype;
+
+  // Rule 1: Conflict - both reasonably high => general
+  if (journalConf >= 60 && ideaConf >= 60) {
+    subtype = 'general';
+  }
+  // Rule 2: Journal strong
+  else if (journalConf >= 70) {
+    subtype = 'journal';
+  }
+  // Rule 3: Idea strong
+  else if (ideaConf >= 70) {
+    subtype = 'idea';
+  }
+  // Rule 4: Short emotional statements
+  else if (length < 50 && journalConf >= 60) {
+    subtype = 'journal';
+  }
+  // Rule 5: Everything else
+  else {
+    subtype = 'general';
+  }
+
+  return {
+    journalConfidence: journalConf,
+    ideaConfidence: ideaConf,
+    subtype,
+    debug: {
+      journalReasons,
+      ideaReasons,
+      textLength: length,
+    },
+  };
 }

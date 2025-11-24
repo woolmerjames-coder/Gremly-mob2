@@ -91,6 +91,7 @@ import {
   convertUnsortedToTodo,
   convertUnsortedToLog,
 } from '../../lib/conversion';
+import { hasListLikeStructure, parseTextToListItems } from '../../lib/lists/helpers';
 import { backgroundPrefill } from '../../lib/minddrop/backgroundPrefill';
 import {
   runMindDropStageAClassification,
@@ -3026,6 +3027,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   updatedLabels.push('log');
                 }
 
+                // Phase 7 Lists: Detect list structure in note body and populate list fields
+                const noteBody = (existingNote as any)?.body || '';
+                const hasListStructure = hasListLikeStructure(noteBody);
+                const listItems = hasListStructure ? parseTextToListItems(noteBody) : null;
+
                 const shouldAddListTag = subtype === 'list';
                 const updatePatch: any = {
                   subtype,
@@ -3038,6 +3044,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     ai_pending: true, // Still waiting for Stage B prefill
                   },
                   labels: updatedLabels,
+                  has_list: hasListStructure, // Set list attribute
+                  list_items: listItems, // Populate parsed list items
                 };
 
                 if (shouldAddListTag) {
@@ -3203,9 +3211,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 ]);
                 const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
                 const fallbackSubtype =
-                  canonicalSubtypeMeta === 'journal' ||
-                  canonicalSubtypeMeta === 'list' ||
-                  canonicalSubtypeMeta === 'idea'
+                  canonicalSubtypeMeta === 'journal' || canonicalSubtypeMeta === 'idea'
                     ? (canonicalSubtypeMeta as NoteSubtype)
                     : 'catchall';
                 const extractionSubtype =
@@ -3729,6 +3735,25 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
+            // Stage B: Trigger AI enrichment (title generation) for chip-confirmed todo
+            console.log('[MindDrop][ChipConfirm] Calling Stage B for todo', {
+              todoId: createdTodo.id,
+            });
+            runMindDropStageBPrefill({
+              repo,
+              entityIds: { todos: [createdTodo.id], notes: [], habits: [] },
+              rawText: rawBody,
+            })
+              .then(() => {
+                console.log('[MindDrop][ChipConfirm][StageB] Todo enrichment complete', {
+                  todoId: createdTodo.id,
+                });
+                triggerRecentRefresh();
+              })
+              .catch((error) => {
+                console.warn('[MindDrop][ChipConfirm][StageB] Todo enrichment failed', error);
+              });
+
             // Phase 2E / Mind Drop v3: Never auto-open overlay from Mind Drop
             // Overlay should only open on deliberate user action (tap), not automatically
             // when AI finishes classification or enrichment.
@@ -3798,6 +3823,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
+            // Stage B: Trigger AI enrichment (title generation) for chip-confirmed habit
+            const habitRawText = String(
+              (original as any)?.body ?? (original as any)?.title ?? (original as any)?.text ?? '',
+            );
+            console.log('[MindDrop][ChipConfirm] Calling Stage B for habit', {
+              habitId: createdHabit.id,
+            });
+            runMindDropStageBPrefill({
+              repo,
+              entityIds: { todos: [], notes: [], habits: [createdHabit.id] },
+              rawText: habitRawText,
+            })
+              .then(() => {
+                console.log('[MindDrop][ChipConfirm][StageB] Habit enrichment complete', {
+                  habitId: createdHabit.id,
+                });
+                triggerRecentRefresh();
+              })
+              .catch((error) => {
+                console.warn('[MindDrop][ChipConfirm][StageB] Habit enrichment failed', error);
+              });
+
             // Phase 2E / Mind Drop v3: Never auto-open overlay from Mind Drop
             // Overlay should only open on deliberate user action (tap), not automatically
             // when AI finishes classification or enrichment.
@@ -3842,6 +3889,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             triggerRecentRefresh();
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
+
+            // Stage B: Trigger AI enrichment (title generation) for chip-confirmed log
+            const logRawText = String(
+              (originalNote as any)?.body ??
+                (originalNote as any)?.title ??
+                (originalNote as any)?.text ??
+                '',
+            );
+            console.log('[MindDrop][ChipConfirm] Calling Stage B for log', {
+              noteId: convertedLog.id,
+              subtype: convertedLog.subtype,
+            });
+            runMindDropStageBPrefill({
+              repo,
+              entityIds: { todos: [], notes: [convertedLog.id], habits: [] },
+              rawText: logRawText,
+            })
+              .then(() => {
+                console.log('[MindDrop][ChipConfirm][StageB] Log enrichment complete', {
+                  noteId: convertedLog.id,
+                });
+                triggerRecentRefresh();
+              })
+              .catch((error) => {
+                console.warn('[MindDrop][ChipConfirm][StageB] Log enrichment failed', error);
+              });
 
             // Mind Drop v3: Skip auto-opening overlay for logs
             // Overlay should only open on deliberate user action (tap), not automatically.

@@ -7,10 +7,13 @@ import type { ListItem } from './lists/types';
 
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
-export type NoteSubtype = 'journal' | 'catchall' | 'idea' | 'reference';
+// Phase 7: 'list' is deprecated (now use has_list attribute instead)
+export type NoteSubtype = 'journal' | 'catchall' | 'idea' | 'reference' | 'list';
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
-export type LogSubtype = 'journal' | 'idea' | 'person' | 'everything_else';
+// Phase 7: LogSubtype is now defined in lib/cortex/classifyLogSubtype.ts
+// Import it from there to avoid duplicates
+export type { LogSubtype } from './cortex/classifyLogSubtype';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';
@@ -21,8 +24,8 @@ export interface TagsMeta {
   tombstones?: string[];
 }
 
-// Re-export ListItem for convenience
-export type { ListItem } from './lists/types';
+// Re-export ListItem and ListTemplate for convenience
+export type { ListItem, ListTemplate } from './lists/types';
 
 /**
  * Habit - recurring activity tracked by user (tags stored as searchable, AI/editable JSON array)
@@ -89,6 +92,10 @@ export interface Habit {
   has_list: boolean;
   list_items: ListItem[] | null;
   body_legacy?: string | null;
+
+  // Template linkage (Phase 4: List Templates for Habits)
+  list_template_id?: ID | null; // Optional reference to list_templates table
+  last_reset_date?: string | null; // ISO timestamp of last template reset
 }
 
 /**

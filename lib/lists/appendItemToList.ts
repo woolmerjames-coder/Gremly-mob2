@@ -8,7 +8,7 @@
 import type { IRepo, CreateRecordInput } from '../repo/IRepo';
 import type { Note, ListItem } from '../types';
 import { parseTextToListItems, addListItem } from './helpers';
-import { randomUUID } from 'crypto';
+import { safeRandomId } from '../utils/safeRandomId';
 
 export interface AppendItemToListOptions {
   listTitle?: string; // e.g., "shopping list", "groceries"
@@ -81,7 +81,7 @@ function parseItemText(itemText: string): ListItem[] {
       .map((s) => s.trim())
       .filter(Boolean);
     return parts.map((text) => ({
-      id: randomUUID(),
+      id: safeRandomId(),
       text,
       checked: false,
     }));
@@ -90,7 +90,7 @@ function parseItemText(itemText: string): ListItem[] {
   // Single item
   return [
     {
-      id: randomUUID(),
+      id: safeRandomId(),
       text: itemText.trim(),
       checked: false,
     },

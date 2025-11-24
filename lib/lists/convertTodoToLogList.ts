@@ -8,7 +8,7 @@
 import type { IRepo, CreateRecordInput } from '../repo/IRepo';
 import type { Note, Todo } from '../types';
 import { listItemsToText } from './helpers';
-import { randomUUID } from 'crypto';
+import { safeRandomId } from '../utils/safeRandomId';
 
 export interface ConvertTodoToLogListOptions {
   preserveCheckedState?: boolean; // If true, keep checked items; false resets all to unchecked
@@ -64,7 +64,7 @@ export async function convertTodoToLogList(
     // Todo doesn't have a list - create one from the title
     noteListItems = [
       {
-        id: randomUUID(),
+        id: safeRandomId(),
         text: todo.name,
         checked: false,
       },
@@ -95,7 +95,8 @@ export async function convertTodoToLogList(
     dropId: todo.drop_id || null,
     has_list: true,
     list_items: noteListItems,
-    body_legacy: todo.body_legacy || noteBody,
+    // Preserve the original todo body if present; fallback only if nothing exists.
+    body_legacy: todo.body_legacy || todo.body || null,
   };
 
   const createdNote = (await repo.create(noteInput)) as Note;

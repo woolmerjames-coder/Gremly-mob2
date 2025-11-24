@@ -235,6 +235,9 @@ function mapHabitFromDb(dbRecord: any): any {
     list_items: dbRecord.list_items_json !== undefined ? dbRecord.list_items_json : null,
     has_list: dbRecord.has_list ?? false,
     body_legacy: dbRecord.body_legacy !== undefined ? dbRecord.body_legacy : null,
+    // Template linkage (Phase 4: List Templates for Habits)
+    list_template_id: dbRecord.list_template_id ?? null,
+    last_reset_date: dbRecord.last_reset_date ?? null,
   };
 }
 
@@ -403,6 +406,8 @@ export class SupabaseRepo implements IRepo {
           has_list: input.has_list ?? false,
           list_items_json: input.list_items ?? null,
           body_legacy: input.body_legacy ?? null,
+          // Template linkage (Phase 4: List Templates for Habits)
+          list_template_id: input.list_template_id ?? null,
         }),
       );
 
@@ -796,6 +801,13 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Extended habit fields - Phase 7+
+      if ('has_list' in normalizedPatch) updatePayload.has_list = !!normalizedPatch.has_list;
+      if ('list_items' in normalizedPatch)
+        updatePayload.list_items_json = (normalizedPatch as any).list_items ?? null;
+      if ('list_template_id' in normalizedPatch)
+        updatePayload.list_template_id = (normalizedPatch as any).list_template_id ?? null;
     } else if (existing.type === 'note') {
       if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
 
@@ -1638,11 +1650,38 @@ export class SupabaseRepo implements IRepo {
     try {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
-        .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment')
+        .select(
+          'id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment,list_template_id,last_reset_date',
+        )
         .eq('owner_id', userId)
         .is('completed_at', null); // Exclude completed habits
 
       if (habitsErr) throw habitsErr;
+
+      // Phase 4: Daily checklist reset for habits with templates
+      // Check if any habits need their checklist reset from template
+      if (habits) {
+        const today = day; // Use same day string from query (YYYY-MM-DD)
+        const resetPromises: Promise<void>[] = [];
+
+        for (const habit of habits) {
+          if (habit.list_template_id) {
+            const lastResetDate = habit.last_reset_date
+              ? habit.last_reset_date.split('T')[0]
+              : null;
+
+            // Reset needed if: no last reset OR last reset was on a different day
+            if (!lastResetDate || lastResetDate !== today) {
+              resetPromises.push(this.resetHabitChecklist(habit.id, habit.list_template_id));
+            }
+          }
+        }
+
+        // Execute all resets in parallel (non-blocking)
+        if (resetPromises.length > 0) {
+          await Promise.allSettled(resetPromises);
+        }
+      }
 
       const { data: progressRows, error: progErr } = await supabase
         .from('habit_progress')
@@ -3758,5 +3797,215 @@ export class SupabaseSpaceMilestoneRepo {
       .single();
     if (error) throw new Error(`Failed to update milestone: ${error.message}`);
     return data as import('../types').SpaceMilestone;
+  }
+
+  // ========================================================================
+  // List Templates (Phase 4)
+  // ========================================================================
+
+  /**
+   * Get all list templates for the current user.
+   * Optionally filter by scope (e.g., show only todo-compatible templates).
+   *
+   * @param scope - Optional scope filter ('any' | 'todo' | 'habit' | 'note')
+   *                If provided and not 'any', returns templates with matching scope OR 'any' scope.
+   * @returns Array of list templates
+   */
+  async getListTemplates(
+    scope?: 'any' | 'todo' | 'habit' | 'note',
+  ): Promise<import('../lists/types').ListTemplate[]> {
+    const userId = this.ensureUserId();
+
+    let query = supabase
+      .from('list_templates')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('created_at', { ascending: false });
+
+    // If scope is provided and not 'any', filter for templates with matching scope OR 'any'
+    if (scope && scope !== 'any') {
+      query = query.or(`scope.eq.${scope},scope.eq.any`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      logSupabaseError('getListTemplates', error);
+      throw new Error(`Failed to fetch list templates: ${error.message}`);
+    }
+
+    // Deserialize items JSONB to ListItem[]
+    return (data || []).map((row) => ({
+      id: row.id,
+      owner_id: row.owner_id,
+      name: row.name,
+      scope: row.scope as 'any' | 'todo' | 'habit' | 'note',
+      items: Array.isArray(row.items) ? row.items : [],
+      source_entity_type: row.source_entity_type || null,
+      source_entity_id: row.source_entity_id || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  /**
+   * Get a single list template by ID.
+   *
+   * @param templateId - Template UUID
+   * @returns ListTemplate or null if not found
+   */
+  async getListTemplateById(
+    templateId: string,
+  ): Promise<import('../lists/types').ListTemplate | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('list_templates')
+      .select('*')
+      .eq('id', templateId)
+      .eq('owner_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // Not found
+        return null;
+      }
+      logSupabaseError('getListTemplateById', error);
+      throw new Error(`Failed to fetch list template: ${error.message}`);
+    }
+
+    // Deserialize items JSONB to ListItem[]
+    return {
+      id: data.id,
+      owner_id: data.owner_id,
+      name: data.name,
+      scope: data.scope as 'any' | 'todo' | 'habit' | 'note',
+      items: Array.isArray(data.items) ? data.items : [],
+      source_entity_type: data.source_entity_type || null,
+      source_entity_id: data.source_entity_id || null,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+  }
+
+  /**
+   * Create a new list template.
+   *
+   * @param input - Template creation data
+   * @returns Created ListTemplate
+   */
+  async createListTemplate(input: {
+    name: string;
+    scope: 'any' | 'todo' | 'habit' | 'note';
+    items: import('../lists/types').ListItem[];
+    sourceEntityType?: 'todo' | 'note' | 'habit';
+    sourceEntityId?: string;
+  }): Promise<import('../lists/types').ListTemplate> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('list_templates')
+      .insert({
+        owner_id: userId,
+        name: input.name,
+        scope: input.scope,
+        items: input.items, // Supabase auto-serializes to JSONB
+        source_entity_type: input.sourceEntityType || null,
+        source_entity_id: input.sourceEntityId || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      logSupabaseError('createListTemplate', error);
+
+      // Check for unique constraint violation
+      if (error.code === '23505' && error.message.includes('list_templates_owner_name_unique')) {
+        throw new Error(`A template named "${input.name}" already exists`);
+      }
+
+      throw new Error(`Failed to create list template: ${error.message}`);
+    }
+
+    return {
+      id: data.id,
+      owner_id: data.owner_id,
+      name: data.name,
+      scope: data.scope as 'any' | 'todo' | 'habit' | 'note',
+      items: Array.isArray(data.items) ? data.items : [],
+      source_entity_type: data.source_entity_type || null,
+      source_entity_id: data.source_entity_id || null,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+  }
+
+  /**
+   * Delete a list template by ID.
+   *
+   * @param templateId - Template UUID
+   */
+  async deleteListTemplate(templateId: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    const { error } = await supabase
+      .from('list_templates')
+      .delete()
+      .eq('id', templateId)
+      .eq('owner_id', userId);
+
+    if (error) {
+      logSupabaseError('deleteListTemplate', error);
+      throw new Error(`Failed to delete list template: ${error.message}`);
+    }
+  }
+
+  /**
+   * Reset a habit's checklist from its linked template (private helper).
+   * Called daily when habit is loaded for first time each day.
+   *
+   * @param habitId - Habit UUID
+   * @param templateId - Template UUID
+   */
+  private async resetHabitChecklist(habitId: string, templateId: string): Promise<void> {
+    const userId = this.ensureUserId();
+
+    try {
+      // 1. Fetch the template
+      const { data: template, error: templateError } = await supabase
+        .from('list_templates')
+        .select('items')
+        .eq('id', templateId)
+        .eq('owner_id', userId)
+        .single();
+
+      if (templateError || !template) {
+        console.warn(`[resetHabitChecklist] Template ${templateId} not found for habit ${habitId}`);
+        return;
+      }
+
+      // 2. Use applyTemplateToList helper to reset items (replace mode with fresh UUIDs)
+      const { applyTemplateToList } = await import('../lists/templates/helpers');
+      const resetItems = applyTemplateToList([], template.items || [], 'replace');
+
+      // 3. Update habit with reset items and new timestamp
+      const { error: updateError } = await supabase
+        .from('habits')
+        .update({
+          list_items_json: resetItems,
+          last_reset_date: new Date().toISOString(),
+        })
+        .eq('id', habitId)
+        .eq('owner_id', userId);
+
+      if (updateError) {
+        console.error(`[resetHabitChecklist] Failed to reset habit ${habitId}:`, updateError);
+      } else {
+        console.log(`[resetHabitChecklist] Reset habit ${habitId} from template ${templateId}`);
+      }
+    } catch (error) {
+      console.error(`[resetHabitChecklist] Error resetting habit ${habitId}:`, error);
+    }
   }
 }

@@ -54,6 +54,8 @@ import { convertUnsortedToTodo } from '../conversion';
 import { convertUnsortedToHabit } from '../conversion';
 import { backgroundPrefill } from './backgroundPrefill';
 import { buildCanonicalFromMindDrop } from './buildCanonicalFromMindDrop';
+import { appendItemToList } from '../lists/appendItemToList';
+import { convertLogListToTodo } from '../lists/convertLogListToTodo';
 
 export interface StageAParams {
   repo: IRepo;
@@ -149,6 +151,79 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
       mode: decision.mode,
       confidence: decision.confidence ?? 0,
     };
+  }
+
+  // Phase 3 Lists: Handle actionable list intent BEFORE creating entities
+  // "time to do my shopping list" → find list, convert to todo
+  if (decision.context?.actionableListName) {
+    const listName = decision.context.actionableListName;
+    console.log('[StageA] Actionable list intent detected', {
+      listName,
+      dropId,
+    });
+
+    try {
+      // Find existing list by name
+      const allRecords = await repo.getAll();
+      const listNotes = allRecords.filter(
+        (r) =>
+          r.type === 'note' &&
+          r.has_list &&
+          !r.archived &&
+          r.title &&
+          r.title.toLowerCase().includes(listName.toLowerCase()),
+      );
+
+      if (listNotes.length > 0) {
+        const targetList = listNotes[0];
+        console.log('[StageA] Found matching list for actionable intent', {
+          listId: targetList.id,
+          listTitle: targetList.title,
+        });
+
+        // Convert list to todo
+        const { todo } = await convertLogListToTodo(repo, targetList.id, {
+          preserveCheckedState: false, // Reset for fresh todo
+        });
+
+        // Archive the unsorted note
+        if (unsortedNoteId) {
+          const unsortedNote = await repo.getById(unsortedNoteId);
+          if (unsortedNote && !(unsortedNote as any).archived) {
+            await repo.update({
+              id: unsortedNoteId,
+              patch: {
+                archived: true,
+              },
+            });
+          }
+        }
+
+        createdIds.todos.push(todo.id);
+        entityDetails.push({ kind: 'todo' });
+
+        console.log('[StageA] Converted actionable list to todo', {
+          listId: targetList.id,
+          todoId: todo.id,
+          dropId,
+        });
+
+        return {
+          entities: createdIds,
+          entityDetails,
+          mode: decision.mode,
+          confidence: decision.confidence ?? 0,
+        };
+      } else {
+        console.warn('[StageA] No matching list found for actionable intent', {
+          listName,
+        });
+        // Fall through to normal entity creation
+      }
+    } catch (error) {
+      console.error('[StageA] Failed to convert actionable list', error);
+      // Fall through to normal entity creation
+    }
   }
 
   const firstAction = actions[0];
@@ -322,7 +397,146 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
         dropId,
         stage: 'classified',
       });
-    } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
+    } else if (firstAction.type === 'add.to.list') {
+      // Handle add.to.list action - append to existing list or create new one
+      console.log('[StageA] Processing add.to.list action', {
+        listKey: firstAction.payload.listKey,
+        item: firstAction.payload.item,
+        dropId,
+      });
+
+      // Check if a note with this dropId already exists (idempotency)
+      if (dropId) {
+        const existingNote = await repo.findNoteByDropId(dropId);
+        if (existingNote && existingNote.id !== unsortedNoteId) {
+          // A note already exists for this dropId - reuse it
+          console.debug('[MindDrop.Idempotency.ListExists]', {
+            id: existingNote.id,
+            dropId,
+            unsortedNoteId,
+          });
+          console.log('[StageA] List already exists for dropId, using existing', {
+            id: existingNote.id,
+            dropId,
+          });
+
+          // Update stage to classified
+          await repo.update({
+            id: existingNote.id,
+            patch: {
+              views: {
+                ...(existingNote.views ?? {}),
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                ai_failed: false,
+              },
+            },
+          });
+
+          // Archive the unsorted note if it's different
+          if (unsortedNoteId && unsortedNoteId !== existingNote.id) {
+            const unsortedNote = await repo.getById(unsortedNoteId);
+            if (unsortedNote && !(unsortedNote as any).archived) {
+              await repo.update({
+                id: unsortedNoteId,
+                patch: {
+                  archived: true,
+                },
+              });
+            }
+          }
+
+          createdIds.notes.push(existingNote.id);
+          entityDetails.push({
+            kind: 'note',
+            noteSubtype: existingNote.subtype ?? undefined,
+          });
+
+          return {
+            entities: createdIds,
+            entityDetails,
+            mode: decision.mode,
+            confidence: decision.confidence ?? 0,
+          };
+        }
+      }
+
+      // Convert listKey to listTitle
+      const listKeyToTitle: Record<string, string> = {
+        shopping: 'Shopping List',
+        reading: 'Reading List',
+        packing: 'Packing List',
+        custom: 'List',
+      };
+      const listTitle = listKeyToTitle[firstAction.payload.listKey] || 'List';
+
+      // Append item to list (or create new list if not found)
+      const updatedOrCreatedList = await appendItemToList(repo, {
+        listTitle,
+        listTags: [firstAction.payload.listKey],
+        itemText: firstAction.payload.item,
+        createIfMissing: true,
+        defaultSubtype: 'reference',
+      });
+
+      // Set dropId on the list if it was just created or doesn't have one
+      if (
+        dropId &&
+        (!(updatedOrCreatedList as any).drop_id || updatedOrCreatedList.id === unsortedNoteId)
+      ) {
+        await repo.update({
+          id: updatedOrCreatedList.id,
+          patch: {
+            dropId,
+            views: {
+              ...(updatedOrCreatedList.views ?? {}),
+              minddrop_stage: 'classified',
+              ai_pending: true,
+              ai_failed: false,
+            },
+          },
+        });
+      } else {
+        // Just update the stage markers
+        await repo.update({
+          id: updatedOrCreatedList.id,
+          patch: {
+            views: {
+              ...(updatedOrCreatedList.views ?? {}),
+              minddrop_stage: 'classified',
+              ai_pending: true,
+              ai_failed: false,
+            },
+          },
+        });
+      }
+
+      // Archive the unsorted note if it's different from the updated list
+      if (unsortedNoteId && unsortedNoteId !== updatedOrCreatedList.id) {
+        const unsortedNote = await repo.getById(unsortedNoteId);
+        if (unsortedNote && !(unsortedNote as any).archived) {
+          await repo.update({
+            id: unsortedNoteId,
+            patch: {
+              archived: true,
+            },
+          });
+        }
+      }
+
+      createdIds.notes.push(updatedOrCreatedList.id);
+      entityDetails.push({
+        kind: 'note',
+        noteSubtype: updatedOrCreatedList.subtype ?? undefined,
+      });
+
+      console.log('[StageA] Added item to list', {
+        id: updatedOrCreatedList.id,
+        title: updatedOrCreatedList.title,
+        dropId,
+        stage: 'classified',
+      });
+    } else if (firstAction.type === 'create.note') {
       // For notes: Stage A applies canonical mapping and marks as classified
       // Check if a note with this dropId already exists (idempotency)
       const targetNote: Note | null = null;

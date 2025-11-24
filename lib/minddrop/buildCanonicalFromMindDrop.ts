@@ -26,8 +26,8 @@ import { TAG_STOP_WORDS } from '../tags/constants';
 import { getEffectiveTags } from '../tags/getEffectiveTags';
 import { applyThemeTags } from '../tags/themes';
 import { applyTagQualityFilter } from '../tags/quality';
-import { type LogSubtype } from '../cortex/classifyLogSubtype';
-import { getEffectiveLogSubtype } from '../logs/getEffectiveLogSubtype';
+import { classifyLogSubtype } from '../cortex/classifyLogSubtype';
+import { getEffectiveLogSubtype, type NoteSubtype } from '../logs/getEffectiveLogSubtype';
 import { normalizeTodoTitle } from './normalizeTodoTitle';
 import { hasListLikeStructure, parseTextToListItems } from '../lists/helpers';
 import type { ListItem } from '../lists/types';
@@ -67,7 +67,7 @@ export interface CanonicalPayload {
   body?: string; // For log & todo
   notes?: string; // For habit
   details?: string; // Alternative to body for todos
-  subtype?: LogSubtype | null; // For logs: journal | reference | idea | plain (NOTE: 'list' removed - now an attribute)
+  subtype?: NoteSubtype; // For logs: journal | idea | catchall | reference (LS2: mapped from LS1)
 
   // Phase 7 Lists: List support for all entity types
   has_list: boolean;
@@ -239,7 +239,7 @@ function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
  * Applies complete tag enrichment pipeline in Stage A:
  * 1. Extract tags (AI with fallback via getEffectiveTags)
  * 2. Apply domain-specific filtering (todos/habits/logs have different rules)
- * 3. Add theme tags (#work, #exercise, #health, etc.)
+ * 3. Add theme tags (#work, #exercise, #health, etc.) + subtype-driven tags for logs
  * 4. Apply quality filter (remove junk/stop words)
  * 5. Final normalization (dedupe, format)
  *
@@ -247,6 +247,7 @@ function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
  * @param aiTags - Optional pre-extracted tags (from background prefill)
  * @param kind - Entity type (affects filtering rules)
  * @param existingTags - For logs: existing tags to merge with AI tags
+ * @param logSubtype - Optional log subtype for theme tag enrichment (journal/idea/catchall/reference)
  * @returns Promise resolving to filtered, normalized tag array
  */
 async function buildCleanedTags(
@@ -254,6 +255,7 @@ async function buildCleanedTags(
   aiTags: string[] | undefined,
   kind: CanonicalKind,
   existingTags?: string[],
+  logSubtype?: NoteSubtype,
 ): Promise<string[]> {
   try {
     // Step 1: Get AI tags (use provided or extract)
@@ -309,8 +311,8 @@ async function buildCleanedTags(
     // Step 3: Normalize before theme enrichment
     const normalized = filterAndNormalizeTags(domainFiltered);
 
-    // Step 4: Add theme tags (#work, #exercise, #health, etc.)
-    const withThemes = applyThemeTags(rawText, normalized);
+    // Step 4: Add theme tags (#work, #exercise, #health, etc.) + subtype-driven tags for logs
+    const withThemes = applyThemeTags(rawText, normalized, kind === 'log' ? logSubtype : null);
 
     // Step 5: Apply quality filter (removes junk/stop words)
     const qualityFiltered = applyTagQualityFilter(withThemes);
@@ -360,24 +362,43 @@ export async function buildCanonicalFromMindDrop(
 
   // Extract tags using AI with domain-specific filtering
   const existingTagsForLogs = existing?.tags ?? [];
-  const tags = await buildCleanedTags(trimmedRawText, aiTags, kind, existingTagsForLogs);
 
   // Type-specific field mapping
   switch (kind) {
     case 'log': {
       // For logs: Use AI title if available, otherwise raw text
       const title = compactTitle(trimmedRawText, aiTitle);
-      // Classify log subtype using AI with deterministic fallback
-      let subtype: LogSubtype | null = await getEffectiveLogSubtype(trimmedRawText);
+
+      // LS2: Classify log subtype using LS1 pure classifier
+      const logSubtypeSignal = classifyLogSubtype(trimmedRawText);
+      const subtype: NoteSubtype = getEffectiveLogSubtype(trimmedRawText);
+
+      // LS2 Debug logging
+      if (__DEV__) {
+        console.log('[LS2] Log subtype classification', {
+          textPreview: trimmedRawText.slice(0, 80),
+          ls1Subtype: logSubtypeSignal.subtype,
+          noteSubtype: subtype,
+          journalConfidence: logSubtypeSignal.journalConfidence,
+          ideaConfidence: logSubtypeSignal.ideaConfidence,
+          textLength: logSubtypeSignal.debug.textLength,
+          journalReasons: logSubtypeSignal.debug.journalReasons,
+          ideaReasons: logSubtypeSignal.debug.ideaReasons,
+        });
+      }
 
       // Phase 7 Lists: Detect list as an attribute, not a subtype
       const hasListStructure = hasListLikeStructure(trimmedRawText);
       const listItems = hasListStructure ? parseTextToListItems(trimmedRawText) : null;
 
-      // If subtype is 'list', change it to null (plain) since list is now an attribute
-      if (subtype === 'list') {
-        subtype = null;
-      }
+      // Extract tags with subtype-driven theme enrichment (journal/idea/catchall/reference)
+      const tags = await buildCleanedTags(
+        trimmedRawText,
+        aiTags,
+        kind,
+        existingTagsForLogs,
+        subtype,
+      );
 
       return {
         title,
@@ -389,7 +410,7 @@ export async function buildCanonicalFromMindDrop(
         canonicalType: kind,
         labels: [kind],
         body: trimmedRawText, // Full raw text goes in body
-        subtype: subtype === 'plain' ? null : subtype, // null for plain, otherwise set subtype
+        subtype, // LS2: Direct from LS1 mapping (journal | idea | catchall)
         has_list: hasListStructure,
         list_items: listItems,
       };
@@ -402,6 +423,9 @@ export async function buildCanonicalFromMindDrop(
       // Phase 7 Lists: Detect list as an attribute
       const hasListStructure = hasListLikeStructure(trimmedRawText);
       const listItems = hasListStructure ? parseTextToListItems(trimmedRawText) : null;
+
+      // Extract tags (no subtype for todos)
+      const tags = await buildCleanedTags(trimmedRawText, aiTags, kind, existingTagsForLogs, null);
 
       return {
         title,
@@ -434,6 +458,9 @@ export async function buildCanonicalFromMindDrop(
       // Phase 7 Lists: Detect list as an attribute
       const hasListStructure = hasListLikeStructure(trimmedRawText);
       const listItems = hasListStructure ? parseTextToListItems(trimmedRawText) : null;
+
+      // Extract tags (no subtype for habits)
+      const tags = await buildCleanedTags(trimmedRawText, aiTags, kind, existingTagsForLogs, null);
 
       return {
         title,

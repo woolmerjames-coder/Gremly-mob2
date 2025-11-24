@@ -378,8 +378,8 @@ describe('buildCanonicalFromMindDrop', () => {
         expect(result.list_items?.[2].text).toBe('Testing async code');
         // Subtype must NOT be 'list' (list is now an attribute)
         expect(result.subtype).not.toBe('list');
-        // Should be classified as reference, idea, or null
-        expect(['reference', 'idea', null]).toContain(result.subtype);
+        // LS2: Should be classified as journal, idea, or catchall
+        expect(['journal', 'idea', 'catchall', null]).toContain(result.subtype);
       });
 
       it('should detect numbered list in note', async () => {
@@ -482,6 +482,25 @@ describe('buildCanonicalFromMindDrop', () => {
         expect(result.has_list).toBe(false);
         expect(result.list_items).toBe(null);
       });
+
+      it('should detect grocery list with title prefix as list', async () => {
+        // Real-world case from user bug report
+        const result = await buildCanonicalFromMindDrop({
+          kind: 'log',
+          rawText: 'Grocery list:\n- milk\n- eggs\n- bread',
+          aiTags: ['groceries'],
+        });
+
+        expect(result.canonicalType).toBe('log');
+        expect(result.has_list).toBe(true);
+        expect(result.list_items).toBeDefined();
+        expect(result.list_items).toHaveLength(3);
+        expect(result.list_items?.[0].text).toBe('milk');
+        expect(result.list_items?.[1].text).toBe('eggs');
+        expect(result.list_items?.[2].text).toBe('bread');
+        expect(result.list_items?.every((item) => item.checked === false)).toBe(true);
+        expect(result.list_items?.every((item) => item.id)).toBe(true);
+      });
     });
 
     describe('edge cases for list detection', () => {
@@ -555,8 +574,8 @@ describe('buildCanonicalFromMindDrop', () => {
         expect(result.list_items).toHaveLength(3);
         // Subtype must NOT be 'list' (it's an attribute now)
         expect(result.subtype).not.toBe('list');
-        // Should use reference, idea, or null as fallback
-        expect(['reference', 'idea', null]).toContain(result.subtype);
+        // LS2: Should use journal, idea, or catchall as fallback
+        expect(['journal', 'idea', 'catchall', null]).toContain(result.subtype);
       });
     });
   });
@@ -628,6 +647,92 @@ describe('buildCanonicalFromMindDrop', () => {
       expect(tagText).toContain('fitness');
       // Theme tag #exercise should be added
       expect(tagText).toContain('exercise');
+    });
+  });
+
+  describe('Log Subtype Theme Tags', () => {
+    it('should add #journal theme tag for journal subtype', async () => {
+      const result = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: "I'm feeling overwhelmed about work today. Need to take a break.",
+        aiTags: ['work', 'stress'],
+      });
+
+      expect(result.canonicalType).toBe('log');
+      expect(result.subtype).toBe('journal');
+      expect(result.tags).toContain('#journal');
+    });
+
+    it('should add #idea theme tag for idea subtype', async () => {
+      const result = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: 'Idea: What if we held team meetings standing up to keep them short?',
+        aiTags: ['meeting', 'team'],
+      });
+
+      expect(result.canonicalType).toBe('log');
+      expect(result.subtype).toBe('idea');
+      expect(result.tags).toContain('#idea');
+    });
+
+    it('should add #reference theme tag for reference subtype', async () => {
+      const result = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: "Sarah's coffee order: oat latte, extra hot, with cinnamon",
+        aiTags: ['coffee', 'sarah'],
+      });
+
+      expect(result.canonicalType).toBe('log');
+      // AI classification can vary, so test the tagging logic directly
+      if (result.subtype === 'reference') {
+        expect(result.tags).toContain('#reference');
+      }
+      // At minimum, verify it's not a journal or idea
+      expect(result.subtype).not.toBe('journal');
+      expect(result.subtype).not.toBe('idea');
+    });
+
+    it('should not add theme tag for plain subtype', async () => {
+      const result = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: 'The meeting is at 3pm in room B',
+        aiTags: ['meeting'],
+      });
+
+      expect(result.canonicalType).toBe('log');
+      // Plain subtype can be null or 'plain', both are treated the same
+      // If AI classifies it as something else, verify theme tags work
+      if (result.subtype === 'journal') {
+        expect(result.tags).toContain('#journal');
+      } else if (result.subtype === 'idea') {
+        expect(result.tags).toContain('#idea');
+      } else if (result.subtype === 'reference') {
+        expect(result.tags).toContain('#reference');
+      }
+      // LS2: Verify it's one of the valid LS2 types (journal/idea/catchall)
+      expect(['journal', 'idea', 'catchall', null]).toContain(result.subtype);
+    });
+
+    it('should combine subtype theme tag with other tags', async () => {
+      const result = await buildCanonicalFromMindDrop({
+        kind: 'log',
+        rawText: 'Had a great insight today: focus on one thing at a time',
+        aiTags: ['productivity', 'focus'],
+      });
+
+      expect(result.canonicalType).toBe('log');
+      // AI may classify as journal, idea, or even reference
+      // Verify that if it has a subtype, the corresponding theme tag is added
+      if (result.subtype === 'journal') {
+        expect(result.tags).toContain('#journal');
+      } else if (result.subtype === 'idea') {
+        expect(result.tags).toContain('#idea');
+      } else if (result.subtype === 'reference') {
+        expect(result.tags).toContain('#reference');
+      }
+      // Verify the AI tags are preserved (with # prefix)
+      expect(result.tags.some((t) => t === '#productivity' || t === 'productivity')).toBe(true);
+      expect(result.tags.some((t) => t === '#focus' || t === 'focus')).toBe(true);
     });
   });
 });

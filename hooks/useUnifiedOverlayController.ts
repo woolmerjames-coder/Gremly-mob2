@@ -91,7 +91,7 @@ export function useUnifiedOverlayController() {
       }
     } else {
       entityType = 'log';
-      logSubtype = 'everything_else';
+      logSubtype = null; // plain
     }
 
     return { entityType, logSubtype };

@@ -30,8 +30,8 @@ const kindToType: Record<OverlayKind, CanonicalType> = {
   reflection: 'log',
 };
 
-const kindToLogSubtype: Partial<Record<OverlayKind, LogSubtype>> = {
-  note: 'everything_else',
+const kindToLogSubtype: Partial<Record<OverlayKind, LogSubtype | null>> = {
+  note: null, // plain
   reflection: 'journal',
 };
 

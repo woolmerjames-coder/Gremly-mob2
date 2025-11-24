@@ -1,27 +1,39 @@
 /**
  * Get Effective Log Subtype
  *
- * Production-ready wrapper for AI-powered log subtype classification.
- * Always attempts AI classification first, with automatic fallback to deterministic patterns.
+ * LS2: Pure, deterministic log subtype classification using LS1 classifier.
+ * Maps LS1 results to note schema subtypes.
  *
- * This is the primary entry point for subtype classification in async contexts.
- * Use this instead of calling classifyLogSubtype directly.
+ * LS1 produces: 'journal' | 'idea' | 'general'
+ * Note schema allows: 'journal' | 'idea' | 'catchall' | 'reference'
+ *
+ * Mapping:
+ * - journal → 'journal'
+ * - idea → 'idea'
+ * - general → 'catchall' (general log bucket)
  *
  * @param text - The log body text to classify
- * @returns Promise resolving to one of: 'journal' | 'list' | 'reference' | 'idea' | 'plain'
+ * @returns One of: 'journal' | 'idea' | 'catchall' | 'reference' | null
  */
 
-import { classifyLogSubtype, type LogSubtype } from '../cortex/classifyLogSubtype';
+import { classifyLogSubtype } from '../cortex/classifyLogSubtype';
 
-export async function getEffectiveLogSubtype(text: string): Promise<LogSubtype> {
-  // AI classification with built-in fallback to deterministic patterns
-  // The classifyLogSubtype function already handles:
-  // 1. AI attempt with 3s timeout
-  // 2. Response validation (only accepts valid LogSubtype values)
-  // 3. Automatic fallback to classifyLogSubtypeSync on any error
-  // 4. Empty text handling
+export type NoteSubtype = 'journal' | 'idea' | 'catchall' | 'reference' | null;
 
-  const subtype = await classifyLogSubtype(text);
+export function getEffectiveLogSubtype(text: string): NoteSubtype {
+  // LS1 pure classifier - synchronous, deterministic
+  const signal = classifyLogSubtype(text);
 
-  return subtype;
+  // Map LS1 subtypes to note schema
+  switch (signal.subtype) {
+    case 'journal':
+      return 'journal';
+    case 'idea':
+      return 'idea';
+    case 'general':
+      return 'catchall';
+    default:
+      // Should never happen with LS1, but safe fallback
+      return 'catchall';
+  }
 }

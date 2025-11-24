@@ -201,16 +201,16 @@ const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
       BASE_TYPE_OPTIONS[0],
       BASE_TYPE_OPTIONS[1],
       BASE_TYPE_OPTIONS[2],
-      { value: 'log', label: 'Person', iconName: 'User', logSubtype: 'person' },
+      { value: 'log', label: 'Person', iconName: 'User', logSubtype: 'reference' },
       BASE_TYPE_OPTIONS[3],
     ];
 
 // Star tags now derive log subtype automatically (see deriveLogSubtypeFromTags).
-const DEFAULT_LOG_SUBTYPE: LogSubtype = 'everything_else';
+const DEFAULT_LOG_SUBTYPE: LogSubtype | null = null; // plain
 
 const normalizeInitialSelection = (
   initialEntity: UnifiedCreateOverlayProps['initialEntity'],
-): { type: EntityType | null; logSubtype: LogSubtype } => {
+): { type: EntityType | null; logSubtype: LogSubtype | null } => {
   const fallbackSubtype = initialEntity?.logSubtype ?? DEFAULT_LOG_SUBTYPE;
   const incomingType = initialEntity?.type;
 
@@ -222,7 +222,7 @@ const normalizeInitialSelection = (
     case 'journal':
       return { type: 'log', logSubtype: 'journal' };
     case 'person':
-      return { type: 'log', logSubtype: 'person' };
+      return { type: 'log', logSubtype: 'reference' }; // person → reference
     case 'note':
       return { type: 'log', logSubtype: fallbackSubtype };
     default:

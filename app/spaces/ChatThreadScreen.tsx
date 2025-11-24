@@ -90,7 +90,7 @@ const resolveOverlayCreateParams = (
     case 'todo':
       return { type: 'todo' };
     case 'note':
-      return { type: 'log', logSubtype: 'everything_else' };
+      return { type: 'log', logSubtype: null }; // plain
     case 'reflection':
       return { type: 'log', logSubtype: 'journal' };
     case 'idea':

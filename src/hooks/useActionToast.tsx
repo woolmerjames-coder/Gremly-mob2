@@ -485,16 +485,18 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       }
       if (payload.type === 'note') {
         const noteSubtype = payload.metadata?.noteSubtype;
-        const logSubtype: LogSubtype = (() => {
+        // Phase 7: 'list' is no longer a subtype, it's an attribute
+        // Map NoteSubtype to LogSubtype
+        const logSubtype: LogSubtype | null = (() => {
           switch (noteSubtype) {
             case 'journal':
               return 'journal';
             case 'idea':
               return 'idea';
-            case 'list':
-              return 'list';
+            case 'reference':
+              return 'reference';
             default:
-              return 'everything_else';
+              return null; // plain
           }
         })();
         return { type: 'log' as CanonicalType, logSubtype };

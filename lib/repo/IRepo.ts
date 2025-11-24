@@ -76,6 +76,9 @@ export interface CreateRecordInput {
   has_list?: boolean;
   list_items?: import('../lists/types').ListItem[] | null;
   body_legacy?: string | null;
+
+  // Template linkage (Phase 4: List Templates for Habits)
+  list_template_id?: ID | null; // Optional reference to list_templates for habits
 }
 
 /**
@@ -85,6 +88,7 @@ export interface UpdateRecordInput {
   id: ID;
   patch: Partial<Omit<AppRecord, 'id' | 'type' | 'created_at' | 'owner_id'>> & {
     tags?: string[] | null;
+    list_template_id?: ID | null; // For habits: link to template for daily reset
   };
 }
 
@@ -510,4 +514,48 @@ export interface IRepo {
    * Delete a log photo record.
    */
   deleteLogPhoto(photoId: string): Promise<void>;
+
+  // ========================================================================
+  // Phase 4: List Templates
+  // ========================================================================
+
+  /**
+   * Get all list templates for the current user.
+   * Optionally filter by scope (e.g., show only todo-compatible templates).
+   *
+   * @param scope - Optional scope filter ('any' | 'todo' | 'habit' | 'note')
+   * @returns Array of list templates
+   */
+  getListTemplates(
+    scope?: 'any' | 'todo' | 'habit' | 'note',
+  ): Promise<import('../lists/types').ListTemplate[]>;
+
+  /**
+   * Get a single list template by ID.
+   *
+   * @param templateId - Template UUID
+   * @returns ListTemplate or null if not found
+   */
+  getListTemplateById(templateId: string): Promise<import('../lists/types').ListTemplate | null>;
+
+  /**
+   * Create a new list template.
+   *
+   * @param input - Template creation data
+   * @returns Created ListTemplate
+   */
+  createListTemplate(input: {
+    name: string;
+    scope: 'any' | 'todo' | 'habit' | 'note';
+    items: import('../lists/types').ListItem[];
+    sourceEntityType?: 'todo' | 'note' | 'habit';
+    sourceEntityId?: string;
+  }): Promise<import('../lists/types').ListTemplate>;
+
+  /**
+   * Delete a list template by ID.
+   *
+   * @param templateId - Template UUID
+   */
+  deleteListTemplate(templateId: string): Promise<void>;
 }
