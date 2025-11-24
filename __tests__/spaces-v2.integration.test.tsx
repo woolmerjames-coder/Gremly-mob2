@@ -2,10 +2,29 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { ThemeProvider } from '../providers/ThemeProvider';
-import { AuthProvider } from '../providers/AuthProvider';
 import { RepoProvider } from '../providers/RepoProvider';
 import { OverlayProvider } from '../contexts/OverlayContext';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
+
+// Mock AuthProvider to avoid Supabase initialization
+jest.mock('../providers/AuthProvider', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useAuth: () => ({
+    user: { id: 'test-user-id' },
+    userId: undefined, // IMPORTANT: Prevent Supabase subscriptions
+    session: null,
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    devSignIn: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+    waitForSession: jest.fn(),
+  }),
+}));
+
+// Import AuthProvider after mock
+import { AuthProvider } from '../providers/AuthProvider';
 
 // Mock ChatThreadScreen to avoid environment check
 jest.mock('../app/spaces/ChatThreadScreen', () => {

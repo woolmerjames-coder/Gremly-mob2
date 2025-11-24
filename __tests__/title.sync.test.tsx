@@ -4,6 +4,21 @@ import { v2Reducer, initialV2State } from '../components/overlay/overlayV2.state
 import { toCreateOrUpdateInput } from '../components/overlay/overlayV2.mapping';
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';
 
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user-id' },
+    userId: undefined, // IMPORTANT: Prevent Supabase subscriptions
+    session: null,
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    devSignIn: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+    waitForSession: jest.fn(),
+  }),
+}));
+
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
   return {

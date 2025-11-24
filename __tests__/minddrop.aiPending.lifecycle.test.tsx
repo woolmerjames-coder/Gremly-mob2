@@ -35,7 +35,18 @@ jest.mock('../providers/RepoProvider', () => ({
 }));
 
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'test-user-123' } }),
+  useAuth: () => ({
+    user: { id: 'test-user-123' },
+    userId: undefined, // IMPORTANT: Prevent Supabase subscriptions
+    session: null,
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    devSignIn: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+    waitForSession: jest.fn(),
+  }),
 }));
 
 jest.mock('@react-navigation/native', () => {
@@ -109,10 +120,10 @@ describe('views.ai_pending Flag Lifecycle', () => {
         suggestions: [],
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = render(<CatchAllNotepad />);
 
-      const input = getByPlaceholderText(/Mind Drop/i);
-      const submitButton = getByTestId('submit-button');
+      const input = getByTestId('minddrop-input');
+      const submitButton = getByTestId('minddrop-submit-button');
 
       fireEvent.changeText(input, 'Buy groceries');
 
@@ -177,10 +188,10 @@ describe('views.ai_pending Flag Lifecycle', () => {
         suggestions: [],
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = render(<CatchAllNotepad />);
 
-      const input = getByPlaceholderText(/Mind Drop/i);
-      const submitButton = getByTestId('submit-button');
+      const input = getByTestId('minddrop-input');
+      const submitButton = getByTestId('minddrop-submit-button');
 
       fireEvent.changeText(input, 'Complex input');
 
@@ -263,10 +274,10 @@ describe('views.ai_pending Flag Lifecycle', () => {
         suggestions: [],
       });
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = render(<CatchAllNotepad />);
 
-      const input = getByPlaceholderText(/Mind Drop/i);
-      const submitButton = getByTestId('submit-button');
+      const input = getByTestId('minddrop-input');
+      const submitButton = getByTestId('minddrop-submit-button');
 
       fireEvent.changeText(input, 'Meditate daily');
 
@@ -323,10 +334,10 @@ describe('views.ai_pending Flag Lifecycle', () => {
 
       mockDecideWithContext.mockRejectedValue(new Error('AI service unavailable'));
 
-      const { getByPlaceholderText, getByTestId } = render(<CatchAllNotepad />);
+      const { getByTestId } = render(<CatchAllNotepad />);
 
-      const input = getByPlaceholderText(/Mind Drop/i);
-      const submitButton = getByTestId('submit-button');
+      const input = getByTestId('minddrop-input');
+      const submitButton = getByTestId('minddrop-submit-button');
 
       fireEvent.changeText(input, 'Ambiguous text');
 
