@@ -309,14 +309,6 @@ describe('Mind Drop Timing Fallback', () => {
   });
 
   it('auto-assigns "Someday" (null due date) after 5 seconds if chips ignored', async () => {
-    mockRepo.create.mockResolvedValue({
-      id: 'todo-fallback-123',
-      type: 'todo',
-      name: 'Review docs',
-    });
-
-    mockRepo.update.mockResolvedValue({ id: 'todo-fallback-123' });
-
     const { getByTestId, findByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
@@ -325,8 +317,8 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Review docs');
     fireEvent.press(submitButton);
 
-    // v3 Instant Mode: Wait for direct todo creation (1 create)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
+    // v3: Wait for unsorted note + todo creation
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
 
     await findByTestId('minddrop-timing-chips');
 
@@ -339,10 +331,11 @@ describe('Mind Drop Timing Fallback', () => {
       expect(queryByTestId('minddrop-timing-chips')).toBeNull();
     });
 
+    // Check that update was called with "Someday" (null due date, undefined_due: true)
     await waitFor(() => {
       expect(mockRepo.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'todo-fallback-123',
+          id: expect.stringContaining('todo-'), // v3 uses Stage A ID
           patch: expect.objectContaining({
             due_date: null,
             undefined_due: true,
