@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { isToday, parseISO } from 'date-fns';
 import { Alert, Platform, ToastAndroid } from 'react-native';
-import type { AppRecord, Note, Todo, ID, Space, Tag, Person, EntityType } from '../types';
+import type { AppRecord, Note, Todo, Habit, ID, Space, Tag, Person, EntityType } from '../types';
 import {
   habitZ,
   todoZ,
@@ -203,6 +203,17 @@ const tableFor = (type: AppRecord['type']): string => {
   }
 };
 
+/**
+ * Normalize views JSONB field to avoid null weirdness
+ * Database column is NOT NULL with default '{}', but old records may have been migrated
+ * Always returns non-null object to ensure stage and failure flags round-trip properly
+ */
+function normalizeViews(input: any): Record<string, any> {
+  if (!input || typeof input !== 'object') return {};
+  // Preserve all fields including ai_pending, ai_failed, minddrop_stage, minddrop_prefilled_v1
+  return { ...input };
+}
+
 // Helper to map database habit columns to TypeScript fields
 // Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
 // TypeScript has: name, frequency_value, reminders, triggers (fields)
@@ -219,7 +230,7 @@ function mapHabitFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: dbRecord.views ?? {}, // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
   };
 }
 
@@ -242,7 +253,7 @@ function mapTodoFromDb(dbRecord: any): any {
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: dbRecord.views ?? {}, // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
   };
 }
 
@@ -259,7 +270,7 @@ function mapNoteFromDb(dbRecord: any): any {
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: dbRecord.views ?? {}, // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
   };
 }
 
@@ -798,6 +809,17 @@ export class SupabaseRepo implements IRepo {
       console.log('[TodoUpdate] dbPayload', updatePayload);
     }
 
+    // Guard: Don't call Supabase if the patch is empty (prevents PGRST116 error)
+    if (Object.keys(updatePayload).length === 0) {
+      if (__DEV__) {
+        console.log('[SupabaseRepo.update] Empty patch - skipping database call', {
+          id,
+          type: existing.type,
+        });
+      }
+      return existing;
+    }
+
     // Database trigger or default will handle updated_at
     const { data: result, error } = await supabase
       .from(table)
@@ -868,6 +890,32 @@ export class SupabaseRepo implements IRepo {
     return null;
   }
 
+  async getAll(): Promise<AppRecord[]> {
+    const userId = this.ensureUserId();
+    const results: AppRecord[] = [];
+
+    // Query each table and combine results
+    for (const type of ['habit', 'todo', 'note'] as const) {
+      const table = tableFor(type);
+      const { data, error } = await supabase.from(table).select('*').eq('owner_id', userId);
+
+      if (error) {
+        throw new Error(`Error querying ${table}: ${error.message}`);
+      }
+
+      if (data) {
+        for (const row of data) {
+          const record = { ...row, type };
+          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)));
+          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)));
+          else results.push(noteZ.parse(mapNoteFromDb(record)));
+        }
+      }
+    }
+
+    return results;
+  }
+
   async findNoteBySourceMessageId(sourceMessageId: string): Promise<Note | null> {
     const userId = this.ensureUserId();
     if (!sourceMessageId) return null;
@@ -895,6 +943,72 @@ export class SupabaseRepo implements IRepo {
 
     const record = { ...data, type: 'note' as const };
     return noteZ.parse(mapNoteFromDb(record));
+  }
+
+  /**
+   * Find a todo by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findTodoByDropId(dropId: string): Promise<Todo | null> {
+    const userId = this.ensureUserId();
+    if (!dropId) return null;
+    if (!UUID_REGEX.test(dropId)) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('drop_id', dropId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      logSupabaseError('todos.findByDropId', error);
+      throw new Error(`Failed to find todo by dropId: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    if (!data) return null;
+
+    const record = { ...data, type: 'todo' as const };
+    return todoZ.parse(record);
+  }
+
+  /**
+   * Find a habit by its Mind Drop dropId
+   * Used to prevent duplicate entity creation when pipeline runs multiple times
+   */
+  async findHabitByDropId(dropId: string): Promise<Habit | null> {
+    const userId = this.ensureUserId();
+    if (!dropId) return null;
+    if (!UUID_REGEX.test(dropId)) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('habits')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('drop_id', dropId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      logSupabaseError('habits.findByDropId', error);
+      throw new Error(`Failed to find habit by dropId: ${getUserFriendlyErrorMessage(error)}`);
+    }
+
+    if (!data) return null;
+
+    const record = { ...data, type: 'habit' as const };
+    return habitZ.parse(record);
   }
 
   /**

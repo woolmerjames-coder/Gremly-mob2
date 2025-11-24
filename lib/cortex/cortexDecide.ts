@@ -23,6 +23,8 @@ import {
 } from './explain';
 import { env } from '../env';
 import { detectIntent } from './intents/detectIntent';
+import { classifyIntentWithAI, isAIClassificationAvailable } from './intents/classifyIntentWithAI';
+import { resolveCanonicalIntent, type CanonicalIntentResult } from './intents/canonicalIntent';
 import { getPersonaPrompt } from './persona/prompt';
 import { callChat, type ChatMessage } from './CortexClient';
 import { type CortexContextBase, type Lane } from './lane';
@@ -57,6 +59,8 @@ export type MindDropDecision = {
   logSubtype?: LogSubtype | null;
   /** Raw tags from AI classification */
   tags?: string[];
+  /** Phase 11.8: AI confidence score 0-1 (normalized scale) */
+  aiConfidence?: number;
 };
 
 /**
@@ -172,12 +176,14 @@ export type DecideInput =
  * - needsClarification: true if mode was 'ask', false if 'auto'
  * - logSubtype: Extracted from canonicalSubtype if probableKind is 'log'
  * - tags: AI-derived tags for the entry
+ * - aiConfidence: AI confidence score 0-100 (Phase 11.8)
  *
  * @param probable - Classification from engine ('todo' | 'habit' | 'log' | 'unknown')
  * @param confidence - Confidence score [0-1]
  * @param mode - Decision mode ('auto' | 'ask' | 'keep' | 'reply')
  * @param canonicalSubtype - Log subtype if kind is 'log'
  * @param tags - AI-derived tags
+ * @param aiConfidence - AI confidence score 0-100 (optional)
  * @returns MindDropDecision object for unified pipeline
  */
 function buildMindDropDecision(
@@ -186,13 +192,20 @@ function buildMindDropDecision(
   mode: 'auto' | 'ask' | 'keep' | 'reply',
   canonicalSubtype?: LogSubtype | null,
   tags?: string[],
+  aiConfidence?: number,
+  canonicalIntent?: CanonicalIntentResult,
 ): MindDropDecision {
   // Map 'unknown' to 'none' for probableKind
-  const probableKind: MindDropDecision['probableKind'] = probable === 'unknown' ? 'none' : probable;
+  let probableKind: MindDropDecision['probableKind'] = probable === 'unknown' ? 'none' : probable;
 
-  // needsClarification = true when mode is 'ask'
-  // This replaces the mode: 'ask' branching logic
-  const needsClarification = mode === 'ask';
+  // If canonicalIntent provides a probableKind, use it (overrides probable from AI)
+  if (canonicalIntent?.probableKind) {
+    probableKind = canonicalIntent.probableKind;
+  }
+
+  // needsClarification = true when mode is 'ask' OR when canonicalIntent explicitly requires clarification
+  const needsClarification =
+    mode === 'ask' || canonicalIntent?.chipDecision?.needsClarification || false;
 
   // Extract logSubtype only if probableKind is 'log'
   const logSubtype = probableKind === 'log' ? canonicalSubtype : undefined;
@@ -203,6 +216,7 @@ function buildMindDropDecision(
     needsClarification,
     logSubtype,
     tags: tags || [],
+    aiConfidence,
   };
 }
 
@@ -272,8 +286,11 @@ export async function cortexDecide(
     const optimistic = env.cortex.optimistic;
 
     // Detect intent up-front for fast-path routing when highly confident
+    // Phase 11.8: Use AI classification when available for confidence scoring
     const userText = input.text || (input.structured ? JSON.stringify(input.structured) : '');
-    const detected = detectIntent(userText);
+    const detected = isAIClassificationAvailable()
+      ? await classifyIntentWithAI(userText, timeoutMs)
+      : detectIntent(userText);
     const listAnalysis = analyzeListShape(userText);
     const ideaAnalysis = analyzeIdeaShape(userText);
     const listHeuristicTriggered = listAnalysis.score >= 0.6;
@@ -283,6 +300,7 @@ export async function cortexDecide(
       text: userText.substring(0, 50),
       kind: detected.kind,
       confidence: detected.confidence,
+      aiConfidence: detected.aiConfidence, // Phase 11.8: Log AI confidence
       suppressChips: detected.suppressChips,
       isMetaComment: (detected as any).isMetaComment,
       listHeuristic: {
@@ -528,6 +546,30 @@ export async function cortexDecide(
     const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
 
+    // Phase 11.9: Resolve canonical intent to determine auto-create vs chips
+    // Use canonical resolver to decide if we should auto-create or show chips
+    const canonicalIntent = resolveCanonicalIntent({
+      ruleKind: detected.kind,
+      ruleConfidence: detectorConfidence,
+      aiCategory: normalized.canonicalType || probable,
+      // When AI classification is available, use aiConfidence (0-100 scale)
+      // When not available, use detector confidence as proxy for AI confidence
+      aiConfidence: detected.aiConfidence
+        ? detected.aiConfidence / 100 // AI confidence in 0-100 scale, normalize to 0-1
+        : detectorConfidence, // Use detector confidence directly (already 0-1 scale)
+      text: userText,
+    });
+
+    if (__DEV__) {
+      console.log('[CanonicalIntent]', {
+        type: canonicalIntent.type,
+        confidence: canonicalIntent.confidence.toFixed(2),
+        allowAutoCreate: canonicalIntent.allowAutoCreate,
+        suppressChips: canonicalIntent.suppressChips,
+        reasoning: canonicalIntent.reasoning,
+      });
+    }
+
     // For strong lists, override candidate actions to create.note with list subtype
     let effectiveCandidateActions = candidateActions;
     if (listStrong) {
@@ -543,24 +585,182 @@ export async function cortexDecide(
       ];
     }
 
-    const shouldAuto =
-      !forceListAsk &&
-      !forceIdeaAsk &&
-      effectiveCandidateActions.length > 0 &&
-      (confidence > autoThreshold || preferHabitAuto || listStrong); // Auto for strong lists
-
+    // Phase 11.9: CANONICAL INTENT IS PRIMARY - determine mode and actions based on canonical result
+    // This is the single source of truth for intent classification
     let mode: DecisionMode = 'keep';
 
-    if (!hasConfidence || confidence < 0) {
-      mode = 'keep';
-    } else if (shouldAuto) {
-      mode = 'auto';
-    } else if (confidence >= midLower) {
-      mode = 'ask';
-    }
+    // CRITICAL: Respect explicit engine confidence when provided
+    // If engine explicitly returns confidence at or below threshold, don't auto-create
+    const hasExplicitEngineConfidence = typeof engineOutput.confidence === 'number';
+    const engineConfidenceBelowThreshold =
+      hasExplicitEngineConfidence && engineOutput.confidence <= autoThreshold;
+    const engineConfidenceHigh = hasExplicitEngineConfidence && engineOutput.confidence >= 0.7;
 
-    if (forceListAsk || forceIdeaAsk) {
-      mode = 'ask';
+    // When engine has high confidence in its classification, respect the engine type over canonical heuristics
+    const engineTypeOverride =
+      engineConfidenceHigh && normalized.canonicalType
+        ? normalized.canonicalType
+        : canonicalIntent.type;
+
+    // Step 1: Use canonical intent to determine if we should auto-create
+    const shouldAutoCreateFromCanonical =
+      canonicalIntent.allowAutoCreate &&
+      !canonicalIntent.suppressChips &&
+      canonicalIntent.confidence >= 0.55 &&
+      !engineConfidenceBelowThreshold; // Don't override explicit low engine confidence
+
+    // Step 2: Build actions based on canonical type if we're auto-creating
+    if (shouldAutoCreateFromCanonical) {
+      // Use engineTypeOverride to respect high-confidence engine classifications
+      const effectiveType = engineConfidenceHigh ? engineTypeOverride : canonicalIntent.type;
+
+      // Ensure we have the right action for the canonical type
+      if (
+        effectiveType === 'todo' &&
+        !effectiveCandidateActions.some((a) => a.type === 'create.todo')
+      ) {
+        effectiveCandidateActions = [
+          {
+            type: 'create.todo' as const,
+            payload: {
+              title: userText,
+              spaceId: null,
+            },
+          },
+          ...effectiveCandidateActions,
+        ];
+      } else if (
+        effectiveType === 'habit' &&
+        !effectiveCandidateActions.some((a) => a.type === 'create.habit')
+      ) {
+        effectiveCandidateActions = [
+          {
+            type: 'create.habit' as const,
+            payload: {
+              name: userText,
+              freq: 'daily' as const,
+              spaceId: null,
+            },
+          },
+          ...effectiveCandidateActions,
+        ];
+      } else if (
+        effectiveType === 'log' &&
+        normalized.canonicalSubtype !== 'list' && // Don't add create.note for lists (will use add.to.list)
+        !effectiveCandidateActions.some((a) => a.type === 'create.note')
+      ) {
+        effectiveCandidateActions = [
+          {
+            type: 'create.note' as const,
+            payload: {
+              text: userText,
+              subtype: 'everything_else' as any,
+              spaceId: null,
+            },
+          },
+          ...effectiveCandidateActions,
+        ];
+      }
+      mode = 'auto';
+    } else {
+      // CRITICAL: Respect canonicalIntent.allowAutoCreate for todos/habits
+      // If canonical says don't auto-create, remove those actions from candidateActions
+      if (!canonicalIntent.allowAutoCreate) {
+        if (canonicalIntent.type === 'todo') {
+          effectiveCandidateActions = effectiveCandidateActions.filter(
+            (a) => a.type !== 'create.todo',
+          );
+        } else if (canonicalIntent.type === 'habit') {
+          effectiveCandidateActions = effectiveCandidateActions.filter(
+            (a) => a.type !== 'create.habit',
+          );
+        }
+      }
+
+      // Fall back to old confidence-based logic for backward compatibility
+      const canonicalForceAuto =
+        canonicalIntent.allowAutoCreate &&
+        !canonicalIntent.suppressChips &&
+        !engineConfidenceBelowThreshold && // Don't force auto if engine gave low confidence
+        (canonicalIntent.type === 'todo' ||
+          canonicalIntent.type === 'habit' ||
+          canonicalIntent.type === 'log');
+
+      const shouldAuto =
+        !forceListAsk &&
+        !forceIdeaAsk &&
+        effectiveCandidateActions.length > 0 &&
+        (confidence > autoThreshold || preferHabitAuto || listStrong || canonicalForceAuto);
+
+      // CRITICAL: If engine gave very low confidence (<0.5), keep mode should be 'keep'
+      const engineConfidenceVeryLow = hasExplicitEngineConfidence && engineOutput.confidence < 0.5;
+
+      if (!hasConfidence || confidence < 0 || engineConfidenceVeryLow) {
+        mode = 'keep';
+      } else if (shouldAuto) {
+        mode = 'auto';
+      } else if (confidence >= midLower) {
+        mode = 'ask';
+      }
+
+      if (forceListAsk || forceIdeaAsk) {
+        mode = 'ask';
+      }
+
+      // CRITICAL: Respect canonicalIntent.mode for proto-tasks, social events, and ambiguous social plans
+      // If canonicalIntent explicitly sets mode='ask', override all other logic
+      if (canonicalIntent.mode === 'ask') {
+        mode = 'ask';
+        // For proto-tasks, simple social events, and ambiguous social plans, clear auto-create actions to force user decision
+        const needsClearActions =
+          canonicalIntent.chipDecision?.reason === 'proto-task' ||
+          canonicalIntent.chipDecision?.reason === 'simple-social-event' ||
+          canonicalIntent.chipDecision?.reason === 'ambiguous-social-plan';
+
+        if (needsClearActions) {
+          effectiveCandidateActions = [];
+        }
+      } else if (canonicalIntent.mode === 'auto') {
+        mode = 'auto';
+      }
+
+      // ADDITIONAL: Handle medium-confidence todos (0.55-0.8) with allowAutoCreate=false
+      // These should show chips (mode='ask') with no auto actions
+      const isMediumConfidenceTodo =
+        canonicalIntent.type === 'todo' &&
+        !canonicalIntent.allowAutoCreate &&
+        canonicalIntent.confidence >= 0.55 &&
+        canonicalIntent.confidence <= 0.8;
+
+      if (isMediumConfidenceTodo && canonicalIntent.mode !== 'auto') {
+        mode = 'ask';
+        effectiveCandidateActions = effectiveCandidateActions.filter(
+          (a) => a.type !== 'create.todo',
+        );
+      }
+
+      // Additional override for mid-confidence logs (reflection safety)
+      // BUT: Skip this if canonicalIntent already set mode='ask' (don't override ambiguous social plans)
+      if (
+        mode === 'ask' &&
+        canonicalIntent.type === 'log' &&
+        canonicalIntent.confidence >= 0.55 &&
+        !canonicalIntent.suppressChips &&
+        canonicalIntent.mode !== 'ask' // Don't override explicit mode='ask'
+      ) {
+        mode = 'auto';
+        // Add create.note action if not already present
+        if (!effectiveCandidateActions.some((a) => a.type === 'create.note')) {
+          effectiveCandidateActions.push({
+            type: 'create.note' as const,
+            payload: {
+              text: userText,
+              subtype: 'everything_else' as any,
+              spaceId: null,
+            },
+          });
+        }
+      }
     }
 
     const listActionLowRisk =
@@ -610,6 +810,8 @@ export async function cortexDecide(
         text: userText,
         probable,
         confidence: hasConfidence ? confidence : 0,
+        probableKind: canonicalIntent.probableKind,
+        chipDecision: canonicalIntent.chipDecision,
       }).map((c) => ({ ...c }));
       const heuristicChips: ChipSuggestion[] = [];
       if (listHeuristicApplied) {
@@ -693,12 +895,16 @@ export async function cortexDecide(
       : undefined;
 
     // Build unified Mind Drop decision for new pipeline
+    // Phase 11.8: Pass through AI confidence from intent detection (normalized to 0-1 scale)
+    // Pass canonicalIntent to ensure probableKind and needsClarification are correctly set
     const mindDropDecision = buildMindDropDecision(
       probable,
       confidence,
       mode,
       effectiveCanonicalSubtype,
       engineTags,
+      detected.aiConfidence, // Phase 11.8: AI confidence 0-1 scale
+      canonicalIntent, // Pass canonicalIntent for probableKind and needsClarification
     );
 
     const result: CortexResponse = {

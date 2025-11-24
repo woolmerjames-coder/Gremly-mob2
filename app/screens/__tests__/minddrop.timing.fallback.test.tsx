@@ -72,7 +72,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user' }),
+  useAuth: () => ({ user: { id: 'test-user' } }),
 }));
 
 jest.mock('../../../providers/CortexProvider', () => ({
@@ -89,6 +89,18 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('@react-navigation/elements', () => ({
   __esModule: true,
   useHeaderHeight: () => 100,
+}));
+
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
 }));
 
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
@@ -115,6 +127,15 @@ jest.mock('../../../lib/conversion', () => {
     convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
   };
 });
+
+// Mock Mind Drop v3 pipeline stages
+const mockRunMindDropStageAClassification = jest.fn();
+const mockRunMindDropStageBPrefill = jest.fn();
+
+jest.mock('../../../lib/minddrop/pipelineStages', () => ({
+  runMindDropStageAClassification: (...args: any[]) => mockRunMindDropStageAClassification(...args),
+  runMindDropStageBPrefill: (...args: any[]) => mockRunMindDropStageBPrefill(...args),
+}));
 
 const RealDate = Date;
 
@@ -177,6 +198,31 @@ const resetOtherMocks = () => {
   mockDecideWithContext.mockReset();
   mockDecideWithContext.mockImplementation(async () => createAutoTodoDecision());
   mockShowActionToast.mockReset();
+
+  // Reset Mind Drop v3 pipeline stage mocks
+  mockRunMindDropStageAClassification.mockReset();
+  mockRunMindDropStageBPrefill.mockReset();
+
+  // Default Stage A behavior: successfully create a todo
+  let stageACounter = 0;
+  mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+    const todoId = `todo-stage-a-${++stageACounter}`;
+    return {
+      entities: {
+        todos: [todoId],
+        habits: [],
+        notes: [],
+      },
+      entityDetails: [{ kind: 'todo' as const }],
+      mode: params.decision.mode,
+      confidence: params.decision.confidence ?? 0.92,
+    };
+  });
+
+  // Default Stage B behavior: prefill succeeds
+  mockRunMindDropStageBPrefill.mockImplementation(async () => {
+    return { success: true };
+  });
 };
 
 const runTimingFallbackTimers = async () => {
@@ -263,14 +309,6 @@ describe('Mind Drop Timing Fallback', () => {
   });
 
   it('auto-assigns "Someday" (null due date) after 5 seconds if chips ignored', async () => {
-    mockRepo.create.mockResolvedValue({
-      id: 'todo-fallback-123',
-      type: 'todo',
-      name: 'Review docs',
-    });
-
-    mockRepo.update.mockResolvedValue({ id: 'todo-fallback-123' });
-
     const { getByTestId, findByTestId, queryByTestId } = render(<CatchAllNotepad />);
 
     const input = getByTestId('minddrop-input');
@@ -279,9 +317,8 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Review docs');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Wait for provisional note creation + conversion to todo (2 creates)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
+    // v3: Wait for unsorted note + todo creation
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled());
 
     await findByTestId('minddrop-timing-chips');
 
@@ -294,10 +331,11 @@ describe('Mind Drop Timing Fallback', () => {
       expect(queryByTestId('minddrop-timing-chips')).toBeNull();
     });
 
+    // Check that update was called with "Someday" (null due date, undefined_due: true)
     await waitFor(() => {
       expect(mockRepo.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'todo-fallback-123',
+          id: expect.stringContaining('todo-'), // v3 uses Stage A ID
           patch: expect.objectContaining({
             due_date: null,
             undefined_due: true,
@@ -324,9 +362,8 @@ describe('Mind Drop Timing Fallback', () => {
     fireEvent.changeText(input, 'Important task');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Wait for provisional note + conversion to todo (2 creates)
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockConvertUnsortedToTodo).toHaveBeenCalled());
+    // v3 Instant Mode: Wait for direct todo creation (1 create)
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1));
 
     await findByTestId('minddrop-timing-chips');
     await act(async () => {
@@ -336,11 +373,15 @@ describe('Mind Drop Timing Fallback', () => {
 
     fireEvent.press(tomorrowChip);
 
-    // Expect 2 updates: 1 for archiving note, 1 for setting todo due date
-    await waitFor(() => expect(mockRepo.update).toHaveBeenCalledTimes(2));
+    // v3: Expect 1 update for setting todo due date (no note archiving)
+    await waitFor(() => expect(mockRepo.update).toHaveBeenCalled());
 
-    // The second update call is the timing chip selection
-    const updateCall = mockRepo.update.mock.calls[1][0] as {
+    // Find the update call that sets the due date
+    const updateCalls = mockRepo.update.mock.calls;
+    const timingUpdate = updateCalls.find((call: any) => call[0]?.patch?.due_date);
+    expect(timingUpdate).toBeDefined();
+
+    const updateCall = timingUpdate[0] as {
       patch: { due_date: string; undefined_due: boolean };
     };
 

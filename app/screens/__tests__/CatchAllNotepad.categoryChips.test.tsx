@@ -1,12 +1,17 @@
 /**
  * Test suite for low-confidence classification category chips
  * Verifies that category chip selection updates existing record instead of creating duplicates
+ *
+ * Note: Forces V2 (blocking) mode for predictable chip behavior testing.
  */
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
+
+// Force V2 mode (blocking pipeline)
+process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 
 type ButtonNode = { props: { accessibilityState?: { disabled?: boolean } } };
 
@@ -34,7 +39,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'test-user-123' }, userId: 'test-user-123' }),
+  useAuth: () => ({ user: { id: 'test-user-123' } }),
 }));
 
 jest.mock('@react-navigation/native', () => {

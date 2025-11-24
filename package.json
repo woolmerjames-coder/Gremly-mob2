@@ -28,6 +28,7 @@
     "db:types": "bash scripts/gen_db_types.sh",
     "db:drift": "bash scripts/drift_check.sh",
     "diag:supa": "bash scripts/generate_supabase_diagnostics.sh",
+    "analyze:drops": "tsx ./scripts/analyze-minddrop-logs.ts",
     "prepare": "husky"
   },
   "dependencies": {

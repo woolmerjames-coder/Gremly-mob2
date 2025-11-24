@@ -40,4 +40,6 @@ export interface DetectedIntent {
   // Phase 11.5: Multi-intent detection
   alternativeIntents?: AlternativeIntent[]; // Other valid interpretations
   isMultiIntent?: boolean; // Whether multiple intents should be created
+  // Phase 11.8: AI confidence scoring
+  aiConfidence?: number; // 0–100, AI's confidence in classification (optional)
 }

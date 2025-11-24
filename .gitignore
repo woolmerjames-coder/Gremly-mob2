@@ -49,6 +49,9 @@ _archive/
 .env
 .env.local
 
+# Mind Drop log analysis
+minddrop-test.log
+
 # Supabase
 supabase/.temp/
 supabase/.branches/

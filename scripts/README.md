@@ -79,6 +79,80 @@ Validates database schema conformance.
 
 ---
 
+## Mind Drop Log Analysis
+
+### `capture-logs.sh`
+
+**Purpose**: Capture Mind Drop classification logs for analysis.
+
+**Usage**:
+```bash
+./scripts/capture-logs.sh
+```
+
+**What it does**:
+1. Starts Expo with `--clear` flag
+2. Captures all output to `minddrop-test.log`
+3. Displays output in terminal (via `tee`)
+
+**Workflow**:
+1. Run `./scripts/capture-logs.sh`
+2. Open app and perform 10-20 Mind Drop entries
+3. Press **Ctrl+C** to stop capture
+4. Run `npm run analyze:drops` to analyze
+
+### `analyze-minddrop-logs.ts`
+
+**Purpose**: Parse Mind Drop logs and analyze classification behavior.
+
+**Usage**:
+```bash
+# Human-readable output
+npm run analyze:drops
+
+# JSON output for programmatic analysis
+npm run analyze:drops -- --json > results.json
+```
+
+**What it analyzes**:
+- Intent detection (rule-based + AI classification)
+- Canonical intent resolution
+- Final decision (mode + actions)
+- Title transformation (initial → AI → computed → final)
+- Tag extraction and filtering
+- Outcome (auto vs chips)
+
+**Example output**:
+```
+[1/3] Drop: minddrop-abc123-def456
+Text: "Just thinking about maybe starting a side hustle someday"
+
+🎯 Classification:
+  Rule:       reflective_thoughts (note)
+  AI:         log (confidence: 45)
+  Canonical:  log (confidence: 0.45)
+  Final:      note (mode: auto)
+
+📝 Titles:
+  Initial:    "Just thinking about maybe starting a side hustle someday"
+  AI:         null
+  Computed:   "Starting a side hustle someday"
+  Final:      "Starting a side hustle someday" (saved: true)
+
+📊 Outcome:
+  Mode:       auto-log
+  Chips:      NO ✓
+  Reasoning:  Default fallback to log (preserve user input)
+```
+
+**Use cases**:
+- Verify canonical intent chip suppression
+- Test title computation fallbacks
+- Analyze tag quality filtering
+- Debug classification mismatches
+
+---
+
 ## Best Practices
 
 1. **Always run `npm run ci:preflight` before pushing** to catch issues locally

@@ -176,7 +176,7 @@ describe('Mind Drop Tag Fallback', () => {
         body: 'Buy groceries',
         due_date: null,
         undefined_due: true,
-        tags: ['#buy', '#groceries'], // Extracted from text via buildFallbackTags
+        tags: ['#groceries'], // Extracted from text via buildFallbackTags ("buy" is filtered as a verb)
         tags_meta: unsortedNote.tags_meta,
         labels: ['todo'],
         archived: false,
@@ -197,7 +197,7 @@ describe('Mind Drop Tag Fallback', () => {
       // Verify todo was created with tags extracted from text (buildFallbackTags behavior)
       expect(mockRepo.create).toHaveBeenCalled();
       const createCall = (mockRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createCall.tags).toEqual(expect.arrayContaining(['#buy', '#groceries']));
+      expect(createCall.tags).toEqual(expect.arrayContaining(['#groceries'])); // "buy" filtered as verb
       expect(result.todo.tags).toBeTruthy();
     });
 

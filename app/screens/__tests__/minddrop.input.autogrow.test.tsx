@@ -12,6 +12,9 @@ jest.mock('../../../providers/RepoProvider', () => ({
     remove: jest.fn(),
     getById: jest.fn(),
     query: jest.fn(() => Promise.resolve([])),
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 

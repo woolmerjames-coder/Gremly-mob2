@@ -92,7 +92,12 @@ import {
   convertUnsortedToLog,
 } from '../../lib/conversion';
 import { backgroundPrefill } from '../../lib/minddrop/backgroundPrefill';
+import {
+  runMindDropStageAClassification,
+  runMindDropStageBPrefill,
+} from '../../lib/minddrop/pipelineStages';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
+import MascotIcon from '../../components/MascotIcon';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -116,17 +121,18 @@ const THINKING_MICROCOPY = [
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
 // Auto-grow constants: aligned for deterministic behavior
-const LINE_HEIGHT = 22; // Must match styles.input lineHeight
-const INPUT_VERTICAL_PADDING = 8; // paddingTop (4) + paddingBottom (4) from styles.input
-const MAX_LINES = 6;
-const START_HEIGHT = 100;
-const MIN_HEIGHT = 80;
-const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 22*6 + 8 + 8 = 148 (small safety buffer)
+const LINE_HEIGHT = 24; // Must match styles.input lineHeight (increased for better readability)
+const INPUT_VERTICAL_PADDING = 24; // paddingTop (12) + paddingBottom (12) from styles.input
+const MAX_LINES = 8;
+const START_HEIGHT = 140; // Show ~4-5 lines initially for a more spacious input area
+const MIN_HEIGHT = 120;
+const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
 
 export const INPUT_LINE_HEIGHT = LINE_HEIGHT;
 export { START_HEIGHT as START_HEIGHT, MIN_HEIGHT as MIN_HEIGHT, MAX_HEIGHT as MAX_HEIGHT };
 export const MAX_DYNAMIC_HEIGHT = MAX_HEIGHT; // Backwards compatibility for existing imports
 const MAX_INPUT_CHARACTERS = 2000;
+const PHOTO_TEXT_HINT = 'Add a few words so Gremly knows what this photo is about.';
 const SPACE = 8;
 const INPUT_PADDING_LEFT = 16;
 const INPUT_ICON_PADDING_RIGHT = 72;
@@ -142,6 +148,9 @@ const DUE_STRIP =
   String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
 const DUE_CONFIDENCE_FLOOR =
   Number.parseFloat(String(process.env.EXPO_PUBLIC_MINDDROP_DUE_CONFIDENCE ?? '0.84')) || 0.84;
+
+const MIND_DROP_V3_INSTANT =
+  String(process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT ?? 'off').toLowerCase() === 'on';
 
 function createSubmissionId(): string {
   try {
@@ -277,6 +286,7 @@ type MindDropInputProps = {
   heightWrapperStyle?: any;
   inputDynHeight: number;
   onCameraPress?: () => void;
+  photoHintText?: string;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -307,6 +317,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
     heightWrapperStyle,
     inputDynHeight,
     onCameraPress,
+    photoHintText,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -442,6 +453,11 @@ const MindDropInput = React.memo<MindDropInputProps>(
             </View>
           </View>
         ) : null}
+        {photoHintText ? (
+          <View style={{ marginTop: 4, paddingHorizontal: 16 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280' }}>{photoHintText}</Text>
+          </View>
+        ) : null}
       </Pressable>
     );
   },
@@ -501,6 +517,11 @@ export async function saveToUnsortedTray(
     sourceMessageId: validSourceMessageId ?? undefined,
     dropId: dropId ?? undefined,
     tags,
+    views: {
+      ai_pending: true, // Mark for background AI enrichment
+      ai_failed: false, // Initial state - no failure yet
+      minddrop_stage: 'pending', // Pipeline entry state
+    },
   };
 
   logMindDropDebug('provisional-create', {
@@ -698,6 +719,249 @@ type UnifiedDrop = {
   archived?: boolean; // Track archived status to filter out converted notes
   canonical_type?: string | null; // Canonical type from buildCanonicalFromMindDrop: 'todo', 'habit', 'log', 'journal'
   labels?: string[]; // Labels from backend: ['log'], ['habit'], ['todo'], ['catchall', 'needs_review'], etc.
+  views?: any; // For ai_pending, ai_failed, and other view flags
+};
+
+/**
+ * Visual state for Mind Drop items in Recent Drops list
+ * - 'pending': AI enrichment in progress (views.ai_pending = true)
+ * - 'failed': AI enrichment failed (views.ai_failed = true)
+ * - 'complete': AI enrichment complete or not needed
+ */
+type MindDropVisualState = 'pending' | 'failed' | 'complete';
+
+/**
+ * Get visual state for a Mind Drop item based on views flags
+ * Used only for Mind Drop / CatchAll notes to show processing status
+ */
+/**
+ * Get visual state for a Mind Drop item based on views flags
+ * Used only for Mind Drop / CatchAll notes to show processing status
+ */
+function getMindDropVisualState(entity: {
+  views?: any;
+  title?: string;
+  tags?: any[];
+}): MindDropVisualState {
+  const views = entity.views ?? {};
+
+  // Still processing (Phase 4 flag check)
+  if (views.ai_pending === true || views.minddrop_stage === 'pending') {
+    return 'pending';
+  }
+
+  // Explicitly failed (Phase 4 flag check)
+  if (views.ai_failed === true) {
+    return 'failed';
+  }
+
+  // Successfully prefilled (Phase 4 explicit success check)
+  if (views.minddrop_stage === 'prefilled' || views.minddrop_prefilled_v1 === true) {
+    return 'complete';
+  }
+
+  // Implicit failure: ai_pending is false, not prefilled, and no enrichment signals
+  // This catches cases where Stage B failed or never ran
+  if (views.ai_pending === false && views.minddrop_stage !== 'prefilled') {
+    const hasEnrichedTags = Array.isArray(entity.tags) && entity.tags.length > 0;
+    const hasCompactTitle = entity.title && entity.title.length > 0 && entity.title.length < 60;
+
+    // If no enrichment signals, treat as failed
+    if (!hasEnrichedTags && !hasCompactTitle) {
+      return 'failed';
+    }
+  }
+
+  // Default: complete (backward compatibility for entities without new flags)
+  return 'complete';
+}
+
+/**
+ * Pending skeleton component with shimmer animation
+ * Shows while AI enrichment is in progress
+ */
+/**
+ * Calm pending animation for MindDrop v3
+ * Simple fade with animated dots - no scaling, no pulsing, no transforms
+ */
+const PendingSkeleton: React.FC<{
+  styles: any;
+  c: any;
+}> = ({ styles, c }) => {
+  const [dots, setDots] = React.useState('');
+
+  // Gentle fade opacity - 0.5 to 0.9, 3 seconds per cycle
+  const [fadeOpacity] = React.useState(() => new Animated.Value(0.5));
+
+  // Animated dots: add one every 500ms, reset after 3
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => {
+    // Gentle fade: opacity 0.5 -> 0.9 -> 0.5 over 3s (no pulsing, no scaling)
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeOpacity, {
+          toValue: 0.9,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeOpacity, {
+          toValue: 0.5,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+  }, [fadeOpacity]);
+
+  return (
+    <View
+      testID="minddrop-pending-skeleton"
+      style={[
+        styles.recentCard,
+        {
+          height: 60, // Fixed height to prevent jumping
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: 'transparent', // No pulsing background
+        },
+      ]}
+    >
+      <Animated.Text
+        style={{
+          fontSize: 16, // Soft, not aggressive
+          fontWeight: '500',
+          textAlign: 'center',
+          color: '#6B7280', // Soft gray, not bold/colored
+          opacity: fadeOpacity,
+        }}
+      >
+        Organizing{dots}
+      </Animated.Text>
+    </View>
+  );
+};
+
+/**
+ * Animated wrapper for Mind Drop card that smoothly transitions
+ * from pending skeleton to final content when AI enrichment completes
+ */
+const AnimatedMindDropCard: React.FC<{
+  item: UnifiedDrop;
+  isPending: boolean;
+  effectiveKind: 'note' | 'todo' | 'habit';
+  displayKind: string;
+  showLegacyUnsortedBadge: boolean | undefined;
+  badgeStyleKey: string;
+  c: any;
+  styles: any;
+  mode: string;
+  handleEdit: (id: string, kind: UnifiedDrop['kind'], unsorted?: boolean) => void;
+  handleDelete: (id: string, kind: UnifiedDrop['kind']) => void;
+}> = ({
+  item,
+  isPending,
+  effectiveKind,
+  displayKind,
+  showLegacyUnsortedBadge,
+  badgeStyleKey,
+  c,
+  styles,
+  mode,
+  handleEdit,
+  handleDelete,
+}) => {
+  // Get full visual state
+  const visualState = getMindDropVisualState(item);
+
+  // If pending, show calm animation
+  if (visualState === 'pending') {
+    return <PendingSkeleton styles={styles} c={c} />;
+  }
+
+  // Otherwise show full content
+  const isFailed = visualState === 'failed';
+
+  return (
+    <View
+      key={`${item.kind}:${item.id}`}
+      testID={`minddrop-recent-${item.kind}-${item.id}`}
+      style={styles.recentCard}
+    >
+      {/* Top row: Title (left) + Due/Time (right) */}
+      <View style={styles.recentTopRow}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+          <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
+            {item.title || item.text || '—'}
+          </Text>
+          {effectiveKind === 'note' && (item as any)?.private === true && (
+            <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
+          )}
+        </View>
+
+        {/* Right side: Due date OR time ago */}
+        {effectiveKind === 'todo' ? (
+          <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentDueBadge}>
+            {formatDue(item.due_date)}
+          </Text>
+        ) : (
+          <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
+        )}
+      </View>
+
+      {/* Second row: Category, tags, and actions */}
+      <View style={styles.recentMetaRow}>
+        <View style={styles.recentMetaLeft}>
+          {/* Category pill */}
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>{displayKind}</Text>
+
+          {showLegacyUnsortedBadge ? (
+            <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>Unsorted</Text>
+          ) : null}
+
+          {/* Tags or status hint */}
+          {Array.isArray(item.tags) && item.tags.length > 0 ? (
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.recentTagsText}>
+              {getDisplayTagsForRecentDrop(item)
+                .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
+                .join('  ')}
+            </Text>
+          ) : isFailed ? (
+            <Text testID="minddrop-failed-hint" style={styles.subtleHint}>
+              Saved as-is
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Right side: Actions */}
+        <View style={styles.recentMetaRight}>
+          <Pressable
+            onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Edit"
+          >
+            <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
+          </Pressable>
+          <Pressable
+            onPress={() => handleDelete(item.id, item.kind)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Delete"
+          >
+            <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
 };
 
 const relativeTime = (iso: string) => {
@@ -797,6 +1061,14 @@ const RecentDrops: React.FC<{
   onEdited?: () => void;
   onDeleted?: () => void;
   onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
+  onAddPendingItem?: (
+    callback: (params: {
+      dropId: string;
+      text: string;
+      kind: 'todo' | 'habit' | 'note';
+      noteSubtype?: string;
+    }) => void,
+  ) => void;
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
@@ -805,23 +1077,130 @@ const RecentDrops: React.FC<{
   onEdited,
   onDeleted,
   onTodayCountChange,
+  onAddPendingItem,
   refreshSignal,
   initiallyOpen = true,
   eagerLoad = false,
 }) => {
   const repo = useRepo() as any;
   const { c, mode: themeMode } = useTheme();
+  const { userId } = useAuth();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
 
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
+  const [pendingItems, setPendingItems] = React.useState<UnifiedDrop[]>([]); // Optimistic items shown before DB creation
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
   const canonicalTypesOn = env.feature.canonicalTypes;
 
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
 
+  /**
+   * Helper to merge a DB record into the local items state
+   * Used when real-time updates arrive from Supabase
+   */
+  const mergeDbRecordIntoItems = React.useCallback(
+    (prev: UnifiedDrop[], record: any, kind: 'todo' | 'habit' | 'note'): UnifiedDrop[] => {
+      if (!record?.id) return prev;
+
+      return prev.map((item) => {
+        if (item.id !== record.id || item.kind !== kind) return item;
+
+        const views = (record as any).views ?? item.views ?? {};
+        const title = (record as any).title ?? (record as any).name ?? item.title;
+        const tags = Array.isArray((record as any).tags)
+          ? (record as any).tags.filter((t: unknown) => typeof t === 'string')
+          : (item.tags ?? []);
+
+        return {
+          ...item,
+          title,
+          tags,
+          views,
+          drop_id: (record as any).drop_id ?? item.drop_id ?? null,
+          labels: Array.isArray((record as any).labels)
+            ? (record as any).labels
+            : (item.labels ?? []),
+        };
+      });
+    },
+    [],
+  );
+
+  /**
+   * Add an optimistic pending item to the Recent Drops list
+   * This item appears immediately when user submits, before DB creation
+   */
+  const addPendingItem = React.useCallback(
+    (params: {
+      dropId: string;
+      text: string;
+      kind: 'todo' | 'habit' | 'note';
+      noteSubtype?: string;
+    }) => {
+      const { dropId, text, kind, noteSubtype } = params;
+      const tempId = `local-${dropId}`;
+      const shortTitle = text.substring(0, 60) + (text.length > 60 ? '…' : '');
+
+      const pendingItem: UnifiedDrop = {
+        id: tempId,
+        kind,
+        title: shortTitle,
+        text,
+        created_at: new Date().toISOString(),
+        drop_id: dropId,
+        noteSubtype: kind === 'note' ? noteSubtype : null,
+        tags: [],
+        labels: [],
+        views: {
+          ai_pending: true,
+          minddrop_stage: 'pending',
+        },
+      };
+
+      setPendingItems((prev) => [pendingItem, ...prev]);
+      console.debug('[MindDrop.Optimistic] Added pending item', { dropId, kind, tempId });
+    },
+    [],
+  );
+
+  // Expose addPendingItem to parent component
+  React.useEffect(() => {
+    if (onAddPendingItem) {
+      onAddPendingItem(addPendingItem);
+    }
+  }, [onAddPendingItem, addPendingItem]);
+
+  /**
+   * Remove pending item(s) by drop_id when real entity appears
+   * Called after Stage A creates the real entity in the database
+   */
+  const removePendingItem = React.useCallback((dropId: string) => {
+    setPendingItems((prev) => {
+      const filtered = prev.filter((item) => item.drop_id !== dropId);
+      if (filtered.length < prev.length) {
+        console.debug('[MindDrop.Optimistic] Removed pending item', { dropId });
+      }
+      return filtered;
+    });
+  }, []);
+
+  /**
+   * Load recent Mind Drops for the Catch-All / Recent Mind Drops list
+   *
+   * Mind Drop v3 Architecture:
+   * - Catch-All = "Raw + in-flight Mind Drops" (pending/classified stage)
+   * - Today/Habits/Logs = "Final destinations for converted drops" (prefilled stage)
+   *
+   * Filter Behavior:
+   * - v3: Shows only pending/in-flight notes (not fully processed canonical entities)
+   * - v2: Shows all Mind Drop items (notes, todos, habits) regardless of stage
+   *
+   * This prevents duplication: once a Mind Drop is converted to a canonical todo/habit,
+   * it appears only in Today/Habits/Logs, not in Catch-All.
+   */
   const load = React.useCallback(async () => {
     const isTest = process.env.JEST_WORKAROUND === '1';
     if (!isTest) setLoading(true);
@@ -875,14 +1254,20 @@ const RecentDrops: React.FC<{
       // - We filter out archived notes and dedupe by drop_id, keeping canonical items
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
-        .filter(
-          (n) =>
-            // Filter to Mind Drop items only
-            (n?.origin === 'catchall' ||
-              (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL))) &&
-            // Exclude archived notes (converted unsorted notes)
-            n?.archived !== true,
-        )
+        .filter((n) => {
+          // Filter to Mind Drop items only
+          const isMindDrop =
+            n?.origin === 'catchall' ||
+            (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL));
+
+          if (!isMindDrop) return false;
+
+          // Exclude archived notes (converted unsorted notes)
+          if (n?.archived === true) return false;
+
+          // Show all Mind Drop items until explicitly archived
+          return true;
+        })
         .map((n) => {
           const labels = Array.isArray(n?.labels) ? n.labels : [];
           const unsorted = labels.includes(UNSORTED_LABEL);
@@ -907,16 +1292,21 @@ const RecentDrops: React.FC<{
             archived: n?.archived === true,
             canonical_type: (n as any)?.canonical_type ?? null,
             labels: Array.isArray((n as any)?.labels) ? (n as any).labels : [],
+            views: (n as any)?.views ?? {},
           };
         });
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
-        .filter(
-          (t) =>
-            t?.origin === 'catchall' &&
-            // Exclude soft-deleted todos (completed_at is set)
-            !(t as any)?.completed_at,
-        )
+        .filter((t) => {
+          // Only include Mind Drop-origin todos
+          if (t?.origin !== 'catchall') return false;
+
+          // Exclude soft-deleted todos (completed_at is set)
+          if ((t as any)?.completed_at) return false;
+
+          // Show all Mind Drop todos until explicitly completed
+          return true;
+        })
         .map((t) => {
           const rawText = t.name || t.title || '';
           const { compact: derivedTitle } = deriveCompactTitle([t.title, t.name, rawText], {
@@ -933,16 +1323,21 @@ const RecentDrops: React.FC<{
             drop_id: (t as any)?.drop_id ?? null,
             canonical_type: (t as any)?.canonical_type ?? null,
             labels: Array.isArray((t as any)?.labels) ? (t as any).labels : [],
+            views: (t as any)?.views ?? {},
           };
         });
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
-        .filter(
-          (h) =>
-            h?.origin === 'catchall' &&
-            // Exclude soft-deleted habits (completed_at is set)
-            !(h as any)?.completed_at,
-        )
+        .filter((h) => {
+          // Only include Mind Drop-origin habits
+          if (h?.origin !== 'catchall') return false;
+
+          // Exclude soft-deleted habits (completed_at is set)
+          if ((h as any)?.completed_at) return false;
+
+          // Show all Mind Drop habits until explicitly completed
+          return true;
+        })
         .map((h) => {
           const rawText = h.name || '';
           const { compact: derivedTitle } = deriveCompactTitle([h.name, rawText], {
@@ -958,6 +1353,7 @@ const RecentDrops: React.FC<{
             drop_id: (h as any)?.drop_id ?? null,
             canonical_type: (h as any)?.canonical_type ?? null,
             labels: Array.isArray((h as any)?.labels) ? (h as any).labels : [],
+            views: (h as any)?.views ?? {},
           };
         });
 
@@ -1003,6 +1399,18 @@ const RecentDrops: React.FC<{
       // Combine deduplicated items with no-drop-id items
       unified = [...Array.from(dropIdMap.values()), ...noDropIdItems];
 
+      console.debug('[MindDrop.UI] Unified items after dedup', {
+        count: unified.length,
+        items: unified.map((i) => ({
+          id: i.id,
+          kind: i.kind,
+          title: i.title?.substring(0, 30),
+          drop_id: i.drop_id,
+          due_date: (i as any).due_date,
+          space_id: (i as any).space_id,
+        })),
+      });
+
       // Calculate today count before any filtering
       const todayItems = unified.filter((i) => {
         const ts = new Date(i.created_at).getTime();
@@ -1018,6 +1426,41 @@ const RecentDrops: React.FC<{
         .slice(0, 25); // keep snappy; scroll handles overflow
 
       setItems(unified);
+
+      // Log loaded items with their visual states for debugging
+      const visualStates = unified.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        drop_id: item.drop_id,
+        visualState: getMindDropVisualState(item),
+      }));
+      console.debug('[RecentDrops] Loaded items:', {
+        total: unified.length,
+        pending: visualStates.filter((s) => s.visualState === 'pending').length,
+        complete: visualStates.filter((s) => s.visualState === 'complete').length,
+        failed: visualStates.filter((s) => s.visualState === 'failed').length,
+      });
+
+      // Remove pending items that now have real counterparts (auto-cleanup)
+      {
+        const realDropIds = new Set(unified.map((item) => item.drop_id).filter(Boolean));
+        setPendingItems((prev) => {
+          if (prev.length === 0) return prev;
+          const filtered = prev.filter((p) => !realDropIds.has(p.drop_id));
+          console.debug('[RecentDrops] Auto-cleanup pendingItems', {
+            before: prev.length,
+            after: filtered.length,
+          });
+          if (filtered.length < prev.length) {
+            console.debug('[RecentDrops] Auto-cleanup removed pending items:', {
+              before: prev.length,
+              after: filtered.length,
+              removed: prev.length - filtered.length,
+            });
+          }
+          return filtered;
+        });
+      }
 
       // Notify parent of today count (for "X thoughts organized today" counter)
       // This ensures the counter always matches the actual number of items in Today section
@@ -1056,6 +1499,123 @@ const RecentDrops: React.FC<{
     });
     return unsub;
   }, [load]);
+
+  // Real-time subscription for Mind Drop items (Stage A/B enrichment)
+  useEffect(() => {
+    if (!userId) return;
+
+    console.debug('[RecentDrops] Setting up real-time subscriptions for userId:', userId);
+
+    // Subscribe to todos, habits, and notes for Mind Drop origin items
+    const todosChannel = supabase
+      .channel('minddrop-todos')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'todos',
+          filter: `owner_id=eq.${userId}`,
+        },
+        (payload) => {
+          const record = payload.new as any;
+          if (!record || record.origin !== 'catchall') return;
+
+          console.debug('[RecentDrops] Todos DB update:', {
+            event: payload.eventType,
+            id: record.id,
+            drop_id: record.drop_id,
+            views: record.views ?? null,
+          });
+
+          if (record.drop_id) {
+            removePendingItem(record.drop_id);
+          }
+
+          // Local merge so we don't rely solely on a refetch
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
+
+          // Safety: still perform a full reload to keep everything in sync
+          void load();
+        },
+      )
+      .subscribe();
+
+    const habitsChannel = supabase
+      .channel('minddrop-habits')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'habits',
+          filter: `owner_id=eq.${userId}`,
+        },
+        (payload) => {
+          const record = payload.new as any;
+          if (!record || record.origin !== 'catchall') return;
+
+          console.debug('[RecentDrops] Habits DB update:', {
+            event: payload.eventType,
+            id: record.id,
+            drop_id: record.drop_id,
+            views: record.views ?? null,
+          });
+
+          if (record.drop_id) {
+            removePendingItem(record.drop_id);
+          }
+
+          // Local merge so we don't rely solely on a refetch
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
+
+          // Safety: still perform a full reload to keep everything in sync
+          void load();
+        },
+      )
+      .subscribe();
+
+    const notesChannel = supabase
+      .channel('minddrop-notes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notes',
+          filter: `owner_id=eq.${userId}`,
+        },
+        (payload) => {
+          const record = payload.new as any;
+          if (!record || record.origin !== 'catchall') return;
+
+          console.debug('[RecentDrops] Notes DB update:', {
+            event: payload.eventType,
+            id: record.id,
+            drop_id: record.drop_id,
+            views: record.views ?? null,
+          });
+
+          if (record.drop_id) {
+            removePendingItem(record.drop_id);
+          }
+
+          // Local merge so we don't rely solely on a refetch
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
+
+          // Safety: still perform a full reload to keep everything in sync
+          void load();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      console.debug('[RecentDrops] Cleaning up real-time subscriptions');
+      void todosChannel.unsubscribe();
+      void habitsChannel.unsubscribe();
+      void notesChannel.unsubscribe();
+    };
+  }, [userId, load, removePendingItem, mergeDbRecordIntoItems]);
 
   const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
     try {
@@ -1115,30 +1675,6 @@ const RecentDrops: React.FC<{
     }
   };
 
-  const handleAddToTodo = useCallback(
-    (item: UnifiedDrop) => {
-      setItems((prev) =>
-        prev.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                optimisticKind: 'todo',
-                unsorted: false,
-              }
-            : entry,
-        ),
-      );
-
-      overlay.openCreate({
-        initialEntity: { type: 'todo', id: undefined, logSubtype: null },
-        initialText: item.text ? String(item.text) : null,
-      });
-
-      onEdited?.();
-    },
-    [overlay, onEdited],
-  );
-
   return (
     <View style={styles.recentRoot}>
       <View style={styles.recentHeaderRow}>
@@ -1179,7 +1715,7 @@ const RecentDrops: React.FC<{
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && pendingItems.length === 0 ? (
             <Text style={styles.recentEmpty}>
               {showOlder ? 'No drops yet.' : 'Ready when you are'}
             </Text>
@@ -1188,6 +1724,36 @@ const RecentDrops: React.FC<{
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
             >
+              {/* Pending items (optimistic UI) */}
+              {pendingItems.map((item) => {
+                const effectiveKind = item.kind;
+                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
+                const badgeStyleKey =
+                  effectiveKind === 'todo'
+                    ? 'badge_todo'
+                    : effectiveKind === 'habit'
+                      ? 'badge_habit'
+                      : 'badge_note';
+                const isPending = true; // Always pending for optimistic items
+
+                return (
+                  <AnimatedMindDropCard
+                    key={item.id}
+                    item={item}
+                    isPending={isPending}
+                    effectiveKind={effectiveKind}
+                    displayKind={displayKind}
+                    showLegacyUnsortedBadge={undefined}
+                    badgeStyleKey={badgeStyleKey}
+                    c={c}
+                    styles={styles}
+                    mode={themeMode}
+                    handleEdit={() => {}} // No-op for pending
+                    handleDelete={() => {}} // No-op for pending
+                  />
+                );
+              })}
+              {/* Real items from database */}
               {items.map((item) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
@@ -1200,100 +1766,25 @@ const RecentDrops: React.FC<{
                       ? 'badge_habit'
                       : 'badge_note';
 
+                // Get visual state for pending/failed/final rendering
+                const visualState = getMindDropVisualState(item);
+                const isPending = visualState === 'pending';
+
                 return (
-                  <View
+                  <AnimatedMindDropCard
                     key={`${item.kind}:${item.id}`}
-                    testID={`minddrop-recent-${item.kind}-${item.id}`}
-                    style={styles.recentCard}
-                  >
-                    {/* Top row: Title (left) + Due/Time (right) */}
-                    <View style={styles.recentTopRow}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                        <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
-                          {item.title || item.text || '—'}
-                        </Text>
-                        {effectiveKind === 'note' && (item as any)?.private === true && (
-                          <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
-                        )}
-                      </View>
-
-                      {/* Right side: Due date OR time ago */}
-                      {effectiveKind === 'todo' ? (
-                        <Text
-                          testID={`minddrop-recent-todo-due-${item.id}`}
-                          style={styles.recentDueBadge}
-                        >
-                          {formatDue(item.due_date)}
-                        </Text>
-                      ) : (
-                        <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-                      )}
-                    </View>
-
-                    {/* Second row: Category, tags, and actions */}
-                    <View style={styles.recentMetaRow}>
-                      {/* Left side: Category pill + tags */}
-                      <View style={styles.recentMetaLeft}>
-                        {/* Category pill */}
-                        <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-                          {displayKind}
-                        </Text>
-
-                        {showLegacyUnsortedBadge ? (
-                          <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>
-                            Unsorted
-                          </Text>
-                        ) : null}
-
-                        {/* Tags - single line with truncation */}
-                        {Array.isArray(item.tags) && item.tags.length > 0 ? (
-                          <Text
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                            style={styles.recentTagsText}
-                          >
-                            {getDisplayTagsForRecentDrop(item)
-                              .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
-                              .join('  ')}
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      {/* Right side: Actions */}
-                      <View style={styles.recentMetaRight}>
-                        <Pressable
-                          onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Edit"
-                        >
-                          <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDelete(item.id, item.kind)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Delete"
-                        >
-                          <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
-                        </Pressable>
-                      </View>
-                    </View>
-
-                    {/* Phase 5b: "Add to To-Dos" button for unsorted notes (if needed) */}
-                    {item.kind === 'note' && item.unsorted && !item.optimisticKind ? (
-                      <View style={styles.recentUnsortedActionRow}>
-                        <Pressable
-                          onPress={() => handleAddToTodo(item)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          style={styles.recentUnsortedAction}
-                        >
-                          <Text style={styles.recentUnsortedActionText}>Add to To-Dos</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
-                  </View>
+                    item={item}
+                    isPending={isPending}
+                    effectiveKind={effectiveKind}
+                    displayKind={displayKind}
+                    showLegacyUnsortedBadge={showLegacyUnsortedBadge}
+                    badgeStyleKey={badgeStyleKey}
+                    c={c}
+                    styles={styles}
+                    mode={themeMode}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                  />
                 );
               })}
             </ScrollView>
@@ -1571,7 +2062,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
   const [inputDynHeight, setInputDynHeight] = useState(START_HEIGHT);
-  const [inputScrollEnabled, setInputScrollEnabled] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
@@ -1582,6 +2072,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
+  const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
 
   // Auto-dismiss category chips after configured interval
@@ -1590,6 +2081,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const timeout = setTimeout(() => setCategoryChips([]), CHIPS_AUTO_DISMISS_MS);
     return () => clearTimeout(timeout);
   }, [categoryChips, CHIPS_AUTO_DISMISS_MS]);
+
+  // Auto-dismiss photo text nudge after 5 seconds
+  useEffect(() => {
+    if (!showPhotoTextNudge) return;
+    const timeout = setTimeout(() => setShowPhotoTextNudge(false), 5000);
+    return () => clearTimeout(timeout);
+  }, [showPhotoTextNudge]);
 
   // Auto-dismiss timing chips after configured interval
   useEffect(() => {
@@ -1608,9 +2106,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [timingChips, pendingTodoId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pulseScale = useRef(new Animated.Value(1)).current;
-  const submitScale = useRef(new Animated.Value(1)).current;
-  const microcopyOpacity = useRef(new Animated.Value(0)).current;
+  const [pulseScale] = useState(() => new Animated.Value(1));
+  const [submitScale] = useState(() => new Animated.Value(1));
+  const [microcopyOpacity] = useState(() => new Animated.Value(0));
   const hasTypedRef = useRef(false);
   const lastAppliedHeightRef = useRef(START_HEIGHT);
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -1624,6 +2122,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     inputFocusRef.current = focused;
   }, []);
 
+  // Compute photo hint text: show gentle prompt when photos exist but text is empty
+  const noteIsEmpty = note.trim().length === 0;
+  const requiresTextForPhotos = pendingPhotoUris.length > 0 && noteIsEmpty;
+  const photoHintText = requiresTextForPhotos ? PHOTO_TEXT_HINT : undefined;
+
   const handleInputContentSizeChange = useCallback(
     (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
       if (!hasTypedRef.current) return;
@@ -1633,10 +2136,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // Deterministic height calculation: clamp between START and MAX
       const target = Math.max(START_HEIGHT, Math.min(raw, MAX_HEIGHT));
-
-      // Enable scrolling only when content exceeds MAX_HEIGHT
-      const shouldScroll = raw > MAX_HEIGHT;
-      setInputScrollEnabled(shouldScroll);
 
       // Only update if change is significant (avoid jitter from sub-pixel changes)
       if (Math.abs(target - lastAppliedHeightRef.current) < 2) {
@@ -1652,12 +2151,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           raw,
           target,
           last: lastAppliedHeightRef.current,
-          shouldScroll,
           max: MAX_HEIGHT,
         });
       }
     },
-    [setInputDynHeight, setInputScrollEnabled],
+    [setInputDynHeight],
   );
 
   // Mind Drop P4: submit lifecycle & guardrails
@@ -1730,6 +2228,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
+
+  // Ref to hold the addPendingItem callback from RecentDrops component
+  const addPendingItemRef = useRef<
+    | ((params: {
+        dropId: string;
+        text: string;
+        kind: 'todo' | 'habit' | 'note';
+        noteSubtype?: string;
+      }) => void)
+    | null
+  >(null);
+
+  // Callback to receive addPendingItem from RecentDrops
+  const handleReceiveAddPendingItem = useCallback(
+    (
+      callback: (params: {
+        dropId: string;
+        text: string;
+        kind: 'todo' | 'habit' | 'note';
+        noteSubtype?: string;
+      }) => void,
+    ) => {
+      addPendingItemRef.current = callback;
+    },
+    [],
+  );
 
   // Callback to sync "X thoughts organized today" counter with actual Today items count
   const handleTodayCountChange = useCallback(
@@ -1995,7 +2519,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsThinking(false);
     setConfirmations([]);
     setInputDynHeight(START_HEIGHT);
-    setInputScrollEnabled(false);
     hasTypedRef.current = false;
     lastAppliedHeightRef.current = START_HEIGHT;
   }, []);
@@ -2203,8 +2726,40 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           suggestions: Array.isArray(decision.suggestions) ? decision.suggestions.length : 0,
         });
 
+        // Development-only logging for Mind Drop AI classification
+        if (__DEV__ && decision.mindDropDecision) {
+          const trimmedText =
+            cleanedText.length > 120 ? cleanedText.slice(0, 120) + '…' : cleanedText;
+          console.log(
+            `[MindDrop AI] type=${decision.mindDropDecision.probableKind} ai_confidence=${decision.mindDropDecision.aiConfidence ?? 'null'} text="${trimmedText}"`,
+          );
+        }
+
+        // Check canonical intent before forcing chips
+        // Only show chips when:
+        // 1. needsClarification is true (ambiguous intent)
+        // 2. OR no canonical decision available (fallback to heuristic)
+        const shouldSkipChips =
+          decision.mindDropDecision &&
+          decision.mindDropDecision.probableKind === 'log' &&
+          !decision.mindDropDecision.needsClarification;
+
+        if (__DEV__ && decision.mindDropDecision) {
+          console.log('[CanonicalIntent] Chip decision:', {
+            showChips: !shouldSkipChips,
+            reason: shouldSkipChips
+              ? 'confident-log'
+              : decision.mindDropDecision.needsClarification
+                ? 'ambiguous-intent'
+                : 'heuristic-narrative-detection',
+            probableKind: decision.mindDropDecision.probableKind,
+            needsClarification: decision.mindDropDecision.needsClarification,
+          });
+        }
+
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
-        if (classifyNarrative(cleanedText)) {
+        // SKIP this guard if canonical intent says this is a clear log
+        if (classifyNarrative(cleanedText) && !shouldSkipChips) {
           // Check if we already have an unsorted note for this drop_id
           const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 
@@ -2393,71 +2948,99 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             // Couldn't create unsorted note - skip auto-create
             console.warn('[MindDrop][AutoCreate] No unsorted note available, skipping auto-create');
           } else {
-            // Step 2: Convert unsorted note to target type based on decision
-            const createdIds = {
-              todos: [] as string[],
-              notes: [] as string[],
-              habits: [] as string[],
-            };
-            const counts = { todos: 0, notes: 0, habits: 0 };
-            const createdDetails: OrganizedDetail[] = [];
-            let firstTodoId: string | null = null;
-
             try {
+              const createdIds = {
+                todos: [] as string[],
+                habits: [] as string[],
+                notes: [] as string[],
+              };
+              const createdDetails: OrganizedDetail[] = [];
+              let firstTodoId: string | null = null;
               const firstAction = actions[0];
 
+              //Step 2A: Classification stage - create entities based on decision
               if (firstAction.type === 'create.todo') {
-                const due = firstAction.payload.due ?? parsedIso ?? null;
-                const { todo: createdTodo } = await convertUnsortedToTodo(repo, unsortedNoteId, {
-                  due,
+                // Use Stage A for todos
+                const stageAResult = await runMindDropStageAClassification({
+                  repo,
+                  text: trimmed,
+                  cleanedText,
+                  decision,
+                  dropId,
+                  sourceMessageId: validSourceMessageId ?? null,
+                  parsedDue: parsedIso,
+                  unsortedNoteId,
                 });
 
-                counts.todos += 1;
-                createdIds.todos.push(createdTodo.id);
-                createdDetails.push({ kind: 'todo' });
-                firstTodoId = createdTodo.id;
+                createdIds.todos = stageAResult.entities.todos;
+                createdDetails.push(...stageAResult.entityDetails);
+                firstTodoId = createdIds.todos[0] ?? null;
               } else if (firstAction.type === 'create.habit') {
-                const freqRaw = firstAction.payload.freq;
-                const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
-                const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedNoteId, {
-                  frequency,
+                // Use Stage A for habits
+                const stageAResult = await runMindDropStageAClassification({
+                  repo,
+                  text: trimmed,
+                  cleanedText,
+                  decision,
+                  dropId,
+                  sourceMessageId: validSourceMessageId ?? null,
+                  parsedDue: parsedIso,
+                  unsortedNoteId,
                 });
 
-                counts.habits += 1;
-                createdIds.habits.push(createdHabit.id);
-                createdDetails.push({ kind: 'habit' });
+                createdIds.habits = stageAResult.entities.habits;
+                createdDetails.push(...stageAResult.entityDetails);
               } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
-                // For notes/lists, update the existing unsorted note in place
+                // Handle notes inline (complex logic with UI dependencies)
                 const rawSubtype =
                   firstAction.type === 'add.to.list'
                     ? 'list'
-                    : (firstAction.payload.subtype ?? 'catchall');
+                    : (firstAction.payload.subtype ??
+                      decision.mindDropDecision?.logSubtype ??
+                      'everything_else');
+
                 const subtype =
                   rawSubtype === 'journal'
                     ? 'journal'
                     : rawSubtype === 'list'
                       ? 'list'
-                      : 'catchall';
-                const canonicalType = persistedToCanonical('note', subtype);
+                      : rawSubtype === 'idea'
+                        ? 'idea'
+                        : rawSubtype === 'reference'
+                          ? 'reference'
+                          : 'everything_else';
 
+                const canonicalType = persistedToCanonical('note', subtype);
                 const whyUpdate = appendLineageToWhyString('Auto-organizing via Mind Drop', {
                   originId: unsortedNoteId,
                   source: 'auto_classification',
                 });
 
-                // For list subtype, ensure #list tag is added
+                const existingNote = await repo.getById(unsortedNoteId);
+                const existingLabels = (existingNote as any)?.labels || [];
+
+                const updatedLabels = existingLabels.filter(
+                  (l: string) => l !== 'catchall' && l !== 'needs_review',
+                );
+                if (!updatedLabels.includes('log')) {
+                  updatedLabels.push('log');
+                }
+
                 const shouldAddListTag = subtype === 'list';
                 const updatePatch: any = {
                   subtype,
                   canonicalType,
-                  ai_placed: subtype !== 'catchall',
+                  ai_placed: true,
                   why_string: whyUpdate,
-                  views: { alsoShowIn: ['Hub:Catch-All'] },
+                  views: {
+                    alsoShowIn: ['Hub:Catch-All'],
+                    minddrop_stage: 'classified', // Mark classification complete
+                    ai_pending: false,
+                  },
+                  labels: updatedLabels,
                 };
 
-                // If it's a list, add the #list tag to the existing tags
                 if (shouldAddListTag) {
-                  const existingNote = await repo.getById(unsortedNoteId);
                   const existingTags = (existingNote as any)?.tags || [];
                   const hasListTag = existingTags.some(
                     (t: string) => t.toLowerCase().replace(/^[#@*]+/, '') === 'list',
@@ -2472,13 +3055,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   patch: updatePatch,
                 });
 
-                // Run background AI prefill for title + tags enrichment (like todos/habits)
-                void backgroundPrefill(updatedNote, cleanedText);
-
-                counts.notes += 1;
                 createdIds.notes.push(updatedNote.id);
                 createdDetails.push({ kind: 'note', noteSubtype: subtype });
               }
+
+              const counts = {
+                todos: createdIds.todos.length,
+                notes: createdIds.notes.length,
+                habits: createdIds.habits.length,
+              };
+
+              // Step 2B: Prefill stage - run AI enhancement for all created entities
+              runMindDropStageBPrefill({
+                repo,
+                entityIds: createdIds,
+                rawText: cleanedText,
+              })
+                .then(() => {
+                  // Ensure Recent Drops reflect enriched titles/tags once Stage B finishes
+                  // This is important even if Supabase Realtime is flaky.
+                  console.debug('[MindDrop.StageB.UI] Refreshing RecentDrops after StageB');
+                  triggerRecentRefresh();
+                })
+                .catch((error) => {
+                  // Non-fatal: the todo/note/habit still exists, just without enrichment
+                  console.warn('[MindDrop.StageB.UI] Prefill failed', error);
+                });
 
               // Show timing chips for auto-created todos
               if (
@@ -2562,7 +3164,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         }
 
-        if (decision.mode === 'ask' && chipSuggestions.length > 0) {
+        // AUTHORITATIVE: Show chips when decision.mode === 'ask'
+        if (decision.mode === 'ask') {
+          console.log('[MindDrop][Chips] mode=ask detected, showing category chips');
+
           // Check if we already have an unsorted note for this drop_id
           const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 
@@ -2613,6 +3218,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
                 const qualityFiltered = applyTagQualityFilter(fallbackTags);
                 const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
+
+                // Mode='ask' means user needs to pick category, so use 'Awaiting chip selection'
                 const id = await saveToUnsortedTray(repo as any, cleanedText, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
@@ -2647,14 +3254,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const savedUnsortedId = unsortedIdRef.current;
           const confidence = decision.confidence ?? 0;
 
-          // If low confidence or narrative, show category chips instead of suggestions
-          if ((confidence <= 0.85 || classifyNarrative(trimmed)) && savedUnsortedId) {
+          // ALWAYS show category chips when mode='ask' (removed confidence/narrative conditions)
+          if (savedUnsortedId) {
             setLowConfidenceUnsortedId(savedUnsortedId);
             setCategoryChips([
               { kind: 'todo', label: 'Add to To-Do List' },
               { kind: 'log', label: 'Just Save It' },
               { kind: 'habit', label: 'Start a Habit' },
             ]);
+            console.log('[MindDrop][Chips] Category chips set for mode=ask', {
+              unsortedId: savedUnsortedId,
+              confidence,
+            });
             setNote('');
             triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -2683,8 +3294,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             };
           }
 
-          // If we reach here, show suggestion chips (not category chips)
-          // This happens when confidence > 0.85 and not narrative
+          // Fallback if no unsorted ID (shouldn't normally happen)
+          console.warn('[MindDrop][Chips] mode=ask but no unsortedId available');
           setNote('');
           triggerRecentRefresh();
           pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -2723,9 +3334,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const qualityFiltered = applyTagQualityFilter(fallbackTags);
             const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
 
+            // Only use 'Awaiting chip selection' when mode='ask'
+            // For reflection logs (mode='auto'), use 'Captured via Mind Drop'
+            const whyString =
+              decision?.mode === 'ask' ? 'Awaiting chip selection' : 'Captured via Mind Drop';
+
             const id = await saveToUnsortedTray(repo as any, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
-              whyString: 'Awaiting chip selection',
+              whyString,
               tags: tagsForCreate ?? undefined,
               dropId,
             });
@@ -2819,6 +3435,238 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ensureSubmissionAndDropIds,
   ]);
 
+  /**
+   * Mind Drop AI Pipeline - Extracted for v3 instant submission support
+   *
+   * This function contains the AI-heavy logic that classifies user input and creates entities.
+   * In v2 (blocking), onSubmit awaits this before returning.
+   * In v3 (instant), onSubmit returns immediately after creating provisional note,
+   * then runs this pipeline in the background.
+   *
+   * Logic extracted from onSubmit starting at performSave() retry loop.
+   */
+  type MindDropPipelineParams = {
+    trimmed: string;
+    dropId: string;
+    validSourceMessageId: string | null | undefined;
+    textHash: string;
+  };
+
+  async function runMindDropPipeline(params: MindDropPipelineParams): Promise<{
+    success: boolean;
+    result: SaveResult | null;
+    error?: any;
+  }> {
+    const { trimmed, dropId, validSourceMessageId, textHash } = params;
+
+    try {
+      // We'll attempt performSave() up to 2 times total.
+      let attempt = 0;
+      const maxAttempts = 2;
+      let finalResult: SaveResult | null = null;
+      let lastError: any = null;
+
+      while (attempt < maxAttempts) {
+        attempt++;
+        try {
+          // Primary path: existing pipeline
+          // EXPECTED: returns { created: { todos: string[], notes: string[], habits: string[] } }
+          const r = await performSave();
+
+          // Treat an "empty create" result as a failure to trigger retry/fallback.
+          const createdTodos = r?.created?.todos?.length ?? 0;
+          const createdNotes = r?.created?.notes?.length ?? 0;
+          const createdHabits = r?.created?.habits?.length ?? 0;
+          const totalCreated = createdTodos + createdNotes + createdHabits;
+
+          // Ask mode is a success even with 0 items created (user will manually categorize)
+          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0 || r?.decisionMode === 'ask') {
+            finalResult = r;
+            break; // success
+          }
+
+          // No items created -> mark as failure and possibly retry
+          lastError = new Error('EmptySave');
+          if (attempt === 1) {
+            if (TOASTS_ON) {
+              showActionToast({ type: 'success', content: COPY.retrying });
+            }
+            // loop to attempt #2
+          } else {
+            // Second failure — stop retrying
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          if (attempt === 1) {
+            // First failure — show "retrying" toast and try again
+            if (TOASTS_ON) {
+              showActionToast({
+                type: 'success',
+                content: COPY.retrying,
+              });
+            }
+            // loop to attempt #2
+          } else {
+            // Second failure — stop retrying
+            break;
+          }
+        }
+      }
+
+      if (!finalResult) {
+        // Primary pipeline failed twice. Decide fallback by error type.
+        if (isNetworkError(lastError)) {
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          let offlineRetryId: string | undefined;
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            offlineRetryId = existingUnsortedId;
+            console.debug('[MindDrop][OfflineRetry] Reusing existing unsorted note for drop_id', {
+              dropId,
+              unsortedId: existingUnsortedId,
+            });
+          } else {
+            // Offline-ish path — save locally and reassure
+            offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
+              sourceMessageId: validSourceMessageId ?? undefined,
+              dropId,
+            });
+            if (offlineRetryId) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: offlineRetryId,
+                dropId,
+                mode: 'offline_retry',
+              });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, offlineRetryId);
+            }
+          }
+
+          resetState();
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedOfflineMsg,
+            });
+          }
+          // Optional haptic warning
+          try {
+            if (shouldUseHaptics()) void haptics.warning();
+          } catch (e) {
+            void e;
+          }
+          try {
+            AccessibilityInfo.announceForAccessibility?.(
+              'Saved offline. Will organize when connected.',
+            );
+          } catch (e) {
+            void e;
+          }
+        } else {
+          // Check if we already have an unsorted note for this drop_id
+          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
+
+          let unsortedFallbackId: string | undefined;
+          if (existingUnsortedId) {
+            // Reuse existing unsorted note for this drop_id
+            unsortedFallbackId = existingUnsortedId;
+            console.debug(
+              '[MindDrop][UnsortedFallback] Reusing existing unsorted note for drop_id',
+              {
+                dropId,
+                unsortedId: existingUnsortedId,
+              },
+            );
+          } else {
+            // Non-network error: save to Unsorted Tray for manual follow-up
+            unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
+              sourceMessageId: validSourceMessageId ?? undefined,
+              dropId,
+            });
+            if (unsortedFallbackId) {
+              logMetrics('minddrop_unsorted_created', {
+                noteId: unsortedFallbackId,
+                dropId,
+                mode: 'fallback_unsorted',
+              });
+              // Track this drop_id to prevent duplicates
+              unsortedNotesByDropIdRef.current.set(dropId, unsortedFallbackId);
+            }
+          }
+
+          resetState();
+          if (TOASTS_ON) {
+            showActionToast({
+              type: 'success',
+              content: COPY.savedUnsortedMsg,
+            });
+          }
+          // Optional haptic warning
+          try {
+            if (shouldUseHaptics()) void haptics.warning();
+          } catch (e) {
+            void e;
+          }
+          try {
+            AccessibilityInfo.announceForAccessibility?.('Saved to Unsorted Tray.');
+          } catch (e) {
+            void e;
+          }
+        }
+        // Nothing created (no Undo set)
+        pendingUndo.current = { todos: [], notes: [], habits: [] };
+        // Refresh recent drops list (counter updates via callback)
+        triggerRecentRefresh();
+        focusGreetingForA11y();
+
+        return { success: false, result: null, error: lastError };
+      }
+
+      // SUCCESS PATH — AI classification complete
+      // Mark all created entities as no longer ai_pending
+      try {
+        const allCreatedIds = [
+          ...(finalResult.created.todos ?? []),
+          ...(finalResult.created.notes ?? []),
+          ...(finalResult.created.habits ?? []),
+        ];
+
+        // Update views.ai_pending = false for all created entities
+        await Promise.allSettled(
+          allCreatedIds.map(async (entityId) => {
+            try {
+              const entity = await repo.getById(entityId);
+              if (!entity) return;
+
+              await repo.update({
+                id: entityId,
+                patch: {
+                  views: {
+                    ...(entity.views ?? {}),
+                    ai_pending: false,
+                  },
+                },
+              });
+            } catch (err) {
+              console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flag:', entityId, err);
+            }
+          }),
+        );
+      } catch (err) {
+        // Non-critical: log but don't fail the pipeline
+        console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flags:', err);
+      }
+
+      return { success: true, result: finalResult };
+    } catch (error) {
+      console.error('[MindDrop][Pipeline] Unexpected error:', error);
+      return { success: false, result: null, error };
+    }
+  }
+
   // COPILOT TASK: Ensure Mind Drop To-Do chip uses the RPC and does NOT leave duplicate unsorted entries.
   //
   // Context:
@@ -2910,8 +3758,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
-            // Phase 2E: Never auto-open overlay from Mind Drop
-            // User can open from Recent Drops or Today if needed
+            // Phase 2E / Mind Drop v3: Never auto-open overlay from Mind Drop
+            // Overlay should only open on deliberate user action (tap), not automatically
+            // when AI finishes classification or enrichment.
+            // User can open from Recent Drops or Today when ready.
             console.log(
               '[MindDrop][Debug][openOverlay] Skipping auto-open for todo (Phase 2E - no auto-open from Mind Drop)',
               {
@@ -2977,8 +3827,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               mode: 'ask',
             });
 
-            // Phase 2E: Never auto-open overlay from Mind Drop
-            // User can open from Recent Drops or Today if needed
+            // Phase 2E / Mind Drop v3: Never auto-open overlay from Mind Drop
+            // Overlay should only open on deliberate user action (tap), not automatically
+            // when AI finishes classification or enrichment.
+            // User can open from Recent Drops or Today when ready.
             console.log(
               '[MindDrop][Debug][openOverlay] Skipping auto-open for habit (Phase 2E - no auto-open from Mind Drop)',
               {
@@ -3020,7 +3872,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             setLowConfidenceUnsortedId(null);
             unsortedIdRef.current = null;
 
-            // Skip auto-opening overlay for logs (user doesn't need to edit immediately)
+            // Mind Drop v3: Skip auto-opening overlay for logs
+            // Overlay should only open on deliberate user action (tap), not automatically.
+            // User doesn't need to edit logs immediately after creation.
             console.log('[MindDrop][Debug][openOverlay] Skipping auto-open for log', {
               noteId: convertedLog.id,
               subtype: convertedLog.subtype,
@@ -3147,11 +4001,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         lastUnsortedIdRef.current = null;
       }
 
+      // Auto-dismiss photo text nudge when user starts typing
+      if (showPhotoTextNudge && nextValue.trim().length > 0) {
+        setShowPhotoTextNudge(false);
+      }
+
       setNote(nextValue);
       if (nextValue.length === 0) {
         hasTypedRef.current = false;
         setInputDynHeight(START_HEIGHT);
-        setInputScrollEnabled(false);
         lastAppliedHeightRef.current = START_HEIGHT;
         return;
       }
@@ -3169,9 +4027,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (fallbackHeight > lastAppliedHeightRef.current) {
         lastAppliedHeightRef.current = fallbackHeight;
         setInputDynHeight(fallbackHeight);
-
-        const shouldScroll = lines * LINE_HEIGHT + INPUT_VERTICAL_PADDING > MAX_HEIGHT;
-        setInputScrollEnabled(shouldScroll);
 
         if (__DEV__) {
           // eslint-disable-next-line no-console
@@ -3202,29 +4057,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const now = Date.now();
     const trimmed = note.trim();
 
-    // Photo Drop shortcut: if photos are present, skip AI and open overlay directly
-    if (pendingPhotoUris.length > 0) {
-      try {
-        overlay.openCreate({
-          initialEntity: { type: 'log', id: undefined, logSubtype: 'everything_else' },
-          initialText: trimmed || null,
-          initialLogPhotoUris: pendingPhotoUris,
-          spaceId: null,
-        });
-
-        // Clear local state
-        setNote('');
-        setPendingPhotoUris([]);
-        setIsSubmitting(false);
-        submitLockRef.current = false;
-        return;
-      } catch (error) {
-        console.error('[MindDrop] Photo drop failed:', error);
-        setIsSubmitting(false);
-        submitLockRef.current = false;
-        return;
-      }
-    }
+    // Photos with text now flow through the same pipeline as text-only submissions
+    // The photo text requirement guard (in handleSubmit) ensures trimmed.length > 0 when photos exist
+    // Photos will be attached to the created note via the normal pipeline flow
 
     if (!trimmed) {
       setIsSubmitting(false);
@@ -3343,167 +4178,72 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
-      // We’ll attempt performSave() up to 2 times total.
-      let attempt = 0;
-      const maxAttempts = 2;
-      let finalResult: any = null;
-      let lastError: any = null;
+      // Branch based on v2 (blocking) vs v3 (instant) mode
+      if (MIND_DROP_V3_INSTANT) {
+        // V3 INSTANT MODE: Fire-and-forget the AI pipeline
+        // The pipeline runs in the background; UI resets immediately
+        //
+        // Mind Drop v3 UX: Overlay ONLY opens on deliberate user action (tap card/chip),
+        // NOT automatically when AI finishes classification or prefill.
+        // This prevents interrupting the user's flow.
 
-      while (attempt < maxAttempts) {
-        attempt++;
-        try {
-          // Primary path: existing pipeline
-          // EXPECTED: returns { created: { todos: string[], notes: string[], habits: string[] } }
-          const r = await performSave();
+        // OPTIMISTIC UI: Add pending item immediately for instant feedback
+        // Use simple heuristic to predict kind (will be replaced when real entity appears)
+        const lowerText = trimmed.toLowerCase();
+        const seemsLikeTodo =
+          /\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
+          /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText);
+        const seemsLikeHabit = /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(
+          lowerText,
+        );
+        const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
 
-          // Treat an "empty create" result as a failure to trigger retry/fallback.
-          const createdTodos = r?.created?.todos?.length ?? 0;
-          const createdNotes = r?.created?.notes?.length ?? 0;
-          const createdHabits = r?.created?.habits?.length ?? 0;
-          const totalCreated = createdTodos + createdNotes + createdHabits;
+        addPendingItemRef.current?.({
+          dropId,
+          text: trimmed,
+          kind: probableKind,
+          noteSubtype: probableKind === 'note' ? 'everything_else' : undefined,
+        });
 
-          // Ask mode is a success even with 0 items created (user will manually categorize)
-          if (totalCreated > 0 || (r?.suggestions?.length ?? 0) > 0 || r?.decisionMode === 'ask') {
-            finalResult = r;
-            break; // success
-          }
+        void runMindDropPipeline({
+          trimmed,
+          dropId,
+          validSourceMessageId,
+          textHash,
+        });
 
-          // No items created -> mark as failure and possibly retry
-          lastError = new Error('EmptySave');
-          if (attempt === 1) {
-            if (TOASTS_ON) {
-              showActionToast({ type: 'success', content: COPY.retrying });
-            }
-            // loop to attempt #2
-          } else {
-            // Second failure — stop retrying
-            break;
-          }
-        } catch (err: any) {
-          lastError = err;
-          if (attempt === 1) {
-            // First failure — show “retrying” toast and try again
-            if (TOASTS_ON) {
-              showActionToast({
-                type: 'success',
-                content: COPY.retrying,
-              });
-            }
-            // loop to attempt #2
-          } else {
-            // Second failure — stop retrying
-            break;
-          }
-        }
+        // Immediately reset UI state
+        resetState();
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+        lastSubmittedTextRef.current = trimmed;
+
+        // Keep submission mutex behavior: prevent duplicate submissions for same text
+        setTimeout(() => {
+          submissionMutex.current.delete(textHash);
+        }, 2000);
+
+        // Return early - don't await the pipeline in v3 mode
+        return;
       }
 
+      // V2 BLOCKING MODE: Await the full pipeline before returning
+      const pipelineResult = await runMindDropPipeline({
+        trimmed,
+        dropId,
+        validSourceMessageId,
+        textHash,
+      });
+
+      if (!pipelineResult.success) {
+        // Pipeline handled failure (offline save or unsorted fallback)
+        // resetState, toasts, and triggerRecentRefresh already called in pipeline
+        return;
+      }
+
+      const finalResult = pipelineResult.result;
       if (!finalResult) {
-        // Primary pipeline failed twice. Decide fallback by error type.
-        if (isNetworkError(lastError)) {
-          // Check if we already have an unsorted note for this drop_id
-          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
-
-          let offlineRetryId: string | undefined;
-          if (existingUnsortedId) {
-            // Reuse existing unsorted note for this drop_id
-            offlineRetryId = existingUnsortedId;
-            console.debug('[MindDrop][OfflineRetry] Reusing existing unsorted note for drop_id', {
-              dropId,
-              unsortedId: existingUnsortedId,
-            });
-          } else {
-            // Offline-ish path — save locally and reassure
-            offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
-              sourceMessageId: validSourceMessageId,
-              dropId,
-            });
-            if (offlineRetryId) {
-              logMetrics('minddrop_unsorted_created', {
-                noteId: offlineRetryId,
-                dropId,
-                mode: 'offline_retry',
-              });
-              // Track this drop_id to prevent duplicates
-              unsortedNotesByDropIdRef.current.set(dropId, offlineRetryId);
-            }
-          }
-
-          resetState();
-          if (TOASTS_ON) {
-            showActionToast({
-              type: 'success',
-              content: COPY.savedOfflineMsg,
-            });
-          }
-          // Optional haptic warning
-          try {
-            if (shouldUseHaptics()) void haptics.warning();
-          } catch (e) {
-            void e;
-          }
-          try {
-            AccessibilityInfo.announceForAccessibility?.(
-              'Saved offline. Will organize when connected.',
-            );
-          } catch (e) {
-            void e;
-          }
-        } else {
-          // Check if we already have an unsorted note for this drop_id
-          const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
-
-          let unsortedFallbackId: string | undefined;
-          if (existingUnsortedId) {
-            // Reuse existing unsorted note for this drop_id
-            unsortedFallbackId = existingUnsortedId;
-            console.debug(
-              '[MindDrop][UnsortedFallback] Reusing existing unsorted note for drop_id',
-              {
-                dropId,
-                unsortedId: existingUnsortedId,
-              },
-            );
-          } else {
-            // Non-network error: save to Unsorted Tray for manual follow-up
-            unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
-              sourceMessageId: validSourceMessageId,
-              dropId,
-            });
-            if (unsortedFallbackId) {
-              logMetrics('minddrop_unsorted_created', {
-                noteId: unsortedFallbackId,
-                dropId,
-                mode: 'fallback_unsorted',
-              });
-              // Track this drop_id to prevent duplicates
-              unsortedNotesByDropIdRef.current.set(dropId, unsortedFallbackId);
-            }
-          }
-
-          resetState();
-          if (TOASTS_ON) {
-            showActionToast({
-              type: 'success',
-              content: COPY.savedUnsortedMsg,
-            });
-          }
-          // Optional haptic warning
-          try {
-            if (shouldUseHaptics()) void haptics.warning();
-          } catch (e) {
-            void e;
-          }
-          try {
-            AccessibilityInfo.announceForAccessibility?.('Saved to Unsorted Tray.');
-          } catch (e) {
-            void e;
-          }
-        }
-        // Nothing created (no Undo set)
-        pendingUndo.current = { todos: [], notes: [], habits: [] };
-        // Refresh recent drops list (counter updates via callback)
-        triggerRecentRefresh();
-        focusGreetingForA11y();
+        // Shouldn't reach here, but handle gracefully
         return;
       }
 
@@ -3644,6 +4384,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
+    // Guard: require text when photos are attached
+    const trimmed = note.trim();
+    if (pendingPhotoUris.length > 0 && trimmed.length === 0) {
+      setShowPhotoTextNudge(true);
+      return;
+    }
+
     const needsDelay = uiMode === 'guided';
 
     if (needsDelay) {
@@ -3723,7 +4470,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               onFocusChange={handleInputFocusChange}
               autoFocus
               onContentSizeChange={handleInputContentSizeChange}
-              scrollEnabled={inputScrollEnabled}
+              scrollEnabled
               showHud={false}
               iconContainerStyle={styles.inputIconCluster}
               iconButtonStyle={styles.inputIconButton}
@@ -3734,6 +4481,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               heightWrapperStyle={styles.inputHeightWrapper}
               inputDynHeight={inputDynHeight}
               onCameraPress={handleMindDropPhotoAction}
+              photoHintText={photoHintText}
             />
           </View>
           {pendingPhotoUris.length > 0 && (
@@ -3784,15 +4532,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               ) : null}
             </View>
           ) : null}
-          {categoryChips.length > 0 ? (
-            <MidConfidenceChips
-              variant="category"
-              categoryChips={categoryChips}
-              onDirectPick={handleCategoryChipPick}
-              prompt="What would you like to do?"
-              autoDismissMs={CHIPS_AUTO_DISMISS_MS}
-            />
-          ) : null}
+          {categoryChips.length > 0
+            ? (() => {
+                console.log('[MindDrop][UI] Rendering category chips', {
+                  chipsCount: categoryChips.length,
+                  chips: categoryChips.map((c) => c.kind),
+                });
+                return (
+                  <MidConfidenceChips
+                    variant="category"
+                    categoryChips={categoryChips}
+                    onDirectPick={handleCategoryChipPick}
+                    prompt="What would you like to do?"
+                    autoDismissMs={CHIPS_AUTO_DISMISS_MS}
+                  />
+                );
+              })()
+            : (() => {
+                console.log('[MindDrop][UI] No category chips to render');
+                return null;
+              })()}
           {timingChips.length > 0 ? (
             <MidConfidenceChips
               variant="timing"
@@ -3845,20 +4604,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 </View>
               </Animated.View>
             </Pressable>
-            <View style={styles.submitMicrocopyContainer} pointerEvents="none">
-              {isProcessing ? (
-                <AnimatedMicrocopyText
-                  style={[
-                    styles.submitMicrocopy,
-                    reduceMotion ? null : { opacity: microcopyOpacity },
-                  ]}
-                  accessibilityLiveRegion="polite"
-                >
-                  {THINKING_MICROCOPY[microcopyIndex]}
-                </AnimatedMicrocopyText>
-              ) : null}
-            </View>
           </View>
+          {showPhotoTextNudge && (
+            <View style={styles.photoTextNudge}>
+              <View style={styles.photoTextNudgeHeaderRow}>
+                <Icon name="Info" size="xs" color={c.mutedText} strokeWidth={1.6} />
+                <Text style={styles.photoTextNudgeTitle}>Add a quick note</Text>
+              </View>
+              <Text style={styles.photoTextNudgeBody}>
+                Gremly needs a few words so it can organize your photo.
+              </Text>
+            </View>
+          )}
           {statsVisible ? (
             <View style={styles.trustRow} testID="minddrop-trust">
               <Text style={styles.trustStyled} testID="minddrop-trust-text">
@@ -3880,6 +4637,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onEdited={noopCallback}
             onDeleted={noopCallback}
             onTodayCountChange={handleTodayCountChange}
+            onAddPendingItem={handleReceiveAddPendingItem}
             initiallyOpen={true}
           />
         </View>
@@ -3911,7 +4669,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleTodayCountChange,
     overlay,
     inputDynHeight,
-    inputScrollEnabled,
     handleBack,
     handleInfoOpen,
   ]);
@@ -4083,11 +4840,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       borderRadius: 16,
       paddingHorizontal: INPUT_PADDING_LEFT,
-      paddingVertical: 16,
+      paddingVertical: 12,
       backgroundColor: c.linenCream ?? '#F9F6F1',
       borderWidth: 1,
       borderColor: '#E0E0E0',
-      minHeight: 100,
+      minHeight: 140,
     },
     inputContainerFocused: {
       borderRadius: 16,
@@ -4102,7 +4859,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: '100%',
       color: c.charcoalInk,
       fontSize: 18,
-      lineHeight: 22,
+      lineHeight: 24,
       paddingRight: INPUT_ICON_PADDING_RIGHT,
       backgroundColor: 'transparent',
       borderWidth: 0,
@@ -4110,8 +4867,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       padding: 0,
       margin: 0,
-      paddingTop: 4,
-      paddingBottom: 4,
+      paddingTop: 12,
+      paddingBottom: 12,
     },
     inputFocused: {},
     inputHeightWrapper: {
@@ -4251,13 +5008,41 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'center',
     },
 
+    photoTextNudge: {
+      marginTop: space * 1.5,
+      marginBottom: space,
+      marginHorizontal: space * 2,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 16,
+      backgroundColor: c.linenCream,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(191,216,192,0.25)',
+    },
+    photoTextNudgeHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 4,
+      columnGap: 6,
+    },
+    photoTextNudgeTitle: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.text,
+    },
+    photoTextNudgeBody: {
+      fontSize: 13,
+      color: c.mutedText,
+      lineHeight: 18,
+    },
+
     submitButtonWrapper: {
       marginTop: space * 2,
       marginBottom: 0,
       width: '100%',
     },
     submitButtonWrapperNoStats: {
-      marginBottom: space * 2,
+      marginBottom: space,
     },
     submitPressable: {
       width: '100%',
@@ -4320,7 +5105,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     trustRow: {
-      marginTop: space * 3,
+      marginTop: space * 2,
+      marginBottom: space * 2,
       alignItems: 'center',
       minHeight: 20,
     },
@@ -4335,8 +5121,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     sectionDivider: {
       height: 1,
       backgroundColor: 'rgba(191,216,192,0.25)',
-      marginTop: space * 3,
-      marginBottom: space,
+      marginTop: space,
+      marginBottom: 6,
       marginHorizontal: space * 2,
       borderRadius: 999,
       alignSelf: 'stretch',
@@ -4347,7 +5133,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     // Phase 5A: recentRoot now fills scrollableSection container
     recentRoot: {
-      marginTop: 0,
+      marginTop: 20,
       flex: 1, // Takes full height of scrollableSection
     },
     recentHeaderRow: {
@@ -4403,7 +5189,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     // Phase 5A: recentList now takes remaining vertical space for scrolling
     recentList: {
-      marginTop: space,
+      marginTop: 4,
       flex: 1, // Takes remaining vertical space in scrollableSection
     },
     recentScrollContent: {
@@ -4509,28 +5295,59 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       flexShrink: 0,
     },
-    // Phase 5b: "Add to To-Dos" action for unsorted notes
-    recentUnsortedActionRow: {
-      marginTop: 8,
-      paddingTop: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: c.sageMist,
-    },
-    recentUnsortedAction: {
-      alignSelf: 'flex-start',
-    },
-    recentUnsortedActionText: {
-      color: c.mossGreen,
-      fontSize: 12,
-      textDecorationLine: 'underline',
-      fontFamily: 'Inter-Medium',
-    },
     recentEmpty: {
       color: c.mutedText,
       fontSize: 13,
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
       paddingVertical: 10,
+    },
+    // Skeleton styles for pending state
+    titleSkeletonContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      flex: 1,
+    },
+    titleSkeleton: {
+      height: 14,
+      flex: 1,
+      backgroundColor: c.sageTint,
+      borderRadius: 4,
+      opacity: 0.6,
+    },
+    timeSkeleton: {
+      height: 12,
+      width: 50,
+      backgroundColor: c.sageTint,
+      borderRadius: 4,
+      opacity: 0.6,
+    },
+    recentSkeletonLabel: {
+      marginLeft: 8,
+      fontSize: 13,
+      color: c.mutedText,
+    },
+    tagSkeletonRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      flex: 1,
+    },
+    tagSkeleton: {
+      height: 10,
+      width: 50,
+      backgroundColor: c.sageTint,
+      borderRadius: 6,
+      opacity: 0.6,
+    },
+    // Subtle hint for failed AI enrichment state
+    subtleHint: {
+      color: c.mutedText,
+      fontSize: 11,
+      fontFamily: 'Inter-Regular',
+      fontStyle: 'italic',
+      opacity: 0.7,
     },
     // Photo Drop styles
     photoStrip: {

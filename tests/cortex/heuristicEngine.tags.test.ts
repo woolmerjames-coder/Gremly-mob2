@@ -14,8 +14,9 @@ describe('HeuristicEngine tag generation', () => {
       aiPlaced: false,
     });
     expect(Array.isArray(result.tags)).toBe(true);
+    // CP-TAG-3: @mentions are lowercase, dates are compact format
     expect(result.tags).toEqual(
-      expect.arrayContaining(['@DrSmith', '*meeting', '#2025-03-03', '#marketing', '#launch']),
+      expect.arrayContaining(['@drsmith', '*meeting', '#20250303', '#marketing', '#launch']),
     );
   });
 

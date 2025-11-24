@@ -38,6 +38,11 @@ jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
+jest.mock('../../../providers/AuthProvider', () => ({
+  __esModule: true,
+  useAuth: () => ({ user: { id: 'test-user' } }),
+}));
+
 jest.mock('../../../providers/ThemeProvider', () => ({
   useTheme: () => ({
     c: {

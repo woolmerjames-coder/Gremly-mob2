@@ -37,6 +37,14 @@ export type BuildChipsInput = {
   text: string;
   probable: 'todo' | 'habit' | 'log' | 'unknown';
   confidence: number;
+  /** Probable kind from canonical intent (may differ from 'probable' which comes from AI) */
+  probableKind?: 'todo' | 'habit' | 'log' | 'none';
+  /** Chip decision from canonical intent */
+  chipDecision?: {
+    showChips: boolean;
+    needsClarification: boolean;
+    reason?: string;
+  };
 };
 
 const canonicalTypesEnabled = Boolean(env.feature?.canonicalTypes);
@@ -91,6 +99,11 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
   const t = input.text.trim();
   if (!t) return [];
 
+  // If chipDecision explicitly says don't show chips, return empty
+  if (input.chipDecision && !input.chipDecision.showChips) {
+    return [];
+  }
+
   const chips: ChipSuggestion[] = [];
   const canonicalTypesOn = canonicalTypesEnabled;
 
@@ -104,7 +117,20 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
 
   const containsChecklist = hasChecklist(t);
   const conversionsEnabled = Boolean(env.feature?.canonicalConversions);
-  if (input.probable === 'todo' || input.probable === 'unknown' || isAction) {
+
+  // Use probableKind from canonical intent if available, otherwise fall back to probable from AI
+  const effectiveProbableKind = input.probableKind ?? input.probable;
+  const chipReason = input.chipDecision?.reason;
+
+  // Helper: Check if this is a proto-task or simple social event
+  const isProtoTaskOrSocial = chipReason === 'proto-task' || chipReason === 'simple-social-event';
+
+  // RULE: Probable todo (proto-tasks, social events)
+  // If probableKind === "todo" and no strong habit signal, show only To-Do and Log
+  if (effectiveProbableKind === 'todo' || isProtoTaskOrSocial) {
+    const showHabit = isHabitText && !isProtoTaskOrSocial && !hasDate;
+
+    // Always show To-Do chip for probable todos
     const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
     const due = todoFields.due ?? null;
     chips.push({
@@ -117,9 +143,37 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
         due_date: due,
       },
     });
+
+    // Show Habit only if there's a strong habit signal AND not proto-task/social event
+    if (showHabit) {
+      const habitFields = buildHabitFields(t);
+      const freq: 'daily' | 'weekly' | 'monthly' =
+        habitFields.freq === 'weekly'
+          ? 'weekly'
+          : habitFields.freq === 'custom'
+            ? 'monthly'
+            : 'daily';
+      chips.push({
+        type: 'create.habit',
+        label: LABELS.habit,
+        payload: { name: habitFields.name, freq },
+      });
+    }
+
+    // Always show Log chip as alternative
+    chips.push({
+      type: 'create.note',
+      label: LABELS.log,
+      payload: { title: t, body: t, subtype: 'journal' },
+    });
+
+    return deduplicateChips(chips, t, effectiveProbableKind);
   }
 
-  if ((input.probable === 'habit' || isHabitText) && !hasDate) {
+  // RULE: Probable habit
+  // If probableKind === "habit" OR strong habit signal, show Habit + Log (+ To-Do if clear todo signal)
+  if (effectiveProbableKind === 'habit' || (isHabitText && !hasDate)) {
+    // Always show Habit chip
     const habitFields = buildHabitFields(t);
     const freq: 'daily' | 'weekly' | 'monthly' =
       habitFields.freq === 'weekly'
@@ -132,10 +186,64 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
       label: LABELS.habit,
       payload: { name: habitFields.name, freq },
     });
+
+    // Show To-Do only if there's a clear action signal
+    if (isAction || hasDate) {
+      const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
+      const due = todoFields.due ?? null;
+      chips.push({
+        type: 'create.todo',
+        label: LABELS.todo,
+        payload: {
+          name: todoFields.title,
+          undefined_due: !due,
+          due,
+          due_date: due,
+        },
+      });
+    }
+
+    // Always show Log as alternative
+    chips.push({
+      type: 'create.note',
+      label: LABELS.log,
+      payload: { title: t, body: t, subtype: 'journal' },
+    });
+
+    return deduplicateChips(chips, t, effectiveProbableKind);
   }
 
+  // RULE: Probable log with proto-task/social event flavor
+  // If probableKind === "log" but isProtoTaskOrSocial, show To-Do + Log (no Habit)
+  if (effectiveProbableKind === 'log' && isProtoTaskOrSocial) {
+    const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
+    const due = todoFields.due ?? null;
+    chips.push({
+      type: 'create.todo',
+      label: LABELS.todo,
+      payload: {
+        name: todoFields.title,
+        undefined_due: !due,
+        due,
+        due_date: due,
+      },
+    });
+
+    chips.push({
+      type: 'create.note',
+      label: LABELS.log,
+      payload: { title: t, body: t, subtype: 'journal' },
+    });
+
+    return deduplicateChips(chips, t, effectiveProbableKind);
+  }
+
+  // SPECIAL CASE: List heuristic triggered
   if (listAnalysis.looksLikeList) {
-    const lines = t.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = t
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     const heading = lines[0] ?? t;
     const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
     const due = todoFields.due ?? null;
@@ -159,8 +267,11 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
       },
       reason: 'list-heuristic',
     });
+
+    return deduplicateChips(chips, t, effectiveProbableKind);
   }
 
+  // SPECIAL CASE: Idea heuristic triggered
   if (ideaAnalysis.looksLikeIdea) {
     const ideaNoteLabel = canonicalTypesOn ? 'Save as idea' : 'Save as note (idea)';
     const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
@@ -184,38 +295,61 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
       },
       reason: 'idea-heuristic',
     });
+
+    return deduplicateChips(chips, t, effectiveProbableKind);
   }
 
-  if ((isListLike && !listAnalysis.looksLikeList) || input.probable === 'log') {
-    const subtype: 'list' | 'journal' = isListLike && !listAnalysis.looksLikeList ? 'list' : 'journal';
-    chips.push({
-      type: 'create.note',
-      label: subtype === 'list' ? LABELS.list : LABELS.log,
-      payload: { title: t, body: t, subtype },
-    });
-  }
+  // DEFAULT FALLBACK: Show To-Do + Log (no Habit)
+  // This handles unknown/ambiguous cases
+  const todoFields = buildTodoFields(t, undefined, { inferDueFromText: true });
+  const due = todoFields.due ?? null;
+  chips.push({
+    type: 'create.todo',
+    label: LABELS.todo,
+    payload: {
+      name: todoFields.title,
+      undefined_due: !due,
+      due,
+      due_date: due,
+    },
+  });
 
-  if (ALWAYS_LOG_FALLBACK && !chips.some((chip) => chip.type === 'create.note')) {
-    chips.push({
-      type: 'create.note',
-      label: LABELS.log,
-      payload: { title: t, body: t, subtype: 'journal' },
-    });
-  }
+  chips.push({
+    type: 'create.note',
+    label: LABELS.log,
+    payload: { title: t, body: t, subtype: 'journal' },
+  });
 
-  const seen = new Set<string>();
+  return deduplicateChips(chips, t, effectiveProbableKind);
+}
+
+/**
+ * Deduplicate chips by type and label, and add conversion chip if applicable
+ */
+function deduplicateChips(
+  chips: ChipSuggestion[],
+  text: string = '',
+  probableKind?: string,
+): ChipSuggestion[] {
+  const conversionsEnabled = Boolean(env.feature?.canonicalConversions);
+  const containsChecklist = hasChecklist(text);
+  const isListLike = looksListText(text) || analyzeListShape(text).looksLikeList;
+
+  // Add conversion chip for logs with checklists or list-like content
   if (
     conversionsEnabled &&
-    (input.probable === 'log' || isListLike || containsChecklist) &&
+    (probableKind === 'log' || isListLike || containsChecklist) &&
     !chips.some((chip) => chip.type === 'convert.log-list-to-todo')
   ) {
-    const convertLabel = env.feature.canonicalTypes ? 'Convert to to-do' : 'Convert to task';
+    const convertLabel = env.feature?.canonicalTypes ? 'Convert to to-do' : 'Convert to task';
     chips.push({
       type: 'convert.log-list-to-todo',
       label: convertLabel,
       payload: { noteId: null, preserveState: true },
     });
   }
+
+  const seen = new Set<string>();
   return chips.filter((chip) => {
     const key = `${chip.type}:${chip.label}`;
     if (seen.has(key)) return false;

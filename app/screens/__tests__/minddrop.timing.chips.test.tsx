@@ -81,6 +81,18 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100,
 }));
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
 jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
   useUnifiedOverlayController: () => ({ close: jest.fn() }),
 }));
@@ -105,6 +117,15 @@ jest.mock('../../../lib/conversion', () => {
     convertUnsortedToLog: (...args: any[]) => mockConvertUnsortedToLog(...args),
   };
 });
+
+// Mock the Mind Drop v3 pipeline stages
+const mockRunMindDropStageAClassification = jest.fn();
+const mockRunMindDropStageBPrefill = jest.fn();
+
+jest.mock('../../../lib/minddrop/pipelineStages', () => ({
+  runMindDropStageAClassification: (...args: any[]) => mockRunMindDropStageAClassification(...args),
+  runMindDropStageBPrefill: (...args: any[]) => mockRunMindDropStageBPrefill(...args),
+}));
 
 let CatchAllNotepad: React.ComponentType;
 
@@ -167,12 +188,45 @@ const resetRepo = () => {
     id: `todo-${++repoCreateCounter}`,
     ...payload,
   }));
+
+  // Add logging to see what's being created
+  mockRepo.create.mockImplementation(async (payload: Record<string, unknown>) => {
+    console.log('[MOCK] repo.create called with:', JSON.stringify(payload, null, 2));
+    return {
+      id: `todo-${++repoCreateCounter}`,
+      ...payload,
+    };
+  });
 };
 
 const resetOtherMocks = () => {
   mockDecideWithContext.mockReset();
   mockDecideWithContext.mockImplementation(async () => createAutoTodoDecision());
   mockShowActionToast.mockReset();
+
+  // Reset Mind Drop v3 pipeline stage mocks
+  mockRunMindDropStageAClassification.mockReset();
+  mockRunMindDropStageBPrefill.mockReset();
+
+  // Default Stage A behavior: successfully create a todo
+  mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+    const todoId = `todo-stage-a-${++repoCreateCounter}`;
+    return {
+      entities: {
+        todos: [todoId],
+        habits: [],
+        notes: [],
+      },
+      entityDetails: [{ kind: 'todo' as const }],
+      mode: params.decision.mode,
+      confidence: params.decision.confidence ?? 0.92,
+    };
+  });
+
+  // Default Stage B behavior: prefill succeeds
+  mockRunMindDropStageBPrefill.mockImplementation(async () => {
+    return { success: true };
+  });
 };
 
 describe('Mind Drop Timing Chips', () => {
@@ -283,9 +337,9 @@ describe('Mind Drop Timing Chips', () => {
     fireEvent.changeText(input, 'Call dentist');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Wait for provisional note + conversion
+    // v3 Instant Mode: Wait for direct todo creation (1 create)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(2); // note + todo
+      expect(mockRepo.create).toHaveBeenCalledTimes(1);
     });
 
     const todayChip = await findByTestId('minddrop-timing-today', {}, { timeout: 3000 });
@@ -293,12 +347,13 @@ describe('Mind Drop Timing Chips', () => {
     fireEvent.press(todayChip);
 
     await waitFor(() => {
-      // Expect 2 updates: 1 for archiving note, 1 for setting todo due date
-      expect(mockRepo.update).toHaveBeenCalledTimes(2);
+      // v3: Expect 1 update for setting todo due date (no note archiving)
+      expect(mockRepo.update).toHaveBeenCalled();
     });
 
-    // The second update call is the timing chip selection
-    const updateCall = mockRepo.update.mock.calls[1][0];
+    // Find the update call that sets the due date
+    const updateCalls = mockRepo.update.mock.calls;
+    const updateCall = updateCalls.find((call: any) => call[0]?.patch?.due_date)?.[0];
     expect(updateCall.patch.due_date).toBeDefined();
     expect(updateCall.patch.undefined_due).toBe(false);
 

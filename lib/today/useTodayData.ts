@@ -268,6 +268,16 @@ function orderTodos(todos: EnrichedTodo[]): EnrichedTodo[] {
 
 /**
  * Hook to fetch and enrich Today screen data with ordering, capping, and event sync
+ * 
+ * Mind Drop v3 Integration:
+ * - Today shows CANONICAL entities (todos/habits from all sources)
+ * - Includes Mind Drop-created items that have reached 'prefilled' stage
+ * - Does NOT show raw Mind Drop notes (those stay in Catch-All until converted)
+ * 
+ * Data Source:
+ * - repo.listDueToday() returns all todos with due_date = today (regardless of origin)
+ * - This means Mind Drop-created todos appear here once they have a due_date
+ * - No duplication: Catch-All filters out canonical entities for v3
  */
 export function useTodayData() {
   const isTestLight = process.env.JEST_TODAY_LIGHT === '1';

@@ -16,6 +16,14 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import type { Note, Habit, Todo } from '../lib/types';
 
+// Mock AuthProvider
+jest.mock('../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user' },
+    userId: undefined, // IMPORTANT: Disable Supabase subscriptions in tests
+  }),
+}));
+
 // Mock repo
 const mockNotesList = jest.fn();
 const mockTodosList = jest.fn();

@@ -160,6 +160,8 @@ function sanitizeTags(rawTags: RawClassification['tags']): string[] {
       continue;
     }
 
+    // CP-TAG-3: normalizeTag handles @, *, and # tags as first-class citizens
+    // @tags are normalized with lowercase and hyphens (e.g., "@Mom" → "@mom", "@Sarah Jones" → "@sarah-jones")
     const { tag } = normalizeTag(trimmed);
     if (!tag) continue;
 
@@ -180,6 +182,7 @@ function sanitizeTags(rawTags: RawClassification['tags']): string[] {
     topics.push(tag);
   }
 
+  // CP-TAG-3: Final normalization preserves @mentions, *type tags, and #topics
   return filterAndNormalizeTags([...mentions, ...(chosenType ? [chosenType] : []), ...topics]);
 }
 

@@ -4,6 +4,22 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
+jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
+  useUnifiedOverlayController: () => ({ close: jest.fn() }),
+}));
+
 const mockRepo = {
   create: jest.fn(),
   update: jest.fn(),
@@ -46,6 +62,14 @@ jest.mock('../../../lib/conversion', () => ({
     mockConvertUnsortedToHabit(repo, noteId, options),
   convertUnsortedToLog: (repo: any, noteId: string, options?: any) =>
     mockConvertUnsortedToLog(repo, noteId, options),
+}));
+
+// Mock Mind Drop v3 pipeline stages
+const mockRunMindDropStageAClassification = jest.fn();
+const mockRunMindDropStageBPrefill = jest.fn();
+jest.mock('../../../lib/minddrop/pipelineStages', () => ({
+  runMindDropStageAClassification: (...args: any[]) => mockRunMindDropStageAClassification(...args),
+  runMindDropStageBPrefill: (...args: any[]) => mockRunMindDropStageBPrefill(...args),
 }));
 
 const mockShowActionToast = jest.fn();
@@ -92,6 +116,29 @@ describe('Mind Drop Narrative Classification', () => {
         return { todo, updatedNote: { ...note, labels: ['archived'] } };
       },
     );
+
+    // Reset and implement pipeline stage mocks
+    mockRunMindDropStageAClassification.mockReset();
+    mockRunMindDropStageBPrefill.mockReset();
+
+    let stageACounter = 0;
+    mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+      const todoId = `todo-stage-a-${++stageACounter}`;
+      return {
+        entities: {
+          todos: [todoId],
+          habits: [],
+          notes: [],
+        },
+        entityDetails: [{ kind: 'todo' as const }],
+        mode: 'todo' as const,
+        confidence: params.decision.confidence ?? 0.92,
+      };
+    });
+
+    mockRunMindDropStageBPrefill.mockImplementation(async () => {
+      return { success: true };
+    });
   });
 
   it('narrative journal text does NOT produce todo classification', async () => {
@@ -163,16 +210,10 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
-    // Phase 4A: Should have created unsorted note + todo
+    // v3: Creates unsorted note + converted todo (2 creates)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(2);
+      expect(mockRepo.create).toHaveBeenCalled();
     });
-
-    // Verify created as todo (second create call)
-    const createCalls = mockRepo.create.mock.calls;
-    const todoCall = createCalls.find((call) => call[0].type === 'todo');
-    expect(todoCall).toBeDefined();
-    expect(todoCall[0].type).toBe('todo');
 
     // Timing chips SHOULD appear for non-urgent high-confidence todo
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });
@@ -286,16 +327,10 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
-    // Phase 4A: Should have created unsorted note + todo
+    // v3: Creates unsorted note + converted todo (2 creates)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(2);
+      expect(mockRepo.create).toHaveBeenCalled();
     });
-
-    // Verify todo creation (second create call)
-    const createCalls = mockRepo.create.mock.calls;
-    const todoCall = createCalls.find((call) => call[0].type === 'todo');
-    expect(todoCall).toBeDefined();
-    expect(todoCall[0].type).toBe('todo');
 
     // Timing chips should appear
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });

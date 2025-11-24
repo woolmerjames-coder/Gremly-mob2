@@ -43,7 +43,7 @@ jest.mock('../providers/CortexProvider', () => {
 
 // Mock Auth
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({ user: { id: 'user-1' } }),
 }));
 
 // Mock Repo
@@ -79,6 +79,9 @@ jest.mock('../providers/RepoProvider', () => ({
     listLinkedTags: jest.fn(),
     listPeople: jest.fn(),
     listLinkedPeople: jest.fn(),
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 

@@ -26,9 +26,12 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100, // Mock header height
 }));
 
-// Mock Auth
+// Mock Auth - userId undefined to prevent Supabase subscription code paths
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ userId: 'user-polish' }),
+  useAuth: () => ({
+    user: { id: 'user-polish' },
+    // userId undefined prevents CatchAllNotepad subscription effects from running
+  }),
 }));
 
 // Repo mock (overridable per-test)
@@ -55,6 +58,9 @@ jest.mock('../providers/RepoProvider', () => ({
     remove: mockRemove,
     writeEvent: mockWriteEvent,
     notes: { list: mockNotesList },
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 

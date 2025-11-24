@@ -99,18 +99,17 @@ export const INTENT_RULES: IntentRule[] = [
   // ═══════════════════════════════════════════════════════════════
   // PRIORITY 10-19: EXPLICIT OPT-OUTS
   // User explicitly doesn't want action
+  // NOTE: Reflective thoughts like "just thinking about X" should NOT be opt-outs
   // ═══════════════════════════════════════════════════════════════
   {
     priority: 10,
     name: 'opt_out_explicit',
     test: (text) => {
       const patterns = [
-        /\b(just thinking|just thought|just wondering|just chatting)\b/i,
         /\b(never mind|nevermind)\b/i,
         /\b(forget it|ignore that)\b/i,
         /\b(not really|not now|later maybe)\b/i,
         /\bmaybe\b.*\blater\b/i, // "Maybe I could do this later"
-        /^just\b/i, // "Just thinking about..."
         /\b(don't|dont) save\b/i, // "Don't save that"
         /\bno need\b/i, // "No need to save"
         /\bcancel that\b/i, // "Cancel that"
@@ -118,10 +117,15 @@ export const INTENT_RULES: IntentRule[] = [
         /^maybe\?*$/i, // "Maybe?" by itself
         /^not sure\b(?!\s+about\s+(what|whether|if))/i, // "Not sure" but NOT "Not sure about what/whether/if" (those are ambiguous)
       ];
+
+      // REMOVED: /\b(just thinking|just thought|just wondering|just chatting)\b/i
+      // REMOVED: /^just\b/i
+      // These are reflective thoughts that should be captured as logs, not ignored
+
       return patterns.some((pattern) => pattern.test(text));
     },
     classification: {
-      kind: 'none', // Changed back to 'none' to match meta-comments test
+      kind: 'none',
       confidence: 0,
       flags: {
         suppressChips: true,
@@ -174,8 +178,49 @@ export const INTENT_RULES: IntentRule[] = [
   // User is pondering/uncertain - could want reflection OR advice
   // Needs to come BEFORE commands/todos (20+) to catch uncertainty
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 13: REFLECTIVE THOUGHTS / VAGUE PLANS
+  // User is expressing reflective thoughts, vague plans, or "someday" ideas
+  // These should be captured as logs, NOT ignored
+  // Must come BEFORE ambiguous_reflection to catch "just thinking" patterns
+  // ═══════════════════════════════════════════════════════════════
   {
-    priority: 12,
+    priority: 13,
+    name: 'reflective_thoughts',
+    test: (text) => {
+      const reflectivePatterns = [
+        /^just thinking (about|of)\b/i, // "Just thinking about starting a side hustle"
+        /^just thought\b/i, // "Just thought I might..."
+        /\b(just wondering|just considering)\b/i,
+        /\b(maybe|might|could|someday|one day) (i|we) (should|could|want|need)\b/i,
+        /\bthinking about (maybe|possibly|potentially|someday)\b/i,
+        /\b(vague plan|someday want to|might want to)\b/i,
+        /\b(considering|contemplating) (a|an|the|maybe)\b/i,
+      ];
+
+      // Don't match if it's a meta-comment about the app
+      const isMetaComment =
+        /\b(how does this work|what does this do|why did you|this app|doesn't make sense|that's wrong)\b/i.test(
+          text,
+        );
+
+      // Don't match explicit opt-outs (handled by priority 10)
+      const isOptOut = /\b(never mind|forget it|don't save|cancel that)\b/i.test(text);
+
+      return (
+        !isMetaComment && !isOptOut && reflectivePatterns.some((pattern) => pattern.test(text))
+      );
+    },
+    classification: {
+      kind: 'note', // Classify as note/log to capture the thought
+      confidence: 0.6,
+      flags: {
+        requiresAction: false,
+      },
+    },
+  },
+
+  {
+    priority: 14,
     name: 'ambiguous_reflection_seeking_advice',
     test: (text) => {
       // Patterns that could be either reflection OR seeking advice

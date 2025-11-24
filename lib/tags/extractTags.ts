@@ -1,8 +1,10 @@
 /**
  * Tag Extraction v3 (Gremly-Tuned)
  *
- * Extracts 3-6 high-quality topic tags from user text.
+ * Extracts 3-6 high-quality tags from user text.
  * Follows strict rules for meaningful nouns only.
+ *
+ * CP-TAG-2: Now extracts @person and @place tags alongside topic tags
  *
  * Compatible with:
  * - normalizeToTagKey
@@ -12,7 +14,8 @@
  * - Habit tag filters
  * - Journal emotion prioritization
  *
- * Output: array of lowercase slug strings (e.g. ["meditation", "dentist", "oak-street"])
+ * Output: array of tags with @ prefix for people/places, plain slugs for topics
+ * Examples: ["@jeff", "@gym", "meditation", "dentist", "dinner"]
  */
 
 /**
@@ -539,7 +542,7 @@ const ALLOWED_EMOTIONS = new Set([
 /**
  * Location prepositions that signal a place follows
  */
-const LOCATION_PREPS = new Set(['at', 'to', 'in', 'on', 'near', 'by', 'from']);
+const LOCATION_PREPS = new Set(['at', 'to', 'in', 'on', 'near', 'by', 'from', 'around']);
 
 /**
  * Activity nouns that are allowed even though they're gerunds
@@ -580,9 +583,11 @@ const ACTIVITY_NOUNS = new Set([
 /**
  * Extract 3-6 high-quality tags from raw text
  *
+ * CP-TAG-2: Now includes @person and @place tags alongside topic tags
+ *
  * @param rawText - User's input text
  * @param subtype - Optional context hint ('journal', 'list', 'idea', 'catchall')
- * @returns Array of lowercase slug strings
+ * @returns Array of tags: @person, @place, and topic slugs (e.g., ["@jeff", "@gym", "dinner"])
  */
 export function extractMeaningfulTags(rawText: string, subtype?: string): string[] {
   if (!rawText?.trim()) return [];
@@ -593,11 +598,13 @@ export function extractMeaningfulTags(rawText: string, subtype?: string): string
   const tags: string[] = [];
   const foundEmotions: string[] = [];
 
-  // Step 1: Extract people (names - capitalized words)
+  // Step 1: Extract people (names - capitalized words + family/role names)
+  // CP-TAG-2: Returns @-prefixed tags (max 2)
   const people = extractPeople(text);
   tags.push(...people);
 
   // Step 2: Extract places (capitalized words after location prepositions)
+  // CP-TAG-2: Returns @-prefixed tags (max 2)
   const places = extractPlaces(text, people);
   tags.push(...places);
 
@@ -621,12 +628,25 @@ export function extractMeaningfulTags(rawText: string, subtype?: string): string
 
 /**
  * Extract people names from text
- * Returns lowercase slugs (e.g. ["sarah", "dr-smith"])
+ * CP-TAG-2: Returns @-prefixed tags (e.g. ["@sarah", "@dr-smith", "@mom"])
  */
 function extractPeople(text: string): string[] {
   const people: string[] = [];
   const tokens = text.split(/\s+/);
   const capitalizedRegex = /^[A-Z][a-z]{2,}$/;
+
+  // CP-TAG-2: Family and role names that count as people even if lowercase
+  const familyRoleNames = new Set([
+    'mum',
+    'mom',
+    'dad',
+    'grandma',
+    'grandpa',
+    'granddad',
+    'grandad',
+    'boss',
+    'manager',
+  ]);
 
   // Skip excluded names
   const excludedNames = new Set([
@@ -662,9 +682,17 @@ function extractPeople(text: string): string[] {
   for (let i = 0; i < tokens.length && people.length < 2; i++) {
     const token = tokens[i].replace(/[^A-Za-z]/g, '');
     if (!token || excludedNames.has(token)) continue;
-    if (!capitalizedRegex.test(token)) continue;
 
     const tokenLower = token.toLowerCase();
+
+    // CP-TAG-2: Check for family/role names (e.g., "mom", "boss") even if lowercase
+    if (familyRoleNames.has(tokenLower)) {
+      people.push(`@${toTagSlug(tokenLower)}`);
+      continue;
+    }
+
+    // Must be capitalized for proper names
+    if (!capitalizedRegex.test(token)) continue;
 
     // Don't extract excluded words as people, even if capitalized
     if (isExcludedWord(tokenLower)) continue;
@@ -672,7 +700,7 @@ function extractPeople(text: string): string[] {
     // Check for "Dr. Smith" pattern
     const prevToken = i > 0 ? tokens[i - 1] : '';
     if (prevToken.match(/^Dr\.?$/i)) {
-      people.push(toTagSlug(`dr-${tokenLower}`));
+      people.push(`@${toTagSlug(`dr-${tokenLower}`)}`);
       continue;
     }
 
@@ -681,15 +709,16 @@ function extractPeople(text: string): string[] {
     if (nextToken && capitalizedRegex.test(nextToken)) {
       const nextLower = nextToken.toLowerCase();
       if (!isExcludedWord(nextLower)) {
-        people.push(toTagSlug(`${tokenLower}-${nextLower}`));
+        people.push(`@${toTagSlug(`${tokenLower}-${nextLower}`)}`);
         i++; // Skip next token
         continue;
       }
     }
 
     // Single name (common: Mom, Dad, Sarah, etc.)
+    // CP-TAG-2: Minimum length 3 for capitalized names (was already >= 3)
     if (token.length >= 3) {
-      people.push(toTagSlug(tokenLower));
+      people.push(`@${toTagSlug(tokenLower)}`);
     }
   }
 
@@ -698,14 +727,15 @@ function extractPeople(text: string): string[] {
 
 /**
  * Extract places from text
- * Returns lowercase slugs (e.g. ["oak-street", "gym", "office"])
+ * CP-TAG-2: Returns @-prefixed tags (e.g. ["@oak-street", "@gym", "@london"])
  */
 function extractPlaces(text: string, excludePeople: string[]): string[] {
   const places: string[] = [];
   const tokens = text.split(/\s+/);
   const capitalizedRegex = /^[A-Z][a-z]{2,}$/;
 
-  const peopleSet = new Set(excludePeople);
+  // CP-TAG-2: excludePeople now contains @-prefixed tags, need to strip @ for comparison
+  const peopleSet = new Set(excludePeople.map((p) => p.replace(/^@/, '')));
 
   for (let i = 1; i < tokens.length && places.length < 2; i++) {
     const token = tokens[i].replace(/[^A-Za-z]/g, '');
@@ -721,13 +751,13 @@ function extractPlaces(text: string, excludePeople: string[]): string[] {
       // After location preposition, accept lowercase words (like "gym") or capitalized
       const nextToken = tokens[i + 1]?.replace(/[^A-Za-z]/g, '') ?? '';
       if (nextToken && capitalizedRegex.test(nextToken)) {
-        // Multi-word place: "Oak Street"
-        places.push(toTagSlug(`${tokenLower}-${nextToken.toLowerCase()}`));
+        // Multi-word place: "Oak Street" → @oak-street
+        places.push(`@${toTagSlug(`${tokenLower}-${nextToken.toLowerCase()}`)}`);
         i++; // Skip next token
         continue;
       } else if (token.length >= 3 && !isExcludedWord(tokenLower)) {
         // Single place word (must not be an excluded word like "know")
-        places.push(toTagSlug(tokenLower));
+        places.push(`@${toTagSlug(tokenLower)}`);
         continue;
       }
     }
@@ -736,14 +766,14 @@ function extractPlaces(text: string, excludePeople: string[]): string[] {
     if (capitalizedRegex.test(token)) {
       const nextToken = tokens[i + 1]?.replace(/[^A-Za-z]/g, '') ?? '';
       if (nextToken && capitalizedRegex.test(nextToken)) {
-        places.push(toTagSlug(`${tokenLower}-${nextToken.toLowerCase()}`));
+        places.push(`@${toTagSlug(`${tokenLower}-${nextToken.toLowerCase()}`)}`);
         i++; // Skip next token
         continue;
       }
 
-      // Standalone capitalized word (4+ chars) likely a place
+      // Standalone capitalized word (4+ chars) likely a place (e.g., "London", "Starbucks")
       if (token.length >= 4) {
-        places.push(toTagSlug(tokenLower));
+        places.push(`@${toTagSlug(tokenLower)}`);
       }
     }
   }
@@ -764,8 +794,11 @@ function extractTopics(
   const topics: string[] = [];
   const usedWords = new Set<string>(); // Track words used in multi-word tags
 
-  // Create a set of already-extracted words (from people/places) to avoid duplicates
-  const alreadyExtracted = new Set<string>([...people, ...places]);
+  // CP-TAG-2: Create a set of already-extracted words (from people/places) to avoid duplicates
+  // Strip @ prefix since people/places now have @ prefix but we're comparing against raw words
+  const alreadyExtracted = new Set<string>(
+    [...people, ...places].map((tag) => tag.replace(/^@/, '')),
+  );
 
   // For lists, check for common list items
   if (subtype === 'list' || lowerText.match(/[-*•]\s/)) {

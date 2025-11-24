@@ -11,6 +11,8 @@ import { CortexProvider } from '../providers/CortexProvider';
 import { RepoProvider } from '../providers/RepoProvider';
 import { AuthProvider } from '../providers/AuthProvider';
 
+// Note: Supabase client mock is in jest-setup.ts globally
+
 // Mock Cortex engine
 const mockClassify = jest.fn();
 jest.mock('../providers/CortexProvider', () => {
@@ -40,9 +42,8 @@ jest.mock('../providers/RepoProvider', () => {
 
 // Mock auth
 jest.mock('../providers/AuthProvider', () => {
-  const actual = jest.requireActual('../providers/AuthProvider');
   return {
-    ...actual,
+    AuthProvider: ({ children }: { children: React.ReactNode }) => children,
     useAuth: () => ({
       user: { id: 'test-user-1', email: 'test@example.com' },
       signIn: jest.fn(),

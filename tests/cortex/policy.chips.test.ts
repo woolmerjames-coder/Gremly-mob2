@@ -79,8 +79,8 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
       });
 
       expect(chips.find((chip) => chip.type === 'create.note')).toMatchObject({
-        label: 'Save as list',
-        payload: { subtype: 'list' },
+        label: 'Save as log', // V3: list → log
+        payload: { subtype: 'journal' }, // V3: list → journal
       });
     });
 
@@ -91,7 +91,9 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
         confidence: 0.4,
       });
 
-      const listNote = chips.find((chip) => chip.type === 'create.note' && chip.label === 'Save as list');
+      const listNote = chips.find(
+        (chip) => chip.type === 'create.note' && chip.label === 'Save as list',
+      );
       expect(listNote).toMatchObject({ reason: 'list-heuristic', payload: { subtype: 'list' } });
 
       const checklist = chips.find(
@@ -141,7 +143,7 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
       });
       const labels = chips.map((c) => c.label).join('|');
       expect(labels).toMatch(/Create todo/);
-      expect(labels).toMatch(/Save as list/);
+      expect(labels).toMatch(/Save as log/); // V3: list → log
     });
 
     it('offers habit chip when cadence present', () => {
@@ -235,7 +237,7 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
         confidence: 0.65,
       });
       const labels = chips.map((c) => c.label);
-      expect(labels).toContain('Save as list');
+      expect(labels).toContain('Save as log'); // V3: list → log
     });
 
     it('surfaces idea heuristic chips for brainstorm phrasing', () => {
@@ -245,10 +247,14 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
         confidence: 0.55,
       });
 
-      const ideaNote = chips.find((chip) => chip.type === 'create.note' && chip.label === 'Save as idea');
+      const ideaNote = chips.find(
+        (chip) => chip.type === 'create.note' && chip.label === 'Save as idea',
+      );
       expect(ideaNote).toMatchObject({ reason: 'idea-heuristic', payload: { subtype: 'idea' } });
 
-      const ideaTodo = chips.find((chip) => chip.type === 'create.todo' && chip.label === 'Create To-do');
+      const ideaTodo = chips.find(
+        (chip) => chip.type === 'create.todo' && chip.label === 'Create To-do',
+      );
       expect(ideaTodo).toBeTruthy();
       if (ideaTodo && ideaTodo.type === 'create.todo') {
         expect(ideaTodo.reason).toBe('idea-heuristic');
@@ -288,7 +294,7 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
         confidence: 0.6,
       });
       const labels = chips.map((c) => c.label);
-      expect(labels).toContain('Save as list');
+      expect(labels).toContain('Save as log'); // V3: list → log
     });
   });
 });

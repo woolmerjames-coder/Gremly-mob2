@@ -163,12 +163,12 @@ describe('Phase 1C: Aggressive Tag Filtering', () => {
 
     it('strips @ prefix before validation', () => {
       const result = filterAndNormalizeTags(['@Alice', '@Bob', '@Charlie']);
-      expect(result).toEqual(['@Alice', '@Bob', '@Charlie']);
+      expect(result).toEqual(['@alice', '@bob', '@charlie']); // Normalized to lowercase
     });
 
     it('handles mixed prefix formats', () => {
       const result = filterAndNormalizeTags(['#project', '@Dave', '*journal', 'wellness']);
-      expect(result).toContain('@Dave');
+      expect(result).toContain('@dave'); // Normalized to lowercase
       expect(result).toContain('*journal');
       expect(result).toContain('#project');
       expect(result).toContain('#wellness');

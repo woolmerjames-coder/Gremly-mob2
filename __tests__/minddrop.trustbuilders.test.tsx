@@ -24,9 +24,12 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100, // Mock header height
 }));
 
-// Mock Auth
+// Mock Auth - userId undefined to prevent Supabase subscription code paths
 jest.mock('../providers/AuthProvider', () => ({
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    // userId undefined prevents CatchAllNotepad subscription effects from running
+  }),
 }));
 
 // Test-time setup - use real timers since we're testing static content, not cycling
@@ -73,6 +76,9 @@ jest.mock('../providers/RepoProvider', () => ({
     notes: { list: mockNotesList },
     todos: { list: mockTodosList },
     habits: { list: mockHabitsList },
+    // Pipeline idempotency check methods
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
   }),
 }));
 

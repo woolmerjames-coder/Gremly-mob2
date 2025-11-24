@@ -1,7 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Animated, AccessibilityInfo, StyleSheet } from 'react-native';
-import CatchAllNotepad, { MAX_DYNAMIC_HEIGHT } from '../app/screens/CatchAllNotepad';
 
 const MAX_INPUT_CHARACTERS = 2000;
 
@@ -64,7 +63,20 @@ const mockDecideWithContext = jest.fn(async () => ({
 
 jest.mock('../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ userId: 'user-1' }),
+  useAuth: () => ({ user: { id: 'test-user-1' } }),
+}));
+
+jest.mock('../hooks/useUnifiedOverlayController', () => ({
+  useUnifiedOverlayController: () => ({
+    state: {
+      mode: 'create' as const,
+      visible: false,
+    },
+    openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    openView: jest.fn(),
+    close: jest.fn(),
+  }),
 }));
 
 jest.mock('../providers/RepoProvider', () => ({
@@ -88,6 +100,8 @@ jest.mock('../providers/CortexProvider', () => ({
     decideWithContext: mockDecideWithContext,
   }),
 }));
+
+import CatchAllNotepad, { MAX_DYNAMIC_HEIGHT } from '../app/screens/CatchAllNotepad';
 
 const getInputHeight = (getByTestId: (testId: string) => { props: { style: unknown } }) => {
   const styleProp = getByTestId('minddrop-input-height-wrapper').props.style;
@@ -162,7 +176,7 @@ describe('Mind Drop input auto-grow', () => {
     await waitFor(() => {
       expect(getInputHeight(getByTestId)).toBe(140);
     });
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
+    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
     fireEvent(input, 'contentSizeChange', {
       nativeEvent: { contentSize: { height: MAX_DYNAMIC_HEIGHT - 5, width: 300 } },
@@ -171,7 +185,7 @@ describe('Mind Drop input auto-grow', () => {
     await waitFor(() => {
       expect(getInputHeight(getByTestId)).toBe(MAX_DYNAMIC_HEIGHT - 5);
     });
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
+    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
     fireEvent(input, 'contentSizeChange', {
       nativeEvent: { contentSize: { height: MAX_DYNAMIC_HEIGHT + 120, width: 300 } },
@@ -224,7 +238,7 @@ describe('Mind Drop input auto-grow', () => {
       expect(getInputHeight(getByTestId)).toBe(140);
     });
     expect(timingSpy).not.toHaveBeenCalled();
-    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(false);
+    expect(getByTestId('minddrop-input').props.scrollEnabled).toBe(true);
 
     timingSpy.mockRestore();
   });

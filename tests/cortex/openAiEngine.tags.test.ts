@@ -43,12 +43,13 @@ describe('OpenAiEngine tag sanitization', () => {
 
     const result = await engine.classify({ text: 'Plan launch with Alice and Bob' });
 
+    // CP-TAG-3: @mentions are normalized to lowercase
     expect(result).toEqual({
       type: 'note',
       subtype: 'journal',
       aiPlaced: true,
       whyString: 'Example rationale.',
-      tags: ['@Alice', '@Bob', '*list', '#project_plans', '#random'],
+      tags: ['@alice', '@bob', '*list', '#project_plans', '#random'],
     });
   });
 });

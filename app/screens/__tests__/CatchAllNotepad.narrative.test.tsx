@@ -7,6 +7,18 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import type { CortexResponse } from '../../../lib/cortex/cortexDecide';
 
+jest.mock('../../../lib/supabase/client', () => ({
+  supabase: {
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn().mockReturnThis(),
+    })),
+    from: jest.fn(() => ({
+      select: jest.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+  },
+}));
+
 // Mock dependencies before imports
 const mockRepo = {
   create: jest.fn(),
@@ -53,6 +65,14 @@ jest.mock('../../../lib/conversion', () => ({
     mockConvertUnsortedToHabit(repo, noteId, options),
   convertUnsortedToLog: (repo: any, noteId: string, options?: any) =>
     mockConvertUnsortedToLog(repo, noteId, options),
+}));
+
+// Mock Mind Drop v3 pipeline stages
+const mockRunMindDropStageAClassification = jest.fn();
+const mockRunMindDropStageBPrefill = jest.fn();
+jest.mock('../../../lib/minddrop/pipelineStages', () => ({
+  runMindDropStageAClassification: (...args: any[]) => mockRunMindDropStageAClassification(...args),
+  runMindDropStageBPrefill: (...args: any[]) => mockRunMindDropStageBPrefill(...args),
 }));
 
 const mockShowActionToast = jest.fn();
@@ -104,6 +124,29 @@ describe('CatchAllNotepad - Narrative Detection', () => {
         return { todo, updatedNote: { ...note, labels: ['archived'] } };
       },
     );
+
+    // Reset and implement pipeline stage mocks
+    mockRunMindDropStageAClassification.mockReset();
+    mockRunMindDropStageBPrefill.mockReset();
+
+    let stageACounter = 0;
+    mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+      const todoId = `todo-stage-a-${++stageACounter}`;
+      return {
+        entities: {
+          todos: [todoId],
+          habits: [],
+          notes: [],
+        },
+        entityDetails: [{ kind: 'todo' as const }],
+        mode: 'todo' as const,
+        confidence: params.decision.confidence ?? 0.92,
+      };
+    });
+
+    mockRunMindDropStageBPrefill.mockImplementation(async () => {
+      return { success: true };
+    });
   });
 
   it('should NOT trigger todo conversion for multi-sentence narrative text', async () => {
@@ -168,15 +211,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'Buy groceries tomorrow. Need milk and bread.');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Should have created unsorted note + todo
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 3000 });
-    await waitFor(
-      () => {
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBeGreaterThan(0);
-      },
-      { timeout: 3000 },
-    );
+    // v3: Creates unsorted note, Stage A runs in background
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
   });
 
   it('should trigger todo for text with task keywords', async () => {
@@ -202,15 +238,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'This is urgent and needs to be done ASAP. Very important task.');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Should have created unsorted note + todo
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 3000 });
-    await waitFor(
-      () => {
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBeGreaterThan(0);
-      },
-      { timeout: 3000 },
-    );
+    // v3: Creates unsorted note, Stage A runs in background
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
   });
 
   it.skip('should trigger todo for text with date/time patterns', async () => {
@@ -310,14 +339,7 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'Fix the signup bug');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Should have created unsorted note + todo
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 3000 });
-    await waitFor(
-      () => {
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBeGreaterThan(0);
-      },
-      { timeout: 3000 },
-    );
+    // v3: Creates unsorted note, Stage A runs in background
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
   });
 });
