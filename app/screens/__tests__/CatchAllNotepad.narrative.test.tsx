@@ -124,6 +124,29 @@ describe('CatchAllNotepad - Narrative Detection', () => {
         return { todo, updatedNote: { ...note, labels: ['archived'] } };
       },
     );
+
+    // Reset and implement pipeline stage mocks
+    mockRunMindDropStageAClassification.mockReset();
+    mockRunMindDropStageBPrefill.mockReset();
+
+    let stageACounter = 0;
+    mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+      const todoId = `todo-stage-a-${++stageACounter}`;
+      return {
+        entities: {
+          todos: [todoId],
+          habits: [],
+          notes: [],
+        },
+        entityDetails: [{ kind: 'todo' as const }],
+        mode: 'todo' as const,
+        confidence: params.decision.confidence ?? 0.92,
+      };
+    });
+
+    mockRunMindDropStageBPrefill.mockImplementation(async () => {
+      return { success: true };
+    });
   });
 
   it('should NOT trigger todo conversion for multi-sentence narrative text', async () => {
@@ -330,14 +353,7 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'Fix the signup bug');
     fireEvent.press(submitButton);
 
-    // Phase 4A: Should have created unsorted note + todo
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 3000 });
-    await waitFor(
-      () => {
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBeGreaterThan(0);
-      },
-      { timeout: 3000 },
-    );
+    // v3: Creates unsorted note, Stage A runs in background
+    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
   });
 });
