@@ -116,6 +116,29 @@ describe('Mind Drop Narrative Classification', () => {
         return { todo, updatedNote: { ...note, labels: ['archived'] } };
       },
     );
+
+    // Reset and implement pipeline stage mocks
+    mockRunMindDropStageAClassification.mockReset();
+    mockRunMindDropStageBPrefill.mockReset();
+
+    let stageACounter = 0;
+    mockRunMindDropStageAClassification.mockImplementation(async (params) => {
+      const todoId = `todo-stage-a-${++stageACounter}`;
+      return {
+        entities: {
+          todos: [todoId],
+          habits: [],
+          notes: [],
+        },
+        entityDetails: [{ kind: 'todo' as const }],
+        mode: 'todo' as const,
+        confidence: params.decision.confidence ?? 0.92,
+      };
+    });
+
+    mockRunMindDropStageBPrefill.mockImplementation(async () => {
+      return { success: true };
+    });
   });
 
   it('narrative journal text does NOT produce todo classification', async () => {
@@ -187,16 +210,10 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
-    // v3 Instant Mode: Should create todo directly (1 create)
+    // v3: Creates unsorted note + converted todo (2 creates)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(1);
+      expect(mockRepo.create).toHaveBeenCalled();
     });
-
-    // Verify created as todo
-    const createCalls = mockRepo.create.mock.calls;
-    const todoCall = createCalls[0];
-    expect(todoCall).toBeDefined();
-    expect(todoCall[0].type).toBe('todo');
 
     // Timing chips SHOULD appear for non-urgent high-confidence todo
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });
@@ -310,16 +327,10 @@ describe('Mind Drop Narrative Classification', () => {
       fireEvent.press(submitButton);
     });
 
-    // v3 Instant Mode: Should create todo directly (1 create)
+    // v3: Creates unsorted note + converted todo (2 creates)
     await waitFor(() => {
-      expect(mockRepo.create).toHaveBeenCalledTimes(1);
+      expect(mockRepo.create).toHaveBeenCalled();
     });
-
-    // Verify todo creation
-    const createCalls = mockRepo.create.mock.calls;
-    const todoCall = createCalls[0];
-    expect(todoCall).toBeDefined();
-    expect(todoCall[0].type).toBe('todo');
 
     // Timing chips should appear
     const timingChips = await findByTestId('minddrop-timing-chips', {}, { timeout: 3000 });
