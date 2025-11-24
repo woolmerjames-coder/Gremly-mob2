@@ -305,18 +305,19 @@ describe('UnifiedCreateOverlay tags integration', () => {
       fireEvent(tagsInput, 'onSubmitEditing', { nativeEvent: { text: '@Mom' } });
     });
 
-    expect(await findByText('@Mom')).toBeTruthy();
+    // @person tags are lowercased per CP-TAG-3
+    expect(await findByText('@mom')).toBeTruthy();
 
-    const removeMomButton = await findByTestId('overlay-tags-field-remove-Mom');
+    const removeMomButton = await findByTestId('overlay-tags-field-remove-mom');
 
     await act(async () => {
       fireEvent.press(removeMomButton);
     });
 
     await waitFor(() => {
-      expect(queryByTestId('overlay-tags-field-remove-Mom')).toBeNull();
+      expect(queryByTestId('overlay-tags-field-remove-mom')).toBeNull();
     });
-    expect(queryByText('@Mom')).toBeNull();
+    expect(queryByText('@mom')).toBeNull();
 
     await act(async () => {
       fireEvent.changeText(tagsInput, 'another');
