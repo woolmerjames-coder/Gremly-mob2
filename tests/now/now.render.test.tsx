@@ -71,6 +71,7 @@ describe('NowScreenV1', () => {
       },
       completedToday: [],
       hasYesterdayCarryOver: false,
+      weeklySummaries: [],
       loading: false,
       reload: jest.fn().mockResolvedValue(undefined),
     };

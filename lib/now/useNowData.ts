@@ -15,6 +15,7 @@ import type {
   NowProgressState,
   MindVaultSummary,
   HabitWeeklyStatus,
+  NowWeeklyHabitSummary,
 } from './nowTypes';
 import {
   getHabitWeeklyStatus,
@@ -26,6 +27,7 @@ import {
   getProgressState,
   getCompletedTodayItems,
   getMindVaultSummary,
+  getWeeklyHabitSummaries,
 } from './nowSelectors';
 import { getGreeting } from '../today/copy';
 import type { TimeWindow } from '../env';
@@ -43,6 +45,7 @@ export interface NowData {
   vaultSummary: MindVaultSummary;
   completedToday: NowCompletedItem[];
   hasYesterdayCarryOver: boolean;
+  weeklySummaries: NowWeeklyHabitSummary[];
   loading: boolean;
 }
 
@@ -154,6 +157,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     },
     completedToday: [],
     hasYesterdayCarryOver: false,
+    weeklySummaries: [],
     loading: true,
   });
 
@@ -220,6 +224,9 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       // Calculate week status
       const weekStatus = calculateWeekStatus(habits, completionHistory, today);
 
+      // Get weekly habit summaries for progress popup
+      const weeklySummaries = getWeeklyHabitSummaries(habits, completionHistory, today);
+
       // Check for yesterday carry-over
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -243,6 +250,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         vaultSummary,
         completedToday,
         hasYesterdayCarryOver,
+        weeklySummaries,
         loading: false,
       });
     } catch (error) {

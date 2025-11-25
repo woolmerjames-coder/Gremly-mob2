@@ -13,6 +13,7 @@ import {
   getProgressState,
   getMindVaultSummary,
   getLockedItems,
+  getWeeklyHabitSummaries,
 } from '../../lib/now/nowSelectors';
 
 // Helper to create mock habits
@@ -691,5 +692,175 @@ describe('getMindVaultSummary', () => {
 
     expect(summary.topThree).toHaveLength(1);
     expect(summary.topThree[0].itemCount).toBe(0);
+  });
+});
+
+describe('getWeeklyHabitSummaries', () => {
+  const testDate = new Date('2025-11-26T12:00:00Z'); // Wednesday
+
+  it('returns summary for habit with 0 completions', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'Morning Meditation',
+        cadence: 'weekly',
+        target_per_period: 3,
+      }),
+    ];
+
+    const completionHistory = new Map<string, number>();
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toEqual({
+      habitId: 'habit-1',
+      name: 'Morning Meditation',
+      targetPerWeek: 3,
+      completionsThisWeek: 0,
+      status: 'flexible', // 0 completions, need 3, 4 days left (Wed-Sat) = flexible
+    });
+  });
+
+  it('returns summary for habit with some completions (flexible status)', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-2',
+        name: 'Evening Walk',
+        cadence: 'weekly',
+        target_per_period: 3,
+      }),
+    ];
+
+    const completionHistory = new Map([['habit-2', 1]]);
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toEqual({
+      habitId: 'habit-2',
+      name: 'Evening Walk',
+      targetPerWeek: 3,
+      completionsThisWeek: 1,
+      status: 'flexible', // 1 completion, need 2 more, 4 days left
+    });
+  });
+
+  it('returns summary for habit in on_track_today status', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-3',
+        name: 'Read',
+        cadence: 'weekly',
+        target_per_period: 4,
+      }),
+    ];
+
+    const completionHistory = new Map([['habit-3', 0]]);
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toEqual({
+      habitId: 'habit-3',
+      name: 'Read',
+      targetPerWeek: 4,
+      completionsThisWeek: 0,
+      status: 'on_track_today', // 0 completions, need 4, 4 days left = exactly on track
+    });
+  });
+
+  it('returns summary for habit in last_chance status', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-4',
+        name: 'Gym',
+        cadence: 'weekly',
+        target_per_period: 5,
+      }),
+    ];
+
+    const completionHistory = new Map([['habit-4', 0]]);
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toEqual({
+      habitId: 'habit-4',
+      name: 'Gym',
+      targetPerWeek: 5,
+      completionsThisWeek: 0,
+      status: 'last_chance', // 0 completions, need 5, only 4 days left
+    });
+  });
+
+  it('returns summary for daily habit (always on_track_today)', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-5',
+        name: 'Drink Water',
+        cadence: 'daily',
+        target_per_period: 1,
+      }),
+    ];
+
+    const completionHistory = new Map([['habit-5', 3]]);
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toEqual({
+      habitId: 'habit-5',
+      name: 'Drink Water',
+      targetPerWeek: 7, // Daily habit = 7 times per week
+      completionsThisWeek: 3,
+      status: 'on_track_today', // Daily habits always on_track_today
+    });
+  });
+
+  it('returns summary for multiple habits', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'Habit 1',
+        cadence: 'weekly',
+        target_per_period: 2,
+      }),
+      createMockHabit({
+        id: 'habit-2',
+        name: 'Habit 2',
+        cadence: 'daily',
+        target_per_period: 1,
+      }),
+    ];
+
+    const completionHistory = new Map([
+      ['habit-1', 2],
+      ['habit-2', 4],
+    ]);
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0].status).toBe('week_complete');
+    expect(summaries[1].status).toBe('on_track_today');
+  });
+
+  it('handles habits without completion data', () => {
+    const habits = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'New Habit',
+        cadence: 'weekly',
+        target_per_period: 3,
+      }),
+    ];
+
+    const completionHistory = new Map<string, number>();
+
+    const summaries = getWeeklyHabitSummaries(habits, completionHistory, testDate);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].completionsThisWeek).toBe(0);
   });
 });

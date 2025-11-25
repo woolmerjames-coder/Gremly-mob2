@@ -7,9 +7,13 @@ import React from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Text } from '../../ui';
 
-export function OverwhelmButton() {
+interface OverwhelmButtonProps {
+  onPress: () => void;
+}
+
+export function OverwhelmButton({ onPress }: OverwhelmButtonProps) {
   return (
-    <TouchableOpacity style={styles.container}>
+    <TouchableOpacity style={styles.container} onPress={onPress}>
       <Text style={styles.text}>😮‍💨</Text>
       <Text style={styles.label}>Feeling stuck?</Text>
     </TouchableOpacity>

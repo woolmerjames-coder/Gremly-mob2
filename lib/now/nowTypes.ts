@@ -83,6 +83,17 @@ export interface NowProgressState {
 export type HabitWeeklyStatus = 'week_complete' | 'flexible' | 'on_track_today' | 'last_chance';
 
 /**
+ * Weekly habit summary for progress popup
+ */
+export interface NowWeeklyHabitSummary {
+  habitId: string;
+  name: string;
+  targetPerWeek: number;
+  completionsThisWeek: number;
+  status: HabitWeeklyStatus;
+}
+
+/**
  * Mind Vault Summary
  */
 export interface MindVaultSummary {

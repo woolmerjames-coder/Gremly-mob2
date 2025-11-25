@@ -195,17 +195,17 @@ describe('NowSweepBar', () => {
 
 describe('OverwhelmButton', () => {
   it('mounts successfully', () => {
-    render(<OverwhelmButton />);
+    render(<OverwhelmButton onPress={jest.fn()} />);
     expect(screen.getByText('😮‍💨')).toBeTruthy();
   });
 
   it('displays emoji icon', () => {
-    render(<OverwhelmButton />);
+    render(<OverwhelmButton onPress={jest.fn()} />);
     expect(screen.getByText('😮‍💨')).toBeTruthy();
   });
 
   it('displays stuck text', () => {
-    render(<OverwhelmButton />);
+    render(<OverwhelmButton onPress={jest.fn()} />);
     expect(screen.getByText('Feeling stuck?')).toBeTruthy();
   });
 });

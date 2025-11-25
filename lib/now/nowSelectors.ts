@@ -15,6 +15,7 @@ import type {
   NowProgressMode,
   HabitWeeklyStatus,
   MindVaultSummary,
+  NowWeeklyHabitSummary,
 } from './nowTypes';
 
 /**
@@ -450,6 +451,31 @@ export function getMindVaultSummary(logs: Note[], date: Date = new Date()): Mind
       personCount,
     },
   };
+}
+
+/**
+ * Get weekly habit summaries for progress/week popup
+ */
+export function getWeeklyHabitSummaries(
+  allHabits: Habit[],
+  completionHistory: Map<string, number>,
+  date: Date = new Date(),
+): NowWeeklyHabitSummary[] {
+  return allHabits.map((habit) => {
+    const completionsThisWeek = completionHistory.get(habit.id) || 0;
+    const cadence = habit.cadence || 'daily';
+    const targetPerWeek =
+      cadence === 'daily' ? 7 : cadence === 'weekly' ? habit.target_per_period || 1 : 0;
+    const status = getHabitWeeklyStatus(habit, completionsThisWeek, date);
+
+    return {
+      habitId: habit.id,
+      name: habit.name || 'Untitled Habit',
+      targetPerWeek,
+      completionsThisWeek,
+      status,
+    };
+  });
 }
 
 // All functions already exported inline above
