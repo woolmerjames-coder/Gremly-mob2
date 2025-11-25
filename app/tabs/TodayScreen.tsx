@@ -30,6 +30,7 @@ import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
 import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
 import TodayV3View from './TodayV3View';
 import TodayV4LanesView from './TodayV4LanesView';
+import NowScreenV1 from '../screens/NowScreenV1';
 import { Icon, type IconName } from '../../components/ui/Icon';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -104,8 +105,12 @@ export default function TodayScreen() {
     console.log('[TodayVariant]', {
       v3: env.feature.today.v3,
       v4: env.feature.today.v4Lanes,
+      nowV1: env.feature.today.nowV1,
       showCommitments: COMMITMENTS_FEATURE_ENABLED,
     });
+  }
+  if (env.feature.today.nowV1) {
+    return <NowScreenV1 />;
   }
   if (env.feature.today.v4Lanes) {
     return <TodayV4LanesView />;
