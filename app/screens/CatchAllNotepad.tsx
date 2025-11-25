@@ -97,6 +97,7 @@ import {
   runMindDropStageBPrefill,
 } from '../../lib/minddrop/pipelineStages';
 import GREMLY_TOP from '../../assets/mascot/ACTUAL GREMLY.png';
+import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import MascotIcon from '../../components/MascotIcon';
 import {
   filterAndNormalizeTags,
@@ -2271,12 +2272,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const hour = new Date().getHours();
   const contextPrompt =
     hour >= 6 && hour < 12
-      ? "Good morning! What's on your mind?"
+      ? "Good morning! What's on\nyour mind?"
       : hour >= 12 && hour < 17
         ? 'Afternoon brain dump?'
         : hour >= 17 && hour < 22
           ? 'Evening thoughts?'
-          : 'Capture those late-night thoughts...';
+          : 'Capture those late-night\nthoughts...';
 
   useEffect(() => {
     isProcessingRef.current = isProcessing;
@@ -4427,14 +4428,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 >
                   <Text style={styles.headerBackText}>{'<'}</Text>
                 </Pressable>
-                <Text
+                <Image
                   ref={headerTitleRef}
+                  source={MINDDROP_HEADER}
                   style={styles.headerTitle}
-                  accessibilityRole="header"
-                  numberOfLines={1}
-                >
-                  {copy.title}
-                </Text>
+                  resizeMode="contain"
+                  accessibilityLabel="Mind Drop"
+                  accessibilityIgnoresInvertColors
+                />
                 <Pressable
                   accessibilityLabel="About Mind Drop"
                   accessibilityRole="button"
@@ -4777,27 +4778,30 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     headerContainer: {
       position: 'relative',
-      paddingRight: 84,
-      marginBottom: 0,
+      paddingRight: 72,
+      paddingTop: 4,
+      paddingBottom: 0,
+      marginBottom: -8,
     },
 
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'flex-start',
-      marginBottom: 2,
+      minHeight: 32,
+      paddingVertical: 0,
     },
     headerLeftGroup: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       flex: 1,
     },
     headerTitle: {
-      color: c.mossGreen,
-      fontFamily: 'PlusJakartaSans-Bold',
-      fontSize: 32,
-      lineHeight: 34,
-      flexShrink: 1,
+      height: 64,
+      width: 162, // 64 * (450/178) = ~162px
+      resizeMode: 'contain',
+      marginLeft: 8,
+      marginRight: 8,
     },
     headerBackBtn: {
       padding: 6,
@@ -4817,15 +4821,15 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     headerMascot: {
       position: 'absolute',
-      width: 61,
-      height: 78,
-      right: 16,
-      top: 16,
+      width: 64,
+      height: 72,
+      right: 12,
+      top: -8,
     },
 
     contextPrompt: {
-      marginTop: space,
-      marginBottom: space * 2,
+      marginTop: -16,
+      marginBottom: space * 1.5,
       color: '#66706A',
       fontFamily: 'Inter-Medium',
       fontSize: 14,

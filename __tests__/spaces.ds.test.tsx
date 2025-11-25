@@ -1,8 +1,8 @@
 /**
- * Spaces DS Screen Tests
+ * Gremly Home Screen Tests (formerly Spaces DS Screen)
  *
- * Tests for the Design System version of Spaces screen (/app/tabs/SpacesScreen.tsx)
- * Verifies testIDs, search functionality, empty states, and space list rendering
+ * Tests for the Design System version of Gremly Home screen (/app/tabs/SpacesScreen.tsx)
+ * Verifies testIDs, mascot greeting, search functionality, empty states, and space list rendering
  */
 
 import React from 'react';
@@ -10,6 +10,11 @@ import { renderWithProviders, screen, waitFor } from './utils/renderWithProvider
 import SpacesScreen from '../app/tabs/SpacesScreen';
 
 jest.mock('../components/MascotIcon', () => () => null);
+
+// Mock image imports to avoid module resolution errors in tests
+jest.mock('../../assets/minddrop_header-removebg.png', () => 'test-image-stub', {
+  virtual: true,
+});
 
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({
@@ -53,23 +58,49 @@ describe('Spaces DS Screen', () => {
     });
   });
 
-  it('displays list of spaces with correct testIDs', async () => {
+  it('displays Mind Drop headline', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Your brain dump, organized.')).toBeTruthy();
+    });
+  });
+
+  it('displays Mind Drop description', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('To-Dos • Habits • Anything')).toBeTruthy();
+    });
+  });
+
+  it('displays all spaces with correct testIDs', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('space-item-space-1')).toBeTruthy();
       expect(screen.getByTestId('space-item-space-2')).toBeTruthy();
+      // All spaces should be shown (not just a preview of 2)
       expect(screen.getByTestId('space-item-space-3')).toBeTruthy();
     });
   });
 
-  it('displays space names correctly', async () => {
+  it('displays all space names correctly', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByText('Fitness')).toBeTruthy();
       expect(screen.getByText('Work')).toBeTruthy();
+      // All spaces shown
       expect(screen.getByText('Personal')).toBeTruthy();
+    });
+  });
+
+  it('displays Spaces section subtitle', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Organize by project or area.')).toBeTruthy();
     });
   });
 
@@ -103,6 +134,8 @@ describe('Spaces DS Screen - Empty State', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/no spaces yet/i)).toBeTruthy();
+      expect(screen.getByText(/create one to organize by topic/i)).toBeTruthy();
+      expect(screen.getByTestId('spaces-empty-cta')).toBeTruthy();
     });
   });
 });

@@ -113,8 +113,11 @@ jest.mock('react-native-reanimated', () => {
       springify: jest.fn(() => ({})),
       duration: jest.fn(() => ({})),
     },
+    // useSharedValue returns a mutable shared value object
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    useSharedValue: jest.fn(() => ({ value: 0 })),
+    useSharedValue: (initialValue: any) => {
+      return { value: initialValue ?? 0 };
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     useAnimatedStyle: jest.fn((fn: any) => (typeof fn === 'function' ? fn() : {})),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

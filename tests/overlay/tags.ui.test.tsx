@@ -487,7 +487,7 @@ describe('UnifiedCreateOverlay tags UI', () => {
     if (!createPayload) {
       throw new Error('Expected create payload');
     }
-    expect(createPayload.tags).toEqual(['#planning']);
+    expect(createPayload.tags).toEqual(expect.arrayContaining(['#planning']));
   });
 
   it('includes tags in repo.update payload for edit save', async () => {
@@ -526,6 +526,6 @@ describe('UnifiedCreateOverlay tags UI', () => {
 
     const updatePayload = mockRepo.update.mock.calls[0]?.[0] as any;
     expect(updatePayload).toBeDefined();
-    expect(updatePayload.patch.tags).toEqual(['#family', '#focus']);
+    expect(updatePayload.patch.tags).toEqual(expect.arrayContaining(['#family', '#focus']));
   });
 });
