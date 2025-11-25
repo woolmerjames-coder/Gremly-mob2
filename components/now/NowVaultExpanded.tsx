@@ -6,19 +6,22 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { Box, Text } from '../../ui';
+import type { MindVaultSummary } from '../../lib/now/nowTypes';
 
-export function NowVaultExpanded() {
-  // Placeholder data - will be replaced with real data in Phase 3
-  const recentLists = [
-    { name: 'Groceries', count: 8 },
-    { name: 'Gift ideas', count: 5 },
-    { name: 'Mexico list', count: 12 },
-  ];
+interface NowVaultExpandedProps {
+  summary: MindVaultSummary;
+}
+
+export function NowVaultExpanded({ summary }: NowVaultExpandedProps) {
+  const recentLists = summary.topThree.map((list) => ({
+    name: list.name,
+    count: list.itemCount,
+  }));
 
   const weekStats = {
-    journals: 3,
-    ideas: 2,
-    persons: 1,
+    journals: summary.thisWeekStats.journalCount,
+    ideas: summary.thisWeekStats.ideaCount,
+    persons: summary.thisWeekStats.personCount,
   };
 
   return (

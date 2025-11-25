@@ -25,11 +25,7 @@ export function NowHeader({ greeting, dateTimeLabel, progressState, weekStatus }
       <Text style={styles.dateTime}>{dateTimeLabel}</Text>
 
       <Box style={styles.metricsRow}>
-        <NowProgressDots
-          mode={progressState.mode}
-          dots={progressState.dots}
-          percent={progressState.percent}
-        />
+        <NowProgressDots progressState={progressState} />
         <NowWeekIndicator status={weekStatus} />
       </Box>
     </Box>

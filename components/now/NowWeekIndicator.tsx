@@ -14,15 +14,15 @@ interface NowWeekIndicatorProps {
 
 export function NowWeekIndicator({ status }: NowWeekIndicatorProps) {
   const icons: Record<WeekStatus, string> = {
-    ahead: '✓',
+    ahead: '●',
     on_track: '◐',
-    needs_attention: '!',
+    needs_attention: '○',
   };
 
   const colors: Record<WeekStatus, string> = {
-    ahead: '#4CAF50',
-    on_track: '#2196F3',
-    needs_attention: '#FF9800',
+    ahead: '#6B9B76',
+    on_track: '#8FA895',
+    needs_attention: '#C4D4C9',
   };
 
   return (

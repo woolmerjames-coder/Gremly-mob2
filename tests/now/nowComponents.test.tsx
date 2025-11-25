@@ -179,17 +179,17 @@ describe('NowList', () => {
 describe('NowSweepBar', () => {
   it('mounts successfully', () => {
     render(<NowSweepBar hasYesterdayCarryOver={true} />);
-    expect(screen.getByText('🧹 Sweep Available')).toBeTruthy();
+    expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
   });
 
   it('displays sweep button text', () => {
     render(<NowSweepBar hasYesterdayCarryOver={true} />);
-    expect(screen.getByText('🧹 Sweep Available')).toBeTruthy();
+    expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
   });
 
   it('does not render when no carry over', () => {
     const { queryByText } = render(<NowSweepBar hasYesterdayCarryOver={false} />);
-    expect(queryByText('🧹 Sweep Available')).toBeNull();
+    expect(queryByText('✨ Time to Sweep!')).toBeNull();
   });
 });
 

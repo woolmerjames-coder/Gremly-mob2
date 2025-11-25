@@ -11,9 +11,16 @@ import type { NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 interface NowActiveItemCardProps {
   item: NowActiveItem | NowFutureItem;
   future?: boolean;
+  onPress?: () => void;
+  onToggleComplete?: () => void;
 }
 
-export function NowActiveItemCard({ item, future = false }: NowActiveItemCardProps) {
+export function NowActiveItemCard({
+  item,
+  future = false,
+  onPress,
+  onToggleComplete,
+}: NowActiveItemCardProps) {
   const getStatusText = () => {
     if ('weeklyStatus' in item && item.weeklyStatus) {
       const statusLabels = {
@@ -34,12 +41,12 @@ export function NowActiveItemCard({ item, future = false }: NowActiveItemCardPro
   };
 
   return (
-    <TouchableOpacity style={styles.container}>
+    <TouchableOpacity style={styles.container} onPress={onPress}>
       <Box style={styles.content}>
-        <Box style={styles.checkboxContainer}>
+        <TouchableOpacity onPress={onToggleComplete} style={styles.checkboxContainer}>
           <Box style={styles.checkbox} />
-        </Box>
-        <Box style={styles.textContainer}>
+        </TouchableOpacity>
+        <Box style={[styles.textContainer, future && styles.futureText]}>
           <Text style={styles.itemText}>{item.name}</Text>
           {getStatusText() && <Text style={styles.status}>{getStatusText()}</Text>}
         </Box>
@@ -73,6 +80,9 @@ const styles = StyleSheet.create({
   },
   textContainer: {
     flex: 1,
+  },
+  futureText: {
+    opacity: 0.5,
   },
   itemText: {
     fontSize: 15,

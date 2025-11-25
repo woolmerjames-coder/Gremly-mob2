@@ -14,7 +14,7 @@ interface NowVaultBarProps {
 
 export function NowVaultBar({ summary }: NowVaultBarProps) {
   const pills = [
-    ...summary.topThree.map((list) => `${list.name} (${list.itemCount})`),
+    ...summary.topThree.map((list) => `${list.name} • ${list.itemCount}`),
     summary.overflowCount > 0 ? `+${summary.overflowCount} more` : null,
   ].filter(Boolean) as string[];
 

@@ -10,25 +10,28 @@ import type { NowLockedItem } from '../../lib/now/nowTypes';
 
 interface NowLockedItemCardProps {
   item: NowLockedItem;
+  onPress?: () => void;
+  onToggleComplete?: () => void;
 }
 
-export function NowLockedItemCard({ item }: NowLockedItemCardProps) {
+export function NowLockedItemCard({ item, onPress, onToggleComplete }: NowLockedItemCardProps) {
   const getStatusText = () => {
     if (item.type === 'habit' && item.cadence) {
       return `${item.cadence} habit`;
     }
     if (item.dueAt) {
-      return `Due ${new Date(item.dueAt).toLocaleDateString()}`;
+      const date = new Date(item.dueAt);
+      return `Due ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
     }
     return null;
   };
 
   return (
-    <TouchableOpacity style={styles.container}>
+    <TouchableOpacity style={styles.container} onPress={onPress}>
       <Box style={styles.content}>
-        <Box style={styles.iconContainer}>
+        <TouchableOpacity onPress={onToggleComplete} style={styles.iconContainer}>
           <Text style={styles.icon}>⚡</Text>
-        </Box>
+        </TouchableOpacity>
         <Box style={styles.textContainer}>
           <Text style={styles.itemText}>{item.name}</Text>
           {getStatusText() && <Text style={styles.tag}>{getStatusText()}</Text>}

@@ -15,21 +15,39 @@ interface NowListProps {
   lockedItems: NowLockedItem[];
   activeItems: NowActiveItem[];
   futureItems: NowFutureItem[];
+  onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
+  onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
 }
 
-export function NowList({ lockedItems, activeItems, futureItems }: NowListProps) {
+export function NowList({
+  lockedItems,
+  activeItems,
+  futureItems,
+  onPressItem,
+  onToggleComplete,
+}: NowListProps) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <Text style={styles.header}>NOW</Text>
 
       {/* Locked items section */}
       {lockedItems.map((item) => (
-        <NowLockedItemCard key={item.id} item={item} />
+        <NowLockedItemCard
+          key={item.id}
+          item={item}
+          onPress={() => onPressItem?.(item)}
+          onToggleComplete={() => onToggleComplete?.(item)}
+        />
       ))}
 
       {/* Active items section */}
       {activeItems.map((item) => (
-        <NowActiveItemCard key={item.id} item={item} />
+        <NowActiveItemCard
+          key={item.id}
+          item={item}
+          onPress={() => onPressItem?.(item)}
+          onToggleComplete={() => onToggleComplete?.(item)}
+        />
       ))}
 
       {/* Future divider */}
@@ -37,7 +55,13 @@ export function NowList({ lockedItems, activeItems, futureItems }: NowListProps)
 
       {/* Future items section */}
       {futureItems.map((item) => (
-        <NowActiveItemCard key={item.id} item={item} future />
+        <NowActiveItemCard
+          key={item.id}
+          item={item}
+          future
+          onPress={() => onPressItem?.(item)}
+          onToggleComplete={() => onToggleComplete?.(item)}
+        />
       ))}
     </ScrollView>
   );

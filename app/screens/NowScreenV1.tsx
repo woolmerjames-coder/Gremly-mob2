@@ -18,7 +18,11 @@ export default function NowScreenV1() {
   const now = useNowData();
 
   if (now.loading) {
-    return <Screen style={styles.screen}>{/* TODO: Add loading state */}</Screen>;
+    return (
+      <Screen style={styles.screen}>
+        <View>{/* TODO: Add loading state */}</View>
+      </Screen>
+    );
   }
 
   return (

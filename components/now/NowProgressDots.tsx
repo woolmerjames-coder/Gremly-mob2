@@ -6,26 +6,29 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Box, Text } from '../../ui';
+import type { NowProgressState } from '../../lib/now/nowTypes';
 
 interface NowProgressDotsProps {
-  mode: 'dots' | 'denseDots' | 'bar';
-  dots?: boolean[];
-  percent: number;
+  progressState: NowProgressState;
 }
 
-export function NowProgressDots({ mode, dots, percent }: NowProgressDotsProps) {
+export function NowProgressDots({ progressState }: NowProgressDotsProps) {
+  const { mode, percent, completedCount, totalEligibleCount, dots } = progressState;
+
   if (mode === 'bar') {
     return (
       <Box style={styles.barContainer}>
         <View style={styles.barBackground}>
           <View style={[styles.barFill, { width: `${percent}%` }]} />
         </View>
-        <Text style={styles.percentText}>{percent}%</Text>
+        <Text style={styles.percentText}>
+          {completedCount} of {totalEligibleCount}
+        </Text>
       </Box>
     );
   }
 
-  const displayDots = dots || [true, false, true, false];
+  const displayDots = dots || [];
   const dotSize = mode === 'denseDots' ? 6 : 8;
   const dotSpacing = mode === 'denseDots' ? 4 : 6;
 
@@ -40,7 +43,7 @@ export function NowProgressDots({ mode, dots, percent }: NowProgressDotsProps) {
               width: dotSize,
               height: dotSize,
               marginRight: index < displayDots.length - 1 ? dotSpacing : 0,
-              backgroundColor: completed ? '#4CAF50' : '#E0E0E0',
+              backgroundColor: completed ? '#6B9B76' : '#E0E0E0',
             },
           ]}
         />

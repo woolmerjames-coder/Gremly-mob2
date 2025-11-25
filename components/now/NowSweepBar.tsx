@@ -9,17 +9,20 @@ import { Box, Text } from '../../ui';
 
 interface NowSweepBarProps {
   hasYesterdayCarryOver: boolean;
+  onPress?: () => void;
 }
 
-export function NowSweepBar({ hasYesterdayCarryOver }: NowSweepBarProps) {
+export function NowSweepBar({ hasYesterdayCarryOver, onPress }: NowSweepBarProps) {
   if (!hasYesterdayCarryOver) {
     return null;
   }
 
+  const message = hasYesterdayCarryOver ? '✨ Time to Sweep!' : '🧹 Sweep available';
+
   return (
     <Box style={styles.container}>
-      <TouchableOpacity style={styles.button}>
-        <Text style={styles.buttonText}>🧹 Sweep Available</Text>
+      <TouchableOpacity style={styles.button} onPress={onPress}>
+        <Text style={styles.buttonText}>{message}</Text>
       </TouchableOpacity>
     </Box>
   );
