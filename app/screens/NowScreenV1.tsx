@@ -10,6 +10,7 @@ import { StyleSheet, View } from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowVaultBar } from '../../components/now/NowVaultBar';
+import { NowVaultExpanded } from '../../components/now/NowVaultExpanded';
 import { NowList } from '../../components/now/NowList';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
 import { OverwhelmButton } from '../../components/now/OverwhelmButton';
@@ -28,6 +29,7 @@ export default function NowScreenV1() {
   const overwhelm = useOverwhelmFlow();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
+  const [isVaultExpanded, setVaultExpanded] = useState(false);
 
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
@@ -64,6 +66,19 @@ export default function NowScreenV1() {
     void overwhelm.requestPlan(selectedItems);
   }, [overwhelm, now.lockedItems, now.activeItems]);
 
+  // Handle sweep press
+  const handleSweepPress = useCallback(() => {
+    if (now.hasYesterdayCarryOver) {
+      // Open Quick Sweep modal - reuse from Today screen
+      // TODO: Wire up Quick Sweep modal when available
+      console.log('[NOW] Opening Quick Sweep for yesterday carry-over');
+    } else {
+      // Navigate to Sweep flow screen
+      // TODO: Wire up navigation to SweepScreen
+      console.log('[NOW] Opening Sweep flow');
+    }
+  }, [now.hasYesterdayCarryOver]);
+
   if (now.loading) {
     return (
       <Screen style={styles.screen}>
@@ -82,15 +97,33 @@ export default function NowScreenV1() {
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
-      <NowVaultBar summary={now.vaultSummary} />
+      <NowVaultBar
+        summary={now.vaultSummary}
+        expanded={isVaultExpanded}
+        onToggleExpand={() => setVaultExpanded(!isVaultExpanded)}
+      />
+      {isVaultExpanded && (
+        <NowVaultExpanded
+          summary={now.vaultSummary}
+          onPressList={(id) => {
+            // TODO: Open list overlay when list type is supported
+            console.log('[NOW] Opening list:', id);
+          }}
+          onSeeAll={() => {
+            /* TODO: Navigate to HubListsScreen */
+          }}
+          onCollapse={() => setVaultExpanded(false)}
+        />
+      )}
       <NowList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
         futureItems={now.futureItems}
+        progressPercent={now.progressState.percent}
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
       />
-      <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} />
+      <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
       <OverwhelmButton onPress={overwhelm.open} />
 
       <NowProgressPopup

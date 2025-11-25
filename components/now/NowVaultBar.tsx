@@ -10,9 +10,11 @@ import type { MindVaultSummary } from '../../lib/now/nowTypes';
 
 interface NowVaultBarProps {
   summary: MindVaultSummary;
+  expanded: boolean;
+  onToggleExpand: () => void;
 }
 
-export function NowVaultBar({ summary }: NowVaultBarProps) {
+export function NowVaultBar({ summary, expanded, onToggleExpand }: NowVaultBarProps) {
   const pills = [
     ...summary.topThree.map((list) => `${list.name} • ${list.itemCount}`),
     summary.overflowCount > 0 ? `+${summary.overflowCount} more` : null,
@@ -24,9 +26,10 @@ export function NowVaultBar({ summary }: NowVaultBarProps) {
 
   return (
     <Box style={styles.container}>
-      <Box style={styles.header}>
+      <TouchableOpacity style={styles.header} onPress={onToggleExpand} activeOpacity={0.7}>
         <Text style={styles.title}>📚 Mind Vault</Text>
-      </Box>
+        <Text style={styles.expandIcon}>{expanded ? '▼' : '▶'}</Text>
+      </TouchableOpacity>
 
       <ScrollView
         horizontal
@@ -34,7 +37,12 @@ export function NowVaultBar({ summary }: NowVaultBarProps) {
         contentContainerStyle={styles.pillsContainer}
       >
         {pills.map((pill, index) => (
-          <TouchableOpacity key={index} style={styles.pill}>
+          <TouchableOpacity
+            key={index}
+            style={styles.pill}
+            onPress={onToggleExpand}
+            activeOpacity={0.7}
+          >
             <Text style={styles.pillText}>{pill}</Text>
           </TouchableOpacity>
         ))}
@@ -51,6 +59,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     marginBottom: 8,
   },
@@ -58,6 +69,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#212121',
+  },
+  expandIcon: {
+    fontSize: 12,
+    color: '#757575',
   },
   pillsContainer: {
     paddingHorizontal: 16,

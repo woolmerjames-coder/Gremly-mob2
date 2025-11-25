@@ -105,17 +105,17 @@ describe('NowHeader', () => {
 
 describe('NowVaultBar', () => {
   it('mounts successfully', () => {
-    render(<NowVaultBar summary={mockVaultSummary} />);
+    render(<NowVaultBar summary={mockVaultSummary} expanded={false} onToggleExpand={jest.fn()} />);
     expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
   });
 
   it('displays Mind Vault title', () => {
-    render(<NowVaultBar summary={mockVaultSummary} />);
+    render(<NowVaultBar summary={mockVaultSummary} expanded={false} onToggleExpand={jest.fn()} />);
     expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
   });
 
   it('displays placeholder pills', () => {
-    render(<NowVaultBar summary={mockVaultSummary} />);
+    render(<NowVaultBar summary={mockVaultSummary} expanded={false} onToggleExpand={jest.fn()} />);
     expect(screen.getByText(/Groceries/)).toBeTruthy();
     expect(screen.getByText(/Gift ideas/)).toBeTruthy();
     expect(screen.getByText(/Mexico list/)).toBeTruthy();
@@ -178,18 +178,18 @@ describe('NowList', () => {
 
 describe('NowSweepBar', () => {
   it('mounts successfully', () => {
-    render(<NowSweepBar hasYesterdayCarryOver={true} />);
+    render(<NowSweepBar hasYesterdayCarryOver={true} onPress={jest.fn()} />);
     expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
   });
 
   it('displays sweep button text', () => {
-    render(<NowSweepBar hasYesterdayCarryOver={true} />);
+    render(<NowSweepBar hasYesterdayCarryOver={true} onPress={jest.fn()} />);
     expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
   });
 
-  it('does not render when no carry over', () => {
-    const { queryByText } = render(<NowSweepBar hasYesterdayCarryOver={false} />);
-    expect(queryByText('✨ Time to Sweep!')).toBeNull();
+  it('displays sweep available when no carry over', () => {
+    render(<NowSweepBar hasYesterdayCarryOver={false} onPress={jest.fn()} />);
+    expect(screen.getByText('🧹 Sweep available')).toBeTruthy();
   });
 });
 
