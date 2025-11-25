@@ -3,9 +3,12 @@
  * Displays a locked/priority item in the NOW list
  */
 
-import React from 'react';
-import { StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useMemo } from 'react';
+import { Animated, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
+import { makeStyles } from '../../design/makeStyles';
+import { pop } from '../../lib/today/motion';
+import { useReducedMotion } from '../../design/animations';
 import type { NowLockedItem } from '../../lib/now/nowTypes';
 
 interface NowLockedItemCardProps {
@@ -14,7 +17,54 @@ interface NowLockedItemCardProps {
   onToggleComplete?: () => void;
 }
 
+const useStyles = makeStyles((t) => ({
+  container: {
+    backgroundColor: t.colors.sageMist, // Sage Mist for locked/priority items
+    borderLeftWidth: 4,
+    borderLeftColor: t.colors.mossGreen,
+    borderRadius: t.radius[2], // 12px
+    marginBottom: t.spacing[2],
+    ...t.elevation.sm,
+  },
+  content: {
+    flexDirection: 'row',
+    padding: t.spacing[3],
+    alignItems: 'center',
+  },
+  iconContainer: {
+    marginRight: t.spacing[3],
+  },
+  icon: {
+    fontSize: 20,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  itemText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.text,
+    marginBottom: t.spacing[1],
+  },
+  tag: {
+    fontSize: t.typography.size.xs,
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.mossGreen,
+  },
+}));
+
 export function NowLockedItemCard({ item, onPress, onToggleComplete }: NowLockedItemCardProps) {
+  const styles = useStyles();
+  const reducedMotion = useReducedMotion();
+  const scale = useMemo(() => new Animated.Value(1), []);
+
+  const handleToggleComplete = () => {
+    if (!reducedMotion) {
+      pop(scale, reducedMotion);
+    }
+    onToggleComplete?.();
+  };
+
   const getStatusText = () => {
     if (item.type === 'habit' && item.cadence) {
       return `${item.cadence} habit`;
@@ -27,51 +77,18 @@ export function NowLockedItemCard({ item, onPress, onToggleComplete }: NowLocked
   };
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
-      <Box style={styles.content}>
-        <TouchableOpacity onPress={onToggleComplete} style={styles.iconContainer}>
-          <Text style={styles.icon}>⚡</Text>
-        </TouchableOpacity>
-        <Box style={styles.textContainer}>
-          <Text style={styles.itemText}>{item.name}</Text>
-          {getStatusText() && <Text style={styles.tag}>{getStatusText()}</Text>}
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity style={styles.container} onPress={onPress}>
+        <Box style={styles.content}>
+          <TouchableOpacity onPress={handleToggleComplete} style={styles.iconContainer}>
+            <Text style={styles.icon}>⚡</Text>
+          </TouchableOpacity>
+          <Box style={styles.textContainer}>
+            <Text style={styles.itemText}>{item.name}</Text>
+            {getStatusText() && <Text style={styles.tag}>{getStatusText()}</Text>}
+          </Box>
         </Box>
-      </Box>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFF9E6',
-    borderLeftWidth: 4,
-    borderLeftColor: '#FFC107',
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  content: {
-    flexDirection: 'row',
-    padding: 12,
-    alignItems: 'center',
-  },
-  iconContainer: {
-    marginRight: 12,
-  },
-  icon: {
-    fontSize: 20,
-  },
-  textContainer: {
-    flex: 1,
-  },
-  itemText: {
-    fontSize: 15,
-    color: '#212121',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  tag: {
-    fontSize: 12,
-    color: '#F57C00',
-    fontWeight: '500',
-  },
-});

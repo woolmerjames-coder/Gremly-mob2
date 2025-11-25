@@ -2,9 +2,11 @@
  * NowVaultExpanded - Expanded Mind Vault view with Recent Lists and This Week stats
  */
 
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Animated, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Box, Text } from '../../ui';
+import { fadeSlideIn } from '../../lib/today/motion';
+import { useReducedMotion } from '../../design/animations';
 import type { MindVaultSummary } from '../../lib/now/nowTypes';
 
 interface NowVaultExpandedProps {
@@ -20,8 +22,24 @@ export function NowVaultExpanded({
   onSeeAll,
   onCollapse,
 }: NowVaultExpandedProps) {
+  const reducedMotion = useReducedMotion();
+  const opacity = useMemo(() => new Animated.Value(0), []);
+  const translateY = useMemo(() => new Animated.Value(20), []);
+
+  useEffect(() => {
+    fadeSlideIn(opacity, translateY, reducedMotion);
+  }, [opacity, translateY, reducedMotion]);
+
   return (
-    <Animated.View style={styles.container}>
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
       <Box style={styles.header}>
         <Text style={styles.title}>📚 MIND VAULT</Text>
       </Box>

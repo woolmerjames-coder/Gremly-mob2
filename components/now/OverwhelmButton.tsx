@@ -4,14 +4,41 @@
  */
 
 import React from 'react';
-import { StyleSheet, TouchableOpacity } from 'react-native';
+import { TouchableOpacity } from 'react-native';
 import { Text } from '../../ui';
+import { makeStyles } from '../../design/makeStyles';
 
 interface OverwhelmButtonProps {
   onPress: () => void;
 }
 
+const useStyles = makeStyles((t) => ({
+  container: {
+    position: 'absolute',
+    bottom: 80,
+    right: t.spacing[4],
+    backgroundColor: t.colors.mossGreen, // Moss Green FAB
+    borderRadius: t.radius[4], // 20px - pill shaped
+    paddingVertical: t.spacing[3],
+    paddingHorizontal: t.spacing[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing[2],
+    ...t.elevation.lg, // Large elevation for FAB
+  },
+  text: {
+    fontSize: 20,
+  },
+  label: {
+    fontSize: t.typography.size.sm,
+    fontFamily: t.typography.fontFamily.medium,
+    color: '#FFFFFF',
+  },
+}));
+
 export function OverwhelmButton({ onPress }: OverwhelmButtonProps) {
+  const styles = useStyles();
+
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
       <Text style={styles.text}>😮‍💨</Text>
@@ -19,31 +46,3 @@ export function OverwhelmButton({ onPress }: OverwhelmButtonProps) {
     </TouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    bottom: 80,
-    right: 16,
-    backgroundColor: '#FF9800',
-    borderRadius: 28,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  text: {
-    fontSize: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-});

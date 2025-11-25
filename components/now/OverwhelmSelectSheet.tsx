@@ -3,9 +3,125 @@
  */
 
 import React from 'react';
-import { Modal, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { Box, Text } from '../../ui';
+import { makeStyles } from '../../design/makeStyles';
 import type { NowLockedItem, NowActiveItem } from '../../lib/now/nowTypes';
+
+interface OverwhelmSelectSheetProps {
+  visible: boolean;
+  items: (NowLockedItem | NowActiveItem)[];
+  selectedIds: string[];
+  onToggleSelect: (id: string) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}
+
+const useStyles = makeStyles((t) => ({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: t.colors.surface,
+    borderTopLeftRadius: t.radius[3], // 16px
+    borderTopRightRadius: t.radius[3],
+    maxHeight: '80%',
+    ...t.elevation.lg,
+  },
+  header: {
+    padding: t.spacing[4],
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.border,
+  },
+  title: {
+    fontSize: t.typography.size.lg,
+    fontFamily: t.typography.fontFamily.bold,
+    color: t.colors.text,
+    marginBottom: t.spacing[1],
+  },
+  subtitle: {
+    fontSize: t.typography.size.sm,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+  },
+  list: {
+    padding: t.spacing[4],
+    maxHeight: 400,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: t.spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.sageMist,
+  },
+  itemDisabled: {
+    opacity: 0.4,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: t.radius[1], // 6px
+    borderWidth: 2,
+    borderColor: t.colors.mossGreen,
+    marginRight: t.spacing[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkmark: {
+    fontSize: 16,
+    color: t.colors.mossGreen,
+    fontWeight: 'bold',
+  },
+  itemText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.text,
+    flex: 1,
+  },
+  itemTextDisabled: {
+    color: t.colors.subtle,
+  },
+  emptyText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    textAlign: 'center',
+    paddingVertical: t.spacing[6],
+  },
+  buttons: {
+    padding: t.spacing[4],
+    gap: t.spacing[2],
+    borderTopWidth: 1,
+    borderTopColor: t.colors.border,
+  },
+  button: {
+    paddingVertical: t.spacing[3],
+    borderRadius: t.radius[2], // 12px
+    alignItems: 'center',
+  },
+  submitButton: {
+    backgroundColor: t.colors.mossGreen,
+  },
+  submitButtonText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.medium,
+    color: '#FFFFFF',
+  },
+  cancelButton: {
+    backgroundColor: 'transparent',
+  },
+  cancelButtonText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+}));
 
 interface OverwhelmSelectSheetProps {
   visible: boolean;
@@ -24,6 +140,7 @@ export function OverwhelmSelectSheet({
   onSubmit,
   onClose,
 }: OverwhelmSelectSheetProps) {
+  const styles = useStyles();
   const hasMaxSelection = selectedIds.length >= 3;
 
   return (
@@ -87,104 +204,3 @@ export function OverwhelmSelectSheet({
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '80%',
-  },
-  header: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#212121',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#757575',
-  },
-  list: {
-    padding: 16,
-    maxHeight: 400,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F5',
-  },
-  itemDisabled: {
-    opacity: 0.4,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#FF9800',
-    marginRight: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkmark: {
-    fontSize: 16,
-    color: '#FF9800',
-    fontWeight: 'bold',
-  },
-  itemText: {
-    fontSize: 16,
-    color: '#212121',
-    flex: 1,
-  },
-  itemTextDisabled: {
-    color: '#BDBDBD',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#757575',
-    textAlign: 'center',
-    paddingVertical: 24,
-  },
-  buttons: {
-    padding: 16,
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-  },
-  button: {
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  submitButton: {
-    backgroundColor: '#FF9800',
-  },
-  submitButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  cancelButton: {
-    backgroundColor: 'transparent',
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    color: '#757575',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-});

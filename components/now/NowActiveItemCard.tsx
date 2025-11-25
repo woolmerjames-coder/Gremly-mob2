@@ -3,9 +3,12 @@
  * Displays an active todo or habit in the NOW list
  */
 
-import React from 'react';
-import { StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useMemo } from 'react';
+import { Animated, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
+import { makeStyles } from '../../design/makeStyles';
+import { pop } from '../../lib/today/motion';
+import { useReducedMotion } from '../../design/animations';
 import type { NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
 interface NowActiveItemCardProps {
@@ -15,12 +18,67 @@ interface NowActiveItemCardProps {
   onToggleComplete?: () => void;
 }
 
+const useStyles = makeStyles((t) => ({
+  container: {
+    backgroundColor: t.colors.linenCream, // Linen Cream for active items
+    borderRadius: t.radius[2], // 12px
+    marginBottom: t.spacing[2],
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    ...t.elevation.sm,
+  },
+  content: {
+    flexDirection: 'row',
+    padding: t.spacing[3],
+    alignItems: 'center',
+  },
+  checkboxContainer: {
+    marginRight: t.spacing[3],
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: t.radius[1], // 6px
+    borderWidth: 2,
+    borderColor: t.colors.subtle,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  futureText: {
+    opacity: 0.5,
+  },
+  itemText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.text,
+    marginBottom: t.spacing[1],
+  },
+  status: {
+    fontSize: t.typography.size.xs,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    fontStyle: 'italic',
+  },
+}));
+
 export function NowActiveItemCard({
   item,
   future = false,
   onPress,
   onToggleComplete,
 }: NowActiveItemCardProps) {
+  const styles = useStyles();
+  const reducedMotion = useReducedMotion();
+  const scale = useMemo(() => new Animated.Value(1), []);
+
+  const handleToggleComplete = () => {
+    if (!reducedMotion) {
+      pop(scale, reducedMotion);
+    }
+    onToggleComplete?.();
+  };
+
   const getStatusText = () => {
     if ('weeklyStatus' in item && item.weeklyStatus) {
       const statusLabels = {
@@ -41,57 +99,18 @@ export function NowActiveItemCard({
   };
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
-      <Box style={styles.content}>
-        <TouchableOpacity onPress={onToggleComplete} style={styles.checkboxContainer}>
-          <Box style={styles.checkbox} />
-        </TouchableOpacity>
-        <Box style={[styles.textContainer, future && styles.futureText]}>
-          <Text style={styles.itemText}>{item.name}</Text>
-          {getStatusText() && <Text style={styles.status}>{getStatusText()}</Text>}
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity style={styles.container} onPress={onPress}>
+        <Box style={styles.content}>
+          <TouchableOpacity onPress={handleToggleComplete} style={styles.checkboxContainer}>
+            <Box style={styles.checkbox} />
+          </TouchableOpacity>
+          <Box style={[styles.textContainer, future && styles.futureText]}>
+            <Text style={styles.itemText}>{item.name}</Text>
+            {getStatusText() && <Text style={styles.status}>{getStatusText()}</Text>}
+          </Box>
         </Box>
-      </Box>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  content: {
-    flexDirection: 'row',
-    padding: 12,
-    alignItems: 'center',
-  },
-  checkboxContainer: {
-    marginRight: 12,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#9E9E9E',
-  },
-  textContainer: {
-    flex: 1,
-  },
-  futureText: {
-    opacity: 0.5,
-  },
-  itemText: {
-    fontSize: 15,
-    color: '#212121',
-    marginBottom: 4,
-  },
-  status: {
-    fontSize: 12,
-    color: '#757575',
-    fontStyle: 'italic',
-  },
-});

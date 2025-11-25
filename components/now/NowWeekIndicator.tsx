@@ -1,53 +1,91 @@
 /**
  * NOW Week Indicator Component
- * Shows weekly habit status at a glance
+ * Shows weekly habit status at a glance with half-circle visual
  */
 
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { View } from 'react-native';
 import { Box, Text } from '../../ui';
+import { makeStyles } from '../../design/makeStyles';
 import type { WeekStatus } from '../../lib/now/useNowData';
 
 interface NowWeekIndicatorProps {
   status: WeekStatus;
 }
 
+const useStyles = makeStyles((t) => ({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing[2],
+    paddingVertical: t.spacing[1],
+  },
+  label: {
+    fontSize: t.typography.size.xs, // 12px
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.subtle,
+    letterSpacing: 0.5,
+  },
+  circle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  halfCircle: {
+    width: 8,
+    height: 16,
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+}));
+
 export function NowWeekIndicator({ status }: NowWeekIndicatorProps) {
-  const icons: Record<WeekStatus, string> = {
-    ahead: '●',
-    on_track: '◐',
-    needs_attention: '○',
+  const styles = useStyles();
+
+  // Use design tokens for colors
+  const getStatusStyle = () => {
+    switch (status) {
+      case 'ahead':
+        return {
+          borderColor: '#2E5540', // mossGreen - full circle
+          backgroundColor: '#2E5540',
+        };
+      case 'on_track':
+        return {
+          borderColor: '#2E5540', // mossGreen border
+          backgroundColor: 'transparent', // half filled
+        };
+      case 'needs_attention':
+        return {
+          borderColor: '#BFD8C0', // sageMist - empty circle
+          backgroundColor: 'transparent',
+        };
+    }
   };
 
-  const colors: Record<WeekStatus, string> = {
-    ahead: '#6B9B76',
-    on_track: '#8FA895',
-    needs_attention: '#C4D4C9',
-  };
+  const statusStyle = getStatusStyle();
 
   return (
     <Box style={styles.container}>
       <Text style={styles.label}>WEEK:</Text>
-      <Text style={[styles.indicator, { color: colors[status] }]}>{icons[status]}</Text>
+      <View style={[styles.circle, { borderColor: statusStyle.borderColor }]}>
+        {status === 'on_track' && (
+          <View style={[styles.halfCircle, { backgroundColor: statusStyle.borderColor }]} />
+        )}
+        {status === 'ahead' && (
+          <View
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 6,
+              backgroundColor: statusStyle.backgroundColor,
+            }}
+          />
+        )}
+      </View>
     </Box>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#666',
-    letterSpacing: 0.5,
-  },
-  indicator: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-});

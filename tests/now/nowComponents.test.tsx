@@ -99,7 +99,7 @@ describe('NowHeader', () => {
       />,
     );
     expect(screen.getByText('WEEK:')).toBeTruthy();
-    expect(screen.getByText('◐')).toBeTruthy();
+    // Week indicator now uses a half-circle graphic instead of emoji
   });
 });
 
