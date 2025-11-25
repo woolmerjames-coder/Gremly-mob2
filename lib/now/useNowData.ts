@@ -181,22 +181,26 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const todos = allRecords.filter((r): r is Todo => r.type === 'todo');
       const notes = allNotes.filter((r): r is Note => r.type === 'note');
 
-      // Build completion history for habits
-      // TODO Phase 4: Use real habit_progress table
-      const completionHistory = new Map<string, number>();
-      for (const habit of habits) {
-        // Placeholder: use last_completed_at to estimate
-        if (habit.last_completed_at) {
-          const lastCompleted = new Date(habit.last_completed_at);
-          const weekStart = new Date(today);
-          weekStart.setDate(today.getDate() - today.getDay());
-          weekStart.setHours(0, 0, 0, 0);
+      // Build completion history for habits from habit_progress table
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
 
-          if (lastCompleted >= weekStart) {
-            completionHistory.set(habit.id, 1);
+      const weekStartIso = weekStart.toISOString().split('T')[0];
+      const weekEndIso = weekEnd.toISOString().split('T')[0];
+
+      const completionHistory = new Map<string, number>();
+      await Promise.all(
+        habits.map(async (habit) => {
+          const count = await repo.getHabitProgressForWeek(habit.id, weekStartIso, weekEndIso);
+          if (count > 0) {
+            completionHistory.set(habit.id, count);
           }
-        }
-      }
+        }),
+      );
 
       // Combine all entities for selectors
       const allEntities = [...habits, ...todos];
