@@ -46,6 +46,10 @@ export interface NowData {
   loading: boolean;
 }
 
+export interface UseNowDataReturn extends NowData {
+  reload: () => Promise<void>;
+}
+
 /**
  * Determines time window based on current hour
  */
@@ -121,7 +125,7 @@ function calculateWeekStatus(
 /**
  * Main hook for NOW page data
  */
-export function useNowData(today: Date = new Date()): NowData {
+export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const repo = useRepo();
   const { user } = useAuth();
 
@@ -247,5 +251,8 @@ export function useNowData(today: Date = new Date()): NowData {
     load();
   }, [load]);
 
-  return data;
+  return {
+    ...data,
+    reload: load,
+  };
 }
