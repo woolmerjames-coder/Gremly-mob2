@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { Animated, TouchableOpacity } from 'react-native';
-import { Box, Text } from '../../ui';
+import { Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
 import { gentlePulse } from '../../lib/today/motion';
 import { useReducedMotion } from '../../design/animations';
@@ -60,7 +60,12 @@ export function NowSweepBar({ hasYesterdayCarryOver, onPress }: NowSweepBarProps
   }, [hasYesterdayCarryOver, scale, reducedMotion]);
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      activeOpacity={0.9}
+      testID="sweep-bar"
+    >
       <Animated.View
         style={[
           styles.button,

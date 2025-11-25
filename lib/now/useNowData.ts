@@ -19,7 +19,6 @@ import type {
 } from './nowTypes';
 import {
   getHabitWeeklyStatus,
-  isHabitNeededToday,
   getLockedItems,
   getActiveTodayItems,
   getFutureItems,
@@ -107,7 +106,6 @@ function calculateWeekStatus(
 
   const weekCompleteCount = statuses.filter((s) => s === 'week_complete').length;
   const flexibleCount = statuses.filter((s) => s === 'flexible').length;
-  const onTrackCount = statuses.filter((s) => s === 'on_track_today').length;
   const lastChanceCount = statuses.filter((s) => s === 'last_chance').length;
 
   // Ahead: majority are week_complete or flexible
@@ -163,7 +161,6 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
 
   const load = useCallback(async () => {
     if (!user) {
-      console.warn('[useNowData] No user session, returning empty data');
       const timeWindow = getTimeWindow(today);
       setData((prev) => ({
         ...prev,
@@ -175,8 +172,6 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     }
 
     try {
-      const todayIso = today.toISOString();
-
       // Fetch all data in parallel
       const [allRecords, allNotes] = await Promise.all([repo.getAll(), repo.listByType('note')]);
 

@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, fireEvent } from '../utils/renderWithProviders';
+import { renderWithProviders, screen, fireEvent, mockNavigate } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
@@ -56,6 +56,17 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
   }),
 }));
 
+// Mock SweepDrawer component
+jest.mock('../../components/today/v3/SweepDrawer', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+
+  return jest.fn(({ visible }: { visible: boolean }) => {
+    if (!visible) return null;
+    return <View testID="sweep-drawer" />;
+  });
+});
+
 describe('Mind Vault Expansion Tests', () => {
   const mockDate = new Date('2025-11-25T14:00:00');
 
@@ -67,6 +78,7 @@ describe('Mind Vault Expansion Tests', () => {
     mockOpenEdit.mockClear();
     mockOpenCreate.mockClear();
     mockClose.mockClear();
+    mockNavigate.mockClear();
 
     // Set up mock data with vault summary
     mockNowData = {
@@ -258,6 +270,20 @@ describe('Mind Vault Expansion Tests', () => {
       // Check for action buttons
       expect(screen.getByText('See all')).toBeTruthy();
       expect(screen.getByText('Collapse')).toBeTruthy();
+    });
+
+    it('navigates to Lists screen when See all is pressed', () => {
+      renderWithProviders(<NowScreenV1 />);
+
+      // Expand vault
+      fireEvent.press(screen.getByText('📚 Mind Vault'));
+
+      // Tap See all button
+      fireEvent.press(screen.getByText('See all'));
+
+      // Should navigate to Lists screen
+      expect(mockNavigate).toHaveBeenCalledWith('Lists');
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
     });
   });
 

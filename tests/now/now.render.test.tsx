@@ -35,6 +35,17 @@ jest.mock('../../hooks/useUnifiedOverlayController', () => ({
   }),
 }));
 
+// Mock SweepDrawer component
+jest.mock('../../components/today/v3/SweepDrawer', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+
+  return jest.fn(({ visible }: { visible: boolean }) => {
+    if (!visible) return null;
+    return <View testID="sweep-drawer" />;
+  });
+});
+
 describe('NowScreenV1', () => {
   beforeEach(() => {
     // Reset to default mock data with content

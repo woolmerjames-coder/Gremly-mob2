@@ -40,6 +40,17 @@ jest.mock('../../hooks/useUnifiedOverlayController', () => ({
   }),
 }));
 
+// Mock SweepDrawer component
+jest.mock('../../components/today/v3/SweepDrawer', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+
+  return jest.fn(({ visible }: { visible: boolean }) => {
+    if (!visible) return null;
+    return <View testID="sweep-drawer" />;
+  });
+});
+
 describe('NowScreenV1 Integration Tests', () => {
   const mockDate = new Date('2025-11-25T10:30:00');
 

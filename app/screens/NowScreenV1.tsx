@@ -7,6 +7,9 @@
 
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowVaultBar } from '../../components/now/NowVaultBar';
@@ -19,17 +22,20 @@ import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
+import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useNowData } from '../../lib/now/useNowData';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
 export default function NowScreenV1() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const now = useNowData();
   const overwhelm = useOverwhelmFlow();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isVaultExpanded, setVaultExpanded] = useState(false);
+  const [isSweepVisible, setSweepVisible] = useState(false);
 
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
@@ -72,7 +78,6 @@ export default function NowScreenV1() {
       // Open list in overlay as a note with subtype 'list'
       const listItem = now.vaultSummary.topThree.find((l) => l.id === listId);
       if (!listItem) {
-        console.warn('[NOW] List not found:', listId);
         return;
       }
 
@@ -89,21 +94,14 @@ export default function NowScreenV1() {
 
   // Handle sweep press
   const handleSweepPress = useCallback(() => {
-    if (now.hasYesterdayCarryOver) {
-      // Open Quick Sweep modal - reuse from Today screen
-      // TODO: Wire up Quick Sweep modal when available
-      console.log('[NOW] Opening Quick Sweep for yesterday carry-over');
-    } else {
-      // Navigate to Sweep flow screen
-      // TODO: Wire up navigation to SweepScreen
-      console.log('[NOW] Opening Sweep flow');
-    }
-  }, [now.hasYesterdayCarryOver]);
+    // Open sweep modal (same for both quick sweep and regular sweep)
+    setSweepVisible(true);
+  }, []);
 
   if (now.loading) {
     return (
       <Screen style={styles.screen}>
-        <View>{/* TODO: Add loading state */}</View>
+        <View />
       </Screen>
     );
   }
@@ -127,9 +125,7 @@ export default function NowScreenV1() {
         <NowVaultExpanded
           summary={now.vaultSummary}
           onPressList={handlePressList}
-          onSeeAll={() => {
-            /* TODO: Navigate to HubListsScreen */
-          }}
+          onSeeAll={() => navigation.navigate('Lists')}
           onCollapse={() => setVaultExpanded(false)}
         />
       )}
@@ -179,6 +175,8 @@ export default function NowScreenV1() {
         plan={overwhelm.plan}
         onExit={overwhelm.exitFocusMode}
       />
+
+      <SweepDrawer visible={isSweepVisible} onClose={() => setSweepVisible(false)} />
     </Screen>
   );
 }
