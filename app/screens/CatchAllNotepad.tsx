@@ -108,6 +108,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+import { decideMindDropAction, getChipOptions } from '../../lib/minddrop/decisionEngine';
 import { Pencil, Trash2 } from 'lucide-react-native';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 
@@ -479,6 +480,30 @@ const COPY = {
   savedUnsortedMsg: 'Saved to your Unsorted Tray — we’ll organize it together!',
 };
 
+/**
+ * Junk Guard: Detect pure gibberish/junk text that should not show Ask chips
+ *
+ * Matches the logic in lib/cortex/cortexDecide.ts isPureJunk()
+ *
+ * @param input - Raw text input from user
+ * @param bucket - Worker's bucket classification (e.g., 'unsorted', 'todo', 'habit')
+ * @param aiConfidence - Worker's confidence score (0-100)
+ * @returns true if text is pure junk that should be suppressed
+ */
+function isPureJunk(input: string, bucket?: string, aiConfidence?: number): boolean {
+  const text = (input || '').trim();
+  const wordCount = text.split(/\s+/).filter((w) => w.length > 1).length;
+  const isDotsOnly = /^[.·…]+$/.test(text);
+  const isGibberish = text.length > 0 && wordCount === 0;
+
+  const bucketLower = (bucket || '').toLowerCase();
+  const conf = aiConfidence ?? 0;
+
+  return (
+    (isDotsOnly || isGibberish || wordCount < 3) && bucketLower === 'unsorted' && conf <= 5 // worker said "ignore / junk"
+  );
+}
+
 // Thin local fallback writer for unsorted mind drops
 // Writes a single note with labels [catchall, needs_review] and a pending flag when supported
 // Adapted to our repo layer shape (uses addUnsorted if available, else create)
@@ -718,8 +743,10 @@ type UnifiedDrop = {
   optimisticKind?: 'note' | 'todo' | 'habit';
   drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
   archived?: boolean; // Track archived status to filter out converted notes
-  canonical_type?: string | null; // Canonical type from buildCanonicalFromMindDrop: 'todo', 'habit', 'log', 'journal'
+  canonical_type?: 'todo' | 'habit' | 'log' | 'unsorted' | null; // Canonical type from AI worker classification
+  subtype?: string | null; // Generic subtype from AI classification
   labels?: string[]; // Labels from backend: ['log'], ['habit'], ['todo'], ['catchall', 'needs_review'], etc.
+  journal_subtype?: 'journal' | 'idea' | 'general' | null; // Specific log subtype
   views?: any; // For ai_pending, ai_failed, and other view flags
 };
 
@@ -1005,8 +1032,8 @@ function getDisplayTagsForRecentDrop(item: UnifiedDrop): string[] {
 
 /**
  * Get display kind for Recent drops pill
- * Uses canonical_type first (from buildCanonicalFromMindDrop), then falls back to labels/subtype.
- * Ensures logs show "log" not "unsorted"
+ * Uses canonical_type first (from AI worker classification), then falls back to labels/subtype.
+ * Ensures logs show "Log" badge, not "Unsorted"
  */
 function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): string {
   const effectiveKind = item.optimisticKind ?? item.kind;
@@ -1016,25 +1043,35 @@ function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): st
     return effectiveKind;
   }
 
-  // Prefer canonical_type if available (from buildCanonicalFromMindDrop)
-  if (item.canonical_type) {
-    return item.canonical_type;
-  }
+  // CANONICAL FIELDS PRIORITY (from AI worker classification)
+  const canonical = item.canonical_type;
+  const logSubtype = item.journal_subtype;
 
-  // Check labels to detect confirmed logs/todos/habits
-  // Items with labels=['log'] should show "log", not "unsorted"
+  if (canonical === 'todo') return 'Todo';
+  if (canonical === 'habit') return 'Habit';
+  if (canonical === 'log') {
+    // Always show 'Log' as the main badge
+    // journal_subtype (#journal, #idea, #general) can be shown as a tag elsewhere if needed
+    return 'Log';
+  }
+  if (canonical === 'unsorted') return 'Unsorted';
+
+  // BACKWARDS-COMPAT FALLBACK: Check labels to detect confirmed logs/todos/habits
+  // Items with labels=['log'] should show "Log", not "Unsorted"
   if (Array.isArray(item.labels)) {
-    if (item.labels.includes('log')) return 'log';
-    if (item.labels.includes('todo')) return 'todo';
-    if (item.labels.includes('habit')) return 'habit';
+    if (item.labels.includes('log')) return 'Log';
+    if (item.labels.includes('todo')) return 'Todo';
+    if (item.labels.includes('habit')) return 'Habit';
   }
 
-  // Fallback to kindToDisplayLabel for items without canonical_type or labels
-  return kindToDisplayLabel(
-    effectiveKind,
-    effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
-    canonicalTypesOn,
-  );
+  // Final fallback: check if logSubtype indicates a log without canonical_type
+  if (logSubtype) return 'Log';
+
+  // No canonical type, no labels, no logSubtype: show based on kind or Unsorted
+  if (effectiveKind === 'todo') return 'Todo';
+  if (effectiveKind === 'habit') return 'Habit';
+
+  return 'Unsorted';
 }
 
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
@@ -1292,7 +1329,9 @@ const RecentDrops: React.FC<{
             drop_id: (n as any)?.drop_id ?? null,
             archived: n?.archived === true,
             canonical_type: (n as any)?.canonical_type ?? null,
+            subtype: (n as any)?.subtype ?? null,
             labels: Array.isArray((n as any)?.labels) ? (n as any).labels : [],
+            journal_subtype: (n as any)?.journal_subtype ?? null,
             views: (n as any)?.views ?? {},
           };
         });
@@ -2677,11 +2716,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ) {
       // Don't create a new record, just show category chips for existing unsorted note
       setLowConfidenceUnsortedId(lastUnsortedIdRef.current);
-      setCategoryChips([
-        { kind: 'todo', label: 'Add to To-Do List' },
-        { kind: 'log', label: 'Just Save It' },
-        { kind: 'habit', label: 'Start a Habit' },
-      ]);
+      // Phase 4: Use decision engine for chip ordering (default to log if no decision yet)
+      const orderedChips = getChipOptions('log');
+      setCategoryChips(
+        orderedChips.map((chip) => ({
+          kind: chip.kind,
+          label: chip.label,
+        })),
+      );
       setNote('');
       end(trace, 'duplicate_prevented', { reusingUnsortedId: lastUnsortedIdRef.current });
       return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
@@ -2712,6 +2754,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const parsedIso = hasConfidentDue && parsed ? parsed.iso : null;
 
       let decision: CortexResponse | null = null;
+      let mindDropAction: ReturnType<typeof decideMindDropAction> | null = null;
+
       try {
         const ctx: CortexContext = {
           userId: currentUserId,
@@ -2720,6 +2764,50 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           lane: 'catchall',
         };
         decision = await decideWithContext({ text: cleanedText }, ctx);
+
+        // CRITICAL DEBUG: Log final decision before any DB writes
+        console.log(
+          '[MindDrop.Decision.Debug]',
+          JSON.stringify(
+            {
+              text: cleanedText,
+              dropId,
+              decision: {
+                mode: decision.mode,
+                actions: decision.actions?.map((a: any) => ({
+                  type: a.type,
+                  payload: a.payload,
+                })),
+                confidence: decision.confidence,
+                mindDropDecision: decision.mindDropDecision
+                  ? {
+                      bucket: decision.mindDropDecision.bucket,
+                      probableKind: decision.mindDropDecision.probableKind,
+                      type: decision.mindDropDecision.type,
+                      subtype: decision.mindDropDecision.subtype,
+                      needsClarification: decision.mindDropDecision.needsClarification,
+                      aiConfidence: decision.mindDropDecision.aiConfidence,
+                    }
+                  : null,
+              },
+              canonical: decision.meta?.detectedIntent
+                ? {
+                    canonicalType: decision.meta.detectedIntent.canonicalType,
+                    canonicalAllowAutoCreate: decision.meta.detectedIntent.canonicalAllowAutoCreate,
+                    canonicalSuppressChips: decision.meta.detectedIntent.canonicalSuppressChips,
+                    canonicalConfidence: decision.meta.detectedIntent.canonicalConfidence,
+                  }
+                : null,
+              flags: {
+                canonicalTypes: env.feature.canonicalTypes,
+                canonicalConversions: env.feature.canonicalConversions,
+              },
+            },
+            null,
+            2,
+          ),
+        );
+
         step(trace, 'decide:result', {
           mode: decision.mode,
           confidence: decision.confidence,
@@ -2727,40 +2815,50 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           suggestions: Array.isArray(decision.suggestions) ? decision.suggestions.length : 0,
         });
 
-        // Development-only logging for Mind Drop AI classification
-        if (__DEV__ && decision.mindDropDecision) {
-          const trimmedText =
-            cleanedText.length > 120 ? cleanedText.slice(0, 120) + '…' : cleanedText;
-          console.log(
-            `[MindDrop AI] type=${decision.mindDropDecision.probableKind} ai_confidence=${decision.mindDropDecision.aiConfidence ?? 'null'} text="${trimmedText}"`,
-          );
-        }
-
-        // Check canonical intent before forcing chips
-        // Only show chips when:
-        // 1. needsClarification is true (ambiguous intent)
-        // 2. OR no canonical decision available (fallback to heuristic)
-        const shouldSkipChips =
-          decision.mindDropDecision &&
-          decision.mindDropDecision.probableKind === 'log' &&
-          !decision.mindDropDecision.needsClarification;
-
-        if (__DEV__ && decision.mindDropDecision) {
-          console.log('[CanonicalIntent] Chip decision:', {
-            showChips: !shouldSkipChips,
-            reason: shouldSkipChips
-              ? 'confident-log'
-              : decision.mindDropDecision.needsClarification
-                ? 'ambiguous-intent'
-                : 'heuristic-narrative-detection',
+        // Phase 4: Use centralized decision engine with bucket/type/subtype from worker
+        if (decision.mindDropDecision) {
+          const canonicalIntent = {
+            bucket: decision.mindDropDecision.bucket ?? 'unsorted',
+            type: decision.mindDropDecision.type ?? 'ignore',
+            subtype: decision.mindDropDecision.subtype,
+            confidence: decision.mindDropDecision.aiConfidence ?? decision.confidence ?? 0,
+            logSubtype: decision.mindDropDecision.logSubtype,
+            suppressChips: !decision.mindDropDecision.needsClarification,
             probableKind: decision.mindDropDecision.probableKind,
-            needsClarification: decision.mindDropDecision.needsClarification,
+          } as any;
+
+          mindDropAction = decideMindDropAction({
+            canonicalIntent,
+            text: cleanedText,
           });
+
+          // Phase 4: Comprehensive decision logging
+          console.log('[MindDrop][Phase4] Decision:', {
+            bucket: mindDropAction.bucket,
+            entityType: mindDropAction.entityType,
+            logSubtype: mindDropAction.logSubtype,
+            confidence: Math.round(mindDropAction.confidence * 100),
+            autoCreate: mindDropAction.autoCreate,
+            showChips: mindDropAction.showChips,
+            overlayAutoOpen: mindDropAction.overlayAutoOpen,
+            probableKind: mindDropAction.probableKind,
+            reason: mindDropAction.reason,
+          });
+
+          // Log unsorted frequency for monitoring
+          if (mindDropAction.bucket === 'unsorted') {
+            logMetrics('minddrop_unsorted_detected', {
+              reason: mindDropAction.reason,
+              textLength: cleanedText.length,
+              dropId,
+            });
+          }
         }
 
+        // Phase 4: Skip narrative guard if decision engine says auto-create
         // Early narrative detection guard: force category chips to prevent multiple catchall notes
-        // SKIP this guard if canonical intent says this is a clear log
-        if (classifyNarrative(cleanedText) && !shouldSkipChips) {
+        const skipNarrativeGuard = mindDropAction?.autoCreate === true;
+        if (classifyNarrative(cleanedText) && !skipNarrativeGuard) {
           // Check if we already have an unsorted note for this drop_id
           const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 
@@ -2812,11 +2910,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const savedUnsortedId = unsortedIdRef.current;
           if (savedUnsortedId) {
             setLowConfidenceUnsortedId(savedUnsortedId);
-            setCategoryChips([
-              { kind: 'todo', label: 'Add to To-Do List' },
-              { kind: 'log', label: 'Just Save It' },
-              { kind: 'habit', label: 'Start a Habit' },
-            ]);
+            // Phase 4: Use decision engine for narrative chips (bias toward log/journal)
+            const orderedChips = getChipOptions('log');
+            setCategoryChips(
+              orderedChips.map((chip) => ({
+                kind: chip.kind,
+                label: chip.label,
+              })),
+            );
             setNote('');
             triggerRecentRefresh();
             pendingUndo.current = { todos: [], notes: [], habits: [] };
@@ -2899,7 +3000,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             )
           : [];
 
-        if (shouldAutoCreate(decision) && actions.length > 0) {
+        // Phase 4: Use decision engine to determine auto-create
+        const shouldAutoCreateNow = mindDropAction?.autoCreate === true && actions.length > 0;
+
+        if (shouldAutoCreateNow) {
           // Step 1: Create unsorted note first (unified pipeline invariant)
           let unsortedNoteId: string | null = null;
 
@@ -3124,9 +3228,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         }
 
-        // AUTHORITATIVE: Show chips when decision.mode === 'ask'
-        if (decision.mode === 'ask') {
-          console.log('[MindDrop][Chips] mode=ask detected, showing category chips');
+        // Phase 4: Show chips based on decision engine (respects suppressChips)
+        if (mindDropAction?.showChips === true) {
+          console.log('[MindDrop][Chips] Decision engine says show chips');
 
           // Check if we already have an unsorted note for this drop_id
           const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
@@ -3145,7 +3249,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const canonical = await buildCanonicalFromMindDrop({
                 kind: 'log',
                 rawText: cleanedText,
-                aiTitle: undefined, // No AI title yet (Stage B will provide)
+                aiTitle: decision.mindDropDecision?.aiTitle, // Use worker title if available
                 aiTags: undefined, // Let LS1 determine tags
                 existing: undefined, // New note
               });
@@ -3204,17 +3308,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const savedUnsortedId = unsortedIdRef.current;
           const confidence = decision.confidence ?? 0;
 
-          // ALWAYS show category chips when mode='ask' (removed confidence/narrative conditions)
+          // Phase 4: Use decision engine to get ordered chips with emphasis
           if (savedUnsortedId) {
             setLowConfidenceUnsortedId(savedUnsortedId);
-            setCategoryChips([
-              { kind: 'todo', label: 'Add to To-Do List' },
-              { kind: 'log', label: 'Just Save It' },
-              { kind: 'habit', label: 'Start a Habit' },
-            ]);
-            console.log('[MindDrop][Chips] Category chips set for mode=ask', {
+            const orderedChips = getChipOptions(mindDropAction.probableKind);
+            setCategoryChips(
+              orderedChips.map((chip) => ({
+                kind: chip.kind,
+                label: chip.label,
+              })),
+            );
+            console.log('[MindDrop][Chips] Category chips set with emphasis', {
               unsortedId: savedUnsortedId,
               confidence,
+              probableKind: mindDropAction.probableKind,
+              chipOrder: orderedChips.map((c) => c.kind),
             });
             setNote('');
             triggerRecentRefresh();
@@ -3270,6 +3378,34 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           actionsCount: decision?.actions?.length ?? 0,
         });
 
+        // JUNK GUARD: Check if this is pure junk that should be suppressed
+        const bucket = decision?.mindDropDecision?.bucket;
+        const aiConfidence = decision?.mindDropDecision?.aiConfidence;
+        const isJunk = isPureJunk(cleanedText, bucket, aiConfidence);
+
+        if (isJunk) {
+          console.log('[JunkGuard.Pipeline] Pure junk detected - skipping Ask chips:', {
+            text: cleanedText.substring(0, 30),
+            bucket,
+            aiConfidence,
+          });
+
+          // For junk, return saved outcome without showing chips
+          step(trace, 'junk-suppressed', { bucket, aiConfidence });
+          end(trace, 'auto-junk-suppressed', { confidence: 0 });
+
+          setNote('');
+          triggerRecentRefresh();
+          pendingUndo.current = { todos: [], notes: [], habits: [] };
+
+          return {
+            created: { todos: [], notes: [], habits: [] },
+            createdDetails: [],
+            decisionMode: 'auto',
+            decisionConfidence: 0,
+          };
+        }
+
         // Check if we already have an unsorted note for this drop_id
         const existingUnsortedId = unsortedNotesByDropIdRef.current.get(dropId);
 
@@ -3322,11 +3458,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const savedUnsortedId = unsortedIdRef.current;
         if (savedUnsortedId) {
           setLowConfidenceUnsortedId(savedUnsortedId);
-          setCategoryChips([
-            { kind: 'todo', label: 'Add to To-Do List' },
-            { kind: 'log', label: 'Just Save It' },
-            { kind: 'habit', label: 'Start a Habit' },
-          ]);
+          // Phase 4: Use decision engine for fallback chips too
+          const fallbackProbableKind = mindDropAction?.probableKind ?? 'log';
+          const orderedChips = getChipOptions(fallbackProbableKind);
+          setCategoryChips(
+            orderedChips.map((chip) => ({
+              kind: chip.kind,
+              label: chip.label,
+            })),
+          );
           setNote('');
           triggerRecentRefresh();
           pendingUndo.current = { todos: [], notes: [], habits: [] };

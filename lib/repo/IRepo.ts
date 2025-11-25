@@ -227,9 +227,18 @@ export interface IRepo {
   ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>>;
 
   /** Recent notes/drops since ISO timestamp — used by Drop Zone summary. */
-  listRecentDrops(
-    sinceIso: string,
-  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>>;
+  listRecentDrops(sinceIso: string): Promise<
+    Array<{
+      id: ID;
+      title?: string | null;
+      body?: string | null;
+      created_at: string;
+      canonical_type?: 'todo' | 'habit' | 'log' | 'unsorted' | null;
+      subtype?: string | null;
+      labels?: string[] | null;
+      journal_subtype?: 'journal' | 'idea' | 'general' | null;
+    }>
+  >;
 
   /** Returns today's completed vs remaining summary for Sweep. */
   getTodaySummary(): Promise<{ completed: number; remaining: number }>;

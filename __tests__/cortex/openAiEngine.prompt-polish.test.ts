@@ -25,12 +25,17 @@ describe('OpenAiEngine Phase 1 prompt polish', () => {
       ok: true,
       id: 'x',
       classification: {
+        bucket: 'todo',
+        type: 'todo',
+        subtype: null,
         category: 'To-Do',
         tags: [],
         spaceName: null,
-        confidence: 0.9,
-        title: null,
+        confidence: 90,
+        title: 'Book dentist appointment tomorrow',
       },
+      aiTitle: 'Book dentist appointment tomorrow',
+      aiTagsDebug: [],
     });
     const res = await engine.classify({ text: 'Book dentist appointment tomorrow', spaceId: null });
     expect(res.type).toBe('todo');
@@ -74,12 +79,17 @@ describe('OpenAiEngine Phase 1 prompt polish', () => {
       ok: true,
       id: 'ideas',
       classification: {
+        bucket: 'log-idea',
+        type: 'log',
+        subtype: 'idea',
         category: 'To-Do',
         tags: [],
         spaceName: null,
-        confidence: 0.7,
-        title: null,
+        confidence: 70,
+        title: '',
       },
+      aiTitle: '',
+      aiTagsDebug: [],
     });
     const res = await engine.classify({ text: 'Ideas for weekend trip', spaceId: null });
     expect(res).toMatchObject({

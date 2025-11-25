@@ -61,6 +61,18 @@ export type MindDropDecision = {
   tags?: string[];
   /** Phase 11.8: AI confidence score 0-1 (normalized scale) */
   aiConfidence?: number;
+
+  /** Phase 3: Unified classifier fields (from Cloudflare Worker) */
+  /** Worker bucket: todo|habit|log-journal|log-idea|log-general|unsorted */
+  bucket?: string;
+  /** Worker type: todo|habit|log|ignore (derived from bucket) */
+  type?: string;
+  /** Worker subtype: journal|idea|general|null (for log types) */
+  subtype?: string | null;
+  /** AI-generated title from worker */
+  aiTitle?: string;
+  /** AI-generated tags from worker (for debugging) */
+  aiTagsDebug?: string[];
 };
 
 /**
@@ -163,6 +175,18 @@ export interface CortexResponse {
   engineTags?: string[];
   /** Phase 2A: Original user input text for background prefill */
   rawSentence?: string;
+
+  /** Phase 3: Unified classifier response fields (from Cloudflare Worker) */
+  /** Worker bucket classification */
+  classifierBucket?: string;
+  /** Worker type classification */
+  classifierType?: string;
+  /** Worker subtype (for logs: journal|idea|general) */
+  classifierSubtype?: string | null;
+  /** AI-generated title from classifier */
+  classifierTitle?: string;
+  /** Classifier confidence (0-100 scale) */
+  classifierConfidence?: number;
 }
 
 /**
@@ -171,6 +195,33 @@ export interface CortexResponse {
 export type DecideInput =
   | { text: string; structured?: undefined }
   | { text?: undefined; structured: Record<string, any> };
+
+/**
+ * Junk Guard: Detect pure gibberish/junk text that should not create entities or show chips
+ *
+ * Prevents "…" and other junk from entering Ask mode with category chips.
+ *
+ * Rule: if text is clearly junk AND the worker bucket is unsorted, do not show chips.
+ * Either create a silent unsorted note or skip entity creation entirely.
+ *
+ * @param input - Raw text input from user
+ * @param aiBucket - Worker's bucket classification (e.g., 'unsorted', 'todo', 'habit', 'log-journal')
+ * @param aiConfidence - Worker's confidence score (0-100)
+ * @returns true if text is pure junk that should be suppressed
+ */
+function isPureJunk(input: string, aiBucket?: string, aiConfidence?: number): boolean {
+  const text = (input || '').trim();
+  const wordCount = text.split(/\s+/).filter((w) => w.length > 1).length;
+  const isDotsOnly = /^[.·…]+$/.test(text);
+  const isGibberish = text.length > 0 && wordCount === 0;
+
+  const bucket = (aiBucket || '').toLowerCase();
+  const conf = aiConfidence ?? 0;
+
+  return (
+    (isDotsOnly || isGibberish || wordCount < 3) && bucket === 'unsorted' && conf <= 5 // worker said "ignore / junk"
+  );
+}
 
 /**
  * Build MindDropDecision from cortexDecide analysis
@@ -182,6 +233,7 @@ export type DecideInput =
  * - logSubtype: Extracted from canonicalSubtype if probableKind is 'log'
  * - tags: AI-derived tags for the entry
  * - aiConfidence: AI confidence score 0-100 (Phase 11.8)
+ * - bucket/type/subtype: Unified classifier fields from worker (Phase 3)
  *
  * @param probable - Classification from engine ('todo' | 'habit' | 'log' | 'unknown')
  * @param confidence - Confidence score [0-1]
@@ -189,6 +241,7 @@ export type DecideInput =
  * @param canonicalSubtype - Log subtype if kind is 'log'
  * @param tags - AI-derived tags
  * @param aiConfidence - AI confidence score 0-100 (optional)
+ * @param canonicalIntent - Canonical intent result with bucket/type/subtype (Phase 3)
  * @returns MindDropDecision object for unified pipeline
  */
 function buildMindDropDecision(
@@ -199,6 +252,13 @@ function buildMindDropDecision(
   tags?: string[],
   aiConfidence?: number,
   canonicalIntent?: CanonicalIntentResult,
+  classifierData?: {
+    bucket?: string;
+    type?: string;
+    subtype?: string | null;
+    title?: string;
+    aiTagsDebug?: string[];
+  },
 ): MindDropDecision {
   // Map 'unknown' to 'none' for probableKind
   let probableKind: MindDropDecision['probableKind'] = probable === 'unknown' ? 'none' : probable;
@@ -222,6 +282,12 @@ function buildMindDropDecision(
     logSubtype,
     tags: tags || [],
     aiConfidence,
+    // Phase 3: Include unified classifier fields
+    bucket: classifierData?.bucket,
+    type: classifierData?.type,
+    subtype: classifierData?.subtype,
+    aiTitle: classifierData?.title,
+    aiTagsDebug: classifierData?.aiTagsDebug,
   };
 }
 
@@ -327,6 +393,52 @@ export async function cortexDecide(
         triggered: ideaHeuristicTriggered,
       },
     });
+
+    // JUNK GUARD: Check if text is pure gibberish/junk BEFORE creating engine
+    // If junk detected, return early with reply mode and no actions
+    const isJunk = isPureJunk(userText, detected.classifierBucket, detected.aiConfidence);
+
+    if (isJunk) {
+      console.log('[JunkGuard] Pure junk detected - suppressing entity creation and chips:', {
+        text: userText.substring(0, 30),
+        bucket: detected.classifierBucket,
+        aiConfidence: detected.aiConfidence,
+      });
+
+      const junkResult: CortexResponse = {
+        ...safeResult,
+        actions: [],
+        mode: 'reply',
+        replyText: '', // No reply needed for junk
+        explanation: '',
+        suggestions: [],
+        confidence: 0,
+        rawSentence: userText,
+        meta: {
+          intent: { kind: 'none', confidence: 0 },
+          isMetaComment: false,
+        },
+        mindDropDecision: {
+          probableKind: 'none',
+          confidence: 0,
+          needsClarification: false,
+          bucket: 'unsorted',
+          type: 'ignore',
+          subtype: null,
+          aiConfidence: detected.aiConfidence,
+        },
+      };
+
+      console.log('[cortexDecide][final]', {
+        mode: junkResult.mode,
+        confidence: junkResult.confidence,
+        actions: [],
+        explanationLen: 0,
+        junkGuardTriggered: true,
+      });
+
+      return junkResult;
+    }
 
     // Create engine instance
     const engine = createCortexEngine();
@@ -445,7 +557,12 @@ export async function cortexDecide(
       // Map high-confidence intents to actions when engine is disabled/unavailable
       // NEVER create actions when suppressChips is true (meta-comments/questions)
       const title = (detected as any).title || engineInput.text;
-      if (detected.kind === 'note') {
+
+      // CRITICAL FIX: Use canonical type if available, otherwise fall back to detected.kind
+      // The canonical type is the source of truth from the unified classifier
+      const effectiveKind = detected.canonicalType || detected.kind;
+
+      if (effectiveKind === 'log' || detected.kind === 'note') {
         normalized = {
           actions: [
             {
@@ -455,9 +572,9 @@ export async function cortexDecide(
           ],
           confidence: detected.confidence,
           canonicalType: 'log',
-          canonicalSubtype: 'everything_else',
+          canonicalSubtype: 'general', // Phase 3: Map everything_else → general
         };
-      } else if (detected.kind === 'todo') {
+      } else if (effectiveKind === 'todo' || detected.kind === 'todo') {
         normalized = {
           actions: [
             {
@@ -468,7 +585,7 @@ export async function cortexDecide(
           confidence: detected.confidence,
           canonicalType: 'todo',
         };
-      } else if (detected.kind === 'habit') {
+      } else if (effectiveKind === 'habit' || detected.kind === 'habit') {
         normalized = {
           actions: [
             {
@@ -559,19 +676,40 @@ export async function cortexDecide(
     const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
 
-    // Phase 11.9: Resolve canonical intent to determine auto-create vs chips
-    // Use canonical resolver to decide if we should auto-create or show chips
-    const canonicalIntent = resolveCanonicalIntent({
-      ruleKind: detected.kind,
-      ruleConfidence: detectorConfidence,
-      aiCategory: normalized.canonicalType || probable,
-      // When AI classification is available, use aiConfidence (0-100 scale)
-      // When not available, use detector confidence as proxy for AI confidence
-      aiConfidence: detected.aiConfidence
-        ? detected.aiConfidence / 100 // AI confidence in 0-100 scale, normalize to 0-1
-        : detectorConfidence, // Use detector confidence directly (already 0-1 scale)
-      text: userText,
-    });
+    // Phase 3.2: Use canonical intent from detected (already computed in classifyIntentWithAI)
+    // CRITICAL: Do NOT call resolveCanonicalIntent again - it was already called in classifyIntentWithAI
+    // and stored in detected.canonical* fields. Calling it again with different parameters causes
+    // the bug where "Meditate every morning" becomes a log instead of a habit.
+    const canonicalIntent = detected.canonicalType
+      ? {
+          type: detected.canonicalType,
+          allowAutoCreate: detected.canonicalAllowAutoCreate ?? false,
+          suppressChips: detected.canonicalSuppressChips ?? false,
+          confidence: detected.canonicalConfidence ?? detected.confidence,
+          reasoning: detected.canonicalReasoning ?? 'Canonical intent from classifier',
+          // Include other fields for compatibility
+          bucket: detected.classifierBucket ?? 'unsorted',
+          logSubtype: detected.classifierSubtype as 'journal' | 'idea' | 'general' | null,
+          probableKind:
+            detected.classifierType === 'todo'
+              ? ('todo' as const)
+              : detected.classifierType === 'habit'
+                ? ('habit' as const)
+                : detected.classifierType === 'log'
+                  ? ('log' as const)
+                  : ('none' as const),
+          // Optional fields that may not be present
+          mode: undefined as 'auto' | 'ask' | undefined,
+          chipDecision: undefined,
+        }
+      : // Fallback: If no canonical type (e.g., not using AI), call resolveCanonicalIntent
+        resolveCanonicalIntent({
+          ruleKind: detected.kind,
+          ruleConfidence: detectorConfidence,
+          aiCategory: normalized.canonicalType || probable,
+          aiConfidence: detected.aiConfidence ? detected.aiConfidence / 100 : detectorConfidence,
+          text: userText,
+        });
 
     if (__DEV__) {
       console.log('[CanonicalIntent]', {
@@ -625,14 +763,12 @@ export async function cortexDecide(
 
     // Step 2: Build actions based on canonical type if we're auto-creating
     if (shouldAutoCreateFromCanonical) {
-      // Use engineTypeOverride to respect high-confidence engine classifications
-      const effectiveType = engineConfidenceHigh ? engineTypeOverride : canonicalIntent.type;
+      // Use canonical type directly - this is the source of truth
+      const effectiveType = canonicalIntent.type;
 
-      // Ensure we have the right action for the canonical type
-      if (
-        effectiveType === 'todo' &&
-        !effectiveCandidateActions.some((a) => a.type === 'create.todo')
-      ) {
+      // CRITICAL FIX: Replace all actions with the correct action for canonical type
+      // Don't append - REPLACE to ensure habits create habits, not notes
+      if (effectiveType === 'todo') {
         effectiveCandidateActions = [
           {
             type: 'create.todo' as const,
@@ -641,12 +777,8 @@ export async function cortexDecide(
               spaceId: null,
             },
           },
-          ...effectiveCandidateActions,
         ];
-      } else if (
-        effectiveType === 'habit' &&
-        !effectiveCandidateActions.some((a) => a.type === 'create.habit')
-      ) {
+      } else if (effectiveType === 'habit') {
         effectiveCandidateActions = [
           {
             type: 'create.habit' as const,
@@ -656,12 +788,8 @@ export async function cortexDecide(
               spaceId: null,
             },
           },
-          ...effectiveCandidateActions,
         ];
-      } else if (
-        effectiveType === 'log' &&
-        !effectiveCandidateActions.some((a) => a.type === 'create.note')
-      ) {
+      } else if (effectiveType === 'log') {
         effectiveCandidateActions = [
           {
             type: 'create.note' as const,
@@ -671,8 +799,10 @@ export async function cortexDecide(
               spaceId: null,
             },
           },
-          ...effectiveCandidateActions,
         ];
+      } else if (effectiveType === 'ignore') {
+        // For ignore type, clear all actions
+        effectiveCandidateActions = [];
       }
       mode = 'auto';
     } else {
@@ -911,6 +1041,18 @@ export async function cortexDecide(
     // Build unified Mind Drop decision for new pipeline
     // Phase 11.8: Pass through AI confidence from intent detection (normalized to 0-1 scale)
     // Pass canonicalIntent to ensure probableKind and needsClarification are correctly set
+    // Phase 4: Pass through unified classifier data (bucket/type/subtype/title/tags)
+    const classifierData = detected.classifierBucket
+      ? {
+          bucket: detected.classifierBucket,
+          type: detected.classifierType!,
+          subtype: detected.classifierSubtype ?? null,
+          title: detected.classifierTitle!,
+          tags: detected.classifierTags ?? [],
+          confidence: detected.aiConfidence ?? 0,
+        }
+      : undefined;
+
     const mindDropDecision = buildMindDropDecision(
       probable,
       confidence,
@@ -919,6 +1061,7 @@ export async function cortexDecide(
       engineTags,
       detected.aiConfidence, // Phase 11.8: AI confidence 0-1 scale
       canonicalIntent, // Pass canonicalIntent for probableKind and needsClarification
+      classifierData, // Phase 4: Pass unified classifier data
     );
 
     const result: CortexResponse = {
@@ -930,6 +1073,12 @@ export async function cortexDecide(
       mode,
       mindDropDecision, // New unified decision structure
       rawSentence: userText, // Phase 2A: Original user input for background prefill
+      // Phase 4: Populate classifier fields from detected intent
+      classifierBucket: detected.classifierBucket,
+      classifierType: detected.classifierType,
+      classifierSubtype: detected.classifierSubtype,
+      classifierTitle: detected.classifierTitle,
+      classifierConfidence: detected.aiConfidence,
       meta: {
         intent: { kind: detected.kind, confidence: detected.confidence },
         showedChip:
@@ -1207,7 +1356,7 @@ function canonicalFromAction(action: CortexAction | undefined): {
         case 'idea':
           return { canonicalType: 'log', canonicalSubtype: subtype };
         case 'reference':
-          return { canonicalType: 'log', canonicalSubtype: 'everything_else' };
+          return { canonicalType: 'log', canonicalSubtype: 'general' }; // Phase 3: Map everything_else → general
         case 'catchall':
         default:
           return { canonicalType: 'unsorted', canonicalSubtype: null };
@@ -1285,7 +1434,7 @@ function normalizeEngineOutput(
         break;
       case 'person':
         canonicalType = 'log';
-        canonicalSubtype = 'person';
+        canonicalSubtype = 'general'; // Phase 3: Map person → general
         break;
       case 'catchall':
       case '':
@@ -1294,7 +1443,7 @@ function normalizeEngineOutput(
         break;
       default:
         canonicalType = 'log';
-        canonicalSubtype = 'everything_else';
+        canonicalSubtype = 'general'; // Phase 3: Map everything_else → general
         break;
     }
   }

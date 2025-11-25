@@ -232,13 +232,21 @@ export const convertTodoToLogList = async (
  *
  * @param repo - Repository instance
  * @param noteId - ID of the unsorted note to convert
- * @param options - Conversion options (due date, name override)
+ * @param options - Conversion options (due date, name override, classifier fields)
  * @returns Object containing the created todo and updated note
  */
 export const convertUnsortedToTodo = async (
   repo: IRepo,
   noteId: string,
-  options: { due?: string | null; nameOverride?: string } = {},
+  options: {
+    due?: string | null;
+    nameOverride?: string;
+    classifierBucket?: string;
+    classifierType?: string;
+    classifierSubtype?: string | null;
+    classifierTitle?: string;
+    classifierConfidence?: number;
+  } = {},
 ): Promise<{ todo: Todo; updatedNote: Note }> => {
   logConversionStart({ from: 'unsorted', to: 'todo', originId: noteId });
 
@@ -261,6 +269,12 @@ export const convertUnsortedToTodo = async (
       aiTitle: undefined, // Stage A doesn't use AI title yet
       aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined, // Reuse existing tags if available
       existing: note, // Pass existing note to preserve tags_meta
+      // Phase 4: Pass classifier fields from Mind Drop pipeline
+      classifierBucket: options.classifierBucket,
+      classifierType: options.classifierType,
+      classifierSubtype: options.classifierSubtype,
+      classifierTitle: options.classifierTitle,
+      classifierConfidence: options.classifierConfidence,
     });
 
     // Use canonical payload for all fields
@@ -451,13 +465,21 @@ export const convertUnsortedToLog = async (
  *
  * @param repo - Repository instance
  * @param noteId - ID of the unsorted note to convert
- * @param options - Conversion options (frequency, name override)
+ * @param options - Conversion options (frequency, name override, classifier fields)
  * @returns Object containing the created habit and updated note
  */
 export const convertUnsortedToHabit = async (
   repo: IRepo,
   noteId: string,
-  options: { frequency?: string; nameOverride?: string } = {},
+  options: {
+    frequency?: string;
+    nameOverride?: string;
+    classifierBucket?: string;
+    classifierType?: string;
+    classifierSubtype?: string | null;
+    classifierTitle?: string;
+    classifierConfidence?: number;
+  } = {},
 ): Promise<{ habit: Habit; updatedNote: Note }> => {
   logConversionStart({ from: 'unsorted', to: 'habit', originId: noteId });
 
@@ -480,6 +502,12 @@ export const convertUnsortedToHabit = async (
       aiTitle: undefined, // Stage A doesn't use AI title yet
       aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined, // Reuse existing tags if available
       existing: note, // Pass existing note to preserve tags_meta
+      // Phase 4: Pass classifier fields from Mind Drop pipeline
+      classifierBucket: options.classifierBucket,
+      classifierType: options.classifierType,
+      classifierSubtype: options.classifierSubtype,
+      classifierTitle: options.classifierTitle,
+      classifierConfidence: options.classifierConfidence,
     });
 
     // Use canonical payload for all fields

@@ -46,6 +46,13 @@ export interface BuildCanonicalInput {
   aiTitle?: string; // Optional AI-generated title from Phase 2A background prefill
   aiTags?: string[]; // Optional system tags (e.g., *journal marker) - user tags owned by UnifiedOverlayV2
   existing?: Record<string, any>; // Optional existing entity for edits
+
+  /** Phase 3: Unified classifier fields (from worker) */
+  classifierBucket?: string; // todo|habit|log-journal|log-idea|log-general|unsorted
+  classifierType?: string; // todo|habit|log|ignore
+  classifierSubtype?: string | null; // journal|idea|general|null
+  classifierTitle?: string; // AI-generated title from worker
+  classifierConfidence?: number; // 0-100 scale
 }
 
 export interface CanonicalPayload {
@@ -356,34 +363,53 @@ async function buildCleanedTags(
 export async function buildCanonicalFromMindDrop(
   input: BuildCanonicalInput,
 ): Promise<CanonicalPayload> {
-  const { kind, rawText, aiTitle, aiTags, existing } = input;
+  const { kind, rawText, aiTitle, aiTags, existing, classifierTitle, classifierSubtype } = input;
 
   const trimmedRawText = rawText.trim();
 
   // Extract tags using AI with domain-specific filtering
   const existingTagsForLogs = existing?.tags ?? [];
 
+  // Prefer classifier title over legacy aiTitle
+  const effectiveAiTitle = classifierTitle || aiTitle;
+
   // Type-specific field mapping
   switch (kind) {
     case 'log': {
-      // For logs: Use AI title if available, otherwise raw text
-      const title = compactTitle(trimmedRawText, aiTitle);
+      // For logs: Use AI title from classifier if available, otherwise raw text
+      const title = compactTitle(trimmedRawText, effectiveAiTitle);
 
-      // LS2: Classify log subtype using LS1 pure classifier
-      const logSubtypeSignal = classifyLogSubtype(trimmedRawText);
-      const subtype: NoteSubtype = getEffectiveLogSubtype(trimmedRawText);
+      // Phase 3: Prefer classifier subtype from unified worker over legacy LS1 classification
+      let subtype: NoteSubtype;
+      if (classifierSubtype !== undefined) {
+        // Map worker subtype to NoteSubtype
+        if (classifierSubtype === 'journal') {
+          subtype = 'journal';
+        } else if (classifierSubtype === 'idea') {
+          subtype = 'idea';
+        } else if (classifierSubtype === 'general') {
+          subtype = 'general'; // Phase 3: Map log-general to 'general' subtype (not catchall)
+        } else {
+          // Fallback to LS1 classification for unknown subtypes
+          subtype = getEffectiveLogSubtype(trimmedRawText);
+        }
+      } else {
+        // LS2: Classify log subtype using LS1 pure classifier (legacy path)
+        const logSubtypeSignal = classifyLogSubtype(trimmedRawText);
+        subtype = getEffectiveLogSubtype(trimmedRawText);
 
-      // DEBUG: LS2 Stage A - Log subtype classification
-      console.log('[MindDrop.StageA.LS2]', {
-        scope: 'MindDrop.StageA.LS2',
-        textPreview: trimmedRawText.slice(0, 100),
-        ls1Subtype: logSubtypeSignal.subtype,
-        journalConfidence: logSubtypeSignal.journalConfidence,
-        ideaConfidence: logSubtypeSignal.ideaConfidence,
-        journalReasons: logSubtypeSignal.debug.journalReasons,
-        ideaReasons: logSubtypeSignal.debug.ideaReasons,
-        noteSubtype: subtype,
-      });
+        // DEBUG: LS2 Stage A - Log subtype classification
+        console.log('[MindDrop.StageA.LS2]', {
+          scope: 'MindDrop.StageA.LS2',
+          textPreview: trimmedRawText.slice(0, 100),
+          ls1Subtype: logSubtypeSignal.subtype,
+          journalConfidence: logSubtypeSignal.journalConfidence,
+          ideaConfidence: logSubtypeSignal.ideaConfidence,
+          journalReasons: logSubtypeSignal.debug.journalReasons,
+          ideaReasons: logSubtypeSignal.debug.ideaReasons,
+          noteSubtype: subtype,
+        });
+      }
 
       // Phase 7 Lists: Detect list as an attribute, not a subtype
       const hasListStructure = hasListLikeStructure(trimmedRawText);
@@ -415,8 +441,8 @@ export async function buildCanonicalFromMindDrop(
     }
 
     case 'todo': {
-      // For todos: Use normalizeTodoTitle for proper title extraction (first line, temporal preservation)
-      const title = normalizeTodoTitle(trimmedRawText, aiTitle);
+      // For todos: Use normalizeTodoTitle with classifier title preference
+      const title = normalizeTodoTitle(trimmedRawText, effectiveAiTitle);
 
       // Phase 7 Lists: Detect list as an attribute
       const hasListStructure = hasListLikeStructure(trimmedRawText);
@@ -443,10 +469,10 @@ export async function buildCanonicalFromMindDrop(
     }
 
     case 'habit': {
-      // For habits: Extract first line for name, use AI title if available
+      // For habits: Extract first line for name, prefer classifier title
       let title: string;
-      if (aiTitle) {
-        title = aiTitle.trim();
+      if (effectiveAiTitle) {
+        title = effectiveAiTitle.trim();
       } else {
         // Extract first line for habit name (like todos)
         const firstLine = trimmedRawText.split('\n')[0].trim();

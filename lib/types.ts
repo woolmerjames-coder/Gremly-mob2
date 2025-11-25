@@ -8,7 +8,8 @@ import type { ListItem } from './lists/types';
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
 // Phase 7: 'list' is deprecated (now use has_list attribute instead)
-export type NoteSubtype = 'journal' | 'catchall' | 'idea' | 'reference' | 'list';
+// Phase 3: Added 'general' as canonical subtype (worker bucket='log-general')
+export type NoteSubtype = 'journal' | 'idea' | 'general' | 'catchall' | 'reference' | 'list';
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
 // Phase 7: LogSubtype is now defined in lib/cortex/classifyLogSubtype.ts

@@ -67,11 +67,9 @@ export async function extractTagsAI(text: string): Promise<string[]> {
   }
 
   try {
+    // The Cloudflare worker extracts tags as part of its master classifier spec
     const result = await callClassify({
-      messages: [
-        { role: 'system', content: TAG_EXTRACTION_PROMPT },
-        { role: 'user', content: text.slice(0, 500) }, // Limit to 500 chars
-      ],
+      text: text.slice(0, 500), // Limit to 500 chars
       timeoutMs: 3000, // 3 second timeout
     });
 

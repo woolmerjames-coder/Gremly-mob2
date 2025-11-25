@@ -1,7 +1,30 @@
 /**
  * Sacred Golden Test Suite for Master Classifier Spec
  *
- * These tests define the canonical behavior of Mind Drop classification.
+ * UNIFIED CLASSIFIER SPEC (Phase 3):
+ * ===================================
+ * PRIMARY CLASSIFIER: Cloudflare Worker (gentle-thunder-5854.woolmerjames.workers.dev)
+ * Returns: bucket/type/subtype/confidence/title/tags
+ *
+ * THESE TESTS: Rule-based FALLBACK classifier (used when worker unavailable or low confidence < 40%)
+ *
+ * The functions tested here (isTodoLike, isHabitLike, looksLikeJournal, etc.) provide:
+ * - Deterministic fallback when worker is down or returns errors
+ * - Lightweight validation patterns for edge cases
+ * - NOT the primary classification path in production
+ *
+ * WORKER OUTPUT (Primary) vs THESE RULES (Fallback):
+ * - Worker returns: bucket="log-journal" → type="log", subtype="journal"
+ * - These rules return: MasterCategory="log_journal" (legacy string format)
+ * - Mapping: log_journal → bucket=log-journal, log_idea → bucket=log-idea, etc.
+ *
+ * SACRED RULES (enforced in both worker AND these fallback rules):
+ * - "unsorted" is RARE (0-3% of drops) - only true junk/gibberish
+ * - Meaningful text → one of: todo, habit, log-journal, log-idea, log-general
+ * - Heavy bias to log-general for anything with real words
+ *
+ * These tests define the canonical FALLBACK behavior when worker is unavailable.
+ * Changes to worker prompt should align with these patterns where possible.
  * Changes to these tests should be treated as spec changes and reviewed carefully.
  *
  * Phase 0: Establishes the golden truth without changing existing runtime behavior.

@@ -578,6 +578,171 @@ describe.skip('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
     });
   });
 
+  describe('Phase 3.2 + Phase 4: Canonical Intent Regression Tests', () => {
+    /**
+     * Regression test for the bug where high-confidence habits were:
+     * - Classified as bucket="habit", type="habit" by the Cloudflare Worker
+     * - But cortexDecide generated actions: ["create.note"] instead of ["create.habit"]
+     *
+     * Root cause: cortexDecide was using detected.kind (rule-based heuristic)
+     * instead of detected.canonicalType (worker classification) when building actions.
+     *
+     * Fixed in: CORTEX_DECIDE_ACTION_FIX.md
+     */
+    it('should create habit entity for high-confidence recurring habit (Meditate every morning)', async () => {
+      const text = 'Meditate every morning';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Debug logging to help diagnose issues
+      console.log('[HABIT REGRESSION TEST]', {
+        text,
+        mode: decision.mode,
+        actions: decision.actions.map((a) => a.type),
+        mindDropDecision: decision.mindDropDecision
+          ? {
+              bucket: decision.mindDropDecision.bucket,
+              type: decision.mindDropDecision.type,
+              entityType: decision.mindDropDecision.entityType,
+              confidence: decision.mindDropDecision.aiConfidence,
+            }
+          : null,
+        meta: decision.meta,
+      });
+
+      // Should auto-create (high confidence habit)
+      expect(decision.mode).toBe('auto');
+      expect(decision.actions.length).toBeGreaterThan(0);
+
+      // Critical assertions: Verify canonical intent is respected
+      if (decision.mindDropDecision) {
+        // Worker classification should be habit
+        expect(decision.mindDropDecision.bucket).toBe('habit');
+        expect(decision.mindDropDecision.type).toBe('habit');
+        expect(decision.mindDropDecision.entityType).toBe('habit');
+      }
+
+      // Actions should contain create.habit (NOT create.note)
+      const actionTypes = decision.actions.map((a) => a.type);
+      expect(actionTypes).toContain('create.habit');
+      expect(actionTypes).not.toContain('create.note');
+
+      // First action should be create.habit
+      expect(decision.actions[0].type).toBe('create.habit');
+
+      // Meta should have canonical type set
+      if (decision.meta?.canonicalType) {
+        expect(decision.meta.canonicalType).toBe('habit');
+      }
+    });
+
+    it('should create habit entity for frequency-based habit (Run 5km every Saturday)', async () => {
+      const text = 'Run 5km every Saturday';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should auto-create (high confidence habit)
+      expect(decision.mode).toBe('auto');
+      expect(decision.actions.length).toBeGreaterThan(0);
+
+      // Verify habit classification
+      if (decision.mindDropDecision) {
+        expect(decision.mindDropDecision.bucket).toBe('habit');
+        expect(decision.mindDropDecision.type).toBe('habit');
+        expect(decision.mindDropDecision.entityType).toBe('habit');
+      }
+
+      // Actions should be create.habit, not create.note
+      const actionTypes = decision.actions.map((a) => a.type);
+      expect(actionTypes).toContain('create.habit');
+      expect(actionTypes).not.toContain('create.note');
+      expect(decision.actions[0].type).toBe('create.habit');
+    });
+
+    it('should create habit entity for weekly habit (Yoga 3 times a week)', async () => {
+      const text = 'Yoga 3 times a week';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should auto-create (high confidence habit with frequency signal)
+      expect(decision.mode).toBe('auto');
+      expect(decision.actions.length).toBeGreaterThan(0);
+
+      // Verify habit classification (not todo or log)
+      const actionTypes = decision.actions.map((a) => a.type);
+      expect(actionTypes).toContain('create.habit');
+      expect(actionTypes).not.toContain('create.note');
+      expect(actionTypes).not.toContain('create.todo');
+    });
+
+    it('should NOT misclassify journal log as habit', async () => {
+      const text = 'Feeling overwhelmed with work today';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should classify as log (journal subtype)
+      if (decision.mode === 'auto' && decision.actions.length > 0) {
+        const firstAction = decision.actions[0];
+
+        // Should be create.note (log), not create.habit
+        expect(firstAction.type).toBe('create.note');
+
+        // Should have journal subtype
+        if (decision.mindDropDecision) {
+          expect(decision.mindDropDecision.type).toBe('log');
+          expect(['journal', 'general']).toContain(decision.mindDropDecision.subtype || '');
+        }
+      }
+    });
+
+    it('should use canonical type over rule-based kind when they conflict', async () => {
+      // This tests the fallback logic: canonicalType takes precedence over detected.kind
+      const text = 'Practice guitar daily';
+
+      const context: CortexContext = {
+        userId: 'test-user',
+        uiSurface: 'catchall',
+      };
+
+      const decision = await cortexDecide({ text }, context);
+
+      // Should auto-create habit (has recurring pattern "daily")
+      expect(decision.mode).toBe('auto');
+      expect(decision.actions.length).toBeGreaterThan(0);
+
+      // Even if rule-based heuristics suggested something else,
+      // the worker's canonical classification should win
+      const actionTypes = decision.actions.map((a) => a.type);
+      expect(['create.habit', 'create.todo']).toContain(decision.actions[0].type);
+
+      // Should NOT default to create.note for clear recurring patterns
+      if (decision.mindDropDecision?.type === 'habit') {
+        expect(actionTypes).toContain('create.habit');
+        expect(actionTypes).not.toContain('create.note');
+      }
+    });
+  });
+
   describe('Phase 7 Lists: Stage A list detection in full pipeline', () => {
     // Lists are now modeled as has_list + list_items; Stage A must detect list-like inputs
     // and populate these fields while keeping the main type decision intact.

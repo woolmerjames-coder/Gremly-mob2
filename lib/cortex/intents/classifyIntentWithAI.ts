@@ -19,8 +19,9 @@ import { resolveCanonicalIntent, type CanonicalType } from './canonicalIntent';
 /**
  * AI Classification Prompt
  *
- * Instructs the AI to classify user input and return a confidence score
- * based on explicit scoring rules.
+ * NOTE: This prompt is now DEPRECATED and no longer used by the Cloudflare Worker.
+ * The worker uses its own master classifier spec with bucket/type/subtype.
+ * This is kept for backward compatibility with old OpenAI fallback path only.
  */
 const AI_CLASSIFICATION_PROMPT = `You are an intent classifier for a productivity app. Analyze user input and determine:
 1. The intent type (todo, habit, log, or ignore)
@@ -166,11 +167,9 @@ export async function classifyIntentWithAI(
 
   try {
     // Call AI classifier with full text (no truncation for better accuracy)
+    // The Cloudflare worker applies its own master classifier prompt
     const result = await callClassify({
-      messages: [
-        { role: 'system', content: AI_CLASSIFICATION_PROMPT },
-        { role: 'user', content: text }, // Pass full text, not truncated
-      ],
+      text, // Pass full text - worker will apply master classifier spec
       timeoutMs,
     });
 
@@ -185,43 +184,84 @@ export async function classifyIntentWithAI(
       return fallback;
     }
 
-    // Parse AI response
-    const raw = result.classification;
+    // Parse AI response using new unified classifier response
+    const classification = result.classification;
+
     if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-      console.log('[classifyIntentWithAI] AI raw response:', {
-        category: raw.category,
-        confidence: raw.confidence,
+      console.log('[classifyIntentWithAI] AI response:', {
+        bucket: classification.bucket,
+        type: classification.type,
+        subtype: classification.subtype,
+        confidence: classification.confidence,
+        title: classification.title,
+        tags: classification.tags,
       });
     }
 
-    // Try to parse as JSON if category is a JSON string
-    let parsed: any = raw;
-    if (typeof raw.category === 'string') {
-      try {
-        const maybeJson = JSON.parse(raw.category);
-        if (typeof maybeJson === 'object' && maybeJson !== null) {
-          parsed = maybeJson;
+    // Extract bucket/type/subtype from unified response (confidence is 0-100)
+    // Backward compatibility: if bucket/type/subtype are missing, derive from category
+    let bucket = classification.bucket;
+    let type = classification.type;
+    let subtype = classification.subtype;
+    const classifierTitle = classification.title;
+    const classifierTags = classification.tags;
+
+    // BACKWARD COMPATIBILITY: Handle old test mocks that only have 'category'
+    if (!bucket && classification.category) {
+      // Try to parse category as JSON (old OpenAI format)
+      let parsed: any = classification;
+      if (typeof classification.category === 'string') {
+        try {
+          const maybeJson = JSON.parse(classification.category);
+          if (typeof maybeJson === 'object' && maybeJson !== null) {
+            parsed = maybeJson;
+          }
+        } catch {
+          // Not JSON, treat category as simple string
         }
-      } catch {
-        // Not JSON, treat raw.category as type string
-        parsed = { type: raw.category, confidence: raw.confidence };
+      }
+
+      // Extract type from parsed JSON or use category directly
+      const rawType = parsed.type ?? parsed.category ?? classification.category;
+      const category = String(rawType).toLowerCase();
+
+      if (category === 'todo') {
+        bucket = 'todo';
+        type = 'todo';
+        subtype = null;
+      } else if (category === 'habit') {
+        bucket = 'habit';
+        type = 'habit';
+        subtype = null;
+      } else if (category === 'log' || category === 'note') {
+        bucket = 'log-general';
+        type = 'log';
+        subtype = 'general';
+      } else if (category === 'ignore') {
+        bucket = 'unsorted';
+        type = 'ignore';
+        subtype = null;
+      } else {
+        bucket = 'log-general';
+        type = 'log';
+        subtype = 'general';
       }
     }
 
-    // Extract type from AI response - prefer 'type' field, fall back to 'category' for backward compat
-    const rawType = parsed.type ?? parsed.category;
+    const aiConfidence = parseConfidence(classification.confidence);
 
-    // Parse and validate confidence
-    const aiConfidence = parseConfidence(parsed.confidence);
-
-    // Use canonical intent resolver for unified decision logic
+    // Use canonical intent resolver with new unified classifier response
     const canonical = resolveCanonicalIntent({
       ruleKind: fallback.kind,
       ruleConfidence: fallback.confidence,
-      aiCategory: rawType,
-      aiConfidence: (aiConfidence ?? 0) / 100, // Normalize to 0-1 scale
+      aiBucket: bucket,
+      aiType: type,
+      aiSubtype: subtype,
+      aiConfidence: (aiConfidence ?? 0) / 100, // Normalize to 0-1 scale for canonical resolver
       text,
-    }); // Map canonical type back to IntentKind
+    });
+
+    // Map canonical type back to IntentKind
     const finalKind = CANONICAL_TO_INTENT_KIND[canonical.type];
 
     // Build result with canonical classification
@@ -232,6 +272,18 @@ export async function classifyIntentWithAI(
       aiConfidence, // Keep raw 0-100 score
       suppressChips: canonical.suppressChips,
       title: text,
+      // Phase 4: Pass through unified classifier fields
+      classifierBucket: bucket,
+      classifierType: type,
+      classifierSubtype: subtype,
+      classifierTitle,
+      classifierTags,
+      // Phase 3.2: Store canonical result to avoid recomputing in cortexDecide
+      canonicalType: canonical.type,
+      canonicalAllowAutoCreate: canonical.allowAutoCreate,
+      canonicalSuppressChips: canonical.suppressChips,
+      canonicalConfidence: canonical.confidence,
+      canonicalReasoning: canonical.reasoning,
     };
 
     // Development-only logging for Mind Drop AI classification

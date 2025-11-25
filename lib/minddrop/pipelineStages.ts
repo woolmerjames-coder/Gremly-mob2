@@ -289,8 +289,25 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
       const due = firstAction.payload.due ?? parsedDue ?? null;
       const result = await convertUnsortedToTodo(repo, unsortedNoteId, {
         due,
+        // Phase 4: Pass classifier fields from decision.mindDropDecision
+        classifierBucket: decision.mindDropDecision?.bucket,
+        classifierType: decision.mindDropDecision?.type,
+        classifierSubtype: decision.mindDropDecision?.subtype,
+        classifierTitle: decision.mindDropDecision?.aiTitle,
+        classifierConfidence: decision.mindDropDecision?.aiConfidence,
       });
       createdTodo = result.todo;
+
+      // DEBUG: Stage A persistence - log canonical fields for todos (consistent with notes/habits)
+      console.log('[MindDrop.StageA.Persist]', {
+        scope: 'MindDrop.StageA.Persist',
+        dropId,
+        todoId: createdTodo.id,
+        canonicalType: 'todo',
+        dueDate: createdTodo.due_date,
+        labels: createdTodo.labels,
+        tags: (createdTodo.tags ?? []).slice(0, 5), // First 5 tags to avoid clutter
+      });
 
       // Mark classification complete (success transition)
       await repo.update({
@@ -373,8 +390,25 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
       const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
       const result = await convertUnsortedToHabit(repo, unsortedNoteId, {
         frequency,
+        // Phase 4: Pass classifier fields from decision.mindDropDecision
+        classifierBucket: decision.mindDropDecision?.bucket,
+        classifierType: decision.mindDropDecision?.type,
+        classifierSubtype: decision.mindDropDecision?.subtype,
+        classifierTitle: decision.mindDropDecision?.aiTitle,
+        classifierConfidence: decision.mindDropDecision?.aiConfidence,
       });
       createdHabit = result.habit;
+
+      // DEBUG: Stage A persistence - log canonical fields for habits (consistent with notes)
+      console.log('[MindDrop.StageA.Persist]', {
+        scope: 'MindDrop.StageA.Persist',
+        dropId,
+        habitId: createdHabit.id,
+        canonicalType: 'habit',
+        frequency: createdHabit.frequency,
+        labels: createdHabit.labels,
+        tags: (createdHabit.tags ?? []).slice(0, 5), // First 5 tags to avoid clutter
+      });
 
       // Mark classification complete (success transition)
       await repo.update({
@@ -611,6 +645,12 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
           aiTitle: undefined, // Stage A doesn't use AI title yet
           aiTags: note.tags && note.tags.length > 0 ? note.tags : undefined, // Reuse existing tags if available
           existing: note, // Pass existing note to preserve tags_meta
+          // Phase 4: Pass classifier fields from decision.mindDropDecision
+          classifierBucket: decision.mindDropDecision?.bucket,
+          classifierType: decision.mindDropDecision?.type,
+          classifierSubtype: decision.mindDropDecision?.subtype,
+          classifierTitle: decision.mindDropDecision?.aiTitle,
+          classifierConfidence: decision.mindDropDecision?.aiConfidence,
         });
 
         // Update note with canonical fields
@@ -624,6 +664,8 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
             subtype: canonical.subtype as NoteSubtype | null,
             has_list: canonical.has_list,
             list_items: canonical.list_items,
+            canonical_type: canonical.canonicalType, // ✨ PERSISTENCE FIX: Save canonical type to database
+            labels: canonical.labels, // ✨ PERSISTENCE FIX: Save labels (includes 'log' for logs)
             views: {
               ...(note.views ?? {}),
               minddrop_stage: 'classified',

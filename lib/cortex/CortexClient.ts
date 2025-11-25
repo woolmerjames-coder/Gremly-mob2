@@ -272,36 +272,72 @@ export async function callComplete(
 }
 
 /**
- * Classification result from Cloudflare Worker
+ * Unified Mind Drop Classifier - Worker Response Types
+ *
+ * The Cloudflare Worker returns a unified classification schema with bucket/type/subtype.
+ * This follows the "master classifier spec" where:
+ * - bucket is the ground truth category
+ * - type is derived from bucket (todo/habit/log/ignore)
+ * - subtype is derived from log buckets (journal/idea/general)
+ * - confidence is 0-100 (not 0-1)
+ * - unsorted is rare, used only for true junk/gibberish
+ * - log-general is the default for meaningful content that doesn't fit elsewhere
  *
  * Worker response shape:
  * {
- *   id: "cmpl-...",
+ *   id: "chatcmpl-...",
  *   classification: {
- *     category: "todo" | "habit" | "log" | "ignore",
- *     tags: ["#tag1", "#tag2"],
- *     spaceName: "Work" | null,
- *     confidence: 0.0-1.0,
- *     title: "AI-generated title" | null
- *   }
+ *     bucket: "todo" | "habit" | "log-journal" | "log-idea" | "log-general" | "unsorted",
+ *     type: "todo" | "habit" | "log" | "ignore",
+ *     subtype: "journal" | "idea" | "general" | null,
+ *     category: string,      // freeform label (for display/debug only, NOT source of truth)
+ *     tags: string[],
+ *     spaceName: string | null,
+ *     confidence: number,    // 0-100 scale
+ *     title: string          // AI-generated title (always non-empty, trimmed)
+ *   },
+ *   aiTitle: string,          // same as classification.title (for backward compat)
+ *   aiTagsDebug: string[]     // debug copy of tags
  * }
- *
- * IMPORTANT: There are NO separate aiTitle or aiTagsDebug fields at the top level.
- * These are derived locally from classification.title and classification.tags.
  */
-export type ClassificationResult = {
-  category: string;
+
+export type MindDropBucket =
+  | 'todo'
+  | 'habit'
+  | 'log-journal'
+  | 'log-idea'
+  | 'log-general'
+  | 'unsorted';
+
+export type MindDropType = 'todo' | 'habit' | 'log' | 'ignore';
+
+export type MindDropSubtype = 'journal' | 'idea' | 'general' | null;
+
+export interface MindDropClassification {
+  bucket: MindDropBucket;
+  type: MindDropType;
+  subtype: MindDropSubtype;
+  category: string; // Freeform label for display/debug only
   tags: string[];
   spaceName: string | null;
-  confidence: number;
-  title: string | null; // AI-generated title (may be null if worker couldn't generate one)
-};
+  confidence: number; // 0-100 scale
+  title: string; // Always non-empty, trimmed
+}
+
+export interface MindDropClassifierResponse {
+  id: string;
+  classification: MindDropClassification;
+  aiTitle: string;
+  aiTagsDebug: string[];
+}
 
 export type CallClassifyResult =
   | {
       ok: true;
       id: string;
-      classification: ClassificationResult;
+      classification: MindDropClassification;
+      aiTitle: string;
+      aiTagsDebug: string[];
     }
   | {
       ok: false;
@@ -406,71 +442,175 @@ export async function callClassify(opts: {
       return { ok: false, error: String(data.error || data.detail || 'proxy_error') };
     }
 
-    // Primary format: Cloudflare Worker response
-    // { id: "cmpl-...", classification: { category, tags, spaceName, confidence, title } }
+    // Primary format: Cloudflare Worker unified classification response
+    // { id: "chatcmpl-...", classification: { bucket, type, subtype, category, tags, ... }, aiTitle, aiTagsDebug }
     if (data.id && data.classification) {
       const classification = data.classification;
 
-      // Validate classification structure
+      // Validate new unified classification structure
       if (
         typeof classification === 'object' &&
-        typeof classification.category === 'string' &&
+        typeof classification.bucket === 'string' &&
+        typeof classification.type === 'string' &&
         Array.isArray(classification.tags) &&
-        (classification.spaceName === null || typeof classification.spaceName === 'string') &&
         typeof classification.confidence === 'number'
       ) {
-        // Parse title field: use if non-empty string, otherwise null
+        // Extract all fields from unified response
+        const bucket = classification.bucket as MindDropBucket;
+        const type = classification.type as MindDropType;
+        const subtype = (classification.subtype || null) as MindDropSubtype;
+        const category = String(classification.category || bucket); // Fallback to bucket if missing
+        const tags = classification.tags;
+        const spaceName = classification.spaceName ?? null;
+        const confidence = classification.confidence; // Already 0-100 from worker
         const title =
           typeof classification.title === 'string' && classification.title.trim().length > 0
             ? classification.title.trim()
-            : null;
+            : 'Untitled';
 
-        log('OK', data.id);
+        // Extract top-level aiTitle and aiTagsDebug (for backward compat)
+        const aiTitle = typeof data.aiTitle === 'string' ? data.aiTitle : title;
+        const aiTagsDebug = Array.isArray(data.aiTagsDebug) ? data.aiTagsDebug : tags;
+
+        log('OK', data.id, `bucket=${bucket}, type=${type}, conf=${confidence}`);
         return {
           ok: true,
           id: String(data.id),
           classification: {
-            category: classification.category,
-            tags: classification.tags,
-            spaceName: classification.spaceName,
-            confidence: classification.confidence,
+            bucket,
+            type,
+            subtype,
+            category,
+            tags,
+            spaceName,
+            confidence,
             title,
           },
+          aiTitle,
+          aiTagsDebug,
         };
       }
+
+      // Defensive fallback: Worker sent classification but missing required fields
+      // Default to safe log-general classification
+      console.warn('[CORTEX] Worker classification missing required fields, using fallback', {
+        classification,
+      });
+      return {
+        ok: true,
+        id: String(data.id),
+        classification: {
+          bucket: 'log-general' as MindDropBucket,
+          type: 'log' as MindDropType,
+          subtype: 'general' as MindDropSubtype,
+          category: String(classification.category || 'log'),
+          tags: Array.isArray(classification.tags) ? classification.tags : [],
+          spaceName: classification.spaceName ?? null,
+          confidence:
+            typeof classification.confidence === 'number' ? classification.confidence : 50,
+          title:
+            typeof classification.title === 'string' && classification.title.trim().length > 0
+              ? classification.title.trim()
+              : 'Untitled note',
+        },
+        aiTitle: typeof data.aiTitle === 'string' ? data.aiTitle : 'Untitled note',
+        aiTagsDebug: Array.isArray(data.aiTagsDebug) ? data.aiTagsDebug : [],
+      };
     }
 
-    // Fallback format: OpenAI-shaped response with JSON in message.content
-    // { choices: [{ message: { content: "{\"category\":...}" } }] }
+    // Fallback format: Legacy OpenAI-shaped response (should not happen with new worker)
+    // Try to parse bucket/type/subtype from message.content JSON if present
     const messageContent = data?.choices?.[0]?.message?.content;
     if (messageContent) {
       try {
         const parsed = JSON.parse(messageContent);
-        if (
-          typeof parsed === 'object' &&
-          typeof parsed.category === 'string' &&
-          Array.isArray(parsed.tags) &&
-          (parsed.spaceName === null || typeof parsed.spaceName === 'string') &&
-          typeof parsed.confidence === 'number'
-        ) {
-          // Parse title field: use if non-empty string, otherwise null
+
+        // Check if it has the new unified format
+        if (typeof parsed === 'object' && typeof parsed.bucket === 'string') {
+          const bucket = parsed.bucket as MindDropBucket;
+          const type = parsed.type as MindDropType;
+          const subtype = (parsed.subtype || null) as MindDropSubtype;
+          const category = String(parsed.category || bucket);
+          const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+          const spaceName = parsed.spaceName ?? null;
+          const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 50;
           const title =
             typeof parsed.title === 'string' && parsed.title.trim().length > 0
               ? parsed.title.trim()
-              : null;
+              : 'Untitled';
 
           const id = String(data.id || 'classify-' + Math.random().toString(36).slice(2));
-          log('OK', id, '(fallback format)');
+          log('OK', id, '(fallback OpenAI format with unified schema)');
           return {
             ok: true,
             id,
             classification: {
-              category: parsed.category,
-              tags: parsed.tags,
-              spaceName: parsed.spaceName,
-              confidence: parsed.confidence,
+              bucket,
+              type,
+              subtype,
+              category,
+              tags,
+              spaceName,
+              confidence,
               title,
             },
+            aiTitle: title,
+            aiTagsDebug: tags,
+          };
+        }
+
+        // Legacy format fallback: map old "category" to new bucket/type/subtype
+        if (typeof parsed === 'object' && typeof parsed.category === 'string') {
+          const legacyCategory = parsed.category.toLowerCase();
+          let bucket: MindDropBucket;
+          let type: MindDropType;
+          let subtype: MindDropSubtype;
+
+          // Map legacy category to unified bucket/type/subtype
+          if (legacyCategory === 'todo' || legacyCategory === 'task') {
+            bucket = 'todo';
+            type = 'todo';
+            subtype = null;
+          } else if (legacyCategory === 'habit') {
+            bucket = 'habit';
+            type = 'habit';
+            subtype = null;
+          } else if (legacyCategory === 'ignore' || legacyCategory === 'none') {
+            bucket = 'unsorted';
+            type = 'ignore';
+            subtype = null;
+          } else {
+            // Default to log-general for any other category
+            bucket = 'log-general';
+            type = 'log';
+            subtype = 'general';
+          }
+
+          const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+          const spaceName = parsed.spaceName ?? null;
+          const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 50;
+          const title =
+            typeof parsed.title === 'string' && parsed.title.trim().length > 0
+              ? parsed.title.trim()
+              : 'Untitled';
+
+          const id = String(data.id || 'classify-' + Math.random().toString(36).slice(2));
+          log('OK', id, '(legacy format, mapped to unified schema)');
+          return {
+            ok: true,
+            id,
+            classification: {
+              bucket,
+              type,
+              subtype,
+              category: parsed.category,
+              tags,
+              spaceName,
+              confidence,
+              title,
+            },
+            aiTitle: title,
+            aiTagsDebug: tags,
           };
         }
       } catch {

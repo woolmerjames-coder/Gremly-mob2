@@ -1904,13 +1904,22 @@ export class SupabaseRepo implements IRepo {
     return scored.slice(0, limit);
   }
 
-  async listRecentDrops(
-    sinceIso: string,
-  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>> {
+  async listRecentDrops(sinceIso: string): Promise<
+    Array<{
+      id: ID;
+      title?: string | null;
+      body?: string | null;
+      created_at: string;
+      canonical_type?: 'todo' | 'habit' | 'log' | 'unsorted' | null;
+      subtype?: string | null;
+      labels?: string[] | null;
+      journal_subtype?: 'journal' | 'idea' | 'general' | null;
+    }>
+  > {
     const ownerId = this.ensureUserId();
     const { data, error } = await supabase
       .from('notes')
-      .select('id,title,body,created_at')
+      .select('id,title,body,created_at,canonical_type,subtype,labels,journal_subtype')
       .eq('owner_id', ownerId)
       .or('archived.eq.false,archived.is.null') // Exclude archived notes
       .gte('created_at', sinceIso)
@@ -1923,6 +1932,10 @@ export class SupabaseRepo implements IRepo {
       title: row.title,
       body: row.body,
       created_at: row.created_at,
+      canonical_type: row.canonical_type,
+      subtype: row.subtype,
+      labels: row.labels,
+      journal_subtype: row.journal_subtype,
     }));
   }
 

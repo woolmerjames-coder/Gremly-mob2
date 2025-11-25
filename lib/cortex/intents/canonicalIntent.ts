@@ -39,13 +39,20 @@ export interface CanonicalIntentResult {
   };
   /** Probable canonical kind for MindDropDecision */
   probableKind?: 'todo' | 'habit' | 'log' | 'none';
+  /** Phase 3: Worker bucket (source of truth from unified classifier) */
+  bucket?: string;
+  /** Phase 3: Log subtype from worker (journal|idea|general) */
+  logSubtype?: 'journal' | 'idea' | 'general' | null;
 }
 
 export interface IntentInputs {
   ruleKind: IntentKind;
   ruleConfidence: number;
-  aiCategory?: string | null;
-  aiConfidence?: number | null; // 0-1 scale (normalized)
+  aiBucket?: string | null; // Worker's bucket: todo|habit|log-journal|log-idea|log-general|unsorted
+  aiType?: string | null; // Worker's type: todo|habit|log|ignore
+  aiSubtype?: string | null; // Worker's subtype: journal|idea|general|null
+  aiCategory?: string | null; // DEPRECATED: Old category field for backward compat
+  aiConfidence?: number | null; // 0-1 scale (normalized from 0-100 by classifyIntentWithAI)
   text: string;
 }
 
@@ -263,7 +270,55 @@ function isSimpleSocialEvent(text: string): boolean {
 }
 
 /**
- * Normalize AI category to canonical type
+ * Map worker bucket to MasterCategory
+ * Bucket is the source of truth from the unified classifier
+ */
+function mapBucketToMasterCategory(bucket: string | null | undefined): MasterCategory | null {
+  if (!bucket) return null;
+
+  const normalized = bucket.toLowerCase().trim();
+  switch (normalized) {
+    case 'todo':
+      return 'todo';
+    case 'habit':
+      return 'habit';
+    case 'log-journal':
+      return 'log_journal';
+    case 'log-idea':
+      return 'log_idea';
+    case 'log-general':
+      return 'log_general';
+    case 'unsorted':
+      return 'unsorted';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Map worker type to canonical type
+ * Type is derived from bucket: todo|habit|log|ignore
+ */
+function mapWorkerTypeToCanonical(type: string | null | undefined): CanonicalType | null {
+  if (!type) return null;
+
+  const normalized = type.toLowerCase().trim();
+  switch (normalized) {
+    case 'todo':
+      return 'todo';
+    case 'habit':
+      return 'habit';
+    case 'log':
+      return 'log';
+    case 'ignore':
+      return 'ignore';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Normalize AI category to canonical type (DEPRECATED - use bucket instead)
  */
 function normalizeAICategory(category: string | null | undefined): CanonicalType | null {
   if (!category) return null;
@@ -313,7 +368,7 @@ function normalizeRuleKind(kind: IntentKind): CanonicalType {
 }
 
 /**
- * Map AI category to MasterCategory
+ * Map AI category to MasterCategory (DEPRECATED - use bucket mapping)
  */
 function mapAIToMasterCategory(aiCategory: string | null | undefined): MasterCategory | null {
   if (!aiCategory) return null;
@@ -429,206 +484,101 @@ function masterCategoryToCanonicalType(category: MasterCategory): CanonicalType 
 /**
  * Resolve canonical intent from rule-based and AI classification
  *
- * This is the SINGLE SOURCE OF TRUTH for intent decisions.
- * Implements reflection safety, auto-create thresholds, and fallback logic.
+ * **Phase 3: Worker Bucket is Primary Source of Truth**
  *
- * Phase 1: Now uses master classifier spec for consistent categorization.
+ * The worker's bucket/type/subtype drives all classification decisions.
+ * Heuristics only apply in very limited edge cases.
+ *
+ * **Mapping Rules:**
+ * 1. bucket='todo' → type='todo'
+ * 2. bucket='habit' → type='habit'
+ * 3. bucket='log-journal' → type='log', logSubtype='journal'
+ * 4. bucket='log-idea' → type='log', logSubtype='idea'
+ * 5. bucket='log-general' → type='log', logSubtype='general'
+ * 6. bucket='unsorted' → type='ignore', allowAutoCreate=false
+ *
+ * **Heuristic Override (rare):**
+ * - If bucket='log-general' BUT ruleKind='habit' with ruleConf >= 0.9 AND aiConf < 0.8:
+ *   Upgrade to habit (worker was uncertain, rules very confident)
+ *
+ * **Examples:**
+ * - "Run 5km every Saturday" → bucket='habit' → type='habit', allowAutoCreate=true
+ * - "I'm nervous about review" → bucket='log-journal' → type='log', logSubtype='journal'
+ * - "asdfghjkl" → bucket='unsorted' → type='ignore', allowAutoCreate=false
  */
 export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentResult {
-  const { ruleKind, ruleConfidence, aiCategory, aiConfidence, text } = inputs;
+  const { ruleKind, ruleConfidence, aiBucket, aiType, aiSubtype, aiCategory, aiConfidence, text } =
+    inputs;
 
-  // Get text-based category from master spec (pure heuristics)
-  const textCategory = getPreferredMasterCategoryFromTextOnly(text);
+  // BACKWARD COMPATIBILITY: Map legacy aiCategory to bucket/type/subtype
+  let bucket = aiBucket;
+  let type = aiType;
+  let subtype = aiSubtype;
 
-  // Map AI and rules to MasterCategory
-  const aiMasterCategory = mapAIToMasterCategory(aiCategory);
-  const rulesMasterCategory = mapRuleKindToMasterCategory(ruleKind);
+  if (!bucket && aiCategory) {
+    const category = String(aiCategory).toLowerCase();
+    if (category === 'todo') {
+      bucket = 'todo';
+      type = 'todo';
+      subtype = null;
+    } else if (category === 'habit') {
+      bucket = 'habit';
+      type = 'habit';
+      subtype = null;
+    } else if (category === 'log' || category === 'note') {
+      bucket = 'log-general';
+      type = 'log';
+      subtype = 'general';
+    } else if (category === 'ignore') {
+      bucket = 'unsorted';
+      type = 'ignore';
+      subtype = null;
+    } else {
+      bucket = 'log-general';
+      type = 'log';
+      subtype = 'general';
+    }
+  }
 
-  // Normalize inputs
-  const normalizedAI = normalizeAICategory(aiCategory);
-  const normalizedRule = normalizeRuleKind(ruleKind);
-  const aiConf = aiConfidence ?? 0;
+  const aiConf = aiConfidence ?? 0; // Normalized 0-1 scale
   const ruleConf = ruleConfidence;
 
-  // PROTO-TASK RULE (Block 2) - CHECK FIRST before reflection safety
-  // Proto-tasks have hedging language + action verb → medium-confidence todo, needs clarification
-  // This must run before reflection safety to catch "Maybe I should email Sarah"
-  const isProto = isProtoTask(text);
-  if (isProto && !isVagueReflection(text)) {
-    return {
-      type: 'todo',
-      confidence: 0.6,
-      allowAutoCreate: false,
-      suppressChips: false,
-      mode: 'ask',
-      chipDecision: {
-        showChips: true,
-        needsClarification: true,
-        reason: 'proto-task',
-      },
-      probableKind: 'todo',
-      reasoning: 'Medium-confidence todo (proto-task, manual confirmation)',
-    };
+  if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
+    console.log('[canonicalIntent] Phase 3 - Worker-First Classification:', {
+      bucket,
+      type,
+      subtype,
+      aiConf,
+      ruleConf,
+      ruleKind,
+      text: text.slice(0, 50),
+    });
   }
 
-  // REFLECTION SAFETY RULE (highest priority after proto-task)
-  // Prevents "Just thinking about X" from being ignored OR showing chips
-  if (
-    (normalizedAI === 'ignore' || normalizedAI === null || normalizedRule === 'ignore') &&
-    aiConf < 0.7 && // 0-1 scale (0.7 = 70% confidence)
-    hasReflectionKeywords(text)
-  ) {
-    return {
-      type: 'log',
-      confidence: 0.6,
-      allowAutoCreate: true, // Auto-create reflection logs without chips
-      suppressChips: false,
-      reasoning: 'Reflection safety: converted ignore→log due to reflection keywords',
-    };
-  }
+  // ============================================================
+  // PHASE 3: WORKER BUCKET IS PRIMARY SOURCE OF TRUTH
+  // ============================================================
 
-  // REFLECTION CONFIDENCE BOOST
-  // When AI/rules already say 'log' but confidence is low, boost it if reflection keywords present
-  if (
-    (normalizedAI === 'log' || normalizedRule === 'log') &&
-    (aiConf < 0.6 || ruleConf < 0.6) &&
-    hasReflectionKeywords(text)
-  ) {
-    return {
-      type: 'log',
-      confidence: 0.6,
-      allowAutoCreate: true, // Auto-create reflection logs without chips
-      suppressChips: false,
-      reasoning: 'Reflection boost: low-confidence log boosted due to reflection keywords',
-    };
-  }
-
-  // META/IGNORE with strong evidence (let these through)
-  if (normalizedRule === 'meta' && ruleConf >= 0.9) {
-    return {
-      type: 'meta',
-      confidence: ruleConf,
-      allowAutoCreate: false,
-      suppressChips: true,
-      reasoning: 'Strong meta-comment from rules',
-    };
-  }
-
-  // Don't auto-ignore unless extremely confident - prefer log_general via master spec
-  if (normalizedAI === 'ignore' && aiConf >= 0.9 && !hasRealWords(text)) {
+  // Step 1: Handle unsorted (gibberish/junk)
+  if (bucket === 'unsorted') {
     return {
       type: 'ignore',
       confidence: aiConf,
       allowAutoCreate: false,
       suppressChips: true,
-      reasoning: 'High-confidence ignore from AI (gibberish)',
+      bucket: 'unsorted',
+      logSubtype: null,
+      reasoning: 'Worker classified as unsorted (gibberish/junk) - no entity created',
     };
   }
 
-  // Pick master category using unified logic
-  const masterCategory = pickMasterCategory({
-    textCategory,
-    rulesCategory: rulesMasterCategory,
-    aiCategory: aiMasterCategory,
-    rulesConfidence: ruleConf,
-    aiConfidence: aiConf,
-    text,
-  });
+  // Step 2: Handle todos - trust worker if confidence >= 0.8 (80%)
+  if (bucket === 'todo') {
+    const isHighConfidence = aiConf >= 0.8;
+    const isMediumConfidence = aiConf >= 0.4 && aiConf < 0.85;
 
-  // Combine AI and rule confidence for todo/habit
-  const combinedTodoConf = Math.max(
-    normalizedRule === 'todo' ? ruleConf : 0,
-    normalizedAI === 'todo' ? aiConf : 0,
-  );
-
-  const combinedHabitConf = Math.max(
-    normalizedRule === 'habit' ? ruleConf : 0,
-    normalizedAI === 'habit' ? aiConf : 0,
-  );
-
-  // AUTO TODO RULE (Block 3)
-  // High-confidence todos auto-create
-  if (
-    masterCategory === 'todo' &&
-    combinedTodoConf >= HIGH_CONF_ACTION &&
-    !isVagueReflection(text)
-  ) {
-    return {
-      type: 'todo',
-      confidence: combinedTodoConf,
-      allowAutoCreate: true,
-      suppressChips: false,
-      reasoning: 'High-confidence todo (auto-create)',
-    };
-  }
-
-  // AUTO HABIT RULE (Block 3)
-  // High-confidence habits auto-create
-  if (masterCategory === 'habit' && combinedHabitConf >= HIGH_CONF_ACTION) {
-    return {
-      type: 'habit',
-      confidence: combinedHabitConf,
-      allowAutoCreate: true,
-      suppressChips: false,
-      reasoning: 'High-confidence habit (auto-create)',
-    };
-  }
-
-  // Medium confidence todo/habit (show chips, don't auto-create)
-  // BUT: Check for ambiguous social plans first
-  const isSocialPlan = isAmbiguousSocialPlan(text);
-  const isMediumConfidenceTodo =
-    combinedTodoConf >= MIN_AI_FLOOR && combinedTodoConf < AUTO_TASK_FLOOR;
-
-  if (isMediumConfidenceTodo && isSocialPlan) {
-    // Medium-confidence todo that looks like social plan → force ask mode with chips
-    return {
-      type: 'todo',
-      probableKind: 'log', // Hint that it could also be a log
-      confidence: combinedTodoConf,
-      allowAutoCreate: false,
-      suppressChips: false,
-      mode: 'ask',
-      chipDecision: {
-        showChips: true,
-        needsClarification: true,
-        reason: 'ambiguous-social-plan',
-      },
-      reasoning: 'Ambiguous social plan: needs user clarification (Log vs To-Do)',
-    };
-  }
-
-  if (isMediumConfidenceTodo) {
-    return {
-      type: 'todo',
-      confidence: combinedTodoConf,
-      allowAutoCreate: false,
-      suppressChips: false,
-      reasoning: 'Medium-confidence todo (manual confirmation)',
-    };
-  }
-
-  if (combinedHabitConf >= MIN_AI_FLOOR && combinedHabitConf < AUTO_HABIT_FLOOR) {
-    return {
-      type: 'habit',
-      confidence: combinedHabitConf,
-      allowAutoCreate: false,
-      suppressChips: false,
-      reasoning: 'Medium-confidence habit (manual confirmation)',
-    };
-  }
-
-  // SIMPLE SOCIAL EVENT RULE (Block 2)
-  // Check for simple social events like "Drinks with Sam on Friday"
-  // These should be ambiguous between Log and To-Do
-  const isSimpleSocial = isSimpleSocialEvent(text);
-  if (isSimpleSocial) {
-    // If AI already classified as log with medium confidence (0.5-0.7)
-    // OR if we're uncertain, treat as ambiguous social event
-    const isLogWithMediumConf =
-      (normalizedAI === 'log' || normalizedRule === 'log') && aiConf >= 0.5 && aiConf <= 0.7;
-
-    if (isLogWithMediumConf || normalizedAI === 'log' || normalizedRule === 'log') {
+    // Proto-task detection (hedging + action)
+    if (isProtoTask(text) && !isVagueReflection(text)) {
       return {
         type: 'todo',
         confidence: 0.6,
@@ -638,85 +588,206 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
         chipDecision: {
           showChips: true,
           needsClarification: true,
-          reason: 'simple-social-event',
+          reason: 'proto-task',
         },
+        bucket: 'todo',
+        logSubtype: null,
         probableKind: 'todo',
-        reasoning: 'Medium-confidence todo (social event, manual confirmation)',
+        reasoning: 'Worker says todo, but proto-task needs clarification',
       };
     }
-  }
 
-  // REFLECTIVE LOG RULE
-  // Explicit patterns for journaling/reflective content that should auto-create as logs
-  // These are "safe" - subjective, not actionable, clearly personal reflection
-  const reflectivePatterns = [
-    /^just thinking(\s+about)?\b/i,
-    /^just thinking out loud/i,
-    /^been thinking about\b/i,
-    /^reflected on\b/i,
-    /^today was\b/i,
-    /^this week was\b/i,
-    /^i feel\b/i,
-    /^i'm feeling\b/i,
-    /^feeling\s+(like|that|grateful|thankful)/i,
-  ];
+    // Ambiguous social plan detection (for medium confidence)
+    if (isMediumConfidence && isAmbiguousSocialPlan(text)) {
+      return {
+        type: 'todo',
+        confidence: aiConf,
+        allowAutoCreate: false,
+        suppressChips: false,
+        mode: 'ask',
+        chipDecision: {
+          showChips: true,
+          needsClarification: true,
+          reason: 'ambiguous-social-plan',
+        },
+        bucket: 'todo',
+        logSubtype: null,
+        probableKind: 'log',
+        reasoning: 'Worker says todo, but ambiguous social plan needs clarification',
+      };
+    }
 
-  const isReflectiveLog = reflectivePatterns.some((pattern) => pattern.test(text));
-  const hasStrongActionVerb =
-    /\b(email|book|pay|call|schedule|confirm|buy|get|pick up|finish|complete)\b/i.test(text);
+    if (isHighConfidence) {
+      return {
+        type: 'todo',
+        confidence: aiConf,
+        allowAutoCreate: true,
+        suppressChips: false,
+        bucket: 'todo',
+        logSubtype: null,
+        reasoning: `Worker classified as todo (confidence: ${Math.round(aiConf * 100)}%)`,
+      };
+    }
 
-  if (isReflectiveLog && !hasStrongActionVerb) {
+    // Medium confidence todo
     return {
-      type: 'log',
-      confidence: Math.max(aiConf, ruleConf, 0.6),
-      allowAutoCreate: true,
-      suppressChips: false,
-      reasoning: 'Reflective log: auto-create without chips',
-    };
-  }
-
-  // AMBIGUOUS SOCIAL PLAN RULE (for logs)
-  // If AI says "log" with 30-70% confidence AND text has temporal + person indicators,
-  // OR if text has clear social plan heuristics (regardless of confidence)
-  // treat as ambiguous social plan requiring user clarification
-  const isLogCategory = normalizedAI === 'log' || normalizedRule === 'log';
-  const isAmbiguousConfidence = aiConf >= 0.3 && aiConf <= 0.7;
-  // Note: isSocialPlan already declared above for medium-confidence todo check
-
-  // Two paths to ambiguous social plan:
-  // 1. Log category + ambiguous confidence (30-70%) + social plan heuristics
-  // 2. Log category + strong social plan heuristics (always, regardless of confidence)
-  if (isLogCategory && isSocialPlan && (isAmbiguousConfidence || isSocialPlan)) {
-    return {
-      type: 'log',
-      probableKind: 'log',
-      confidence: aiConf > 0 ? aiConf : 0.5,
+      type: 'todo',
+      confidence: aiConf,
       allowAutoCreate: false,
       suppressChips: false,
-      mode: 'ask',
-      chipDecision: {
-        showChips: true,
-        needsClarification: true,
-        reason: 'ambiguous-social-plan',
-      },
-      reasoning: 'Ambiguous social plan: needs user clarification (Log vs To-Do)',
+      bucket: 'todo',
+      logSubtype: null,
+      reasoning: `Worker classified as todo (medium confidence: ${Math.round(aiConf * 100)}%)`,
     };
   }
 
-  // Map master category to canonical type
-  const canonicalType = masterCategoryToCanonicalType(masterCategory);
+  // Step 3: Handle habits - trust worker if confidence >= 0.8 (80%)
+  if (bucket === 'habit') {
+    const isHighConfidence = aiConf >= 0.8;
 
-  // For log types, use confidence from AI/rules if available
-  const finalConfidence =
-    canonicalType === 'log' ? Math.max(ruleConf, aiConf, 0.5) : Math.max(ruleConf, aiConf, 0.4);
+    if (isHighConfidence) {
+      return {
+        type: 'habit',
+        confidence: aiConf,
+        allowAutoCreate: true,
+        suppressChips: false,
+        bucket: 'habit',
+        logSubtype: null,
+        reasoning: `Worker classified as habit (confidence: ${Math.round(aiConf * 100)}%)`,
+      };
+    }
 
-  // DEFAULT: Use master spec decision
-  // Never lose meaningful text - master spec biases toward log_general over unsorted
+    // Medium confidence habit
+    return {
+      type: 'habit',
+      confidence: Math.max(aiConf, 0.6),
+      allowAutoCreate: false,
+      suppressChips: false,
+      bucket: 'habit',
+      logSubtype: null,
+      reasoning: `Worker classified as habit (medium confidence: ${Math.round(aiConf * 100)}%)`,
+    };
+  }
+
+  // Step 4: Handle logs - map bucket to subtype
+  // log-journal → journal, log-idea → idea, log-general → general
+  if (bucket === 'log-journal' || bucket === 'log-idea' || bucket === 'log-general') {
+    let logSubtype: 'journal' | 'idea' | 'general' = 'general';
+
+    if (bucket === 'log-journal') {
+      logSubtype = 'journal';
+    } else if (bucket === 'log-idea') {
+      logSubtype = 'idea';
+    } else {
+      logSubtype = 'general';
+    }
+
+    // HEURISTIC OVERRIDE: Strong habit signal can upgrade log-general to habit
+    // Only applies when:
+    // - bucket is log-general (not journal/idea - those are clearly logs)
+    // - rule says habit with very high confidence (>= 0.9)
+    // - worker confidence is low (< 0.8)
+    if (bucket === 'log-general' && ruleKind === 'habit' && ruleConf >= 0.9 && aiConf < 0.8) {
+      return {
+        type: 'habit',
+        confidence: Math.max(ruleConf, 0.8),
+        allowAutoCreate: true,
+        suppressChips: false,
+        bucket: 'habit',
+        logSubtype: null,
+        reasoning: 'Rule-based habit override (worker uncertain, rules very confident)',
+      };
+    }
+
+    // Auto-create logs without chips
+    return {
+      type: 'log',
+      confidence: Math.max(aiConf, 0.6),
+      allowAutoCreate: true,
+      suppressChips: false,
+      bucket,
+      logSubtype,
+      reasoning: `Worker classified as ${bucket} (subtype: ${logSubtype})`,
+    };
+  }
+
+  // ============================================================
+  // FALLBACK: No worker classification or unexpected bucket
+  // ============================================================
+
+  // Reflection safety: convert ignore to log if has reflection keywords
+  if (type === 'ignore' && aiConf < 0.7 && hasReflectionKeywords(text)) {
+    return {
+      type: 'log',
+      confidence: 0.6,
+      allowAutoCreate: true,
+      suppressChips: false,
+      bucket: 'log-general',
+      logSubtype: 'general',
+      reasoning: 'Reflection safety: converted ignore→log due to reflection keywords',
+    };
+  }
+
+  // Use rule-based classification as final fallback
+  const normalizedRule = normalizeRuleKind(ruleKind);
+
+  if (normalizedRule === 'todo' && ruleConf >= 0.7) {
+    return {
+      type: 'todo',
+      confidence: ruleConf,
+      allowAutoCreate: ruleConf >= 0.85,
+      suppressChips: false,
+      bucket: 'todo',
+      logSubtype: null,
+      reasoning: `Fallback: rule-based todo (confidence: ${Math.round(ruleConf * 100)}%)`,
+    };
+  }
+
+  if (normalizedRule === 'habit' && ruleConf >= 0.7) {
+    return {
+      type: 'habit',
+      confidence: ruleConf,
+      allowAutoCreate: ruleConf >= 0.8,
+      suppressChips: false,
+      bucket: 'habit',
+      logSubtype: null,
+      reasoning: `Fallback: rule-based habit (confidence: ${Math.round(ruleConf * 100)}%)`,
+    };
+  }
+
+  if (normalizedRule === 'meta' && ruleConf >= 0.9) {
+    return {
+      type: 'meta',
+      confidence: ruleConf,
+      allowAutoCreate: false,
+      suppressChips: true,
+      bucket: 'unsorted',
+      logSubtype: null,
+      reasoning: 'Fallback: strong meta-comment from rules',
+    };
+  }
+
+  // Default to log for any meaningful text
+  if (hasRealWords(text)) {
+    return {
+      type: 'log',
+      confidence: Math.max(ruleConf, 0.5),
+      allowAutoCreate: true,
+      suppressChips: false,
+      bucket: 'log-general',
+      logSubtype: 'general',
+      reasoning: 'Fallback: meaningful text defaults to log-general',
+    };
+  }
+
+  // Pure gibberish: ignore
   return {
-    type: canonicalType,
-    confidence: finalConfidence,
-    allowAutoCreate: canonicalType === 'log', // Auto-create logs
-    suppressChips: false,
-    reasoning: `Master spec classification: ${masterCategory} → ${canonicalType}`,
+    type: 'ignore',
+    confidence: 0,
+    allowAutoCreate: false,
+    suppressChips: true,
+    bucket: 'unsorted',
+    logSubtype: null,
+    reasoning: 'Fallback: gibberish/no real words',
   };
 }

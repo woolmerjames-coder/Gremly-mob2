@@ -23,12 +23,17 @@ describe('OpenAiEngine safety overrides for ideas/brainstorm/list inputs', () =>
       ok: true,
       id: 'c1',
       classification: {
+        bucket: 'todo',
+        type: 'todo',
+        subtype: null,
         category: 'To-Do',
         tags: [],
         spaceName: null,
-        confidence: 0.88,
-        title: null,
+        confidence: 88,
+        title: 'Ideas for weekend trip',
       },
+      aiTitle: 'Ideas for weekend trip',
+      aiTagsDebug: [],
     });
 
     const res = await engine.classify({ text: 'Ideas for weekend trip', spaceId: null });

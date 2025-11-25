@@ -42,4 +42,16 @@ export interface DetectedIntent {
   isMultiIntent?: boolean; // Whether multiple intents should be created
   // Phase 11.8: AI confidence scoring
   aiConfidence?: number; // 0–100, AI's confidence in classification (optional)
+  // Phase 4: Unified classifier fields from Cloudflare Worker
+  classifierBucket?: string; // Master classifier bucket (todo|habit|log-journal|log-idea|log-general|unsorted)
+  classifierType?: string; // Derived type (todo|habit|log|ignore)
+  classifierSubtype?: string | null; // Subtype for logs (journal|idea|general|null)
+  classifierTitle?: string; // AI-generated title from classifier
+  classifierTags?: string[]; // AI-generated tags from classifier
+  // Phase 3.2: Canonical intent result (computed once in classifyIntentWithAI)
+  canonicalType?: 'todo' | 'habit' | 'log' | 'ignore'; // Canonical type from resolver
+  canonicalAllowAutoCreate?: boolean; // Whether this intent should auto-create
+  canonicalSuppressChips?: boolean; // Whether to suppress chips
+  canonicalConfidence?: number; // Canonical confidence (0-1 scale)
+  canonicalReasoning?: string; // Why this classification was chosen
 }

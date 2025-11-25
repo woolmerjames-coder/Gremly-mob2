@@ -833,9 +833,18 @@ export class MemoryRepo implements IRepo {
     return combined.slice(0, limit);
   }
 
-  async listRecentDrops(
-    sinceIso: string,
-  ): Promise<Array<{ id: ID; title?: string | null; body?: string | null; created_at: string }>> {
+  async listRecentDrops(sinceIso: string): Promise<
+    Array<{
+      id: ID;
+      title?: string | null;
+      body?: string | null;
+      created_at: string;
+      canonical_type?: 'todo' | 'habit' | 'log' | 'unsorted' | null;
+      subtype?: string | null;
+      labels?: string[] | null;
+      journal_subtype?: 'journal' | 'idea' | 'general' | null;
+    }>
+  > {
     return this.data
       .filter(
         (row): row is Note & { created_at: string } =>
@@ -851,6 +860,10 @@ export class MemoryRepo implements IRepo {
         title: (row as any).title,
         body: (row as any).body,
         created_at: row.created_at!,
+        canonical_type: (row as any).canonical_type,
+        subtype: (row as any).subtype,
+        labels: (row as any).labels,
+        journal_subtype: (row as any).journal_subtype,
       }));
   }
 
