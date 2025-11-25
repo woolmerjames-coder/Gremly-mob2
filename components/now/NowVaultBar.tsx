@@ -27,7 +27,12 @@ export function NowVaultBar({ summary, expanded, onToggleExpand }: NowVaultBarPr
   return (
     <Box style={styles.container}>
       <TouchableOpacity style={styles.header} onPress={onToggleExpand} activeOpacity={0.7}>
-        <Text style={styles.title}>📚 Mind Vault</Text>
+        <Box style={styles.headerText}>
+          <Text style={styles.title}>📚 Mind Vault</Text>
+          {summary.topThree.length > 0 && (
+            <Text style={styles.subtitle}>Your lists live here – groceries, packing, ideas.</Text>
+          )}
+        </Box>
         <Text style={styles.expandIcon}>{expanded ? '▼' : '▶'}</Text>
       </TouchableOpacity>
 
@@ -65,10 +70,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 8,
   },
+  headerText: {
+    flex: 1,
+    marginRight: 8,
+  },
   title: {
     fontSize: 16,
     fontWeight: '600',
     color: '#212121',
+  },
+  subtitle: {
+    fontSize: 12,
+    color: '#757575',
+    marginTop: 2,
   },
   expandIcon: {
     fontSize: 12,

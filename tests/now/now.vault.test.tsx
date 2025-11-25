@@ -124,6 +124,34 @@ describe('Mind Vault Expansion Tests', () => {
       expect(screen.getByText('+2 more')).toBeTruthy();
     });
 
+    it('shows subtitle text explaining lists when lists exist', () => {
+      renderWithProviders(<NowScreenV1 />);
+
+      // Subtitle should be visible
+      expect(screen.getByText('Your lists live here – groceries, packing, ideas.')).toBeTruthy();
+    });
+
+    it('does not show subtitle when no lists exist', () => {
+      mockNowData = {
+        ...mockNowData,
+        vaultSummary: {
+          topThree: [],
+          overflowCount: 0,
+          thisWeekStats: {
+            journalCount: 0,
+            ideaCount: 0,
+            personCount: 0,
+          },
+        },
+      };
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Vault bar should not be visible at all
+      expect(screen.queryByText('📚 Mind Vault')).toBeNull();
+      expect(screen.queryByText('Your lists live here – groceries, packing, ideas.')).toBeNull();
+    });
+
     it('shows expand icon when collapsed', () => {
       renderWithProviders(<NowScreenV1 />);
 
@@ -167,6 +195,18 @@ describe('Mind Vault Expansion Tests', () => {
 
       // Expanded view should be visible
       expect(screen.getByText('📚 MIND VAULT')).toBeTruthy();
+    });
+
+    it('shows helper text above Recent Lists in expanded view', () => {
+      renderWithProviders(<NowScreenV1 />);
+
+      // Expand vault
+      fireEvent.press(screen.getByText('📚 Mind Vault'));
+
+      // Helper text should be visible
+      expect(
+        screen.getByText('Quick access to your go-to lists (groceries, packing, workflows).'),
+      ).toBeTruthy();
     });
 
     it('shows Recent Lists section with correct data', () => {

@@ -30,6 +30,9 @@ export function NowVaultExpanded({
         {/* Recent Lists Section */}
         {summary.topThree.length > 0 && (
           <Box style={styles.section}>
+            <Text style={styles.helper}>
+              Quick access to your go-to lists (groceries, packing, workflows).
+            </Text>
             <Text style={styles.sectionTitle}>Recent Lists</Text>
             {summary.topThree.map((list) => (
               <TouchableOpacity
@@ -110,6 +113,12 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F5F5F5',
+  },
+  helper: {
+    fontSize: 12,
+    color: '#757575',
+    marginBottom: 12,
+    lineHeight: 16,
   },
   sectionTitle: {
     fontSize: 14,
