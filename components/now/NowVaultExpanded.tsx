@@ -34,6 +34,7 @@ export function NowVaultExpanded({
             {summary.topThree.map((list) => (
               <TouchableOpacity
                 key={list.id}
+                testID={`vault-list-${list.id}`}
                 style={styles.listRow}
                 onPress={() => onPressList(list.id)}
                 activeOpacity={0.7}

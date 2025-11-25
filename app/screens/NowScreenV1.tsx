@@ -66,6 +66,27 @@ export default function NowScreenV1() {
     void overwhelm.requestPlan(selectedItems);
   }, [overwhelm, now.lockedItems, now.activeItems]);
 
+  // Handle list press from Mind Vault
+  const handlePressList = useCallback(
+    (listId: string) => {
+      // Open list in overlay as a note with subtype 'list'
+      const listItem = now.vaultSummary.topThree.find((l) => l.id === listId);
+      if (!listItem) {
+        console.warn('[NOW] List not found:', listId);
+        return;
+      }
+
+      // Create a minimal AppRecord for the list to open in overlay
+      interactions.openEntityOverlay({
+        id: listId,
+        type: 'note',
+        subtype: 'list',
+        title: listItem.name,
+      });
+    },
+    [interactions, now.vaultSummary],
+  );
+
   // Handle sweep press
   const handleSweepPress = useCallback(() => {
     if (now.hasYesterdayCarryOver) {
@@ -105,10 +126,7 @@ export default function NowScreenV1() {
       {isVaultExpanded && (
         <NowVaultExpanded
           summary={now.vaultSummary}
-          onPressList={(id) => {
-            // TODO: Open list overlay when list type is supported
-            console.log('[NOW] Opening list:', id);
-          }}
+          onPressList={handlePressList}
           onSeeAll={() => {
             /* TODO: Navigate to HubListsScreen */
           }}
