@@ -1,8 +1,8 @@
 /**
- * Spaces DS Screen Tests
+ * Gremly Home Screen Tests (formerly Spaces DS Screen)
  *
- * Tests for the Design System version of Spaces screen (/app/tabs/SpacesScreen.tsx)
- * Verifies testIDs, search functionality, empty states, and space list rendering
+ * Tests for the Design System version of Gremly Home screen (/app/tabs/SpacesScreen.tsx)
+ * Verifies testIDs, mascot greeting, search functionality, empty states, and space list rendering
  */
 
 import React from 'react';
@@ -53,23 +53,49 @@ describe('Spaces DS Screen', () => {
     });
   });
 
-  it('displays list of spaces with correct testIDs', async () => {
+  it('displays mascot greeting', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hey! What's on your mind?")).toBeTruthy();
+    });
+  });
+
+  it('displays profile button', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-profile-button')).toBeTruthy();
+    });
+  });
+
+  it('displays preview of first 2 spaces with correct testIDs', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('space-item-space-1')).toBeTruthy();
       expect(screen.getByTestId('space-item-space-2')).toBeTruthy();
-      expect(screen.getByTestId('space-item-space-3')).toBeTruthy();
+      // Third space should not be shown in preview
+      expect(screen.queryByTestId('space-item-space-3')).toBeNull();
     });
   });
 
-  it('displays space names correctly', async () => {
+  it('displays first 2 space names correctly', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByText('Fitness')).toBeTruthy();
       expect(screen.getByText('Work')).toBeTruthy();
-      expect(screen.getByText('Personal')).toBeTruthy();
+      // Third space should not be shown
+      expect(screen.queryByText('Personal')).toBeNull();
+    });
+  });
+
+  it('displays Your Spaces header', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Your Spaces')).toBeTruthy();
     });
   });
 
@@ -103,6 +129,8 @@ describe('Spaces DS Screen - Empty State', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/no spaces yet/i)).toBeTruthy();
+      expect(screen.getByText(/create one to organize by topic/i)).toBeTruthy();
+      expect(screen.getByTestId('spaces-empty-cta')).toBeTruthy();
     });
   });
 });

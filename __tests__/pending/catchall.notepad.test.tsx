@@ -34,7 +34,7 @@ jest.mock('../../providers/AuthProvider', () => {
 jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
 jest.spyOn(ToastAndroid, 'show').mockImplementation(() => undefined);
 
-describe('Catch-All entry points', () => {
+describe('Mind Drop entry points', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRepo.listSpaces.mockResolvedValue([]);
@@ -44,10 +44,11 @@ describe('Catch-All entry points', () => {
     jest.useRealTimers();
   });
 
-  it('renders banner link on Spaces screen', async () => {
+  it('renders Mind Drop link on Spaces screen', async () => {
     const { mockNavigate: nav } = renderWithProviders(<SpacesScreen />);
 
     expect(screen.getByTestId('spaces-catchall-button')).toBeTruthy();
+    expect(screen.getByText('Mind Drop')).toBeTruthy();
     await waitFor(() => {
       expect(mockRepo.listSpaces).toHaveBeenCalled();
     });
