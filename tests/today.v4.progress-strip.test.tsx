@@ -35,7 +35,7 @@ const mockedUseTodayData = useTodayData as jest.MockedFunction<typeof useTodayDa
 
 beforeEach(() => {
   const reanimated = require('react-native-reanimated');
-  (reanimated.useSharedValue as jest.Mock).mockImplementation(() => ({ value: 0 }));
+  // useSharedValue already mocked globally in jest-setup.ts
   (reanimated.useAnimatedStyle as jest.Mock).mockImplementation((fn: () => unknown) =>
     typeof fn === 'function' ? fn() : {},
   );

@@ -24,6 +24,7 @@ const LOG_SUBTYPE_TAGS: Record<string, string> = {
   insight: '#insight',
   decision: '#decision',
   list: '#list',
+  everything_else: '#general',
 };
 
 /**

@@ -75,7 +75,9 @@ describe('Mind Drop contextual prompt', () => {
   const getPromptAt = (isoLocal: string) => {
     jest.setSystemTime(new Date(isoLocal));
     const { getByTestId } = render(<CatchAllNotepad />);
-    return String(getByTestId('minddrop-context-prompt').props.children);
+    // Normalize line breaks - React Native Text may wrap text with \n
+    const rawText = String(getByTestId('minddrop-context-prompt').props.children);
+    return rawText.replace(/\n/g, ' ');
   };
 
   test('uses morning prompt before noon', () => {

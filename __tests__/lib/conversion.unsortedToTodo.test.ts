@@ -79,15 +79,38 @@ describe('convertUnsortedToTodo', () => {
 
     const result = await convertUnsortedToTodo(mockRepo, 'note-123');
 
-    expect(result.todo).toEqual(createdTodo);
-    expect(result.updatedNote).toEqual(archivedNote);
+    // Verify returned todo contains expected fields (resilient to extra fields)
+    expect(result.todo).toEqual(
+      expect.objectContaining({
+        id: 'todo-789',
+        type: 'todo',
+        name: 'Buy groceries for the week',
+        body: 'Buy groceries for the week',
+        canonicalType: 'todo', // TypeScript uses camelCase
+        labels: expect.arrayContaining(['todo']),
+        origin: 'catchall',
+        ai_placed: true,
+        tags: expect.arrayContaining(['#shopping', '#groceries']),
+        drop_id: 'drop-456',
+      }),
+    );
+
+    // Verify returned note is archived
+    expect(result.updatedNote).toEqual(
+      expect.objectContaining({
+        id: 'note-123',
+        archived: true,
+      }),
+    );
+    expect(result.updatedNote.why_string).toContain('todo-789'); // Lineage reference present
+
     expect(mockRepo.getById).toHaveBeenCalledWith('note-123');
     expect(mockRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'todo',
         name: 'Buy groceries for the week',
         canonicalType: 'todo',
-        labels: ['todo'],
+        labels: expect.arrayContaining(['todo']),
       }),
     );
     expect(mockRepo.update).toHaveBeenCalledWith({

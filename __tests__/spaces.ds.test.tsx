@@ -11,6 +11,11 @@ import SpacesScreen from '../app/tabs/SpacesScreen';
 
 jest.mock('../components/MascotIcon', () => () => null);
 
+// Mock image imports to avoid module resolution errors in tests
+jest.mock('../../assets/minddrop_header-removebg.png', () => 'test-image-stub', {
+  virtual: true,
+});
+
 // Mock the auth provider to return an authenticated user
 jest.mock('../providers/AuthProvider', () => ({
   useAuth: () => ({
@@ -53,49 +58,49 @@ describe('Spaces DS Screen', () => {
     });
   });
 
-  it('displays mascot greeting', async () => {
+  it('displays Mind Drop headline', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText("Hey! What's on your mind?")).toBeTruthy();
+      expect(screen.getByText('Your brain dump, organized.')).toBeTruthy();
     });
   });
 
-  it('displays profile button', async () => {
+  it('displays Mind Drop description', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('home-profile-button')).toBeTruthy();
+      expect(screen.getByText('To-Dos • Habits • Anything')).toBeTruthy();
     });
   });
 
-  it('displays preview of first 2 spaces with correct testIDs', async () => {
+  it('displays all spaces with correct testIDs', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('space-item-space-1')).toBeTruthy();
       expect(screen.getByTestId('space-item-space-2')).toBeTruthy();
-      // Third space should not be shown in preview
-      expect(screen.queryByTestId('space-item-space-3')).toBeNull();
+      // All spaces should be shown (not just a preview of 2)
+      expect(screen.getByTestId('space-item-space-3')).toBeTruthy();
     });
   });
 
-  it('displays first 2 space names correctly', async () => {
+  it('displays all space names correctly', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByText('Fitness')).toBeTruthy();
       expect(screen.getByText('Work')).toBeTruthy();
-      // Third space should not be shown
-      expect(screen.queryByText('Personal')).toBeNull();
+      // All spaces shown
+      expect(screen.getByText('Personal')).toBeTruthy();
     });
   });
 
-  it('displays Your Spaces header', async () => {
+  it('displays Spaces section subtitle', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('Your Spaces')).toBeTruthy();
+      expect(screen.getByText('Organize by project or area.')).toBeTruthy();
     });
   });
 
