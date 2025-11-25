@@ -37,22 +37,31 @@ function getWeekStart(date: Date): Date {
 /**
  * Check if a date is today
  */
-function isToday(date: Date, checkDate: Date): boolean {
+function isToday(date: Date, checkDate: Date | string): boolean {
+  const check = typeof checkDate === 'string' ? parseDateString(checkDate) : checkDate;
   return (
-    date.getFullYear() === checkDate.getFullYear() &&
-    date.getMonth() === checkDate.getMonth() &&
-    date.getDate() === checkDate.getDate()
+    date.getUTCFullYear() === check.getUTCFullYear() &&
+    date.getUTCMonth() === check.getUTCMonth() &&
+    date.getUTCDate() === check.getUTCDate()
   );
+}
+
+/**
+ * Parse YYYY-MM-DD date string to Date object at midnight UTC
+ */
+function parseDateString(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 /**
  * Check if a date is in the future (tomorrow or later)
  */
-function isFuture(date: Date, checkDate: Date): boolean {
+function isFuture(date: Date, checkDate: Date | string): boolean {
+  const check = typeof checkDate === 'string' ? parseDateString(checkDate) : new Date(checkDate);
   const today = new Date(date);
-  today.setHours(0, 0, 0, 0);
-  const check = new Date(checkDate);
-  check.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
+  check.setUTCHours(0, 0, 0, 0);
   return check > today;
 }
 
@@ -154,10 +163,12 @@ export function getLockedItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
-      const dueDate = todo.due_date ? new Date(todo.due_date) : null;
 
       // Include if due today or overdue
-      if (dueDate && (isToday(date, dueDate) || dueDate < date)) {
+      if (
+        todo.due_date &&
+        (isToday(date, todo.due_date) || isFuture(date, todo.due_date) === false)
+      ) {
         locked.push({
           id: todo.id,
           type: 'todo',
@@ -212,10 +223,9 @@ export function getActiveTodayItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
-      const dueDate = todo.due_date ? new Date(todo.due_date) : null;
 
       // Include if due today
-      if (dueDate && isToday(date, dueDate)) {
+      if (todo.due_date && isToday(date, todo.due_date)) {
         active.push({
           id: todo.id,
           type: 'todo',
@@ -266,10 +276,9 @@ export function getFutureItems(
       });
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
-      const dueDate = todo.due_date ? new Date(todo.due_date) : null;
 
       // Include if due in future
-      if (dueDate && isFuture(date, dueDate)) {
+      if (todo.due_date && isFuture(date, todo.due_date)) {
         future.push({
           id: todo.id,
           type: 'todo',
@@ -312,10 +321,9 @@ export function getProgressEligibleItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
-      const dueDate = todo.due_date ? new Date(todo.due_date) : null;
 
       // Include todos due today (including time-specific ones)
-      if (dueDate && isToday(date, dueDate)) {
+      if (todo.due_date && isToday(date, todo.due_date)) {
         eligible.push({ id: todo.id, type: 'todo' });
       }
     }
