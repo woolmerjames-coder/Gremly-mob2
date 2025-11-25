@@ -1,7 +1,8 @@
 /**
  * NOW Page Module
- * Export all types and selectors
+ * Export all types, selectors, and hooks
  */
 
 export * from './nowTypes';
 export * from './nowSelectors';
+export * from './useNowData';

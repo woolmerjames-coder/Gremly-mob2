@@ -11,26 +11,93 @@ import { NowList } from '../../components/now/NowList';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
 import { OverwhelmButton } from '../../components/now/OverwhelmButton';
 
+const mockProgressState = {
+  mode: 'dots' as const,
+  percent: 42,
+  completedCount: 2,
+  totalEligibleCount: 5,
+  dots: [true, false, true, false, false],
+};
+
+const mockVaultSummary = {
+  topThree: [
+    { id: '1', name: 'Groceries', itemCount: 5 },
+    { id: '2', name: 'Gift ideas', itemCount: 3 },
+    { id: '3', name: 'Mexico list', itemCount: 2 },
+  ],
+  overflowCount: 2,
+  thisWeekStats: {
+    journalCount: 1,
+    ideaCount: 2,
+    personCount: 0,
+  },
+};
+
+const mockLockedItem = {
+  id: 'locked-1',
+  type: 'habit' as const,
+  name: 'Placeholder locked item',
+  locked: true as const,
+  cadence: 'daily' as const,
+};
+
+const mockActiveItem = {
+  id: 'active-1',
+  type: 'habit' as const,
+  name: 'Placeholder active item',
+  locked: false as const,
+  cadence: 'weekly' as const,
+  weeklyStatus: 'on_track_today' as const,
+};
+
 describe('NowHeader', () => {
   it('mounts successfully', () => {
-    render(<NowHeader />);
+    render(
+      <NowHeader
+        greeting="Hi James — Good Morning"
+        dateTimeLabel="Monday, November 25 • 10:30 AM"
+        progressState={mockProgressState}
+        weekStatus="on_track"
+      />,
+    );
     expect(screen.getByText(/Hi James/)).toBeTruthy();
   });
 
   it('displays greeting text', () => {
-    render(<NowHeader />);
+    render(
+      <NowHeader
+        greeting="Hi James — Good Morning"
+        dateTimeLabel="Monday, November 25 • 10:30 AM"
+        progressState={mockProgressState}
+        weekStatus="on_track"
+      />,
+    );
     expect(screen.getByText(/Hi James/)).toBeTruthy();
     expect(screen.getByText(/Good Morning/)).toBeTruthy();
   });
 
   it('displays date and time placeholder', () => {
-    render(<NowHeader />);
+    render(
+      <NowHeader
+        greeting="Hi James — Good Morning"
+        dateTimeLabel="Monday, November 25 • 10:30 AM"
+        progressState={mockProgressState}
+        weekStatus="on_track"
+      />,
+    );
     expect(screen.getByText(/Monday, November 25/)).toBeTruthy();
     expect(screen.getByText(/10:30 AM/)).toBeTruthy();
   });
 
   it('displays week indicator', () => {
-    render(<NowHeader />);
+    render(
+      <NowHeader
+        greeting="Hi James — Good Morning"
+        dateTimeLabel="Monday, November 25 • 10:30 AM"
+        progressState={mockProgressState}
+        weekStatus="on_track"
+      />,
+    );
     expect(screen.getByText('WEEK:')).toBeTruthy();
     expect(screen.getByText('◐')).toBeTruthy();
   });
@@ -38,69 +105,91 @@ describe('NowHeader', () => {
 
 describe('NowVaultBar', () => {
   it('mounts successfully', () => {
-    render(<NowVaultBar />);
+    render(<NowVaultBar summary={mockVaultSummary} />);
     expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
   });
 
   it('displays Mind Vault title', () => {
-    render(<NowVaultBar />);
+    render(<NowVaultBar summary={mockVaultSummary} />);
     expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
   });
 
   it('displays placeholder pills', () => {
-    render(<NowVaultBar />);
-    expect(screen.getByText('Groceries')).toBeTruthy();
-    expect(screen.getByText('Gift ideas')).toBeTruthy();
-    expect(screen.getByText('Mexico list')).toBeTruthy();
+    render(<NowVaultBar summary={mockVaultSummary} />);
+    expect(screen.getByText(/Groceries/)).toBeTruthy();
+    expect(screen.getByText(/Gift ideas/)).toBeTruthy();
+    expect(screen.getByText(/Mexico list/)).toBeTruthy();
     expect(screen.getByText('+2 more')).toBeTruthy();
   });
 });
 
 describe('NowList', () => {
   it('mounts successfully', () => {
-    render(<NowList />);
+    render(
+      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
+    );
     expect(screen.getByText('NOW')).toBeTruthy();
   });
 
   it('displays NOW header', () => {
-    render(<NowList />);
+    render(
+      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
+    );
     expect(screen.getByText('NOW')).toBeTruthy();
   });
 
   it('displays locked item placeholder', () => {
-    render(<NowList />);
-    expect(screen.getByText('⚡')).toBeTruthy();
+    render(
+      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
+    );
     expect(screen.getByText('Placeholder locked item')).toBeTruthy();
-    expect(screen.getByText('#focus')).toBeTruthy();
   });
 
   it('displays active item placeholders', () => {
-    render(<NowList />);
+    render(
+      <NowList
+        lockedItems={[mockLockedItem]}
+        activeItems={[mockActiveItem, { ...mockActiveItem, id: 'active-2' }]}
+        futureItems={[]}
+      />,
+    );
     const activeItems = screen.getAllByText('Placeholder active item');
     expect(activeItems.length).toBeGreaterThan(0);
   });
 
   it('displays habit status placeholder', () => {
-    render(<NowList />);
-    const statusTexts = screen.getAllByText('2 days left this week');
-    expect(statusTexts.length).toBeGreaterThan(0);
+    render(
+      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
+    );
+    expect(screen.getByText('On track')).toBeTruthy();
   });
 
   it('displays future divider', () => {
-    render(<NowList />);
+    render(
+      <NowList
+        lockedItems={[mockLockedItem]}
+        activeItems={[mockActiveItem]}
+        futureItems={[{ ...mockActiveItem, id: 'future-1' }]}
+      />,
+    );
     expect(screen.getByText('Future')).toBeTruthy();
   });
 });
 
 describe('NowSweepBar', () => {
   it('mounts successfully', () => {
-    render(<NowSweepBar />);
+    render(<NowSweepBar hasYesterdayCarryOver={true} />);
     expect(screen.getByText('🧹 Sweep Available')).toBeTruthy();
   });
 
   it('displays sweep button text', () => {
-    render(<NowSweepBar />);
+    render(<NowSweepBar hasYesterdayCarryOver={true} />);
     expect(screen.getByText('🧹 Sweep Available')).toBeTruthy();
+  });
+
+  it('does not render when no carry over', () => {
+    const { queryByText } = render(<NowSweepBar hasYesterdayCarryOver={false} />);
+    expect(queryByText('🧹 Sweep Available')).toBeNull();
   });
 });
 

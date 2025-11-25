@@ -6,46 +6,29 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { Box, Text } from '../../ui';
+import type { WeekStatus } from '../../lib/now/useNowData';
 
 interface NowWeekIndicatorProps {
-  status?: 'week_complete' | 'flexible' | 'on_track_today' | 'last_chance';
+  status: WeekStatus;
 }
 
-export function NowWeekIndicator({ status = 'on_track_today' }: NowWeekIndicatorProps) {
-  const getIndicator = () => {
-    switch (status) {
-      case 'week_complete':
-        return '●';
-      case 'flexible':
-        return '○';
-      case 'on_track_today':
-        return '◐';
-      case 'last_chance':
-        return '◑';
-      default:
-        return '◐';
-    }
+export function NowWeekIndicator({ status }: NowWeekIndicatorProps) {
+  const icons: Record<WeekStatus, string> = {
+    ahead: '✓',
+    on_track: '◐',
+    needs_attention: '!',
   };
 
-  const getColor = () => {
-    switch (status) {
-      case 'week_complete':
-        return '#4CAF50';
-      case 'flexible':
-        return '#9E9E9E';
-      case 'on_track_today':
-        return '#2196F3';
-      case 'last_chance':
-        return '#FF9800';
-      default:
-        return '#2196F3';
-    }
+  const colors: Record<WeekStatus, string> = {
+    ahead: '#4CAF50',
+    on_track: '#2196F3',
+    needs_attention: '#FF9800',
   };
 
   return (
     <Box style={styles.container}>
       <Text style={styles.label}>WEEK:</Text>
-      <Text style={[styles.indicator, { color: getColor() }]}>{getIndicator()}</Text>
+      <Text style={[styles.indicator, { color: colors[status] }]}>{icons[status]}</Text>
     </Box>
   );
 }

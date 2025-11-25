@@ -6,10 +6,21 @@
 import React from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
+import type { MindVaultSummary } from '../../lib/now/nowTypes';
 
-export function NowVaultBar() {
-  // Placeholder data - will be replaced with real data in Phase 3
-  const pills = ['Groceries', 'Gift ideas', 'Mexico list', '+2 more'];
+interface NowVaultBarProps {
+  summary: MindVaultSummary;
+}
+
+export function NowVaultBar({ summary }: NowVaultBarProps) {
+  const pills = [
+    ...summary.topThree.map((list) => `${list.name} (${list.itemCount})`),
+    summary.overflowCount > 0 ? `+${summary.overflowCount} more` : null,
+  ].filter(Boolean) as string[];
+
+  if (pills.length === 0) {
+    return null;
+  }
 
   return (
     <Box style={styles.container}>

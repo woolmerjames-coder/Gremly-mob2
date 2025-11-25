@@ -6,9 +6,33 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
+import type { NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
-export function NowActiveItemCard() {
-  // Placeholder data - will be replaced with real data in Phase 3
+interface NowActiveItemCardProps {
+  item: NowActiveItem | NowFutureItem;
+  future?: boolean;
+}
+
+export function NowActiveItemCard({ item, future = false }: NowActiveItemCardProps) {
+  const getStatusText = () => {
+    if ('weeklyStatus' in item && item.weeklyStatus) {
+      const statusLabels = {
+        week_complete: 'Week complete ✓',
+        flexible: 'Flexible this week',
+        on_track_today: 'On track',
+        last_chance: 'Last chance today',
+      };
+      return statusLabels[item.weeklyStatus];
+    }
+    if ('dueTime' in item && item.dueTime) {
+      return item.dueTime;
+    }
+    if ('dueAt' in item && item.dueAt) {
+      return new Date(item.dueAt).toLocaleDateString();
+    }
+    return null;
+  };
+
   return (
     <TouchableOpacity style={styles.container}>
       <Box style={styles.content}>
@@ -16,8 +40,8 @@ export function NowActiveItemCard() {
           <Box style={styles.checkbox} />
         </Box>
         <Box style={styles.textContainer}>
-          <Text style={styles.itemText}>Placeholder active item</Text>
-          <Text style={styles.status}>2 days left this week</Text>
+          <Text style={styles.itemText}>{item.name}</Text>
+          {getStatusText() && <Text style={styles.status}>{getStatusText()}</Text>}
         </Box>
       </Box>
     </TouchableOpacity>

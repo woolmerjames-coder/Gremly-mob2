@@ -6,9 +6,23 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
+import type { NowLockedItem } from '../../lib/now/nowTypes';
 
-export function NowLockedItemCard() {
-  // Placeholder data - will be replaced with real data in Phase 3
+interface NowLockedItemCardProps {
+  item: NowLockedItem;
+}
+
+export function NowLockedItemCard({ item }: NowLockedItemCardProps) {
+  const getStatusText = () => {
+    if (item.type === 'habit' && item.cadence) {
+      return `${item.cadence} habit`;
+    }
+    if (item.dueAt) {
+      return `Due ${new Date(item.dueAt).toLocaleDateString()}`;
+    }
+    return null;
+  };
+
   return (
     <TouchableOpacity style={styles.container}>
       <Box style={styles.content}>
@@ -16,8 +30,8 @@ export function NowLockedItemCard() {
           <Text style={styles.icon}>⚡</Text>
         </Box>
         <Box style={styles.textContainer}>
-          <Text style={styles.itemText}>Placeholder locked item</Text>
-          <Text style={styles.tag}>#focus</Text>
+          <Text style={styles.itemText}>{item.name}</Text>
+          {getStatusText() && <Text style={styles.tag}>{getStatusText()}</Text>}
         </Box>
       </Box>
     </TouchableOpacity>

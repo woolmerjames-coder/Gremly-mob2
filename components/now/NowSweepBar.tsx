@@ -7,7 +7,15 @@ import React from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Box, Text } from '../../ui';
 
-export function NowSweepBar() {
+interface NowSweepBarProps {
+  hasYesterdayCarryOver: boolean;
+}
+
+export function NowSweepBar({ hasYesterdayCarryOver }: NowSweepBarProps) {
+  if (!hasYesterdayCarryOver) {
+    return null;
+  }
+
   return (
     <Box style={styles.container}>
       <TouchableOpacity style={styles.button}>

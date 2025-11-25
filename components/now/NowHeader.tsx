@@ -8,20 +8,29 @@ import { StyleSheet } from 'react-native';
 import { Box, Text } from '../../ui';
 import { NowProgressDots } from './NowProgressDots';
 import { NowWeekIndicator } from './NowWeekIndicator';
+import type { NowProgressState } from '../../lib/now/nowTypes';
+import type { WeekStatus } from '../../lib/now/useNowData';
 
-export function NowHeader() {
-  // Placeholder data - will be replaced with real data in Phase 3
-  const greeting = 'Hi James — Good Morning';
-  const dateTime = 'Monday, November 25 • 10:30 AM';
+interface NowHeaderProps {
+  greeting: string;
+  dateTimeLabel: string;
+  progressState: NowProgressState;
+  weekStatus: WeekStatus;
+}
 
+export function NowHeader({ greeting, dateTimeLabel, progressState, weekStatus }: NowHeaderProps) {
   return (
     <Box style={styles.container}>
       <Text style={styles.greeting}>{greeting}</Text>
-      <Text style={styles.dateTime}>{dateTime}</Text>
+      <Text style={styles.dateTime}>{dateTimeLabel}</Text>
 
       <Box style={styles.metricsRow}>
-        <NowProgressDots mode="dots" dots={[true, false, true, false]} percent={42} />
-        <NowWeekIndicator status="on_track_today" />
+        <NowProgressDots
+          mode={progressState.mode}
+          dots={progressState.dots}
+          percent={progressState.percent}
+        />
+        <NowWeekIndicator status={weekStatus} />
       </Box>
     </Box>
   );

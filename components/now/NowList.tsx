@@ -9,24 +9,36 @@ import { Box, Text } from '../../ui';
 import { NowLockedItemCard } from './NowLockedItemCard';
 import { NowActiveItemCard } from './NowActiveItemCard';
 import { NowFutureDivider } from './NowFutureDivider';
+import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
-export function NowList() {
+interface NowListProps {
+  lockedItems: NowLockedItem[];
+  activeItems: NowActiveItem[];
+  futureItems: NowFutureItem[];
+}
+
+export function NowList({ lockedItems, activeItems, futureItems }: NowListProps) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <Text style={styles.header}>NOW</Text>
 
       {/* Locked items section */}
-      <NowLockedItemCard />
+      {lockedItems.map((item) => (
+        <NowLockedItemCard key={item.id} item={item} />
+      ))}
 
       {/* Active items section */}
-      <NowActiveItemCard />
+      {activeItems.map((item) => (
+        <NowActiveItemCard key={item.id} item={item} />
+      ))}
 
       {/* Future divider */}
-      <NowFutureDivider />
+      {futureItems.length > 0 && <NowFutureDivider />}
 
       {/* Future items section */}
-      <NowActiveItemCard />
-      <NowActiveItemCard />
+      {futureItems.map((item) => (
+        <NowActiveItemCard key={item.id} item={item} future />
+      ))}
     </ScrollView>
   );
 }
