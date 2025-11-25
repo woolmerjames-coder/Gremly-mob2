@@ -13,15 +13,24 @@ jest.mock('../../providers/RepoProvider', () => ({
 }));
 
 describe('NowScreenV1', () => {
-  it('renders the NOW V1 placeholder when flag is true', () => {
+  it('renders the NOW V1 components when flag is true', () => {
     renderWithProviders(<NowScreenV1 />);
 
-    expect(screen.getByText('NOW V1 placeholder')).toBeTruthy();
+    // Check for header elements
+    expect(screen.getByText(/Hi James/)).toBeTruthy();
+    expect(screen.getByText('NOW')).toBeTruthy();
+
+    // Check for vault
+    expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
   });
 
-  it('mounts successfully', () => {
+  it('mounts successfully with all sections', () => {
     renderWithProviders(<NowScreenV1 />);
 
-    expect(screen.getByText('NOW V1 placeholder')).toBeTruthy();
+    // Verify main sections render
+    expect(screen.getByText('NOW')).toBeTruthy();
+    expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
+    expect(screen.getByText('🧹 Sweep Available')).toBeTruthy();
+    expect(screen.getByText('Feeling stuck?')).toBeTruthy();
   });
 });
