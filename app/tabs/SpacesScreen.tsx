@@ -51,6 +51,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Image, Pressable, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -269,8 +270,8 @@ function GremlyHomeScreen() {
           </View>
         )}
 
-        {/* MindDrop Section - Full Width Band */}
-        <View style={styles.mindDropSection}>
+        {/* MindDrop Section - Full Width Band with Gradient */}
+        <LinearGradient colors={['#c9ddcf', '#E8F4EA']} style={styles.mindDropSection}>
           <View style={styles.mindDropContent}>
             <Image
               source={MINDDROP_HEADER}
@@ -296,7 +297,7 @@ function GremlyHomeScreen() {
             </Pressable>
             <Text style={styles.mindDropStat}>✨ 12 organized ever</Text>
           </View>
-        </View>
+        </LinearGradient>
 
         {/* Section Divider */}
         <View style={styles.sectionDivider} />
@@ -406,7 +407,7 @@ const styles = StyleSheet.create({
   customHeader: {
     paddingVertical: 12, // spacing[3]
     paddingHorizontal: 16,
-    marginBottom: 4, // Reduced from 8 for tighter spacing
+    marginBottom: 12, // Added breathing room before MindDrop section
   },
   paddedContent: {
     paddingHorizontal: 16,
@@ -428,14 +429,14 @@ const styles = StyleSheet.create({
   mindDropHeaderImage: {
     height: 64,
     width: 162,
-    alignSelf: 'flex-end',
-    marginBottom: 4,
+    alignSelf: 'center',
+    marginBottom: 8,
   },
   mindDropHeadline: {
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 3,
     color: '#222222',
   },
   mindDropDescription: {
@@ -449,27 +450,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 6,
-    borderRadius: 999,
+    paddingHorizontal: 28,
+    paddingVertical: 8,
+    borderRadius: 32,
     backgroundColor: '#2E5540', // Dark green
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-    gap: 12,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    gap: 11,
     alignSelf: 'center',
     marginBottom: 12,
   },
   mindDropButton: {
-    width: 68,
-    height: 68,
+    width: 48,
+    height: 48,
   },
   mindDropLabel: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '500',
-    color: '#FAF9F6', // Cream/linen
+    color: '#F9F6F1', // Cream
   },
   mindDropStat: {
     fontSize: 14,

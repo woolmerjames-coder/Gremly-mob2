@@ -2272,12 +2272,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const hour = new Date().getHours();
   const contextPrompt =
     hour >= 6 && hour < 12
-      ? "Good morning! What's on your mind?"
+      ? "Good morning! What's on\nyour mind?"
       : hour >= 12 && hour < 17
         ? 'Afternoon brain dump?'
         : hour >= 17 && hour < 22
           ? 'Evening thoughts?'
-          : 'Capture those late-night thoughts...';
+          : 'Capture those late-night\nthoughts...';
 
   useEffect(() => {
     isProcessingRef.current = isProcessing;
