@@ -27,6 +27,21 @@ const raw = {
   TODAY_EVENING_TEASER: process.env.EXPO_PUBLIC_TODAY_EVENING_TEASER ?? 'on',
   TODAY_V3: process.env.EXPO_PUBLIC_TODAY_V3 ?? 'on',
   TODAY_V4_LANES: process.env.EXPO_PUBLIC_TODAY_V4_LANES ?? 'off',
+
+  /**
+   * NOW V1 Feature Flag (Phase 7-8)
+   *
+   * Controls whether to render the new NowScreenV1 (unified NOW page) or fall back
+   * to legacy Today screen variants (TodayV4Lanes, TodayV3, or TodayScreenV2).
+   *
+   * Default: 'off' (uses legacy Today screen)
+   * Enable: Set EXPO_PUBLIC_NOW_V1=on in .env.local
+   *
+   * When enabled, NowScreenV1 takes precedence over all other Today variants.
+   * When disabled, the app falls back to v4Lanes → v3 → v2 based on their flags.
+   */
+  NOW_V1: process.env.EXPO_PUBLIC_NOW_V1 ?? 'off',
+
   TODAY_FOCUS_CARD: process.env.EXPO_PUBLIC_TODAY_FOCUS_CARD ?? 'on',
   TODAY_DROP_ZONE: process.env.EXPO_PUBLIC_TODAY_DROP_ZONE ?? 'on',
   TODAY_SWEEP_PREVIEW: process.env.EXPO_PUBLIC_TODAY_SWEEP_PREVIEW ?? 'on',
@@ -56,7 +71,25 @@ const raw = {
   OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
 };
 
-// Helper: Convert string flag to boolean ('on' | 'off' | 'true' | 'false' → boolean)
+/**
+ * Helper: Convert string flag to boolean
+ *
+ * Converts environment variable string values to boolean flags with strict checking:
+ * - Returns `false` for: undefined, empty string, 'off', 'false', '0' (case-insensitive)
+ * - Returns `true` ONLY for: 'on', 'true', '1' (case-insensitive)
+ * - Returns `false` for any other value
+ *
+ * This strict behavior ensures typos or invalid values default to disabled.
+ *
+ * Usage:
+ *   EXPO_PUBLIC_NOW_V1=on    → true
+ *   EXPO_PUBLIC_NOW_V1=1     → true
+ *   EXPO_PUBLIC_NOW_V1=true  → true
+ *   EXPO_PUBLIC_NOW_V1=off   → false
+ *   EXPO_PUBLIC_NOW_V1=0     → false
+ *   EXPO_PUBLIC_NOW_V1=yes   → false (strict checking)
+ *   EXPO_PUBLIC_NOW_V1 unset → false (default)
+ */
 const flag = (v?: string): boolean => {
   if (!v) return false;
   const normalized = v.toLowerCase();
@@ -118,6 +151,7 @@ const featureConfig = {
     eveningTeaser: flag(raw.TODAY_EVENING_TEASER),
     v3: flag(raw.TODAY_V3),
     v4Lanes: flag(raw.TODAY_V4_LANES),
+    nowV1: flag(raw.NOW_V1),
     focusCard: flag(raw.TODAY_FOCUS_CARD),
     dropZone: flag(raw.TODAY_DROP_ZONE),
     sweepPreview: flag(raw.TODAY_SWEEP_PREVIEW),

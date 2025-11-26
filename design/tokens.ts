@@ -18,6 +18,7 @@ export const lightTokens = {
     accentPeri: '#AEB8FF',
     success: '#34C759',
     danger: '#E25555',
+    warning: '#F59E0B',
     border: '#E7E2D9',
     card: '#FFFFFF',
 
@@ -128,6 +129,7 @@ export const darkTokens = {
     accentPeri: '#AEB8FF',
     success: '#34C759',
     danger: '#E25555',
+    warning: '#F59E0B',
     border: '#23302E',
     card: '#161B1A',
     // Provide same short aliases in dark mode where appropriate

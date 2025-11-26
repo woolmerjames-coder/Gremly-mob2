@@ -19,6 +19,7 @@ import { Card } from '../../design-system/Card';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useTodayData, type Suggestion, type TodayCommitment } from '../../lib/today/useTodayData';
+import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { eventBus } from '../../lib/events';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import { env } from '../../lib/env';
@@ -30,6 +31,7 @@ import TodaySuggestionCard from '../../components/today/TodaySuggestionCard';
 import TodayCelebrationOverlay from '../../components/today/TodayCelebrationOverlay';
 import TodayV3View from './TodayV3View';
 import TodayV4LanesView from './TodayV4LanesView';
+import NowScreenV1 from '../../app/screens/NowScreenV1';
 import { Icon, type IconName } from '../../components/ui/Icon';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -104,8 +106,12 @@ export default function TodayScreen() {
     console.log('[TodayVariant]', {
       v3: env.feature.today.v3,
       v4: env.feature.today.v4Lanes,
+      nowV1: env.feature.today.nowV1,
       showCommitments: COMMITMENTS_FEATURE_ENABLED,
     });
+  }
+  if (env.feature.today.nowV1) {
+    return <NowScreenV1 />;
   }
   if (env.feature.today.v4Lanes) {
     return <TodayV4LanesView />;
@@ -132,11 +138,20 @@ function TodayScreenV2() {
   // Today data hook
   const todayData = useTodayData();
 
-  // Local state for optimistic UI
-  const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
-  const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
+  // Read feature flags from env module
+  const celebrationEnabled = !isTestLight && env.feature.today.celebration;
+  const suggestionsEnabled = !isTestLight && env.feature.today.suggestions;
+  const eveningTeaserEnabled = env.feature.today.eveningTeaser;
+
+  // Shared interactions hook
   const [celebrationVisible, setCelebrationVisible] = useState(false);
-  const [undoState, setUndoState] = useState<UndoState | null>(null);
+  const interactions = useTodayInteractions({
+    onReload: todayData.reload,
+    celebrationEnabled,
+    onCelebration: () => setCelebrationVisible(true),
+  });
+
+  // Local state for UI
   const [showAllHabits, setShowAllHabits] = useState(false);
   const [showAllTodos, setShowAllTodos] = useState(false);
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
@@ -153,30 +168,15 @@ function TodayScreenV2() {
     Suggested: true,
   });
 
-  // Undo timer ref
-  const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Read feature flags from env module
-  const celebrationEnabled = !isTestLight && env.feature.today.celebration;
-  const suggestionsEnabled = !isTestLight && env.feature.today.suggestions;
-  const eveningTeaserEnabled = env.feature.today.eveningTeaser;
-
   // Check if we should show evening reflection teaser (18:00+)
   const shouldShowEveningTeaser =
     !isTestLight && eveningTeaserEnabled && new Date().getHours() >= 18;
 
-  // Clear undo timer on unmount
+  // Emit analytics event on mount
   useEffect(() => {
-    // Emit analytics event on mount
     const hour = new Date().getHours();
     const hourBlock = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
     eventBus.emit('TodayViewOpened', { hourBlock });
-
-    return () => {
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-      }
-    };
   }, []);
 
   // Handle pull-to-refresh
@@ -189,111 +189,27 @@ function TodayScreenV2() {
     setRefreshing(false);
   }, [todayData, isTestLight]);
 
-  // Handle habit completion with repo persistence
-  const handleHabitComplete = async (id: string) => {
-    const habit = todayData.habits.find((h) => h.id === id);
-    const label = habit?.name ?? 'Habit';
-
-    // Optimistic UI
-    setCompletedHabitIds((prev) => new Set(prev).add(id));
-    setUndoState({ id, type: 'habit', label, persisted: false });
-
-    if (celebrationEnabled) {
-      setCelebrationVisible(true);
-    }
-
-    // Clear any existing timer
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-
-    // Start undo timer - persist after 3s
-    undoTimerRef.current = setTimeout(async () => {
-      try {
-        await repo.completeHabit(id, new Date().toISOString());
-
-        // Phase 10.9: Emit celebration event for habit check-in
-        emitChatEvent({
-          type: 'habit_checkin',
-          payload: { habitId: id },
-        });
-
-        // Emit analytics
-        eventBus.emit('TodayCompleteHabit', {
-          habitId: id,
-          streakAfter: todayData.header.streakCount + 1,
-        });
-        setUndoState((prev) => (prev && prev.id === id ? { ...prev, persisted: true } : prev));
-        // Event bus will trigger reload automatically
-      } catch (err) {
-        console.error('Failed to complete habit:', err);
-        // Revert optimistic UI on error
-        setCompletedHabitIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        setUndoState((prev) => (prev && prev.id === id ? null : prev));
-      } finally {
-        undoTimerRef.current = null;
+  // Handle habit completion - delegate to shared hook
+  const handleHabitComplete = useCallback(
+    (id: string) => {
+      const habit = todayData.habits.find((h) => h.id === id);
+      if (habit) {
+        void interactions.toggleHabitComplete(habit);
       }
-    }, UNDO_TIMEOUT_MS);
-  };
+    },
+    [todayData.habits, interactions],
+  );
 
-  // Handle todo completion with repo persistence
-  const handleTodoComplete = async (id: string) => {
-    // Find if todo is overdue
-    const todo = todayData.todos.find((t) => t.id === id);
-    const isOverdue = todo?.overdue || false;
-    const label = todo?.title ?? 'To-do';
-
-    // Optimistic UI
-    setCompletedTodoIds((prev) => new Set(prev).add(id));
-    setUndoState({ id, type: 'todo', label, persisted: false });
-
-    if (celebrationEnabled) {
-      setCelebrationVisible(true);
-    }
-
-    // Clear any existing timer
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-
-    // Start undo timer - persist after 3s
-    undoTimerRef.current = setTimeout(async () => {
-      try {
-        await repo.completeTodo(id, new Date().toISOString());
-
-        // Phase 10.9: Emit celebration event for todo completion
-        emitChatEvent({
-          type: 'todo_completed',
-          payload: { todoId: id },
-        });
-
-        // Emit analytics
-        eventBus.emit('TodayCompleteTodo', {
-          todoId: id,
-          overdue: isOverdue,
-        });
-        setUndoState((prev) => (prev && prev.id === id ? { ...prev, persisted: true } : prev));
-        // Event bus will trigger reload automatically
-      } catch (err) {
-        console.error('Failed to complete todo:', err);
-        // Revert optimistic UI on error
-        setCompletedTodoIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        setUndoState((prev) => (prev && prev.id === id ? null : prev));
-      } finally {
-        undoTimerRef.current = null;
+  // Handle todo completion - delegate to shared hook
+  const handleTodoComplete = useCallback(
+    (id: string) => {
+      const todo = todayData.todos.find((t) => t.id === id);
+      if (todo) {
+        void interactions.toggleTodoComplete(todo);
       }
-    }, UNDO_TIMEOUT_MS);
-  };
+    },
+    [todayData.todos, interactions],
+  );
 
   // Handle suggestion acceptance with prefilled overlay
   const handleSuggestionAccept = (suggestion: Suggestion) => {
@@ -313,53 +229,10 @@ function TodayScreenV2() {
     }
   };
 
-  const undoLastCompletion = useCallback(async () => {
-    if (!undoState) {
-      return;
-    }
-
-    const { id, type, persisted } = undoState;
-
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-
-    try {
-      if (persisted) {
-        await repo.undoCompletion(id);
-        await todayData.reload();
-      }
-
-      if (type === 'habit') {
-        setCompletedHabitIds((prev) => {
-          if (!prev.has(id)) return prev;
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-      } else {
-        setCompletedTodoIds((prev) => {
-          if (!prev.has(id)) return prev;
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-      }
-
-      setCelebrationVisible(false);
-      setUndoState(null);
-
-      eventBus.emit('TodayUndoCompletion', { entityType: type });
-    } catch (err) {
-      console.error('Failed to undo completion:', err);
-      Alert.alert('Undo failed', 'Please try again in a moment.');
-    }
-  }, [repo, todayData, undoState]);
-
   const handleUndo = useCallback(() => {
-    void undoLastCompletion();
-  }, [undoLastCompletion]);
+    void interactions.undoLastCompletion();
+    setCelebrationVisible(false);
+  }, [interactions]);
 
   // Handle long press
   const handleLongPress = (id: string) => {
@@ -422,8 +295,8 @@ function TodayScreenV2() {
     : todayData.visible.suggestions;
 
   // Filter out completed items for display (optimistic UI)
-  const visibleHabits = habitsToShow.filter((h) => !completedHabitIds.has(h.id));
-  const visibleTodos = todosToShow.filter((t) => !completedTodoIds.has(t.id));
+  const visibleHabits = habitsToShow.filter((h) => !interactions.completedHabitIds.has(h.id));
+  const visibleTodos = todosToShow.filter((t) => !interactions.completedTodoIds.has(t.id));
 
   // Group todos by space
   const todoGroups = groupBy(visibleTodos, (t) => t.spaceName || '');
@@ -454,7 +327,7 @@ function TodayScreenV2() {
           </Box>
         )}
 
-        {undoState && (
+        {interactions.undoState && (
           <Card testID="today-undo-banner">
             <Box
               p={3}
@@ -466,7 +339,7 @@ function TodayScreenV2() {
               }}
             >
               <Text variant="body" style={{ flex: 1, marginRight: 12 }} numberOfLines={2}>
-                {`Marked "${undoState.label}" ${undoState.type === 'habit' ? 'habit' : 'to-do'} complete.`}
+                {`Marked "${interactions.undoState.label}" ${interactions.undoState.type === 'habit' ? 'habit' : 'to-do'} complete.`}
               </Text>
               <Button
                 title="Undo"

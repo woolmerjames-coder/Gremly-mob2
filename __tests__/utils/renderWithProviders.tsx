@@ -151,6 +151,7 @@ export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
     } as AppRecord),
     remove: defaultVoid,
     getById: defaultNull,
+    getAll: defaultEmptyArray,
     listByType: defaultEmptyArray,
     listBySpace: defaultEmptyArray,
     search: defaultEmptyArray,
@@ -230,6 +231,8 @@ export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
     acceptBuddy: defaultVoid,
     nudgeBuddy: defaultVoid,
     unlinkBuddy: defaultVoid,
+    getHabitProgressForDate: defaultZero,
+    getHabitProgressForWeek: defaultZero,
     ...overrides,
   } as IRepo;
 };

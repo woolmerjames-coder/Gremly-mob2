@@ -1678,6 +1678,26 @@ export class SupabaseRepo implements IRepo {
     return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
   }
 
+  async getHabitProgressForWeek(
+    habitId: ID,
+    weekStartIso: string,
+    weekEndIso: string,
+  ): Promise<number> {
+    const ownerId = this.ensureUserId();
+    const weekStart = ensureDay(weekStartIso);
+    const weekEnd = ensureDay(weekEndIso);
+    const { data, error } = await supabase
+      .from('habit_progress')
+      .select('count')
+      .eq('owner_id', ownerId)
+      .eq('habit_id', habitId)
+      .gte('occurred_day', weekStart)
+      .lte('occurred_day', weekEnd);
+
+    if (error) throw new Error(`getHabitProgressForWeek failed: ${error.message}`);
+    return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
+  }
+
   async getFocusForDate(dayIso: string): Promise<{
     id: ID;
     entry_id: ID | null;

@@ -700,6 +700,30 @@ export class MemoryRepo implements IRepo {
       .reduce((sum, row) => sum + (row.count ?? 1), 0);
   }
 
+  async getHabitProgressForWeek(
+    habitId: ID,
+    weekStartIso: string,
+    weekEndIso: string,
+  ): Promise<number> {
+    const weekStart = ensureDay(weekStartIso);
+    const weekEnd = ensureDay(weekEndIso);
+    const rows = ((this as any)._habitProgress || []) as Array<{
+      owner_id: string;
+      habit_id: string;
+      occurred_day: string;
+      count: number;
+    }>;
+    return rows
+      .filter(
+        (row) =>
+          row.owner_id === this.currentUserId &&
+          row.habit_id === habitId &&
+          row.occurred_day >= weekStart &&
+          row.occurred_day <= weekEnd,
+      )
+      .reduce((sum, row) => sum + (row.count ?? 1), 0);
+  }
+
   async getFocusForDate(dayIso: string): Promise<{
     id: ID;
     entry_id: ID | null;

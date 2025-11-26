@@ -192,6 +192,9 @@ export interface IRepo {
   /** Returns total progress for a habit on a given day (UTC date string 'YYYY-MM-DD'). */
   getHabitProgressForDate(habitId: ID, dayIso: string): Promise<number>;
 
+  /** Returns total progress for a habit within a date range (inclusive). */
+  getHabitProgressForWeek(habitId: ID, weekStartIso: string, weekEndIso: string): Promise<number>;
+
   /** Focus card getters/setters (one focus per owner per day). */
   getFocusForDate(dayIso: string): Promise<{
     id: ID;
