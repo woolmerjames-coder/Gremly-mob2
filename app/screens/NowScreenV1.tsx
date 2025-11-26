@@ -6,16 +6,18 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowWeeklySummary } from '../../components/now/NowWeeklySummary';
-import { NowList } from '../../components/now/NowList';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
 import { NowOverwhelmCard } from '../../components/now/NowOverwhelmCard';
+import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
+import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
+import { NowFutureDivider } from '../../components/now/NowFutureDivider';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
@@ -102,15 +104,15 @@ export default function NowScreenV1() {
       />
       <View style={styles.weekSummaryDivider} />
       <Text style={styles.sectionTitle}>Today’s Focus</Text>
-      <NowList
+      <TodayFocusList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
         futureItems={now.futureItems}
         progressPercent={now.progressState.percent}
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
+        onPressOverwhelm={overwhelm.open}
       />
-      <NowOverwhelmCard onPress={overwhelm.open} />
       <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
 
       <NowProgressPopup
@@ -154,11 +156,127 @@ export default function NowScreenV1() {
   );
 }
 
+type TodayFocusListProps = {
+  lockedItems: NowLockedItem[];
+  activeItems: NowActiveItem[];
+  futureItems: NowFutureItem[];
+  progressPercent: number;
+  onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
+  onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
+  onPressOverwhelm: () => void;
+};
+
+function TodayFocusList({
+  lockedItems,
+  activeItems,
+  futureItems,
+  progressPercent,
+  onPressItem,
+  onToggleComplete,
+  onPressOverwhelm,
+}: TodayFocusListProps) {
+  const hasNoItems = lockedItems.length === 0 && activeItems.length === 0;
+  const isAllComplete = progressPercent === 100;
+
+  return (
+    <ScrollView
+      style={styles.listContainer}
+      contentContainerStyle={styles.listContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {isAllComplete && !hasNoItems && (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>🎉 All done for today!</Text>
+        </View>
+      )}
+
+      {hasNoItems && (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>Nothing scheduled for today.</Text>
+          <Text style={styles.emptySubtext}>Enjoy a calmer day — or try a Sweep.</Text>
+        </View>
+      )}
+
+      {lockedItems.map((item) => (
+        <NowLockedItemCard
+          key={item.id}
+          item={item}
+          onPress={() => onPressItem?.(item)}
+          onToggleComplete={() => onToggleComplete?.(item)}
+        />
+      ))}
+
+      {activeItems.map((item) => (
+        <NowActiveItemCard
+          key={item.id}
+          item={item}
+          onPress={() => onPressItem?.(item)}
+          onToggleComplete={() => onToggleComplete?.(item)}
+        />
+      ))}
+
+      {futureItems.length > 0 && <NowFutureDivider />}
+
+      {futureItems.map((item) => (
+        <NowActiveItemCard
+          key={item.id}
+          item={item}
+          future
+          onPress={() => onPressItem?.(item)}
+          onToggleComplete={() => onToggleComplete?.(item)}
+        />
+      ))}
+
+      <NowOverwhelmCard onPress={onPressOverwhelm} />
+      <View style={styles.listBottomSpacer} />
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#F5F5F5',
     position: 'relative',
+  },
+  listContainer: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  banner: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  bannerText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  emptyState: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#424242',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#757575',
+    textAlign: 'center',
+  },
+  listBottomSpacer: {
+    height: 120,
   },
   weekSummaryDivider: {
     marginTop: 0,
