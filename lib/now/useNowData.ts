@@ -3,7 +3,7 @@
  * Fetches and transforms data using NOW selectors
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import type { Habit, Todo, Note } from '../types';
@@ -127,6 +127,8 @@ function calculateWeekStatus(
 export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const repo = useRepo();
   const { user } = useAuth();
+  const errorCountRef = useRef(0);
+  const lastErrorTimeRef = useRef(0);
 
   const [data, setData] = useState<NowData>({
     greeting: getGreeting(getTimeWindow(today)),
@@ -172,9 +174,19 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       return;
     }
 
+    // Prevent multiple simultaneous requests
+    setData((prev) => {
+      if (prev.loading) return prev; // Already loading, skip
+      return { ...prev, loading: true };
+    });
+
     try {
       // Fetch all data in parallel
       const [allRecords, allNotes] = await Promise.all([repo.getAll(), repo.listByType('note')]);
+
+      // Reset error counter on success
+      errorCountRef.current = 0;
+      lastErrorTimeRef.current = 0;
 
       // Filter by type
       const habits = allRecords.filter((r): r is Habit => r.type === 'habit');
@@ -258,7 +270,30 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         loading: false,
       });
     } catch (error) {
-      console.error('[useNowData] Error loading data:', error);
+      // Throttle error logging to prevent spam
+      const now = Date.now();
+      const timeSinceLastError = now - lastErrorTimeRef.current;
+
+      // Only log error if it's been more than 5 seconds since last error
+      if (timeSinceLastError > 5000) {
+        console.error('[useNowData] Error loading data:', error);
+        errorCountRef.current = 1;
+      } else {
+        errorCountRef.current += 1;
+      }
+
+      lastErrorTimeRef.current = now;
+
+      // If we've had 3+ errors in quick succession, log a summary
+      if (errorCountRef.current === 3) {
+        console.error(
+          '[useNowData] Multiple network errors detected. Check:',
+          '\n1. Are you logged in?',
+          '\n2. Is your internet connection working?',
+          '\n3. Are your Supabase credentials correct?',
+        );
+      }
+
       setData((prev) => ({ ...prev, loading: false }));
     }
   }, [repo, user, today]);
