@@ -133,7 +133,6 @@ describe('NowScreenV1 Integration Tests', () => {
           ],
           overflowCount: 2,
           thisWeekStats: {
-            listCount: 0,
             listCount: 7,
             journalCount: 3,
             ideaCount: 8,

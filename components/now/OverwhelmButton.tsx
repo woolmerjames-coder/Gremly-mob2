@@ -42,7 +42,7 @@ export function OverwhelmButton({ onPress }: OverwhelmButtonProps) {
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
-      <Icon name="HelpCircle" size="sm" color={tokens.colors.mossGreen} style={styles.icon} />
+      <Icon name="HelpCircle" size="sm" color={tokens.colors.mossGreen} />
       <Text style={styles.label}>Feeling overwhelmed?</Text>
     </TouchableOpacity>
   );
