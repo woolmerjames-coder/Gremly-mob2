@@ -166,10 +166,12 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const load = useCallback(async () => {
     // Prevent duplicate simultaneous calls
     if (isLoadingRef.current) {
+      console.log('[useNowData] Skipping load - already loading');
       return;
     }
 
     if (!user) {
+      console.log('[useNowData] No user, showing default greeting');
       const timeWindow = getTimeWindow(today);
       setData((prev) => ({
         ...prev,
@@ -180,6 +182,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       return;
     }
 
+    console.log('[useNowData] Starting load...');
     isLoadingRef.current = true;
     setData((prev) => ({ ...prev, loading: true }));
 
@@ -273,6 +276,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         loading: false,
       });
       isLoadingRef.current = false;
+      console.log('[useNowData] ✅ Load complete');
     } catch (error) {
       // Throttle error logging to prevent spam
       const now = Date.now();
