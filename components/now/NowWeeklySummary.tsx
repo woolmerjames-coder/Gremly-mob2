@@ -49,8 +49,9 @@ export function NowWeeklySummary({ stats, onPress }: NowWeeklySummaryProps) {
 const useStyles = makeStyles((t) => ({
   container: {
     paddingHorizontal: t.spacing[3],
-    paddingTop: 0,
-    paddingBottom: t.spacing[3],
+    paddingTop: t.spacing[1],
+    paddingBottom: 0,
+    marginTop: t.spacing[1],
     alignItems: 'center',
   },
   label: {
@@ -58,7 +59,7 @@ const useStyles = makeStyles((t) => ({
     fontWeight: '500',
     fontFamily: t.typography.fontFamily.medium,
     color: t.colors.subtle,
-    marginBottom: t.spacing[3],
+    marginBottom: t.spacing[1],
   },
   metricsLine: {
     marginTop: t.spacing[1],
