@@ -129,6 +129,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const { user } = useAuth();
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
+  const isLoadingRef = useRef(false);
 
   const [data, setData] = useState<NowData>({
     greeting: getGreeting(getTimeWindow(today)),
@@ -163,6 +164,11 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
   });
 
   const load = useCallback(async () => {
+    // Prevent duplicate simultaneous calls
+    if (isLoadingRef.current) {
+      return;
+    }
+
     if (!user) {
       const timeWindow = getTimeWindow(today);
       setData((prev) => ({
@@ -174,11 +180,8 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       return;
     }
 
-    // Prevent multiple simultaneous requests
-    setData((prev) => {
-      if (prev.loading) return prev; // Already loading, skip
-      return { ...prev, loading: true };
-    });
+    isLoadingRef.current = true;
+    setData((prev) => ({ ...prev, loading: true }));
 
     try {
       // Fetch all data in parallel
@@ -269,6 +272,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         capturesCount,
         loading: false,
       });
+      isLoadingRef.current = false;
     } catch (error) {
       // Throttle error logging to prevent spam
       const now = Date.now();
@@ -295,6 +299,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       }
 
       setData((prev) => ({ ...prev, loading: false }));
+      isLoadingRef.current = false;
     }
   }, [repo, user, today]);
 
