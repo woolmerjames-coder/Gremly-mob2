@@ -180,9 +180,6 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Mind Vault card should NOT be present
       expect(screen.queryByText('Mind Vault')).toBeFalsy();
 
-      // Assert: NOW list section header
-      expect(screen.getByText('NOW')).toBeTruthy();
-
       // Assert: Locked item appears
       expect(screen.getByText('Morning Meditation')).toBeTruthy();
 
@@ -246,9 +243,6 @@ describe('NowScreenV1 Integration Tests', () => {
 
       // Assert: Week indicator still renders
       expect(screen.getByText('WEEK:')).toBeTruthy();
-
-      // Assert: NOW list section header still renders
-      expect(screen.getByText('NOW')).toBeTruthy();
 
       // Assert: No items appear
       expect(screen.queryByText('Morning Meditation')).toBeNull();

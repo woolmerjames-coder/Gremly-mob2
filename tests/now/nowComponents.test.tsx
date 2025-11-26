@@ -151,47 +151,29 @@ describe('NowVaultBar', () => {
 });
 
 describe('NowList', () => {
-  it('mounts successfully', () => {
-    render(
-      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
-    );
-    expect(screen.getByText('NOW')).toBeTruthy();
-  });
-
-  it('displays NOW header', () => {
-    render(
-      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
-    );
-    expect(screen.getByText('NOW')).toBeTruthy();
-  });
-
-  it('displays locked item placeholder', () => {
-    render(
-      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
-    );
+  it('renders locked items', () => {
+    render(<NowList lockedItems={[mockLockedItem]} activeItems={[]} futureItems={[]} />);
     expect(screen.getByText('Placeholder locked item')).toBeTruthy();
   });
 
-  it('displays active item placeholders', () => {
+  it('renders active items', () => {
+    render(<NowList lockedItems={[]} activeItems={[mockActiveItem]} futureItems={[]} />);
+    expect(screen.getByText('Placeholder active item')).toBeTruthy();
+  });
+
+  it('renders multiple active items', () => {
     render(
       <NowList
-        lockedItems={[mockLockedItem]}
+        lockedItems={[]}
         activeItems={[mockActiveItem, { ...mockActiveItem, id: 'active-2' }]}
         futureItems={[]}
       />,
     );
     const activeItems = screen.getAllByText('Placeholder active item');
-    expect(activeItems.length).toBeGreaterThan(0);
+    expect(activeItems.length).toBe(2);
   });
 
-  it('displays habit status placeholder', () => {
-    render(
-      <NowList lockedItems={[mockLockedItem]} activeItems={[mockActiveItem]} futureItems={[]} />,
-    );
-    expect(screen.getByText('On track')).toBeTruthy();
-  });
-
-  it('displays future divider', () => {
+  it('displays future divider when future items exist', () => {
     render(
       <NowList
         lockedItems={[mockLockedItem]}
@@ -200,6 +182,23 @@ describe('NowList', () => {
       />,
     );
     expect(screen.getByText('Future')).toBeTruthy();
+  });
+
+  it('displays empty state when no items', () => {
+    render(<NowList lockedItems={[]} activeItems={[]} futureItems={[]} />);
+    expect(screen.getByText('Nothing scheduled for today.')).toBeTruthy();
+  });
+
+  it('displays all done banner when all complete', () => {
+    render(
+      <NowList
+        lockedItems={[mockLockedItem]}
+        activeItems={[]}
+        futureItems={[]}
+        progressPercent={100}
+      />,
+    );
+    expect(screen.getByText('🎉 All done for today!')).toBeTruthy();
   });
 });
 
@@ -223,16 +222,16 @@ describe('NowSweepBar', () => {
 describe('OverwhelmButton', () => {
   it('mounts successfully', () => {
     render(<OverwhelmButton onPress={jest.fn()} />);
-    expect(screen.getByText('Feeling stuck?')).toBeTruthy();
+    expect(screen.getByText('Feeling overwhelmed?')).toBeTruthy();
   });
 
   it('displays emoji icon', () => {
     render(<OverwhelmButton onPress={jest.fn()} />);
-    expect(screen.getByText('Feeling stuck?')).toBeTruthy();
+    expect(screen.getByText('Feeling overwhelmed?')).toBeTruthy();
   });
 
-  it('displays stuck text', () => {
+  it('displays overwhelmed text', () => {
     render(<OverwhelmButton onPress={jest.fn()} />);
-    expect(screen.getByText('Feeling stuck?')).toBeTruthy();
+    expect(screen.getByText('Feeling overwhelmed?')).toBeTruthy();
   });
 });

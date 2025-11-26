@@ -112,7 +112,6 @@ describe('NowScreenV1', () => {
     // Check for header elements with time-of-day greeting
     const greetingText = screen.getByText(/Good (morning|afternoon|evening)/);
     expect(greetingText).toBeTruthy();
-    expect(screen.getByText('NOW')).toBeTruthy();
 
     // Weekly summary should not render when all counts are zero
     expect(screen.queryByText('This week…')).toBeFalsy();
@@ -128,9 +127,8 @@ describe('NowScreenV1', () => {
     renderWithProviders(<NowScreenV1 />);
 
     // Verify main sections render
-    expect(screen.getByText('NOW')).toBeTruthy();
     expect(screen.getByText(/Sweep/i)).toBeTruthy();
-    expect(screen.getByText(/stuck/i)).toBeTruthy();
+    expect(screen.getByText(/overwhelmed/i)).toBeTruthy();
     // Mind Vault card should NOT be present
     expect(screen.queryByText('Mind Vault')).toBeFalsy();
   });

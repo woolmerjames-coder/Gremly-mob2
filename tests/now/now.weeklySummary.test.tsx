@@ -18,8 +18,8 @@ describe('NowWeeklySummary', () => {
       />,
     );
 
-    expect(screen.getByText('This week…')).toBeTruthy();
-    expect(screen.getByText('7 lists · 3 journals · 8 ideas')).toBeTruthy();
+    expect(screen.getByText('This week')).toBeTruthy();
+    expect(screen.getByText('7 lists • 3 journals • 8 ideas')).toBeTruthy();
   });
 
   it('renders with mixed stats', () => {
@@ -33,11 +33,11 @@ describe('NowWeeklySummary', () => {
       />,
     );
 
-    expect(screen.getByText('This week…')).toBeTruthy();
-    expect(screen.getByText('5 lists · 0 journals · 2 ideas')).toBeTruthy();
+    expect(screen.getByText('This week')).toBeTruthy();
+    expect(screen.getByText('5 lists • 0 journals • 2 ideas')).toBeTruthy();
   });
 
-  it('does not render when all stats are zero', () => {
+  it('renders even when all stats are zero', () => {
     render(
       <NowWeeklySummary
         stats={{
@@ -48,8 +48,9 @@ describe('NowWeeklySummary', () => {
       />,
     );
 
-    // Component should return null
-    expect(screen.queryByText('This week…')).toBeFalsy();
+    // Component now renders with zero values
+    expect(screen.getByText('This week')).toBeTruthy();
+    expect(screen.getByText('0 lists • 0 journals • 0 ideas')).toBeTruthy();
   });
 
   it('renders with only lists', () => {
@@ -63,8 +64,8 @@ describe('NowWeeklySummary', () => {
       />,
     );
 
-    expect(screen.getByText('This week…')).toBeTruthy();
-    expect(screen.getByText('3 lists · 0 journals · 0 ideas')).toBeTruthy();
+    expect(screen.getByText('This week')).toBeTruthy();
+    expect(screen.getByText('3 lists • 0 journals • 0 ideas')).toBeTruthy();
   });
 
   it('renders with only journals', () => {
@@ -78,8 +79,8 @@ describe('NowWeeklySummary', () => {
       />,
     );
 
-    expect(screen.getByText('This week…')).toBeTruthy();
-    expect(screen.getByText('0 lists · 5 journals · 0 ideas')).toBeTruthy();
+    expect(screen.getByText('This week')).toBeTruthy();
+    expect(screen.getByText('0 lists • 5 journals • 0 ideas')).toBeTruthy();
   });
 
   it('renders with only ideas', () => {
@@ -93,7 +94,7 @@ describe('NowWeeklySummary', () => {
       />,
     );
 
-    expect(screen.getByText('This week…')).toBeTruthy();
-    expect(screen.getByText('0 lists · 0 journals · 10 ideas')).toBeTruthy();
+    expect(screen.getByText('This week')).toBeTruthy();
+    expect(screen.getByText('0 lists • 0 journals • 10 ideas')).toBeTruthy();
   });
 });

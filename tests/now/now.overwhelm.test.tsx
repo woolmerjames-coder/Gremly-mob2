@@ -152,8 +152,7 @@ describe('Overwhelm Flow Integration Tests', () => {
     it('renders overwhelm button on NOW screen', () => {
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('Feeling stuck?')).toBeTruthy();
-      expect(screen.getByText('Feeling stuck?')).toBeTruthy();
+      expect(screen.getByText('Feeling overwhelmed?')).toBeTruthy();
     });
 
     it('shows selection sheet when tapping overwhelm button', () => {
@@ -163,7 +162,7 @@ describe('Overwhelm Flow Integration Tests', () => {
       expect(screen.queryByText('Pick your 3 most important items')).toBeNull();
 
       // Tap the overwhelm button
-      fireEvent.press(screen.getByText('Feeling stuck?'));
+      fireEvent.press(screen.getByText('Feeling overwhelmed?'));
 
       // Selection sheet should now be visible
       expect(screen.getByText('Pick your 3 most important items')).toBeTruthy();
@@ -175,7 +174,7 @@ describe('Overwhelm Flow Integration Tests', () => {
     it('displays all items in selection sheet (locked + active)', () => {
       renderWithProviders(<NowScreenV1 />);
 
-      fireEvent.press(screen.getByText('Feeling stuck?'));
+      fireEvent.press(screen.getByText('Feeling overwhelmed?'));
 
       // All items should be listed
       const allItems = screen.getAllByText('Morning Meditation');
@@ -191,7 +190,7 @@ describe('Overwhelm Flow Integration Tests', () => {
       renderWithProviders(<NowScreenV1 />);
 
       // Open selection sheet
-      fireEvent.press(screen.getByText('Feeling stuck?'));
+      fireEvent.press(screen.getByText('Feeling overwhelmed?'));
       expect(screen.getByText('Pick your 3 most important items')).toBeTruthy();
 
       // Tap Cancel
@@ -207,7 +206,7 @@ describe('Overwhelm Flow Integration Tests', () => {
       renderWithProviders(<NowScreenV1 />);
 
       // Open selection sheet
-      fireEvent.press(screen.getByText('Feeling stuck?'));
+      fireEvent.press(screen.getByText('Feeling overwhelmed?'));
       expect(screen.getByText('0/3 selected')).toBeTruthy();
 
       // Get items in the modal (last occurrence of each)
