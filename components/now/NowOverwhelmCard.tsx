@@ -12,7 +12,7 @@ export function NowOverwhelmCard({ onPress }: Props) {
   return (
     <Pressable onPress={onPress} style={styles.card} accessibilityRole="button">
       <Text style={styles.title}>Feeling overwhelmed?</Text>
-      <Text style={styles.subtitle}>Try Overwhelm mode →</Text>
+      <Text style={styles.subtitle}>Pick a few to focus on →</Text>
     </Pressable>
   );
 }
@@ -25,12 +25,14 @@ const useStyles = makeStyles((t) => ({
     paddingHorizontal: t.spacing[4],
     paddingVertical: t.spacing[2],
     borderRadius: t.radius.lg,
-    backgroundColor: t.colors.sageMist,
+    backgroundColor: t.colors.card,
+    borderWidth: 1,
+    borderColor: t.colors.sageMist,
     shadowColor: t.colors.shadow,
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   title: {
     fontSize: 14,

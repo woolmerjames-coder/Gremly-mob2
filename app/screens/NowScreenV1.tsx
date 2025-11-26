@@ -7,9 +7,6 @@
 
 import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View, Text } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowWeeklySummary } from '../../components/now/NowWeeklySummary';
@@ -18,6 +15,7 @@ import { NowOverwhelmCard } from '../../components/now/NowOverwhelmCard';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
 import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
+import { NowTodayMascot } from '../../components/now/NowTodayMascot';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
@@ -30,7 +28,6 @@ import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
 export default function NowScreenV1() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const now = useNowData();
   const overwhelm = useOverwhelmFlow();
   const [isProgressVisible, setProgressVisible] = useState(false);
@@ -103,7 +100,10 @@ export default function NowScreenV1() {
         }}
       />
       <View style={styles.weekSummaryDivider} />
-      <Text style={styles.sectionTitle}>Today’s Focus</Text>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Today’s Focus</Text>
+        <NowTodayMascot />
+      </View>
       <TodayFocusList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
@@ -239,6 +239,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     position: 'relative',
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    marginTop: -16,
+    marginBottom: 12,
+  },
   listContainer: {
     flex: 1,
     backgroundColor: '#F5F5F5',
@@ -286,11 +294,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E7E2D9',
   },
   sectionTitle: {
-    marginTop: 0,
-    marginBottom: 12,
-    paddingHorizontal: 24,
+    flex: 1,
     fontSize: 14,
     fontWeight: '600',
     color: '#0E1116',
+    marginTop: 16,
   },
 });
