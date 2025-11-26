@@ -305,7 +305,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       setData((prev) => ({ ...prev, loading: false }));
       isLoadingRef.current = false;
     }
-  }, [repo, user, today]);
+  }, [repo, user]); // Removed 'today' from deps - it causes infinite loops since it's a new Date() each time
 
   useEffect(() => {
     load();
