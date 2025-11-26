@@ -25,6 +25,74 @@ const HABIT_STATUS_LABELS: Record<HabitWeeklyStatus, string> = {
   last_chance: 'Last chance today',
 };
 
+type HabitProgressSnapshot = {
+  today?: number;
+  thisWeek?: number;
+  thisMonth?: number;
+};
+
+function clampProgress(value: number, target: number): number {
+  if (typeof target !== 'number' || target <= 0) {
+    return Math.max(0, value);
+  }
+  return Math.max(0, Math.min(value, target));
+}
+
+function buildCadenceLabelForHabit(
+  habit: Habit,
+  progress: HabitProgressSnapshot,
+): string | undefined {
+  const cadence = habit.cadence ?? 'daily';
+
+  if (cadence === 'daily') {
+    const targetPerDay = habit.target_per_day ?? 1;
+    if (targetPerDay <= 1) {
+      return 'Daily';
+    }
+    if (typeof progress.today === 'number') {
+      const completed = clampProgress(progress.today, targetPerDay);
+      return `${completed}/${targetPerDay} today`;
+    }
+    // TODO: Daily cadence labels for multi-per-day habits require progress_today to be hydrated.
+    return undefined;
+  }
+
+  if (cadence === 'weekly') {
+    const targetPerWeek = habit.target_per_period ?? 0;
+    if (targetPerWeek > 0 && typeof progress.thisWeek === 'number') {
+      const completed = clampProgress(progress.thisWeek, targetPerWeek);
+      return `${completed}/${targetPerWeek} this week`;
+    }
+    return undefined;
+  }
+
+  if (cadence === 'monthly') {
+    const targetPerMonth = habit.target_per_period;
+    if (typeof targetPerMonth === 'number' && typeof progress.thisMonth === 'number') {
+      const completed = clampProgress(progress.thisMonth, targetPerMonth);
+      return `${completed}/${targetPerMonth} this month`;
+    }
+    // TODO: Monthly cadence label requires monthly aggregation from habit_progress.
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function getHabitProgressSnapshot(
+  habit: Habit,
+  completionsThisWeek: number,
+): HabitProgressSnapshot {
+  const progressToday =
+    typeof (habit as any).progress_today === 'number' ? (habit as any).progress_today : undefined;
+
+  return {
+    today: progressToday,
+    thisWeek: completionsThisWeek,
+    // TODO: Populate thisMonth when backend exposes monthly progress counts.
+  };
+}
+
 /**
  * Get the current day number (0=Sunday, 6=Saturday)
  */
@@ -204,10 +272,12 @@ export function getLockedItems(
 
       if (needed) {
         const weeklyStatus = getHabitWeeklyStatus(habit, completionsThisWeek, date);
+        const progressSnapshot = getHabitProgressSnapshot(habit, completionsThisWeek);
         locked.push({
           id: habit.id,
           type: 'habit',
           name: habit.name,
+          cadenceLabel: buildCadenceLabelForHabit(habit, progressSnapshot),
           statusText: formatHabitStatusText(habit, weeklyStatus, completionsThisWeek),
           locked: true,
           cadence: habit.cadence,
@@ -265,10 +335,12 @@ export function getActiveTodayItems(
 
       if (needed) {
         const weeklyStatus = getHabitWeeklyStatus(habit, completionsThisWeek, date);
+        const progressSnapshot = getHabitProgressSnapshot(habit, completionsThisWeek);
         active.push({
           id: habit.id,
           type: 'habit',
           name: habit.name,
+          cadenceLabel: buildCadenceLabelForHabit(habit, progressSnapshot),
           statusText: formatHabitStatusText(habit, weeklyStatus, completionsThisWeek),
           locked: false,
           cadence: habit.cadence,
@@ -325,10 +397,12 @@ export function getFutureItems(
       const completionsThisWeek = completionHistory.get(habit.id) || 0;
 
       const weeklyStatus = getHabitWeeklyStatus(habit, completionsThisWeek, date);
+      const progressSnapshot = getHabitProgressSnapshot(habit, completionsThisWeek);
       future.push({
         id: habit.id,
         type: 'habit',
         name: habit.name,
+        cadenceLabel: buildCadenceLabelForHabit(habit, progressSnapshot),
         statusText: formatHabitStatusText(habit, weeklyStatus, completionsThisWeek),
         cadence: habit.cadence,
         targetPerPeriod: habit.target_per_period,
