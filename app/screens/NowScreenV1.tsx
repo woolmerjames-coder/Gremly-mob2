@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -95,17 +95,15 @@ export default function NowScreenV1() {
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
-      <View style={styles.summarySection}>
-        <NowWeeklySummary
-          stats={{
-            lists: now.vaultSummary.thisWeekStats.listCount,
-            journals: now.vaultSummary.thisWeekStats.journalCount,
-            ideas: now.vaultSummary.thisWeekStats.ideaCount,
-          }}
-          onPress={() => navigation.navigate('Lists')}
-        />
-        <View style={styles.metricsBottomDivider} />
-      </View>
+      <NowWeeklySummary
+        stats={{
+          lists: now.vaultSummary.thisWeekStats.listCount,
+          journals: now.vaultSummary.thisWeekStats.journalCount,
+          ideas: now.vaultSummary.thisWeekStats.ideaCount,
+        }}
+      />
+      <View style={styles.weekSummaryDivider} />
+      <Text style={styles.sectionTitle}>Today’s Focus</Text>
       <NowList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
@@ -170,15 +168,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 16,
   },
-  summarySection: {
-    paddingTop: 4,
-    paddingBottom: 12,
-  },
-  metricsBottomDivider: {
+  weekSummaryDivider: {
+    marginTop: 0,
+    marginBottom: 24,
     height: 1,
+    marginHorizontal: 24,
     backgroundColor: '#E7E2D9',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 10,
+  },
+  sectionTitle: {
+    marginTop: 0,
+    marginBottom: 12,
+    paddingHorizontal: 24,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0E1116',
   },
 });

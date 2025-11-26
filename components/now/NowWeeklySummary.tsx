@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Pressable, View, Text } from 'react-native';
+import { View, Text } from 'react-native';
 import { makeStyles } from '../../design/makeStyles';
 
 interface NowWeeklySummaryProps {
@@ -13,57 +13,51 @@ interface NowWeeklySummaryProps {
     journals: number;
     ideas: number;
   };
-  onPress?: () => void;
 }
 
-export function NowWeeklySummary({ stats, onPress }: NowWeeklySummaryProps) {
+export function NowWeeklySummary({ stats }: NowWeeklySummaryProps) {
   const styles = useStyles();
 
-  const Container = onPress ? Pressable : View;
-  const statsText = [
-    `${stats.lists} lists`,
-    `${stats.journals} journals`,
-    `${stats.ideas} ideas`,
-  ].join('   \u2022   ');
-
-  const total = stats.lists + stats.journals + stats.ideas;
-  if (total === 0) {
-    // If you prefer to always show zeros, remove this early return.
-    // For now we keep it visible so layout is stable:
-    // return null;
-  }
-
   return (
-    <Container
-      style={styles.container}
-      onPress={onPress}
-      // optional better touch feedback
-      {...(onPress ? { android_ripple: { color: '#00000010' } } : null)}
-    >
-      <Text style={styles.label}>This week…</Text>
-      <Text style={styles.metricsLine}>{statsText}</Text>
-    </Container>
+    <View style={styles.wrapper}>
+      <View style={styles.labelContainer}>
+        <Text style={styles.label}>This week</Text>
+      </View>
+      <View style={styles.statsContainer}>
+        <Text style={styles.statsLine}>
+          {stats.lists} lists • {stats.journals} journals • {stats.ideas} ideas
+        </Text>
+      </View>
+    </View>
   );
 }
 
 const useStyles = makeStyles((t) => ({
-  container: {
-    paddingHorizontal: t.spacing[3],
-    paddingTop: t.spacing[1],
-    paddingBottom: 0,
-    marginTop: t.spacing[1],
+  wrapper: {
+    paddingHorizontal: t.spacing[4],
+    marginTop: 0,
+    marginBottom: 8,
     alignItems: 'center',
+  },
+  labelContainer: {
+    marginTop: -8,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+    backgroundColor: t.colors.bg,
+    alignSelf: 'center',
+    zIndex: 1,
   },
   label: {
     fontSize: 12,
-    fontWeight: '500',
     fontFamily: t.typography.fontFamily.medium,
     color: t.colors.subtle,
-    marginBottom: t.spacing[1],
+    textAlign: 'center',
   },
-  metricsLine: {
-    marginTop: t.spacing[1],
-    fontSize: 13,
+  statsContainer: {
+    alignItems: 'center',
+  },
+  statsLine: {
+    fontSize: 14,
     fontFamily: t.typography.fontFamily.regular,
     color: t.colors.subtle,
     textAlign: 'center',

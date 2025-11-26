@@ -33,8 +33,6 @@ export function NowList({
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      <Text style={styles.header}>NOW</Text>
-
       {/* All done banner */}
       {isAllComplete && !hasNoItems && (
         <Box style={styles.banner}>
@@ -95,14 +93,6 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 16,
     paddingBottom: 140, // Extra breathing room for bottom actions
-  },
-  header: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#212121',
-    letterSpacing: 0.5,
-    marginBottom: 20,
-    marginTop: 8,
   },
   banner: {
     backgroundColor: '#4CAF50',

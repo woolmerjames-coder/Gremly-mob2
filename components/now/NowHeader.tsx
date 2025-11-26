@@ -59,10 +59,11 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'space-between',
   },
   sectionDivider: {
+    marginTop: 16,
+    marginBottom: 0,
     height: 1,
-    backgroundColor: t.colors.border,
-    marginTop: t.spacing[4],
-    marginBottom: t.spacing[2],
+    marginHorizontal: 24,
+    backgroundColor: '#E7E2D9',
   },
 }));
 
