@@ -27,6 +27,7 @@ const mockVaultSummary = {
   ],
   overflowCount: 2,
   thisWeekStats: {
+    listCount: 5,
     journalCount: 1,
     ideaCount: 2,
     personCount: 0,
@@ -54,32 +55,32 @@ describe('NowHeader', () => {
   it('mounts successfully', () => {
     render(
       <NowHeader
-        greeting="Hi James — Good Morning"
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
         weekStatus="on_track"
       />,
     );
-    expect(screen.getByText(/Hi James/)).toBeTruthy();
+    // Should display time-of-day greeting (mocked to current time)
+    const greetingText = screen.getByText(/Good (morning|afternoon|evening)/);
+    expect(greetingText).toBeTruthy();
   });
 
   it('displays greeting text', () => {
     render(
       <NowHeader
-        greeting="Hi James — Good Morning"
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
         weekStatus="on_track"
       />,
     );
-    expect(screen.getByText(/Hi James/)).toBeTruthy();
-    expect(screen.getByText(/Good Morning/)).toBeTruthy();
+    // Should display time-of-day greeting
+    const greetingText = screen.getByText(/Good (morning|afternoon|evening)/);
+    expect(greetingText).toBeTruthy();
   });
 
   it('displays date and time placeholder', () => {
     render(
       <NowHeader
-        greeting="Hi James — Good Morning"
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
         weekStatus="on_track"
@@ -92,7 +93,6 @@ describe('NowHeader', () => {
   it('displays week indicator', () => {
     render(
       <NowHeader
-        greeting="Hi James — Good Morning"
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
         weekStatus="on_track"
@@ -106,12 +106,12 @@ describe('NowHeader', () => {
 describe('NowVaultBar', () => {
   it('mounts successfully', () => {
     render(<NowVaultBar summary={mockVaultSummary} expanded={false} onToggleExpand={jest.fn()} />);
-    expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
+    expect(screen.getByText('Mind Vault')).toBeTruthy();
   });
 
   it('displays Mind Vault title', () => {
     render(<NowVaultBar summary={mockVaultSummary} expanded={false} onToggleExpand={jest.fn()} />);
-    expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
+    expect(screen.getByText('Mind Vault')).toBeTruthy();
   });
 
   it('displays placeholder pills', () => {
@@ -179,29 +179,29 @@ describe('NowList', () => {
 describe('NowSweepBar', () => {
   it('mounts successfully', () => {
     render(<NowSweepBar hasYesterdayCarryOver={true} onPress={jest.fn()} />);
-    expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
+    expect(screen.getByText('Time to Sweep!')).toBeTruthy();
   });
 
   it('displays sweep button text', () => {
     render(<NowSweepBar hasYesterdayCarryOver={true} onPress={jest.fn()} />);
-    expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
+    expect(screen.getByText('Time to Sweep!')).toBeTruthy();
   });
 
   it('displays sweep available when no carry over', () => {
     render(<NowSweepBar hasYesterdayCarryOver={false} onPress={jest.fn()} />);
-    expect(screen.getByText('🧹 Sweep available')).toBeTruthy();
+    expect(screen.getByText('Sweep available')).toBeTruthy();
   });
 });
 
 describe('OverwhelmButton', () => {
   it('mounts successfully', () => {
     render(<OverwhelmButton onPress={jest.fn()} />);
-    expect(screen.getByText('😮‍💨')).toBeTruthy();
+    expect(screen.getByText('Feeling stuck?')).toBeTruthy();
   });
 
   it('displays emoji icon', () => {
     render(<OverwhelmButton onPress={jest.fn()} />);
-    expect(screen.getByText('😮‍💨')).toBeTruthy();
+    expect(screen.getByText('Feeling stuck?')).toBeTruthy();
   });
 
   it('displays stuck text', () => {

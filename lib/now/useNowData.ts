@@ -70,21 +70,14 @@ function getTimeWindow(date: Date = new Date()): TimeWindow {
 }
 
 /**
- * Format date and time for header
+ * Format date for header (date only, no time)
  */
 function formatDateTime(date: Date): string {
-  const dateStr = date.toLocaleDateString('en-US', {
+  return date.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
   });
-
-  const timeStr = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-
-  return `${dateStr} • ${timeStr}`;
 }
 
 /**
@@ -148,6 +141,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       topThree: [],
       overflowCount: 0,
       thisWeekStats: {
+        listCount: 0,
         journalCount: 0,
         ideaCount: 0,
         personCount: 0,
@@ -235,7 +229,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const timeWindow = getTimeWindow(today);
 
       setData({
-        greeting: getGreeting(timeWindow, user.email?.split('@')[0] || 'there'),
+        greeting: getGreeting(timeWindow, user.email?.split('@')[0] || ''),
         dateTimeLabel: formatDateTime(today),
         progressState,
         weekStatus,

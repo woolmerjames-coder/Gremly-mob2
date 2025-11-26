@@ -425,6 +425,7 @@ export function getMindVaultSummary(logs: Note[], date: Date = new Date()): Mind
   });
 
   // Count by subtype
+  const listCount = thisWeekLogs.filter((log) => log.subtype === 'list').length;
   const journalCount = thisWeekLogs.filter((log) => log.subtype === 'journal').length;
   const ideaCount = thisWeekLogs.filter((log) => log.subtype === 'idea').length;
   const personCount = 0; // Person is not a valid NoteSubtype, would need separate tracking
@@ -446,6 +447,7 @@ export function getMindVaultSummary(logs: Note[], date: Date = new Date()): Mind
     topThree,
     overflowCount,
     thisWeekStats: {
+      listCount,
       journalCount,
       ideaCount,
       personCount,

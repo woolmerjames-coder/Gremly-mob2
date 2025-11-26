@@ -13,7 +13,6 @@ import type { NowProgressState } from '../../lib/now/nowTypes';
 import type { WeekStatus } from '../../lib/now/useNowData';
 
 interface NowHeaderProps {
-  greeting: string;
   dateTimeLabel: string;
   progressState: NowProgressState;
   weekStatus: WeekStatus;
@@ -21,12 +20,26 @@ interface NowHeaderProps {
   onPressWeek?: () => void;
 }
 
+/**
+ * Get time-of-day greeting based on current hour
+ */
+function getTimeOfDayGreeting(): string {
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 12) {
+    return 'Good morning';
+  } else if (hour >= 12 && hour < 18) {
+    return 'Good afternoon';
+  } else {
+    return 'Good evening';
+  }
+}
+
 const useStyles = makeStyles((t) => ({
   container: {
-    padding: t.spacing[4],
-    backgroundColor: t.colors.linenCream,
-    borderBottomWidth: 1,
-    borderBottomColor: t.colors.border,
+    paddingHorizontal: t.spacing[4],
+    paddingTop: 0,
+    paddingBottom: t.spacing[4],
   },
   greeting: {
     fontSize: t.typography.size.xl, // 24px - matches MindDrop header
@@ -38,7 +51,7 @@ const useStyles = makeStyles((t) => ({
     fontSize: t.typography.size.sm, // 14px - matches MindDrop subtitle
     fontFamily: t.typography.fontFamily.regular,
     color: t.colors.subtle,
-    marginBottom: t.spacing[3],
+    marginBottom: t.spacing[4],
   },
   metricsRow: {
     flexDirection: 'row',
@@ -48,7 +61,6 @@ const useStyles = makeStyles((t) => ({
 }));
 
 export function NowHeader({
-  greeting,
   dateTimeLabel,
   progressState,
   weekStatus,
@@ -56,6 +68,7 @@ export function NowHeader({
   onPressWeek,
 }: NowHeaderProps) {
   const styles = useStyles();
+  const greeting = getTimeOfDayGreeting();
 
   return (
     <Box style={styles.container}>

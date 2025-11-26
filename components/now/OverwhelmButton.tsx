@@ -6,6 +6,7 @@
 import React from 'react';
 import { TouchableOpacity } from 'react-native';
 import { Text } from '../../ui';
+import { Icon } from '../ui/Icon';
 import { makeStyles } from '../../design/makeStyles';
 
 interface OverwhelmButtonProps {
@@ -26,9 +27,6 @@ const useStyles = makeStyles((t) => ({
     gap: t.spacing[2],
     ...t.elevation.lg, // Large elevation for FAB
   },
-  text: {
-    fontSize: 20,
-  },
   label: {
     fontSize: t.typography.size.sm,
     fontFamily: t.typography.fontFamily.medium,
@@ -41,7 +39,7 @@ export function OverwhelmButton({ onPress }: OverwhelmButtonProps) {
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
-      <Text style={styles.text}>😮‍💨</Text>
+      <Icon name="HelpCircle" size="sm" color="#FFFFFF" />
       <Text style={styles.label}>Feeling stuck?</Text>
     </TouchableOpacity>
   );

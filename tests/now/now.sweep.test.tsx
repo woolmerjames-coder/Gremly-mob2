@@ -7,6 +7,23 @@ import { renderWithProviders, screen, fireEvent, waitFor } from '../utils/render
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
+// Mock useAuth to return a test user
+jest.mock('../../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'test-user-1',
+      email: 'test@example.com',
+    },
+    userId: 'test-user-1',
+    session: { access_token: 'mock-token' },
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+  }),
+}));
+
 // Create a variable to hold the mock now data
 let mockNowData: Partial<UseNowDataReturn>;
 
@@ -68,7 +85,6 @@ describe('Sweep Bar Tests', () => {
 
     // Base mock data
     mockNowData = {
-      greeting: 'Good Afternoon, test',
       dateTimeLabel: 'Monday, November 25 • 2:00 PM',
       progressState: {
         mode: 'dots',
@@ -85,6 +101,7 @@ describe('Sweep Bar Tests', () => {
         topThree: [],
         overflowCount: 0,
         thisWeekStats: {
+          listCount: 0,
           journalCount: 0,
           ideaCount: 0,
           personCount: 0,
@@ -112,7 +129,7 @@ describe('Sweep Bar Tests', () => {
       renderWithProviders(<NowScreenV1 />);
 
       // Should show the urgent message
-      expect(screen.getByText('✨ Time to Sweep!')).toBeTruthy();
+      expect(screen.getByText('Time to Sweep!')).toBeTruthy();
     });
 
     it('sweep bar is pressable when carry-over exists', () => {
@@ -142,7 +159,7 @@ describe('Sweep Bar Tests', () => {
       renderWithProviders(<NowScreenV1 />);
 
       // Should show the standard message
-      expect(screen.getByText('🧹 Sweep available')).toBeTruthy();
+      expect(screen.getByText('Sweep available')).toBeTruthy();
     });
 
     it('sweep bar is pressable without carry-over', () => {

@@ -7,6 +7,23 @@ import { renderWithProviders, screen } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
+// Mock useAuth to return a test user
+jest.mock('../../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'test-user-1',
+      email: 'test@example.com',
+    },
+    userId: 'test-user-1',
+    session: { access_token: 'mock-token' },
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+  }),
+}));
+
 // Create a variable to hold the mock now data
 let mockNowData: Partial<UseNowDataReturn>;
 
@@ -66,7 +83,6 @@ describe('NOW Empty States Tests', () => {
   describe('Empty Item List', () => {
     it('shows empty state when no locked or active items', () => {
       mockNowData = {
-        greeting: 'Good Afternoon, test',
         dateTimeLabel: 'Monday, November 25 • 2:00 PM',
         progressState: {
           mode: 'dots',
@@ -83,6 +99,7 @@ describe('NOW Empty States Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -104,7 +121,6 @@ describe('NOW Empty States Tests', () => {
 
     it('does not show empty state when items exist', () => {
       mockNowData = {
-        greeting: 'Good Afternoon, test',
         dateTimeLabel: 'Monday, November 25 • 2:00 PM',
         progressState: {
           mode: 'dots',
@@ -136,6 +152,7 @@ describe('NOW Empty States Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -163,7 +180,6 @@ describe('NOW Empty States Tests', () => {
   describe('All Done Banner', () => {
     it('shows "All done!" banner when progressState.percent is 100', () => {
       mockNowData = {
-        greeting: 'Good Afternoon, test',
         dateTimeLabel: 'Monday, November 25 • 2:00 PM',
         progressState: {
           mode: 'dots',
@@ -196,6 +212,7 @@ describe('NOW Empty States Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -229,7 +246,6 @@ describe('NOW Empty States Tests', () => {
 
     it('does not show banner when progress is less than 100%', () => {
       mockNowData = {
-        greeting: 'Good Afternoon, test',
         dateTimeLabel: 'Monday, November 25 • 2:00 PM',
         progressState: {
           mode: 'dots',
@@ -261,6 +277,7 @@ describe('NOW Empty States Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -281,7 +298,6 @@ describe('NOW Empty States Tests', () => {
 
     it('does not show banner when item list is empty', () => {
       mockNowData = {
-        greeting: 'Good Afternoon, test',
         dateTimeLabel: 'Monday, November 25 • 2:00 PM',
         progressState: {
           mode: 'dots',
@@ -298,6 +314,7 @@ describe('NOW Empty States Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,

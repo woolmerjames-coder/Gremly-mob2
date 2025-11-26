@@ -20,16 +20,17 @@ interface NowActiveItemCardProps {
 
 const useStyles = makeStyles((t) => ({
   container: {
-    backgroundColor: t.colors.linenCream, // Linen Cream for active items
-    borderRadius: t.radius[2], // 12px
-    marginBottom: t.spacing[2],
+    backgroundColor: t.colors.linenCream,
+    borderRadius: t.radius[3],
+    paddingVertical: t.spacing[3],
+    paddingHorizontal: t.spacing[4],
+    marginBottom: t.spacing[4],
     borderWidth: 1,
     borderColor: t.colors.border,
     ...t.elevation.sm,
   },
   content: {
     flexDirection: 'row',
-    padding: t.spacing[3],
     alignItems: 'center',
   },
   checkboxContainer: {
@@ -46,19 +47,18 @@ const useStyles = makeStyles((t) => ({
     flex: 1,
   },
   futureText: {
-    opacity: 0.5,
+    opacity: 0.6,
   },
   itemText: {
     fontSize: t.typography.size.md,
-    fontFamily: t.typography.fontFamily.regular,
+    fontFamily: t.typography.fontFamily.medium,
     color: t.colors.text,
-    marginBottom: t.spacing[1],
   },
   status: {
     fontSize: t.typography.size.xs,
     fontFamily: t.typography.fontFamily.regular,
     color: t.colors.subtle,
-    fontStyle: 'italic',
+    marginTop: t.spacing[1],
   },
 }));
 

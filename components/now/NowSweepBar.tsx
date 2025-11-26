@@ -4,8 +4,9 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
-import { Animated, TouchableOpacity } from 'react-native';
+import { Animated, TouchableOpacity, View } from 'react-native';
 import { Text } from '../../ui';
+import { Icon } from '../ui/Icon';
 import { makeStyles } from '../../design/makeStyles';
 import { gentlePulse } from '../../lib/today/motion';
 import { useReducedMotion } from '../../design/animations';
@@ -33,6 +34,11 @@ const useStyles = makeStyles((t) => ({
     borderRadius: t.radius[4], // 20px - full pill
     alignItems: 'center',
   },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   buttonUrgent: {
     backgroundColor: t.colors.deepForest, // Deep Forest for urgent sweeps
   },
@@ -50,7 +56,7 @@ export function NowSweepBar({ hasYesterdayCarryOver, onPress }: NowSweepBarProps
   const styles = useStyles();
   const reducedMotion = useReducedMotion();
   const scale = useMemo(() => new Animated.Value(1), []);
-  const message = hasYesterdayCarryOver ? '✨ Time to Sweep!' : '🧹 Sweep available';
+  const message = hasYesterdayCarryOver ? 'Time to Sweep!' : 'Sweep available';
 
   useEffect(() => {
     if (hasYesterdayCarryOver) {
@@ -73,7 +79,10 @@ export function NowSweepBar({ hasYesterdayCarryOver, onPress }: NowSweepBarProps
           { transform: [{ scale }] },
         ]}
       >
-        <Text style={styles.buttonText}>{message}</Text>
+        <View style={styles.buttonContent}>
+          <Icon name="Sparkles" size="sm" color="#FFFFFF" />
+          <Text style={styles.buttonText}>{message}</Text>
+        </View>
       </Animated.View>
     </TouchableOpacity>
   );

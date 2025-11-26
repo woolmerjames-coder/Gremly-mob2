@@ -19,19 +19,11 @@ function getDayIndex(): number {
 }
 
 /**
- * Returns a greeting based on time of day and user name
- * Rotates through variants deterministically by day
+ * Returns a simple greeting with user name
+ * Format: "Hi {name}" or just "Hi" if no name
  */
-export function getGreeting(timeWindow: TimeWindow, name: string = 'James'): string {
-  const greetings: Record<TimeWindow, string[]> = {
-    morning: [`Morning, ${name} 👋`, `Good morning, ${name} ☀️`, `Hey ${name}, rise & shine! 🌅`],
-    midday: [`Hey, ${name} 👋`, `Afternoon, ${name} 🌤️`, `Hi ${name}, keeping it rolling! ⚡`],
-    evening: [`Evening, ${name} 👋`, `Hey ${name}, almost there! 🌙`, `Good evening, ${name} ✨`],
-  };
-
-  const options = greetings[timeWindow];
-  const index = getDayIndex() % options.length;
-  return options[index];
+export function getGreeting(timeWindow: TimeWindow, name: string = ''): string {
+  return name ? `Hi ${name}` : 'Hi';
 }
 
 /**

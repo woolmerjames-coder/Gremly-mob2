@@ -12,8 +12,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
-import { NowVaultBar } from '../../components/now/NowVaultBar';
-import { NowVaultExpanded } from '../../components/now/NowVaultExpanded';
+import { NowWeeklySummary } from '../../components/now/NowWeeklySummary';
 import { NowList } from '../../components/now/NowList';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
 import { OverwhelmButton } from '../../components/now/OverwhelmButton';
@@ -34,7 +33,6 @@ export default function NowScreenV1() {
   const overwhelm = useOverwhelmFlow();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
-  const [isVaultExpanded, setVaultExpanded] = useState(false);
   const [isSweepVisible, setSweepVisible] = useState(false);
 
   // Shared interactions from Today screen
@@ -72,26 +70,6 @@ export default function NowScreenV1() {
     void overwhelm.requestPlan(selectedItems);
   }, [overwhelm, now.lockedItems, now.activeItems]);
 
-  // Handle list press from Mind Vault
-  const handlePressList = useCallback(
-    (listId: string) => {
-      // Open list in overlay as a note with subtype 'list'
-      const listItem = now.vaultSummary.topThree.find((l) => l.id === listId);
-      if (!listItem) {
-        return;
-      }
-
-      // Create a minimal AppRecord for the list to open in overlay
-      interactions.openEntityOverlay({
-        id: listId,
-        type: 'note',
-        subtype: 'list',
-        title: listItem.name,
-      });
-    },
-    [interactions, now.vaultSummary],
-  );
-
   // Handle sweep press
   const handleSweepPress = useCallback(() => {
     // Open sweep modal (same for both quick sweep and regular sweep)
@@ -109,26 +87,20 @@ export default function NowScreenV1() {
   return (
     <Screen style={styles.screen}>
       <NowHeader
-        greeting={now.greeting}
         dateTimeLabel={now.dateTimeLabel}
         progressState={now.progressState}
         weekStatus={now.weekStatus}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
-      <NowVaultBar
-        summary={now.vaultSummary}
-        expanded={isVaultExpanded}
-        onToggleExpand={() => setVaultExpanded(!isVaultExpanded)}
+      <NowWeeklySummary
+        stats={{
+          lists: now.vaultSummary.thisWeekStats.listCount,
+          journals: now.vaultSummary.thisWeekStats.journalCount,
+          ideas: now.vaultSummary.thisWeekStats.ideaCount,
+        }}
+        onPress={() => navigation.navigate('Lists')}
       />
-      {isVaultExpanded && (
-        <NowVaultExpanded
-          summary={now.vaultSummary}
-          onPressList={handlePressList}
-          onSeeAll={() => navigation.navigate('Lists')}
-          onCollapse={() => setVaultExpanded(false)}
-        />
-      )}
       <NowList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}

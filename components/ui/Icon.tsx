@@ -18,6 +18,7 @@ export type IconName =
   | 'Circle' // Generic/placeholder
   | 'X' // Close
   | 'MoreHorizontal' // Overflow menu
+  | 'HelpCircle' // Help/support
   | 'Archive'; // Archive icon for unsorted items
 
 // Map entity types to icons

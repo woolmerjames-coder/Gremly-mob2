@@ -16,6 +16,23 @@ jest.mock('../../lib/now/useNowData', () => ({
   useNowData: () => mockNowData,
 }));
 
+// Mock useAuth to return a test user
+jest.mock('../../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'test-user-1',
+      email: 'test@example.com',
+    },
+    userId: 'test-user-1',
+    session: { access_token: 'mock-token' },
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+  }),
+}));
+
 // Mock useTodayInteractions since NowScreenV1 uses it for interactions
 jest.mock('../../lib/today/useTodayInteractions', () => ({
   useTodayInteractions: () => ({
@@ -67,7 +84,6 @@ describe('NowScreenV1 Integration Tests', () => {
     it('renders complete NOW screen with all sections', () => {
       // Set the mock NOW data for this test
       mockNowData = {
-        greeting: 'Good Morning, test',
         dateTimeLabel: 'Monday, November 25 • 10:30 AM',
         progressState: {
           mode: 'dots',
@@ -110,14 +126,16 @@ describe('NowScreenV1 Integration Tests', () => {
         ],
         vaultSummary: {
           topThree: [
-            { id: 'note-1', name: 'Groceries', itemCount: 3 },
-            { id: 'note-2', name: 'Gift ideas', itemCount: 2 },
-            { id: 'note-3', name: 'Mexico list', itemCount: 3 },
+            { id: 'list-1', name: 'Groceries', itemCount: 5 },
+            { id: 'list-2', name: 'Gift ideas', itemCount: 3 },
+            { id: 'list-3', name: 'Mexico list', itemCount: 2 },
           ],
           overflowCount: 2,
           thisWeekStats: {
-            journalCount: 5,
-            ideaCount: 0,
+            listCount: 0,
+            listCount: 7,
+            journalCount: 3,
+            ideaCount: 8,
             personCount: 0,
           },
         },
@@ -145,8 +163,9 @@ describe('NowScreenV1 Integration Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Assert: Header renders greeting
-      expect(screen.getByText(/Good Morning/i)).toBeTruthy();
+      // Assert: Header renders time-of-day greeting
+      const greetingText = screen.getByText(/Good (morning|afternoon|evening)/);
+      expect(greetingText).toBeTruthy();
 
       // Assert: Date/time label renders
       expect(screen.getByText(/Monday, November 25/i)).toBeTruthy();
@@ -154,16 +173,12 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Week indicator renders
       expect(screen.getByText('WEEK:')).toBeTruthy();
 
-      // Assert: Mind Vault section renders
-      expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
+      // Assert: Weekly summary renders with correct stats
+      expect(screen.getByText('This week…')).toBeTruthy();
+      expect(screen.getByText('7 lists · 3 journals · 8 ideas')).toBeTruthy();
 
-      // Assert: Top 3 lists render
-      expect(screen.getByText(/Groceries/)).toBeTruthy();
-      expect(screen.getByText(/Gift ideas/)).toBeTruthy();
-      expect(screen.getByText(/Mexico list/)).toBeTruthy();
-
-      // Assert: Overflow count renders
-      expect(screen.getByText('+2 more')).toBeTruthy();
+      // Assert: Mind Vault card should NOT be present
+      expect(screen.queryByText('Mind Vault')).toBeFalsy();
 
       // Assert: NOW list section header
       expect(screen.getByText('NOW')).toBeTruthy();
@@ -190,7 +205,6 @@ describe('NowScreenV1 Integration Tests', () => {
     it('renders empty state gracefully when no data', () => {
       // Set the mock NOW data for empty state
       mockNowData = {
-        greeting: 'Good Morning, test',
         dateTimeLabel: 'Monday, November 25 • 10:30 AM',
         progressState: {
           mode: 'dots',
@@ -207,6 +221,7 @@ describe('NowScreenV1 Integration Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -221,8 +236,9 @@ describe('NowScreenV1 Integration Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Assert: Header still renders
-      expect(screen.getByText(/Good Morning/i)).toBeTruthy();
+      // Assert: Header renders time-of-day greeting
+      const greetingText = screen.getByText(/Good (morning|afternoon|evening)/);
+      expect(greetingText).toBeTruthy();
 
       // Assert: Date/time label still renders
       expect(screen.getByText(/Monday, November 25/i)).toBeTruthy();
@@ -241,17 +257,18 @@ describe('NowScreenV1 Integration Tests', () => {
       expect(screen.queryByText('Future')).toBeNull();
 
       // Assert: Sweep bar should NOT show
-      expect(screen.queryByText('✨ Time to Sweep!')).toBeNull();
+      expect(screen.queryByText('Time to Sweep!')).toBeNull();
 
-      // Assert: Mind Vault should not render when no notes
-      expect(screen.queryByText('📚 Mind Vault')).toBeNull();
+      // Assert: Mind Vault should NOT be visible (replaced with weekly summary)
+      expect(screen.queryByText('Mind Vault')).toBeFalsy();
+      // Weekly summary should not show when all counts are zero
+      expect(screen.queryByText('This week…')).toBeFalsy();
     });
   });
 
   describe('Week Status Indicators', () => {
     it('renders week indicator with on_track status', () => {
       mockNowData = {
-        greeting: 'Good Morning, test',
         dateTimeLabel: 'Monday, November 25 • 10:30 AM',
         progressState: {
           mode: 'dots',
@@ -268,6 +285,7 @@ describe('NowScreenV1 Integration Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -292,7 +310,6 @@ describe('NowScreenV1 Integration Tests', () => {
   describe('Phase 4: Progress Popup', () => {
     it('shows progress popup when tapping progress area', () => {
       mockNowData = {
-        greeting: 'Good Morning, test',
         dateTimeLabel: 'Monday, November 25 • 10:30 AM',
         progressState: {
           mode: 'dots',
@@ -309,6 +326,7 @@ describe('NowScreenV1 Integration Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,
@@ -353,7 +371,6 @@ describe('NowScreenV1 Integration Tests', () => {
   describe('Phase 4: Week Popup', () => {
     it('shows week popup with habit summaries when tapping WEEK indicator', () => {
       mockNowData = {
-        greeting: 'Good Morning, test',
         dateTimeLabel: 'Monday, November 25 • 10:30 AM',
         progressState: {
           mode: 'dots',
@@ -370,6 +387,7 @@ describe('NowScreenV1 Integration Tests', () => {
           topThree: [],
           overflowCount: 0,
           thisWeekStats: {
+            listCount: 0,
             journalCount: 0,
             ideaCount: 0,
             personCount: 0,

@@ -1,6 +1,6 @@
 /**
  * NOW Week Indicator Component
- * Shows weekly habit status at a glance with half-circle visual
+ * Shows weekly habit status at a glance with circle indicators
  */
 
 import React from 'react';
@@ -18,7 +18,6 @@ const useStyles = makeStyles((t) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: t.spacing[2],
-    paddingVertical: t.spacing[1],
   },
   label: {
     fontSize: t.typography.size.xs, // 12px
@@ -31,60 +30,51 @@ const useStyles = makeStyles((t) => ({
     height: 16,
     borderRadius: 8,
     borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: 'relative',
   },
-  halfCircle: {
-    width: 8,
-    height: 16,
-    borderTopRightRadius: 8,
-    borderBottomRightRadius: 8,
+  circleAhead: {
+    backgroundColor: '#2E5540', // mossGreen - filled
+    borderColor: '#2E5540',
+  },
+  circleOnTrack: {
+    backgroundColor: 'transparent',
+    borderColor: '#2E5540', // mossGreen - outline
+    overflow: 'hidden',
+  },
+  halfFill: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    width: '50%',
+    height: 20,
+    backgroundColor: '#2E5540', // mossGreen
+  },
+  circleNeedsAttention: {
+    backgroundColor: 'transparent',
+    borderColor: '#BFD8C0', // sageMist - outline only
   },
 }));
 
 export function NowWeekIndicator({ status }: NowWeekIndicatorProps) {
   const styles = useStyles();
 
-  // Use design tokens for colors
-  const getStatusStyle = () => {
+  // Map status to circle style
+  const getCircleStyle = () => {
     switch (status) {
       case 'ahead':
-        return {
-          borderColor: '#2E5540', // mossGreen - full circle
-          backgroundColor: '#2E5540',
-        };
+        return styles.circleAhead;
       case 'on_track':
-        return {
-          borderColor: '#2E5540', // mossGreen border
-          backgroundColor: 'transparent', // half filled
-        };
+        return styles.circleOnTrack;
       case 'needs_attention':
-        return {
-          borderColor: '#BFD8C0', // sageMist - empty circle
-          backgroundColor: 'transparent',
-        };
+        return styles.circleNeedsAttention;
     }
   };
-
-  const statusStyle = getStatusStyle();
 
   return (
     <Box style={styles.container}>
       <Text style={styles.label}>WEEK:</Text>
-      <View style={[styles.circle, { borderColor: statusStyle.borderColor }]}>
-        {status === 'on_track' && (
-          <View style={[styles.halfCircle, { backgroundColor: statusStyle.borderColor }]} />
-        )}
-        {status === 'ahead' && (
-          <View
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: 6,
-              backgroundColor: statusStyle.backgroundColor,
-            }}
-          />
-        )}
+      <View style={[styles.circle, getCircleStyle()]}>
+        {status === 'on_track' && <View style={styles.halfFill} />}
       </View>
     </Box>
   );

@@ -1,10 +1,13 @@
 /**
  * NowVaultExpanded - Expanded Mind Vault view with Recent Lists and This Week stats
+ * Calm Intelligence design: flat, clean, Hub-style list rows
  */
 
 import React, { useEffect, useMemo } from 'react';
-import { Animated, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Animated, TouchableOpacity, ScrollView } from 'react-native';
 import { Box, Text } from '../../ui';
+import { Icon } from '../ui/Icon';
+import { makeStyles } from '../../design/makeStyles';
 import { fadeSlideIn } from '../../lib/today/motion';
 import { useReducedMotion } from '../../design/animations';
 import type { MindVaultSummary } from '../../lib/now/nowTypes';
@@ -16,12 +19,128 @@ interface NowVaultExpandedProps {
   onCollapse: () => void;
 }
 
+const useStyles = makeStyles((t) => ({
+  container: {
+    backgroundColor: t.colors.bg,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.border,
+  },
+  header: {
+    padding: t.spacing[4],
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.border,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing[2],
+  },
+  title: {
+    fontSize: 14,
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.text,
+    letterSpacing: 0.5,
+  },
+  content: {
+    maxHeight: 400,
+  },
+  section: {
+    padding: t.spacing[4],
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.border,
+  },
+  helper: {
+    fontSize: 12,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    marginBottom: t.spacing[2],
+    lineHeight: 16,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.subtle,
+    textTransform: 'uppercase',
+    marginBottom: t.spacing[3],
+    letterSpacing: 0.8,
+  },
+  listRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: t.spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.border,
+  },
+  listName: {
+    fontSize: 15,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.text,
+    flex: 1,
+  },
+  listCount: {
+    fontSize: 13,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    marginLeft: t.spacing[2],
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: t.spacing[2],
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontFamily: t.typography.fontFamily.bold,
+    color: t.colors.mossGreen,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+  },
+  buttons: {
+    flexDirection: 'row',
+    padding: t.spacing[4],
+    gap: t.spacing[2],
+    borderTopWidth: 1,
+    borderTopColor: t.colors.border,
+  },
+  button: {
+    flex: 1,
+    paddingVertical: t.spacing[3],
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  primaryButton: {
+    backgroundColor: t.colors.mossGreen,
+  },
+  primaryButtonText: {
+    fontSize: 15,
+    fontFamily: t.typography.fontFamily.medium,
+    color: '#FFFFFF',
+  },
+  secondaryButton: {
+    backgroundColor: 'rgba(191, 216, 192, 0.15)',
+  },
+  secondaryButtonText: {
+    fontSize: 15,
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.mossGreen,
+  },
+}));
+
 export function NowVaultExpanded({
   summary,
   onPressList,
   onSeeAll,
   onCollapse,
 }: NowVaultExpandedProps) {
+  const styles = useStyles();
   const reducedMotion = useReducedMotion();
   const opacity = useMemo(() => new Animated.Value(0), []);
   const translateY = useMemo(() => new Animated.Value(20), []);
@@ -41,7 +160,10 @@ export function NowVaultExpanded({
       ]}
     >
       <Box style={styles.header}>
-        <Text style={styles.title}>📚 MIND VAULT</Text>
+        <Box style={styles.titleRow}>
+          <Icon name="BookOpen" size="sm" color="#2E5540" />
+          <Text style={styles.title}>MIND VAULT</Text>
+        </Box>
       </Box>
 
       <ScrollView style={styles.content}>
@@ -107,109 +229,3 @@ export function NowVaultExpanded({
     </Animated.View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  header: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F5',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#212121',
-  },
-  content: {
-    maxHeight: 400,
-  },
-  section: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F5',
-  },
-  helper: {
-    fontSize: 12,
-    color: '#757575',
-    marginBottom: 12,
-    lineHeight: 16,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#757575',
-    textTransform: 'uppercase',
-    marginBottom: 12,
-    letterSpacing: 0.5,
-  },
-  listRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#FAFAFA',
-  },
-  listName: {
-    fontSize: 16,
-    color: '#212121',
-    fontWeight: '500',
-    flex: 1,
-  },
-  listCount: {
-    fontSize: 14,
-    color: '#757575',
-    marginLeft: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 8,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1976D2',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#757575',
-  },
-  buttons: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F5F5F5',
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryButton: {
-    backgroundColor: '#1976D2',
-  },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  secondaryButton: {
-    backgroundColor: '#F5F5F5',
-  },
-  secondaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#757575',
-  },
-});

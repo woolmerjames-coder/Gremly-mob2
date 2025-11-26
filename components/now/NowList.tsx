@@ -94,13 +94,15 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 100, // Space for bottom bars
+    paddingBottom: 140, // Extra breathing room for bottom actions
   },
   header: {
-    fontSize: 24,
+    fontSize: 16,
     fontWeight: '700',
     color: '#212121',
-    marginBottom: 16,
+    letterSpacing: 0.5,
+    marginBottom: 20,
+    marginTop: 8,
   },
   banner: {
     backgroundColor: '#4CAF50',

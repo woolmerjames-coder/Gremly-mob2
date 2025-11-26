@@ -3,6 +3,23 @@ import { renderWithProviders, screen } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
+// Mock useAuth to return a test user
+jest.mock('../../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'test-user-1',
+      email: 'test@example.com',
+    },
+    userId: 'test-user-1',
+    session: { access_token: 'mock-token' },
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+  }),
+}));
+
 // Create a variable to hold the mock now data
 let mockNowData: Partial<UseNowDataReturn>;
 
@@ -50,7 +67,6 @@ describe('NowScreenV1', () => {
   beforeEach(() => {
     // Reset to default mock data with content
     mockNowData = {
-      greeting: 'Hi James',
       dateTimeLabel: 'Monday, Nov 25 • 10:30 AM',
       progressState: {
         mode: 'dots',
@@ -75,6 +91,7 @@ describe('NowScreenV1', () => {
         topThree: [{ id: 'note-1', name: 'Test List', itemCount: 1 }],
         overflowCount: 0,
         thisWeekStats: {
+          listCount: 0,
           journalCount: 0,
           ideaCount: 0,
           personCount: 0,
@@ -91,12 +108,13 @@ describe('NowScreenV1', () => {
   it('renders the NOW V1 components when flag is true', () => {
     renderWithProviders(<NowScreenV1 />);
 
-    // Check for header elements
-    expect(screen.getByText(/Hi James/)).toBeTruthy();
+    // Check for header elements with time-of-day greeting
+    const greetingText = screen.getByText(/Good (morning|afternoon|evening)/);
+    expect(greetingText).toBeTruthy();
     expect(screen.getByText('NOW')).toBeTruthy();
 
-    // Check for vault
-    expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
+    // Weekly summary should not render when all counts are zero
+    expect(screen.queryByText('This week…')).toBeFalsy();
   });
 
   it('mounts successfully with all sections', () => {
@@ -110,8 +128,9 @@ describe('NowScreenV1', () => {
 
     // Verify main sections render
     expect(screen.getByText('NOW')).toBeTruthy();
-    expect(screen.getByText('📚 Mind Vault')).toBeTruthy();
     expect(screen.getByText(/Sweep/i)).toBeTruthy();
     expect(screen.getByText(/stuck/i)).toBeTruthy();
+    // Mind Vault card should NOT be present
+    expect(screen.queryByText('Mind Vault')).toBeFalsy();
   });
 });

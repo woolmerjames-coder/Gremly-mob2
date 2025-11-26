@@ -19,23 +19,31 @@ interface NowLockedItemCardProps {
 
 const useStyles = makeStyles((t) => ({
   container: {
-    backgroundColor: t.colors.sageMist, // Sage Mist for locked/priority items
-    borderLeftWidth: 4,
+    backgroundColor: t.colors.linenCream,
+    borderLeftWidth: 3,
     borderLeftColor: t.colors.mossGreen,
-    borderRadius: t.radius[2], // 12px
-    marginBottom: t.spacing[2],
+    borderRadius: t.radius[3],
+    paddingVertical: t.spacing[3],
+    paddingHorizontal: t.spacing[4],
+    marginBottom: t.spacing[4],
+    borderWidth: 1,
+    borderColor: t.colors.border,
     ...t.elevation.sm,
   },
   content: {
     flexDirection: 'row',
-    padding: t.spacing[3],
     alignItems: 'center',
   },
   iconContainer: {
     marginRight: t.spacing[3],
   },
-  icon: {
-    fontSize: 20,
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: t.radius[1],
+    borderWidth: 2,
+    borderColor: t.colors.mossGreen,
+    backgroundColor: t.colors.sageMist,
   },
   textContainer: {
     flex: 1,
@@ -44,12 +52,12 @@ const useStyles = makeStyles((t) => ({
     fontSize: t.typography.size.md,
     fontFamily: t.typography.fontFamily.medium,
     color: t.colors.text,
-    marginBottom: t.spacing[1],
   },
-  tag: {
+  status: {
     fontSize: t.typography.size.xs,
-    fontFamily: t.typography.fontFamily.medium,
-    color: t.colors.mossGreen,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    marginTop: t.spacing[1],
   },
 }));
 
@@ -81,11 +89,11 @@ export function NowLockedItemCard({ item, onPress, onToggleComplete }: NowLocked
       <TouchableOpacity style={styles.container} onPress={onPress}>
         <Box style={styles.content}>
           <TouchableOpacity onPress={handleToggleComplete} style={styles.iconContainer}>
-            <Text style={styles.icon}>⚡</Text>
+            <Box style={styles.checkbox} />
           </TouchableOpacity>
           <Box style={styles.textContainer}>
             <Text style={styles.itemText}>{item.name}</Text>
-            {getStatusText() && <Text style={styles.tag}>{getStatusText()}</Text>}
+            {getStatusText() && <Text style={styles.status}>{getStatusText()}</Text>}
           </Box>
         </Box>
       </TouchableOpacity>

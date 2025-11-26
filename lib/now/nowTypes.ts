@@ -104,6 +104,7 @@ export interface MindVaultSummary {
   }>;
   overflowCount: number;
   thisWeekStats: {
+    listCount: number;
     journalCount: number;
     ideaCount: number;
     personCount: number;

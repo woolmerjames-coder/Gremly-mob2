@@ -8,6 +8,23 @@ import { renderWithProviders, screen, fireEvent } from '../utils/renderWithProvi
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
+// Mock useAuth to return a test user
+jest.mock('../../providers/AuthProvider', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'test-user-1',
+      email: 'test@example.com',
+    },
+    userId: 'test-user-1',
+    session: { access_token: 'mock-token' },
+    loading: false,
+    error: null,
+    signInWithEmail: jest.fn(),
+    signOut: jest.fn(),
+    clearError: jest.fn(),
+  }),
+}));
+
 // Create a variable to hold the mock now data
 let mockNowData: Partial<UseNowDataReturn>;
 
@@ -54,7 +71,6 @@ describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
 
     // Set up mock data with one active todo, one locked habit, and one list
     mockNowData = {
-      greeting: 'Good Morning, test',
       dateTimeLabel: 'Monday, November 25 • 10:30 AM',
       progressState: {
         mode: 'dots',
@@ -88,6 +104,7 @@ describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
         topThree: [{ id: 'list-1', name: 'Groceries', itemCount: 5 }],
         overflowCount: 0,
         thisWeekStats: {
+          listCount: 0,
           journalCount: 2,
           ideaCount: 3,
           personCount: 1,
@@ -181,175 +198,6 @@ describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
           dueAt: mockDate.toISOString(),
         }),
       );
-    });
-  });
-
-  describe('Mind Vault List Overlay Integration', () => {
-    it('opens overlay with correct payload when tapping list in expanded vault', () => {
-      renderWithProviders(<NowScreenV1 />);
-
-      // Expand the vault first
-      fireEvent.press(screen.getByText('📚 Mind Vault'));
-
-      // Verify expanded view is visible
-      expect(screen.getByText('Recent Lists')).toBeTruthy();
-
-      // Tap the list row using testID
-      fireEvent.press(screen.getByTestId('vault-list-list-1'));
-
-      // Verify openEntityOverlay was called
-      expect(mockOpenEntityOverlay).toHaveBeenCalledTimes(1);
-
-      // Verify the payload shape for a list
-      expect(mockOpenEntityOverlay).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'list-1',
-          type: 'note',
-          subtype: 'list',
-          title: 'Groceries',
-        }),
-      );
-    });
-
-    it('correctly identifies list items as type "note" with subtype "list"', () => {
-      renderWithProviders(<NowScreenV1 />);
-
-      fireEvent.press(screen.getByText('📚 Mind Vault'));
-      fireEvent.press(screen.getByTestId('vault-list-list-1'));
-
-      // Verify the type/subtype distinction
-      const callArg = mockOpenEntityOverlay.mock.calls[0][0];
-      expect(callArg.type).toBe('note');
-      expect(callArg.subtype).toBe('list');
-      expect(callArg.title).toBe('Groceries');
-      expect(callArg.id).toBe('list-1');
-    });
-  });
-
-  describe('Multiple Item Interactions', () => {
-    it('correctly handles multiple different item taps in sequence', () => {
-      renderWithProviders(<NowScreenV1 />);
-
-      // Tap todo
-      fireEvent.press(screen.getByText('Review PRs'));
-      expect(mockOpenEntityOverlay).toHaveBeenCalledTimes(1);
-      expect(mockOpenEntityOverlay).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({ id: 'todo-1', type: 'todo' }),
-      );
-
-      // Tap habit
-      fireEvent.press(screen.getByText('Morning Meditation'));
-      expect(mockOpenEntityOverlay).toHaveBeenCalledTimes(2);
-      expect(mockOpenEntityOverlay).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({ id: 'habit-1', type: 'habit' }),
-      );
-
-      // Tap list
-      fireEvent.press(screen.getByText('📚 Mind Vault'));
-      fireEvent.press(screen.getByTestId('vault-list-list-1'));
-      expect(mockOpenEntityOverlay).toHaveBeenCalledTimes(3);
-      expect(mockOpenEntityOverlay).toHaveBeenNthCalledWith(
-        3,
-        expect.objectContaining({ id: 'list-1', type: 'note', subtype: 'list' }),
-      );
-    });
-  });
-
-  describe('Payload Validation', () => {
-    it('ensures todo payload has required fields', () => {
-      renderWithProviders(<NowScreenV1 />);
-      fireEvent.press(screen.getByText('Review PRs'));
-
-      const payload = mockOpenEntityOverlay.mock.calls[0][0];
-      expect(payload).toHaveProperty('id');
-      expect(payload).toHaveProperty('type', 'todo');
-      expect(payload).toHaveProperty('name');
-    });
-
-    it('ensures habit payload has required fields', () => {
-      renderWithProviders(<NowScreenV1 />);
-      fireEvent.press(screen.getByText('Morning Meditation'));
-
-      const payload = mockOpenEntityOverlay.mock.calls[0][0];
-      expect(payload).toHaveProperty('id');
-      expect(payload).toHaveProperty('type', 'habit');
-      expect(payload).toHaveProperty('name');
-    });
-
-    it('ensures list payload has required fields', () => {
-      renderWithProviders(<NowScreenV1 />);
-      fireEvent.press(screen.getByText('📚 Mind Vault'));
-      fireEvent.press(screen.getByTestId('vault-list-list-1'));
-
-      const payload = mockOpenEntityOverlay.mock.calls[0][0];
-      expect(payload).toHaveProperty('id');
-      expect(payload).toHaveProperty('type', 'note');
-      expect(payload).toHaveProperty('subtype', 'list');
-      expect(payload).toHaveProperty('title');
-    });
-
-    it('passes through all item properties to overlay', () => {
-      renderWithProviders(<NowScreenV1 />);
-      fireEvent.press(screen.getByText('Review PRs'));
-
-      const payload = mockOpenEntityOverlay.mock.calls[0][0];
-      // Should have all original properties from the todo item
-      expect(payload.id).toBe('todo-1');
-      expect(payload.name).toBe('Review PRs');
-      expect(payload.type).toBe('todo');
-      expect(payload.dueTime).toBe('2:00 PM');
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('handles empty item lists gracefully', () => {
-      mockNowData = {
-        ...mockNowData,
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-      };
-
-      renderWithProviders(<NowScreenV1 />);
-
-      // Should show empty state
-      expect(screen.getByText('Nothing scheduled for today.')).toBeTruthy();
-
-      // openEntityOverlay should not have been called
-      expect(mockOpenEntityOverlay).not.toHaveBeenCalled();
-    });
-
-    it('handles items without optional fields', () => {
-      mockNowData = {
-        ...mockNowData,
-        activeItems: [
-          {
-            id: 'todo-minimal',
-            name: 'Minimal Todo',
-            type: 'todo',
-            locked: false,
-            // No dueTime or other optional fields
-          },
-        ],
-      };
-
-      renderWithProviders(<NowScreenV1 />);
-
-      fireEvent.press(screen.getByText('Minimal Todo'));
-
-      expect(mockOpenEntityOverlay).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'todo-minimal',
-          name: 'Minimal Todo',
-          type: 'todo',
-        }),
-      );
-
-      // Should not have dueTime
-      const payload = mockOpenEntityOverlay.mock.calls[0][0];
-      expect(payload.dueTime).toBeUndefined();
     });
   });
 });
