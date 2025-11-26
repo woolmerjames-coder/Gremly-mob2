@@ -19,10 +19,11 @@ import type {
   NowWeekHealth,
 } from './nowTypes';
 
-export interface NowWeeklyCaptureCounts {
+export interface NowWeeklyLogCounts {
   listCount: number;
   journalCount: number;
   ideaCount: number;
+  personCount: number;
 }
 
 const HABIT_STATUS_LABELS: Record<HabitWeeklyStatus, string> = {
@@ -117,10 +118,7 @@ function getWeekStart(date: Date): Date {
   return new Date(d.setDate(diff));
 }
 
-export function getWeeklyCaptureCounts(
-  logs: Note[],
-  date: Date = new Date(),
-): NowWeeklyCaptureCounts {
+export function getWeeklyLogCounts(logs: Note[], date: Date = new Date()): NowWeeklyLogCounts {
   const weekStart = getWeekStart(date);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
@@ -133,11 +131,13 @@ export function getWeeklyCaptureCounts(
   const listCount = thisWeekLogs.filter((log) => log.subtype === 'list').length;
   const journalCount = thisWeekLogs.filter((log) => log.subtype === 'journal').length;
   const ideaCount = thisWeekLogs.filter((log) => log.subtype === 'idea').length;
+  const personCount = thisWeekLogs.filter((log) => (log as any).subtype === 'person').length;
 
   return {
     listCount,
     journalCount,
     ideaCount,
+    personCount,
   };
 }
 
@@ -581,11 +581,10 @@ export function getCompletedTodayItems(
 export function getMindVaultSummary(
   logs: Note[],
   date: Date = new Date(),
-  weeklyCaptureCounts?: NowWeeklyCaptureCounts,
+  weeklyLogCounts?: NowWeeklyLogCounts,
 ): MindVaultSummary {
-  const { listCount, journalCount, ideaCount } =
-    weeklyCaptureCounts ?? getWeeklyCaptureCounts(logs, date);
-  const personCount = 0; // Person is not a valid NoteSubtype, would need separate tracking
+  const { listCount, journalCount, ideaCount, personCount } =
+    weeklyLogCounts ?? getWeeklyLogCounts(logs, date);
 
   // Identify list logs and count items
   const listLogs = logs.filter((log) => log.subtype === 'list');

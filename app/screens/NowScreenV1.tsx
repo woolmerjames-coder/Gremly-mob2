@@ -5,8 +5,8 @@
  * Phase 4: Wire interactions
  */
 
-import React, { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, View, Text } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View, Text, Pressable } from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
@@ -14,7 +14,6 @@ import { NowHelperRow } from '../../components/now/NowHelperRow';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
 import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { NowTodayMascot } from '../../components/now/NowTodayMascot';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
@@ -80,12 +79,52 @@ export default function NowScreenV1() {
     overlayController.openCreate({ type: 'todo' });
   }, [overlayController]);
 
-  const capturesCountFromVault =
+  const handlePressProgress = useCallback(() => {
+    setProgressVisible(true);
+  }, []);
+
+  const logsCountFromVault =
     now.vaultSummary.thisWeekStats.listCount +
     now.vaultSummary.thisWeekStats.journalCount +
-    now.vaultSummary.thisWeekStats.ideaCount;
-  const capturesCount =
-    typeof now.capturesCount === 'number' ? now.capturesCount : capturesCountFromVault;
+    now.vaultSummary.thisWeekStats.ideaCount +
+    now.vaultSummary.thisWeekStats.personCount;
+  const logsCount = typeof now.logsCount === 'number' ? now.logsCount : logsCountFromVault;
+
+  const completedTodayCount =
+    typeof now.completedTodayCount === 'number'
+      ? now.completedTodayCount
+      : now.completedToday.length;
+  const persistedCompletionIds = useMemo(() => {
+    return new Set(now.completedToday.map((item) => item.id));
+  }, [now.completedToday]);
+
+  const pendingCompletionIds = useMemo(() => {
+    const pending = new Set<string>();
+    interactions.completedHabitIds.forEach((id) => {
+      if (!persistedCompletionIds.has(id)) {
+        pending.add(id);
+      }
+    });
+    interactions.completedTodoIds.forEach((id) => {
+      if (!persistedCompletionIds.has(id)) {
+        pending.add(id);
+      }
+    });
+    return pending;
+  }, [interactions.completedHabitIds, interactions.completedTodoIds, persistedCompletionIds]);
+
+  const pendingCompletionCount = pendingCompletionIds.size;
+  const optimisticCompletedTodayCount = completedTodayCount + pendingCompletionCount;
+  const optimisticCompletedCount = now.progressState.completedCount + pendingCompletionCount;
+  const totalEligibleCount = now.progressState.totalEligibleCount;
+  const optimisticProgressPercent =
+    totalEligibleCount > 0
+      ? Math.min(100, (optimisticCompletedCount / totalEligibleCount) * 100)
+      : now.progressState.percent;
+  const hasCompletedToday = optimisticCompletedTodayCount > 0;
+  const focusTitle = hasCompletedToday
+    ? `Today's Focus (${optimisticCompletedTodayCount} completed)`
+    : "Today's Focus";
 
   if (now.loading) {
     return (
@@ -100,21 +139,26 @@ export default function NowScreenV1() {
       <NowHeader
         dateTimeLabel={now.dateTimeLabel}
         progressState={now.progressState}
-        progressPercent={now.progressState.percent / 100}
+        progressPercent={optimisticProgressPercent / 100}
         weeklySummaries={now.weeklySummaries}
-        capturesCount={capturesCount}
-        onPressProgress={() => setProgressVisible(true)}
+        logsCount={logsCount}
+        onPressProgress={handlePressProgress}
         onPressWeek={() => setWeekVisible(true)}
       />
       <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Today’s Focus</Text>
-        <NowTodayMascot />
+        <Pressable
+          onPress={handlePressProgress}
+          accessibilityRole="button"
+          style={styles.sectionTitleTapArea}
+        >
+          <Text style={styles.sectionTitle}>{focusTitle}</Text>
+        </Pressable>
       </View>
       <TodayFocusList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
         futureItems={now.futureItems}
-        progressPercent={now.progressState.percent}
+        progressPercent={optimisticProgressPercent}
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
         onPressOverwhelm={overwhelm.open}
@@ -251,10 +295,13 @@ const styles = StyleSheet.create({
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingHorizontal: 24,
     marginTop: -16,
     marginBottom: 12,
+  },
+  sectionTitleTapArea: {
+    paddingVertical: 4,
   },
   listContainer: {
     flex: 1,

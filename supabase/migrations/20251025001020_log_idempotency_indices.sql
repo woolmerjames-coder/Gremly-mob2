@@ -1,8 +1,10 @@
 -- Idempotency/uniqueness constraints for logs (safe conditional creation)
+-- LEGACY: habit_logs table is obsolete - habit_progress is the canonical table
 
 DO $$
 BEGIN
-  -- Habit logs unique per (habit_id, log_date)
+  -- LEGACY: Habit logs unique per (habit_id, log_date)
+  -- Note: habit_logs table is replaced by habit_progress in newer schema
   IF EXISTS (
     SELECT FROM information_schema.tables
     WHERE table_schema = 'public' AND table_name = 'habit_logs'

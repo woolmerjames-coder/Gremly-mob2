@@ -9,6 +9,7 @@ import { Box, Text } from '../../ui';
 import { makeStyles, useTokens } from '../../design/makeStyles';
 import { NowSegmentedBar } from './NowSegmentedBar';
 import { Icon } from '../ui/Icon';
+import { NowTodayMascot } from './NowTodayMascot';
 import type { NowProgressState, NowWeeklyHabitSummary } from '../../lib/now/nowTypes';
 
 interface NowHeaderProps {
@@ -16,7 +17,7 @@ interface NowHeaderProps {
   progressState: NowProgressState;
   progressPercent: number;
   weeklySummaries: NowWeeklyHabitSummary[];
-  capturesCount: number;
+  logsCount: number;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
 }
@@ -61,19 +62,35 @@ const useStyles = makeStyles((t) => ({
     paddingTop: t.spacing[4],
     paddingBottom: t.spacing[4],
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: t.spacing[4],
+    marginTop: t.spacing[2],
+    marginBottom: t.spacing[2],
+  },
+  headerLeft: {
+    flexDirection: 'column',
+  },
+  headerMascot: {
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: t.spacing[2],
+  },
   greeting: {
     fontSize: t.typography.size.xl,
     fontFamily: t.typography.fontFamily.bold,
     color: t.colors.moss,
     marginBottom: t.spacing[1],
-    paddingHorizontal: t.spacing[4],
   },
   dateTime: {
     fontSize: t.typography.size.sm,
     fontFamily: t.typography.fontFamily.regular,
     color: t.colors.subtle,
-    marginBottom: t.spacing[4],
-    paddingHorizontal: t.spacing[4],
+    marginBottom: t.spacing[2],
   },
   weekRow: {
     flexDirection: 'row',
@@ -106,14 +123,14 @@ const useStyles = makeStyles((t) => ({
   weekStatusBehind: {
     color: t.colors.warning,
   },
-  capturesRow: {
+  logsRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  capturesIcon: {
+  logsIcon: {
     marginRight: 4,
   },
-  capturesText: {
+  logsText: {
     fontSize: 12,
     fontWeight: '500',
     color: t.colors.mossGreen,
@@ -132,7 +149,7 @@ export function NowHeader({
   progressState,
   progressPercent,
   weeklySummaries,
-  capturesCount,
+  logsCount,
   onPressProgress,
   onPressWeek,
 }: NowHeaderProps) {
@@ -160,12 +177,19 @@ export function NowHeader({
     weekLabelStyle = styles.weekStatusBehind;
   }
 
-  const hasCaptures = (capturesCount ?? 0) > 0;
+  const hasLogs = (logsCount ?? 0) > 0;
 
   return (
     <Box style={styles.container}>
-      <Text style={styles.greeting}>{greeting}</Text>
-      <Text style={styles.dateTime}>{dateTimeLabel}</Text>
+      <Box style={styles.headerTopRow}>
+        <Box style={styles.headerLeft}>
+          <Text style={styles.greeting}>{greeting}</Text>
+          <Text style={styles.dateTime}>{dateTimeLabel}</Text>
+        </Box>
+        <Box style={styles.headerMascot} pointerEvents="none">
+          <NowTodayMascot />
+        </Box>
+      </Box>
       <NowSegmentedBar progress={progressRatio} onPress={onPressProgress} />
 
       <Pressable onPress={onPressWeek} style={styles.weekRow} accessibilityRole="button">
@@ -173,12 +197,12 @@ export function NowHeader({
           <Text style={styles.weekLabel}>WEEK:</Text>
           <Text style={[styles.weekStatus, weekLabelStyle]}>{weekLabelText}</Text>
         </Box>
-        {hasCaptures && (
-          <Box style={styles.capturesRow}>
-            <Box style={styles.capturesIcon}>
+        {hasLogs && (
+          <Box style={styles.logsRow}>
+            <Box style={styles.logsIcon}>
               <Icon name="FileText" size="sm" color={tokens.colors.mossGreen} />
             </Box>
-            <Text style={styles.capturesText}>CAPTURES: {capturesCount}</Text>
+            <Text style={styles.logsText}>LOGS: {logsCount}</Text>
           </Box>
         )}
       </Pressable>

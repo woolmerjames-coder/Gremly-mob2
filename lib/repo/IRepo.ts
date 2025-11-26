@@ -202,14 +202,14 @@ export interface IRepo {
     entry_type: 'todo' | 'habit' | 'note' | null;
     source: 'auto' | 'user' | 'carry_forward';
     created_at: string;
-    expires_at: string;
+    expires_at: string | null;
   } | null>;
 
   setFocus(params: {
     entry_id: ID | null;
     entry_type: 'todo' | 'habit' | 'note' | null;
     source: 'auto' | 'user' | 'carry_forward';
-    expires_at: string; // end-of-day timestamp
+    expires_at: string | null; // end-of-day timestamp or null
   }): Promise<void>;
 
   clearFocusForDate(dayIso: string): Promise<void>;

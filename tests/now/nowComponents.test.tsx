@@ -69,7 +69,7 @@ describe('NowHeader', () => {
         progressState={mockProgressState}
         progressPercent={0.42}
         weeklySummaries={mockWeeklySummaries}
-        capturesCount={0}
+        logsCount={0}
       />,
     );
     // Should display time-of-day greeting (mocked to current time)
@@ -84,7 +84,7 @@ describe('NowHeader', () => {
         progressState={mockProgressState}
         progressPercent={0.42}
         weeklySummaries={mockWeeklySummaries}
-        capturesCount={0}
+        logsCount={0}
       />,
     );
     // Should display time-of-day greeting
@@ -99,7 +99,7 @@ describe('NowHeader', () => {
         progressState={mockProgressState}
         progressPercent={0.42}
         weeklySummaries={mockWeeklySummaries}
-        capturesCount={0}
+        logsCount={0}
       />,
     );
     expect(screen.getByText(/Monday, November 25/)).toBeTruthy();
@@ -121,12 +121,12 @@ describe('NowHeader', () => {
             status: 'last_chance',
           },
         ]}
-        capturesCount={3}
+        logsCount={3}
       />,
     );
     expect(screen.getByText('WEEK:')).toBeTruthy();
     expect(screen.getByText('HABITS BEHIND')).toBeTruthy();
-    expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+    expect(screen.getByText('LOGS: 3')).toBeTruthy();
   });
 });
 

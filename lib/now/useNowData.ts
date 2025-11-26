@@ -29,7 +29,7 @@ import {
   getMindVaultSummary,
   getWeeklyHabitSummaries,
   computeWeekHealth,
-  getWeeklyCaptureCounts,
+  getWeeklyLogCounts,
 } from './nowSelectors';
 import { getGreeting } from '../today/copy';
 import type { TimeWindow } from '../env';
@@ -46,10 +46,11 @@ export interface NowData {
   futureItems: NowFutureItem[];
   vaultSummary: MindVaultSummary;
   completedToday: NowCompletedItem[];
+  completedTodayCount: number;
   hasYesterdayCarryOver: boolean;
   weeklySummaries: NowWeeklyHabitSummary[];
   weekHealth: NowWeekHealth;
-  capturesCount: number;
+  logsCount: number;
   loading: boolean;
 }
 
@@ -153,10 +154,11 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       },
     },
     completedToday: [],
+    completedTodayCount: 0,
     hasYesterdayCarryOver: false,
     weeklySummaries: [],
     weekHealth: 'on_track',
-    capturesCount: 0,
+    logsCount: 0,
     loading: true,
   });
 
@@ -210,12 +212,14 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const activeItems = getActiveTodayItems(allEntities, completionHistory, today);
       const futureItems = getFutureItems(allEntities, completionHistory, today);
       const completedToday = getCompletedTodayItems(allEntities, today);
-      const weeklyCaptureCounts = getWeeklyCaptureCounts(notes, today);
-      const capturesCount =
-        (weeklyCaptureCounts?.listCount ?? 0) +
-        (weeklyCaptureCounts?.journalCount ?? 0) +
-        (weeklyCaptureCounts?.ideaCount ?? 0);
-      const vaultSummary = getMindVaultSummary(notes, today, weeklyCaptureCounts);
+      const completedTodayCount = completedToday.length;
+      const weeklyLogCounts = getWeeklyLogCounts(notes, today);
+      const logsCount =
+        (weeklyLogCounts?.listCount ?? 0) +
+        (weeklyLogCounts?.journalCount ?? 0) +
+        (weeklyLogCounts?.ideaCount ?? 0) +
+        (weeklyLogCounts?.personCount ?? 0);
+      const vaultSummary = getMindVaultSummary(notes, today, weeklyLogCounts);
 
       // Calculate progress
       const eligibleItems = getProgressEligibleItems(allEntities, completionHistory, today);
@@ -235,7 +239,8 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const yesterdayDateStr = yesterday.toISOString().split('T')[0];
 
       const hasYesterdayCarryOver = todos.some((todo) => {
-        if ((todo as any).status === 'completed' || !todo.due_date) return false;
+        // Skip if completed (use completed_at as canonical indicator)
+        if (todo.completed_at != null || !todo.due_date) return false;
         return todo.due_date === yesterdayDateStr;
       });
 
@@ -251,10 +256,11 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         futureItems,
         vaultSummary,
         completedToday,
+        completedTodayCount,
         hasYesterdayCarryOver,
         weeklySummaries,
         weekHealth,
-        capturesCount,
+        logsCount,
         loading: false,
       });
     } catch (error) {

@@ -88,13 +88,16 @@ export function useTodayEntries(): TodayEntriesState {
         const result = (await (repo as any).listTodayMerged(nowIso)) as TodayMergedEntry[];
         const isCompleted = (entry: TodayMergedEntry) => {
           if (entry.type === 'todo') {
-            if (entry.status === 'completed') return true;
+            // Prefer completed_at as canonical indicator
             if (entry.completed_at) {
               const completedDay = entry.completed_at.split('T')[0];
               return completedDay === dayIso;
             }
+            // Fallback to status for backwards compatibility
+            if (entry.status === 'completed') return true;
             return false;
           }
+          // For habits, check progress against target
           const target = Math.max(1, entry.target_count ?? 1);
           if (entry.status === 'completed') return true;
           return (entry.progress_today ?? 0) >= target;

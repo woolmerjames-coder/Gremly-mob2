@@ -13,7 +13,7 @@ export interface FocusState {
   entry_type: FocusEntryType;
   source: FocusSource;
   created_at?: string;
-  expires_at?: string;
+  expires_at?: string | null;
 }
 
 export interface UseFocusCard {

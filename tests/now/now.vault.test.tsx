@@ -84,7 +84,7 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
   });
 });
 
-describe('NOW Captures Indicator Tests', () => {
+describe('NOW Logs Indicator Tests', () => {
   const mockDate = new Date('2025-11-25T14:00:00');
 
   beforeEach(() => {
@@ -121,6 +121,7 @@ describe('NOW Captures Indicator Tests', () => {
           personCount: 2,
         },
       },
+      logsCount: 18,
       completedToday: [],
       hasYesterdayCarryOver: false,
       weeklySummaries: [],
@@ -133,14 +134,14 @@ describe('NOW Captures Indicator Tests', () => {
     jest.useRealTimers();
   });
 
-  describe('Header Captures Display', () => {
-    it('shows captures indicator with non-zero counts', () => {
+  describe('Header Logs Display', () => {
+    it('shows logs indicator with non-zero counts', () => {
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 16')).toBeTruthy();
+      expect(screen.getByText('LOGS: 18')).toBeTruthy();
     });
 
-    it('hides captures indicator when all counts are zero', () => {
+    it('hides logs indicator when all counts are zero', () => {
       mockNowData = {
         ...mockNowData,
         vaultSummary: {
@@ -153,14 +154,15 @@ describe('NOW Captures Indicator Tests', () => {
             personCount: 0,
           },
         },
+        logsCount: 0,
       };
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
+      expect(screen.queryByText(/LOGS:/)).toBeFalsy();
     });
 
-    it('shows captures indicator with only lists', () => {
+    it('shows logs indicator with only lists', () => {
       mockNowData = {
         ...mockNowData,
         vaultSummary: {
@@ -172,14 +174,15 @@ describe('NOW Captures Indicator Tests', () => {
             personCount: 0,
           },
         },
+        logsCount: 3,
       };
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+      expect(screen.getByText('LOGS: 3')).toBeTruthy();
     });
 
-    it('shows captures indicator with mixed counts', () => {
+    it('shows logs indicator with mixed counts', () => {
       mockNowData = {
         ...mockNowData,
         vaultSummary: {
@@ -191,11 +194,12 @@ describe('NOW Captures Indicator Tests', () => {
             personCount: 0,
           },
         },
+        logsCount: 3,
       };
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+      expect(screen.getByText('LOGS: 3')).toBeTruthy();
     });
 
     it('does not show Mind Vault card', () => {

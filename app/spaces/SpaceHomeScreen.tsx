@@ -1381,18 +1381,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     await repo.undoCompletion(id);
                   } else {
                     await repo.completeHabit(id, new Date().toISOString());
-                    // Idempotency event for logging
-                    try {
-                      await repo.writeEvent('habit_log', {
-                        space_id: spaceId,
-                        habit_id: id,
-                        date: selectedDayISO,
-                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
-                      });
-                    } catch (e) {
-                      // Non-blocking analytics/idempotency event failure
-                      console.debug('[v22] habit_log event write failed (non-blocking)', e);
-                    }
                     // Micro feedback: short confetti + Undo snackbar
                     setShowConfetti(true);
                     setHeaderMascot('proud');

@@ -11,7 +11,9 @@ begin
 end
 $$;
 
--- 1) Completions log
+-- 1) LEGACY: habit_log table (replaced by habit_progress)
+-- Note: This table is maintained for backwards compatibility with old RPC functions
+-- New code should use habit_progress table via logHabitProgress() instead
 create table if not exists habit_log (
   id uuid primary key default gen_random_uuid(),
   habit_id uuid not null references habits(id) on delete cascade,
@@ -69,6 +71,8 @@ returns table (
   counts as (
     select
       b.*,
+      -- LEGACY: These queries use habit_log table
+      -- New code should query habit_progress table instead
       (
         select count(*) from habit_log l
         where l.habit_id = b.id
@@ -100,11 +104,14 @@ returns table (
   from counts;
 $$;
 
--- 4) RPC: complete_habit(habit_id) - logs a completion and updates last_completed_at
+-- 4) LEGACY RPC: complete_habit(habit_id)
+-- Note: This writes to habit_log table for backwards compatibility
+-- New code should use logHabitProgress() which writes to habit_progress table
 create or replace function complete_habit(_id uuid)
 returns json language plpgsql security definer as $$
 declare payload json;
 begin
+  -- LEGACY: Writes to habit_log instead of habit_progress
   insert into habit_log (habit_id, user_id) values (_id, auth.uid());
   update habits set last_completed_at = now() where id = _id and owner_id = auth.uid()
   returning row_to_json(habits.*) into payload;

@@ -22,6 +22,7 @@ import type {
 } from './IRepo';
 import { supabase } from '../supabase/client';
 import { eventBus } from '../events';
+import type { Database } from '../supabase/database.types';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -38,10 +39,24 @@ import {
   type EntityPeopleInsert as DBEntityPeopleInsert,
 } from '../supabase/mappers';
 
+// Generated database types
+type DbHabitProgressRow = Database['public']['Tables']['habit_progress']['Row'];
+type DbFocusCardRow = Database['public']['Tables']['focus_card']['Row'];
+type DbLogPhotosRow = Database['public']['Tables']['log_photos']['Row'];
+type DbSpaceChatMessageRow = Database['public']['Tables']['space_chat_messages']['Row'];
+type DbSpaceMilestoneRow = Database['public']['Tables']['space_milestones']['Row'];
+type DbSpaceSummaryRow = Database['public']['Tables']['space_summaries']['Row'];
+
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const TAG_FILTER_TOAST_MESSAGE = 'Tag filter temporarily unavailable';
 let hasShownTagFilterToast = false;
+
+// Type aliases for generated database types (for backward compatibility)
+type HabitProgressRow = DbHabitProgressRow;
+type HabitProgressInsert = Database['public']['Tables']['habit_progress']['Insert'];
+type FocusCardRow = DbFocusCardRow;
+type FocusCardInsert = Database['public']['Tables']['focus_card']['Insert'];
 
 const formatSupabaseError = (error: any) =>
   error
@@ -1503,7 +1518,8 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const day = ensureDay(nowIso);
 
-    const todoFieldsBase = 'id,name,due_date,due_day,space_id,status,carry_forward,tags,commitment';
+    const todoFieldsBase =
+      'id,name,due_date,due_day,space_id,status,carry_forward,tags,locked_in,commitment';
     const todoFields = `${todoFieldsBase},completed_at`;
 
     let activeTodos: any[] | null = null;
@@ -1571,7 +1587,8 @@ export class SupabaseRepo implements IRepo {
         overdue,
         nearDue,
         completed_at: completedAt,
-        commitment: t.commitment === true,
+        // Derive from locked_in with fallback to commitment
+        commitment: t.locked_in === true || t.commitment === true,
       };
     };
 
@@ -1581,7 +1598,9 @@ export class SupabaseRepo implements IRepo {
     try {
       const { data: habits, error: habitsErr } = await supabase
         .from('habits')
-        .select('id,name,space_id,cadence,target_count,period_unit,time_window,tags,commitment')
+        .select(
+          'id,name,space_id,cadence,target_count,period_unit,time_window,tags,locked_in,commitment',
+        )
         .eq('owner_id', userId)
         .is('completed_at', null); // Exclude completed habits
 
@@ -1596,21 +1615,23 @@ export class SupabaseRepo implements IRepo {
       if (progErr) throw progErr;
 
       const progressByHabit = new Map<string, { total: number; latestAt: string | null }>();
-      (progressRows || []).forEach((row: any) => {
-        const current = progressByHabit.get(row.habit_id) || { total: 0, latestAt: null };
-        let latestAt = current.latestAt;
-        if (row.occurred_at) {
-          if (!latestAt) {
-            latestAt = row.occurred_at;
-          } else if (new Date(row.occurred_at).getTime() > new Date(latestAt).getTime()) {
-            latestAt = row.occurred_at;
+      (progressRows || []).forEach(
+        (row: Pick<HabitProgressRow, 'habit_id' | 'count' | 'occurred_day' | 'occurred_at'>) => {
+          const current = progressByHabit.get(row.habit_id) || { total: 0, latestAt: null };
+          let latestAt = current.latestAt;
+          if (row.occurred_at) {
+            if (!latestAt) {
+              latestAt = row.occurred_at;
+            } else if (new Date(row.occurred_at).getTime() > new Date(latestAt).getTime()) {
+              latestAt = row.occurred_at;
+            }
           }
-        }
-        progressByHabit.set(row.habit_id, {
-          total: current.total + (row.count || 1),
-          latestAt,
-        });
-      });
+          progressByHabit.set(row.habit_id, {
+            total: current.total + row.count,
+            latestAt,
+          });
+        },
+      );
 
       habitItems =
         (habits || []).map((h: any) => {
@@ -1633,7 +1654,8 @@ export class SupabaseRepo implements IRepo {
             progress_today: done,
             status,
             completed_at: status === 'completed' ? progressInfo.latestAt : null,
-            commitment: h.commitment === true,
+            // Derive from locked_in with fallback to commitment
+            commitment: h.locked_in === true || h.commitment === true,
           };
         }) ?? [];
     } catch (error) {
@@ -1651,16 +1673,23 @@ export class SupabaseRepo implements IRepo {
     occurrenceIndex?: number,
   ): Promise<void> {
     const ownerId = this.ensureUserId();
-    const payload: any = {
+
+    // occurred_at defaults to now if not provided
+    const occurredAt = atIso || new Date().toISOString();
+
+    // Note: occurred_day is a generated column in DB, so we don't set it
+    const payload: Omit<HabitProgressInsert, 'occurred_day'> & { occurred_day?: string } = {
       owner_id: ownerId,
       habit_id: habitId,
+      occurred_at: occurredAt,
       count,
     };
 
-    if (atIso) payload.occurred_at = atIso;
-    if (typeof occurrenceIndex === 'number') payload.occurrence_index = occurrenceIndex;
+    if (typeof occurrenceIndex === 'number') {
+      payload.occurrence_index = occurrenceIndex;
+    }
 
-    const { error } = await supabase.from('habit_progress').insert(payload);
+    const { error } = await supabase.from('habit_progress').insert(payload as HabitProgressInsert);
     if (error) throw new Error(`logHabitProgress failed: ${error.message}`);
   }
 
@@ -1675,7 +1704,10 @@ export class SupabaseRepo implements IRepo {
       .eq('occurred_day', day);
 
     if (error) throw new Error(`getHabitProgressForDate failed: ${error.message}`);
-    return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
+    return (data ?? []).reduce(
+      (sum: number, row: Pick<HabitProgressRow, 'count'>) => sum + row.count,
+      0,
+    );
   }
 
   async getHabitProgressForWeek(
@@ -1695,7 +1727,10 @@ export class SupabaseRepo implements IRepo {
       .lte('occurred_day', weekEnd);
 
     if (error) throw new Error(`getHabitProgressForWeek failed: ${error.message}`);
-    return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
+    return (data ?? []).reduce(
+      (sum: number, row: Pick<HabitProgressRow, 'count'>) => sum + row.count,
+      0,
+    );
   }
 
   async getFocusForDate(dayIso: string): Promise<{
@@ -1704,7 +1739,7 @@ export class SupabaseRepo implements IRepo {
     entry_type: 'todo' | 'habit' | 'note' | null;
     source: 'auto' | 'user' | 'carry_forward';
     created_at: string;
-    expires_at: string;
+    expires_at: string | null;
   } | null> {
     const ownerId = this.ensureUserId();
     const day = ensureDay(dayIso);
@@ -1719,13 +1754,14 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`getFocusForDate failed: ${error.message}`);
     if (!data) return null;
 
+    const row = data as FocusCardRow;
     return {
-      id: data.id,
-      entry_id: data.entry_id,
-      entry_type: data.entry_type,
-      source: data.source,
-      created_at: data.created_at,
-      expires_at: data.expires_at,
+      id: row.id,
+      entry_id: row.entry_id,
+      entry_type: row.entry_type as 'todo' | 'habit' | 'note' | null,
+      source: row.source as 'auto' | 'user' | 'carry_forward',
+      created_at: row.created_at,
+      expires_at: row.expires_at,
     };
   }
 
@@ -1733,19 +1769,23 @@ export class SupabaseRepo implements IRepo {
     entry_id: ID | null;
     entry_type: 'todo' | 'habit' | 'note' | null;
     source: 'auto' | 'user' | 'carry_forward';
-    expires_at: string;
+    expires_at: string | null;
   }): Promise<void> {
     const ownerId = this.ensureUserId();
-    const day = ensureDay(params.expires_at);
-    const payload: any = {
+    // Use expires_at to determine focus_day, or default to today if null
+    const day = ensureDay(params.expires_at || new Date().toISOString());
+
+    // Note: DB schema currently requires expires_at, but we handle null in params
+    const payload: FocusCardInsert = {
       owner_id: ownerId,
+      focus_day: day,
       entry_id: params.entry_id,
       entry_type: params.entry_type,
       source: params.source,
-      expires_at: params.expires_at,
-      focus_day: day,
+      expires_at: params.expires_at || new Date().toISOString(),
     };
 
+    // Upsert respects unique constraint on (owner_id, focus_day)
     const { error } = await supabase
       .from('focus_card')
       .upsert(payload, { onConflict: 'owner_id,focus_day' })
@@ -1809,8 +1849,8 @@ export class SupabaseRepo implements IRepo {
         throw new Error(`topFocusCandidates.progress failed: ${progressErr.message}`);
 
       const map = new Map<string, number>();
-      (progress ?? []).forEach((row: any) => {
-        map.set(row.habit_id, (map.get(row.habit_id) || 0) + (row.count ?? 1));
+      (progress ?? []).forEach((row: Pick<HabitProgressRow, 'habit_id' | 'count'>) => {
+        map.set(row.habit_id, (map.get(row.habit_id) || 0) + row.count);
       });
 
       for (const habit of habitRows) {
@@ -2069,7 +2109,7 @@ export class SupabaseRepo implements IRepo {
     return { notesArchived, todosArchived, habitsArchived };
   }
 
-  /** Count active commitments (habits + todos). No archived predicate yet. */
+  /** Count active commitments (habits + todos). Uses locked_in as source of truth with fallback to commitment. */
   async countActiveCommitments(): Promise<number> {
     const userId = this.ensureUserId();
     const now = Date.now();
@@ -2082,12 +2122,12 @@ export class SupabaseRepo implements IRepo {
         .from('habits')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('commitment', true),
+        .or('locked_in.eq.true,commitment.eq.true'),
       supabase
         .from('todos')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', userId)
-        .eq('commitment', true),
+        .or('locked_in.eq.true,commitment.eq.true'),
     ]);
 
     if (habitsRes.error) {
@@ -2103,7 +2143,7 @@ export class SupabaseRepo implements IRepo {
     return total;
   }
 
-  /** List current commitments (merged; newest first). */
+  /** List current commitments (merged; newest first). Uses locked_in as source of truth with fallback to commitment. */
   async listCommitments(): Promise<
     Array<{
       id: string;
@@ -2118,15 +2158,15 @@ export class SupabaseRepo implements IRepo {
     const [habitsRes, todosRes] = await Promise.all([
       supabase
         .from('habits')
-        .select('id,name,commitment_started_at,commitment_note,commitment')
+        .select('id,name,locked_in,locked_in_at,commitment_started_at,commitment_note,commitment')
         .eq('owner_id', userId)
-        .eq('commitment', true)
+        .or('locked_in.eq.true,commitment.eq.true')
         .is('completed_at', null), // Exclude completed habits
       supabase
         .from('todos')
-        .select('id,name,commitment_started_at,commitment_note,commitment')
+        .select('id,name,locked_in,locked_in_at,commitment_started_at,commitment_note,commitment')
         .eq('owner_id', userId)
-        .eq('commitment', true)
+        .or('locked_in.eq.true,commitment.eq.true')
         .is('completed_at', null), // Exclude completed todos
     ]);
 
@@ -2138,22 +2178,24 @@ export class SupabaseRepo implements IRepo {
     }
 
     const habits = (habitsRes.data || [])
-      .filter((h: any) => h.commitment === true)
+      .filter((h: any) => h.locked_in === true || h.commitment === true)
       .map((h: any) => ({
         id: h.id,
         type: 'habit' as const,
         name: h.name || '',
-        commitment_started_at: h.commitment_started_at,
+        // Use locked_in_at as source of truth, fallback to commitment_started_at
+        commitment_started_at: h.locked_in_at || h.commitment_started_at,
         commitment_note: h.commitment_note,
       }));
 
     const todos = (todosRes.data || [])
-      .filter((t: any) => t.commitment === true)
+      .filter((t: any) => t.locked_in === true || t.commitment === true)
       .map((t: any) => ({
         id: t.id,
         type: 'todo' as const,
         name: t.name || '',
-        commitment_started_at: t.commitment_started_at,
+        // Use locked_in_at as source of truth, fallback to commitment_started_at
+        commitment_started_at: t.locked_in_at || t.commitment_started_at,
         commitment_note: t.commitment_note,
       }));
 
@@ -2170,14 +2212,18 @@ export class SupabaseRepo implements IRepo {
     if (current >= 3) {
       throw new Error('MAX_COMMITMENTS_REACHED');
     }
-    const startedAt = new Date().toISOString();
+    const now = new Date().toISOString();
     const table = type === 'habit' ? 'habits' : 'todos';
 
     const { error } = await supabase
       .from(table)
       .update({
+        // NEW: locked_in fields are source of truth
+        locked_in: true,
+        locked_in_at: now,
+        // LEGACY: Keep commitment fields for backward compatibility
         commitment: true,
-        commitment_started_at: startedAt,
+        commitment_started_at: now,
         ...(note !== undefined ? { commitment_note: note } : {}),
       })
       .eq('id', id)
@@ -2198,12 +2244,17 @@ export class SupabaseRepo implements IRepo {
     reason?: string | null,
   ): Promise<void> {
     const table = type === 'habit' ? 'habits' : 'todos';
+    const now = new Date().toISOString();
 
     const { error } = await supabase
       .from(table)
       .update({
+        // NEW: locked_in fields are source of truth
+        locked_in: false,
+        locked_in_at: null,
+        // LEGACY: Keep commitment fields for backward compatibility
         commitment: false,
-        commitment_archived_at: new Date().toISOString(),
+        commitment_archived_at: now,
         ...(reason ? { commitment_note: reason } : {}),
       })
       .eq('id', id)
@@ -2224,8 +2275,8 @@ export class SupabaseRepo implements IRepo {
   async completeHabit(id: ID, atIso: string): Promise<void> {
     const userId = this.ensureUserId();
 
-    // For now, mark habit as completed by setting a completed_at field
-    // TODO: Phase 10+ - Create a separate habit_completions table for history
+    // Mark habit as completed by setting completed_at field
+    // Note: For detailed completion history, use logHabitProgress() which writes to habit_progress table
     const { error } = await supabase
       .from('habits')
       .update({ completed_at: atIso })
@@ -2432,7 +2483,7 @@ export class SupabaseRepo implements IRepo {
   /**
    * Phase 10.8: Fetch recent Space Insight history
    */
-  async getSpaceInsightHistory(spaceId: string, limit: number = 10): Promise<any[]> {
+  async getSpaceInsightHistory(spaceId: string, limit: number = 10): Promise<DbSpaceSummaryRow[]> {
     const userId = this.ensureUserId();
 
     // Verify ownership
@@ -2607,7 +2658,12 @@ export class SupabaseRepo implements IRepo {
    * Returns messages in chronological order (oldest first)
    * Phase 10.7E: Used by buildChatContext for conversation memory
    */
-  private async listSpaceChatMessages(spaceId: string, opts?: { limit?: number }): Promise<any[]> {
+  private async listSpaceChatMessages(
+    spaceId: string,
+    opts?: { limit?: number },
+  ): Promise<
+    Pick<DbSpaceChatMessageRow, 'id' | 'chat_id' | 'space_id' | 'role' | 'content' | 'created_at'>[]
+  > {
     const DEFAULT_CHAT_LIMIT = 50;
     const limit = opts?.limit ?? DEFAULT_CHAT_LIMIT;
 

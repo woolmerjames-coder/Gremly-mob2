@@ -45,6 +45,9 @@ const seed = (ownerId: string): AppRecord[] => {
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
+    locked_in: false,
+    locked_in_at: null,
+    completed_at: null,
   };
 
   const t1: Todo = {
@@ -62,6 +65,9 @@ const seed = (ownerId: string): AppRecord[] => {
     created_at: createdAt,
     updated_at: updatedAt,
     owner_id: ownerId,
+    locked_in: false,
+    locked_in_at: null,
+    completed_at: null,
   };
 
   const n1: Note = {
@@ -180,6 +186,10 @@ export class MemoryRepo implements IRepo {
         triggers: input.triggers ?? null,
         replacement_habit_id: input.replacement_habit_id ?? null,
         replacement_text: input.replacement_text ?? null,
+        // Lock-In and completion fields
+        locked_in: false,
+        locked_in_at: null,
+        completed_at: null,
       };
     } else if (input.type === 'todo') {
       // Phase 7+: name is the primary required field
@@ -209,6 +219,10 @@ export class MemoryRepo implements IRepo {
         labels: input.labels,
         views: input.views,
         drop_id: input.dropId ?? null,
+        // Lock-In and completion fields
+        locked_in: false,
+        locked_in_at: null,
+        completed_at: null,
       };
     } else {
       // note - subtype is optional in database schema (can be null)
@@ -1006,6 +1020,9 @@ export class MemoryRepo implements IRepo {
       commitment_started_at: now,
       commitment_note: note ?? null,
       commitment_archived_at: null,
+      // NEW: locked_in fields are source of truth
+      locked_in: true,
+      locked_in_at: now,
       updated_at: now,
     } as AppRecord;
 
@@ -1029,6 +1046,9 @@ export class MemoryRepo implements IRepo {
       commitment: false,
       commitment_archived_at: now,
       commitment_note: reason ?? (record as any).commitment_note ?? null,
+      // NEW: locked_in fields are source of truth
+      locked_in: false,
+      locked_in_at: null,
       updated_at: now,
     } as AppRecord;
 

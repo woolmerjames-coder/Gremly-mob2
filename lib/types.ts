@@ -59,6 +59,9 @@ export interface Habit {
   commitment_started_at?: string | null;
   commitment_note?: string | null;
   commitment_archived_at?: string | null;
+  completed_at?: string | null;
+  locked_in?: boolean;
+  locked_in_at?: string | null;
 
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)
@@ -122,6 +125,9 @@ export interface Todo {
   commitment_started_at?: string | null;
   commitment_note?: string | null;
   commitment_archived_at?: string | null;
+  completed_at?: string | null;
+  locked_in?: boolean;
+  locked_in_at?: string | null;
 
   tags_meta?: TagsMeta | null;
 }

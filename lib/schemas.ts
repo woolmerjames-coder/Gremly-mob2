@@ -163,7 +163,7 @@ export const habitInsertSchema = z
     name: z.string().min(1), // Required by database
     title: z.string().min(1).optional(), // Database column is non-null; repo ensures fallback when absent
     frequency: z.string().min(1),
-    subtype: z.enum(['start_habit', 'break_habit']).optional(), // Strictly enforce valid subtypes
+    subtype: z.enum(['start_habit', 'break_habit', 'routine']).optional(), // Strictly enforce valid subtypes
     ai_placed: z.boolean().default(false),
     why_string: z.string().optional().nullable(),
     origin: z.literal('catchall').optional(),
