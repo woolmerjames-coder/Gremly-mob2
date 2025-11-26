@@ -42,12 +42,12 @@ const useStyles = makeStyles((t) => ({
     alignItems: 'center',
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: t.radius[2],
+    width: 22,
+    height: 22,
+    borderRadius: t.radius[1],
     borderWidth: 2,
     borderColor: t.colors.mossGreen,
-    backgroundColor: t.colors.sageMist,
+    backgroundColor: t.colors.surface,
   },
   textContainer: {
     flex: 1,

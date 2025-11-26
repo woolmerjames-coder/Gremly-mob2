@@ -36,11 +36,12 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'space-between',
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: t.radius[2],
+    width: 22,
+    height: 22,
+    borderRadius: t.radius[1],
     borderWidth: 2,
     borderColor: t.colors.subtle,
+    backgroundColor: t.colors.surface,
   },
   textContainer: {
     flex: 1,
