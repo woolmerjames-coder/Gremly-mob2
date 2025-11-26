@@ -7,7 +7,6 @@
 
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -16,7 +15,7 @@ import { NowHeader } from '../../components/now/NowHeader';
 import { NowWeeklySummary } from '../../components/now/NowWeeklySummary';
 import { NowList } from '../../components/now/NowList';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
-import { OverwhelmButton } from '../../components/now/OverwhelmButton';
+import { NowOverwhelmCard } from '../../components/now/NowOverwhelmCard';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
@@ -35,7 +34,6 @@ export default function NowScreenV1() {
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isSweepVisible, setSweepVisible] = useState(false);
-  const insets = useSafeAreaInsets();
 
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
@@ -112,10 +110,8 @@ export default function NowScreenV1() {
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
       />
+      <NowOverwhelmCard onPress={overwhelm.open} />
       <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
-      <View style={[styles.overwhelmFab, { bottom: insets.bottom + 96 }]}>
-        <OverwhelmButton onPress={overwhelm.open} />
-      </View>
 
       <NowProgressPopup
         visible={isProgressVisible}
@@ -163,10 +159,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
     position: 'relative',
-  },
-  overwhelmFab: {
-    position: 'absolute',
-    right: 16,
   },
   weekSummaryDivider: {
     marginTop: 0,

@@ -2,6 +2,7 @@
  * Overwhelm Button Component
  * Floating action button for when users feel stuck
  */
+// LEGACY: replaced by NowOverwhelmCard on NowScreenV1. Kept only if used elsewhere.
 
 import React from 'react';
 import { TouchableOpacity } from 'react-native';
