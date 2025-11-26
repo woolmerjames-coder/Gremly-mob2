@@ -7,6 +7,7 @@
 
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -34,6 +35,7 @@ export default function NowScreenV1() {
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isSweepVisible, setSweepVisible] = useState(false);
+  const insets = useSafeAreaInsets();
 
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
@@ -93,14 +95,17 @@ export default function NowScreenV1() {
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
-      <NowWeeklySummary
-        stats={{
-          lists: now.vaultSummary.thisWeekStats.listCount,
-          journals: now.vaultSummary.thisWeekStats.journalCount,
-          ideas: now.vaultSummary.thisWeekStats.ideaCount,
-        }}
-        onPress={() => navigation.navigate('Lists')}
-      />
+      <View style={styles.summarySection}>
+        <NowWeeklySummary
+          stats={{
+            lists: now.vaultSummary.thisWeekStats.listCount,
+            journals: now.vaultSummary.thisWeekStats.journalCount,
+            ideas: now.vaultSummary.thisWeekStats.ideaCount,
+          }}
+          onPress={() => navigation.navigate('Lists')}
+        />
+        <View style={styles.metricsBottomDivider} />
+      </View>
       <NowList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
@@ -110,7 +115,9 @@ export default function NowScreenV1() {
         onToggleComplete={handleToggleComplete}
       />
       <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
-      <OverwhelmButton onPress={overwhelm.open} />
+      <View style={[styles.overwhelmFab, { bottom: insets.bottom + 96 }]}>
+        <OverwhelmButton onPress={overwhelm.open} />
+      </View>
 
       <NowProgressPopup
         visible={isProgressVisible}
@@ -157,5 +164,20 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+    position: 'relative',
+  },
+  overwhelmFab: {
+    position: 'absolute',
+    right: 16,
+  },
+  summarySection: {
+    paddingTop: 4,
+    paddingBottom: 12,
+  },
+  metricsBottomDivider: {
+    height: 1,
+    backgroundColor: '#E7E2D9',
+    marginHorizontal: 16,
+    marginVertical: 12,
   },
 });

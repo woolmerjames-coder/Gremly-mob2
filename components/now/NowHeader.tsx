@@ -38,13 +38,13 @@ function getTimeOfDayGreeting(): string {
 const useStyles = makeStyles((t) => ({
   container: {
     paddingHorizontal: t.spacing[4],
-    paddingTop: 0,
+    paddingTop: t.spacing[4],
     paddingBottom: t.spacing[4],
   },
   greeting: {
     fontSize: t.typography.size.xl, // 24px - matches MindDrop header
     fontFamily: t.typography.fontFamily.bold,
-    color: t.colors.text,
+    color: t.colors.moss,
     marginBottom: t.spacing[1],
   },
   dateTime: {
@@ -57,6 +57,12 @@ const useStyles = makeStyles((t) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: t.colors.border,
+    marginTop: t.spacing[4],
+    marginBottom: t.spacing[2],
   },
 }));
 
@@ -83,6 +89,7 @@ export function NowHeader({
           <NowWeekIndicator status={weekStatus} />
         </TouchableOpacity>
       </Box>
+      <Box style={styles.sectionDivider} />
     </Box>
   );
 }

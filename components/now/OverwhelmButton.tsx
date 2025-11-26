@@ -7,7 +7,7 @@ import React from 'react';
 import { TouchableOpacity } from 'react-native';
 import { Text } from '../../ui';
 import { Icon } from '../ui/Icon';
-import { makeStyles } from '../../design/makeStyles';
+import { makeStyles, useTokens } from '../../design/makeStyles';
 
 interface OverwhelmButtonProps {
   onPress: () => void;
@@ -15,31 +15,33 @@ interface OverwhelmButtonProps {
 
 const useStyles = makeStyles((t) => ({
   container: {
-    position: 'absolute',
-    bottom: 80,
-    right: t.spacing[4],
-    backgroundColor: t.colors.mossGreen, // Moss Green FAB
-    borderRadius: t.radius[4], // 20px - pill shaped
-    paddingVertical: t.spacing[3],
-    paddingHorizontal: t.spacing[4],
     flexDirection: 'row',
     alignItems: 'center',
-    gap: t.spacing[2],
-    ...t.elevation.lg, // Large elevation for FAB
+    backgroundColor: t.colors.linenCream,
+    borderRadius: 999,
+    paddingVertical: t.spacing[1],
+    paddingHorizontal: t.spacing[3],
+    borderWidth: 1,
+    borderColor: t.colors.mossGreen,
+    ...t.elevation.sm,
+  },
+  icon: {
+    marginRight: t.spacing[1],
   },
   label: {
-    fontSize: t.typography.size.sm,
+    fontSize: 13,
     fontFamily: t.typography.fontFamily.medium,
-    color: '#FFFFFF',
+    color: t.colors.mossGreen,
   },
 }));
 
 export function OverwhelmButton({ onPress }: OverwhelmButtonProps) {
   const styles = useStyles();
+  const tokens = useTokens();
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
-      <Icon name="HelpCircle" size="sm" color="#FFFFFF" />
+      <Icon name="HelpCircle" size="sm" color={tokens.colors.mossGreen} style={styles.icon} />
       <Text style={styles.label}>Feeling stuck?</Text>
     </TouchableOpacity>
   );

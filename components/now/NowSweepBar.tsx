@@ -5,9 +5,10 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { Animated, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../ui';
 import { Icon } from '../ui/Icon';
-import { makeStyles } from '../../design/makeStyles';
+import { makeStyles, useTokens } from '../../design/makeStyles';
 import { gentlePulse } from '../../lib/today/motion';
 import { useReducedMotion } from '../../design/animations';
 
@@ -17,43 +18,46 @@ interface NowSweepBarProps {
 }
 
 const useStyles = makeStyles((t) => ({
-  container: {
+  wrapper: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: t.colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: t.colors.border,
-    padding: t.spacing[4],
+    left: t.spacing[3],
+    right: t.spacing[3],
+    borderTopLeftRadius: t.radius[3],
+    borderTopRightRadius: t.radius[3],
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     ...t.elevation.md,
   },
-  button: {
-    paddingVertical: t.spacing[3],
-    paddingHorizontal: t.spacing[5],
-    borderRadius: t.radius[4], // 20px - full pill
-    alignItems: 'center',
-  },
-  buttonContent: {
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    paddingVertical: t.spacing[2],
+    paddingHorizontal: t.spacing[4],
+    gap: t.spacing[2],
   },
-  buttonUrgent: {
-    backgroundColor: t.colors.deepForest, // Deep Forest for urgent sweeps
+  barAvailable: {
+    backgroundColor: t.colors.sageMist,
   },
-  buttonNormal: {
-    backgroundColor: t.colors.mossGreen, // Moss Green for available sweeps
+  barUrgent: {
+    backgroundColor: t.colors.mossGreen,
   },
-  buttonText: {
-    fontSize: t.typography.size.md, // 16px
+  text: {
+    fontSize: t.typography.size.sm,
     fontFamily: t.typography.fontFamily.medium,
-    color: '#FFFFFF',
+  },
+  textAvailable: {
+    color: t.colors.mossGreen,
+  },
+  textUrgent: {
+    color: t.colors.onPrimary,
   },
 }));
 
 export function NowSweepBar({ hasYesterdayCarryOver, onPress }: NowSweepBarProps) {
   const styles = useStyles();
+  const tokens = useTokens();
+  const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const scale = useMemo(() => new Animated.Value(1), []);
   const message = hasYesterdayCarryOver ? 'Time to Sweep!' : 'Sweep available';
@@ -65,24 +69,20 @@ export function NowSweepBar({ hasYesterdayCarryOver, onPress }: NowSweepBarProps
     }
   }, [hasYesterdayCarryOver, scale, reducedMotion]);
 
+  const barStateStyle = hasYesterdayCarryOver ? styles.barUrgent : styles.barAvailable;
+  const textStateStyle = hasYesterdayCarryOver ? styles.textUrgent : styles.textAvailable;
+  const iconColor = hasYesterdayCarryOver ? tokens.colors.onPrimary : tokens.colors.mossGreen;
+
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[styles.wrapper, { bottom: insets.bottom + 12 }]}
       onPress={onPress}
       activeOpacity={0.9}
       testID="sweep-bar"
     >
-      <Animated.View
-        style={[
-          styles.button,
-          hasYesterdayCarryOver ? styles.buttonUrgent : styles.buttonNormal,
-          { transform: [{ scale }] },
-        ]}
-      >
-        <View style={styles.buttonContent}>
-          <Icon name="Sparkles" size="sm" color="#FFFFFF" />
-          <Text style={styles.buttonText}>{message}</Text>
-        </View>
+      <Animated.View style={[styles.bar, barStateStyle, { transform: [{ scale }] }]}>
+        <Icon name="Sparkles" size="sm" color={iconColor} />
+        <Text style={[styles.text, textStateStyle]}>{message}</Text>
       </Animated.View>
     </TouchableOpacity>
   );
