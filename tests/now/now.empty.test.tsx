@@ -92,6 +92,7 @@ describe('NOW Empty States Tests', () => {
           dots: [],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [],
         activeItems: [],
         futureItems: [],
@@ -130,6 +131,7 @@ describe('NOW Empty States Tests', () => {
           dots: [true, false],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [
           {
             id: 'habit-1',
@@ -189,6 +191,7 @@ describe('NOW Empty States Tests', () => {
           dots: [true, true],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [
           {
             id: 'habit-1',
@@ -255,6 +258,7 @@ describe('NOW Empty States Tests', () => {
           dots: [true, true, true, false],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [
           {
             id: 'habit-1',
@@ -307,6 +311,7 @@ describe('NOW Empty States Tests', () => {
           dots: [],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [],
         activeItems: [],
         futureItems: [],

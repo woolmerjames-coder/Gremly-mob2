@@ -76,6 +76,7 @@ describe('NowScreenV1', () => {
         dots: [false, false],
       },
       weekStatus: 'on_track',
+      weekHealth: 'on_track',
       lockedItems: [],
       activeItems: [
         {

@@ -88,6 +88,8 @@ export interface NowProgressState {
  */
 export type HabitWeeklyStatus = 'week_complete' | 'flexible' | 'on_track_today' | 'last_chance';
 
+export type NowWeekHealth = 'ahead' | 'on_track' | 'behind';
+
 /**
  * Weekly habit summary for progress popup
  */

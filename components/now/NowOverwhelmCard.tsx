@@ -1,3 +1,4 @@
+// LEGACY: Superseded by NowHelperRow on NowScreenV1. Kept for reference.
 import React from 'react';
 import { Pressable, Text } from 'react-native';
 import { makeStyles } from '../../design/makeStyles';

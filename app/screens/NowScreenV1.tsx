@@ -9,9 +9,8 @@ import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
-import { NowWeeklySummary } from '../../components/now/NowWeeklySummary';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
-import { NowOverwhelmCard } from '../../components/now/NowOverwhelmCard';
+import { NowHelperRow } from '../../components/now/NowHelperRow';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
 import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
@@ -25,11 +24,13 @@ import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useNowData } from '../../lib/now/useNowData';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
 export default function NowScreenV1() {
   const now = useNowData();
   const overwhelm = useOverwhelmFlow();
+  const overlayController = useUnifiedOverlayController();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isSweepVisible, setSweepVisible] = useState(false);
@@ -75,6 +76,17 @@ export default function NowScreenV1() {
     setSweepVisible(true);
   }, []);
 
+  const handleAddMore = useCallback(() => {
+    overlayController.openCreate({ type: 'todo' });
+  }, [overlayController]);
+
+  const capturesCountFromVault =
+    now.vaultSummary.thisWeekStats.listCount +
+    now.vaultSummary.thisWeekStats.journalCount +
+    now.vaultSummary.thisWeekStats.ideaCount;
+  const capturesCount =
+    typeof now.capturesCount === 'number' ? now.capturesCount : capturesCountFromVault;
+
   if (now.loading) {
     return (
       <Screen style={styles.screen}>
@@ -88,18 +100,12 @@ export default function NowScreenV1() {
       <NowHeader
         dateTimeLabel={now.dateTimeLabel}
         progressState={now.progressState}
-        weekStatus={now.weekStatus}
+        progressPercent={now.progressState.percent / 100}
+        weeklySummaries={now.weeklySummaries}
+        capturesCount={capturesCount}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
-      <NowWeeklySummary
-        stats={{
-          lists: now.vaultSummary.thisWeekStats.listCount,
-          journals: now.vaultSummary.thisWeekStats.journalCount,
-          ideas: now.vaultSummary.thisWeekStats.ideaCount,
-        }}
-      />
-      <View style={styles.weekSummaryDivider} />
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>Today’s Focus</Text>
         <NowTodayMascot />
@@ -112,6 +118,7 @@ export default function NowScreenV1() {
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
         onPressOverwhelm={overwhelm.open}
+        onPressAddMore={handleAddMore}
       />
       <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
 
@@ -164,6 +171,7 @@ type TodayFocusListProps = {
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onPressOverwhelm: () => void;
+  onPressAddMore: () => void;
 };
 
 function TodayFocusList({
@@ -174,6 +182,7 @@ function TodayFocusList({
   onPressItem,
   onToggleComplete,
   onPressOverwhelm,
+  onPressAddMore,
 }: TodayFocusListProps) {
   const hasNoItems = lockedItems.length === 0 && activeItems.length === 0;
   const isAllComplete = progressPercent === 100;
@@ -227,7 +236,7 @@ function TodayFocusList({
         />
       ))}
 
-      <NowOverwhelmCard onPress={onPressOverwhelm} />
+      <NowHelperRow onPressOverwhelm={onPressOverwhelm} onPressAddMore={onPressAddMore} />
       <View style={styles.listBottomSpacer} />
     </ScrollView>
   );
@@ -285,13 +294,6 @@ const styles = StyleSheet.create({
   },
   listBottomSpacer: {
     height: 120,
-  },
-  weekSummaryDivider: {
-    marginTop: 0,
-    marginBottom: 24,
-    height: 1,
-    marginHorizontal: 24,
-    backgroundColor: '#E7E2D9',
   },
   sectionTitle: {
     flex: 1,

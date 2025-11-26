@@ -87,6 +87,7 @@ describe('Overwhelm Flow Integration Tests', () => {
         dots: [true, false, false, false],
       },
       weekStatus: 'needs_attention',
+      weekHealth: 'behind',
       lockedItems: [
         {
           id: 'habit-1',

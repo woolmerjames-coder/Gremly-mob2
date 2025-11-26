@@ -80,6 +80,7 @@ describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
         dots: [true, false, false],
       },
       weekStatus: 'on_track',
+      weekHealth: 'on_track',
       lockedItems: [
         {
           id: 'habit-1',

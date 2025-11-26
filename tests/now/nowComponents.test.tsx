@@ -51,13 +51,25 @@ const mockActiveItem = {
   weeklyStatus: 'on_track_today' as const,
 };
 
+const mockWeeklySummaries = [
+  {
+    habitId: 'habit-1',
+    name: 'Morning Meditation',
+    targetPerWeek: 7,
+    completionsThisWeek: 5,
+    status: 'on_track_today' as const,
+  },
+];
+
 describe('NowHeader', () => {
   it('mounts successfully', () => {
     render(
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
-        weekStatus="on_track"
+        progressPercent={0.42}
+        weeklySummaries={mockWeeklySummaries}
+        capturesCount={0}
       />,
     );
     // Should display time-of-day greeting (mocked to current time)
@@ -70,7 +82,9 @@ describe('NowHeader', () => {
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
-        weekStatus="on_track"
+        progressPercent={0.42}
+        weeklySummaries={mockWeeklySummaries}
+        capturesCount={0}
       />,
     );
     // Should display time-of-day greeting
@@ -83,7 +97,9 @@ describe('NowHeader', () => {
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
-        weekStatus="on_track"
+        progressPercent={0.42}
+        weeklySummaries={mockWeeklySummaries}
+        capturesCount={0}
       />,
     );
     expect(screen.getByText(/Monday, November 25/)).toBeTruthy();
@@ -95,11 +111,22 @@ describe('NowHeader', () => {
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         progressState={mockProgressState}
-        weekStatus="on_track"
+        progressPercent={0.42}
+        weeklySummaries={[
+          {
+            habitId: 'habit-1',
+            name: 'Meditation',
+            targetPerWeek: 7,
+            completionsThisWeek: 2,
+            status: 'last_chance',
+          },
+        ]}
+        capturesCount={3}
       />,
     );
     expect(screen.getByText('WEEK:')).toBeTruthy();
-    // Week indicator now uses a half-circle graphic instead of emoji
+    expect(screen.getByText('HABITS BEHIND')).toBeTruthy();
+    expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
   });
 });
 

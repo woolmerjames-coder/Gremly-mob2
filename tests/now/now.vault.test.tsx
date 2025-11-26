@@ -84,7 +84,7 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
   });
 });
 
-describe('NOW Weekly Summary Tests', () => {
+describe('NOW Captures Indicator Tests', () => {
   const mockDate = new Date('2025-11-25T14:00:00');
 
   beforeEach(() => {
@@ -103,6 +103,7 @@ describe('NOW Weekly Summary Tests', () => {
         dots: [true, true, false, false],
       },
       weekStatus: 'on_track',
+      weekHealth: 'on_track',
       lockedItems: [],
       activeItems: [],
       futureItems: [],
@@ -132,16 +133,14 @@ describe('NOW Weekly Summary Tests', () => {
     jest.useRealTimers();
   });
 
-  describe('Weekly Summary Display', () => {
-    it('shows weekly summary with non-zero counts', () => {
+  describe('Header Captures Display', () => {
+    it('shows captures indicator with non-zero counts', () => {
       renderWithProviders(<NowScreenV1 />);
 
-      // Weekly summary should be visible
-      expect(screen.getByText('This week…')).toBeTruthy();
-      expect(screen.getByText('5 lists · 4 journals · 7 ideas')).toBeTruthy();
+      expect(screen.getByText('CAPTURES: 16')).toBeTruthy();
     });
 
-    it('hides weekly summary when all counts are zero', () => {
+    it('hides captures indicator when all counts are zero', () => {
       mockNowData = {
         ...mockNowData,
         vaultSummary: {
@@ -158,11 +157,10 @@ describe('NOW Weekly Summary Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Weekly summary should not be visible
-      expect(screen.queryByText('This week…')).toBeFalsy();
+      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
     });
 
-    it('shows weekly summary with only lists', () => {
+    it('shows captures indicator with only lists', () => {
       mockNowData = {
         ...mockNowData,
         vaultSummary: {
@@ -178,11 +176,10 @@ describe('NOW Weekly Summary Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('This week…')).toBeTruthy();
-      expect(screen.getByText('3 lists · 0 journals · 0 ideas')).toBeTruthy();
+      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
     });
 
-    it('shows weekly summary with mixed counts', () => {
+    it('shows captures indicator with mixed counts', () => {
       mockNowData = {
         ...mockNowData,
         vaultSummary: {
@@ -198,8 +195,7 @@ describe('NOW Weekly Summary Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('This week…')).toBeTruthy();
-      expect(screen.getByText('2 lists · 1 journals · 0 ideas')).toBeTruthy();
+      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
     });
 
     it('does not show Mind Vault card', () => {

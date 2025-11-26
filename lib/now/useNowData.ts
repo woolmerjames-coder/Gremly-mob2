@@ -16,6 +16,7 @@ import type {
   MindVaultSummary,
   HabitWeeklyStatus,
   NowWeeklyHabitSummary,
+  NowWeekHealth,
 } from './nowTypes';
 import {
   getHabitWeeklyStatus,
@@ -27,6 +28,8 @@ import {
   getCompletedTodayItems,
   getMindVaultSummary,
   getWeeklyHabitSummaries,
+  computeWeekHealth,
+  getWeeklyCaptureCounts,
 } from './nowSelectors';
 import { getGreeting } from '../today/copy';
 import type { TimeWindow } from '../env';
@@ -45,6 +48,8 @@ export interface NowData {
   completedToday: NowCompletedItem[];
   hasYesterdayCarryOver: boolean;
   weeklySummaries: NowWeeklyHabitSummary[];
+  weekHealth: NowWeekHealth;
+  capturesCount: number;
   loading: boolean;
 }
 
@@ -150,6 +155,8 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     completedToday: [],
     hasYesterdayCarryOver: false,
     weeklySummaries: [],
+    weekHealth: 'on_track',
+    capturesCount: 0,
     loading: true,
   });
 
@@ -203,7 +210,12 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const activeItems = getActiveTodayItems(allEntities, completionHistory, today);
       const futureItems = getFutureItems(allEntities, completionHistory, today);
       const completedToday = getCompletedTodayItems(allEntities, today);
-      const vaultSummary = getMindVaultSummary(notes, today);
+      const weeklyCaptureCounts = getWeeklyCaptureCounts(notes, today);
+      const capturesCount =
+        (weeklyCaptureCounts?.listCount ?? 0) +
+        (weeklyCaptureCounts?.journalCount ?? 0) +
+        (weeklyCaptureCounts?.ideaCount ?? 0);
+      const vaultSummary = getMindVaultSummary(notes, today, weeklyCaptureCounts);
 
       // Calculate progress
       const eligibleItems = getProgressEligibleItems(allEntities, completionHistory, today);
@@ -215,6 +227,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
 
       // Get weekly habit summaries for progress popup
       const weeklySummaries = getWeeklyHabitSummaries(habits, completionHistory, today);
+      const weekHealth = computeWeekHealth(weeklySummaries);
 
       // Check for yesterday carry-over
       const yesterday = new Date(today);
@@ -240,6 +253,8 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         completedToday,
         hasYesterdayCarryOver,
         weeklySummaries,
+        weekHealth,
+        capturesCount,
         loading: false,
       });
     } catch (error) {

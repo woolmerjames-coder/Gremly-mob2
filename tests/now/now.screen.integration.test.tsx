@@ -93,6 +93,7 @@ describe('NowScreenV1 Integration Tests', () => {
           dots: [true, false, true, false],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [
           {
             id: 'habit-1',
@@ -173,9 +174,8 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Week indicator renders
       expect(screen.getByText('WEEK:')).toBeTruthy();
 
-      // Assert: Weekly summary renders with correct stats
-      expect(screen.getByText('This week…')).toBeTruthy();
-      expect(screen.getByText('7 lists · 3 journals · 8 ideas')).toBeTruthy();
+      // Assert: Captures indicator shows aggregated count
+      expect(screen.getByText('CAPTURES: 18')).toBeTruthy();
 
       // Assert: Mind Vault card should NOT be present
       expect(screen.queryByText('Mind Vault')).toBeFalsy();
@@ -214,6 +214,7 @@ describe('NowScreenV1 Integration Tests', () => {
           dots: [],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [],
         activeItems: [],
         futureItems: [],
@@ -278,6 +279,7 @@ describe('NowScreenV1 Integration Tests', () => {
           dots: [],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [],
         activeItems: [],
         futureItems: [],
@@ -300,10 +302,10 @@ describe('NowScreenV1 Integration Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Assert: Week indicator renders
+      // Assert: Week indicator renders label and status text
       expect(screen.getByText('WEEK:')).toBeTruthy();
-      // Note: The actual symbol depends on calculateWeekStatus logic in NowWeekIndicator
-      // This test validates the component renders the week indicator
+      expect(screen.getByText('HABITS ON TRACK')).toBeTruthy();
+      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
     });
   });
 
@@ -319,6 +321,7 @@ describe('NowScreenV1 Integration Tests', () => {
           dots: [true, true, false],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [],
         activeItems: [],
         futureItems: [],
@@ -380,6 +383,7 @@ describe('NowScreenV1 Integration Tests', () => {
           dots: [true, false],
         },
         weekStatus: 'on_track',
+        weekHealth: 'on_track',
         lockedItems: [],
         activeItems: [],
         futureItems: [],

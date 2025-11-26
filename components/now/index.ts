@@ -6,6 +6,7 @@
 export { NowHeader } from './NowHeader';
 export { NowProgressDots } from './NowProgressDots';
 export { NowWeekIndicator } from './NowWeekIndicator';
+export { NowProgressBar } from './NowProgressBar';
 export { NowVaultBar } from './NowVaultBar';
 export { NowVaultExpanded } from './NowVaultExpanded';
 export { NowList } from './NowList';

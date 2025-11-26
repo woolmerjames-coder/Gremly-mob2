@@ -16,7 +16,14 @@ import type {
   HabitWeeklyStatus,
   MindVaultSummary,
   NowWeeklyHabitSummary,
+  NowWeekHealth,
 } from './nowTypes';
+
+export interface NowWeeklyCaptureCounts {
+  listCount: number;
+  journalCount: number;
+  ideaCount: number;
+}
 
 const HABIT_STATUS_LABELS: Record<HabitWeeklyStatus, string> = {
   week_complete: 'Week complete ✓',
@@ -108,6 +115,30 @@ function getWeekStart(date: Date): Date {
   const day = d.getDay();
   const diff = d.getDate() - day;
   return new Date(d.setDate(diff));
+}
+
+export function getWeeklyCaptureCounts(
+  logs: Note[],
+  date: Date = new Date(),
+): NowWeeklyCaptureCounts {
+  const weekStart = getWeekStart(date);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+
+  const thisWeekLogs = logs.filter((log) => {
+    const logDate = new Date(log.created_at);
+    return logDate >= weekStart && logDate < weekEnd;
+  });
+
+  const listCount = thisWeekLogs.filter((log) => log.subtype === 'list').length;
+  const journalCount = thisWeekLogs.filter((log) => log.subtype === 'journal').length;
+  const ideaCount = thisWeekLogs.filter((log) => log.subtype === 'idea').length;
+
+  return {
+    listCount,
+    journalCount,
+    ideaCount,
+  };
 }
 
 /**
@@ -547,21 +578,13 @@ export function getCompletedTodayItems(
 /**
  * Get Mind Vault summary from logs
  */
-export function getMindVaultSummary(logs: Note[], date: Date = new Date()): MindVaultSummary {
-  const weekStart = getWeekStart(date);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 7);
-
-  // Filter logs from this week
-  const thisWeekLogs = logs.filter((log) => {
-    const logDate = new Date(log.created_at);
-    return logDate >= weekStart && logDate < weekEnd;
-  });
-
-  // Count by subtype
-  const listCount = thisWeekLogs.filter((log) => log.subtype === 'list').length;
-  const journalCount = thisWeekLogs.filter((log) => log.subtype === 'journal').length;
-  const ideaCount = thisWeekLogs.filter((log) => log.subtype === 'idea').length;
+export function getMindVaultSummary(
+  logs: Note[],
+  date: Date = new Date(),
+  weeklyCaptureCounts?: NowWeeklyCaptureCounts,
+): MindVaultSummary {
+  const { listCount, journalCount, ideaCount } =
+    weeklyCaptureCounts ?? getWeeklyCaptureCounts(logs, date);
   const personCount = 0; // Person is not a valid NoteSubtype, would need separate tracking
 
   // Identify list logs and count items
@@ -587,6 +610,32 @@ export function getMindVaultSummary(logs: Note[], date: Date = new Date()): Mind
       personCount,
     },
   };
+}
+
+export function computeWeekHealth(summaries: NowWeeklyHabitSummary[]): NowWeekHealth {
+  if (!summaries || summaries.length === 0) {
+    return 'on_track';
+  }
+
+  let hasBehind = false;
+  let hasAhead = false;
+
+  for (const summary of summaries) {
+    if (summary.status === 'last_chance') {
+      hasBehind = true;
+    }
+    if (summary.status === 'week_complete' || summary.status === 'flexible') {
+      hasAhead = true;
+    }
+  }
+
+  if (hasBehind) {
+    return 'behind';
+  }
+  if (hasAhead) {
+    return 'ahead';
+  }
+  return 'on_track';
 }
 
 /**

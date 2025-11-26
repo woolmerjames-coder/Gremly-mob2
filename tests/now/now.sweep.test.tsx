@@ -94,6 +94,7 @@ describe('Sweep Bar Tests', () => {
         dots: [true, true, false, false],
       },
       weekStatus: 'on_track',
+      weekHealth: 'on_track',
       lockedItems: [],
       activeItems: [],
       futureItems: [],
