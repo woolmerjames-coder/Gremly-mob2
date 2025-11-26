@@ -18,6 +18,13 @@ import type {
   NowWeeklyHabitSummary,
 } from './nowTypes';
 
+const HABIT_STATUS_LABELS: Record<HabitWeeklyStatus, string> = {
+  week_complete: 'Week complete ✓',
+  flexible: 'Flexible this week',
+  on_track_today: 'On track',
+  last_chance: 'Last chance today',
+};
+
 /**
  * Get the current day number (0=Sunday, 6=Saturday)
  */
@@ -111,6 +118,50 @@ export function getHabitWeeklyStatus(
   return 'flexible';
 }
 
+function formatHabitStatusText(
+  habit: Habit,
+  weeklyStatus: HabitWeeklyStatus,
+  completionsThisWeek: number,
+): string {
+  if (weeklyStatus && weeklyStatus !== 'on_track_today') {
+    return HABIT_STATUS_LABELS[weeklyStatus];
+  }
+
+  if (habit.cadence === 'weekly' && typeof habit.target_per_period === 'number') {
+    const target = habit.target_per_period > 0 ? habit.target_per_period : 0;
+    if (target > 0) {
+      const clamped = Math.min(completionsThisWeek, target);
+      return `${clamped}/${target} this week`;
+    }
+  }
+
+  if (habit.cadence === 'daily') {
+    return HABIT_STATUS_LABELS.on_track_today;
+  }
+
+  return HABIT_STATUS_LABELS[weeklyStatus] ?? HABIT_STATUS_LABELS.on_track_today;
+}
+
+function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
+  const dueTime = (todo as any).due_time;
+  if (dueTime) {
+    return dueTime;
+  }
+
+  if (todo.due_date) {
+    if (isToday(date, todo.due_date)) {
+      return 'Due today';
+    }
+    if (isFuture(date, todo.due_date)) {
+      const dueDate = parseDateString(todo.due_date);
+      return `Due ${dueDate.toLocaleDateString(undefined, { weekday: 'short' })}`;
+    }
+    return 'Overdue';
+  }
+
+  return 'On track';
+}
+
 /**
  * Check if a habit is needed today
  */
@@ -152,10 +203,12 @@ export function getLockedItems(
       const needed = isHabitNeededToday(habit, completionsThisWeek, date);
 
       if (needed) {
+        const weeklyStatus = getHabitWeeklyStatus(habit, completionsThisWeek, date);
         locked.push({
           id: habit.id,
           type: 'habit',
           name: habit.name,
+          statusText: formatHabitStatusText(habit, weeklyStatus, completionsThisWeek),
           locked: true,
           cadence: habit.cadence,
           targetPerPeriod: habit.target_per_period,
@@ -174,6 +227,7 @@ export function getLockedItems(
           id: todo.id,
           type: 'todo',
           name: todo.name,
+          statusText: formatTodoStatusText(todo, date),
           locked: true,
           dueAt: todo.due_date,
         });
@@ -210,15 +264,17 @@ export function getActiveTodayItems(
       const needed = isHabitNeededToday(habit, completionsThisWeek, date);
 
       if (needed) {
+        const weeklyStatus = getHabitWeeklyStatus(habit, completionsThisWeek, date);
         active.push({
           id: habit.id,
           type: 'habit',
           name: habit.name,
+          statusText: formatHabitStatusText(habit, weeklyStatus, completionsThisWeek),
           locked: false,
           cadence: habit.cadence,
           targetPerPeriod: habit.target_per_period,
           progressToday: (habit as any).progress_today || 0,
-          weeklyStatus: getHabitWeeklyStatus(habit, completionsThisWeek, date),
+          weeklyStatus,
           timeWindow: (habit as any).time_window || 'any',
         });
       }
@@ -231,6 +287,7 @@ export function getActiveTodayItems(
           id: todo.id,
           type: 'todo',
           name: todo.name,
+          statusText: formatTodoStatusText(todo, date),
           locked: false,
           dueAt: todo.due_date,
           dueTime: (todo as any).due_time || null,
@@ -267,13 +324,15 @@ export function getFutureItems(
       const habit = entity as Habit;
       const completionsThisWeek = completionHistory.get(habit.id) || 0;
 
+      const weeklyStatus = getHabitWeeklyStatus(habit, completionsThisWeek, date);
       future.push({
         id: habit.id,
         type: 'habit',
         name: habit.name,
+        statusText: formatHabitStatusText(habit, weeklyStatus, completionsThisWeek),
         cadence: habit.cadence,
         targetPerPeriod: habit.target_per_period,
-        weeklyStatus: getHabitWeeklyStatus(habit, completionsThisWeek, date),
+        weeklyStatus,
       });
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
@@ -284,6 +343,7 @@ export function getFutureItems(
           id: todo.id,
           type: 'todo',
           name: todo.name,
+          statusText: formatTodoStatusText(todo, date),
           dueAt: todo.due_date,
         });
       }

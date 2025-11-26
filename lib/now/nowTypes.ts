@@ -12,6 +12,7 @@ export interface NowLockedItem {
   id: string;
   type: 'habit' | 'todo';
   name: string;
+  statusText?: string | null;
   locked: true;
   dueAt?: string | null;
   cadence?: 'daily' | 'weekly' | 'monthly';
@@ -27,6 +28,7 @@ export interface NowActiveItem {
   id: string;
   type: 'habit' | 'todo';
   name: string;
+  statusText?: string | null;
   locked: false;
   dueAt?: string | null;
   dueTime?: string | null;
@@ -44,6 +46,7 @@ export interface NowFutureItem {
   id: string;
   type: 'habit' | 'todo';
   name: string;
+  statusText?: string | null;
   dueAt?: string | null;
   cadence?: 'daily' | 'weekly' | 'monthly';
   targetPerPeriod?: number;

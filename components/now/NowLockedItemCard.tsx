@@ -10,6 +10,7 @@ import { makeStyles } from '../../design/makeStyles';
 import { pop } from '../../lib/today/motion';
 import { useReducedMotion } from '../../design/animations';
 import type { NowLockedItem } from '../../lib/now/nowTypes';
+import { NowTypeChip } from './NowTypeChip';
 
 interface NowLockedItemCardProps {
   item: NowLockedItem;
@@ -22,20 +23,24 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.colors.linenCream,
     borderLeftWidth: 3,
     borderLeftColor: t.colors.mossGreen,
-    borderRadius: t.radius[3],
+    borderRadius: t.radius[2],
     paddingVertical: t.spacing[3],
     paddingHorizontal: t.spacing[4],
-    marginBottom: t.spacing[4],
+    marginBottom: t.spacing[3],
     borderWidth: 1,
     borderColor: t.colors.border,
+    minHeight: 72,
     ...t.elevation.sm,
   },
   content: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   iconContainer: {
-    marginRight: t.spacing[3],
+    marginLeft: t.spacing[3],
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   checkbox: {
     width: 20,
@@ -47,6 +52,10 @@ const useStyles = makeStyles((t) => ({
   },
   textContainer: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  typeChip: {
+    marginBottom: t.spacing[1],
   },
   itemText: {
     fontSize: t.typography.size.md,
@@ -73,7 +82,7 @@ export function NowLockedItemCard({ item, onPress, onToggleComplete }: NowLocked
     onToggleComplete?.();
   };
 
-  const getStatusText = () => {
+  const getFallbackStatusText = () => {
     if (item.type === 'habit' && item.cadence) {
       return `${item.cadence} habit`;
     }
@@ -84,17 +93,24 @@ export function NowLockedItemCard({ item, onPress, onToggleComplete }: NowLocked
     return null;
   };
 
+  const statusText = item.statusText ?? getFallbackStatusText();
+
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <TouchableOpacity style={styles.container} onPress={onPress}>
         <Box style={styles.content}>
+          <Box style={styles.textContainer}>
+            <Box style={styles.typeChip}>
+              <NowTypeChip type={item.type} />
+            </Box>
+            <Text numberOfLines={1} style={styles.itemText}>
+              {item.name}
+            </Text>
+            {statusText && <Text style={styles.status}>{statusText}</Text>}
+          </Box>
           <TouchableOpacity onPress={handleToggleComplete} style={styles.iconContainer}>
             <Box style={styles.checkbox} />
           </TouchableOpacity>
-          <Box style={styles.textContainer}>
-            <Text style={styles.itemText}>{item.name}</Text>
-            {getStatusText() && <Text style={styles.status}>{getStatusText()}</Text>}
-          </Box>
         </Box>
       </TouchableOpacity>
     </Animated.View>
