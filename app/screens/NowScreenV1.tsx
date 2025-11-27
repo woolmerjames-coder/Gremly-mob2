@@ -24,7 +24,12 @@ import { useNowData } from '../../lib/now/useNowData';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
+import type {
+  NowLockedItem,
+  NowActiveItem,
+  NowFutureItem,
+  NowCompletedItem,
+} from '../../lib/now/nowTypes';
 
 export default function NowScreenV1() {
   const now = useNowData();
@@ -79,6 +84,14 @@ export default function NowScreenV1() {
     overlayController.openCreate({ type: 'todo' });
   }, [overlayController]);
 
+  // Handle undo from progress popup
+  const handleUndoCompletedItem = useCallback(
+    (item: NowCompletedItem) => {
+      void interactions.undoCompletionById(item.id, item.type);
+    },
+    [interactions],
+  );
+
   const capturesCountFromVault =
     now.vaultSummary.thisWeekStats.listCount +
     now.vaultSummary.thisWeekStats.journalCount +
@@ -116,6 +129,8 @@ export default function NowScreenV1() {
         activeItems={now.activeItems}
         futureItems={now.futureItems}
         progressPercent={now.progressState.percent}
+        completedTodoIds={interactions.completedTodoIds}
+        completedHabitIds={interactions.completedHabitIds}
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
         onPressOverwhelm={overwhelm.open}
@@ -127,6 +142,7 @@ export default function NowScreenV1() {
         visible={isProgressVisible}
         completed={now.completedToday}
         onClose={() => setProgressVisible(false)}
+        onUndoItem={handleUndoCompletedItem}
       />
 
       <NowWeekPopup
@@ -169,6 +185,8 @@ type TodayFocusListProps = {
   activeItems: NowActiveItem[];
   futureItems: NowFutureItem[];
   progressPercent: number;
+  completedTodoIds: Set<string>;
+  completedHabitIds: Set<string>;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onPressOverwhelm: () => void;
@@ -180,6 +198,8 @@ function TodayFocusList({
   activeItems,
   futureItems,
   progressPercent,
+  completedTodoIds,
+  completedHabitIds,
   onPressItem,
   onToggleComplete,
   onPressOverwhelm,
@@ -187,6 +207,16 @@ function TodayFocusList({
 }: TodayFocusListProps) {
   const hasNoItems = lockedItems.length === 0 && activeItems.length === 0;
   const isAllComplete = progressPercent === 100;
+
+  // Helper to check if an item is completed
+  const isItemCompleted = (item: NowLockedItem | NowActiveItem | NowFutureItem): boolean => {
+    if (item.type === 'todo') {
+      return completedTodoIds.has(item.id);
+    } else if (item.type === 'habit') {
+      return completedHabitIds.has(item.id);
+    }
+    return false;
+  };
 
   return (
     <ScrollView
@@ -211,6 +241,7 @@ function TodayFocusList({
         <NowLockedItemCard
           key={item.id}
           item={item}
+          isCompleted={isItemCompleted(item)}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
@@ -220,6 +251,7 @@ function TodayFocusList({
         <NowActiveItemCard
           key={item.id}
           item={item}
+          isCompleted={isItemCompleted(item)}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
@@ -232,6 +264,7 @@ function TodayFocusList({
           key={item.id}
           item={item}
           future
+          isCompleted={isItemCompleted(item)}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />

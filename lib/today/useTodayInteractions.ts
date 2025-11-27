@@ -237,12 +237,61 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
     }
   }, [repo, undoState, options]);
 
+  /**
+   * Undo a specific completion by id and type
+   * Used for undoing from the completed items popup
+   */
+  const undoCompletionById = useCallback(
+    async (id: string, type: 'habit' | 'todo') => {
+      try {
+        // If this is the current undo state item, clear the timer
+        if (undoState && undoState.id === id) {
+          if (undoTimerRef.current) {
+            clearTimeout(undoTimerRef.current);
+            undoTimerRef.current = null;
+          }
+          setUndoState(null);
+        }
+
+        // Always try to undo from the server (item may have been persisted)
+        await repo.undoCompletion(id);
+
+        // Update local state
+        if (type === 'habit') {
+          setCompletedHabitIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        } else {
+          setCompletedTodoIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        }
+
+        // Reload data
+        if (options.onReload) {
+          await options.onReload();
+        }
+
+        eventBus.emit('TodayUndoCompletion', { entityType: type });
+      } catch (err) {
+        console.error('Failed to undo completion:', err);
+        Alert.alert('Undo failed', 'Please try again in a moment.');
+      }
+    },
+    [repo, undoState, options],
+  );
+
   return {
     // Actions
     openEntityOverlay,
     toggleTodoComplete,
     toggleHabitComplete,
     undoLastCompletion,
+    undoCompletionById,
 
     // State
     completedHabitIds,

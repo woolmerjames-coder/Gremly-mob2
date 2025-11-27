@@ -1,5 +1,5 @@
 /**
- * NowProgressPopup - Shows today's completed items
+ * NowProgressPopup - Shows today's completed items with undo capability
  */
 
 import React from 'react';
@@ -11,9 +11,15 @@ interface NowProgressPopupProps {
   visible: boolean;
   completed: NowCompletedItem[];
   onClose: () => void;
+  onUndoItem?: (item: NowCompletedItem) => void;
 }
 
-export function NowProgressPopup({ visible, completed, onClose }: NowProgressPopupProps) {
+export function NowProgressPopup({
+  visible,
+  completed,
+  onClose,
+  onUndoItem,
+}: NowProgressPopupProps) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
@@ -40,9 +46,20 @@ export function NowProgressPopup({ visible, completed, onClose }: NowProgressPop
                 });
                 return (
                   <Box key={index} style={styles.item}>
-                    <Text style={styles.itemText}>
-                      ✓ {item.name} — {formattedTime}
-                    </Text>
+                    <Box style={styles.itemContent}>
+                      <Text style={styles.itemText}>
+                        ✓ {item.name} — {formattedTime}
+                      </Text>
+                      {onUndoItem && (
+                        <TouchableOpacity
+                          onPress={() => onUndoItem(item)}
+                          style={styles.undoButton}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={styles.undoText}>Undo</Text>
+                        </TouchableOpacity>
+                      )}
+                    </Box>
                   </Box>
                 );
               })
@@ -95,9 +112,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F5F5F5',
   },
+  itemContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   itemText: {
     fontSize: 16,
     color: '#212121',
+    flex: 1,
+  },
+  undoButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    marginLeft: 12,
+  },
+  undoText: {
+    fontSize: 14,
+    color: '#2E5540',
+    fontWeight: '600',
   },
   emptyText: {
     fontSize: 16,
