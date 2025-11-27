@@ -47,6 +47,7 @@ import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import { toDayString, getTodayDayString, parseDayString } from '../../lib/date/computeDueDay';
 import {
   lightTokens,
   darkTokens,
@@ -1407,6 +1408,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }
 
+  /**
+   * Format due_day (YYYY-MM-DD) for display.
+   * This is the canonical way to display todo due dates.
+   */
+  function formatDueDay(dueDay: string | null | undefined): string {
+    if (!dueDay) return '';
+    try {
+      // Parse the YYYY-MM-DD string as a local date
+      const parsed = parseDayString(dueDay);
+      if (!parsed) return '';
+      return format(parsed, 'MMM d');
+    } catch (e) {
+      return '';
+    }
+  }
+
   useEffect(() => {
     if (mode !== 'create') return;
     if (createPrefillAppliedRef.current) return;
@@ -2226,36 +2243,39 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [isLog]);
 
   const handleTodoDueChange = useCallback(
-    (iso: string | null, options?: { label?: string; dueDay?: string; dueTime?: string }) => {
-      // Extract due_day and due_time from the ISO timestamp in LOCAL timezone
-      let dueDay: string | null = options?.dueDay ?? null;
-      let dueTime: string | null = options?.dueTime ?? null;
+    (dateOrNull: Date | null, options?: { label?: string }) => {
+      // GREMLY TODO DATE MODEL:
+      // Use due_day (YYYY-MM-DD) as the canonical source of truth.
+      // Do NOT use due_at for Mind Drop / Today logic.
+      // This avoids UTC timezone drift issues.
 
-      if (iso && !dueDay) {
-        // Parse the ISO string and extract LOCAL date parts
-        const date = new Date(iso);
-        if (!isNaN(date.getTime())) {
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          dueDay = `${year}-${month}-${day}`;
+      if (dateOrNull) {
+        // Compute due_day using local timezone helper
+        const dueDay = toDayString(dateOrNull);
 
-          // Extract time if not midnight
-          const hours = date.getHours();
-          const minutes = date.getMinutes();
-          if (hours !== 0 || minutes !== 0) {
-            dueTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-          }
-        }
-      }
+        console.log('[handleTodoDueChange] Setting due_day:', dueDay);
 
-      dispatch({ type: 'SET_TODO_DUE', due_at: iso, due_day: dueDay, due_time: dueTime });
-      if (iso) {
-        const formatted = options?.label ?? (safeFormat(iso) || 'selected date');
+        // Dispatch with due_day as source of truth, due_at = null (not used)
+        dispatch({
+          type: 'SET_TODO_DUE',
+          due_at: null, // Explicitly null - we don't use due_at for all-day todos
+          due_day: dueDay,
+          due_time: null, // All-day todos have no specific time
+        });
+
+        const formatted = options?.label ?? format(dateOrNull, 'MMM d');
         showDueToast(`Due set for ${formatted}`);
         void emitOverlayEvent({ type: 'overlay_due_set' });
       } else {
-        dispatch({ type: 'SET_TODO_DUE', due_at: null, due_day: null, due_time: null });
+        // Clear all due date fields - user pressed Clear
+        console.log('[handleTodoDueChange] Clearing due date (due_day: null)');
+
+        dispatch({
+          type: 'SET_TODO_DUE',
+          due_at: null,
+          due_day: null,
+          due_time: null,
+        });
         showDueToast('Due cleared');
         void emitOverlayEvent({ type: 'overlay_due_clear' });
       }
@@ -2464,11 +2484,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           existing: initialEntity,
         });
 
-        const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
+        // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
+        // due_at is NOT used for todos - we only send due_day and due_date
+        const dueDay = s.todo.due_day ?? null;
         return {
           type: 'todo' as const,
           ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
-          due_at: dueAt,
+          due_at: null, // Explicitly null - we use due_day instead
+          due_day: dueDay,
+          due_date: dueDay, // Set due_date same as due_day for backwards compatibility
+          undefined_due: !dueDay, // True if no due date is set
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -2492,13 +2517,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const effectiveTitle =
         overlayTitle || compactTitle || (rawDetails ? firstLine(rawDetails) : '');
 
-      const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
+      // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
+      // due_at is NOT used for todos - we only send due_day and due_date
+      const dueDay = s.todo.due_day ?? null;
       return {
         type: 'todo' as const,
         title: effectiveTitle,
         name: effectiveTitle,
         details: rawDetails || null,
-        due_at: dueAt,
+        due_at: null, // Explicitly null - we use due_day instead
+        due_day: dueDay,
+        due_date: dueDay, // Set due_date same as due_day for backwards compatibility
+        undefined_due: !dueDay, // True if no due date is set
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3545,20 +3575,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           <Pressable
                             style={styles.dueDatePill}
                             onPress={() => {
+                              // Pre-fill date picker with current due_day if set
+                              if (state.todo.due_day) {
+                                const parsed = parseDayString(state.todo.due_day);
+                                if (parsed) {
+                                  setSelectedDate(parsed);
+                                }
+                              } else {
+                                setSelectedDate(new Date());
+                              }
                               setDateModalTarget('todo');
                               setShowDateModal(true);
                             }}
                             accessibilityRole="button"
                             accessibilityLabel={
-                              state.todo.due_at
-                                ? `Due date: ${safeFormat(state.todo.due_at)}`
+                              state.todo.due_day
+                                ? `Due date: ${formatDueDay(state.todo.due_day)}`
                                 : 'Add due date'
                             }
                           >
                             <Calendar
                               size={16}
                               color={
-                                state.todo.due_at
+                                state.todo.due_day
                                   ? colorMode === 'dark'
                                     ? 'rgba(255,255,255,0.7)'
                                     : '#666666'
@@ -3571,13 +3610,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Text
                               style={[
                                 styles.dueDateText,
-                                !state.todo.due_at && {
+                                !state.todo.due_day && {
                                   color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#777777',
                                   fontWeight: '400',
                                 },
                               ]}
                             >
-                              {state.todo.due_at ? safeFormat(state.todo.due_at) : 'Add due date'}
+                              {state.todo.due_day
+                                ? formatDueDay(state.todo.due_day)
+                                : 'Add due date'}
                             </Text>
                           </Pressable>
                         ) : null}
@@ -4105,9 +4146,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       variant="ghost"
                       onPress={() => {
                         if (d === '__token:today') {
-                          handleTodoDueChange(new Date().toISOString(), { label: 'Today' });
+                          handleTodoDueChange(new Date(), { label: 'Today' });
                         } else if (d === '__token:tomorrow') {
-                          handleTodoDueChange(addDays(new Date(), 1).toISOString(), {
+                          handleTodoDueChange(addDays(new Date(), 1), {
                             label: 'Tomorrow',
                           });
                         } else {
@@ -4491,11 +4532,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         variant="primary"
                         onPress={() => {
                           try {
-                            let finalIso: string | null = null;
+                            let finalDate: Date | null = null;
 
                             if (!clearDateFlag) {
                               // Combine date and optional time
-                              let finalDate = selectedDate;
+                              finalDate = selectedDate;
 
                               if (showTimePicker && selectedTime) {
                                 // Merge the selected time into the selected date
@@ -4504,21 +4545,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   selectedTime.getHours(),
                                 );
                               } else {
-                                // No time selected, use midnight
-                                finalDate = setHours(setMinutes(selectedDate, 0), 0);
+                                // No time selected, use the date as-is (all-day)
+                                finalDate = selectedDate;
                               }
-
-                              finalIso = finalDate.toISOString();
                             }
 
                             // Apply the change
                             if (dateModalTarget === 'reminder') {
-                              dispatch({ type: 'SET_REMINDER', when: finalIso });
+                              // Reminders still use ISO timestamps
+                              dispatch({
+                                type: 'SET_REMINDER',
+                                when: finalDate?.toISOString() ?? null,
+                              });
                             } else {
-                              const label = finalIso
-                                ? safeFormat(finalIso) || format(selectedDate, 'MMM d')
-                                : '';
-                              handleTodoDueChange(finalIso, { label });
+                              // Todos use due_day (local date string) - pass Date object
+                              const label = finalDate ? format(finalDate, 'MMM d') : '';
+                              handleTodoDueChange(finalDate, { label });
                             }
 
                             // Reset and close
@@ -5690,8 +5732,11 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     todo: {
       title: todoTitle,
       details: todoDetails,
-      due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
-      // Prefer due_day (YYYY-MM-DD) as the canonical source of truth
+      // GREMLY TODO DATE MODEL:
+      // Use due_day (YYYY-MM-DD) as the canonical source of truth.
+      // due_at is NOT used for Mind Drop / Today logic.
+      due_at: null, // Explicitly null - we don't rely on due_at
+      // Prefer due_day, fallback to computing from due_date if needed
       due_day: (entity as any)?.due_day ?? null,
       due_time: (entity as any)?.due_time ?? null,
     },

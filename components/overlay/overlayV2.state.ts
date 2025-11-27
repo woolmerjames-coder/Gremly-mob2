@@ -310,13 +310,19 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_TODO_DUE':
+      // GREMLY TODO DATE MODEL:
+      // When clearing due date, all fields should be set to null explicitly.
+      // We use 'due_day' in action.due_day to check if it was explicitly provided,
+      // and we DON'T use ?? fallback because null is a valid value (means "clear").
       return {
         ...state,
         todo: {
           ...state.todo,
           due_at: action.due_at,
-          due_day: action.due_day ?? state.todo.due_day,
-          due_time: action.due_time ?? state.todo.due_time,
+          // Only use fallback if due_day was NOT provided in the action (undefined)
+          // If due_day is null, that means "clear" - we should set it to null
+          due_day: 'due_day' in action ? action.due_day : state.todo.due_day,
+          due_time: 'due_time' in action ? action.due_time : state.todo.due_time,
         },
       };
     case 'SET_HABIT_FREQUENCY':

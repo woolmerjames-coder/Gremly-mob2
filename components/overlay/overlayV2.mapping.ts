@@ -385,21 +385,27 @@ export function toCreateOrUpdateInput(
 
   if (baseType === 'todo') {
     const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
-    const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
 
-    // Use due_day directly if available (canonical source of truth for local date)
-    // This avoids timezone conversion issues when re-saving a todo
+    // GREMLY TODO DATE MODEL:
+    // Use due_day (YYYY-MM-DD) as the canonical source of truth.
+    // Do NOT use due_at for Mind Drop / Today logic - it causes UTC timezone drift.
     const dueDay = s.todo.due_day ?? null;
     const dueTime = s.todo.due_time ?? null;
+
+    // Set undefined_due based on whether a due date is set
+    const undefinedDue = dueDay === null;
 
     return {
       type: 'todo' as const,
       title: derivedTitle,
       name: derivedTitle,
       details: s.todo.details || null,
-      due_at: dueAt,
+      // due_at is intentionally null - we use due_day for all-day todos
+      due_at: null,
       due_day: dueDay,
+      due_date: dueDay, // Mirror due_day for backward compatibility
       due_time: dueTime,
+      undefined_due: undefinedDue,
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
       tags: [...tagsForSave],

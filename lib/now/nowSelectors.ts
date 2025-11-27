@@ -2,6 +2,11 @@
  * NOW Page Selectors
  * Pure functions for deriving NOW page data from repo entities
  * No UI code - deterministic data transformations only
+ *
+ * GREMLY TODO DATE MODEL:
+ * Uses due_day (YYYY-MM-DD) as the canonical field for todo date comparisons.
+ * Today lane filtering uses simple string comparison: todo.due_day === getTodayDayString()
+ * This avoids UTC timezone drift issues.
  */
 
 import type { Habit, Todo, Note } from '../types';
@@ -18,6 +23,7 @@ import type {
   NowWeeklyHabitSummary,
   NowWeekHealth,
 } from './nowTypes';
+import { getTodayDayString } from '../date/computeDueDay';
 
 export interface NowWeeklyCaptureCounts {
   listCount: number;
@@ -143,9 +149,12 @@ export function getWeeklyCaptureCounts(
 
 /**
  * Get today's date as YYYY-MM-DD string in local timezone
- * This is the canonical format for day-based comparisons
+ * This is the canonical format for day-based comparisons.
+ * Uses the central helper from computeDueDay.ts
  */
 function getTodayString(date: Date = new Date()): string {
+  // For compatibility with existing code that passes a specific date,
+  // compute the string in local timezone
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -154,9 +163,10 @@ function getTodayString(date: Date = new Date()): string {
 
 /**
  * Check if a todo is due today using due_day (canonical) or due_date (fallback)
+ * GREMLY TODO DATE MODEL: Prefer due_day (YYYY-MM-DD) for timezone-safe comparison.
  * @param todo - The todo to check
  * @param todayStr - Today's date as YYYY-MM-DD string
- * @param date - Date object for fallback isToday check
+ * @param date - Date object for fallback isToday check (legacy)
  */
 function isTodoDueToday(todo: Todo, todayStr: string, date: Date): boolean {
   // Primary: use due_day if available (YYYY-MM-DD format)
@@ -379,7 +389,7 @@ export function getLockedItems(
           name: todo.name,
           statusText: formatTodoStatusText(todo, date),
           locked: true,
-          dueAt: todo.due_date,
+          dueAt: todo.due_day ?? todo.due_date, // Prefer due_day (canonical)
         });
       }
     }
@@ -442,7 +452,7 @@ export function getActiveTodayItems(
           name: todo.name,
           statusText: formatTodoStatusText(todo, date),
           locked: false,
-          dueAt: todo.due_date,
+          dueAt: todo.due_day ?? todo.due_date, // Prefer due_day (canonical)
           dueTime: (todo as any).due_time || null,
         });
       }

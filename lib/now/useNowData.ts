@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { eventBus } from '../events';
 import type { Habit, Todo, Note } from '../types';
 import type {
   NowLockedItem,
@@ -309,6 +310,19 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // Auto-reload when an overlay is saved (todo created/updated)
+  // This ensures the Today lane updates immediately without waiting for Supabase realtime
+  useEffect(() => {
+    const unsubscribe = eventBus.on('OverlaySaved', (event: { id?: string; type?: string }) => {
+      console.log('[useNowData] OverlaySaved event, reloading...', event);
+      void load();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [load]);
 
   return {
