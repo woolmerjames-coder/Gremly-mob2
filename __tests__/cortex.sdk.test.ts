@@ -394,7 +394,7 @@ describe('cortexDecide Integration', () => {
     expect(result.actions[0].type).toBe('create.todo');
   });
 
-  it('should fall back to ask when confidence equals threshold', async () => {
+  it('should fall back to ask when confidence is below auto threshold', async () => {
     const { createCortexEngine } = require('../cortex/createEngine');
 
     createCortexEngine.mockReturnValue({
@@ -402,7 +402,7 @@ describe('cortexDecide Integration', () => {
         type: 'habit',
         name: 'drink water',
         frequency: 'daily',
-        confidence: 0.85,
+        confidence: 0.75, // Below 0.8 habit auto threshold
         aiPlaced: true,
         whyString: 'Daily habit detected',
       }),

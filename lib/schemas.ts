@@ -118,6 +118,7 @@ export const todoZ = baseRecordZ.extend({
   title: z.string().optional(), // Backwards compatibility (NOT nullable per type definition)
   body: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(), // Accept any string format from DB
+  due_day: z.string().nullable().optional(), // YYYY-MM-DD format - canonical field for day-based logic
   due_time: z.string().nullable().optional(), // HH:mm format
   undefined_due: z.boolean().optional(), // Now optional (legacy field)
   subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only (already permissive)
@@ -199,6 +200,11 @@ export const todoInsertSchema = z.object({
   name: z.string().min(1), // Required - DATABASE TRUTH: todos table has 'name' column (NO 'title')
   body: z.string().optional().nullable(),
   due_date: z.string().datetime().nullable().optional(),
+  due_day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(), // YYYY-MM-DD format - canonical field for day-based logic
   due_time: z
     .string()
     .regex(/^\d{2}:\d{2}$/)

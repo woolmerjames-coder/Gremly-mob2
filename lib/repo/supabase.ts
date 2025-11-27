@@ -22,6 +22,7 @@ import type {
 } from './IRepo';
 import { supabase } from '../supabase/client';
 import { eventBus } from '../events';
+import { computeDueDay, computeDueTime } from '../date/computeDueDay';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -404,14 +405,46 @@ export class SupabaseRepo implements IRepo {
           ? (input as any).details.trim()
           : (input.body ?? null);
 
+      // Map due_at → due_date/due_time/due_day if due_at is provided (from overlay)
+      // due_at is an ISO string like "2025-11-26T08:00:56.793Z" or "2025-11-26"
+      let effectiveDueDate = input.due_date ?? null;
+      let effectiveDueTime = (input as any).due_time ?? null;
+      let effectiveDueDay: string | null = (input as any).due_day ?? null;
+
+      // If due_day is provided directly, use it as the source of truth
+      if (effectiveDueDay && /^\d{4}-\d{2}-\d{2}$/.test(effectiveDueDay)) {
+        effectiveDueDate = effectiveDueDay; // Keep due_date in sync
+      }
+
+      const dueAtValue = (input as any).due_at;
+      // Only compute from due_at if neither due_day NOR due_date is already set
+      // (explicit due_date takes precedence over due_at)
+      if (dueAtValue && typeof dueAtValue === 'string' && !effectiveDueDay && !effectiveDueDate) {
+        // Parse the due_at to extract date and time in local timezone
+        const dateObj = new Date(dueAtValue);
+        if (!isNaN(dateObj.getTime())) {
+          // Convert to ISO datetime format for schema validation
+          effectiveDueDate = dateObj.toISOString();
+          // Use shared helpers for consistent due_day/due_time computation
+          effectiveDueDay = computeDueDay(dueAtValue);
+          effectiveDueTime = effectiveDueTime ?? computeDueTime(dueAtValue);
+        }
+      }
+
+      // If due_date is provided but not due_day, derive due_day from due_date
+      if (effectiveDueDate && !effectiveDueDay) {
+        effectiveDueDay = computeDueDay(effectiveDueDate);
+      }
+
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
           name: input.name, // Required - PRIMARY field for todos
           body: bodyText, // 🔴 Store full Mind Drop sentence here (mapped from details)
-          due_date: normalizeIsoDatetime(input.due_date) ?? null,
-          due_time: input.due_time ?? null, // Phase 7+: HH:mm format
+          due_date: normalizeIsoDatetime(effectiveDueDate) ?? null,
+          due_day: effectiveDueDay ?? null, // YYYY-MM-DD - canonical field for day-based logic
+          due_time: effectiveDueTime ?? null, // Phase 7+: HH:mm format
           undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
           subtype: input.subtype ?? null, // AI-only: 'reminder' | 'microproject'
           reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
@@ -727,11 +760,60 @@ export class SupabaseRepo implements IRepo {
       if ('due_date' in normalizedPatch) {
         const duePatch = normalizedPatch.due_date as string | null | undefined;
         updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
+        // Also set due_day from due_date for canonical day-based logic using shared helper
+        updatePayload.due_day = computeDueDay(duePatch);
       }
       if ('due_time' in normalizedPatch) {
         const dueTimePatch = normalizedPatch.due_time as string | null | undefined;
         updatePayload.due_time = dueTimePatch ?? null;
       }
+
+      // Handle due_day directly from overlay (canonical source of truth)
+      // This takes priority over computing from due_at to avoid timezone issues
+      if ('due_day' in normalizedPatch) {
+        const dueDayPatch = (normalizedPatch as any).due_day as string | null | undefined;
+        if (dueDayPatch && /^\d{4}-\d{2}-\d{2}$/.test(dueDayPatch)) {
+          updatePayload.due_day = dueDayPatch;
+          updatePayload.due_date = dueDayPatch; // Keep due_date in sync
+        } else if (dueDayPatch === null) {
+          updatePayload.due_day = null;
+          updatePayload.due_date = null;
+        }
+      }
+
+      // Handle due_time directly from overlay
+      if ('due_time' in normalizedPatch && !updatePayload.due_time) {
+        const dueTimePatch = (normalizedPatch as any).due_time as string | null | undefined;
+        updatePayload.due_time = dueTimePatch ?? null;
+      }
+
+      // Map due_at to due_date/due_time/due_day for overlay compatibility
+      // Only used if due_day is not explicitly provided in the patch
+      // Overlay passes due_at (ISO timestamp), DB expects due_date (date) + due_time (HH:mm) + due_day (YYYY-MM-DD)
+      if (
+        'due_at' in normalizedPatch &&
+        !('due_date' in normalizedPatch) &&
+        !('due_day' in normalizedPatch)
+      ) {
+        const dueAt = (normalizedPatch as any).due_at as string | null | undefined;
+        if (dueAt) {
+          // Use shared helpers for consistent due_day/due_time computation
+          const dueDayStr = computeDueDay(dueAt);
+          const dueTimeStr = computeDueTime(dueAt);
+          if (dueDayStr) {
+            updatePayload.due_date = dueDayStr;
+            updatePayload.due_day = dueDayStr;
+            if (dueTimeStr) {
+              updatePayload.due_time = dueTimeStr;
+            }
+          }
+        } else {
+          // If due_at is explicitly null/undefined, clear due_date and due_day
+          updatePayload.due_date = null;
+          updatePayload.due_day = null;
+        }
+      }
+
       if ('undefined_due' in normalizedPatch)
         updatePayload.undefined_due = !!normalizedPatch.undefined_due;
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
@@ -1348,13 +1430,17 @@ export class SupabaseRepo implements IRepo {
 
   /**
    * List todos due today
-   * 10R: Uses idx_todos_due_date for efficient filtering
+   * Uses due_day (YYYY-MM-DD) for timezone-safe filtering, falling back to due_date
    */
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const results: AppRecord[] = [];
 
-    // Get todos with due_date = today (uses idx_todos_due_date)
+    // Compute today's date string in local timezone
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    // Get todos with due_date or due_day set
     const { data: todos, error: todosError } = await supabase
       .from('todos')
       .select('*')
@@ -1367,6 +1453,11 @@ export class SupabaseRepo implements IRepo {
     if (todos) {
       const todayTodos = todos.filter((t) => {
         try {
+          // Prefer due_day (YYYY-MM-DD) for timezone-safe comparison
+          if (t.due_day && typeof t.due_day === 'string') {
+            return t.due_day === todayStr;
+          }
+          // Fallback to due_date (may have timezone issues with UTC midnight)
           return t.due_date && isToday(parseISO(t.due_date));
         } catch {
           return false;
@@ -2224,11 +2315,11 @@ export class SupabaseRepo implements IRepo {
   async completeHabit(id: ID, atIso: string): Promise<void> {
     const userId = this.ensureUserId();
 
-    // For now, mark habit as completed by setting a completed_at field
-    // TODO: Phase 10+ - Create a separate habit_completions table for history
+    // Update last_completed_at to track when habit was last completed
+    // NOTE: This is different from completed_at which is used for soft-delete/archiving
     const { error } = await supabase
       .from('habits')
-      .update({ completed_at: atIso })
+      .update({ last_completed_at: atIso })
       .eq('id', id)
       .eq('owner_id', userId);
 
@@ -2269,10 +2360,10 @@ export class SupabaseRepo implements IRepo {
       return;
     }
 
-    // Try habits
+    // Try habits - clear last_completed_at (not completed_at which is for archiving)
     const { error: habitError } = await supabase
       .from('habits')
-      .update({ completed_at: null })
+      .update({ last_completed_at: null })
       .eq('id', id)
       .eq('owner_id', userId);
 

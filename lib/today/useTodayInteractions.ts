@@ -47,19 +47,41 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
 
   /**
    * Open overlay to view/edit an entity
+   * Fetches full record from DB to ensure all fields (like due_day) are available
    */
   const openEntityOverlay = useCallback(
-    (item: { id: string; type: string } & Partial<AppRecord>) => {
-      // Convert item to AppRecord format - spread item first, then override only what's needed
-      const record = {
-        ...item,
-        created_at: item.created_at || new Date().toISOString(),
-        updated_at: item.updated_at || new Date().toISOString(),
-      } as AppRecord;
+    async (item: { id: string; type: string } & Partial<AppRecord>) => {
+      try {
+        // Fetch the full record to ensure all fields (due_day, etc.) are available
+        const fullRecord = await repo.getById(item.id);
 
-      overlayController.openEdit({ record });
+        if (fullRecord && fullRecord.type === item.type) {
+          overlayController.openEdit({ record: fullRecord as AppRecord });
+        } else {
+          console.warn(
+            '[useTodayInteractions] openEntityOverlay: record not found or type mismatch',
+            { id: item.id, type: item.type },
+          );
+          // Fallback to passed item if fetch fails
+          const record = {
+            ...item,
+            created_at: item.created_at || new Date().toISOString(),
+            updated_at: item.updated_at || new Date().toISOString(),
+          } as AppRecord;
+          overlayController.openEdit({ record });
+        }
+      } catch (error) {
+        console.error('[useTodayInteractions] openEntityOverlay: failed to fetch record', error);
+        // Fallback to passed item if fetch fails
+        const record = {
+          ...item,
+          created_at: item.created_at || new Date().toISOString(),
+          updated_at: item.updated_at || new Date().toISOString(),
+        } as AppRecord;
+        overlayController.openEdit({ record });
+      }
     },
-    [overlayController],
+    [overlayController, repo],
   );
 
   /**

@@ -172,6 +172,7 @@ export type UnifiedCreateOverlayProps = {
   };
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
+  defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
   onCommitmentsChanged?: () => void | Promise<void>;

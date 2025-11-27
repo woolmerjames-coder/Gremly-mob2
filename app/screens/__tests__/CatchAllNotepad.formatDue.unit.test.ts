@@ -145,4 +145,86 @@ describe('formatDue', () => {
       expect(result).toBeTruthy(); // At minimum, function doesn't crash
     });
   });
+
+  /**
+   * Tests for dueDay-based formatting (timezone-safe)
+   *
+   * When dueDay is provided as YYYY-MM-DD, it should be treated as a local date
+   * and NOT be affected by UTC timezone conversions.
+   */
+  describe('dueDay option (timezone-safe)', () => {
+    it('returns "no deadline yet" when dueDay is null/undefined', () => {
+      expect(formatDue({ dueDay: null })).toBe('no deadline yet');
+      expect(formatDue({ dueDay: undefined })).toBe('no deadline yet');
+      expect(formatDue({})).toBe('no deadline yet');
+    });
+
+    it('shows "due Today" when dueDay equals today', () => {
+      // System time is Nov 8, 2025
+      expect(formatDue({ dueDay: '2025-11-08' })).toBe('due Today');
+    });
+
+    it('shows "due Tomorrow" when dueDay equals tomorrow', () => {
+      expect(formatDue({ dueDay: '2025-11-09' })).toBe('due Tomorrow');
+    });
+
+    it('shows weekday name for within 7 days', () => {
+      expect(formatDue({ dueDay: '2025-11-10' })).toBe('due Mon'); // Monday
+      expect(formatDue({ dueDay: '2025-11-14' })).toBe('due Fri'); // Friday
+    });
+
+    it('shows "due Mon DD" for beyond 7 days', () => {
+      expect(formatDue({ dueDay: '2025-11-20' })).toBe('due Nov 20');
+      expect(formatDue({ dueDay: '2025-12-25' })).toBe('due Dec 25');
+    });
+
+    it('includes dueTime when provided', () => {
+      expect(formatDue({ dueDay: '2025-11-08', dueTime: '14:30' })).toBe('due Today @ 14:30');
+      expect(formatDue({ dueDay: '2025-11-09', dueTime: '09:00' })).toBe('due Tomorrow @ 09:00');
+      expect(formatDue({ dueDay: '2025-11-10', dueTime: '17:00' })).toBe('due Mon @ 17:00');
+    });
+
+    it('ignores midnight dueTime (00:00)', () => {
+      expect(formatDue({ dueDay: '2025-11-08', dueTime: '00:00' })).toBe('due Today');
+    });
+
+    it('prefers dueDay over dueIso when both provided', () => {
+      // dueIso is UTC midnight which would shift back a day in Pacific time
+      // dueDay is the canonical local date and should be used
+      expect(
+        formatDue({
+          dueDay: '2025-11-08',
+          dueIso: '2025-11-08T00:00:00+00:00', // UTC midnight
+        }),
+      ).toBe('due Today');
+    });
+
+    it('falls back to dueIso when dueDay is not provided', () => {
+      const tomorrow = new Date('2025-11-09T00:00:00');
+      expect(formatDue({ dueIso: tomorrow.toISOString() })).toBe('due Tomorrow');
+    });
+
+    /**
+     * Critical timezone bug test:
+     * When dueDay = "2025-11-08" (today) but dueIso = "2025-11-08T00:00:00+00:00" (UTC midnight),
+     * the UTC timestamp would render as Nov 7 in Pacific time (-8h offset).
+     * The dueDay field should prevent this timezone shift.
+     */
+    it('prevents timezone shift when dueDay is provided (critical bug fix)', () => {
+      // Simulate the bug scenario:
+      // User sets "today" in Pacific time
+      // dueDay = "2025-11-08" (correct local date)
+      // dueIso = "2025-11-08T00:00:00+00:00" (UTC midnight, which is Nov 7 4pm in Pacific)
+
+      // Without the fix, parsing dueIso would give wrong day
+      // With the fix, dueDay takes precedence
+      expect(
+        formatDue({
+          dueDay: '2025-11-08',
+          dueIso: '2025-11-08T00:00:00+00:00',
+          dueTime: null,
+        }),
+      ).toBe('due Today');
+    });
+  });
 });

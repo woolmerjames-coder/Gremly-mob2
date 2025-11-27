@@ -39,7 +39,15 @@ export function classifyLogKind(raw: string): LogKind {
   return 'basic';
 }
 
-export type TodoState = { title: string; details: string; due_at?: string | null };
+export type TodoState = {
+  title: string;
+  details: string;
+  due_at?: string | null;
+  /** Canonical local date YYYY-MM-DD - source of truth for date */
+  due_day?: string | null;
+  /** Specific time HH:mm - only if user explicitly set a time */
+  due_time?: string | null;
+};
 export type HabitState = {
   title: string;
   notes: string;
@@ -105,7 +113,7 @@ export const initialV2State: V2State = {
   compactTitleSource: '',
   userEditedTitle: false,
   log: { title: '', body: '', kind: 'basic', private: false },
-  todo: { title: '', details: '', due_at: null },
+  todo: { title: '', details: '', due_at: null, due_day: null, due_time: null },
   habit: { title: '', notes: '', schedule: 'custom', subtype: 'start_habit' },
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
@@ -118,7 +126,12 @@ type Action =
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
   | { type: 'SET_TITLE'; title: string; force?: boolean } // force=true bypasses userEditedTitle guard
   | { type: 'SET_COMPACT_TITLE'; title: string }
-  | { type: 'SET_TODO_DUE'; due_at: string | null }
+  | {
+      type: 'SET_TODO_DUE';
+      due_at: string | null;
+      due_day?: string | null;
+      due_time?: string | null;
+    }
   | { type: 'SET_HABIT_FREQUENCY'; frequency_json: any }
   | { type: 'SET_HABIT_SUBTYPE'; subtype: 'start_habit' | 'break_habit' | 'routine' }
   | { type: 'TOGGLE_COMMITMENT' }
@@ -297,7 +310,15 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_TODO_DUE':
-      return { ...state, todo: { ...state.todo, due_at: action.due_at } };
+      return {
+        ...state,
+        todo: {
+          ...state.todo,
+          due_at: action.due_at,
+          due_day: action.due_day ?? state.todo.due_day,
+          due_time: action.due_time ?? state.todo.due_time,
+        },
+      };
     case 'SET_HABIT_FREQUENCY':
       return { ...state, habit: { ...state.habit, frequency_json: action.frequency_json } };
     case 'SET_HABIT_SUBTYPE':

@@ -142,6 +142,53 @@ export function getWeeklyCaptureCounts(
 }
 
 /**
+ * Get today's date as YYYY-MM-DD string in local timezone
+ * This is the canonical format for day-based comparisons
+ */
+function getTodayString(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Check if a todo is due today using due_day (canonical) or due_date (fallback)
+ * @param todo - The todo to check
+ * @param todayStr - Today's date as YYYY-MM-DD string
+ * @param date - Date object for fallback isToday check
+ */
+function isTodoDueToday(todo: Todo, todayStr: string, date: Date): boolean {
+  // Primary: use due_day if available (YYYY-MM-DD format)
+  if (todo.due_day) {
+    return todo.due_day === todayStr;
+  }
+  // Fallback: use due_date with isToday check
+  if (todo.due_date) {
+    return isToday(date, todo.due_date);
+  }
+  return false;
+}
+
+/**
+ * Check if a todo is in the future (due after today)
+ * @param todo - The todo to check
+ * @param todayStr - Today's date as YYYY-MM-DD string
+ * @param date - Date object for fallback isFuture check
+ */
+function isTodoDueFuture(todo: Todo, todayStr: string, date: Date): boolean {
+  // Primary: use due_day if available (YYYY-MM-DD format)
+  if (todo.due_day) {
+    return todo.due_day > todayStr;
+  }
+  // Fallback: use due_date with isFuture check
+  if (todo.due_date) {
+    return isFuture(date, todo.due_date);
+  }
+  return false;
+}
+
+/**
  * Check if a date is today
  */
 function isToday(date: Date, checkDate: Date | string): boolean {
@@ -247,12 +294,16 @@ function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
     return dueTime;
   }
 
-  if (todo.due_date) {
-    if (isToday(date, todo.due_date)) {
+  const todayStr = getTodayString(date);
+
+  if (todo.due_day || todo.due_date) {
+    if (isTodoDueToday(todo, todayStr, date)) {
       return 'Due today';
     }
-    if (isFuture(date, todo.due_date)) {
-      const dueDate = parseDateString(todo.due_date);
+    if (isTodoDueFuture(todo, todayStr, date)) {
+      const dueDate = todo.due_day
+        ? parseDateString(todo.due_day)
+        : parseDateString(todo.due_date!);
       return `Due ${dueDate.toLocaleDateString(undefined, { weekday: 'short' })}`;
     }
     return 'Overdue';
@@ -318,12 +369,10 @@ export function getLockedItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
+      const todayStr = getTodayString(date);
 
-      // Include if due today or overdue
-      if (
-        todo.due_date &&
-        (isToday(date, todo.due_date) || isFuture(date, todo.due_date) === false)
-      ) {
+      // Only include todos due TODAY (not overdue, not future)
+      if (isTodoDueToday(todo, todayStr, date)) {
         locked.push({
           id: todo.id,
           type: 'todo',
@@ -383,9 +432,10 @@ export function getActiveTodayItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
+      const todayStr = getTodayString(date);
 
-      // Include if due today
-      if (todo.due_date && isToday(date, todo.due_date)) {
+      // Only include todos due TODAY (not overdue, not future)
+      if (isTodoDueToday(todo, todayStr, date)) {
         active.push({
           id: todo.id,
           type: 'todo',
@@ -439,20 +489,9 @@ export function getFutureItems(
         targetPerPeriod: habit.target_per_period,
         weeklyStatus,
       });
-    } else if (entity.type === 'todo') {
-      const todo = entity as Todo;
-
-      // Include if due in future
-      if (todo.due_date && isFuture(date, todo.due_date)) {
-        future.push({
-          id: todo.id,
-          type: 'todo',
-          name: todo.name,
-          statusText: formatTodoStatusText(todo, date),
-          dueAt: todo.due_date,
-        });
-      }
     }
+    // Note: Todos are NOT included in Future lane
+    // The Now page only shows items due TODAY to keep the experience simple
   }
 
   return future;
@@ -487,9 +526,10 @@ export function getProgressEligibleItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
+      const todayStr = getTodayString(date);
 
-      // Include todos due today (including time-specific ones)
-      if (todo.due_date && isToday(date, todo.due_date)) {
+      // Only include todos due TODAY (not overdue, not future)
+      if (isTodoDueToday(todo, todayStr, date)) {
         eligible.push({ id: todo.id, type: 'todo' });
       }
     }

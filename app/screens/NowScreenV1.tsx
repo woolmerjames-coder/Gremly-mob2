@@ -5,7 +5,7 @@
  * Phase 4: Wire interactions
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
@@ -45,6 +45,96 @@ export default function NowScreenV1() {
     celebrationEnabled: false, // Can enable later
   });
 
+  // Compute adjusted progress that includes optimistic completions
+  // This ensures progress bar and counts update immediately when items are checked
+  const adjustedProgressState = useMemo(() => {
+    // Count optimistic completions that aren't already in the server-side completedToday
+    const serverCompletedIds = new Set(now.completedToday.map((item) => item.id));
+
+    // Count new optimistic completions (not yet persisted)
+    let optimisticCount = 0;
+    for (const id of interactions.completedTodoIds) {
+      if (!serverCompletedIds.has(id)) {
+        optimisticCount++;
+      }
+    }
+    for (const id of interactions.completedHabitIds) {
+      if (!serverCompletedIds.has(id)) {
+        optimisticCount++;
+      }
+    }
+
+    if (optimisticCount === 0) {
+      return now.progressState;
+    }
+
+    const newCompletedCount = now.progressState.completedCount + optimisticCount;
+    const newPercent =
+      now.progressState.totalEligibleCount > 0
+        ? Math.round((newCompletedCount / now.progressState.totalEligibleCount) * 100)
+        : 0;
+
+    return {
+      ...now.progressState,
+      completedCount: newCompletedCount,
+      percent: Math.min(newPercent, 100),
+    };
+  }, [
+    now.progressState,
+    now.completedToday,
+    interactions.completedTodoIds,
+    interactions.completedHabitIds,
+  ]);
+
+  // Compute adjusted completedToday list that includes optimistic completions
+  // This ensures the popup shows items immediately when checked
+  const adjustedCompletedToday = useMemo((): NowCompletedItem[] => {
+    const serverCompletedIds = new Set(now.completedToday.map((item) => item.id));
+    const allItems = [...now.lockedItems, ...now.activeItems, ...now.futureItems];
+
+    // Start with server-side completed items
+    const result: NowCompletedItem[] = [...now.completedToday];
+
+    // Add optimistically completed todos not yet on server
+    for (const id of interactions.completedTodoIds) {
+      if (!serverCompletedIds.has(id)) {
+        const item = allItems.find((i) => i.id === id && i.type === 'todo');
+        if (item) {
+          result.push({
+            id: item.id,
+            type: 'todo',
+            name: item.name,
+            completedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    // Add optimistically completed habits not yet on server
+    for (const id of interactions.completedHabitIds) {
+      if (!serverCompletedIds.has(id)) {
+        const item = allItems.find((i) => i.id === id && i.type === 'habit');
+        if (item) {
+          result.push({
+            id: item.id,
+            type: 'habit',
+            name: item.name,
+            completedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [
+    now.completedToday,
+    now.lockedItems,
+    now.activeItems,
+    now.futureItems,
+    interactions.completedTodoIds,
+    interactions.completedHabitIds,
+  ]);
+
   // Handle item press - open overlay
   const handlePressItem = useCallback(
     (item: NowLockedItem | NowActiveItem | NowFutureItem) => {
@@ -81,7 +171,7 @@ export default function NowScreenV1() {
   }, []);
 
   const handleAddMore = useCallback(() => {
-    overlayController.openCreate({ type: 'todo' });
+    overlayController.openCreate({ type: 'todo', defaultDueToday: true });
   }, [overlayController]);
 
   // Handle undo from progress popup
@@ -111,24 +201,24 @@ export default function NowScreenV1() {
     <Screen style={styles.screen}>
       <NowHeader
         dateTimeLabel={now.dateTimeLabel}
-        progressState={now.progressState}
-        progressPercent={now.progressState.percent / 100}
+        progressState={adjustedProgressState}
+        progressPercent={adjustedProgressState.percent / 100}
         weeklySummaries={now.weeklySummaries}
         capturesCount={capturesCount}
-        completedCount={now.progressState.completedCount}
+        completedCount={adjustedProgressState.completedCount}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>
-          Today's Focus ({now.progressState.completedCount} completed)
+          Today's Focus ({adjustedProgressState.completedCount} completed)
         </Text>
       </View>
       <TodayFocusList
         lockedItems={now.lockedItems}
         activeItems={now.activeItems}
         futureItems={now.futureItems}
-        progressPercent={now.progressState.percent}
+        progressPercent={adjustedProgressState.percent}
         completedTodoIds={interactions.completedTodoIds}
         completedHabitIds={interactions.completedHabitIds}
         onPressItem={handlePressItem}
@@ -140,7 +230,7 @@ export default function NowScreenV1() {
 
       <NowProgressPopup
         visible={isProgressVisible}
-        completed={now.completedToday}
+        completed={adjustedCompletedToday}
         onClose={() => setProgressVisible(false)}
         onUndoItem={handleUndoCompletedItem}
       />

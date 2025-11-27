@@ -93,6 +93,7 @@ export interface Todo {
   body?: string | null;
   space_id?: ID | null;
   due_date?: string | null; // ISO 8601 date or null
+  due_day?: string | null; // YYYY-MM-DD format - canonical field for day-based logic
   due_time?: string | null; // HH:mm format or null
   reminders?: any[] | null; // ReminderRow[] JSON
   undefined_due?: boolean; // true if user wants "Might be today?" treatment (legacy)

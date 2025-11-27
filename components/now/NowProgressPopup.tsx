@@ -44,11 +44,12 @@ export function NowProgressPopup({
                   hour: 'numeric',
                   minute: '2-digit',
                 });
+                const typeEmoji = item.type === 'habit' ? '🔄' : '✓';
                 return (
                   <Box key={index} style={styles.item}>
                     <Box style={styles.itemContent}>
                       <Text style={styles.itemText}>
-                        ✓ {item.name} — {formattedTime}
+                        {typeEmoji} {item.name} — {formattedTime}
                       </Text>
                       {onUndoItem && (
                         <TouchableOpacity

@@ -386,12 +386,20 @@ export function toCreateOrUpdateInput(
   if (baseType === 'todo') {
     const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
     const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
+
+    // Use due_day directly if available (canonical source of truth for local date)
+    // This avoids timezone conversion issues when re-saving a todo
+    const dueDay = s.todo.due_day ?? null;
+    const dueTime = s.todo.due_time ?? null;
+
     return {
       type: 'todo' as const,
       title: derivedTitle,
       name: derivedTitle,
       details: s.todo.details || null,
       due_at: dueAt,
+      due_day: dueDay,
+      due_time: dueTime,
       space_id: s.spaceId ?? spaceIdProp ?? null,
       origin: 'catchall' as const,
       tags: [...tagsForSave],

@@ -713,7 +713,9 @@ type UnifiedDrop = {
   created_at: string;
   unsorted?: boolean; // for notes carrying the needs_review label
   noteSubtype?: string | null;
-  due_date?: string | null; // ISO timestamp for todos
+  due_date?: string | null; // ISO timestamp for todos (fallback)
+  due_day?: string | null; // YYYY-MM-DD format - canonical, timezone-safe
+  due_time?: string | null; // HH:mm format for specific time
   tags?: string[];
   optimisticKind?: 'note' | 'todo' | 'habit';
   drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
@@ -910,7 +912,7 @@ const AnimatedMindDropCard: React.FC<{
         {/* Right side: Due date OR time ago */}
         {effectiveKind === 'todo' ? (
           <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentDueBadge}>
-            {formatDue(item.due_date)}
+            {formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time })}
           </Text>
         ) : (
           <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
@@ -1320,6 +1322,8 @@ const RecentDrops: React.FC<{
             text: rawText,
             created_at: t.created_at,
             due_date: t.due_date ?? null,
+            due_day: (t as any).due_day ?? null,
+            due_time: (t as any).due_time ?? null,
             tags: toTagList((t as any)?.tags),
             drop_id: (t as any)?.drop_id ?? null,
             canonical_type: (t as any)?.canonical_type ?? null,

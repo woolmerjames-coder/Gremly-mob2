@@ -227,4 +227,209 @@ describe('SupabaseRepo.create - Todo', () => {
       }),
     ).rejects.toThrow('Failed to create todo: Database connection failed');
   });
+
+  it('should map due_at ISO timestamp to due_date and due_time', async () => {
+    // Use a specific date: 2024-03-15 at 14:30
+    const dueAt = new Date(2024, 2, 15, 14, 30).toISOString();
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Todo with due_at',
+      body: null,
+      space_id: null,
+      due_date: dueAt,
+      due_time: '14:30',
+      undefined_due: false,
+      ai_placed: false,
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Todo with due_at',
+      due_at: dueAt, // Overlay-style due date
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Assert: due_at was converted to due_date (full ISO) and due_time (HH:mm)
+    expect(insertPayload.due_date).toBe(dueAt);
+    expect(insertPayload.due_time).toBe('14:30');
+    expect(insertPayload).not.toHaveProperty('due_at');
+  });
+
+  it('should map due_at at midnight to due_date only (no due_time)', async () => {
+    // Use a date at midnight
+    const dueAt = new Date(2024, 5, 20, 0, 0).toISOString();
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Todo due today',
+      body: null,
+      space_id: null,
+      due_date: dueAt, // Full ISO datetime
+      due_time: null,
+      undefined_due: false,
+      ai_placed: false,
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Todo due today',
+      due_at: dueAt,
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should have due_date as full ISO datetime, due_time should be undefined (not set)
+    expect(insertPayload.due_date).toBe(dueAt);
+    expect(insertPayload.due_time).toBeUndefined();
+  });
+
+  it('should prefer explicit due_date over due_at if both provided', async () => {
+    const explicitDueDate = '2024-12-25T00:00:00.000Z'; // Must be full datetime for schema
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Todo with explicit due_date',
+      body: null,
+      space_id: null,
+      due_date: explicitDueDate,
+      due_time: null,
+      undefined_due: false,
+      ai_placed: false,
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Todo with explicit due_date',
+      due_date: explicitDueDate, // Explicit due_date
+      due_at: new Date(2024, 0, 1).toISOString(), // Different date - should be ignored
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should use the explicit due_date, not parse due_at
+    expect(insertPayload.due_date).toBe(explicitDueDate);
+  });
+
+  it('should set due_day when todo is created with a due date (today)', async () => {
+    // Create a date for today at 3pm local
+    const today = new Date();
+    today.setHours(15, 0, 0, 0); // 3pm local
+    const dueAt = today.toISOString();
+
+    // Expected due_day in YYYY-MM-DD format
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const expectedDueDay = `${year}-${month}-${day}`;
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Todo due today with due_day',
+      body: null,
+      space_id: null,
+      due_date: dueAt,
+      due_day: expectedDueDay,
+      due_time: '15:00',
+      undefined_due: false,
+      ai_placed: false,
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Todo due today with due_day',
+      due_at: dueAt,
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should have due_day set to YYYY-MM-DD in local timezone
+    expect(insertPayload.due_day).toBe(expectedDueDay);
+    expect(insertPayload.due_time).toBe('15:00');
+  });
+
+  it('should set due_day to null when todo is created without a due date', async () => {
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Todo without due date',
+      body: null,
+      space_id: null,
+      due_date: null,
+      due_day: null,
+      due_time: null,
+      undefined_due: true,
+      ai_placed: false,
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Todo without due date',
+      undefined_due: true,
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should NOT have due_day set (or it should be null)
+    expect(insertPayload.due_day).toBeFalsy();
+    expect(insertPayload.due_date).toBeFalsy();
+  });
+
+  it('should compute due_day from due_date when due_at is not provided', async () => {
+    const dueDate = '2025-12-15T10:00:00.000Z';
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Todo with due_date',
+      body: null,
+      space_id: null,
+      due_date: dueDate,
+      due_day: '2025-12-15',
+      due_time: null,
+      undefined_due: false,
+      ai_placed: false,
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Todo with due_date',
+      due_date: dueDate,
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should have due_day computed from due_date
+    expect(insertPayload.due_day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(insertPayload.due_date).toBe(dueDate);
+  });
 });

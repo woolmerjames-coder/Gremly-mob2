@@ -119,7 +119,7 @@ export function useTodayEntries(): TodayEntriesState {
             id: t.id,
             name: t.name,
             due_date: t.due_date,
-            due_day: t.due_date ? new Date(t.due_date).toISOString().split('T')[0] : null,
+            due_day: t.due_day ?? null, // Use due_day from DB directly (timezone-safe)
             space_id: t.space_id ?? null,
             status: (t.status ?? 'active') as 'active' | 'completed' | 'archived',
             carry_forward: !!t.carry_forward,

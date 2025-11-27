@@ -14,6 +14,7 @@ import {
   getMindVaultSummary,
   getLockedItems,
   getWeeklyHabitSummaries,
+  getCompletedTodayItems,
 } from '../../lib/now/nowSelectors';
 
 // Helper to create mock habits
@@ -309,6 +310,78 @@ describe('getActiveTodayItems', () => {
     expect(found).toBeUndefined();
   });
 
+  // Timezone-safe due_day tests
+  describe('due_day timezone handling', () => {
+    it('includes todo with due_day matching today', () => {
+      const todo = createMockTodo({
+        id: 'todo-due-day-today',
+        due_day: '2025-11-26', // Matches testDate
+        due_date: '2025-11-26T00:00:00+00:00',
+      });
+
+      const items = getActiveTodayItems([todo], completionHistory, testDate);
+
+      const found = items.find((item) => item.id === 'todo-due-day-today');
+      expect(found).toBeDefined();
+      expect(found?.type).toBe('todo');
+    });
+
+    it('excludes todo with due_day = yesterday (overdue)', () => {
+      const todo = createMockTodo({
+        id: 'todo-due-day-yesterday',
+        due_day: '2025-11-25', // Yesterday
+        due_date: '2025-11-25T00:00:00+00:00',
+      });
+
+      const items = getActiveTodayItems([todo], completionHistory, testDate);
+
+      const found = items.find((item) => item.id === 'todo-due-day-yesterday');
+      expect(found).toBeUndefined();
+    });
+
+    it('excludes todo with due_day = tomorrow (future)', () => {
+      const todo = createMockTodo({
+        id: 'todo-due-day-tomorrow',
+        due_day: '2025-11-27', // Tomorrow
+        due_date: '2025-11-27T00:00:00+00:00',
+      });
+
+      const items = getActiveTodayItems([todo], completionHistory, testDate);
+
+      const found = items.find((item) => item.id === 'todo-due-day-tomorrow');
+      expect(found).toBeUndefined();
+    });
+
+    it('uses due_day over due_date when both present (timezone edge case)', () => {
+      // Simulate the bug: due_date is UTC midnight which might parse as yesterday in local timezone
+      // But due_day explicitly says "2025-11-26" so that should be used
+      const todo = createMockTodo({
+        id: 'todo-timezone-edge',
+        due_day: '2025-11-26', // Explicit "today"
+        due_date: '2025-11-26T00:00:00+00:00', // UTC midnight - would be Nov 25 in Pacific
+      });
+
+      const items = getActiveTodayItems([todo], completionHistory, testDate);
+
+      const found = items.find((item) => item.id === 'todo-timezone-edge');
+      expect(found).toBeDefined();
+      expect(found?.type).toBe('todo');
+    });
+
+    it('falls back to due_date when due_day is not present', () => {
+      const todo = createMockTodo({
+        id: 'todo-fallback',
+        due_date: '2025-11-26',
+        // No due_day
+      });
+
+      const items = getActiveTodayItems([todo], completionHistory, testDate);
+
+      const found = items.find((item) => item.id === 'todo-fallback');
+      expect(found).toBeDefined();
+    });
+  });
+
   it('excludes flexible weekly habits', () => {
     const habit = createMockHabit({
       id: 'habit-flexible',
@@ -330,7 +403,7 @@ describe('getFutureItems', () => {
   const testDate = new Date('2025-11-26T12:00:00Z');
   const completionHistory = new Map<string, number>();
 
-  it('includes todos due tomorrow', () => {
+  it('does NOT include todos due tomorrow (simplified view - no future todos)', () => {
     const todo = createMockTodo({
       id: 'todo-tomorrow',
       due_date: '2025-11-27',
@@ -338,12 +411,12 @@ describe('getFutureItems', () => {
 
     const items = getFutureItems([todo], completionHistory, testDate);
 
+    // Simplified Now page: todos are only shown if due TODAY
     const found = items.find((item) => item.id === 'todo-tomorrow');
-    expect(found).toBeDefined();
-    expect(found?.type).toBe('todo');
+    expect(found).toBeUndefined();
   });
 
-  it('includes todos due next week', () => {
+  it('does NOT include todos due next week (simplified view - no future todos)', () => {
     const todo = createMockTodo({
       id: 'todo-next-week',
       due_date: '2025-12-03',
@@ -351,8 +424,9 @@ describe('getFutureItems', () => {
 
     const items = getFutureItems([todo], completionHistory, testDate);
 
+    // Simplified Now page: todos are only shown if due TODAY
     const found = items.find((item) => item.id === 'todo-next-week');
-    expect(found).toBeDefined();
+    expect(found).toBeUndefined();
   });
 
   it('includes flexible weekly habits', () => {
@@ -862,5 +936,316 @@ describe('getWeeklyHabitSummaries', () => {
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0].completionsThisWeek).toBe(0);
+  });
+});
+
+describe('getCompletedTodayItems', () => {
+  // Test date: Wednesday November 26, 2025
+  const testDate = new Date('2025-11-26T12:00:00Z');
+  const todayIso = '2025-11-26T10:30:00Z';
+  const yesterdayIso = '2025-11-25T10:30:00Z';
+
+  it('returns empty array when no items are completed', () => {
+    const entities = [
+      createMockHabit({ id: 'habit-1', name: 'Exercise' }),
+      createMockTodo({ id: 'todo-1', name: 'Buy groceries', due_date: '2025-11-26' }),
+    ];
+
+    const result = getCompletedTodayItems(entities, testDate);
+    expect(result).toEqual([]);
+  });
+
+  it('returns completed todos from today', () => {
+    const entities = [
+      createMockTodo({
+        id: 'todo-1',
+        name: 'Buy groceries',
+        due_date: '2025-11-26',
+        completed_at: todayIso,
+      } as any),
+    ];
+
+    const result = getCompletedTodayItems(entities, testDate);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: 'todo-1',
+      type: 'todo',
+      name: 'Buy groceries',
+      completedAt: todayIso,
+    });
+  });
+
+  it('returns completed habits from today using last_completed_at', () => {
+    const entities = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'Exercise',
+        last_completed_at: todayIso,
+      }),
+    ];
+
+    const result = getCompletedTodayItems(entities, testDate);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: 'habit-1',
+      type: 'habit',
+      name: 'Exercise',
+      completedAt: todayIso,
+    });
+  });
+
+  it('excludes items completed yesterday', () => {
+    const entities = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'Exercise',
+        last_completed_at: yesterdayIso,
+      }),
+      createMockTodo({
+        id: 'todo-1',
+        name: 'Old task',
+        completed_at: yesterdayIso,
+      } as any),
+    ];
+
+    const result = getCompletedTodayItems(entities, testDate);
+    expect(result).toEqual([]);
+  });
+
+  it('returns both habits and todos completed today', () => {
+    const habitCompletedAt = '2025-11-26T08:00:00Z';
+    const todoCompletedAt = '2025-11-26T14:30:00Z';
+
+    const entities = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'Morning Exercise',
+        last_completed_at: habitCompletedAt,
+      }),
+      createMockTodo({
+        id: 'todo-1',
+        name: 'Team meeting',
+        due_date: '2025-11-26',
+        completed_at: todoCompletedAt,
+      } as any),
+    ];
+
+    const result = getCompletedTodayItems(entities, testDate);
+    expect(result).toHaveLength(2);
+
+    // Should be sorted by completion time (most recent first)
+    expect(result[0].id).toBe('todo-1'); // Completed at 14:30
+    expect(result[1].id).toBe('habit-1'); // Completed at 08:00
+  });
+
+  it('integrates with getProgressState for combined progress', () => {
+    const entities = [
+      createMockHabit({
+        id: 'habit-1',
+        name: 'Exercise',
+        cadence: 'daily',
+        last_completed_at: todayIso,
+      }),
+      createMockTodo({
+        id: 'todo-1',
+        name: 'Buy groceries',
+        due_date: '2025-11-26',
+        completed_at: todayIso,
+      } as any),
+    ];
+
+    const completionHistory = new Map<string, number>();
+
+    // Get completed items
+    const completedToday = getCompletedTodayItems(entities, testDate);
+    expect(completedToday).toHaveLength(2);
+
+    // Get eligible items
+    const eligibleItems = getProgressEligibleItems(entities, completionHistory, testDate);
+    expect(eligibleItems).toHaveLength(2);
+
+    // Calculate progress
+    const completedIds = new Set(completedToday.map((item) => item.id));
+    const progressState = getProgressState(eligibleItems, completedIds);
+
+    expect(progressState.completedCount).toBe(2);
+    expect(progressState.totalEligibleCount).toBe(2);
+    expect(progressState.percent).toBe(100);
+  });
+});
+
+describe('due_day canonical day logic', () => {
+  // Test date: Wednesday November 26, 2025 at noon local time
+  // The test runs as if the user is in a timezone where "today" is 2025-11-26
+  const testDate = new Date(2025, 10, 26, 12, 0, 0); // November 26, 2025 at noon local
+
+  it('todo with due_day = today appears in Today list regardless of due_date timezone', () => {
+    // This todo has due_day = today (2025-11-26) but due_date might be
+    // something like "2025-11-26T08:00:00.000Z" which could look like
+    // yesterday or tomorrow in certain timezones when parsed naively
+    const todo = createMockTodo({
+      id: 'todo-today',
+      name: 'Task due today',
+      due_day: '2025-11-26', // Canonical day field
+      due_date: '2025-11-26T08:00:00.000Z', // This could be parsed as different days
+    });
+
+    const entities = [todo];
+    const completionHistory = new Map<string, number>();
+
+    const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+
+    expect(activeItems).toHaveLength(1);
+    expect(activeItems[0].id).toBe('todo-today');
+    expect(activeItems[0].name).toBe('Task due today');
+  });
+
+  it('overdue todo with due_day = yesterday does NOT appear in Today list (simplified view)', () => {
+    // Simplified Now page: only shows items due TODAY - not overdue, not future
+    const todo = createMockTodo({
+      id: 'todo-yesterday',
+      name: 'Task from yesterday',
+      due_day: '2025-11-25', // Yesterday
+      due_date: '2025-11-25T23:59:59.000Z', // Edge of day in UTC
+    });
+
+    const entities = [todo];
+    const completionHistory = new Map<string, number>();
+
+    const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+
+    // Overdue items do NOT appear in active items - simplified view
+    expect(activeItems.filter((item) => item.id === 'todo-yesterday')).toHaveLength(0);
+  });
+
+  it('todo with due_day = tomorrow does NOT appear in Today list (and is not in Future)', () => {
+    const todo = createMockTodo({
+      id: 'todo-tomorrow',
+      name: 'Task for tomorrow',
+      due_day: '2025-11-27', // Tomorrow
+      due_date: '2025-11-27T00:00:00.000Z',
+    });
+
+    const entities = [todo];
+    const completionHistory = new Map<string, number>();
+
+    const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+
+    expect(activeItems.filter((item) => item.id === 'todo-tomorrow')).toHaveLength(0);
+
+    // Future items only include habits now (simplified view - no future todos shown)
+    const futureItems = getFutureItems(entities, completionHistory, testDate);
+    expect(futureItems.filter((item) => item.id === 'todo-tomorrow')).toHaveLength(0);
+  });
+
+  it('todo with due_day = today is counted in progress eligible items', () => {
+    const todo = createMockTodo({
+      id: 'todo-today',
+      name: 'Task due today',
+      due_day: '2025-11-26',
+      due_date: '2025-11-26T08:00:00.000Z',
+    });
+
+    const entities = [todo];
+    const completionHistory = new Map<string, number>();
+
+    const eligibleItems = getProgressEligibleItems(entities, completionHistory, testDate);
+
+    expect(eligibleItems).toHaveLength(1);
+    expect(eligibleItems[0].id).toBe('todo-today');
+    expect(eligibleItems[0].type).toBe('todo');
+  });
+
+  it('overdue todo with due_day = yesterday is NOT counted in progress eligible items (simplified view)', () => {
+    const overdueTodo = createMockTodo({
+      id: 'todo-overdue',
+      name: 'Overdue task',
+      due_day: '2025-11-25', // Yesterday
+      due_date: '2025-11-25T08:00:00.000Z',
+    });
+
+    const entities = [overdueTodo];
+    const completionHistory = new Map<string, number>();
+
+    const eligibleItems = getProgressEligibleItems(entities, completionHistory, testDate);
+
+    // Overdue items are NOT counted in progress - simplified view only includes today
+    expect(eligibleItems).toHaveLength(0);
+  });
+
+  it('falls back to due_date when due_day is not set', () => {
+    // Legacy todo without due_day
+    const todo = createMockTodo({
+      id: 'todo-legacy',
+      name: 'Legacy task',
+      due_date: '2025-11-26', // YYYY-MM-DD format should still work
+    });
+
+    const entities = [todo];
+    const completionHistory = new Map<string, number>();
+
+    const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+
+    expect(activeItems).toHaveLength(1);
+    expect(activeItems[0].id).toBe('todo-legacy');
+  });
+
+  it('overdue todos with due_day < today do NOT appear in locked or active items (simplified view)', () => {
+    const overdueTodo = {
+      ...createMockTodo({
+        id: 'todo-overdue',
+        name: 'Overdue task',
+        due_day: '2025-11-25', // Yesterday
+        due_date: '2025-11-25T10:00:00.000Z',
+      }),
+      locked: true, // Explicitly locked - extended property
+    };
+    const overdueNotLocked = createMockTodo({
+      id: 'todo-overdue-unlocked',
+      name: 'Overdue but not locked',
+      due_day: '2025-11-25', // Yesterday
+      due_date: '2025-11-25T10:00:00.000Z',
+      // locked: false/undefined
+    });
+
+    const entities = [overdueTodo, overdueNotLocked];
+    const completionHistory = new Map<string, number>();
+
+    // Overdue todos do NOT appear in locked items - simplified view
+    const lockedItems = getLockedItems(entities, completionHistory, testDate);
+    expect(lockedItems.filter((item) => item.id === 'todo-overdue')).toHaveLength(0);
+    expect(lockedItems.filter((item) => item.id === 'todo-overdue-unlocked')).toHaveLength(0);
+
+    // Overdue todos do NOT appear in active items - simplified view
+    const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+    expect(activeItems.filter((item) => item.id === 'todo-overdue-unlocked')).toHaveLength(0);
+    expect(activeItems.filter((item) => item.id === 'todo-overdue')).toHaveLength(0);
+  });
+
+  it('todo created with local time 17:00 today uses due_day for Today vs Future classification', () => {
+    // Simulate a todo created via overlay at "today 17:00" local time
+    // The due_at would be converted to due_date (full ISO) and due_day (YYYY-MM-DD)
+    // Even if due_date has timezone offset issues, due_day should be the canonical field
+    const todoAt5pm = createMockTodo({
+      id: 'todo-5pm',
+      name: 'Task at 5pm today',
+      due_day: '2025-11-26', // Canonical: today
+      due_date: '2025-11-27T01:00:00.000Z', // UTC representation of 5pm PST = next day UTC
+    });
+
+    const entities = [todoAt5pm];
+    const completionHistory = new Map<string, number>();
+
+    // Should appear in Today (active) items because due_day = today
+    const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+    expect(activeItems.filter((item) => item.id === 'todo-5pm')).toHaveLength(1);
+
+    // Should NOT appear in future items
+    const futureItems = getFutureItems(entities, completionHistory, testDate);
+    expect(futureItems.filter((item) => item.id === 'todo-5pm')).toHaveLength(0);
+
+    // Should be counted in progress eligible items
+    const eligibleItems = getProgressEligibleItems(entities, completionHistory, testDate);
+    expect(eligibleItems.filter((item) => item.id === 'todo-5pm')).toHaveLength(1);
   });
 });

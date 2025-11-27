@@ -597,21 +597,49 @@ export async function cortexDecide(
     const engineConfidenceHigh = hasExplicitEngineConfidence && engineOutput.confidence >= 0.7;
 
     // When engine has high confidence in its classification, respect the engine type over canonical heuristics
+    // EXCEPTION: If canonical intent says todo/habit with allowAutoCreate=true AND high confidence (≥0.8),
+    // AND the engine did NOT return a specific subtype (like 'list'), the canonical intent should take precedence
+    // BUT: Only override if the engine didn't classify the same type with low confidence
+    const engineHasSpecificSubtype =
+      normalized.canonicalSubtype &&
+      normalized.canonicalSubtype !== 'everything_else' &&
+      normalized.canonicalSubtype !== null;
+
+    // Check if engine returned the same type as canonical with low/medium confidence
+    // In that case, respect the engine's confidence assessment
+    const engineSameTypeWithLowConfidence =
+      hasExplicitEngineConfidence &&
+      engineOutput.confidence <= autoThreshold && // Use <= to include threshold exactly
+      ((normalized.canonicalType === 'todo' && canonicalIntent.type === 'todo') ||
+        (normalized.canonicalType === 'habit' && canonicalIntent.type === 'habit'));
+
+    const canonicalIsHighConfidenceAction =
+      canonicalIntent.allowAutoCreate &&
+      (canonicalIntent.type === 'todo' || canonicalIntent.type === 'habit') &&
+      canonicalIntent.confidence >= 0.8 &&
+      !engineHasSpecificSubtype && // Don't override specific engine subtypes like 'list', 'journal', etc.
+      !engineSameTypeWithLowConfidence; // Respect engine's low-confidence assessment for same type
+
     const engineTypeOverride =
-      engineConfidenceHigh && normalized.canonicalType
+      engineConfidenceHigh && normalized.canonicalType && !canonicalIsHighConfidenceAction
         ? normalized.canonicalType
         : canonicalIntent.type;
 
     // Step 1: Use canonical intent to determine if we should auto-create
+    // CRITICAL: When canonical intent is a high-confidence action (todo/habit with >=0.8),
+    // allow auto-create even if engine confidence is below threshold
+    // BUT: Respect specific engine subtypes (list, journal, etc.) over rule-based detection
+    // AND: Respect engine's low-confidence assessment if it classified the same type
     const shouldAutoCreateFromCanonical =
       canonicalIntent.allowAutoCreate &&
       !canonicalIntent.suppressChips &&
       canonicalIntent.confidence >= 0.55 &&
-      !engineConfidenceBelowThreshold; // Don't override explicit low engine confidence
+      (canonicalIsHighConfidenceAction || !engineConfidenceBelowThreshold);
 
     // Step 2: Build actions based on canonical type if we're auto-creating
     if (shouldAutoCreateFromCanonical) {
       // Use engineTypeOverride to respect high-confidence engine classifications
+      // (unless canonical has a high-confidence action item, which takes precedence)
       const effectiveType = engineConfidenceHigh ? engineTypeOverride : canonicalIntent.type;
 
       // Ensure we have the right action for the canonical type

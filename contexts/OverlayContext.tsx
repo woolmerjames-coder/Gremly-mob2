@@ -35,6 +35,7 @@ interface OverlayState {
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
   entity?: AppRecord; // Full record for edit mode pre-fill
   views?: Record<string, any>; // Pass-through for ai_title_frozen, ai_tags_frozen, etc.
+  defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
 }
 
 interface CreateOptions {
@@ -46,6 +47,7 @@ interface CreateOptions {
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
   suppressOverlayOpen?: boolean;
+  defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
 }
 
 interface EditOptions {
@@ -82,6 +84,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialText,
       initialLogPhotoUris,
       suppressOverlayOpen,
+      defaultDueToday,
     }: CreateOptions = {}) => {
       if (suppressOverlayOpen) {
         return;
@@ -110,6 +113,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         conversionMeta,
         initialText: resolvedText,
         initialLogPhotoUris,
+        defaultDueToday,
       });
 
       if (debounceTimerRef.current) {

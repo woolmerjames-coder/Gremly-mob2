@@ -45,6 +45,7 @@ interface OpenCreateParams {
   spaceId?: string | null;
   logSubtype?: LogSubtype | null;
   suppressOverlayOpen?: boolean;
+  defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
 }
 
 interface OpenEditParams {

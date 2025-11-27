@@ -36,6 +36,7 @@ interface CreateOptions {
   };
   initialText?: string | null;
   suppressOverlayOpen?: boolean;
+  defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
 }
 
 interface EditOptions {
@@ -119,6 +120,7 @@ export function useUnifiedOverlayController() {
           initialEntity: opts.initialEntity,
           initialText: opts.initialText ?? null,
           suppressOverlayOpen: opts.suppressOverlayOpen,
+          defaultDueToday: opts.defaultDueToday,
         });
       } else {
         const { record, spaceId } = request.options;

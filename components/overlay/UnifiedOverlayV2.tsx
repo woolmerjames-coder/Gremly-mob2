@@ -78,6 +78,7 @@ import {
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
+import { getTodayISO } from '../../app/utils/recurrence';
 import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
 // Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
@@ -905,6 +906,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     onSaved,
     initialText,
     initialLogPhotoUris,
+    defaultDueToday,
   } = props;
 
   // Extract full entity from props (passed by OverlayHost in edit mode)
@@ -1413,7 +1415,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const rawText = typeof initialText === 'string' ? initialText : '';
     const hasText = rawText.trim().length > 0;
 
-    if (!override && !hasText) {
+    if (!override && !hasText && !defaultDueToday) {
       createPrefillAppliedRef.current = true;
       return;
     }
@@ -1428,12 +1430,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       payload.habit = { ...initialV2State.habit, notes: rawText, title };
     }
 
+    // Default todo to due today when defaultDueToday is true (Now page)
+    if (defaultDueToday && (override === 'todo' || !override)) {
+      const todayISO = getTodayISO();
+      payload.todo = {
+        ...(payload.todo || initialV2State.todo),
+        due_at: todayISO,
+      };
+    }
+
     if (Object.keys(payload).length > 0) {
       dispatch({ type: 'HYDRATE_EDIT', payload });
     }
 
     createPrefillAppliedRef.current = true;
-  }, [mode, initialEntity, initialText, dispatch]);
+  }, [mode, initialEntity, initialText, defaultDueToday, dispatch]);
 
   // Initial defaults (match brief: text-first; first line becomes title)
   useEffect(() => {
@@ -1528,11 +1539,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const { backgroundPrefill } = await import('../../lib/minddrop/backgroundPrefill');
 
         // Get raw text for prefill
-        const rawText =
-          entity.body?.trim() ||
-          entity.title?.trim() ||
-          entity.name?.trim() ||
-          '';
+        const rawText = entity.body?.trim() || entity.title?.trim() || entity.name?.trim() || '';
 
         // Retry prefill
         await backgroundPrefill(entity, rawText);
@@ -2219,13 +2226,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [isLog]);
 
   const handleTodoDueChange = useCallback(
-    (iso: string | null, options?: { label?: string }) => {
-      dispatch({ type: 'SET_TODO_DUE', due_at: iso });
+    (iso: string | null, options?: { label?: string; dueDay?: string; dueTime?: string }) => {
+      // Extract due_day and due_time from the ISO timestamp in LOCAL timezone
+      let dueDay: string | null = options?.dueDay ?? null;
+      let dueTime: string | null = options?.dueTime ?? null;
+
+      if (iso && !dueDay) {
+        // Parse the ISO string and extract LOCAL date parts
+        const date = new Date(iso);
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          dueDay = `${year}-${month}-${day}`;
+
+          // Extract time if not midnight
+          const hours = date.getHours();
+          const minutes = date.getMinutes();
+          if (hours !== 0 || minutes !== 0) {
+            dueTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+          }
+        }
+      }
+
+      dispatch({ type: 'SET_TODO_DUE', due_at: iso, due_day: dueDay, due_time: dueTime });
       if (iso) {
         const formatted = options?.label ?? (safeFormat(iso) || 'selected date');
         showDueToast(`Due set for ${formatted}`);
         void emitOverlayEvent({ type: 'overlay_due_set' });
       } else {
+        dispatch({ type: 'SET_TODO_DUE', due_at: null, due_day: null, due_time: null });
         showDueToast('Due cleared');
         void emitOverlayEvent({ type: 'overlay_due_clear' });
       }
@@ -5661,6 +5691,9 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       title: todoTitle,
       details: todoDetails,
       due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
+      // Prefer due_day (YYYY-MM-DD) as the canonical source of truth
+      due_day: (entity as any)?.due_day ?? null,
+      due_time: (entity as any)?.due_time ?? null,
     },
     habit: {
       title: name || title || '',

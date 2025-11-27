@@ -34,12 +34,13 @@ describe('classifyIntentWithAI', () => {
         },
       });
 
-      const result = await classifyIntentWithAI('Call dentist tomorrow');
+      // Use a non-imperative text so AI classification is used
+      const result = await classifyIntentWithAI('I need to call dentist tomorrow');
 
       expect(result.kind).toBe('todo');
       expect(result.aiConfidence).toBe(95);
       expect(result.confidence).toBeCloseTo(0.95, 2);
-      expect(result.title).toBe('Call dentist tomorrow');
+      expect(result.title).toBe('I need to call dentist tomorrow');
     });
 
     it('should handle JSON in category field', async () => {
@@ -264,7 +265,8 @@ describe('classifyIntentWithAI', () => {
         },
       });
 
-      const result = await classifyIntentWithAI('Fix bug in production');
+      // Use non-imperative text so the AI classification fallback is tested
+      const result = await classifyIntentWithAI('I need to fix the bug');
 
       // Canonical resolver falls back to rule-based when AI confidence is invalid
       expect(result.kind).toBe('note');
