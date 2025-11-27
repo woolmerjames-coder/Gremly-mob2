@@ -126,7 +126,7 @@ describe('NowHeader', () => {
     );
     expect(screen.getByText('WEEK:')).toBeTruthy();
     expect(screen.getByText('HABITS BEHIND')).toBeTruthy();
-    expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+    expect(screen.getByText('LOGS: 3')).toBeTruthy();
   });
 });
 

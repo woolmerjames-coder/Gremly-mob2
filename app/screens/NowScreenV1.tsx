@@ -14,7 +14,6 @@ import { NowHelperRow } from '../../components/now/NowHelperRow';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
 import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { NowTodayMascot } from '../../components/now/NowTodayMascot';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
@@ -103,12 +102,14 @@ export default function NowScreenV1() {
         progressPercent={now.progressState.percent / 100}
         weeklySummaries={now.weeklySummaries}
         capturesCount={capturesCount}
+        completedCount={now.progressState.completedCount}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
       <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Today’s Focus</Text>
-        <NowTodayMascot />
+        <Text style={styles.sectionTitle}>
+          Today's Focus ({now.progressState.completedCount} completed)
+        </Text>
       </View>
       <TodayFocusList
         lockedItems={now.lockedItems}

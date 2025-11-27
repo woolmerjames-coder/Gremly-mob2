@@ -4,12 +4,13 @@
  */
 
 import React from 'react';
-import { Pressable, TextStyle } from 'react-native';
+import { Pressable, TextStyle, Image } from 'react-native';
 import { Box, Text } from '../../ui';
 import { makeStyles, useTokens } from '../../design/makeStyles';
 import { NowSegmentedBar } from './NowSegmentedBar';
 import { Icon } from '../ui/Icon';
 import type { NowProgressState, NowWeeklyHabitSummary } from '../../lib/now/nowTypes';
+import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
 
 interface NowHeaderProps {
   dateTimeLabel: string;
@@ -17,6 +18,7 @@ interface NowHeaderProps {
   progressPercent: number;
   weeklySummaries: NowWeeklyHabitSummary[];
   capturesCount: number;
+  completedCount?: number;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
 }
@@ -61,19 +63,36 @@ const useStyles = makeStyles((t) => ({
     paddingTop: t.spacing[4],
     paddingBottom: t.spacing[4],
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: t.spacing[4],
+  },
+  greetingColumn: {
+    flex: 1,
+  },
+  mascotContainer: {
+    width: 58,
+    height: 58,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mascotImage: {
+    width: 52,
+    height: 52,
+  },
   greeting: {
     fontSize: t.typography.size.xl,
     fontFamily: t.typography.fontFamily.bold,
     color: t.colors.moss,
     marginBottom: t.spacing[1],
-    paddingHorizontal: t.spacing[4],
   },
   dateTime: {
     fontSize: t.typography.size.sm,
     fontFamily: t.typography.fontFamily.regular,
     color: t.colors.subtle,
     marginBottom: t.spacing[4],
-    paddingHorizontal: t.spacing[4],
   },
   weekRow: {
     flexDirection: 'row',
@@ -133,6 +152,7 @@ export function NowHeader({
   progressPercent,
   weeklySummaries,
   capturesCount,
+  completedCount,
   onPressProgress,
   onPressWeek,
 }: NowHeaderProps) {
@@ -164,8 +184,15 @@ export function NowHeader({
 
   return (
     <Box style={styles.container}>
-      <Text style={styles.greeting}>{greeting}</Text>
-      <Text style={styles.dateTime}>{dateTimeLabel}</Text>
+      <Box style={styles.topRow}>
+        <Box style={styles.greetingColumn}>
+          <Text style={styles.greeting}>{greeting}</Text>
+          <Text style={styles.dateTime}>{dateTimeLabel}</Text>
+        </Box>
+        <Box style={styles.mascotContainer}>
+          <Image source={GREMLY_CLIPBOARD} style={styles.mascotImage} resizeMode="contain" />
+        </Box>
+      </Box>
       <NowSegmentedBar progress={progressRatio} onPress={onPressProgress} />
 
       <Pressable onPress={onPressWeek} style={styles.weekRow} accessibilityRole="button">
@@ -178,7 +205,7 @@ export function NowHeader({
             <Box style={styles.capturesIcon}>
               <Icon name="FileText" size="sm" color={tokens.colors.mossGreen} />
             </Box>
-            <Text style={styles.capturesText}>CAPTURES: {capturesCount}</Text>
+            <Text style={styles.capturesText}>LOGS: {capturesCount}</Text>
           </Box>
         )}
       </Pressable>

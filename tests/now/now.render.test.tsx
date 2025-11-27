@@ -128,7 +128,8 @@ describe('NowScreenV1', () => {
 
     // Verify main sections render
     expect(screen.getByText(/Sweep/i)).toBeTruthy();
-    expect(screen.getByText(/overwhelmed/i)).toBeTruthy();
+    // Note: "Feeling overwhelmed?" is temporarily hidden (SHOW_OVERWHELM_ENTRY = false)
+    expect(screen.getByText(/Add more to your list/i)).toBeTruthy();
     // Mind Vault card should NOT be present
     expect(screen.queryByText('Mind Vault')).toBeFalsy();
   });

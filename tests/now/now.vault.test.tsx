@@ -137,7 +137,7 @@ describe('NOW Captures Indicator Tests', () => {
     it('shows captures indicator with non-zero counts', () => {
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 16')).toBeTruthy();
+      expect(screen.getByText('LOGS: 16')).toBeTruthy();
     });
 
     it('hides captures indicator when all counts are zero', () => {
@@ -157,7 +157,7 @@ describe('NOW Captures Indicator Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
+      expect(screen.queryByText(/LOGS:/)).toBeFalsy();
     });
 
     it('shows captures indicator with only lists', () => {
@@ -176,7 +176,7 @@ describe('NOW Captures Indicator Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+      expect(screen.getByText('LOGS: 3')).toBeTruthy();
     });
 
     it('shows captures indicator with mixed counts', () => {
@@ -195,7 +195,7 @@ describe('NOW Captures Indicator Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+      expect(screen.getByText('LOGS: 3')).toBeTruthy();
     });
 
     it('does not show Mind Vault card', () => {

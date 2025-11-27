@@ -2,6 +2,9 @@ import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { makeStyles } from '../../design/makeStyles';
 
+// Temporarily hide the "Feeling overwhelmed?" entry (can re-enable later)
+const SHOW_OVERWHELM_ENTRY = false;
+
 type Props = {
   onPressOverwhelm: () => void;
   onPressAddMore: () => void;
@@ -12,18 +15,20 @@ export function NowHelperRow({ onPressOverwhelm, onPressAddMore }: Props) {
 
   return (
     <View style={styles.row}>
-      <Pressable
-        onPress={onPressOverwhelm}
-        style={[styles.card, styles.cardLeft]}
-        accessibilityRole="button"
-      >
-        <Text style={styles.title}>Feeling overwhelmed?</Text>
-        <Text style={styles.subtitle}>Pick a few to focus on →</Text>
-      </Pressable>
+      {SHOW_OVERWHELM_ENTRY && (
+        <Pressable
+          onPress={onPressOverwhelm}
+          style={[styles.card, styles.cardLeft]}
+          accessibilityRole="button"
+        >
+          <Text style={styles.title}>Feeling overwhelmed?</Text>
+          <Text style={styles.subtitle}>Pick a few to focus on →</Text>
+        </Pressable>
+      )}
 
       <Pressable
         onPress={onPressAddMore}
-        style={[styles.card, styles.cardRight]}
+        style={[styles.card, SHOW_OVERWHELM_ENTRY ? styles.cardRight : null]}
         accessibilityRole="button"
       >
         <Text style={styles.title}>Add more to your list</Text>

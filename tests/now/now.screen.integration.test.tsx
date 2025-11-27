@@ -174,7 +174,7 @@ describe('NowScreenV1 Integration Tests', () => {
       expect(screen.getByText('WEEK:')).toBeTruthy();
 
       // Assert: Captures indicator shows aggregated count
-      expect(screen.getByText('CAPTURES: 18')).toBeTruthy();
+      expect(screen.getByText('LOGS: 18')).toBeTruthy();
 
       // Assert: Mind Vault card should NOT be present
       expect(screen.queryByText('Mind Vault')).toBeFalsy();
@@ -298,7 +298,7 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Week indicator renders label and status text
       expect(screen.getByText('WEEK:')).toBeTruthy();
       expect(screen.getByText('HABITS ON TRACK')).toBeTruthy();
-      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
+      expect(screen.queryByText(/LOGS:/)).toBeFalsy();
     });
   });
 
