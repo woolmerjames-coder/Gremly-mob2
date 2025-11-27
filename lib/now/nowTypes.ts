@@ -1,6 +1,11 @@
 /**
  * NOW Page Type Definitions
  * Pure TypeScript interfaces for NOW page data structures
+ *
+ * GREMLY TODO DATE MODEL:
+ * - `dueDay` (YYYY-MM-DD) is the canonical field for todo dates
+ * - `dueAt` is deprecated and should not be used for filtering
+ * - Todos with null dueDay are NOT shown in Today's Focus
  */
 
 import type { Habit, Todo, Note } from '../types';
@@ -15,7 +20,10 @@ export interface NowLockedItem {
   cadenceLabel?: string;
   statusText?: string | null;
   locked: true;
+  /** @deprecated Use dueDay instead */
   dueAt?: string | null;
+  /** Canonical due date in YYYY-MM-DD format */
+  dueDay?: string | null;
   cadence?: 'daily' | 'weekly' | 'monthly';
   targetPerPeriod?: number;
   progressToday?: number;
@@ -32,7 +40,10 @@ export interface NowActiveItem {
   cadenceLabel?: string;
   statusText?: string | null;
   locked: false;
+  /** @deprecated Use dueDay instead */
   dueAt?: string | null;
+  /** Canonical due date in YYYY-MM-DD format */
+  dueDay?: string | null;
   dueTime?: string | null;
   cadence?: 'daily' | 'weekly' | 'monthly';
   targetPerPeriod?: number;
@@ -50,7 +61,10 @@ export interface NowFutureItem {
   name: string;
   cadenceLabel?: string;
   statusText?: string | null;
+  /** @deprecated Use dueDay instead */
   dueAt?: string | null;
+  /** Canonical due date in YYYY-MM-DD format */
+  dueDay?: string | null;
   cadence?: 'daily' | 'weekly' | 'monthly';
   targetPerPeriod?: number;
   weeklyStatus?: HabitWeeklyStatus;

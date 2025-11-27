@@ -21,13 +21,17 @@ interface NowActiveItemCardProps {
   onToggleComplete?: () => void;
 }
 
+/**
+ * Compact Today card height: tuned so 7-8 items visible on mid-sized iPhone.
+ * Optimized for ADHD/overwhelm - more items at a glance without feeling cramped.
+ */
 const useStyles = makeStyles((t) => ({
   container: {
     backgroundColor: t.colors.linenCream,
     borderRadius: t.radius[2],
-    paddingVertical: t.spacing[2],
+    paddingVertical: 2,
     paddingHorizontal: t.spacing[4],
-    marginBottom: t.spacing[3],
+    marginBottom: 6,
     borderWidth: 1,
     borderColor: t.colors.border,
     ...t.elevation.sm,
@@ -38,8 +42,8 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'space-between',
   },
   checkbox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: t.radius[1],
     borderWidth: 2,
     borderColor: t.colors.subtle,
@@ -53,8 +57,10 @@ const useStyles = makeStyles((t) => ({
   },
   checkmark: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
+    lineHeight: 12,
+    textAlign: 'center',
   },
   textContainer: {
     flex: 1,
@@ -63,16 +69,19 @@ const useStyles = makeStyles((t) => ({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: t.spacing[1],
+    marginTop: 1,
   },
   cadenceLabel: {
-    marginLeft: t.spacing[2],
+    marginLeft: t.spacing[1],
     fontSize: t.typography.size.xs,
     fontFamily: t.typography.fontFamily.regular,
     color: t.colors.subtle,
+    lineHeight: 13,
   },
   checkboxContainer: {
-    marginLeft: t.spacing[3],
+    marginLeft: t.spacing[2],
+    minWidth: 44,
+    minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -80,9 +89,10 @@ const useStyles = makeStyles((t) => ({
     opacity: 0.6,
   },
   itemText: {
-    fontSize: t.typography.size.md,
+    fontSize: t.typography.size.sm,
     fontFamily: t.typography.fontFamily.medium,
     color: t.colors.text,
+    lineHeight: t.typography.size.sm * t.typography.lineHeight.tight,
   },
   itemTextCompleted: {
     textDecorationLine: 'line-through',

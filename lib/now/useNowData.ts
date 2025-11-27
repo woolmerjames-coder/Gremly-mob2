@@ -31,6 +31,7 @@ import {
   getWeeklyHabitSummaries,
   computeWeekHealth,
   getWeeklyCaptureCounts,
+  getTodayLogsCount,
 } from './nowSelectors';
 import { getGreeting } from '../today/copy';
 import type { TimeWindow } from '../env';
@@ -230,10 +231,11 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const futureItems = getFutureItems(allEntities, completionHistory, today);
       const completedToday = getCompletedTodayItems(allEntities, today);
       const weeklyCaptureCounts = getWeeklyCaptureCounts(notes, today);
-      const capturesCount =
-        (weeklyCaptureCounts?.listCount ?? 0) +
-        (weeklyCaptureCounts?.journalCount ?? 0) +
-        (weeklyCaptureCounts?.ideaCount ?? 0);
+
+      // Count TODAY's logs for the LOGS label in the header
+      // Uses getTodayLogsCount which handles both explicit date and created_at fallback
+      const capturesCount = getTodayLogsCount(notes, today);
+
       const vaultSummary = getMindVaultSummary(notes, today, weeklyCaptureCounts);
 
       // Calculate progress
@@ -248,14 +250,20 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const weeklySummaries = getWeeklyHabitSummaries(habits, completionHistory, today);
       const weekHealth = computeWeekHealth(weeklySummaries);
 
-      // Check for yesterday carry-over
+      // Check for yesterday carry-over using due_day (canonical)
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayDateStr = yesterday.toISOString().split('T')[0];
+      const yesterdayYear = yesterday.getFullYear();
+      const yesterdayMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+      const yesterdayDay = String(yesterday.getDate()).padStart(2, '0');
+      const yesterdayDayStr = `${yesterdayYear}-${yesterdayMonth}-${yesterdayDay}`;
 
       const hasYesterdayCarryOver = todos.some((todo) => {
-        if ((todo as any).status === 'completed' || !todo.due_date) return false;
-        return todo.due_date === yesterdayDateStr;
+        // Skip completed todos
+        if ((todo as any).status === 'completed') return false;
+        // Use due_day as canonical
+        if (!todo.due_day) return false;
+        return todo.due_day === yesterdayDayStr;
       });
 
       const timeWindow = getTimeWindow(today);

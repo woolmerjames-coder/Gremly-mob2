@@ -182,23 +182,19 @@ export default function NowScreenV1() {
     [interactions],
   );
 
-  const capturesCountFromVault =
-    now.vaultSummary.thisWeekStats.listCount +
-    now.vaultSummary.thisWeekStats.journalCount +
-    now.vaultSummary.thisWeekStats.ideaCount;
-  const capturesCount =
-    typeof now.capturesCount === 'number' ? now.capturesCount : capturesCountFromVault;
+  // Use today's logs count directly from useNowData (now uses getTodayLogsCount)
+  const capturesCount = now.capturesCount ?? 0;
 
   if (now.loading) {
     return (
-      <Screen style={styles.screen}>
+      <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
         <View />
       </Screen>
     );
   }
 
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
       <NowHeader
         dateTimeLabel={now.dateTimeLabel}
         progressState={adjustedProgressState}
@@ -369,20 +365,19 @@ function TodayFocusList({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
-    position: 'relative',
+    // backgroundColor inherited from Screen component (t.colors.bg = #FFFDF8)
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    marginTop: -16,
+    marginTop: 0,
     marginBottom: 12,
   },
   listContainer: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    // backgroundColor inherited from parent for continuous surface
   },
   listContent: {
     padding: 16,
@@ -424,6 +419,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#0E1116',
-    marginTop: 16,
+    marginTop: 0,
   },
 });
