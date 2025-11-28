@@ -10,10 +10,11 @@ import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
-import { NowHelperRow } from '../../components/now/NowHelperRow';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
 import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
+import { NowQuickAddPill } from '../../components/now/NowQuickAddPill';
+import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
@@ -21,6 +22,7 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useNowData } from '../../lib/now/useNowData';
+import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
@@ -38,6 +40,7 @@ export default function NowScreenV1() {
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isSweepVisible, setSweepVisible] = useState(false);
+  const [isQuickAddVisible, setQuickAddVisible] = useState(false);
 
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
@@ -174,6 +177,32 @@ export default function NowScreenV1() {
     overlayController.openCreate({ type: 'todo', defaultDueToday: true });
   }, [overlayController]);
 
+  // Quick add hook - wires to MindDrop pipeline with Today scoping
+  const quickAdd = useNowQuickAdd({
+    onSuccess: () => {
+      console.log('[NowScreenV1] Quick add success, reloading...');
+      void now.reload();
+    },
+    onError: (error) => {
+      console.error('[NowScreenV1] Quick add error:', error);
+    },
+  });
+
+  // Handle quick add submission - calls the MindDrop pipeline
+  const handleQuickAddSubmit = useCallback(
+    async (text: string) => {
+      console.log('[NowScreenV1] Quick add submitted:', text);
+      const result = await quickAdd.onQuickAdd(text);
+      return result;
+    },
+    [quickAdd],
+  );
+
+  // Handle "Prefer to add manually" from quick add modal
+  const handleQuickAddManual = useCallback(() => {
+    handleAddMore();
+  }, [handleAddMore]);
+
   // Handle undo from progress popup
   const handleUndoCompletedItem = useCallback(
     (item: NowCompletedItem) => {
@@ -219,8 +248,7 @@ export default function NowScreenV1() {
         completedHabitIds={interactions.completedHabitIds}
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
-        onPressOverwhelm={overwhelm.open}
-        onPressAddMore={handleAddMore}
+        onPressQuickAdd={() => setQuickAddVisible(true)}
       />
       <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
 
@@ -262,6 +290,13 @@ export default function NowScreenV1() {
       />
 
       <SweepDrawer visible={isSweepVisible} onClose={() => setSweepVisible(false)} />
+
+      <NowQuickAddModal
+        visible={isQuickAddVisible}
+        onClose={() => setQuickAddVisible(false)}
+        onSubmit={handleQuickAddSubmit}
+        onPressManualAdd={handleQuickAddManual}
+      />
     </Screen>
   );
 }
@@ -275,8 +310,7 @@ type TodayFocusListProps = {
   completedHabitIds: Set<string>;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
-  onPressOverwhelm: () => void;
-  onPressAddMore: () => void;
+  onPressQuickAdd: () => void;
 };
 
 function TodayFocusList({
@@ -288,8 +322,7 @@ function TodayFocusList({
   completedHabitIds,
   onPressItem,
   onToggleComplete,
-  onPressOverwhelm,
-  onPressAddMore,
+  onPressQuickAdd,
 }: TodayFocusListProps) {
   const hasNoItems = lockedItems.length === 0 && activeItems.length === 0;
   const isAllComplete = progressPercent === 100;
@@ -356,7 +389,7 @@ function TodayFocusList({
         />
       ))}
 
-      <NowHelperRow onPressOverwhelm={onPressOverwhelm} onPressAddMore={onPressAddMore} />
+      <NowQuickAddPill onPress={onPressQuickAdd} />
       <View style={styles.listBottomSpacer} />
     </ScrollView>
   );
