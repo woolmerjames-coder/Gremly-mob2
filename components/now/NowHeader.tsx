@@ -17,16 +17,19 @@ import { Text } from '../../ui';
 import { makeStyles, useTokens } from '../../design/makeStyles';
 import { NowSegmentedBar } from './NowSegmentedBar';
 import { Icon } from '../ui/Icon';
-import type { NowProgressState, NowWeeklyHabitSummary } from '../../lib/now/nowTypes';
+import type { NowWeeklyHabitSummary } from '../../lib/now/nowTypes';
 import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
 
 interface NowHeaderProps {
   dateTimeLabel: string;
-  progressState: NowProgressState;
-  progressPercent: number;
+  /** Total tasks for today (including habits + todos) */
+  totalTasksToday: number;
+  /** Total completed tasks for today */
+  totalCompletedToday: number;
+  /** Progress as a fraction (0-1) */
+  progressFraction: number;
   weeklySummaries: NowWeeklyHabitSummary[];
   capturesCount: number;
-  completedCount?: number;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
 }
@@ -68,11 +71,11 @@ function getHabitWeekStatus(
 
 export function NowHeader({
   dateTimeLabel,
-  progressState,
-  progressPercent,
+  totalTasksToday,
+  totalCompletedToday,
+  progressFraction,
   weeklySummaries,
   capturesCount,
-  completedCount,
   onPressProgress,
   onPressWeek,
 }: NowHeaderProps) {
@@ -80,13 +83,11 @@ export function NowHeader({
   const tokens = useTokens();
   const greeting = getTimeOfDayGreeting();
   const habitStatus = getHabitWeekStatus(weeklySummaries);
-  const fallbackRatio =
-    progressState.totalEligibleCount > 0
-      ? progressState.completedCount / progressState.totalEligibleCount
-      : 0;
+
+  // Clamp progress ratio to 0-1 range
   const progressRatio = Math.max(
     0,
-    Math.min(1, Number.isFinite(progressPercent) ? progressPercent : fallbackRatio),
+    Math.min(1, Number.isFinite(progressFraction) ? progressFraction : 0),
   );
 
   let weekLabelText = 'HABITS ON TRACK';

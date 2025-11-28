@@ -89,6 +89,104 @@ export interface TodayData {
   error: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sweep Status Evaluator (pure function, no imports, no side effects)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sweep escalation levels:
+ * - "none": No items to sweep, hide all sweep pills
+ * - "normal": Bottom sweep pill visible, header has no sweep pill
+ * - "moderate": Bottom sweep pill only (slightly bolder style)
+ * - "high": Header sweep pill visible, bottom sweep pill hidden
+ */
+export type SweepLevel = 'none' | 'normal' | 'moderate' | 'high';
+
+export interface SweepStatus {
+  level: SweepLevel;
+  label: string;
+  countLabel: string;
+  /** Whether to show sweep pill in header (right side of Today's Focus) */
+  showInHeader: boolean;
+  /** Whether to show sweep pill at bottom (next to Add pill) */
+  showAtBottom: boolean;
+}
+
+/**
+ * Evaluate the sweep urgency based on pending items and days since last sweep.
+ *
+ * Escalation Rules:
+ * • "none"     → pendingCount === 0 (no sweep needed)
+ * • "normal"   → pendingCount < 5 AND daysSinceSweep < 3
+ * • "moderate" → (pendingCount >= 5 AND pendingCount < 10) OR (daysSinceSweep >= 3 AND daysSinceSweep < 5)
+ * • "high"     → pendingCount >= 10 OR daysSinceSweep >= 5
+ *
+ * Placement Rules:
+ * • "none"     → no pill anywhere
+ * • "normal"   → bottom pill only
+ * • "moderate" → bottom pill only (bolder style)
+ * • "high"     → header pill only (bottom hidden)
+ *
+ * @param pendingCount - Number of items waiting in the sweep queue
+ * @param daysSinceSweep - Days since the user last performed a sweep
+ * @returns SweepStatus with level, label, countLabel, and placement flags
+ */
+export function getSweepStatus(pendingCount: number, daysSinceSweep: number): SweepStatus {
+  // No items to sweep = no sweep pill anywhere
+  if (pendingCount === 0) {
+    return {
+      level: 'none',
+      label: '',
+      countLabel: '',
+      showInHeader: false,
+      showAtBottom: false,
+    };
+  }
+
+  // Determine level based on rules
+  let level: SweepLevel;
+
+  if (pendingCount >= 10 || daysSinceSweep >= 5) {
+    level = 'high';
+  } else if (
+    (pendingCount >= 5 && pendingCount < 10) ||
+    (daysSinceSweep >= 3 && daysSinceSweep < 5)
+  ) {
+    level = 'moderate';
+  } else {
+    level = 'normal';
+  }
+
+  // Build copy and placement based on level
+  switch (level) {
+    case 'high':
+      return {
+        level,
+        label: 'Sweep is waiting',
+        countLabel: `${pendingCount} things`,
+        showInHeader: true,
+        showAtBottom: false,
+      };
+    case 'moderate':
+      return {
+        level,
+        label: 'Quick Sweep?',
+        countLabel: `${pendingCount} things waiting`,
+        showInHeader: false,
+        showAtBottom: true,
+      };
+    case 'normal':
+    default:
+      return {
+        level,
+        label: 'Sweep',
+        countLabel: `${pendingCount} things waiting`,
+        showInHeader: false,
+        showAtBottom: true,
+      };
+  }
+}
+
 const MAX_VISIBLE = 5;
 const MAX_SUGGESTIONS = 3;
 
@@ -268,12 +366,12 @@ function orderTodos(todos: EnrichedTodo[]): EnrichedTodo[] {
 
 /**
  * Hook to fetch and enrich Today screen data with ordering, capping, and event sync
- * 
+ *
  * Mind Drop v3 Integration:
  * - Today shows CANONICAL entities (todos/habits from all sources)
  * - Includes Mind Drop-created items that have reached 'prefilled' stage
  * - Does NOT show raw Mind Drop notes (those stay in Catch-All until converted)
- * 
+ *
  * Data Source:
  * - repo.listDueToday() returns all todos with due_date = today (regardless of origin)
  * - This means Mind Drop-created todos appear here once they have a due_date

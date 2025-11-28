@@ -3863,11 +3863,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       style: 'destructive',
                                       onPress: async () => {
                                         try {
-                                          await repo.remove((initialEntity as any).id);
-                                          eventBus.emit('ItemUpdated', {
-                                            id: (initialEntity as any).id,
+                                          const itemId = (initialEntity as any).id;
+                                          // Emit delete event BEFORE closing for optimistic UI
+                                          eventBus.emit('ItemDeleted', {
+                                            id: itemId,
+                                            type: 'todo',
                                           });
                                           onClose();
+                                          // Perform actual delete in background
+                                          await repo.remove(itemId);
+                                          eventBus.emit('ItemUpdated', { id: itemId });
                                         } catch (err) {
                                           console.error('[UnifiedOverlayV2] Delete failed:', err);
                                           Alert.alert(
@@ -3964,11 +3969,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       style: 'destructive',
                                       onPress: async () => {
                                         try {
-                                          await repo.remove((initialEntity as any).id);
-                                          eventBus.emit('ItemUpdated', {
-                                            id: (initialEntity as any).id,
+                                          const itemId = (initialEntity as any).id;
+                                          // Emit delete event BEFORE closing for optimistic UI
+                                          eventBus.emit('ItemDeleted', {
+                                            id: itemId,
+                                            type: 'habit',
                                           });
                                           onClose();
+                                          // Perform actual delete in background
+                                          await repo.remove(itemId);
+                                          eventBus.emit('ItemUpdated', { id: itemId });
                                         } catch (err) {
                                           console.error('[UnifiedOverlayV2] Delete failed:', err);
                                           Alert.alert(
@@ -4091,11 +4101,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       style: 'destructive',
                                       onPress: async () => {
                                         try {
-                                          await repo.remove((initialEntity as any).id);
-                                          eventBus.emit('ItemUpdated', {
-                                            id: (initialEntity as any).id,
+                                          const itemId = (initialEntity as any).id;
+                                          // Emit delete event BEFORE closing for optimistic UI
+                                          eventBus.emit('ItemDeleted', {
+                                            id: itemId,
+                                            type: 'note',
                                           });
                                           onClose();
+                                          // Perform actual delete in background
+                                          await repo.remove(itemId);
+                                          eventBus.emit('ItemUpdated', { id: itemId });
                                         } catch (err) {
                                           console.error(
                                             '[UnifiedOverlayV2] Delete log failed:',

@@ -32,6 +32,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
 
   const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
   const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
+  const [deletedItemIds, setDeletedItemIds] = useState<Set<string>>(new Set());
   const [undoState, setUndoState] = useState<UndoState | null>(null);
 
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -43,6 +44,35 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         clearTimeout(undoTimerRef.current);
       }
     };
+  }, []);
+
+  // Listen for ItemDeleted events and optimistically remove items from the list
+  useEffect(() => {
+    const unsubscribe = eventBus.on(
+      'ItemDeleted',
+      (event: { id: string; type: 'habit' | 'todo' | 'note' }) => {
+        console.log('[useTodayInteractions] ItemDeleted event:', event.id);
+        setDeletedItemIds((prev) => new Set(prev).add(event.id));
+      },
+    );
+
+    return unsubscribe;
+  }, []);
+
+  /**
+   * Mark an item as optimistically deleted (removed from UI immediately)
+   * Called when user confirms delete in the overlay
+   */
+  const markItemDeleted = useCallback((id: string) => {
+    setDeletedItemIds((prev) => new Set(prev).add(id));
+    console.log('[useTodayInteractions] Marked item as deleted:', id);
+  }, []);
+
+  /**
+   * Clear the deleted items set (called after reload completes)
+   */
+  const clearDeletedItems = useCallback(() => {
+    setDeletedItemIds(new Set());
   }, []);
 
   /**
@@ -314,10 +344,13 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
     toggleHabitComplete,
     undoLastCompletion,
     undoCompletionById,
+    markItemDeleted,
+    clearDeletedItems,
 
     // State
     completedHabitIds,
     completedTodoIds,
+    deletedItemIds,
     undoState,
   };
 }

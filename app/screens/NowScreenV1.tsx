@@ -9,32 +9,65 @@ import React, { useCallback, useState, useMemo } from 'react';
 import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
-import { NowSweepBar } from '../../components/now/NowSweepBar';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
 import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { NowQuickAddPill } from '../../components/now/NowQuickAddPill';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
+import TodayPillsRow from '../../components/today/TodayPillsRow';
 import SweepDrawer from '../../components/today/v3/SweepDrawer';
-import { useNowData } from '../../lib/now/useNowData';
+import { useTodayStats } from '../../lib/today/hooks';
+import { getSweepStatus, type SweepStatus } from '../../lib/today/useTodayData';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
+import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import type {
-  NowLockedItem,
-  NowActiveItem,
-  NowFutureItem,
-  NowCompletedItem,
-} from '../../lib/now/nowTypes';
+import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
 export default function NowScreenV1() {
-  const now = useNowData();
+  // Shared interactions from Today screen
+  const interactions = useTodayInteractions({
+    celebrationEnabled: false, // Can enable later
+  });
+
+  // Single source of truth for all Today stats, with optimistic state
+  const stats = useTodayStats({
+    completedTodoIds: interactions.completedTodoIds,
+    completedHabitIds: interactions.completedHabitIds,
+    deletedItemIds: interactions.deletedItemIds,
+  });
+
+  // Destructure for convenience
+  const {
+    lockedItems,
+    activeItems,
+    futureItems,
+    completedToday,
+    habitsToday,
+    completedHabitsToday,
+    totalTasksToday,
+    totalCompletedToday,
+    progressFraction,
+    progressPercent,
+    hasAnyTodayWork,
+    logsToday,
+    unsortedCount,
+    loading,
+    reload,
+    nowData,
+  } = stats;
+
+  // Compute sweep status based on unsorted count
+  // For now, daysSinceSweep defaults to 0 (no lastSweepAt tracking yet)
+  const sweepStatus = useMemo(() => {
+    return getSweepStatus(unsortedCount, 0);
+  }, [unsortedCount]);
+
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
   const [isProgressVisible, setProgressVisible] = useState(false);
@@ -42,101 +75,14 @@ export default function NowScreenV1() {
   const [isSweepVisible, setSweepVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
 
-  // Shared interactions from Today screen
-  const interactions = useTodayInteractions({
-    onReload: now.reload,
-    celebrationEnabled: false, // Can enable later
-  });
+  // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
+  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
-  // Compute adjusted progress that includes optimistic completions
-  // This ensures progress bar and counts update immediately when items are checked
-  const adjustedProgressState = useMemo(() => {
-    // Count optimistic completions that aren't already in the server-side completedToday
-    const serverCompletedIds = new Set(now.completedToday.map((item) => item.id));
-
-    // Count new optimistic completions (not yet persisted)
-    let optimisticCount = 0;
-    for (const id of interactions.completedTodoIds) {
-      if (!serverCompletedIds.has(id)) {
-        optimisticCount++;
-      }
-    }
-    for (const id of interactions.completedHabitIds) {
-      if (!serverCompletedIds.has(id)) {
-        optimisticCount++;
-      }
-    }
-
-    if (optimisticCount === 0) {
-      return now.progressState;
-    }
-
-    const newCompletedCount = now.progressState.completedCount + optimisticCount;
-    const newPercent =
-      now.progressState.totalEligibleCount > 0
-        ? Math.round((newCompletedCount / now.progressState.totalEligibleCount) * 100)
-        : 0;
-
-    return {
-      ...now.progressState,
-      completedCount: newCompletedCount,
-      percent: Math.min(newPercent, 100),
-    };
-  }, [
-    now.progressState,
-    now.completedToday,
-    interactions.completedTodoIds,
-    interactions.completedHabitIds,
-  ]);
-
-  // Compute adjusted completedToday list that includes optimistic completions
-  // This ensures the popup shows items immediately when checked
-  const adjustedCompletedToday = useMemo((): NowCompletedItem[] => {
-    const serverCompletedIds = new Set(now.completedToday.map((item) => item.id));
-    const allItems = [...now.lockedItems, ...now.activeItems, ...now.futureItems];
-
-    // Start with server-side completed items
-    const result: NowCompletedItem[] = [...now.completedToday];
-
-    // Add optimistically completed todos not yet on server
-    for (const id of interactions.completedTodoIds) {
-      if (!serverCompletedIds.has(id)) {
-        const item = allItems.find((i) => i.id === id && i.type === 'todo');
-        if (item) {
-          result.push({
-            id: item.id,
-            type: 'todo',
-            name: item.name,
-            completedAt: new Date().toISOString(),
-          });
-        }
-      }
-    }
-
-    // Add optimistically completed habits not yet on server
-    for (const id of interactions.completedHabitIds) {
-      if (!serverCompletedIds.has(id)) {
-        const item = allItems.find((i) => i.id === id && i.type === 'habit');
-        if (item) {
-          result.push({
-            id: item.id,
-            type: 'habit',
-            name: item.name,
-            completedAt: new Date().toISOString(),
-          });
-        }
-      }
-    }
-
-    return result;
-  }, [
-    now.completedToday,
-    now.lockedItems,
-    now.activeItems,
-    now.futureItems,
-    interactions.completedTodoIds,
-    interactions.completedHabitIds,
-  ]);
+  // Toast for quick add feedback
+  const { showToast, Toast: QuickAddToast } = useActionToast();
 
   // Handle item press - open overlay
   const handlePressItem = useCallback(
@@ -160,12 +106,12 @@ export default function NowScreenV1() {
 
   // Handle overwhelm plan submission
   const handleOverwhelmSubmit = useCallback(() => {
-    const selectedItems = [...now.lockedItems, ...now.activeItems]
+    const selectedItems = [...lockedItems, ...activeItems]
       .filter((item) => overwhelm.selectedIds.includes(item.id))
       .map((item) => ({ id: item.id, title: item.name }));
 
     void overwhelm.requestPlan(selectedItems);
-  }, [overwhelm, now.lockedItems, now.activeItems]);
+  }, [overwhelm, lockedItems, activeItems]);
 
   // Handle sweep press
   const handleSweepPress = useCallback(() => {
@@ -173,48 +119,70 @@ export default function NowScreenV1() {
     setSweepVisible(true);
   }, []);
 
-  const handleAddMore = useCallback(() => {
-    overlayController.openCreate({ type: 'todo', defaultDueToday: true });
-  }, [overlayController]);
+  // Handle add press - opens quick-add MindDrop modal
+  const handleAddPress = useCallback(() => {
+    setQuickAddVisible(true);
+  }, []);
 
   // Quick add hook - wires to MindDrop pipeline with Today scoping
+  // Uses optimistic flow: onStart for immediate feedback, onComplete for final state
   const quickAdd = useNowQuickAdd({
-    onSuccess: () => {
-      console.log('[NowScreenV1] Quick add success, reloading...');
-      void now.reload();
+    onStart: (draftTitle) => {
+      console.log('[NowScreenV1] Quick add started:', draftTitle);
+      // Show optimistic 'Processing...' card
+      setOptimisticQuickAdd({
+        id: `now-optimistic-${Date.now()}`,
+        title: draftTitle,
+      });
+    },
+    onComplete: (result) => {
+      console.log('[NowScreenV1] Quick add complete:', result);
+      // Clear optimistic card
+      setOptimisticQuickAdd(null);
+
+      // Reload Today data - no toast needed, optimistic card + refresh is the feedback
+      if (result.kind === 'todo' || result.kind === 'habit') {
+        void reload();
+      } else if (result.kind === 'log' || result.kind === 'note') {
+        // Log/note doesn't appear on Today, no reload needed
+      } else {
+        // Unknown outcome - just reload
+        void reload();
+      }
     },
     onError: (error) => {
-      console.error('[NowScreenV1] Quick add error:', error);
+      console.error('[NowScreenV1] Quick add error:', error.message);
+      // Clear optimistic card and show error toast
+      setOptimisticQuickAdd(null);
+      showToast({ type: 'success', content: 'Something went wrong. Please try again.' });
     },
   });
 
-  // Handle quick add submission - calls the MindDrop pipeline
+  // Handle quick add submission - fire-and-forget, modal closes immediately
   const handleQuickAddSubmit = useCallback(
-    async (text: string) => {
-      console.log('[NowScreenV1] Quick add submitted:', text);
-      const result = await quickAdd.onQuickAdd(text);
-      return result;
+    (text: string) => {
+      quickAdd.onQuickAdd(text);
     },
     [quickAdd],
   );
 
   // Handle "Prefer to add manually" from quick add modal
   const handleQuickAddManual = useCallback(() => {
-    handleAddMore();
-  }, [handleAddMore]);
+    overlayController.openCreate({ type: 'todo', defaultDueToday: true });
+  }, [overlayController]);
 
   // Handle undo from progress popup
   const handleUndoCompletedItem = useCallback(
-    (item: NowCompletedItem) => {
+    (item: { id: string; type: 'habit' | 'todo' }) => {
       void interactions.undoCompletionById(item.id, item.type);
     },
     [interactions],
   );
 
-  // Use today's logs count directly from useNowData (now uses getTodayLogsCount)
-  const capturesCount = now.capturesCount ?? 0;
+  // Use today's logs count from useTodayStats
+  const capturesCount = logsToday;
 
-  if (now.loading) {
+  if (loading) {
     return (
       <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
         <View />
@@ -225,49 +193,75 @@ export default function NowScreenV1() {
   return (
     <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
       <NowHeader
-        dateTimeLabel={now.dateTimeLabel}
-        progressState={adjustedProgressState}
-        progressPercent={adjustedProgressState.percent / 100}
-        weeklySummaries={now.weeklySummaries}
+        dateTimeLabel={nowData.dateTimeLabel}
+        totalTasksToday={totalTasksToday}
+        totalCompletedToday={totalCompletedToday}
+        progressFraction={progressFraction}
+        weeklySummaries={nowData.weeklySummaries}
         capturesCount={capturesCount}
-        completedCount={adjustedProgressState.completedCount}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
       <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>
-          Today's Focus ({adjustedProgressState.completedCount} completed)
-        </Text>
+        {/* Left: Two-line header block */}
+        <View style={styles.sectionHeaderLeft}>
+          <Text style={styles.sectionTitle}>Today's Focus</Text>
+          <Text style={styles.sectionSubtitle}>
+            {totalCompletedToday} of {totalTasksToday} done
+          </Text>
+        </View>
+        {/* Right: Sweep pill in HIGH state (uses showInHeader flag) */}
+        {sweepStatus.showInHeader && (
+          <TodayPillsRow
+            sweepLevel={sweepStatus.level}
+            sweepLabel={sweepStatus.label}
+            sweepCountLabel={sweepStatus.countLabel}
+            onSweepPress={handleSweepPress}
+            onAddPress={handleAddPress}
+            showSweepOnly
+            compact
+          />
+        )}
       </View>
       <TodayFocusList
-        lockedItems={now.lockedItems}
-        activeItems={now.activeItems}
-        futureItems={now.futureItems}
-        progressPercent={adjustedProgressState.percent}
+        lockedItems={lockedItems}
+        activeItems={activeItems}
+        futureItems={futureItems}
+        progressPercent={progressPercent}
         completedTodoIds={interactions.completedTodoIds}
         completedHabitIds={interactions.completedHabitIds}
+        hasAnyTodayWork={hasAnyTodayWork}
         onPressItem={handlePressItem}
         onToggleComplete={handleToggleComplete}
-        onPressQuickAdd={() => setQuickAddVisible(true)}
+        optimisticQuickAdd={optimisticQuickAdd}
+        sweepStatus={sweepStatus}
+        onSweepPress={handleSweepPress}
+        onAddPress={handleAddPress}
       />
-      <NowSweepBar hasYesterdayCarryOver={now.hasYesterdayCarryOver} onPress={handleSweepPress} />
+
+      {/* Quick Add toast */}
+      {QuickAddToast}
 
       <NowProgressPopup
         visible={isProgressVisible}
-        completed={adjustedCompletedToday}
+        completed={completedToday}
+        totalTasksToday={totalTasksToday}
+        totalCompletedToday={totalCompletedToday}
         onClose={() => setProgressVisible(false)}
         onUndoItem={handleUndoCompletedItem}
       />
 
       <NowWeekPopup
         visible={isWeekVisible}
-        summaries={now.weeklySummaries}
+        habitsToday={habitsToday}
+        completedHabitsToday={completedHabitsToday}
+        weeklySummaries={nowData.weeklySummaries}
         onClose={() => setWeekVisible(false)}
       />
 
       <OverwhelmSelectSheet
         visible={overwhelm.step === 'select'}
-        items={[...now.lockedItems, ...now.activeItems]}
+        items={[...lockedItems, ...activeItems]}
         selectedIds={overwhelm.selectedIds}
         onToggleSelect={overwhelm.toggleSelection}
         onSubmit={handleOverwhelmSubmit}
@@ -308,9 +302,13 @@ type TodayFocusListProps = {
   progressPercent: number;
   completedTodoIds: Set<string>;
   completedHabitIds: Set<string>;
+  hasAnyTodayWork: boolean;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
-  onPressQuickAdd: () => void;
+  optimisticQuickAdd?: { id: string; title: string } | null;
+  sweepStatus: SweepStatus;
+  onSweepPress: () => void;
+  onAddPress: () => void;
 };
 
 function TodayFocusList({
@@ -320,12 +318,16 @@ function TodayFocusList({
   progressPercent,
   completedTodoIds,
   completedHabitIds,
+  hasAnyTodayWork,
   onPressItem,
   onToggleComplete,
-  onPressQuickAdd,
+  optimisticQuickAdd,
+  sweepStatus,
+  onSweepPress,
+  onAddPress,
 }: TodayFocusListProps) {
-  const hasNoItems = lockedItems.length === 0 && activeItems.length === 0;
-  const isAllComplete = progressPercent === 100;
+  const hasNoItems = lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd;
+  const isAllComplete = progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd;
 
   // Helper to check if an item is completed
   const isItemCompleted = (item: NowLockedItem | NowActiveItem | NowFutureItem): boolean => {
@@ -353,6 +355,23 @@ function TodayFocusList({
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>Nothing scheduled for today.</Text>
           <Text style={styles.emptySubtext}>Enjoy a calmer day — or try a Sweep.</Text>
+        </View>
+      )}
+
+      {/* Optimistic 'Processing...' card at the top while pipeline runs */}
+      {optimisticQuickAdd && (
+        <View key={optimisticQuickAdd.id} style={styles.optimisticCard}>
+          <View style={styles.optimisticContent}>
+            <View style={styles.optimisticTextContainer}>
+              <Text numberOfLines={1} style={styles.optimisticTitle}>
+                {optimisticQuickAdd.title}
+              </Text>
+              <Text style={styles.optimisticSubtitle}>Processing...</Text>
+            </View>
+            <View style={styles.optimisticCheckbox}>
+              <Text style={styles.optimisticSpinner}>⏳</Text>
+            </View>
+          </View>
         </View>
       )}
 
@@ -389,7 +408,21 @@ function TodayFocusList({
         />
       ))}
 
-      <NowQuickAddPill onPress={onPressQuickAdd} />
+      {/* Bottom pills section - uses showAtBottom flag from sweep status */}
+      {/* When showInHeader is true (high state), only show Add pill */}
+      {/* When showAtBottom is true (normal/moderate), show both pills */}
+      {/* When level is 'none', don't show sweep pill at all */}
+      <View style={styles.pillsRowContainer}>
+        <TodayPillsRow
+          sweepLevel={sweepStatus.level}
+          sweepLabel={sweepStatus.label}
+          sweepCountLabel={sweepStatus.countLabel}
+          onSweepPress={onSweepPress}
+          onAddPress={onAddPress}
+          showAddOnly={!sweepStatus.showAtBottom}
+        />
+      </View>
+
       <View style={styles.listBottomSpacer} />
     </ScrollView>
   );
@@ -406,7 +439,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     marginTop: 0,
-    marginBottom: 12,
+    marginBottom: 8, // Reduced from 12 to match section spacing
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'column',
+    flex: 1,
+    flexShrink: 1, // Allow shrinking to prevent text wrap
+    marginRight: 12, // Gap before sweep pill when present
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0E1116',
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#757575', // subtle color, matches WEEK label style
+    marginTop: 2, // Reduced from 4 for tighter header
   },
   listContainer: {
     flex: 1,
@@ -447,11 +497,51 @@ const styles = StyleSheet.create({
   listBottomSpacer: {
     height: 120,
   },
-  sectionTitle: {
+  // Optimistic quick-add card styles (processing state)
+  optimisticCard: {
+    backgroundColor: '#F5F3EE', // linenCream
+    borderRadius: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 16,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#E5E2DA',
+    opacity: 0.8, // Slightly reduced opacity for processing state
+  },
+  optimisticContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  optimisticTextContainer: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  optimisticTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#0E1116',
-    marginTop: 0,
+    lineHeight: 18,
+  },
+  optimisticSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  optimisticCheckbox: {
+    marginLeft: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optimisticSpinner: {
+    fontSize: 16,
+  },
+  // TodayPillsRow container - used below cards
+  pillsRowContainer: {
+    marginTop: 8, // Tightened spacing after cards
+    marginBottom: 0, // listBottomSpacer handles bottom spacing
   },
 });

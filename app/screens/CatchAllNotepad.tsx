@@ -1108,6 +1108,11 @@ const RecentDrops: React.FC<{
     (prev: UnifiedDrop[], record: any, kind: 'todo' | 'habit' | 'note'): UnifiedDrop[] => {
       if (!record?.id) return prev;
 
+      // If the record is archived (note) or completed (todo/habit), remove it from the list
+      if (kind === 'note' && record.archived === true) {
+        return prev.filter((item) => item.id !== record.id);
+      }
+
       return prev.map((item) => {
         if (item.id !== record.id || item.kind !== kind) return item;
 
@@ -1123,6 +1128,7 @@ const RecentDrops: React.FC<{
           tags,
           views,
           drop_id: (record as any).drop_id ?? item.drop_id ?? null,
+          archived: (record as any).archived ?? item.archived ?? false,
           labels: Array.isArray((record as any).labels)
             ? (record as any).labels
             : (item.labels ?? []),
@@ -1387,12 +1393,27 @@ const RecentDrops: React.FC<{
         }
 
         // Conflict: prefer canonical items (habit/todo) over unsorted notes
-        // Priority: habit > todo > note (non-unsorted) > note (unsorted)
-        const itemPriority =
-          item.kind === 'habit' ? 3 : item.kind === 'todo' ? 2 : item.unsorted ? 0 : 1;
+        // Priority: habit > todo > note (non-unsorted) > note (unsorted/catchall)
+        // A note is considered "unsorted" if:
+        // - unsorted === true (has 'needs_review' label), OR
+        // - noteSubtype === 'catchall', OR
+        // - labels includes 'needs_review' or 'catchall'
+        const isUnsortedNote = (drop: UnifiedDrop) =>
+          drop.kind === 'note' &&
+          (drop.unsorted === true ||
+            drop.noteSubtype === 'catchall' ||
+            (Array.isArray(drop.labels) &&
+              (drop.labels.includes('needs_review') || drop.labels.includes('catchall'))));
 
-        const existingPriority =
-          existing.kind === 'habit' ? 3 : existing.kind === 'todo' ? 2 : existing.unsorted ? 0 : 1;
+        const getPriority = (drop: UnifiedDrop): number => {
+          if (drop.kind === 'habit') return 3;
+          if (drop.kind === 'todo') return 2;
+          if (drop.kind === 'note' && !isUnsortedNote(drop)) return 1;
+          return 0; // unsorted/catchall notes have lowest priority
+        };
+
+        const itemPriority = getPriority(item);
+        const existingPriority = getPriority(existing);
 
         if (itemPriority > existingPriority) {
           // Replace with higher-priority item

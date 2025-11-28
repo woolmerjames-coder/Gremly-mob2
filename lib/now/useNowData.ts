@@ -52,6 +52,7 @@ export interface NowData {
   weeklySummaries: NowWeeklyHabitSummary[];
   weekHealth: NowWeekHealth;
   capturesCount: number;
+  unsortedCount: number;
   loading: boolean;
 }
 
@@ -125,6 +126,7 @@ function calculateWeekStatus(
 
 /**
  * Main hook for NOW page data
+ * Uses stale-while-revalidate pattern: keeps existing data visible during reload
  */
 export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const repo = useRepo();
@@ -132,6 +134,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
   const isLoadingRef = useRef(false);
+  const hasLoadedOnceRef = useRef(false);
 
   const [data, setData] = useState<NowData>({
     greeting: getGreeting(getTimeWindow(today)),
@@ -162,6 +165,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     weeklySummaries: [],
     weekHealth: 'on_track',
     capturesCount: 0,
+    unsortedCount: 0,
     loading: true,
   });
 
@@ -186,11 +190,21 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
 
     console.log('[useNowData] Starting load...');
     isLoadingRef.current = true;
-    setData((prev) => ({ ...prev, loading: true }));
+
+    // STALE-WHILE-REVALIDATE: Only show loading state on initial load
+    // For subsequent reloads, keep existing data visible while fetching
+    if (!hasLoadedOnceRef.current) {
+      setData((prev) => ({ ...prev, loading: true }));
+    }
+    // Note: We do NOT set loading: true for reloads - existing data stays visible
 
     try {
       // Fetch all data in parallel
-      const [allRecords, allNotes] = await Promise.all([repo.getAll(), repo.listByType('note')]);
+      const [allRecords, allNotes, unsortedCount] = await Promise.all([
+        repo.getAll(),
+        repo.listByType('note'),
+        repo.countUnsorted(),
+      ]);
 
       // Reset error counter on success
       errorCountRef.current = 0;
@@ -268,6 +282,9 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
 
       const timeWindow = getTimeWindow(today);
 
+      // Mark that we've loaded at least once
+      hasLoadedOnceRef.current = true;
+
       setData({
         greeting: getGreeting(timeWindow, user.email?.split('@')[0] || ''),
         dateTimeLabel: formatDateTime(today),
@@ -282,6 +299,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         weeklySummaries,
         weekHealth,
         capturesCount,
+        unsortedCount,
         loading: false,
       });
       isLoadingRef.current = false;
@@ -320,16 +338,36 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     load();
   }, [load]);
 
-  // Auto-reload when an overlay is saved (todo created/updated)
+  // Auto-reload when an overlay is saved or an item is updated/deleted
   // This ensures the Today lane updates immediately without waiting for Supabase realtime
   useEffect(() => {
-    const unsubscribe = eventBus.on('OverlaySaved', (event: { id?: string; type?: string }) => {
-      console.log('[useNowData] OverlaySaved event, reloading...', event);
-      void load();
-    });
+    const unsubscribes: Array<() => void> = [];
+
+    unsubscribes.push(
+      eventBus.on('OverlaySaved', (event: { id?: string; type?: string }) => {
+        console.log('[useNowData] OverlaySaved event, reloading...', event);
+        void load();
+      }),
+    );
+
+    // Listen for ItemUpdated (emitted on delete, update)
+    unsubscribes.push(
+      eventBus.on('ItemUpdated', (event: { id: string }) => {
+        console.log('[useNowData] ItemUpdated event, reloading...', event);
+        void load();
+      }),
+    );
+
+    // Listen for ItemCompleted (emitted on completion)
+    unsubscribes.push(
+      eventBus.on('ItemCompleted', () => {
+        console.log('[useNowData] ItemCompleted event, reloading...');
+        void load();
+      }),
+    );
 
     return () => {
-      unsubscribe();
+      unsubscribes.forEach((unsub) => unsub());
     };
   }, [load]);
 

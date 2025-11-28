@@ -10,6 +10,10 @@ import type { NowCompletedItem } from '../../lib/now/nowTypes';
 interface NowProgressPopupProps {
   visible: boolean;
   completed: NowCompletedItem[];
+  /** Total tasks for today */
+  totalTasksToday: number;
+  /** Total completed tasks for today */
+  totalCompletedToday: number;
   onClose: () => void;
   onUndoItem?: (item: NowCompletedItem) => void;
 }
@@ -17,9 +21,17 @@ interface NowProgressPopupProps {
 export function NowProgressPopup({
   visible,
   completed,
+  totalTasksToday,
+  totalCompletedToday,
   onClose,
   onUndoItem,
 }: NowProgressPopupProps) {
+  // Format header text: "X of Y done for today"
+  const headerText =
+    totalTasksToday > 0
+      ? `${totalCompletedToday} of ${totalTasksToday} done for today`
+      : 'Nothing scheduled for today yet';
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
@@ -29,7 +41,10 @@ export function NowProgressPopup({
           onPress={(e) => e.stopPropagation()}
         >
           <Box style={styles.header}>
-            <Text style={styles.title}>Today's Progress</Text>
+            <Box style={styles.headerContent}>
+              <Text style={styles.title}>Today's Progress</Text>
+              <Text style={styles.subtitle}>{headerText}</Text>
+            </Box>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeText}>Close</Text>
             </TouchableOpacity>
@@ -87,15 +102,23 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+  },
+  headerContent: {
+    flex: 1,
   },
   title: {
     fontSize: 18,
     fontWeight: '700',
     color: '#212121',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#757575',
+    marginTop: 4,
   },
   closeButton: {
     padding: 8,

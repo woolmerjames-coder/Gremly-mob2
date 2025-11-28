@@ -131,6 +131,11 @@ function getWeekStart(date: Date): Date {
  * - Otherwise, fall back to `created_at` timestamp in local timezone
  * - This handles MindDrop logs which may not have `date` set
  *
+ * EXCLUSIONS:
+ * - Unsorted/catchall notes are NOT counted as logs
+ * - Notes with subtype 'catchall' or unsorted=true are excluded
+ * - Only proper logs (journal, idea, list, reference, everything_else, plain) are counted
+ *
  * @param logs - Array of notes to filter
  * @param date - Reference date for "today" (defaults to now)
  * @returns Count of logs created today
@@ -143,6 +148,15 @@ export function getTodayLogsCount(logs: Note[], date: Date = new Date()): number
   const todayStr = `${year}-${month}-${day}`;
 
   return logs.filter((log) => {
+    // Exclude unsorted/catchall items - they are NOT logs
+    // They appear in Mind Drop (CatchAllNotepad) until converted
+    if (log.unsorted === true) return false;
+    if (log.subtype === 'catchall') return false;
+
+    // Also exclude items with 'needs_review' or 'catchall' labels
+    const labels = log.labels ?? [];
+    if (labels.includes('needs_review') || labels.includes('catchall')) return false;
+
     // First check explicit date field (used by journal entries)
     if (log.date) {
       // date field is already YYYY-MM-DD format

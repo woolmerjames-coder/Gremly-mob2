@@ -11,14 +11,6 @@ import { NowList } from '../../components/now/NowList';
 import { NowSweepBar } from '../../components/now/NowSweepBar';
 import { OverwhelmButton } from '../../components/now/OverwhelmButton';
 
-const mockProgressState = {
-  mode: 'dots' as const,
-  percent: 42,
-  completedCount: 2,
-  totalEligibleCount: 5,
-  dots: [true, false, true, false, false],
-};
-
 const mockVaultSummary = {
   topThree: [
     { id: '1', name: 'Groceries', itemCount: 5 },
@@ -66,8 +58,9 @@ describe('NowHeader', () => {
     render(
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
-        progressState={mockProgressState}
-        progressPercent={0.42}
+        totalTasksToday={5}
+        totalCompletedToday={2}
+        progressFraction={0.42}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -81,8 +74,9 @@ describe('NowHeader', () => {
     render(
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
-        progressState={mockProgressState}
-        progressPercent={0.42}
+        totalTasksToday={5}
+        totalCompletedToday={2}
+        progressFraction={0.42}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -96,8 +90,9 @@ describe('NowHeader', () => {
     render(
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
-        progressState={mockProgressState}
-        progressPercent={0.42}
+        totalTasksToday={5}
+        totalCompletedToday={2}
+        progressFraction={0.42}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -110,8 +105,9 @@ describe('NowHeader', () => {
     render(
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
-        progressState={mockProgressState}
-        progressPercent={0.42}
+        totalTasksToday={5}
+        totalCompletedToday={2}
+        progressFraction={0.42}
         weeklySummaries={[
           {
             habitId: 'habit-1',

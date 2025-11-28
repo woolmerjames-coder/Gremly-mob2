@@ -1,15 +1,29 @@
 /**
- * NowWeekPopup - Shows weekly habit summaries
+ * NowWeekPopup - Shows today's habit progress and weekly summaries
+ *
+ * Uses useTodayStats as single source of truth for today's habits,
+ * ensuring the counts match what's shown in the Today cards.
  */
 
 import React from 'react';
 import { Modal, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Box, Text } from '../../ui';
-import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../../lib/now/nowTypes';
+import type {
+  NowWeeklyHabitSummary,
+  HabitWeeklyStatus,
+  NowLockedItem,
+  NowActiveItem,
+  NowCompletedItem,
+} from '../../lib/now/nowTypes';
 
 interface NowWeekPopupProps {
   visible: boolean;
-  summaries: NowWeeklyHabitSummary[];
+  /** Today's habits from useTodayStats (locked + active) */
+  habitsToday: Array<NowLockedItem | NowActiveItem>;
+  /** Today's completed habits from useTodayStats */
+  completedHabitsToday: NowCompletedItem[];
+  /** Weekly summaries for habit tracking */
+  weeklySummaries: NowWeeklyHabitSummary[];
   onClose: () => void;
 }
 
@@ -28,9 +42,36 @@ function getStatusLabel(status: HabitWeeklyStatus): string {
   }
 }
 
-export function NowWeekPopup({ visible, summaries, onClose }: NowWeekPopupProps) {
-  const totalCompleted = summaries.reduce((sum, s) => sum + s.completionsThisWeek, 0);
-  const totalTarget = summaries.reduce((sum, s) => sum + s.targetPerWeek, 0);
+export function NowWeekPopup({
+  visible,
+  habitsToday,
+  completedHabitsToday,
+  weeklySummaries,
+  onClose,
+}: NowWeekPopupProps) {
+  // Today's habit counts - derived from useTodayStats
+  const totalHabitsToday = habitsToday.length;
+  const completedHabitsCount = completedHabitsToday.length;
+  const allHabitsCompletedToday = totalHabitsToday > 0 && completedHabitsCount >= totalHabitsToday;
+
+  // Weekly totals
+  const weeklyCompleted = weeklySummaries.reduce((sum, s) => sum + s.completionsThisWeek, 0);
+  const weeklyTarget = weeklySummaries.reduce((sum, s) => sum + s.targetPerWeek, 0);
+
+  // Determine today's status message
+  let todayStatusMessage: string;
+  let todayStatusStyle: object;
+
+  if (totalHabitsToday === 0) {
+    todayStatusMessage = 'No habits scheduled for today';
+    todayStatusStyle = styles.todayStatusNeutral;
+  } else if (allHabitsCompletedToday) {
+    todayStatusMessage = '✓ All habits done for today!';
+    todayStatusStyle = styles.todayStatusComplete;
+  } else {
+    todayStatusMessage = `${completedHabitsCount} of ${totalHabitsToday} habits done today`;
+    todayStatusStyle = styles.todayStatusInProgress;
+  }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -41,18 +82,27 @@ export function NowWeekPopup({ visible, summaries, onClose }: NowWeekPopupProps)
           onPress={(e) => e.stopPropagation()}
         >
           <Box style={styles.header}>
-            <Text style={styles.title}>Your week so far</Text>
+            <Text style={styles.title}>Habits</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeText}>Close</Text>
             </TouchableOpacity>
           </Box>
 
           <ScrollView style={styles.list}>
-            {summaries.length === 0 ? (
-              <Text style={styles.emptyText}>No habits to track this week</Text>
-            ) : (
+            {/* Today's Status Banner */}
+            <Box style={styles.todayBanner}>
+              <Text style={styles.todayLabel}>TODAY</Text>
+              <Text style={[styles.todayStatus, todayStatusStyle]}>{todayStatusMessage}</Text>
+            </Box>
+
+            {/* Weekly Summary Section */}
+            {weeklySummaries.length > 0 && (
               <>
-                {summaries.map((summary, index) => (
+                <Box style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>This Week</Text>
+                </Box>
+
+                {weeklySummaries.map((summary, index) => (
                   <Box key={index} style={styles.item}>
                     <Text style={styles.habitName}>{summary.name}</Text>
                     <Text style={styles.habitProgress}>
@@ -62,14 +112,16 @@ export function NowWeekPopup({ visible, summaries, onClose }: NowWeekPopupProps)
                   </Box>
                 ))}
 
-                {summaries.length > 0 && (
-                  <Box style={styles.overall}>
-                    <Text style={styles.overallText}>
-                      Overall: {totalCompleted}/{totalTarget} on track
-                    </Text>
-                  </Box>
-                )}
+                <Box style={styles.overall}>
+                  <Text style={styles.overallText}>
+                    Weekly: {weeklyCompleted}/{weeklyTarget} completed
+                  </Text>
+                </Box>
               </>
+            )}
+
+            {weeklySummaries.length === 0 && totalHabitsToday === 0 && (
+              <Text style={styles.emptyText}>No habits to track</Text>
             )}
           </ScrollView>
         </TouchableOpacity>
@@ -113,6 +165,44 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: 16,
+  },
+  // Today's status banner
+  todayBanner: {
+    backgroundColor: '#F5F3EE',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  todayLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#757575',
+    marginBottom: 4,
+    letterSpacing: 1,
+  },
+  todayStatus: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  todayStatusComplete: {
+    color: '#2E5540', // mossGreen
+  },
+  todayStatusInProgress: {
+    color: '#424242',
+  },
+  todayStatusNeutral: {
+    color: '#757575',
+  },
+  // Weekly section
+  sectionHeader: {
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#757575',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   item: {
     paddingVertical: 12,

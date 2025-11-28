@@ -1,6 +1,8 @@
 /**
  * NowQuickAddModal - Modal for quick adding items to Today's Focus
  * Large bottom sheet with MindDrop header, input, submit button, and manual add link
+ *
+ * Uses fire-and-forget pattern: closes immediately on submit, pipeline runs in background.
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -24,7 +26,8 @@ const MINDDROP_HEADER = require('../../assets/minddrop_header-removebg.png');
 interface NowQuickAddModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (text: string) => Promise<{ success: boolean; error?: string }>;
+  /** Fire-and-forget submit - closes modal immediately, pipeline runs in background */
+  onSubmit: (text: string) => void;
   onPressManualAdd: () => void;
 }
 
@@ -93,9 +96,6 @@ const useStyles = makeStyles((t) => ({
     fontFamily: t.typography.fontFamily.medium,
     color: '#FFFFFF',
   },
-  successButton: {
-    backgroundColor: t.colors.mossGreen,
-  },
   manualAddLink: {
     alignItems: 'center',
     paddingVertical: t.spacing[2],
@@ -116,12 +116,12 @@ export function NowQuickAddModal({
 }: NowQuickAddModalProps) {
   const styles = useStyles();
   const [text, setText] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const wasVisible = useRef(visible);
+  // Brief flag to prevent double-submit on fast taps
+  const isSubmittingRef = useRef(false);
 
-  // Focus input when modal opens, reset state when it closes
+  // Focus input when modal opens
   useEffect(() => {
     if (visible && !wasVisible.current) {
       // Modal just opened
@@ -132,44 +132,33 @@ export function NowQuickAddModal({
     wasVisible.current = visible;
   }, [visible]);
 
-  // Reset state when modal opens (fresh state each time)
+  // Reset state when modal closes
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (!visible) {
       // Schedule reset for next tick to avoid cascading renders
       const timeout = setTimeout(() => {
         setText('');
-        setIsProcessing(false);
-        setShowSuccess(false);
+        isSubmittingRef.current = false;
       }, 0);
       return () => clearTimeout(timeout);
     }
   }, [visible]);
 
-  const handleSubmit = async () => {
-    if (!text.trim() || isProcessing) return;
+  const handleSubmit = () => {
+    const value = text.trim();
+    if (!value) return;
 
-    setIsProcessing(true);
+    // Prevent double-submit
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
 
-    try {
-      // Call the MindDrop pipeline
-      const result = await onSubmit(text.trim());
+    // Clear input and close modal immediately (fire-and-forget)
+    setText('');
+    onClose();
 
-      if (result.success) {
-        // Show success state briefly before closing
-        setShowSuccess(true);
-        setTimeout(() => {
-          onClose();
-        }, 1000);
-      } else {
-        // On error, reset processing state but keep modal open
-        console.error('[NowQuickAddModal] Submit failed:', result.error);
-        setIsProcessing(false);
-      }
-    } catch (error) {
-      console.error('[NowQuickAddModal] Submit error:', error);
-      setIsProcessing(false);
-    }
+    // Trigger the async pipeline in background
+    onSubmit(value);
   };
 
   const handleManualAdd = () => {
@@ -178,13 +167,7 @@ export function NowQuickAddModal({
     onPressManualAdd();
   };
 
-  const getButtonText = () => {
-    if (showSuccess) return '✓ Added!';
-    if (isProcessing) return '✓ Organizing...';
-    return 'Drop to Gremly →';
-  };
-
-  const isDisabled = !text.trim() || isProcessing;
+  const isDisabled = !text.trim();
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -215,28 +198,19 @@ export function NowQuickAddModal({
                 onChangeText={setText}
                 multiline
                 maxLength={500}
-                editable={!isProcessing}
               />
             </Box>
 
             <TouchableOpacity
-              style={[
-                styles.submitButton,
-                isDisabled && styles.submitButtonDisabled,
-                showSuccess && styles.successButton,
-              ]}
+              style={[styles.submitButton, isDisabled && styles.submitButtonDisabled]}
               onPress={handleSubmit}
               disabled={isDisabled}
               activeOpacity={0.8}
             >
-              <Text style={styles.submitButtonText}>{getButtonText()}</Text>
+              <Text style={styles.submitButtonText}>Drop to Gremly →</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.manualAddLink}
-              onPress={handleManualAdd}
-              disabled={isProcessing}
-            >
+            <TouchableOpacity style={styles.manualAddLink} onPress={handleManualAdd}>
               <Text style={styles.manualAddText}>Prefer to add it manually?</Text>
             </TouchableOpacity>
           </TouchableOpacity>
