@@ -56,17 +56,17 @@ export default function NowScreenV1() {
     progressPercent,
     hasAnyTodayWork,
     logsToday,
-    unsortedCount,
+    sweepCandidateCount,
     loading,
     reload,
     nowData,
   } = stats;
 
-  // Compute sweep status based on unsorted count
+  // Compute sweep status based on sweep candidate count
   // For now, daysSinceSweep defaults to 0 (no lastSweepAt tracking yet)
   const sweepStatus = useMemo(() => {
-    return getSweepStatus(unsortedCount, 0);
-  }, [unsortedCount]);
+    return getSweepStatus(sweepCandidateCount, 0);
+  }, [sweepCandidateCount]);
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();

@@ -12,6 +12,7 @@
 
 import { useMemo } from 'react';
 import { useNowData, type UseNowDataReturn } from '../../now/useNowData';
+import { selectSweepCandidates, type SweepCandidate } from '../sweepSelectors';
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -67,8 +68,10 @@ export interface TodayStats {
   activeItems: NowActiveItem[];
   /** Future items (tomorrow or later), excluding deleted */
   futureItems: NowFutureItem[];
-  /** Number of unsorted items waiting for sweep */
-  unsortedCount: number;
+  /** Sweep-eligible todos (incomplete todos due today/overdue/carry-forward) */
+  sweepCandidates: SweepCandidate[];
+  /** Count of sweep-eligible todos */
+  sweepCandidateCount: number;
   /** Loading state */
   loading: boolean;
   /** Reload the underlying data */
@@ -182,6 +185,29 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
     const hasAnyTodayWork = todayFocusItems.length > 0 || completedToday.length > 0;
     const hasAnyLogsToday = capturesCount > 0;
 
+    // Compute sweep candidates using shared selector
+    // Only todos that are incomplete and due today/overdue/carry-forward
+    const todayDayString = (nowData.today ?? new Date()).toISOString().split('T')[0];
+
+    // Build the todos array for sweep selection from todosToday
+    // Filter out optimistically completed items
+    const incompleteTodos = todosToday
+      .filter((item) => !completedTodoIds.has(item.id))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        type: 'todo' as const,
+        due_day: 'dueDay' in item ? (item as any).dueDay : undefined,
+        due_date: 'dueDate' in item ? (item as any).dueDate : undefined,
+        status: 'active' as const,
+        carry_forward: 'carryForward' in item ? (item as any).carryForward : false,
+        completed_at: null,
+        archived: false,
+      }));
+
+    const sweepCandidates = selectSweepCandidates(incompleteTodos, todayDayString);
+    const sweepCandidateCount = sweepCandidates.length;
+
     return {
       todosToday,
       completedTodosToday,
@@ -198,7 +224,8 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       lockedItems,
       activeItems,
       futureItems,
-      unsortedCount: nowData.unsortedCount,
+      sweepCandidates,
+      sweepCandidateCount,
       loading,
       reload,
       nowData,

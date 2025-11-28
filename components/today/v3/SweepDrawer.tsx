@@ -5,6 +5,7 @@ import { Text, Box, Button } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useTodayEntries } from '../../../lib/today/hooks/useTodayEntries';
+import { selectSweepCandidates, type SweepCandidate } from '../../../lib/today/sweepSelectors';
 
 type Props = {
   visible: boolean;
@@ -15,16 +16,42 @@ export default function SweepDrawer({ visible, onClose }: Props) {
   const repo = useRepo();
   const { items, reload } = useTodayEntries();
 
-  const todos = useMemo(
-    () =>
-      items.filter((i) => i.type === 'todo') as Array<
-        Extract<(typeof items)[number], { type: 'todo' }>
-      >,
-    [items],
-  );
+  // Use shared sweep selector for consistency with pill count
+  const sweepCandidates = useMemo(() => {
+    const todayDay = new Date().toISOString().split('T')[0];
+
+    // Map items to the format expected by selectSweepCandidates
+    const todosForSweep = items
+      .filter((i) => i.type === 'todo')
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        type: 'todo' as const,
+        due_day: t.due_day,
+        due_date: t.due_date,
+        status: t.status ?? 'active',
+        carry_forward: t.carry_forward,
+        completed_at: t.completed_at,
+        archived: false,
+      }));
+
+    const candidates = selectSweepCandidates(todosForSweep, todayDay);
+
+    // Log for debugging sweep mismatch
+    console.log('[SweepDrawer] Sweep candidates:', {
+      todayDay,
+      inputItemsCount: items.length,
+      todosCount: todosForSweep.length,
+      candidatesCount: candidates.length,
+      candidateIds: candidates.map((c) => c.id),
+    });
+
+    return candidates;
+  }, [items]);
 
   const handleAction = async (id: string, action: 'archive' | 'carry_forward' | 'keep') => {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (repo as any).sweepApplyAction?.(id, 'todo', action, { archived_reason: 'swept' });
       await reload();
     } catch (e) {
@@ -53,12 +80,12 @@ export default function SweepDrawer({ visible, onClose }: Props) {
 
               <ScrollView style={{ maxHeight: 420 }}>
                 <Box gap={2}>
-                  {todos.length === 0 && (
+                  {sweepCandidates.length === 0 && (
                     <Text variant="subtle" style={{ textAlign: 'center', padding: 12 }}>
                       Nothing to tidy — all clear.
                     </Text>
                   )}
-                  {todos.map((t) => (
+                  {sweepCandidates.map((t: SweepCandidate) => (
                     <Card key={t.id} padding="sm" testID={`sweep-item-${t.id}`}>
                       <Box
                         row
