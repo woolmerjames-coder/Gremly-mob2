@@ -18,8 +18,7 @@ import {
 import { CompletionCheckIcon } from '../../components/today/CompletionCheckIcon';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
-import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
-import { NowActiveItemCard } from '../../components/now/NowActiveItemCard';
+import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
@@ -591,21 +590,26 @@ function TodayFocusList({
         </View>
       )}
 
-      {lockedItems.map((item) => (
-        <NowLockedItemCard
+      {lockedItems.map((item, index) => (
+        <NowFocusRow
           key={item.id}
           item={item}
           isCompleted={isItemCompleted(item)}
+          isLocked
+          isFirst={index === 0}
+          isLast={index === lockedItems.length - 1 && activeItems.length === 0}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
       ))}
 
-      {activeItems.map((item) => (
-        <NowActiveItemCard
+      {activeItems.map((item, index) => (
+        <NowFocusRow
           key={item.id}
           item={item}
           isCompleted={isItemCompleted(item)}
+          isFirst={lockedItems.length === 0 && index === 0}
+          isLast={index === activeItems.length - 1}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
@@ -632,12 +636,14 @@ function TodayFocusList({
 
       {futureItems.length > 0 && <NowFutureDivider />}
 
-      {futureItems.map((item) => (
-        <NowActiveItemCard
+      {futureItems.map((item, index) => (
+        <NowFocusRow
           key={item.id}
           item={item}
-          future
+          isFuture
           isCompleted={isItemCompleted(item)}
+          isFirst={index === 0}
+          isLast={index === futureItems.length - 1}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
