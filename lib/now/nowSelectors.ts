@@ -403,6 +403,10 @@ export function getLockedItems(
     const isLocked = (entity as any).locked === true;
     if (!isLocked) continue;
 
+    // Skip completed or archived items
+    const status = (entity as any).status;
+    if (status === 'completed' || status === 'archived') continue;
+
     if (entity.type === 'habit') {
       const habit = entity as Habit;
       const completionsThisWeek = completionHistory.get(habit.id) || 0;
@@ -463,8 +467,9 @@ export function getActiveTodayItems(
     // Skip locked items
     if (lockedIds.has(entity.id)) continue;
 
-    // Skip completed items
-    if ((entity as any).status === 'completed') continue;
+    // Skip completed or archived items
+    const status = (entity as any).status;
+    if (status === 'completed' || status === 'archived') continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;
@@ -530,8 +535,9 @@ export function getFutureItems(
     // Skip items already in today/locked
     if (todayIds.has(entity.id)) continue;
 
-    // Skip completed items
-    if ((entity as any).status === 'completed') continue;
+    // Skip completed or archived items
+    const status = (entity as any).status;
+    if (status === 'completed' || status === 'archived') continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;

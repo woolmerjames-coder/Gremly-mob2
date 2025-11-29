@@ -2314,16 +2314,38 @@ export class SupabaseRepo implements IRepo {
 
   async completeHabit(id: ID, atIso: string): Promise<void> {
     const userId = this.ensureUserId();
+    const todayDay = atIso.split('T')[0];
+
+    console.log('[SupabaseRepo] completeHabit called:', { id, atIso, todayDay });
 
     // Update last_completed_at to track when habit was last completed
     // NOTE: This is different from completed_at which is used for soft-delete/archiving
-    const { error } = await supabase
+    const { error: habitError } = await supabase
       .from('habits')
       .update({ last_completed_at: atIso })
       .eq('id', id)
       .eq('owner_id', userId);
 
-    if (error) throw new Error(`Failed to complete habit: ${error.message}`);
+    if (habitError) throw new Error(`Failed to complete habit: ${habitError.message}`);
+
+    // ALSO log to habit_progress table for today - this is what listTodayMerged reads
+    const { data: progressData, error: progressError } = await supabase
+      .from('habit_progress')
+      .insert({
+        owner_id: userId,
+        habit_id: id,
+        count: 1,
+        occurred_at: atIso,
+        occurred_day: todayDay,
+      })
+      .select('id, habit_id, count, occurred_day');
+
+    if (progressError) {
+      console.warn('[SupabaseRepo] completeHabit habit_progress insert failed:', progressError);
+      // Don't throw - habit is still marked complete via last_completed_at
+    } else {
+      console.log('[SupabaseRepo] completeHabit habit_progress result:', progressData);
+    }
 
     // Emit event for UI sync
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
@@ -2332,13 +2354,19 @@ export class SupabaseRepo implements IRepo {
   async completeTodo(id: ID, atIso: string): Promise<void> {
     const userId = this.ensureUserId();
 
-    const { error } = await supabase
+    console.log('[SupabaseRepo] completeTodo called:', { id, atIso });
+
+    const { data, error } = await supabase
       .from('todos')
-      .update({ completed_at: atIso })
+      .update({ status: 'completed', completed_at: atIso })
       .eq('id', id)
-      .eq('owner_id', userId);
+      .eq('owner_id', userId)
+      .select('id, status, completed_at')
+      .single();
 
     if (error) throw new Error(`Failed to complete todo: ${error.message}`);
+
+    console.log('[SupabaseRepo] completeTodo result:', data);
 
     // Emit event for UI sync
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
@@ -2347,20 +2375,46 @@ export class SupabaseRepo implements IRepo {
   async undoCompletion(id: ID): Promise<void> {
     const userId = this.ensureUserId();
 
-    // Try to clear completed_at from todos first
-    const { error: todoError } = await supabase
-      .from('todos')
-      .update({ completed_at: null })
-      .eq('id', id)
-      .eq('owner_id', userId);
+    console.log('[SupabaseRepo] undoCompletion called:', { id });
 
-    if (!todoError) {
+    // Try to reset status and clear completed_at from todos first
+    const { data: todoData, error: todoError } = await supabase
+      .from('todos')
+      .update({ status: 'active', completed_at: null })
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select('id, status, completed_at');
+
+    if (!todoError && todoData && todoData.length > 0) {
       // Success - was a todo
+      console.log('[SupabaseRepo] undoCompletion todo result:', todoData[0]);
       eventBus.emit('ItemUpdated', { id });
       return;
     }
 
-    // Try habits - clear last_completed_at (not completed_at which is for archiving)
+    // Try habits - delete today's habit_progress entry
+    const todayDay = new Date().toISOString().split('T')[0];
+    const { data: progressData, error: progressError } = await supabase
+      .from('habit_progress')
+      .delete()
+      .eq('habit_id', id)
+      .eq('owner_id', userId)
+      .eq('occurred_day', todayDay)
+      .select('id');
+
+    if (!progressError && progressData && progressData.length > 0) {
+      console.log('[SupabaseRepo] undoCompletion habit_progress deleted:', progressData);
+      // Also clear last_completed_at on the habit
+      await supabase
+        .from('habits')
+        .update({ last_completed_at: null })
+        .eq('id', id)
+        .eq('owner_id', userId);
+      eventBus.emit('ItemUpdated', { id });
+      return;
+    }
+
+    // Fallback: Try habits - clear last_completed_at (not completed_at which is for archiving)
     const { error: habitError } = await supabase
       .from('habits')
       .update({ last_completed_at: null })
@@ -2370,6 +2424,8 @@ export class SupabaseRepo implements IRepo {
     if (habitError) {
       throw new Error(`Failed to undo completion: ${habitError.message}`);
     }
+
+    console.log('[SupabaseRepo] undoCompletion habit last_completed_at cleared');
 
     // Emit event for UI sync
     eventBus.emit('ItemUpdated', { id });

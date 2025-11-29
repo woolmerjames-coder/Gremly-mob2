@@ -211,7 +211,7 @@ describe('getLockedItems', () => {
   it('includes locked todos due today', () => {
     const todo = createMockTodo({
       id: 'todo-locked',
-      due_date: '2025-11-26',
+      due_day: '2025-11-26',
     });
     (todo as any).locked = true;
 
@@ -227,7 +227,7 @@ describe('getLockedItems', () => {
       cadence: 'daily',
     });
     const todo = createMockTodo({
-      due_date: '2025-11-26',
+      due_day: '2025-11-26',
     });
 
     const items = getLockedItems([habit, todo], completionHistory, testDate);
@@ -259,7 +259,7 @@ describe('getActiveTodayItems', () => {
   it('includes todos due today', () => {
     const todo = createMockTodo({
       id: 'todo-today',
-      due_date: '2025-11-26',
+      due_day: '2025-11-26',
     });
 
     const items = getActiveTodayItems([todo], completionHistory, testDate);
@@ -300,7 +300,7 @@ describe('getActiveTodayItems', () => {
   it('excludes completed items', () => {
     const todo = createMockTodo({
       id: 'todo-completed',
-      due_date: '2025-11-26',
+      due_day: '2025-11-26',
     });
     (todo as any).status = 'completed';
 
@@ -368,17 +368,18 @@ describe('getActiveTodayItems', () => {
       expect(found?.type).toBe('todo');
     });
 
-    it('falls back to due_date when due_day is not present', () => {
+    it('does NOT include todo without due_day (no fallback to due_date)', () => {
+      // Current behavior: due_day is required, no fallback to due_date
       const todo = createMockTodo({
         id: 'todo-fallback',
         due_date: '2025-11-26',
-        // No due_day
+        // No due_day - won't show in Today
       });
 
       const items = getActiveTodayItems([todo], completionHistory, testDate);
 
       const found = items.find((item) => item.id === 'todo-fallback');
-      expect(found).toBeDefined();
+      expect(found).toBeUndefined();
     });
   });
 
@@ -503,7 +504,7 @@ describe('getProgressEligibleItems', () => {
   it('includes todos due today', () => {
     const todo = createMockTodo({
       id: 'todo-today',
-      due_date: '2025-11-26',
+      due_day: '2025-11-26',
     });
 
     const items = getProgressEligibleItems([todo], completionHistory, testDate);
@@ -1049,7 +1050,7 @@ describe('getCompletedTodayItems', () => {
       createMockTodo({
         id: 'todo-1',
         name: 'Buy groceries',
-        due_date: '2025-11-26',
+        due_day: '2025-11-26',
         completed_at: todayIso,
       } as any),
     ];
@@ -1071,6 +1072,200 @@ describe('getCompletedTodayItems', () => {
     expect(progressState.completedCount).toBe(2);
     expect(progressState.totalEligibleCount).toBe(2);
     expect(progressState.percent).toBe(100);
+  });
+});
+
+describe('archived item filtering', () => {
+  const testDate = new Date('2025-11-26T12:00:00Z');
+  const completionHistory = new Map<string, number>();
+
+  describe('getActiveTodayItems', () => {
+    it('excludes archived todos', () => {
+      const activeTodo = createMockTodo({
+        id: 'todo-active',
+        name: 'Active task',
+        due_day: '2025-11-26',
+        status: 'active',
+      } as any);
+
+      const completedTodo = createMockTodo({
+        id: 'todo-completed',
+        name: 'Completed task',
+        due_day: '2025-11-26',
+        status: 'completed',
+      } as any);
+
+      const archivedTodo = createMockTodo({
+        id: 'todo-archived',
+        name: 'Archived task',
+        due_day: '2025-11-26',
+        status: 'archived',
+      } as any);
+
+      const items = getActiveTodayItems(
+        [activeTodo, completedTodo, archivedTodo],
+        completionHistory,
+        testDate,
+      );
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('todo-active');
+    });
+
+    it('excludes archived habits', () => {
+      const activeHabit = createMockHabit({
+        id: 'habit-active',
+        name: 'Active habit',
+        cadence: 'daily',
+        status: 'active',
+      } as any);
+
+      const archivedHabit = createMockHabit({
+        id: 'habit-archived',
+        name: 'Archived habit',
+        cadence: 'daily',
+        status: 'archived',
+      } as any);
+
+      const items = getActiveTodayItems([activeHabit, archivedHabit], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('habit-active');
+    });
+  });
+
+  describe('getFutureItems', () => {
+    it('excludes archived habits from future lane', () => {
+      const flexibleHabit = createMockHabit({
+        id: 'habit-flexible',
+        name: 'Flexible habit',
+        cadence: 'weekly',
+        target_per_period: 3,
+        status: 'active',
+      } as any);
+
+      const archivedHabit = createMockHabit({
+        id: 'habit-archived',
+        name: 'Archived habit',
+        cadence: 'weekly',
+        target_per_period: 3,
+        status: 'archived',
+      } as any);
+
+      // 1 completion makes them "flexible" (not needed today)
+      const history = new Map([
+        ['habit-flexible', 1],
+        ['habit-archived', 1],
+      ]);
+
+      const items = getFutureItems([flexibleHabit, archivedHabit], history, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('habit-flexible');
+    });
+  });
+
+  describe('getLockedItems', () => {
+    it('excludes archived locked todos', () => {
+      const activeTodo = createMockTodo({
+        id: 'todo-active',
+        name: 'Active locked task',
+        due_day: '2025-11-26',
+        status: 'active',
+      } as any);
+      (activeTodo as any).locked = true;
+
+      const archivedTodo = createMockTodo({
+        id: 'todo-archived',
+        name: 'Archived locked task',
+        due_day: '2025-11-26',
+        status: 'archived',
+      } as any);
+      (archivedTodo as any).locked = true;
+
+      const items = getLockedItems([activeTodo, archivedTodo], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('todo-active');
+    });
+
+    it('excludes archived locked habits', () => {
+      const activeHabit = createMockHabit({
+        id: 'habit-active',
+        name: 'Active locked habit',
+        cadence: 'daily',
+        status: 'active',
+      } as any);
+      (activeHabit as any).locked = true;
+
+      const archivedHabit = createMockHabit({
+        id: 'habit-archived',
+        name: 'Archived locked habit',
+        cadence: 'daily',
+        status: 'archived',
+      } as any);
+      (archivedHabit as any).locked = true;
+
+      const items = getLockedItems([activeHabit, archivedHabit], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('habit-active');
+    });
+
+    it('excludes completed locked todos', () => {
+      const activeTodo = createMockTodo({
+        id: 'todo-active',
+        name: 'Active locked task',
+        due_day: '2025-11-26',
+        status: 'active',
+      } as any);
+      (activeTodo as any).locked = true;
+
+      const completedTodo = createMockTodo({
+        id: 'todo-completed',
+        name: 'Completed locked task',
+        due_day: '2025-11-26',
+        status: 'completed',
+      } as any);
+      (completedTodo as any).locked = true;
+
+      const items = getLockedItems([activeTodo, completedTodo], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('todo-active');
+    });
+  });
+
+  describe('combined status filtering', () => {
+    it('only returns active items when given active, completed, and archived todos', () => {
+      const activeTodo = createMockTodo({
+        id: 'todo-active',
+        name: 'Active task',
+        due_day: '2025-11-26',
+        status: 'active',
+      } as any);
+
+      const completedTodo = createMockTodo({
+        id: 'todo-completed',
+        name: 'Completed task',
+        due_day: '2025-11-26',
+        status: 'completed',
+      } as any);
+
+      const archivedTodo = createMockTodo({
+        id: 'todo-archived',
+        name: 'Archived task',
+        due_day: '2025-11-26',
+        status: 'archived',
+      } as any);
+
+      const entities = [activeTodo, completedTodo, archivedTodo];
+      const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
+
+      expect(activeItems).toHaveLength(1);
+      expect(activeItems[0].id).toBe('todo-active');
+      expect(activeItems[0].name).toBe('Active task');
+    });
   });
 });
 
@@ -1173,12 +1368,12 @@ describe('due_day canonical day logic', () => {
     expect(eligibleItems).toHaveLength(0);
   });
 
-  it('falls back to due_date when due_day is not set', () => {
-    // Legacy todo without due_day
+  it('does NOT include todo without due_day (requires due_day)', () => {
+    // Current behavior: due_day is required for todos to appear in Today
     const todo = createMockTodo({
       id: 'todo-legacy',
       name: 'Legacy task',
-      due_date: '2025-11-26', // YYYY-MM-DD format should still work
+      due_date: '2025-11-26', // Only due_date, no due_day
     });
 
     const entities = [todo];
@@ -1186,8 +1381,8 @@ describe('due_day canonical day logic', () => {
 
     const activeItems = getActiveTodayItems(entities, completionHistory, testDate);
 
-    expect(activeItems).toHaveLength(1);
-    expect(activeItems[0].id).toBe('todo-legacy');
+    // Todos without due_day are NOT shown in Today
+    expect(activeItems).toHaveLength(0);
   });
 
   it('overdue todos with due_day < today do NOT appear in locked or active items (simplified view)', () => {

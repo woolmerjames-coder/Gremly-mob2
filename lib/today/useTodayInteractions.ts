@@ -122,6 +122,8 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
       const label = todo.title || todo.name || 'To-do';
       const isOverdue = todo.overdue || false;
 
+      console.log('[useTodayInteractions] toggleTodoComplete called:', { id: todo.id, label });
+
       // Optimistic UI
       setCompletedTodoIds((prev) => new Set(prev).add(todo.id));
       setUndoState({ id: todo.id, type: 'todo', label, persisted: false });
@@ -139,7 +141,15 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
       // Start undo timer - persist after 3s
       undoTimerRef.current = setTimeout(async () => {
         try {
-          await repo.completeTodo(todo.id, new Date().toISOString());
+          const nowIso = new Date().toISOString();
+          console.log('[useTodayInteractions] Persisting todo completion:', {
+            id: todo.id,
+            nowIso,
+          });
+
+          await repo.completeTodo(todo.id, nowIso);
+
+          console.log('[useTodayInteractions] Todo completion persisted successfully:', todo.id);
 
           // Phase 10.9: Emit celebration event for todo completion
           emitChatEvent({
@@ -162,11 +172,12 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
             await options.onReload();
           }
         } catch (err) {
-          console.error('Failed to complete todo:', err);
+          console.error('[useTodayInteractions] Failed to complete todo:', err);
           // Revert optimistic UI on error
           setCompletedTodoIds((prev) => {
             const next = new Set(prev);
             next.delete(todo.id);
+            return next;
             return next;
           });
           setUndoState((prev) => (prev && prev.id === todo.id ? null : prev));
@@ -185,6 +196,8 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
     async (habit: { id: string; name: string; streakCount?: number }) => {
       const label = habit.name;
 
+      console.log('[useTodayInteractions] toggleHabitComplete called:', { id: habit.id, label });
+
       // Optimistic UI
       setCompletedHabitIds((prev) => new Set(prev).add(habit.id));
       setUndoState({ id: habit.id, type: 'habit', label, persisted: false });
@@ -202,7 +215,15 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
       // Start undo timer - persist after 3s
       undoTimerRef.current = setTimeout(async () => {
         try {
-          await repo.completeHabit(habit.id, new Date().toISOString());
+          const nowIso = new Date().toISOString();
+          console.log('[useTodayInteractions] Persisting habit completion:', {
+            id: habit.id,
+            nowIso,
+          });
+
+          await repo.completeHabit(habit.id, nowIso);
+
+          console.log('[useTodayInteractions] Habit completion persisted successfully:', habit.id);
 
           // Phase 10.9: Emit celebration event for habit check-in
           emitChatEvent({
@@ -225,7 +246,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
             await options.onReload();
           }
         } catch (err) {
-          console.error('Failed to complete habit:', err);
+          console.error('[useTodayInteractions] Failed to complete habit:', err);
           // Revert optimistic UI on error
           setCompletedHabitIds((prev) => {
             const next = new Set(prev);
