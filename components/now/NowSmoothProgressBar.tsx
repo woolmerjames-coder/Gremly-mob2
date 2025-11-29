@@ -66,13 +66,14 @@ const SHIMMER_DELAY = 100; // Extra delay after bar settles before shimmer
 const SHIMMER_DURATION = 600; // Duration of shimmer sweep
 
 // Visual constants
-const DOT_SIZE = 10;
-const DOT_GAP = 6;
-const GLOW_SIZE = 16;
+const DOT_SIZE = 5;
+const DOT_SPACING = 4; // marginRight between dots
+const GLOW_SIZE = 10; // Slightly larger than dot for glow effect
 
 const MOSS_GREEN = BRAND.colors.mossGreen;
 const SAGE_MIST = BRAND.colors.sageMist;
-const NEUTRAL_GREY = '#D4D4D4';
+const TRACK_GREY = '#E5E5E5'; // Light grey for bar track background
+const INACTIVE_DOT_GREY = 'rgba(0, 0, 0, 0.12)'; // Lighter grey for inactive dots
 
 // ───────────────────────────────────────────────────────────────────────────────
 // CompletionDot - Individual dot with dopamine animation
@@ -154,7 +155,7 @@ const CompletionDot = memo(function CompletionDot({ isDone, isJustCompleted }: C
   // Animated styles
   const dotStyle = useAnimatedStyle(() => ({
     transform: [{ scale: dotScale.value }],
-    backgroundColor: dotColorProgress.value > 0.5 ? MOSS_GREEN : NEUTRAL_GREY,
+    backgroundColor: dotColorProgress.value > 0.5 ? MOSS_GREEN : INACTIVE_DOT_GREY,
   }));
 
   const glowStyle = useAnimatedStyle(() => ({
@@ -322,15 +323,15 @@ const styles = StyleSheet.create({
   },
   track: {
     flex: 1,
-    height: 6,
-    backgroundColor: NEUTRAL_GREY,
-    borderRadius: 999,
+    height: 12,
+    backgroundColor: TRACK_GREY,
+    borderRadius: 6,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
     backgroundColor: MOSS_GREEN,
-    borderRadius: 999,
+    borderRadius: 6,
     overflow: 'hidden',
   },
   shimmer: {
@@ -349,27 +350,27 @@ const styles = StyleSheet.create({
     minWidth: 32, // Prevent layout shift
     textAlign: 'right',
   },
-  // Dots container - tighter vertical spacing to unify with bar
+  // Dots container - sits directly under the bar, left-aligned
   dotsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    marginTop: 4, // Reduced from 6 for tighter coupling with bar
-    marginBottom: 2,
-    gap: DOT_GAP,
+    marginTop: 1, // Minimal gap between bar and dots
+    marginBottom: 0,
   },
-  // Individual dot container
+  // Individual dot container - minimal size for subtle appearance
   dotContainer: {
     width: GLOW_SIZE,
     height: GLOW_SIZE,
+    marginRight: DOT_SPACING,
     justifyContent: 'center',
     alignItems: 'center',
   },
   dot: {
     width: DOT_SIZE,
     height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
+    borderRadius: DOT_SIZE / 2, // Perfect circle (3)
   },
   dotGlow: {
     position: 'absolute',
