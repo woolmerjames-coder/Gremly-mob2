@@ -21,8 +21,8 @@ const GREMLY_BUTTON: ImageSourcePropType = require('../../assets/buttonforHP.png
 
 // Brand colors
 const GOLDEN_PEAR = '#E0C47A';
-const SAGE_MIST = '#BFD8C0';
 const MOSS_GREEN = '#2E5540';
+const LINEN = '#F9F6F1'; // Soft off-white background for pills
 
 export type SweepLevel = 'none' | 'normal' | 'moderate' | 'high';
 
@@ -100,7 +100,9 @@ export default function TodayPillsRow({
           accessibilityRole="button"
           accessibilityLabel={`${sweepLabel}, ${sweepCountLabel}`}
         >
-          <Sparkles size={compact ? 16 : 20} color={MOSS_GREEN} strokeWidth={2} />
+          <View style={styles.sweepIconContainer}>
+            <Sparkles size={compact ? 16 : 20} color={GOLDEN_PEAR} strokeWidth={2} />
+          </View>
           <View style={styles.sweepTextContainer}>
             <Text
               style={[
@@ -130,27 +132,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 10, // Reduced from 14 for tighter layout
-    flexWrap: 'wrap', // Allow wrapping on very small devices
-    rowGap: 8, // Vertical gap if pills wrap to two rows
+    columnGap: 16, // Unified gap between pills
   },
   rowCompact: {
-    gap: 0,
-    flexWrap: 'nowrap', // Header pill should not wrap
+    columnGap: 8, // Tighter gap for header placement
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48, // Slightly reduced from 50
-    paddingHorizontal: 14, // Slightly reduced from 16
-    borderRadius: 9999,
-    gap: 8, // Reduced from 10
+    height: 48, // Matching height for both pills
+    paddingHorizontal: 18, // Increased for breathing room
+    borderRadius: 24, // Matching corner radius for both pills
+    backgroundColor: LINEN, // Unified soft off-white background
+    gap: 10, // Slightly more space between icon and text
     minWidth: 0, // Allow shrinking
   },
   pillCompact: {
-    height: 36, // Reduced from 40 for tighter header fit
-    paddingHorizontal: 10, // Reduced from 12
-    gap: 5, // Reduced from 6
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18, // Proportional radius for compact mode
+    gap: 6,
   },
   pillSingle: {
     flex: 0,
@@ -161,7 +162,10 @@ const styles = StyleSheet.create({
   // Sweep Pill
   sweepPill: {
     flex: 1,
-    backgroundColor: GOLDEN_PEAR,
+    // Background inherited from base pill style
+  },
+  sweepIconContainer: {
+    // Container for icon to allow for potential accent styling
   },
   sweepTextContainer: {
     flexDirection: 'column',
@@ -185,7 +189,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '400',
     color: MOSS_GREEN,
-    opacity: 0.8,
+    opacity: 0.7,
     lineHeight: 14,
   },
   sweepCountLabelCompact: {
@@ -195,7 +199,7 @@ const styles = StyleSheet.create({
   // Add Pill
   addPill: {
     flex: 1,
-    backgroundColor: SAGE_MIST,
+    // Background inherited from base pill style
   },
   gremlyIcon: {
     width: 28,

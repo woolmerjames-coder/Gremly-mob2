@@ -49,6 +49,16 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
   }),
 }));
 
+// Mock useActionToast to avoid RepoProvider dependency
+jest.mock('../../src/hooks/useActionToast', () => ({
+  useActionToast: () => ({
+    showToast: jest.fn(),
+    hideToast: jest.fn(),
+    isVisible: false,
+    Toast: null,
+  }),
+}));
+
 // Mock SweepDrawer component
 jest.mock('../../components/today/v3/SweepDrawer', () => {
   const React = require('react');

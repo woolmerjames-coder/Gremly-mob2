@@ -106,10 +106,79 @@ export interface SweepStatus {
   level: SweepLevel;
   label: string;
   countLabel: string;
+  /** Label to use when rendering in the header (no subtitle, short text) */
+  headerLabel: string;
   /** Whether to show sweep pill in header (right side of Today's Focus) */
   showInHeader: boolean;
   /** Whether to show sweep pill at bottom (next to Add pill) */
   showAtBottom: boolean;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// SWEEP COPY HELPERS
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * SWEEP TONE GUIDELINES
+ * - No urgency, no pressure, no shame.
+ * - Never imply the user is "behind" or has "failed".
+ * - Always sound calm, supportive, and lightly playful.
+ * - Use simple, low-friction verbs: sweep, tidy, review, set aside.
+ * - Avoid emoji; use brand icons only (except the one "✨" in the all-clear case).
+ * - Keep strings short — 1–2 lines max.
+ */
+
+/**
+ * Get the header-mode label for the Sweep pill based on escalation level.
+ * Short, no numbers, no extra punctuation.
+ *
+ * @param level - The escalation level
+ * @returns Label string for header mode
+ */
+export function getHeaderSweepLabel(level: SweepLevel): string {
+  switch (level) {
+    case 'high':
+      return 'Ready for a quick Sweep';
+    case 'moderate':
+      return 'A few things to tidy';
+    case 'normal':
+      return 'Sweep is waiting';
+    case 'none':
+    default:
+      return '';
+  }
+}
+
+/**
+ * Get calm, supportive copy for the Sweep pill based on item count.
+ *
+ * Copy Rules (no urgency, no pressure, no shame):
+ * • 0 items     → "all clear ✨"
+ * • 1 item      → "1 thing waiting"
+ * • 2–9 items   → "{count} things waiting"
+ * • 10–14 items → "{count} things ready for review"
+ * • 15+ items   → "Quite a few things — want to tidy?"
+ *
+ * @param count - Number of items waiting in the sweep queue
+ * @returns { title, subtitle } for the Sweep pill
+ */
+export function getSweepPillLines(count: number): { title: string; subtitle: string } {
+  const title = 'Sweep';
+
+  if (count === 0) {
+    return { title, subtitle: 'all clear ✨' };
+  }
+  if (count === 1) {
+    return { title, subtitle: '1 thing waiting' };
+  }
+  if (count >= 2 && count <= 9) {
+    return { title, subtitle: `${count} things waiting` };
+  }
+  if (count >= 10 && count <= 14) {
+    return { title, subtitle: `${count} things ready for review` };
+  }
+  // 15+
+  return { title, subtitle: 'Quite a few things — want to tidy?' };
 }
 
 /**
@@ -132,12 +201,16 @@ export interface SweepStatus {
  * @returns SweepStatus with level, label, countLabel, and placement flags
  */
 export function getSweepStatus(pendingCount: number, daysSinceSweep: number): SweepStatus {
+  // Get calm, supportive copy
+  const { title, subtitle } = getSweepPillLines(pendingCount);
+
   // No items to sweep = no sweep pill anywhere
   if (pendingCount === 0) {
     return {
       level: 'none',
-      label: '',
-      countLabel: '',
+      label: title,
+      countLabel: subtitle,
+      headerLabel: '',
       showInHeader: false,
       showAtBottom: false,
     };
@@ -157,30 +230,28 @@ export function getSweepStatus(pendingCount: number, daysSinceSweep: number): Sw
     level = 'normal';
   }
 
-  // Build copy and placement based on level
+  // Get header label for this level
+  const headerLabel = getHeaderSweepLabel(level);
+
+  // Build placement based on level
   switch (level) {
     case 'high':
       return {
         level,
-        label: 'Sweep is waiting',
-        countLabel: `${pendingCount} things`,
+        label: title,
+        countLabel: subtitle,
+        headerLabel,
         showInHeader: true,
         showAtBottom: false,
       };
     case 'moderate':
-      return {
-        level,
-        label: 'Quick Sweep?',
-        countLabel: `${pendingCount} things waiting`,
-        showInHeader: false,
-        showAtBottom: true,
-      };
     case 'normal':
     default:
       return {
         level,
-        label: 'Sweep',
-        countLabel: `${pendingCount} things waiting`,
+        label: title,
+        countLabel: subtitle,
+        headerLabel,
         showInHeader: false,
         showAtBottom: true,
       };

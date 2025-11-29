@@ -12,12 +12,14 @@ import { useCommitments } from '../../lib/today/hooks/useCommitments';
 import CommitmentsSection from '../today/CommitmentsSection';
 import { useRepo } from '../../providers/RepoProvider';
 import { eventBus } from '../../lib/events';
+import { useActionToast } from '../../src/hooks/useActionToast';
 
 export default function TodayV3View() {
   const overlay = useUnifiedOverlayController();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
   const repo = useRepo();
+  const { showToast, Toast } = useActionToast();
   const commitmentsEnabled = useMemo(
     () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase(),
     [],
@@ -34,6 +36,18 @@ export default function TodayV3View() {
       eventBus.emit('CommitmentsChanged', {});
     },
     [repo],
+  );
+
+  // Handle sweep complete - show appropriate toast after modal closes
+  const handleSweepComplete = useCallback(
+    (summary: { archived: number; total: number }) => {
+      if (summary.archived > 0) {
+        showToast({ type: 'success', content: "Everything's where it should be." });
+      } else if (summary.total > 0) {
+        showToast({ type: 'success', content: "You're all set for today." });
+      }
+    },
+    [showToast],
   );
 
   return (
@@ -60,7 +74,13 @@ export default function TodayV3View() {
       </Box>
 
       <FocusPickerModal visible={pickerOpen} onClose={() => setPickerOpen(false)} />
-      <SweepDrawer visible={sweepOpen} onClose={() => setSweepOpen(false)} />
+      <SweepDrawer
+        visible={sweepOpen}
+        onClose={() => setSweepOpen(false)}
+        onSweepComplete={handleSweepComplete}
+      />
+
+      {Toast}
     </Screen>
   );
 }

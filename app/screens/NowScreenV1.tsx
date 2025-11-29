@@ -5,8 +5,16 @@
  * Phase 4: Wire interactions
  */
 
-import React, { useCallback, useState, useMemo } from 'react';
-import { ScrollView, StyleSheet, View, Text } from 'react-native';
+import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  View,
+  Text,
+  Animated,
+  Easing,
+  ActivityIndicator,
+} from 'react-native';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
@@ -119,6 +127,23 @@ export default function NowScreenV1() {
     setSweepVisible(true);
   }, []);
 
+  // Handle sweep complete - show appropriate toast after modal closes
+  const handleSweepComplete = useCallback(
+    (summary: { archived: number; total: number }) => {
+      // Modal is now closed, safe to show toast
+      if (summary.archived > 0) {
+        // Items were archived
+        showToast({ type: 'success', content: "Everything's where it should be." });
+      } else if (summary.total > 0) {
+        // Items were handled but none archived
+        showToast({ type: 'success', content: "You're all set for today." });
+      }
+      // Reload to reflect any changes
+      void reload();
+    },
+    [showToast, reload],
+  );
+
   // Handle add press - opens quick-add MindDrop modal
   const handleAddPress = useCallback(() => {
     setQuickAddVisible(true);
@@ -214,8 +239,8 @@ export default function NowScreenV1() {
         {sweepStatus.showInHeader && (
           <TodayPillsRow
             sweepLevel={sweepStatus.level}
-            sweepLabel={sweepStatus.label}
-            sweepCountLabel={sweepStatus.countLabel}
+            sweepLabel={sweepStatus.headerLabel}
+            sweepCountLabel=""
             onSweepPress={handleSweepPress}
             onAddPress={handleAddPress}
             showSweepOnly
@@ -283,7 +308,11 @@ export default function NowScreenV1() {
         onExit={overwhelm.exitFocusMode}
       />
 
-      <SweepDrawer visible={isSweepVisible} onClose={() => setSweepVisible(false)} />
+      <SweepDrawer
+        visible={isSweepVisible}
+        onClose={() => setSweepVisible(false)}
+        onSweepComplete={handleSweepComplete}
+      />
 
       <NowQuickAddModal
         visible={isQuickAddVisible}
@@ -294,6 +323,133 @@ export default function NowScreenV1() {
     </Screen>
   );
 }
+
+/**
+ * Animated optimistic card that fades in on mount and fades out + slides down on unmount.
+ * Uses a "leaving" state pattern since React Native Animated doesn't support exit animations natively.
+ * Features calm background processing animation with animated dots.
+ */
+type OptimisticQuickAddCardProps = {
+  id: string;
+  title: string;
+  onExitComplete?: () => void;
+  isLeaving?: boolean;
+};
+
+// Brand color for loading indicator
+const MOSS_GREEN = '#2E5540';
+
+/* eslint-disable react-hooks/refs -- Animated.Value refs are intentionally accessed in render for RN animations */
+function OptimisticQuickAddCard({
+  id,
+  title,
+  onExitComplete,
+  isLeaving,
+}: OptimisticQuickAddCardProps) {
+  // Animation refs for React Native Animated API
+  const opacityRef = useRef(new Animated.Value(0));
+  const translateYRef = useRef(new Animated.Value(0));
+  const textOpacityRef = useRef(new Animated.Value(0.6));
+
+  // Animated dots: add one every 500ms, reset after 3
+  const [dots, setDots] = useState('');
+
+  // Animated dots interval
+  useEffect(() => {
+    if (isLeaving) return; // Don't animate dots when leaving
+
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isLeaving]);
+
+  // Gentle text opacity pulse
+  useEffect(() => {
+    if (isLeaving) return; // Stop pulse animation when leaving
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(textOpacityRef.current, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(textOpacityRef.current, {
+          toValue: 0.6,
+          duration: 1200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [isLeaving]);
+
+  // Fade in on mount
+  useEffect(() => {
+    Animated.timing(opacityRef.current, {
+      toValue: 1,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  // Fade out + slide down when leaving
+  useEffect(() => {
+    if (isLeaving) {
+      Animated.parallel([
+        Animated.timing(opacityRef.current, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateYRef.current, {
+          toValue: 4,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        onExitComplete?.();
+      });
+    }
+  }, [isLeaving, onExitComplete]);
+
+  return (
+    <Animated.View
+      key={id}
+      style={[
+        styles.optimisticCard,
+        {
+          opacity: opacityRef.current,
+          transform: [{ translateY: translateYRef.current }],
+        },
+      ]}
+      accessibilityLabel={`Processing ${title}`}
+      accessibilityRole="text"
+    >
+      <View style={styles.optimisticContent}>
+        <View style={styles.optimisticTextContainer}>
+          <Text numberOfLines={1} style={styles.optimisticTitle}>
+            {title}
+          </Text>
+          <Animated.Text
+            style={[styles.optimisticSubtitle, { opacity: textOpacityRef.current }]}
+            accessibilityLabel="Processing"
+          >
+            Processing{dots}
+          </Animated.Text>
+        </View>
+        <View style={styles.optimisticLoader}>
+          <ActivityIndicator size="small" color={MOSS_GREEN} />
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+/* eslint-enable react-hooks/refs */
 
 type TodayFocusListProps = {
   lockedItems: NowLockedItem[];
@@ -326,8 +482,31 @@ function TodayFocusList({
   onSweepPress,
   onAddPress,
 }: TodayFocusListProps) {
-  const hasNoItems = lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd;
-  const isAllComplete = progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd;
+  // Track leaving card for exit animation
+  const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
+  const prevOptimisticRef = useRef<{ id: string; title: string } | null>(null);
+
+  // Detect when optimistic card is being removed and trigger exit animation
+  useEffect(() => {
+    const prev = prevOptimisticRef.current;
+    const curr = optimisticQuickAdd;
+
+    // If we had a card and now we don't, trigger exit animation
+    if (prev && !curr) {
+      setLeavingCard(prev);
+    }
+
+    prevOptimisticRef.current = curr ?? null;
+  }, [optimisticQuickAdd]);
+
+  const handleExitComplete = useCallback(() => {
+    setLeavingCard(null);
+  }, []);
+
+  const hasNoItems =
+    lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd && !leavingCard;
+  const isAllComplete =
+    progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd && !leavingCard;
 
   // Helper to check if an item is completed
   const isItemCompleted = (item: NowLockedItem | NowActiveItem | NowFutureItem): boolean => {
@@ -358,23 +537,6 @@ function TodayFocusList({
         </View>
       )}
 
-      {/* Optimistic 'Processing...' card at the top while pipeline runs */}
-      {optimisticQuickAdd && (
-        <View key={optimisticQuickAdd.id} style={styles.optimisticCard}>
-          <View style={styles.optimisticContent}>
-            <View style={styles.optimisticTextContainer}>
-              <Text numberOfLines={1} style={styles.optimisticTitle}>
-                {optimisticQuickAdd.title}
-              </Text>
-              <Text style={styles.optimisticSubtitle}>Processing...</Text>
-            </View>
-            <View style={styles.optimisticCheckbox}>
-              <Text style={styles.optimisticSpinner}>⏳</Text>
-            </View>
-          </View>
-        </View>
-      )}
-
       {lockedItems.map((item) => (
         <NowLockedItemCard
           key={item.id}
@@ -394,6 +556,25 @@ function TodayFocusList({
           onToggleComplete={() => onToggleComplete?.(item)}
         />
       ))}
+
+      {/* Optimistic 'Processing...' card appended after active items */}
+      {/* Shows active card while processing, or leaving card during exit animation */}
+      {optimisticQuickAdd && (
+        <OptimisticQuickAddCard
+          key={optimisticQuickAdd.id}
+          id={optimisticQuickAdd.id}
+          title={optimisticQuickAdd.title}
+        />
+      )}
+      {!optimisticQuickAdd && leavingCard && (
+        <OptimisticQuickAddCard
+          key={leavingCard.id}
+          id={leavingCard.id}
+          title={leavingCard.title}
+          isLeaving
+          onExitComplete={handleExitComplete}
+        />
+      )}
 
       {futureItems.length > 0 && <NowFutureDivider />}
 
@@ -529,15 +710,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontStyle: 'italic',
   },
-  optimisticCheckbox: {
+  optimisticLoader: {
     marginLeft: 8,
     minWidth: 44,
     minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  optimisticSpinner: {
-    fontSize: 16,
   },
   // TodayPillsRow container - used below cards
   pillsRowContainer: {
