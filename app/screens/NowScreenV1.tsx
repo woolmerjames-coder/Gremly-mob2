@@ -15,6 +15,7 @@ import {
   Easing,
   ActivityIndicator,
 } from 'react-native';
+import { CompletionCheckIcon } from '../../components/today/CompletionCheckIcon';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowLockedItemCard } from '../../components/now/NowLockedItemCard';
@@ -276,9 +277,13 @@ export default function NowScreenV1() {
         {/* Left: Two-line header block */}
         <View style={styles.sectionHeaderLeft}>
           <Text style={styles.sectionTitle}>Today's Focus</Text>
-          <Text style={styles.sectionSubtitle}>
-            {totalCompletedToday} of {totalTasksToday} done
-          </Text>
+          <View style={styles.sectionSubtitleRow}>
+            <CompletionCheckIcon completed={totalCompletedToday > 0} size={16} />
+            <Text style={styles.sectionSubtitle}>
+              <Text style={styles.completedCount}>{totalCompletedToday}</Text> of {totalTasksToday}{' '}
+              done
+            </Text>
+          </View>
         </View>
         {/* Right: Sweep pill in HIGH state (uses showInHeader flag) */}
         {sweepStatus.showInHeader && (
@@ -686,7 +691,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#757575', // subtle color, matches WEEK label style
+  },
+  sectionSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginTop: 2, // Reduced from 4 for tighter header
+  },
+  completedCount: {
+    fontWeight: '700',
   },
   listContainer: {
     flex: 1,

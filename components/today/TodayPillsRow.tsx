@@ -24,6 +24,7 @@ const GOLDEN_PEAR = '#E0C47A';
 const MOSS_GREEN = '#2E5540';
 const LINEN = '#F9F6F1'; // Soft off-white background for pills
 const SAGE_MIST = '#E8F0EB'; // Very light sage for subtle accent
+const PILL_BG = '#F3F0EB'; // Slightly darker than LINEN for pill contrast
 
 export type SweepLevel = 'none' | 'normal' | 'moderate' | 'high';
 
@@ -80,9 +81,7 @@ export default function TodayPillsRow({
             style={[styles.gremlyIcon, compact && styles.gremlyIconCompact]}
             resizeMode="contain"
           />
-          <Text style={[styles.addLabel, compact && styles.addLabelCompact]} numberOfLines={1}>
-            Add to Today
-          </Text>
+          <Text style={[styles.addLabel, compact && styles.addLabelCompact]}>Add to Today</Text>
         </Pressable>
       )}
 
@@ -150,8 +149,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, // Generous horizontal padding
     paddingVertical: 10, // Vertical padding for breathing room
     borderRadius: 28,
-    backgroundColor: LINEN, // Unified soft off-white background
+    backgroundColor: PILL_BG, // Slightly darker than page background
     gap: 10,
+    // Soft elevation shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    elevation: 1, // Android equivalent
   },
   pillCompact: {
     minHeight: 40,
@@ -208,8 +213,8 @@ const styles = StyleSheet.create({
     // Background inherited from base pill style (LINEN)
   },
   gremlyIcon: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     flexShrink: 0, // Icon never shrinks
   },
   gremlyIconCompact: {
@@ -221,6 +226,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: MOSS_GREEN,
     flexShrink: 1, // Allow label to shrink if needed
+    flexWrap: 'wrap', // Allow text to wrap to two lines
+    textAlign: 'left',
   },
   addLabelCompact: {
     fontSize: 13,
