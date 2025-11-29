@@ -166,7 +166,7 @@ export function getSweepPillLines(count: number): { title: string; subtitle: str
   const title = 'Sweep';
 
   if (count === 0) {
-    return { title, subtitle: 'all clear ✨' };
+    return { title, subtitle: 'All caught up' };
   }
   if (count === 1) {
     return { title, subtitle: '1 thing waiting' };
@@ -204,15 +204,15 @@ export function getSweepStatus(pendingCount: number, daysSinceSweep: number): Sw
   // Get calm, supportive copy
   const { title, subtitle } = getSweepPillLines(pendingCount);
 
-  // No items to sweep = no sweep pill anywhere
+  // No items to sweep - still show pill with "All caught up" message
   if (pendingCount === 0) {
     return {
       level: 'none',
       label: title,
-      countLabel: subtitle,
+      countLabel: 'All caught up',
       headerLabel: '',
       showInHeader: false,
-      showAtBottom: false,
+      showAtBottom: true, // Always show Sweep pill for consistent layout
     };
   }
 

@@ -40,6 +40,63 @@ export type TodayMergedHabit = {
 
 export type TodayMergedEntry = TodayMergedTodo | TodayMergedHabit;
 
+// ───────────────────────────────────────────────────────────────────────────────
+// TodayCompletionSummary - Drives progress bar + completion dots
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Summary of today's completion status for the progress header.
+ * Includes only active habits and todos in Today's Focus.
+ * Excludes logs and archived items.
+ */
+export type TodayCompletionSummary = {
+  /** Individual items with completion status */
+  items: { id: string; isDone: boolean; type: 'habit' | 'todo' }[];
+  /** Number of completed items */
+  completedCount: number;
+  /** Total number of items (habits + todos, no logs) */
+  totalCount: number;
+};
+
+/**
+ * Compute completion summary from today's entries.
+ * Use this to drive the TodayProgressHeader component.
+ *
+ * @param activeItems - Incomplete items for today (from useTodayEntries.items)
+ * @param doneItems - Completed items for today (from useTodayEntries.doneItems)
+ * @returns TodayCompletionSummary for progress header
+ */
+export function getTodayCompletionSummary(
+  activeItems: TodayMergedEntry[],
+  doneItems: TodayMergedEntry[],
+): TodayCompletionSummary {
+  const items: { id: string; isDone: boolean; type: 'habit' | 'todo' }[] = [];
+
+  // Add done items first (they show as completed dots)
+  for (const entry of doneItems) {
+    items.push({
+      id: entry.id,
+      isDone: true,
+      type: entry.type,
+    });
+  }
+
+  // Add active (incomplete) items
+  for (const entry of activeItems) {
+    items.push({
+      id: entry.id,
+      isDone: false,
+      type: entry.type,
+    });
+  }
+
+  return {
+    items,
+    completedCount: doneItems.length,
+    totalCount: items.length,
+  };
+}
+
 export interface TodayEntriesState {
   items: TodayMergedEntry[];
   doneItems: TodayMergedEntry[];

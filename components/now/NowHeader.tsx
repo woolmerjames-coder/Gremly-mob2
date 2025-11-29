@@ -15,10 +15,17 @@ import React from 'react';
 import { Pressable, TextStyle, Image, View } from 'react-native';
 import { Text } from '../../ui';
 import { makeStyles, useTokens } from '../../design/makeStyles';
-import { NowSegmentedBar } from './NowSegmentedBar';
+import { NowSmoothProgressBar } from './NowSmoothProgressBar';
 import { Icon } from '../ui/Icon';
 import type { NowWeeklyHabitSummary } from '../../lib/now/nowTypes';
 import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
+
+/** Item for progress dots */
+export type NowProgressDotItem = {
+  id: string;
+  type: 'todo' | 'habit';
+  done: boolean;
+};
 
 interface NowHeaderProps {
   dateTimeLabel: string;
@@ -30,6 +37,10 @@ interface NowHeaderProps {
   progressFraction: number;
   weeklySummaries: NowWeeklyHabitSummary[];
   capturesCount: number;
+  /** Items for progress dots (max 10 shown) */
+  progressItems?: NowProgressDotItem[];
+  /** IDs of items just completed (for glow effect) */
+  justCompletedIds?: Set<string>;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
 }
@@ -76,6 +87,8 @@ export function NowHeader({
   progressFraction,
   weeklySummaries,
   capturesCount,
+  progressItems = [],
+  justCompletedIds,
   onPressProgress,
   onPressWeek,
 }: NowHeaderProps) {
@@ -116,9 +129,14 @@ export function NowHeader({
         </View>
       </View>
 
-      {/* Progress bar */}
+      {/* Progress bar + dots */}
       <View style={styles.progressContainer}>
-        <NowSegmentedBar progress={progressRatio} onPress={onPressProgress} />
+        <NowSmoothProgressBar
+          progress={progressRatio}
+          items={progressItems}
+          justCompletedIds={justCompletedIds}
+          onPress={onPressProgress}
+        />
       </View>
 
       {/* Week status row + LOGS */}

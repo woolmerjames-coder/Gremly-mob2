@@ -1,6 +1,12 @@
 /**
  * useTodayInteractions - Shared interaction logic for Today and NOW screens
  * Handles item taps, completions, and undo with optimistic UI
+ *
+ * Completion Flow (2-second undo window):
+ * 1. User taps checkbox → UI shows completed state immediately (optimistic)
+ * 2. For 2 seconds, user can undo (callback provided to caller)
+ * 3. If undo tapped → revert UI, do NOT persist to Supabase
+ * 4. If no undo → persist to Supabase, emit ItemCompleted event
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -11,12 +17,35 @@ import { eventBus } from '../events';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import type { AppRecord } from '../types';
 
-const UNDO_TIMEOUT_MS = 3000; // 3 seconds to undo
+/** Undo window duration in milliseconds */
+const UNDO_WINDOW_MS = 2000;
 
-type UndoState = {
+/**
+ * Represents a pending completion that hasn't been persisted yet.
+ * During the undo window, the item shows as complete in the UI,
+ * but no server call has been made.
+ */
+type PendingCompletion = {
   id: string;
   type: 'habit' | 'todo';
   label: string;
+  timeoutId: NodeJS.Timeout;
+  /** Extra metadata for the item */
+  meta?: {
+    overdue?: boolean;
+    streakCount?: number;
+  };
+};
+
+/**
+ * Public info about the most recent pending completion.
+ * Used by consumers to show undo UI.
+ */
+export type PendingCompletionInfo = {
+  id: string;
+  type: 'habit' | 'todo';
+  label: string;
+  /** Whether this completion has been persisted to the server */
   persisted: boolean;
 };
 
@@ -24,25 +53,36 @@ interface UseTodayInteractionsOptions {
   onReload?: () => Promise<void>;
   celebrationEnabled?: boolean;
   onCelebration?: () => void;
+  /** Callback when an item is permanently completed (after undo window expires) */
+  onItemPermanentlyCompleted?: (id: string, type: 'habit' | 'todo') => void;
+  /** Whether to show celebration toasts on completion (default: true) */
+  showCelebrationToast?: boolean;
 }
 
 export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) {
   const repo = useRepo();
   const overlayController = useUnifiedOverlayController();
 
+  // Optimistic completion state (items that appear completed in UI)
   const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
   const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
   const [deletedItemIds, setDeletedItemIds] = useState<Set<string>>(new Set());
-  const [undoState, setUndoState] = useState<UndoState | null>(null);
 
-  const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Pending completions (not yet persisted, within undo window)
+  // Using ref + state trigger to avoid stale closure issues with timeouts
+  const pendingCompletionsRef = useRef<Map<string, PendingCompletion>>(new Map());
+  const [pendingUpdateTrigger, setPendingUpdateTrigger] = useState(0);
 
-  // Clear undo timer on unmount
+  // Track the most recent pending completion for undo UI
+  const [lastPendingInfo, setLastPendingInfo] = useState<PendingCompletionInfo | null>(null);
+
+  // Clear all pending timeouts on unmount
   useEffect(() => {
     return () => {
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-      }
+      pendingCompletionsRef.current.forEach((pending) => {
+        clearTimeout(pending.timeoutId);
+      });
+      pendingCompletionsRef.current.clear();
     };
   }, []);
 
@@ -58,6 +98,22 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
 
     return unsubscribe;
   }, []);
+
+  /**
+   * Check if an item is already completed or pending completion.
+   * Used to prevent double-taps.
+   */
+  const isItemCompletedOrPending = useCallback(
+    (id: string, type: 'habit' | 'todo'): boolean => {
+      // Check if already in optimistic completed state
+      if (type === 'habit' && completedHabitIds.has(id)) return true;
+      if (type === 'todo' && completedTodoIds.has(id)) return true;
+      // Check if pending completion
+      if (pendingCompletionsRef.current.has(id)) return true;
+      return false;
+    },
+    [completedHabitIds, completedTodoIds],
+  );
 
   /**
    * Mark an item as optimistically deleted (removed from UI immediately)
@@ -115,56 +171,87 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
   );
 
   /**
-   * Toggle todo completion with optimistic UI and undo
+   * Shared helper to handle completion with undo window.
+   * Works for both habits and todos.
    */
-  const toggleTodoComplete = useCallback(
-    async (todo: { id: string; title?: string; name?: string; overdue?: boolean }) => {
-      const label = todo.title || todo.name || 'To-do';
-      const isOverdue = todo.overdue || false;
+  const completeItemWithUndo = useCallback(
+    async (
+      id: string,
+      type: 'habit' | 'todo',
+      label: string,
+      meta?: { overdue?: boolean; streakCount?: number },
+    ): Promise<() => void> => {
+      // Ignore if already completed or pending
+      if (isItemCompletedOrPending(id, type)) {
+        console.log('[useTodayInteractions] Ignoring tap - already completed or pending:', id);
+        return () => {};
+      }
 
-      console.log('[useTodayInteractions] toggleTodoComplete called:', { id: todo.id, label });
+      console.log('[useTodayInteractions] Starting completion with undo window:', {
+        id,
+        type,
+        label,
+      });
 
-      // Optimistic UI
-      setCompletedTodoIds((prev) => new Set(prev).add(todo.id));
-      setUndoState({ id: todo.id, type: 'todo', label, persisted: false });
+      // 1. Optimistic UI update
+      if (type === 'habit') {
+        setCompletedHabitIds((prev) => new Set(prev).add(id));
+      } else {
+        setCompletedTodoIds((prev) => new Set(prev).add(id));
+      }
 
+      // 2. Celebration callback
       if (options.celebrationEnabled && options.onCelebration) {
         options.onCelebration();
       }
 
-      // Clear any existing timer
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-        undoTimerRef.current = null;
-      }
+      // 3. Set up pending completion with timeout
+      const timeoutId = setTimeout(async () => {
+        // Remove from pending map
+        pendingCompletionsRef.current.delete(id);
+        setPendingUpdateTrigger((t) => t + 1);
 
-      // Start undo timer - persist after 3s
-      undoTimerRef.current = setTimeout(async () => {
         try {
           const nowIso = new Date().toISOString();
-          console.log('[useTodayInteractions] Persisting todo completion:', {
-            id: todo.id,
-            nowIso,
-          });
+          console.log('[useTodayInteractions] Persisting completion:', { id, type, nowIso });
 
-          await repo.completeTodo(todo.id, nowIso);
+          // Persist to Supabase
+          if (type === 'habit') {
+            await repo.completeHabit(id, nowIso);
+            emitChatEvent({
+              type: 'habit_checkin',
+              payload: {
+                habitId: id,
+                skipCelebration: options.showCelebrationToast === false,
+              },
+            });
+            eventBus.emit('TodayCompleteHabit', {
+              habitId: id,
+              streakAfter: (meta?.streakCount || 0) + 1,
+            });
+          } else {
+            await repo.completeTodo(id, nowIso);
+            emitChatEvent({
+              type: 'todo_completed',
+              payload: {
+                todoId: id,
+                skipCelebration: options.showCelebrationToast === false,
+              },
+            });
+            eventBus.emit('TodayCompleteTodo', { todoId: id, overdue: meta?.overdue || false });
+          }
 
-          console.log('[useTodayInteractions] Todo completion persisted successfully:', todo.id);
+          console.log('[useTodayInteractions] Completion persisted successfully:', id);
 
-          // Phase 10.9: Emit celebration event for todo completion
-          emitChatEvent({
-            type: 'todo_completed',
-            payload: { todoId: todo.id },
-          });
+          // Emit ItemCompleted event for header glow + progress update
+          eventBus.emit('ItemCompleted', { id, type });
 
-          // Emit analytics
-          eventBus.emit('TodayCompleteTodo', {
-            todoId: todo.id,
-            overdue: isOverdue,
-          });
+          // Notify caller that item is permanently completed
+          options.onItemPermanentlyCompleted?.(id, type);
 
-          setUndoState((prev) =>
-            prev && prev.id === todo.id ? { ...prev, persisted: true } : prev,
+          // Update last pending info to mark as persisted
+          setLastPendingInfo((prev) =>
+            prev && prev.id === id ? { ...prev, persisted: true } : prev,
           );
 
           // Reload data if callback provided
@@ -172,161 +259,190 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
             await options.onReload();
           }
         } catch (err) {
-          console.error('[useTodayInteractions] Failed to complete todo:', err);
+          console.error('[useTodayInteractions] Failed to persist completion:', err);
           // Revert optimistic UI on error
-          setCompletedTodoIds((prev) => {
-            const next = new Set(prev);
-            next.delete(todo.id);
-            return next;
-            return next;
-          });
-          setUndoState((prev) => (prev && prev.id === todo.id ? null : prev));
-        } finally {
-          undoTimerRef.current = null;
+          if (type === 'habit') {
+            setCompletedHabitIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+          } else {
+            setCompletedTodoIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+          }
+          setLastPendingInfo((prev) => (prev && prev.id === id ? null : prev));
         }
-      }, UNDO_TIMEOUT_MS);
-    },
-    [repo, options],
-  );
+      }, UNDO_WINDOW_MS);
 
-  /**
-   * Toggle habit completion with optimistic UI and undo
-   */
-  const toggleHabitComplete = useCallback(
-    async (habit: { id: string; name: string; streakCount?: number }) => {
-      const label = habit.name;
+      // Store pending completion
+      const pending: PendingCompletion = { id, type, label, timeoutId, meta };
+      pendingCompletionsRef.current.set(id, pending);
+      setPendingUpdateTrigger((t) => t + 1);
 
-      console.log('[useTodayInteractions] toggleHabitComplete called:', { id: habit.id, label });
+      // Update last pending info for UI
+      setLastPendingInfo({ id, type, label, persisted: false });
 
-      // Optimistic UI
-      setCompletedHabitIds((prev) => new Set(prev).add(habit.id));
-      setUndoState({ id: habit.id, type: 'habit', label, persisted: false });
+      // 4. Return undo function
+      return () => {
+        const pendingItem = pendingCompletionsRef.current.get(id);
+        if (!pendingItem) {
+          console.log('[useTodayInteractions] Undo called but item not pending:', id);
+          return;
+        }
 
-      if (options.celebrationEnabled && options.onCelebration) {
-        options.onCelebration();
-      }
+        console.log('[useTodayInteractions] Undoing completion:', { id, type });
 
-      // Clear any existing timer
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-        undoTimerRef.current = null;
-      }
+        // Clear the timeout (prevent persistence)
+        clearTimeout(pendingItem.timeoutId);
 
-      // Start undo timer - persist after 3s
-      undoTimerRef.current = setTimeout(async () => {
-        try {
-          const nowIso = new Date().toISOString();
-          console.log('[useTodayInteractions] Persisting habit completion:', {
-            id: habit.id,
-            nowIso,
-          });
+        // Remove from pending map
+        pendingCompletionsRef.current.delete(id);
+        setPendingUpdateTrigger((t) => t + 1);
 
-          await repo.completeHabit(habit.id, nowIso);
-
-          console.log('[useTodayInteractions] Habit completion persisted successfully:', habit.id);
-
-          // Phase 10.9: Emit celebration event for habit check-in
-          emitChatEvent({
-            type: 'habit_checkin',
-            payload: { habitId: habit.id },
-          });
-
-          // Emit analytics
-          eventBus.emit('TodayCompleteHabit', {
-            habitId: habit.id,
-            streakAfter: (habit.streakCount || 0) + 1,
-          });
-
-          setUndoState((prev) =>
-            prev && prev.id === habit.id ? { ...prev, persisted: true } : prev,
-          );
-
-          // Reload data if callback provided
-          if (options.onReload) {
-            await options.onReload();
-          }
-        } catch (err) {
-          console.error('[useTodayInteractions] Failed to complete habit:', err);
-          // Revert optimistic UI on error
+        // Revert optimistic UI
+        if (type === 'habit') {
           setCompletedHabitIds((prev) => {
             const next = new Set(prev);
-            next.delete(habit.id);
+            next.delete(id);
             return next;
           });
-          setUndoState((prev) => (prev && prev.id === habit.id ? null : prev));
-        } finally {
-          undoTimerRef.current = null;
+        } else {
+          setCompletedTodoIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
         }
-      }, UNDO_TIMEOUT_MS);
+
+        // Clear last pending info if it was this item
+        setLastPendingInfo((prev) => (prev && prev.id === id ? null : prev));
+
+        eventBus.emit('TodayUndoCompletion', { entityType: type });
+      };
     },
-    [repo, options],
+    [repo, options, isItemCompletedOrPending],
   );
 
   /**
-   * Undo the last completion
+   * Toggle todo completion with optimistic UI and undo window.
+   * Returns an undo function that can be called within 2 seconds to revert.
+   */
+  const toggleTodoComplete = useCallback(
+    async (todo: {
+      id: string;
+      title?: string;
+      name?: string;
+      overdue?: boolean;
+    }): Promise<() => void> => {
+      const label = todo.title || todo.name || 'To-do';
+      return completeItemWithUndo(todo.id, 'todo', label, { overdue: todo.overdue });
+    },
+    [completeItemWithUndo],
+  );
+
+  /**
+   * Toggle habit completion with optimistic UI and undo window.
+   * Returns an undo function that can be called within 2 seconds to revert.
+   */
+  const toggleHabitComplete = useCallback(
+    async (habit: { id: string; name: string; streakCount?: number }): Promise<() => void> => {
+      return completeItemWithUndo(habit.id, 'habit', habit.name, {
+        streakCount: habit.streakCount,
+      });
+    },
+    [completeItemWithUndo],
+  );
+
+  /**
+   * Undo the last pending completion (if still within undo window).
+   * For backward compatibility with existing UI patterns.
    */
   const undoLastCompletion = useCallback(async () => {
-    if (!undoState) {
+    if (!lastPendingInfo) {
       return;
     }
 
-    const { id, type, persisted } = undoState;
+    const { id, type, persisted } = lastPendingInfo;
 
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-
-    try {
-      if (persisted) {
-        await repo.undoCompletion(id);
-        if (options.onReload) {
-          await options.onReload();
-        }
-      }
+    // Check if still pending (not yet persisted)
+    const pendingItem = pendingCompletionsRef.current.get(id);
+    if (pendingItem) {
+      // Clear timeout and revert UI
+      clearTimeout(pendingItem.timeoutId);
+      pendingCompletionsRef.current.delete(id);
+      setPendingUpdateTrigger((t) => t + 1);
 
       if (type === 'habit') {
         setCompletedHabitIds((prev) => {
-          if (!prev.has(id)) return prev;
           const next = new Set(prev);
           next.delete(id);
           return next;
         });
       } else {
         setCompletedTodoIds((prev) => {
-          if (!prev.has(id)) return prev;
           const next = new Set(prev);
           next.delete(id);
           return next;
         });
       }
 
-      setUndoState(null);
-
+      setLastPendingInfo(null);
       eventBus.emit('TodayUndoCompletion', { entityType: type });
-    } catch (err) {
-      console.error('Failed to undo completion:', err);
-      Alert.alert('Undo failed', 'Please try again in a moment.');
+      return;
     }
-  }, [repo, undoState, options]);
+
+    // If already persisted, need to undo from server
+    if (persisted) {
+      try {
+        await repo.undoCompletion(id);
+
+        if (type === 'habit') {
+          setCompletedHabitIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        } else {
+          setCompletedTodoIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        }
+
+        setLastPendingInfo(null);
+        eventBus.emit('TodayUndoCompletion', { entityType: type });
+
+        if (options.onReload) {
+          await options.onReload();
+        }
+      } catch (err) {
+        console.error('Failed to undo completion:', err);
+        Alert.alert('Undo failed', 'Please try again in a moment.');
+      }
+    }
+  }, [repo, lastPendingInfo, options]);
 
   /**
-   * Undo a specific completion by id and type
-   * Used for undoing from the completed items popup
+   * Undo a specific completion by id and type.
+   * Used for undoing from the completed items popup.
    */
   const undoCompletionById = useCallback(
     async (id: string, type: 'habit' | 'todo') => {
       try {
-        // If this is the current undo state item, clear the timer
-        if (undoState && undoState.id === id) {
-          if (undoTimerRef.current) {
-            clearTimeout(undoTimerRef.current);
-            undoTimerRef.current = null;
-          }
-          setUndoState(null);
+        // Check if still pending
+        const pendingItem = pendingCompletionsRef.current.get(id);
+        if (pendingItem) {
+          clearTimeout(pendingItem.timeoutId);
+          pendingCompletionsRef.current.delete(id);
+          setPendingUpdateTrigger((t) => t + 1);
         }
 
-        // Always try to undo from the server (item may have been persisted)
+        // Always try to undo from server (item may have been persisted)
         await repo.undoCompletion(id);
 
         // Update local state
@@ -344,6 +460,9 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
           });
         }
 
+        // Clear last pending if it was this item
+        setLastPendingInfo((prev) => (prev && prev.id === id ? null : prev));
+
         // Reload data
         if (options.onReload) {
           await options.onReload();
@@ -355,8 +474,52 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         Alert.alert('Undo failed', 'Please try again in a moment.');
       }
     },
-    [repo, undoState, options],
+    [repo, options],
   );
+
+  /**
+   * Check if an item is currently pending completion (within undo window).
+   */
+  const isItemPending = useCallback(
+    (id: string): boolean => {
+      // Force re-evaluation when pending map changes
+      void pendingUpdateTrigger;
+      return pendingCompletionsRef.current.has(id);
+    },
+    [pendingUpdateTrigger],
+  );
+
+  /**
+   * Get the undo function for a specific pending item.
+   * Returns null if item is not pending.
+   */
+  const getUndoForItem = useCallback((id: string): (() => void) | null => {
+    const pendingItem = pendingCompletionsRef.current.get(id);
+    if (!pendingItem) return null;
+
+    return () => {
+      clearTimeout(pendingItem.timeoutId);
+      pendingCompletionsRef.current.delete(id);
+      setPendingUpdateTrigger((t) => t + 1);
+
+      if (pendingItem.type === 'habit') {
+        setCompletedHabitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      } else {
+        setCompletedTodoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+
+      setLastPendingInfo((prev) => (prev && prev.id === id ? null : prev));
+      eventBus.emit('TodayUndoCompletion', { entityType: pendingItem.type });
+    };
+  }, []);
 
   return {
     // Actions
@@ -372,6 +535,10 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
     completedHabitIds,
     completedTodoIds,
     deletedItemIds,
-    undoState,
+
+    // Pending completion state (for undo UI)
+    lastPendingInfo,
+    isItemPending,
+    getUndoForItem,
   };
 }

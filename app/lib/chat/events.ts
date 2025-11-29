@@ -27,8 +27,8 @@ export type ChatEvent =
   | { type: 'error'; payload: { error: Error; context?: string } }
   // Phase 10.9: Celebration events
   | { type: 'item_created'; payload: { type: 'todo' | 'note' | 'habit'; origin: string } }
-  | { type: 'habit_checkin'; payload: { habitId: string } }
-  | { type: 'todo_completed'; payload: { todoId: string } }
+  | { type: 'habit_checkin'; payload: { habitId: string; skipCelebration?: boolean } }
+  | { type: 'todo_completed'; payload: { todoId: string; skipCelebration?: boolean } }
   | { type: 'summary_refreshed'; payload: { spaceId: string } };
 
 // Event listener type

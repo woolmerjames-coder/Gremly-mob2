@@ -20,6 +20,24 @@ import type {
   NowCompletedItem,
 } from '../../now/nowTypes';
 
+// ───────────────────────────────────────────────────────────────────────────────
+// TodayCompletionSummary - Drives progress bar + completion dots
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Summary of today's completion status for the progress header.
+ * Includes only active habits and todos in Today's Focus.
+ * Excludes logs and archived items.
+ */
+export type TodayCompletionSummary = {
+  /** Individual items with completion status */
+  items: { id: string; isDone: boolean; type: 'habit' | 'todo' }[];
+  /** Number of completed items */
+  completedCount: number;
+  /** Total number of items (habits + todos, no logs) */
+  totalCount: number;
+};
+
 /**
  * Options for useTodayStats hook
  */
@@ -78,6 +96,8 @@ export interface TodayStats {
   reload: () => Promise<void>;
   /** Raw nowData for components that need additional fields */
   nowData: UseNowDataReturn;
+  /** Completion summary for progress header (items, completedCount, totalCount) */
+  completionSummary: TodayCompletionSummary;
 }
 
 /**
@@ -208,6 +228,37 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
     const sweepCandidates = selectSweepCandidates(incompleteTodos, todayDayString);
     const sweepCandidateCount = sweepCandidates.length;
 
+    // Build completion summary for progress header
+    // Includes all items in Today's Focus (locked + active), excluding logs
+    const completionSummaryItems: { id: string; isDone: boolean; type: 'habit' | 'todo' }[] = [];
+
+    // Add all todos with their completion status
+    for (const item of todosToday) {
+      const isDone = completedTodoIds.has(item.id) || serverCompletedIds.has(item.id);
+      completionSummaryItems.push({ id: item.id, isDone, type: 'todo' });
+    }
+
+    // Add all habits with their completion status
+    for (const item of habitsToday) {
+      const isDone = completedHabitIds.has(item.id) || serverCompletedIds.has(item.id);
+      completionSummaryItems.push({ id: item.id, isDone, type: 'habit' });
+    }
+
+    // Add server-completed items that aren't already in focus lists
+    // (items completed earlier today that are no longer "active")
+    for (const item of serverCompletedToday) {
+      const alreadyIncluded = completionSummaryItems.some((i) => i.id === item.id);
+      if (!alreadyIncluded && (item.type === 'todo' || item.type === 'habit')) {
+        completionSummaryItems.push({ id: item.id, isDone: true, type: item.type });
+      }
+    }
+
+    const completionSummary: TodayCompletionSummary = {
+      items: completionSummaryItems,
+      completedCount: totalCompletedToday,
+      totalCount: totalTasksToday,
+    };
+
     return {
       todosToday,
       completedTodosToday,
@@ -229,6 +280,7 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       loading,
       reload,
       nowData,
+      completionSummary,
     };
   }, [nowData, completedTodoIds, completedHabitIds, deletedItemIds]);
 }

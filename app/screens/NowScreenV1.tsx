@@ -36,11 +36,13 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
+import type { NowProgressDotItem } from '../../components/now/NowHeader';
 
 export default function NowScreenV1() {
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
     celebrationEnabled: false, // Can enable later
+    showCelebrationToast: false, // Disable toast on NOW - use dot glow instead
   });
 
   // Single source of truth for all Today stats, with optimistic state
@@ -75,6 +77,47 @@ export default function NowScreenV1() {
   const sweepStatus = useMemo(() => {
     return getSweepStatus(sweepCandidateCount, 0);
   }, [sweepCandidateCount]);
+
+  // Build progress items for dots (all today items with done status)
+  const progressItems: NowProgressDotItem[] = useMemo(() => {
+    const allItems = [...lockedItems, ...activeItems];
+    return allItems.map((item) => {
+      const isDone =
+        (item.type === 'todo' && interactions.completedTodoIds.has(item.id)) ||
+        (item.type === 'habit' && interactions.completedHabitIds.has(item.id));
+      return {
+        id: item.id,
+        type: item.type as 'todo' | 'habit',
+        done: isDone,
+      };
+    });
+  }, [lockedItems, activeItems, interactions.completedTodoIds, interactions.completedHabitIds]);
+
+  // Build justCompletedIds set from the interaction hook's lastPendingInfo
+  const justCompletedIds = useMemo(() => {
+    const set = new Set<string>();
+    if (interactions.lastPendingInfo?.persisted) {
+      set.add(interactions.lastPendingInfo.id);
+    }
+    return set;
+  }, [interactions.lastPendingInfo]);
+
+  // Filter out completed items from the display lists
+  const displayLockedItems = useMemo(() => {
+    return lockedItems.filter((item) => {
+      if (item.type === 'todo') return !interactions.completedTodoIds.has(item.id);
+      if (item.type === 'habit') return !interactions.completedHabitIds.has(item.id);
+      return true;
+    });
+  }, [lockedItems, interactions.completedTodoIds, interactions.completedHabitIds]);
+
+  const displayActiveItems = useMemo(() => {
+    return activeItems.filter((item) => {
+      if (item.type === 'todo') return !interactions.completedTodoIds.has(item.id);
+      if (item.type === 'habit') return !interactions.completedHabitIds.has(item.id);
+      return true;
+    });
+  }, [activeItems, interactions.completedTodoIds, interactions.completedHabitIds]);
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
@@ -224,6 +267,8 @@ export default function NowScreenV1() {
         progressFraction={progressFraction}
         weeklySummaries={nowData.weeklySummaries}
         capturesCount={capturesCount}
+        progressItems={progressItems}
+        justCompletedIds={justCompletedIds}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
       />
@@ -249,8 +294,8 @@ export default function NowScreenV1() {
         )}
       </View>
       <TodayFocusList
-        lockedItems={lockedItems}
-        activeItems={activeItems}
+        lockedItems={displayLockedItems}
+        activeItems={displayActiveItems}
         futureItems={futureItems}
         progressPercent={progressPercent}
         completedTodoIds={interactions.completedTodoIds}
@@ -308,6 +353,10 @@ export default function NowScreenV1() {
         onExit={overwhelm.exitFocusMode}
       />
 
+      {/* TODO: In a future branch, replace SweepDrawer with CompletedItemsModal
+          from TodayV3 for parity. The new modal shows completed items (habits + todos)
+          with clearer "Daily Review" / "Evening Review" copy. See TodayV3View.tsx
+          for the updated implementation. */}
       <SweepDrawer
         visible={isSweepVisible}
         onClose={() => setSweepVisible(false)}

@@ -5,7 +5,7 @@
  * Used on the Today/Now screen for quick actions.
  *
  * Layout (normal/moderate state):
- *   [ 🐸 Add to Today ]  [ ✨ Sweep is waiting | N things ]
+ *   [ 🐸 Add to Today ]  [ ✨ Sweep | N things waiting ]
  *
  * Layout (high state - bottom only shows Add):
  *   [ 🐸 Add to Today ]
@@ -23,6 +23,7 @@ const GREMLY_BUTTON: ImageSourcePropType = require('../../assets/buttonforHP.png
 const GOLDEN_PEAR = '#E0C47A';
 const MOSS_GREEN = '#2E5540';
 const LINEN = '#F9F6F1'; // Soft off-white background for pills
+const SAGE_MIST = '#E8F0EB'; // Very light sage for subtle accent
 
 export type SweepLevel = 'none' | 'normal' | 'moderate' | 'high';
 
@@ -116,7 +117,9 @@ export default function TodayPillsRow({
             </Text>
             <Text
               style={[styles.sweepCountLabel, compact && styles.sweepCountLabelCompact]}
-              numberOfLines={1}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
             >
               {sweepCountLabel}
             </Text>
@@ -130,27 +133,31 @@ export default function TodayPillsRow({
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    columnGap: 16, // Unified gap between pills
+    alignItems: 'stretch', // Pills fill the row height evenly
+    paddingHorizontal: 16, // Horizontal padding for the container
+    columnGap: 12, // Generous gap between pills
   },
   rowCompact: {
+    paddingHorizontal: 12,
     columnGap: 8, // Tighter gap for header placement
   },
   pill: {
+    flex: 1, // Share space evenly
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48, // Matching height for both pills
-    paddingHorizontal: 18, // Increased for breathing room
-    borderRadius: 24, // Matching corner radius for both pills
+    justifyContent: 'center', // Center content horizontally
+    minHeight: 56, // Minimum height for comfortable touch
+    paddingHorizontal: 16, // Generous horizontal padding
+    paddingVertical: 10, // Vertical padding for breathing room
+    borderRadius: 28,
     backgroundColor: LINEN, // Unified soft off-white background
-    gap: 10, // Slightly more space between icon and text
-    minWidth: 0, // Allow shrinking
+    gap: 10,
   },
   pillCompact: {
-    height: 36,
+    minHeight: 40,
     paddingHorizontal: 12,
-    borderRadius: 18, // Proportional radius for compact mode
+    paddingVertical: 6,
+    borderRadius: 20,
     gap: 6,
   },
   pillSingle: {
@@ -161,58 +168,59 @@ const styles = StyleSheet.create({
   },
   // Sweep Pill
   sweepPill: {
-    flex: 1,
-    // Background inherited from base pill style
+    // Background inherited from base pill style (LINEN)
   },
   sweepIconContainer: {
-    // Container for icon to allow for potential accent styling
+    flexShrink: 0, // Icon never shrinks
   },
   sweepTextContainer: {
     flexDirection: 'column',
     justifyContent: 'center',
-    flexShrink: 1,
+    flex: 1, // Take remaining space
+    minWidth: 0, // Required for text truncation
   },
   sweepLabel: {
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '600',
     color: MOSS_GREEN,
-    lineHeight: 18,
+    lineHeight: 19,
   },
   sweepLabelCompact: {
     fontSize: 13,
     lineHeight: 16,
   },
   sweepLabelBold: {
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sweepCountLabel: {
     fontSize: 12,
-    fontWeight: '400',
-    color: MOSS_GREEN,
-    opacity: 0.7,
-    lineHeight: 14,
+    fontWeight: '500',
+    color: GOLDEN_PEAR, // Use Golden Pear for secondary text accent
+    lineHeight: 15,
+    marginTop: 2,
   },
   sweepCountLabelCompact: {
     fontSize: 10,
-    lineHeight: 12,
+    lineHeight: 13,
   },
   // Add Pill
   addPill: {
-    flex: 1,
-    // Background inherited from base pill style
+    // Background inherited from base pill style (LINEN)
   },
   gremlyIcon: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
+    flexShrink: 0, // Icon never shrinks
   },
   gremlyIconCompact: {
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
   },
   addLabel: {
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '600',
     color: MOSS_GREEN,
+    flexShrink: 1, // Allow label to shrink if needed
   },
   addLabelCompact: {
     fontSize: 13,

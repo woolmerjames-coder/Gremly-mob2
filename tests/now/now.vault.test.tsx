@@ -69,7 +69,7 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
     undoLastCompletion: jest.fn(),
     completedHabitIds: new Set(),
     completedTodoIds: new Set(),
-    undoState: null,
+    lastPendingInfo: null,
   }),
 }));
 
