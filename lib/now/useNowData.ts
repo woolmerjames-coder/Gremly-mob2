@@ -54,6 +54,8 @@ export interface NowData {
   capturesCount: number;
   unsortedCount: number;
   loading: boolean;
+  /** All habits (not just today's) for weekly tracking */
+  allHabits: Habit[];
 }
 
 export interface UseNowDataReturn extends NowData {
@@ -167,6 +169,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     capturesCount: 0,
     unsortedCount: 0,
     loading: true,
+    allHabits: [],
   });
 
   const load = useCallback(async () => {
@@ -301,6 +304,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         capturesCount,
         unsortedCount,
         loading: false,
+        allHabits: habits,
       });
       isLoadingRef.current = false;
       console.log('[useNowData] ✅ Load complete');

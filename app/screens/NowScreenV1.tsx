@@ -330,6 +330,7 @@ export default function NowScreenV1() {
         habitsToday={habitsToday}
         completedHabitsToday={completedHabitsToday}
         weeklySummaries={nowData.weeklySummaries}
+        allHabits={nowData.allHabits}
         onClose={() => setWeekVisible(false)}
       />
 

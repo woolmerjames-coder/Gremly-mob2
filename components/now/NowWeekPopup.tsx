@@ -8,9 +8,17 @@
  */
 
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { Modal, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  Modal,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Pressable,
+} from 'react-native';
 import { Box, Text } from '../../ui';
 import { HabitWeeklyRow } from '../today/HabitWeeklyRow';
+import { HabitDetailModal } from '../habits/HabitDetailModal';
 import { useRepo } from '../../providers/RepoProvider';
 import {
   useWeeklyHabitStats,
@@ -88,6 +96,23 @@ export function NowWeekPopup({
   const [enrichedHabits, setEnrichedHabits] = useState<RawHabit[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Habit detail modal state
+  const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
+  const [selectedHabitName, setSelectedHabitName] = useState<string | undefined>(undefined);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+
+  const openHabitDetail = useCallback((habitId: string, habitName: string) => {
+    setSelectedHabitId(habitId);
+    setSelectedHabitName(habitName);
+    setDetailModalVisible(true);
+  }, []);
+
+  const closeHabitDetail = useCallback(() => {
+    setDetailModalVisible(false);
+    setSelectedHabitId(null);
+    setSelectedHabitName(undefined);
+  }, []);
+
   // Week date range
   const today = useMemo(() => new Date(), []);
   const weekStart = useMemo(() => getWeekStart(today), [today]);
@@ -101,13 +126,31 @@ export function NowWeekPopup({
 
   // Fetch habit progress dates when popup opens
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      // Reset state when popup closes
+      return;
+    }
 
     async function loadHabitProgress() {
+      console.log('[NowWeekPopup] Starting load, visible:', visible);
       setIsLoading(true);
       try {
         // Get all habits from repo if not provided
-        const habitsToProcess = allHabits || ((await repo.listByType('habit')) as Habit[]);
+        let habitsToProcess: Habit[];
+        if (allHabits && allHabits.length > 0) {
+          habitsToProcess = allHabits;
+          console.log('[NowWeekPopup] Using provided allHabits:', habitsToProcess.length);
+        } else {
+          habitsToProcess = (await repo.listByType('habit')) as Habit[];
+          console.log('[NowWeekPopup] Fetched from repo:', habitsToProcess.length);
+        }
+
+        if (habitsToProcess.length === 0) {
+          console.log('[NowWeekPopup] No habits found!');
+          setEnrichedHabits([]);
+          setIsLoading(false);
+          return;
+        }
 
         // Fetch progress dates for each habit
         const enriched: RawHabit[] = await Promise.all(
@@ -141,6 +184,11 @@ export function NowWeekPopup({
             };
           }),
         );
+        console.log(
+          '[NowWeekPopup] Enriched habits:',
+          enriched.length,
+          enriched.map((h) => h.name),
+        );
         setEnrichedHabits(enriched);
       } catch (error) {
         console.error('[NowWeekPopup] Failed to load habit progress:', error);
@@ -154,6 +202,12 @@ export function NowWeekPopup({
 
   // Compute weekly stats from enriched habits
   const weeklyStats = useWeeklyHabitStats(enrichedHabits);
+  console.log(
+    '[NowWeekPopup] enrichedHabits:',
+    enrichedHabits.length,
+    'weeklyStats:',
+    weeklyStats.length,
+  );
 
   // Today's habit counts - derived from useTodayStats
   const totalHabitsToday = habitsToday.length;
@@ -267,19 +321,20 @@ export function NowWeekPopup({
                 </Box>
 
                 {weeklyStats.map((stat, index) => (
-                  <HabitWeeklyRow
-                    key={stat.id}
-                    habitId={stat.id}
-                    name={stat.name}
-                    weeklyCompleted={stat.weeklyCompleted}
-                    weeklyTarget={stat.weeklyTarget}
-                    status={stat.status}
-                    dayDots={stat.dayDots}
-                    dayDates={stat.dayDates}
-                    statusLabel={getStatusLabel(stat.status)}
-                    onToggleDay={handleToggleDay}
-                    showDivider={index < weeklyStats.length - 1}
-                  />
+                  <Pressable key={stat.id} onPress={() => openHabitDetail(stat.id, stat.name)}>
+                    <HabitWeeklyRow
+                      habitId={stat.id}
+                      name={stat.name}
+                      weeklyCompleted={stat.weeklyCompleted}
+                      weeklyTarget={stat.weeklyTarget}
+                      status={stat.status}
+                      dayDots={stat.dayDots}
+                      dayDates={stat.dayDates}
+                      statusLabel={getStatusLabel(stat.status)}
+                      onToggleDay={handleToggleDay}
+                      showDivider={index < weeklyStats.length - 1}
+                    />
+                  </Pressable>
                 ))}
 
                 <Box style={styles.overall}>
@@ -288,12 +343,22 @@ export function NowWeekPopup({
                   </Text>
                 </Box>
               </>
-            ) : totalHabitsToday === 0 ? (
-              <Text style={styles.emptyText}>No habits to track</Text>
-            ) : null}
+            ) : (
+              <Text style={styles.emptyText}>
+                {totalHabitsToday === 0 ? 'No habits to track' : 'Loading weekly data...'}
+              </Text>
+            )}
           </ScrollView>
         </TouchableOpacity>
       </TouchableOpacity>
+
+      {/* Habit Detail Modal */}
+      <HabitDetailModal
+        visible={detailModalVisible}
+        habitId={selectedHabitId}
+        habitName={selectedHabitName}
+        onClose={closeHabitDetail}
+      />
     </Modal>
   );
 }
@@ -309,6 +374,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: '80%',
+    minHeight: 300,
   },
   header: {
     flexDirection: 'row',
