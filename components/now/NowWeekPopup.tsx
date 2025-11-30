@@ -1,20 +1,29 @@
 /**
- * NowWeekPopup - Shows today's habit progress and weekly summaries
+ * NowWeekPopup - Shows today's habit progress and weekly summaries with tap-to-complete
  *
  * Uses useTodayStats as single source of truth for today's habits,
  * ensuring the counts match what's shown in the Today cards.
+ *
+ * Each day dot is tappable to toggle completion for past/current days.
  */
 
-import React from 'react';
-import { Modal, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { Modal, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Box, Text } from '../../ui';
+import { HabitWeeklyRow } from '../today/HabitWeeklyRow';
+import { useRepo } from '../../providers/RepoProvider';
+import {
+  useWeeklyHabitStats,
+  type RawHabit,
+  type HabitStatus,
+} from '../../lib/today/hooks/useWeeklyHabitStats';
 import type {
   NowWeeklyHabitSummary,
-  HabitWeeklyStatus,
   NowLockedItem,
   NowActiveItem,
   NowCompletedItem,
 } from '../../lib/now/nowTypes';
+import type { Habit } from '../../lib/types';
 
 interface NowWeekPopupProps {
   visible: boolean;
@@ -22,24 +31,47 @@ interface NowWeekPopupProps {
   habitsToday: Array<NowLockedItem | NowActiveItem>;
   /** Today's completed habits from useTodayStats */
   completedHabitsToday: NowCompletedItem[];
-  /** Weekly summaries for habit tracking */
+  /** Weekly summaries for habit tracking (legacy - kept for backwards compat) */
   weeklySummaries: NowWeeklyHabitSummary[];
+  /** All habits for weekly stats computation */
+  allHabits?: Habit[];
   onClose: () => void;
+  /** Called when a day dot is toggled */
+  onToggleDay?: (habitId: string, dateISO: string, newState: boolean) => void;
+  /** Called to refresh data after toggle */
+  onRefresh?: () => void;
 }
 
-function getStatusLabel(status: HabitWeeklyStatus): string {
+function getStatusLabel(status: HabitStatus): string {
   switch (status) {
-    case 'week_complete':
+    case 'done_for_week':
       return '✓ Completed for the week';
-    case 'flexible':
-      return 'Flexible – days left';
-    case 'on_track_today':
+    case 'on_track':
       return 'Do today to stay on track';
-    case 'last_chance':
-      return 'Last chance today';
+    case 'needs_attention':
+      return 'Needs attention';
     default:
       return '';
   }
+}
+
+/**
+ * Get the Monday of the current week
+ */
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * Format date to ISO date string (YYYY-MM-DD)
+ */
+function toDateString(date: Date): string {
+  return date.toISOString().split('T')[0];
 }
 
 export function NowWeekPopup({
@@ -47,16 +79,96 @@ export function NowWeekPopup({
   habitsToday,
   completedHabitsToday,
   weeklySummaries,
+  allHabits,
   onClose,
+  onToggleDay,
+  onRefresh,
 }: NowWeekPopupProps) {
+  const repo = useRepo();
+  const [enrichedHabits, setEnrichedHabits] = useState<RawHabit[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Week date range
+  const today = useMemo(() => new Date(), []);
+  const weekStart = useMemo(() => getWeekStart(today), [today]);
+  const weekStartIso = useMemo(() => toDateString(weekStart), [weekStart]);
+  const weekEndDate = useMemo(() => {
+    const end = new Date(weekStart);
+    end.setDate(weekStart.getDate() + 6);
+    return end;
+  }, [weekStart]);
+  const weekEndIso = useMemo(() => toDateString(weekEndDate), [weekEndDate]);
+
+  // Fetch habit progress dates when popup opens
+  useEffect(() => {
+    if (!visible) return;
+
+    async function loadHabitProgress() {
+      setIsLoading(true);
+      try {
+        // Get all habits from repo if not provided
+        const habitsToProcess = allHabits || ((await repo.listByType('habit')) as Habit[]);
+
+        // Fetch progress dates for each habit
+        const enriched: RawHabit[] = await Promise.all(
+          habitsToProcess.map(async (habit) => {
+            const progressDates = await repo.getHabitProgressDates(
+              habit.id,
+              weekStartIso,
+              weekEndIso,
+            );
+            return {
+              id: habit.id,
+              name: habit.name,
+              frequency: habit.frequency || 'daily',
+              frequency_value:
+                (habit as any).frequency_value ?? (habit as any).target_per_period ?? 1,
+              labels: habit.labels,
+              type: habit.type,
+              habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
+              schedule_days: (habit as any).days_active?.map((d: string) => {
+                const dayMap: Record<string, number> = {
+                  sun: 0,
+                  mon: 1,
+                  tue: 2,
+                  wed: 3,
+                  thu: 4,
+                  fri: 5,
+                  sat: 6,
+                };
+                return dayMap[d.toLowerCase()] ?? parseInt(d, 10);
+              }),
+            };
+          }),
+        );
+        setEnrichedHabits(enriched);
+      } catch (error) {
+        console.error('[NowWeekPopup] Failed to load habit progress:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadHabitProgress();
+  }, [visible, allHabits, repo, weekStartIso, weekEndIso]);
+
+  // Compute weekly stats from enriched habits
+  const weeklyStats = useWeeklyHabitStats(enrichedHabits);
+
   // Today's habit counts - derived from useTodayStats
   const totalHabitsToday = habitsToday.length;
   const completedHabitsCount = completedHabitsToday.length;
   const allHabitsCompletedToday = totalHabitsToday > 0 && completedHabitsCount >= totalHabitsToday;
 
-  // Weekly totals
-  const weeklyCompleted = weeklySummaries.reduce((sum, s) => sum + s.completionsThisWeek, 0);
-  const weeklyTarget = weeklySummaries.reduce((sum, s) => sum + s.targetPerWeek, 0);
+  // Weekly totals - use new stats if available, fall back to legacy summaries
+  const weeklyCompleted =
+    weeklyStats.length > 0
+      ? weeklyStats.reduce((sum, s) => sum + s.weeklyCompleted, 0)
+      : weeklySummaries.reduce((sum, s) => sum + s.completionsThisWeek, 0);
+  const weeklyTarget =
+    weeklyStats.length > 0
+      ? weeklyStats.reduce((sum, s) => sum + s.weeklyTarget, 0)
+      : weeklySummaries.reduce((sum, s) => sum + s.targetPerWeek, 0);
 
   // Determine today's status message
   let todayStatusMessage: string;
@@ -72,6 +184,54 @@ export function NowWeekPopup({
     todayStatusMessage = `${completedHabitsCount} of ${totalHabitsToday} habits done today`;
     todayStatusStyle = styles.todayStatusInProgress;
   }
+
+  // Handle day toggle
+  const handleToggleDay = useCallback(
+    async (habitId: string, dateISO: string, newState: boolean) => {
+      // Optimistically update local state
+      setEnrichedHabits((prev) =>
+        prev.map((habit) => {
+          if (habit.id !== habitId) return habit;
+          const progress = habit.habit_progress || [];
+          if (newState) {
+            // Add date if not present
+            if (!progress.some((p) => p.occurred_day === dateISO)) {
+              return {
+                ...habit,
+                habit_progress: [...progress, { occurred_day: dateISO }],
+              };
+            }
+          } else {
+            // Remove date
+            return {
+              ...habit,
+              habit_progress: progress.filter((p) => p.occurred_day !== dateISO),
+            };
+          }
+          return habit;
+        }),
+      );
+
+      // Call parent handler if provided
+      if (onToggleDay) {
+        onToggleDay(habitId, dateISO, newState);
+      } else {
+        // Default implementation using repo
+        try {
+          if (newState) {
+            await repo.completeHabitForDate(habitId, dateISO);
+          } else {
+            await repo.removeHabitCompletion(habitId, dateISO);
+          }
+          // Refresh parent data
+          onRefresh?.();
+        } catch (error) {
+          console.error('[NowWeekPopup] Failed to toggle day:', error);
+        }
+      }
+    },
+    [repo, onToggleDay, onRefresh],
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -95,21 +255,31 @@ export function NowWeekPopup({
               <Text style={[styles.todayStatus, todayStatusStyle]}>{todayStatusMessage}</Text>
             </Box>
 
-            {/* Weekly Summary Section */}
-            {weeklySummaries.length > 0 && (
+            {/* Weekly Summary Section with tappable dots */}
+            {isLoading ? (
+              <Box style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#757575" />
+              </Box>
+            ) : weeklyStats.length > 0 ? (
               <>
                 <Box style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>This Week</Text>
                 </Box>
 
-                {weeklySummaries.map((summary, index) => (
-                  <Box key={index} style={styles.item}>
-                    <Text style={styles.habitName}>{summary.name}</Text>
-                    <Text style={styles.habitProgress}>
-                      {summary.completionsThisWeek}/{summary.targetPerWeek}
-                    </Text>
-                    <Text style={styles.habitStatus}>{getStatusLabel(summary.status)}</Text>
-                  </Box>
+                {weeklyStats.map((stat, index) => (
+                  <HabitWeeklyRow
+                    key={stat.id}
+                    habitId={stat.id}
+                    name={stat.name}
+                    weeklyCompleted={stat.weeklyCompleted}
+                    weeklyTarget={stat.weeklyTarget}
+                    status={stat.status}
+                    dayDots={stat.dayDots}
+                    dayDates={stat.dayDates}
+                    statusLabel={getStatusLabel(stat.status)}
+                    onToggleDay={handleToggleDay}
+                    showDivider={index < weeklyStats.length - 1}
+                  />
                 ))}
 
                 <Box style={styles.overall}>
@@ -118,11 +288,9 @@ export function NowWeekPopup({
                   </Text>
                 </Box>
               </>
-            )}
-
-            {weeklySummaries.length === 0 && totalHabitsToday === 0 && (
+            ) : totalHabitsToday === 0 ? (
               <Text style={styles.emptyText}>No habits to track</Text>
-            )}
+            ) : null}
           </ScrollView>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -166,6 +334,10 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
   },
+  loadingContainer: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
   // Today's status banner
   todayBanner: {
     backgroundColor: '#F5F3EE',
@@ -203,26 +375,6 @@ const styles = StyleSheet.create({
     color: '#757575',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-  },
-  item: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F5',
-  },
-  habitName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212121',
-    marginBottom: 4,
-  },
-  habitProgress: {
-    fontSize: 14,
-    color: '#424242',
-    marginBottom: 2,
-  },
-  habitStatus: {
-    fontSize: 14,
-    color: '#757575',
   },
   overall: {
     marginTop: 16,

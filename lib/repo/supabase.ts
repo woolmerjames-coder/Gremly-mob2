@@ -1789,6 +1789,26 @@ export class SupabaseRepo implements IRepo {
     return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
   }
 
+  async getHabitProgressDates(
+    habitId: ID,
+    weekStartIso: string,
+    weekEndIso: string,
+  ): Promise<string[]> {
+    const ownerId = this.ensureUserId();
+    const weekStart = ensureDay(weekStartIso);
+    const weekEnd = ensureDay(weekEndIso);
+    const { data, error } = await supabase
+      .from('habit_progress')
+      .select('occurred_day')
+      .eq('owner_id', ownerId)
+      .eq('habit_id', habitId)
+      .gte('occurred_day', weekStart)
+      .lte('occurred_day', weekEnd);
+
+    if (error) throw new Error(`getHabitProgressDates failed: ${error.message}`);
+    return (data ?? []).map((row: any) => row.occurred_day);
+  }
+
   async getFocusForDate(dayIso: string): Promise<{
     id: ID;
     entry_id: ID | null;
@@ -2429,6 +2449,72 @@ export class SupabaseRepo implements IRepo {
 
     // Emit event for UI sync
     eventBus.emit('ItemUpdated', { id });
+  }
+
+  /**
+   * Complete a habit for a specific date (for weekly habit tracking).
+   * Inserts a row into habit_progress if not already exists.
+   */
+  async completeHabitForDate(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0]; // Ensure we have just the date
+
+    console.log('[SupabaseRepo] completeHabitForDate:', { habitId, occurredDay });
+
+    // Check if already completed for this day
+    const { data: existing } = await supabase
+      .from('habit_progress')
+      .select('id')
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay)
+      .maybeSingle();
+
+    if (existing) {
+      console.log('[SupabaseRepo] completeHabitForDate: already exists');
+      return; // Already completed
+    }
+
+    // Insert new progress record
+    const { error } = await supabase.from('habit_progress').insert({
+      owner_id: userId,
+      habit_id: habitId,
+      count: 1,
+      occurred_at: new Date(occurredDay).toISOString(),
+      occurred_day: occurredDay,
+    });
+
+    if (error) {
+      throw new Error(`Failed to complete habit for date: ${error.message}`);
+    }
+
+    // Emit event for UI sync
+    eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
+  /**
+   * Remove a habit completion for a specific date (for weekly habit tracking).
+   * Deletes the row from habit_progress matching that day.
+   */
+  async removeHabitCompletion(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0]; // Ensure we have just the date
+
+    console.log('[SupabaseRepo] removeHabitCompletion:', { habitId, occurredDay });
+
+    const { error } = await supabase
+      .from('habit_progress')
+      .delete()
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay);
+
+    if (error) {
+      throw new Error(`Failed to remove habit completion: ${error.message}`);
+    }
+
+    // Emit event for UI sync
+    eventBus.emit('ItemUpdated', { id: habitId });
   }
 
   // ==========================

@@ -510,6 +510,56 @@ export class MemoryRepo implements IRepo {
     eventBus.emit('ItemUpdated', { id });
   }
 
+  /**
+   * Complete a habit for a specific date (for weekly habit tracking).
+   */
+  async completeHabitForDate(habitId: ID, dateIso: string): Promise<void> {
+    const item = this.data.find((r) => r.id === habitId && r.owner_id === this.currentUserId);
+    if (!item || item.type !== 'habit') throw new Error('Habit not found');
+
+    const occurredDay = dateIso.split('T')[0];
+
+    // Initialize habit_progress if needed
+    if (!(item as any).habit_progress) {
+      (item as any).habit_progress = [];
+    }
+
+    // Check if already completed for this day
+    const existing = (item as any).habit_progress.find(
+      (p: { occurred_day: string }) => p.occurred_day === occurredDay,
+    );
+    if (existing) return;
+
+    // Add progress record
+    (item as any).habit_progress.push({
+      occurred_day: occurredDay,
+      count: 1,
+    });
+
+    // Emit event for UI sync
+    eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
+  /**
+   * Remove a habit completion for a specific date (for weekly habit tracking).
+   */
+  async removeHabitCompletion(habitId: ID, dateIso: string): Promise<void> {
+    const item = this.data.find((r) => r.id === habitId && r.owner_id === this.currentUserId);
+    if (!item || item.type !== 'habit') throw new Error('Habit not found');
+
+    const occurredDay = dateIso.split('T')[0];
+
+    if (!(item as any).habit_progress) return;
+
+    // Remove progress record for this day
+    (item as any).habit_progress = (item as any).habit_progress.filter(
+      (p: { occurred_day: string }) => p.occurred_day !== occurredDay,
+    );
+
+    // Emit event for UI sync
+    eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
   // =======================================================
   // Phase 10.9 (Today v3) — New helpers
   // =======================================================
@@ -722,6 +772,30 @@ export class MemoryRepo implements IRepo {
           row.occurred_day <= weekEnd,
       )
       .reduce((sum, row) => sum + (row.count ?? 1), 0);
+  }
+
+  async getHabitProgressDates(
+    habitId: ID,
+    weekStartIso: string,
+    weekEndIso: string,
+  ): Promise<string[]> {
+    const weekStart = ensureDay(weekStartIso);
+    const weekEnd = ensureDay(weekEndIso);
+    const rows = ((this as any)._habitProgress || []) as Array<{
+      owner_id: string;
+      habit_id: string;
+      occurred_day: string;
+      count: number;
+    }>;
+    return rows
+      .filter(
+        (row) =>
+          row.owner_id === this.currentUserId &&
+          row.habit_id === habitId &&
+          row.occurred_day >= weekStart &&
+          row.occurred_day <= weekEnd,
+      )
+      .map((row) => row.occurred_day);
   }
 
   async getFocusForDate(dayIso: string): Promise<{
