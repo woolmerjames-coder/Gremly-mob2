@@ -1511,13 +1511,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [mode, initialEntity, initialText, defaultDueToday, dispatch]);
 
   // Initial defaults (match brief: text-first; first line becomes title)
+  // CRITICAL: Always fetch full entity from Supabase to ensure commitment fields round-trip
+  // Today/Now selectors may pass truncated entity shapes that lose commitment fields
   useEffect(() => {
-    if (mode === 'edit' && initialEntity) {
-      const payload = buildDraftPayloadFromEntity(initialEntity);
+    const hydrateEditMode = async () => {
+      if (mode !== 'edit' || !initialEntity) return;
+
+      const entityId = (initialEntity as any)?.id;
+      let entityToUse = initialEntity;
+
+      // Always fetch fresh entity from Supabase to get ALL fields including commitment
+      if (entityId) {
+        try {
+          console.log('[UnifiedOverlayV2] Fetching full entity from Supabase:', entityId);
+          const freshEntity = await repo.getById(entityId);
+          if (freshEntity) {
+            console.log('[UnifiedOverlayV2] Fresh entity fetched:', {
+              id: freshEntity.id,
+              type: freshEntity.type,
+              commitment: (freshEntity as any).commitment,
+              commitmentNote: (freshEntity as any).commitmentNote,
+            });
+            entityToUse = freshEntity;
+          } else {
+            console.warn('[UnifiedOverlayV2] Could not fetch entity, using initialEntity fallback');
+          }
+        } catch (err) {
+          console.error('[UnifiedOverlayV2] Error fetching full entity:', err);
+          // Fall back to initialEntity on error
+        }
+      }
+
+      const payload = buildDraftPayloadFromEntity(entityToUse);
+      console.log('[UnifiedOverlayV2] Hydrating with payload:', {
+        commitment: payload.commitment,
+        commitmentNote: payload.commitmentNote,
+      });
       dispatch({ type: 'HYDRATE_EDIT', payload } as any);
 
       // Hydrate mood for journal logs (Phase L4)
-      const entity = initialEntity as any;
+      const entity = entityToUse as any;
       if (
         entity?.mood &&
         (entity.mood === 'happy' || entity.mood === 'neutral' || entity.mood === 'sad')
@@ -1529,8 +1562,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (entity?.photo_uri) {
         setPhotoUri(entity.photo_uri);
       }
-    }
-  }, [mode, initialEntity]);
+    };
+
+    hydrateEditMode();
+  }, [mode, initialEntity, repo]);
 
   // Load existing log photos from database (Phase L5)
   useEffect(() => {
@@ -5816,6 +5851,22 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
     const tagsMeta = (entity as any)?.tags_meta ?? {};
 
+    // Hydrate commitment fields from entity (Phase 6)
+    const commitment = (entity as any)?.commitment === true;
+    const commitmentNote = (entity as any)?.commitment_note ?? '';
+    const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
+
+    if (__DEV__) {
+      console.log('[UnifiedOverlayV2.init] Loaded habit with:', {
+        id: (entity as any)?.id,
+        commitment,
+        commitmentNote: commitmentNote?.slice?.(0, 30) || null,
+        commitmentStartedAt,
+        frequency: (entity as any)?.frequency,
+        frequency_value: (entity as any)?.frequency_value,
+      });
+    }
+
     return {
       baseType: 'habit',
       compactTitle,
@@ -5825,6 +5876,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         notes: habitLongText,
         schedule: 'custom',
         frequency_json: (entity as any)?.frequency_value ?? null, // Load frequency_json from DB
+        subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
       },
       todo: {
         title: compactTitle,
@@ -5840,6 +5892,12 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       tags: extractedTags,
       stickyTags: normalizeMetaValues(tagsMeta?.sticky),
       tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
+      // Commitment fields (Phase 6)
+      commitment,
+      commitmentNote,
+      commitmentStartedAt,
+      // Space and other fields
+      spaceId: (entity as any)?.space_id ?? null,
       logSubtypeOverride: null, // Phase L8: Default for habits
       logIsPrivate: false, // Phase L9: Default for habits
     };
@@ -5902,6 +5960,29 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       ? !!(entity?.views && (entity.views as any).private_journal === true)
       : false;
 
+  // Hydrate commitment fields from entity (Phase 6)
+  // Todos and notes can have commitment fields (habits use habit-specific path above)
+  const commitment = (entity as any)?.commitment === true;
+  const commitmentNote = (entity as any)?.commitment_note ?? '';
+  const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
+
+  // Hydrate reminders from entity (used for journal entries and todos)
+  const reminders = (entity as any)?.reminders ?? null;
+
+  if (__DEV__) {
+    console.log('[UnifiedOverlayV2.init] Loaded entity with:', {
+      id: (entity as any)?.id,
+      type: baseType,
+      commitment,
+      commitmentNote: commitmentNote?.slice?.(0, 30) || null,
+      commitmentStartedAt,
+      reminders: reminders?.length ?? 0,
+      due_day: (entity as any)?.due_day,
+      due_time: (entity as any)?.due_time,
+      mood: (entity as any)?.mood,
+    });
+  }
+
   const payload: Partial<V2State> = {
     baseType,
     compactTitle: title || '', // Preserve entity title as compactTitle
@@ -5927,6 +6008,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       title: name || title || '',
       notes: rawDetails || '',
       schedule: 'custom',
+      frequency_json: (entity as any)?.frequency_value ?? null,
+      subtype: (entity as any)?.subtype ?? 'start_habit',
     },
     tags: extractedTags, // Initialize tags from entity for all types
     stickyTags: normalizeMetaValues(tagsMeta?.sticky),
@@ -5934,6 +6017,14 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     mood: (entity as any)?.mood ?? null, // Hydrate mood for journal logs (Phase L2)
     logSubtypeOverride, // Phase L8: Manual log subtype override
     logIsPrivate, // Phase L9: Private flag for journal logs
+    // Commitment fields (Phase 6) - for todos and notes
+    commitment,
+    commitmentNote,
+    commitmentStartedAt,
+    // Space and other common fields
+    spaceId: (entity as any)?.space_id ?? null,
+    // Reminder support (for journals and todos)
+    reminderAt: reminders?.[0]?.when ?? null, // Map first reminder to reminderAt for backwards compat
   };
 
   return payload;

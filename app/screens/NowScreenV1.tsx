@@ -37,6 +37,94 @@ import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 
+/**
+ * Time window priority for sorting
+ * Lower number = higher priority (shown first)
+ */
+const TIME_WINDOW_PRIORITY: Record<string, number> = {
+  morning: 1,
+  any: 2,
+  midday: 3,
+  afternoon: 4,
+  evening: 5,
+};
+
+/**
+ * Infer time window from item name if not explicitly set
+ * Looks for keywords like "Morning", "Evening", "Daily" in the name
+ */
+function inferTimeWindow(item: NowActiveItem): string {
+  // If explicitly set, use it
+  if (item.timeWindow && item.timeWindow !== 'any') {
+    return item.timeWindow;
+  }
+
+  // Infer from name (case-insensitive)
+  const nameLower = item.name.toLowerCase();
+
+  if (nameLower.includes('morning')) {
+    return 'morning';
+  }
+  if (nameLower.includes('evening') || nameLower.includes('night')) {
+    return 'evening';
+  }
+  if (nameLower.includes('afternoon')) {
+    return 'afternoon';
+  }
+  if (nameLower.includes('midday') || nameLower.includes('noon') || nameLower.includes('lunch')) {
+    return 'midday';
+  }
+
+  // Default to 'any' for daily/anytime items
+  return 'any';
+}
+
+/**
+ * Parse time string (HH:mm) to minutes since midnight for comparison
+ */
+function parseTimeToMinutes(timeStr: string | null | undefined): number | null {
+  if (!timeStr) return null;
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
+/**
+ * Sort active items by time window priority and due time
+ * Order: morning → any → midday → afternoon → evening
+ * Within each group: sort by specific due time (earliest first), then by name
+ */
+function sortActiveItems<T extends NowActiveItem>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    // Get time window priority, inferring from name if not set
+    const aWindow = inferTimeWindow(a);
+    const bWindow = inferTimeWindow(b);
+    const aPriority = TIME_WINDOW_PRIORITY[aWindow] ?? 2;
+    const bPriority = TIME_WINDOW_PRIORITY[bWindow] ?? 2;
+
+    // Compare by time window first
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
+    }
+
+    // Within same time window, sort by specific due time
+    const aTime = parseTimeToMinutes(a.dueTime);
+    const bTime = parseTimeToMinutes(b.dueTime);
+
+    // Items with specific time come before items without
+    if (aTime !== null && bTime === null) return -1;
+    if (aTime === null && bTime !== null) return 1;
+
+    // Both have times - sort by time (earliest first)
+    if (aTime !== null && bTime !== null) {
+      if (aTime !== bTime) return aTime - bTime;
+    }
+
+    // Finally, sort alphabetically by name as tiebreaker
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export default function NowScreenV1() {
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
@@ -78,6 +166,7 @@ export default function NowScreenV1() {
   }, [sweepCandidateCount]);
 
   // Filter out completed items from the display lists
+  // Locked items are always shown first (highest priority)
   const displayLockedItems = useMemo(() => {
     return lockedItems.filter((item) => {
       if (item.type === 'todo') return !interactions.completedTodoIds.has(item.id);
@@ -86,12 +175,15 @@ export default function NowScreenV1() {
     });
   }, [lockedItems, interactions.completedTodoIds, interactions.completedHabitIds]);
 
+  // Active items: filter completed, then sort by time window priority
   const displayActiveItems = useMemo(() => {
-    return activeItems.filter((item) => {
+    const filtered = activeItems.filter((item) => {
       if (item.type === 'todo') return !interactions.completedTodoIds.has(item.id);
       if (item.type === 'habit') return !interactions.completedHabitIds.has(item.id);
       return true;
     });
+    // Sort by time window: morning → any → afternoon/evening
+    return sortActiveItems(filtered);
   }, [activeItems, interactions.completedTodoIds, interactions.completedHabitIds]);
 
   const overwhelm = useOverwhelmFlow();

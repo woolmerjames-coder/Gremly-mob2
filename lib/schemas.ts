@@ -106,6 +106,10 @@ export const habitZ = baseRecordZ.extend({
   triggers: z.array(z.string()).nullable().optional(),
   replacement_habit_id: z.string().nullable().optional(),
   replacement_text: z.string().nullable().optional(),
+  // Commitment/Lock-In fields (Phase X)
+  commitment: z.boolean().nullable().optional(),
+  commitmentNote: z.string().nullable().optional(),
+  commitmentStartedAt: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const todoZ = baseRecordZ.extend({
@@ -125,6 +129,10 @@ export const todoZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   notes: z.string().nullable().optional(), // Additional notes
   tags: tagsZ, // Searchable, AI-editable JSON array persisted in DB
+  // Commitment/Lock-In fields (Phase X)
+  commitment: z.boolean().nullable().optional(),
+  commitmentNote: z.string().nullable().optional(),
+  commitmentStartedAt: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({
@@ -149,6 +157,10 @@ export const noteZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  // Commitment/Lock-In fields (Phase X)
+  commitment: z.boolean().nullable().optional(),
+  commitmentNote: z.string().nullable().optional(),
+  commitmentStartedAt: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;

@@ -428,8 +428,9 @@ export function getLockedItems(
   const locked: NowLockedItem[] = [];
 
   for (const entity of allEntities) {
-    // Check if entity has locked flag
-    const isLocked = (entity as any).locked === true;
+    // Check if entity has commitment flag (locked-in for today)
+    // The database field is 'commitment', UI uses 'locked' terminology
+    const isLocked = (entity as any).commitment === true;
     if (!isLocked) continue;
 
     // Skip completed or archived items
@@ -538,6 +539,7 @@ export function getActiveTodayItems(
           dueDay: todo.due_day, // Canonical field
           dueAt: todo.due_day, // Deprecated but kept for backwards compat
           dueTime: (todo as any).due_time || null,
+          timeWindow: (todo as any).time_window || 'any',
         });
       }
     }

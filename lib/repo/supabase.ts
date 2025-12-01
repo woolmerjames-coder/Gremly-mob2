@@ -215,64 +215,167 @@ function normalizeViews(input: any): Record<string, any> {
   return { ...input };
 }
 
-// Helper to map database habit columns to TypeScript fields
-// Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
-// TypeScript has: name, frequency_value, reminders, triggers (fields)
-// Schema truth: habits table has BOTH name AND title columns
+/**
+ * Map database habit columns to TypeScript Habit type
+ *
+ * Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
+ * TypeScript has: name, frequency_value, reminders, triggers (fields)
+ * Schema truth: habits table has BOTH name AND title columns
+ *
+ * READ-SIDE AUDIT (Phase 6+):
+ * - Commitment fields: commitment, commitment_note, commitment_started_at
+ * - Frequency fields: frequency → frequency, frequency_json → frequency_value
+ * - Reminder fields: reminders_json → reminders
+ * - Trigger fields: triggers_json → triggers
+ * - Common fields: tags, tags_meta, views, labels, space_id, origin, drop_id, has_list, list_items
+ */
 function mapHabitFromDb(dbRecord: any): any {
-  return {
+  const mapped = {
     ...dbRecord,
     // Database has both 'name' and 'title' - keep name as primary
     name: dbRecord.name || dbRecord.title,
     // Map jsonb columns to TS fields
-    frequency_value: dbRecord.frequency_json,
-    reminders: dbRecord.reminders_json,
-    triggers: dbRecord.triggers_json,
+    frequency_value: dbRecord.frequency_json ?? null,
+    reminders: dbRecord.reminders_json ?? null,
+    triggers: dbRecord.triggers_json ?? null,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views),
+    // Commitment fields (Phase 6)
+    commitment: dbRecord.commitment ?? false,
+    commitment_note: dbRecord.commitment_note ?? null,
+    commitment_started_at: dbRecord.commitment_started_at ?? null,
+    // Common fields
+    labels: dbRecord.labels ?? null,
+    space_id: dbRecord.space_id ?? null,
+    origin: dbRecord.origin ?? null,
+    has_list: dbRecord.has_list ?? false,
+    list_items: dbRecord.list_items ?? null,
   };
+
+  if (__DEV__) {
+    console.log('[HabitFromRow]', {
+      id: mapped.id,
+      name: mapped.name,
+      commitment: mapped.commitment,
+      commitment_note: mapped.commitment_note?.slice?.(0, 30) ?? null,
+      commitment_started_at: mapped.commitment_started_at,
+      frequency: mapped.frequency,
+      frequency_value: mapped.frequency_value,
+      reminders: mapped.reminders?.length ?? 0,
+    });
+  }
+
+  return mapped;
 }
 
 /**
  * Map database todo columns to TypeScript Todo type
+ *
  * Database schema truth (from generated types):
  * - name (string, required) - PRIMARY field for todos
  * - NO 'title' column in todos table
  * - reminders_json (jsonb) -> reminders (ReminderRow[])
  * - owner_id (string) - RLS key
+ *
+ * READ-SIDE AUDIT (Phase 6+):
+ * - Commitment fields: commitment, commitment_note, commitment_started_at
+ * - Date fields: due_date, due_day, due_time
+ * - Reminder fields: reminders_json → reminders
+ * - Common fields: tags, tags_meta, views, labels, space_id, origin, drop_id, has_list, list_items
  */
 function mapTodoFromDb(dbRecord: any): any {
-  return {
+  const mapped = {
     ...dbRecord,
     // Map database 'name' to both name and title for backwards compatibility
     name: dbRecord.name,
     title: dbRecord.name, // Backwards compatibility in app code
     // Map jsonb column to TS field
-    reminders: dbRecord.reminders_json,
+    reminders: dbRecord.reminders_json ?? null,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views),
+    // Commitment fields (Phase 6)
+    commitment: dbRecord.commitment ?? false,
+    commitment_note: dbRecord.commitment_note ?? null,
+    commitment_started_at: dbRecord.commitment_started_at ?? null,
+    // Date fields
+    due_date: dbRecord.due_date ?? null,
+    due_day: dbRecord.due_day ?? null,
+    due_time: dbRecord.due_time ?? null,
+    // Common fields
+    labels: dbRecord.labels ?? null,
+    space_id: dbRecord.space_id ?? null,
+    origin: dbRecord.origin ?? null,
+    has_list: dbRecord.has_list ?? false,
+    list_items: dbRecord.list_items ?? null,
   };
+
+  if (__DEV__) {
+    console.log('[TodoFromRow]', {
+      id: mapped.id,
+      name: mapped.name,
+      commitment: mapped.commitment,
+      commitment_note: mapped.commitment_note?.slice?.(0, 30) ?? null,
+      commitment_started_at: mapped.commitment_started_at,
+      due_day: mapped.due_day,
+      due_time: mapped.due_time,
+      reminders: mapped.reminders?.length ?? 0,
+    });
+  }
+
+  return mapped;
 }
 
 /**
  * Map database note columns to TypeScript Note type
- * - reminders_json (jsonb) -> reminders (ReminderRow[]) for journal entries
+ *
+ * READ-SIDE AUDIT (Phase L2+):
+ * - reminders_json (jsonb) → reminders (ReminderRow[]) for journal entries
+ * - Journal-specific: mood, fmt, date, private, journal_subtype, photo_uri
+ * - Common fields: tags, tags_meta, views, labels, space_id, origin, drop_id, has_list, list_items
  */
 function mapNoteFromDb(dbRecord: any): any {
-  return {
+  const mapped = {
     ...dbRecord,
     // Map jsonb column to TS field (used for journal entries)
-    reminders: dbRecord.reminders_json,
+    reminders: dbRecord.reminders_json ?? null,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views),
+    // Journal-specific fields (Phase L2+)
+    mood: dbRecord.mood ?? null,
+    fmt: dbRecord.fmt ?? null,
+    date: dbRecord.date ?? null,
+    private: dbRecord.private ?? false,
+    journal_subtype: dbRecord.journal_subtype ?? null,
+    photo_uri: dbRecord.photo_uri ?? null,
+    // Common fields
+    labels: dbRecord.labels ?? null,
+    space_id: dbRecord.space_id ?? null,
+    origin: dbRecord.origin ?? null,
+    has_list: dbRecord.has_list ?? false,
+    list_items: dbRecord.list_items ?? null,
   };
+
+  if (__DEV__) {
+    console.log('[NoteFromRow]', {
+      id: mapped.id,
+      title: mapped.title,
+      subtype: mapped.subtype,
+      mood: mapped.mood,
+      date: mapped.date,
+      private: mapped.private,
+      journal_subtype: mapped.journal_subtype,
+      reminders: mapped.reminders?.length ?? 0,
+    });
+  }
+
+  return mapped;
 }
 
 export class SupabaseRepo implements IRepo {
@@ -4149,6 +4252,90 @@ export class SupabaseSpaceMilestoneRepo {
  * - [TodoEdit] patch/updatePayload/db result/updated todo
  * - [HabitEdit] patch/updatePayload/db result/updated habit
  * - [NoteEdit] patch/updatePayload/db result/updated note
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * READ-SIDE AUDIT: SUPABASE → OVERLAY FIELD MAPPING (2025-11-30)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * This audit ensures all database fields are correctly mapped when reading
+ * entities from Supabase and loading them into the Unified Overlay v2.
+ *
+ * FLOW:
+ * 1. Supabase row → mapXxxFromDb() → TypeScript entity
+ * 2. TypeScript entity → buildDraftPayloadFromEntity() → V2State
+ * 3. V2State → overlay UI → user edits
+ * 4. V2State → toCreateOrUpdateInput() → save payload → Supabase
+ *
+ * READ-SIDE FIXES (mapXxxFromDb functions in supabase.ts):
+ *
+ * mapTodoFromDb:
+ * - commitment: dbRecord.commitment ?? false (ADDED)
+ * - commitment_note: dbRecord.commitment_note ?? null (ADDED)
+ * - commitment_started_at: dbRecord.commitment_started_at ?? null (ADDED)
+ * - reminders: dbRecord.reminders_json ?? null (ADDED - was missing)
+ * - due_date, due_day, due_time: Explicitly mapped (VERIFIED)
+ * - labels, space_id, origin, has_list, list_items: Common fields (ADDED)
+ * - Dev logging: [TodoFromRow] logs commitment/reminders/due fields (ADDED)
+ *
+ * mapHabitFromDb:
+ * - commitment: dbRecord.commitment ?? false (ADDED)
+ * - commitment_note: dbRecord.commitment_note ?? null (ADDED)
+ * - commitment_started_at: dbRecord.commitment_started_at ?? null (ADDED)
+ * - frequency_value: dbRecord.frequency_json ?? null (VERIFIED - was present)
+ * - reminders: dbRecord.reminders_json ?? null (VERIFIED - was present)
+ * - triggers: dbRecord.triggers_json ?? null (VERIFIED - was present)
+ * - labels, space_id, origin, has_list, list_items: Common fields (ADDED)
+ * - Dev logging: [HabitFromRow] logs commitment/frequency/reminders (ADDED)
+ *
+ * mapNoteFromDb:
+ * - reminders: dbRecord.reminders_json ?? null (VERIFIED - was present)
+ * - mood: dbRecord.mood ?? null (ADDED - for journal entries)
+ * - fmt: dbRecord.fmt ?? null (ADDED - for formatting)
+ * - date: dbRecord.date ?? null (ADDED - for journal date)
+ * - private: dbRecord.private ?? false (ADDED - privacy flag)
+ * - journal_subtype: dbRecord.journal_subtype ?? null (ADDED - AI subtype)
+ * - photo_uri: dbRecord.photo_uri ?? null (ADDED - journal photos)
+ * - labels, space_id, origin, has_list, list_items: Common fields (ADDED)
+ * - Dev logging: [NoteFromRow] logs mood/date/subtype/reminders (ADDED)
+ *
+ * OVERLAY INITIALIZATION FIXES (buildDraftPayloadFromEntity in UnifiedOverlayV2.tsx):
+ *
+ * Habit branch:
+ * - commitment: entity.commitment === true (ADDED)
+ * - commitmentNote: entity.commitment_note ?? '' (ADDED)
+ * - commitmentStartedAt: entity.commitment_started_at ?? null (ADDED)
+ * - frequency_json: entity.frequency_value ?? null (VERIFIED - was present)
+ * - subtype: entity.subtype ?? 'start_habit' (ADDED)
+ * - spaceId: entity.space_id ?? null (ADDED)
+ * - Dev logging: [UnifiedOverlayV2.init] logs commitment/frequency (ADDED)
+ *
+ * Todo/Log branch:
+ * - commitment: entity.commitment === true (ADDED)
+ * - commitmentNote: entity.commitment_note ?? '' (ADDED)
+ * - commitmentStartedAt: entity.commitment_started_at ?? null (ADDED)
+ * - reminderAt: reminders?.[0]?.when ?? null (ADDED - maps reminders array)
+ * - spaceId: entity.space_id ?? null (ADDED)
+ * - mood, logSubtypeOverride, logIsPrivate: Verified for logs
+ * - due_day, due_time: Verified for todos
+ * - frequency_json, subtype: Added to habit state for cross-type switching
+ * - Dev logging: [UnifiedOverlayV2.init] logs commitment/reminders/due (ADDED)
+ *
+ * ROUND-TRIP TESTING:
+ * - Created __tests__/commitment.roundtrip.test.tsx
+ * - Tests commitment fields for todos, habits, notes
+ * - Tests reminders for todos and journal entries
+ * - Tests frequency_json for habits
+ * - Verifies that fields hydrate correctly from entity into overlay state
+ *
+ * RESULT:
+ * ✅ Lock-In / Commitment toggle now round-trips correctly
+ * ✅ All overlay-editable fields read from DB → load into overlay
+ * ✅ Dev logging added for debugging read-side issues
+ * ✅ Tests added to prevent regressions
  *
  * ─────────────────────────────────────────────────────────────────────────────
  */

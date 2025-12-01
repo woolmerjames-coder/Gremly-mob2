@@ -1,14 +1,15 @@
 /**
  * NowFocusRow - Divider-style row for Today focus items
  *
- * Replaces card-style layout with:
- * - Left accent bar (green for habits, blue for todos)
+ * Layout:
+ * - Left accent bar (green for habits, blue for todos) for ALL items
+ * - Title text with optional "◇ Locked in" indicator inline
  * - Clean divider lines between items
  * - No background fill or card borders
  */
 
 import React, { useMemo } from 'react';
-import { Animated, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Animated, TouchableOpacity, View, StyleSheet, Image } from 'react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { pop } from '../../lib/today/motion';
@@ -17,11 +18,18 @@ import { triggerMedium } from '../../lib/haptics';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 import { NowTypeChip } from './NowTypeChip';
 
+// Lock-in diamond icon
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const LOCKIN_ICON = require('../../assets/lockin icon.png');
+
 // Accent colors for item types
 const ACCENT_COLORS = {
   habit: '#2E5540', // Moss Green
   todo: '#4A7FBF', // Soft blue matching Todo chip background tone
 } as const;
+
+// Brand green for lock-in elements
+const BRAND_GREEN = '#2E5540';
 
 // Divider color
 const DIVIDER_COLOR = 'rgba(0, 0, 0, 0.08)';
@@ -69,29 +77,36 @@ export function NowFocusRow({
       {!isFirst && <View style={styles.divider} />}
 
       <TouchableOpacity style={styles.rowContainer} onPress={onPress} activeOpacity={0.7}>
-        {/* Left accent bar */}
-        <View
-          style={[
-            styles.accentBar,
-            { backgroundColor: accentColor },
-            isLocked && styles.accentBarLocked,
-          ]}
-        />
+        {/* Left accent bar - always shown for all items */}
+        <View style={styles.leftIndicatorContainer}>
+          <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+        </View>
 
         {/* Content area */}
         <Box style={styles.content}>
           {/* Text block */}
           <Box style={[styles.textContainer, isFuture && styles.futureText]}>
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.itemText,
-                { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.medium },
-                isCompleted && styles.itemTextCompleted,
-              ]}
-            >
-              {item.name}
-            </Text>
+            {/* Title row with optional locked-in indicator */}
+            <View style={styles.titleRow}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.itemText,
+                  { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.medium },
+                  isCompleted && styles.itemTextCompleted,
+                  isLocked && styles.itemTextWithLock, // Limit width when locked
+                ]}
+              >
+                {item.name}
+              </Text>
+              {isLocked && (
+                <View style={styles.lockedInIndicator}>
+                  <Image source={LOCKIN_ICON} style={styles.lockinIcon} resizeMode="contain" />
+                  <Text style={styles.lockedInText}>Locked in</Text>
+                </View>
+              )}
+            </View>
+            {/* Subtitle row */}
             <Box style={styles.metaRow}>
               <NowTypeChip type={item.type} />
               {item.type === 'habit' && 'cadenceLabel' in item && item.cadenceLabel ? (
@@ -133,27 +148,26 @@ const styles = StyleSheet.create({
   rowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 8, // Tightened from 12
-    paddingBottom: 6, // Tightened from 8
+    paddingTop: 8,
+    paddingBottom: 6,
     paddingRight: 4,
-    minHeight: 48, // Comfortable touch target (tightened from 52)
-    // No background - uses page background
+    minHeight: 48,
   },
   divider: {
     height: 1,
     backgroundColor: DIVIDER_COLOR,
-    marginLeft: 13, // Align with title text (accent bar 3px + marginRight 10px)
+    marginLeft: 20,
+  },
+  leftIndicatorContainer: {
+    width: 20,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingLeft: 2,
   },
   accentBar: {
     width: 3,
+    height: 32,
     borderRadius: 4,
-    alignSelf: 'stretch',
-    marginVertical: 2, // Slight inset from row edges
-    marginRight: 10,
-  },
-  accentBarLocked: {
-    // Slightly more prominent for locked items
-    width: 3,
   },
   content: {
     flex: 1,
@@ -168,23 +182,47 @@ const styles = StyleSheet.create({
   futureText: {
     opacity: 0.6,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  itemText: {
+    fontSize: 14,
+    lineHeight: 18,
+    flexShrink: 1,
+  },
+  itemTextWithLock: {
+    maxWidth: '60%', // Leave room for locked-in indicator
+  },
+  itemTextCompleted: {
+    textDecorationLine: 'line-through',
+    opacity: 0.6,
+  },
+  lockedInIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    flexShrink: 0,
+  },
+  lockinIcon: {
+    width: 14,
+    height: 14,
+  },
+  lockedInText: {
+    fontSize: 11,
+    lineHeight: 13,
+    color: BRAND_GREEN,
+    marginLeft: 3,
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4, // Gap between title and meta row
+    marginTop: 4,
   },
   cadenceLabel: {
     marginLeft: 4,
     fontSize: 11,
     lineHeight: 13,
-  },
-  itemText: {
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  itemTextCompleted: {
-    textDecorationLine: 'line-through',
-    opacity: 0.6,
   },
   checkboxContainer: {
     marginLeft: 8,
