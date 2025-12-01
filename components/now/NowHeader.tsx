@@ -421,10 +421,10 @@ const useStyles = makeStyles((t) => ({
     elevation: 2,
   },
   notesPreview: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: t.typography.fontFamily.regular,
-    color: INK_SUBTLE,
-    marginTop: 2,
+    color: '#888888',
+    marginTop: 4,
     marginLeft: 22, // Align with text after icon
   },
   notesCardTitle: {

@@ -326,11 +326,14 @@ export default function NowScreenV1() {
   // Compute preview text for Your Notes card
   const notesPreview = useMemo(() => {
     if (recentLogs.length === 0) return 'No notes this week';
-    if (recentLogs.length === 1) return recentLogs[0].title;
-    // Show first 2 titles truncated
-    const first = recentLogs[0].title.slice(0, 20);
-    const second = recentLogs[1].title.slice(0, 15);
-    return `${first}${recentLogs[0].title.length > 20 ? '...' : ''}, ${second}${recentLogs[1].title.length > 15 ? '...' : ''}`;
+    if (recentLogs.length === 1) {
+      const title = recentLogs[0].title;
+      return title.length > 20 ? `${title.slice(0, 20)}...` : title;
+    }
+    // Show first two titles truncated
+    const first = recentLogs[0].title.slice(0, 12);
+    const second = recentLogs[1].title.slice(0, 12);
+    return `${first}${recentLogs[0].title.length > 12 ? '...' : ''}, ${second}${recentLogs[1].title.length > 12 ? '...' : ''}`;
   }, [recentLogs]);
 
   // Handle Your Notes card press
