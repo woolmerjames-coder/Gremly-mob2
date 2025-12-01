@@ -30,7 +30,7 @@ import {
   explainAmbiguous,
   type Tone,
 } from './explain';
-import { env } from '../env';
+import { env, FF_CLASSIFY_V2, FF_CLASSIFY_V2_SHADOW } from '../env';
 import { detectIntent } from './intents/detectIntent';
 import { classifyIntentWithAI, isAIClassificationAvailable } from './intents/classifyIntentWithAI';
 import { resolveCanonicalIntent, type CanonicalIntentResult } from './intents/canonicalIntent';
@@ -40,6 +40,8 @@ import { type CortexContextBase, type Lane } from './lane';
 import { buildHabitFields, buildTodoFields } from './textNormalization';
 import type { CanonicalType, LogSubtype, NoteSubtype } from '../types';
 import { canonicalToPersisted } from '../canonical';
+import { classifyV2 } from './classify/classifyV2';
+import { runShadowIfEnabled, type V1Result } from './classify/shadowCompare';
 
 // Re-export lane types for convenience
 export type { Lane, CortexContextBase } from './lane';
@@ -975,6 +977,21 @@ export async function cortexDecide(
       },
       engineTags,
     };
+
+    // Phase 4b: V2 Classification Shadow Mode
+    // Run V2 classifier in shadow mode to compare with V1 results
+    // When FF_CLASSIFY_V2_SHADOW is on, V2 runs in parallel for logging only
+    if (FF_CLASSIFY_V2_SHADOW && !FF_CLASSIFY_V2) {
+      // Build V1 result for shadow comparison
+      const v1Result: V1Result = {
+        type: probable === 'unknown' ? 'unsorted' : probable,
+        subtype: effectiveCanonicalSubtype ?? undefined,
+        confidence,
+        mode: mode === 'auto' ? 'auto' : mode === 'ask' ? 'ask' : 'keep',
+      };
+      // Run shadow comparison (non-blocking, catches its own errors)
+      runShadowIfEnabled(userText, v1Result, true);
+    }
 
     console.log('[cortexDecide][final]', {
       mode: result.mode,
