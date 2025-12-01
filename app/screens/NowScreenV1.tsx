@@ -631,10 +631,13 @@ function TodayFocusList({
   );
 }
 
+// Official Gremly brand background
+const LINEN_CREAM = '#F9F6F1';
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    // backgroundColor inherited from Screen component (t.colors.bg = #FFFDF8)
+    backgroundColor: LINEN_CREAM, // Official Gremly background-light
   },
   // Focus section divider - separates header cards from Today's Focus
   focusSectionDivider: {
@@ -646,7 +649,7 @@ const styles = StyleSheet.create({
   // Warm background wrapper for the entire focus section (header + list)
   focusSectionWrapper: {
     flex: 1,
-    backgroundColor: '#FCFBF9', // Almost white but warm
+    backgroundColor: LINEN_CREAM, // Match page background
   },
   // Focus section header row
   focusSectionHeader: {
@@ -656,7 +659,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 10,
     paddingBottom: 2, // Tight spacing before list
-    backgroundColor: '#FCFBF9', // Match wrapper background
+    backgroundColor: LINEN_CREAM, // Match page background
   },
   focusSectionHeaderLeft: {
     flexDirection: 'column',
@@ -671,7 +674,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     flex: 1,
-    backgroundColor: '#FCFBF9', // Match warm wrapper background for scroll continuity
+    backgroundColor: LINEN_CREAM, // Match page background
   },
   listContent: {
     paddingHorizontal: 16,
@@ -711,7 +714,7 @@ const styles = StyleSheet.create({
   },
   // Optimistic quick-add card styles (processing state)
   optimisticCard: {
-    backgroundColor: '#F5F3EE', // linenCream
+    backgroundColor: LINEN_CREAM, // Match page background
     borderRadius: 8,
     paddingVertical: 2,
     paddingHorizontal: 16,

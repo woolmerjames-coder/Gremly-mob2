@@ -28,7 +28,8 @@ import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
 const MOSS_GREEN = BRAND.colors.mossGreen;
 const INK_CHARCOAL = BRAND.colors.charcoalInk;
 const INK_SUBTLE = BRAND.colors.inkSubtle;
-const TRACK_GREY = '#E5E4DF'; // Light grey track background
+const LINEN_CREAM = '#F9F6F1'; // Official Gremly background-light
+const TRACK_GREY = '#D8D6D3'; // Darker grey track for better contrast
 const CARD_BG_TODAY = '#FAF8F5'; // Warm cream for Today card
 const CARD_BG_HABITS = '#F2F7F0'; // Very light sage for Habits card
 const CARD_BG_NOTES = '#F7F7F5'; // Neutral warm for Your Notes card
@@ -172,8 +173,6 @@ export function NowHeader({
           <View style={styles.headerDivider} />
         </View>
         <View style={styles.mascotColumn}>
-          {/* Soft circular glow behind mascot */}
-          <View style={styles.mascotGlow} />
           <Image source={GREMLY_CLIPBOARD} style={styles.mascotImage} resizeMode="contain" />
         </View>
       </View>
@@ -269,7 +268,7 @@ export function NowHeader({
  */
 const useStyles = makeStyles((t) => ({
   container: {
-    backgroundColor: t.colors.bg,
+    backgroundColor: LINEN_CREAM, // Official Gremly background-light
     paddingTop: t.spacing[4], // 16px - breathing room below notch
     paddingBottom: t.spacing[1],
   },
@@ -292,10 +291,15 @@ const useStyles = makeStyles((t) => ({
   },
   mascotGlow: {
     position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(242, 247, 240, 0.18)', // Sage tint at 18% opacity
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Soft cream/white glow
+    // iOS shadow blur for glow effect
+    shadowColor: '#FAF8F5',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 25, // Blur radius ~25px
   },
   mascotImage: {
     width: 64,
@@ -305,7 +309,7 @@ const useStyles = makeStyles((t) => ({
   headerDivider: {
     width: '32%',
     height: 3,
-    backgroundColor: 'rgba(46, 85, 64, 0.18)', // Moss Green at 18% opacity
+    backgroundColor: MOSS_GREEN, // Full brand green
     borderRadius: 2,
     marginTop: 8,
   },
@@ -350,12 +354,12 @@ const useStyles = makeStyles((t) => ({
     paddingTop: 6, // Reduced top padding for better vertical centering
     paddingBottom: 12,
     justifyContent: 'space-between',
-    // Subtle elevation
+    // Soft shadow: 0 2px 8px rgba(0,0,0,0.06)
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   todayCardTitle: {
     fontSize: 14,
@@ -378,12 +382,12 @@ const useStyles = makeStyles((t) => ({
     paddingHorizontal: 14,
     paddingVertical: 10,
     justifyContent: 'space-between',
-    // Subtle elevation
+    // Soft shadow: 0 2px 8px rgba(0,0,0,0.06)
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   habitsWeekValue: {
     fontSize: 12,
@@ -401,12 +405,12 @@ const useStyles = makeStyles((t) => ({
     paddingHorizontal: 14,
     paddingVertical: 10,
     justifyContent: 'center',
-    // Subtle elevation
+    // Soft shadow: 0 2px 8px rgba(0,0,0,0.06)
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   notesCardTitle: {
     fontSize: 14,
@@ -476,7 +480,7 @@ const useStyles = makeStyles((t) => ({
   // Today's pill progress bar
   progressBarTrack: {
     flexDirection: 'row',
-    height: 16,
+    height: 18, // Increased from 16px for more visual presence
     backgroundColor: TRACK_GREY,
     borderRadius: 999, // Soft pill shape
     overflow: 'hidden',
