@@ -58,6 +58,7 @@ describe('SupabaseRepo - Duplicate Note Handling (23505)', () => {
     const existingNoteId = 'existing-note-id-123';
     const existingNote = {
       id: existingNoteId,
+      type: 'note',
       title: 'Existing Note',
       body: 'Already created',
       subtype: 'catchall',
@@ -65,6 +66,12 @@ describe('SupabaseRepo - Duplicate Note Handling (23505)', () => {
       owner_id: mockUserId,
       archived: false,
       ai_placed: false,
+      labels: [],
+      tags: [],
+      tags_meta: null,
+      space_id: null,
+      origin: 'catchall',
+      views: {},
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-01T00:00:00Z',
     };

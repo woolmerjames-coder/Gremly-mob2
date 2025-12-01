@@ -107,14 +107,15 @@ describe('buildDraftPayloadFromEntity - Todo roundtrip', () => {
     expect(payload.todo?.details).toBe(originalSentence);
   });
 
-  it('should map due_date to todo.due_at', () => {
+  it('should map due_day and due_time (Gremly date model)', () => {
     const entity = {
       id: 'todo-5',
       type: 'todo',
       name: 'Task with deadline',
       title: 'Task with deadline',
       body: 'Complete this task by Friday',
-      due_date: '2025-11-20T10:00:00Z',
+      due_day: '2025-11-20',
+      due_time: '10:00:00',
       origin: 'catchall',
       ai_placed: false,
       space_id: null,
@@ -124,8 +125,11 @@ describe('buildDraftPayloadFromEntity - Todo roundtrip', () => {
 
     const payload = buildDraftPayloadFromEntity(entity);
 
-    // Assert: due_date maps to todo.due_at
-    expect(payload.todo?.due_at).toBe('2025-11-20T10:00:00Z');
+    // Assert: due_day and due_time are mapped correctly (Gremly date model)
+    // Note: due_at is explicitly null - Gremly uses due_day/due_time instead
+    expect(payload.todo?.due_at).toBeNull();
+    expect(payload.todo?.due_day).toBe('2025-11-20');
+    expect(payload.todo?.due_time).toBe('10:00:00');
     expect(payload.todo?.title).toBe('Task with deadline');
     expect(payload.todo?.details).toBe('Complete this task by Friday');
   });

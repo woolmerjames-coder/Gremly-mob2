@@ -6,7 +6,12 @@
 import React from 'react';
 import { renderWithProviders, screen, fireEvent } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
-import type { UseNowDataReturn } from '../../lib/now/useNowData';
+
+// Create variables to hold mock data
+let mockTodayStats: Record<string, unknown>;
+
+// Create mock function for openEntityOverlay
+const mockOpenEntityOverlay = jest.fn();
 
 // Mock useAuth to return a test user
 jest.mock('../../providers/AuthProvider', () => ({
@@ -25,15 +30,39 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
-// Create a variable to hold the mock now data
-let mockNowData: Partial<UseNowDataReturn>;
+// Mock useRepo to avoid RepoProvider dependency
+jest.mock('../../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    listHabits: jest.fn().mockResolvedValue([]),
+    getHabitProgressForWeek: jest.fn().mockResolvedValue(0),
+  }),
+}));
 
-// Create mock function for openEntityOverlay
-const mockOpenEntityOverlay = jest.fn();
+// Mock useTodayStats - the main data hook for NowScreenV1
+jest.mock('../../lib/today/hooks', () => ({
+  useTodayStats: () => mockTodayStats,
+}));
 
-// Mock useNowData to return our test data
-jest.mock('../../lib/now/useNowData', () => ({
-  useNowData: () => mockNowData,
+// Mock useRecentLogs for the Your Notes section
+jest.mock('../../lib/notes/useRecentLogs', () => ({
+  useRecentLogs: () => ({
+    logs: [],
+    journals: [],
+    ideas: [],
+    general: [],
+    totalCount: 0,
+    loading: false,
+    reload: jest.fn(),
+    refresh: jest.fn(),
+  }),
+}));
+
+// Mock useNowQuickAdd to avoid RepoProvider dependency
+jest.mock('../../lib/now/useNowQuickAdd', () => ({
+  useNowQuickAdd: () => ({
+    handleQuickAdd: jest.fn().mockResolvedValue(undefined),
+    isProcessing: false,
+  }),
 }));
 
 // Mock useTodayInteractions to capture openEntityOverlay calls
@@ -45,7 +74,19 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
     undoLastCompletion: jest.fn(),
     completedHabitIds: new Set(),
     completedTodoIds: new Set(),
+    deletedItemIds: new Set(),
     lastPendingInfo: null,
+  }),
+}));
+
+// Mock the unified overlay controller
+jest.mock('../../hooks/useUnifiedOverlayController', () => ({
+  useUnifiedOverlayController: () => ({
+    state: { visible: false, mode: 'create' },
+    openCreate: jest.fn(),
+    openEdit: jest.fn(),
+    openView: jest.fn(),
+    close: jest.fn(),
   }),
 }));
 
@@ -56,6 +97,22 @@ jest.mock('../../src/hooks/useActionToast', () => ({
     hideToast: jest.fn(),
     isVisible: false,
     Toast: null,
+  }),
+}));
+
+// Mock useOverwhelmFlow
+jest.mock('../../lib/now/useOverwhelmFlow', () => ({
+  useOverwhelmFlow: () => ({
+    state: 'idle',
+    selectedItems: [],
+    selectedIds: [],
+    focusItem: null,
+    startFlow: jest.fn(),
+    selectItems: jest.fn(),
+    confirmSelection: jest.fn(),
+    setFocusItem: jest.fn(),
+    exitFocus: jest.fn(),
+    reset: jest.fn(),
   }),
 }));
 
@@ -70,6 +127,32 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
   });
 });
 
+// Helper to create default mock stats
+function createMockStats(overrides: Record<string, unknown> = {}) {
+  return {
+    lockedItems: [],
+    activeItems: [],
+    futureItems: [],
+    completedToday: [],
+    habitsToday: [],
+    completedHabitsToday: [],
+    totalTasksToday: 3,
+    totalCompletedToday: 1,
+    progressFraction: 0.33,
+    progressPercent: 33,
+    hasAnyTodayWork: true,
+    logsToday: [],
+    sweepCandidateCount: 0,
+    loading: false,
+    reload: jest.fn().mockResolvedValue(undefined),
+    nowData: {
+      dateTimeLabel: 'Monday, November 25 • 10:30 AM',
+      weeklySummaries: [],
+    },
+    ...overrides,
+  };
+}
+
 describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
   const mockDate = new Date('2025-11-25T10:30:00');
 
@@ -79,18 +162,8 @@ describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
     jest.clearAllMocks();
     mockOpenEntityOverlay.mockClear();
 
-    // Set up mock data with one active todo, one locked habit, and one list
-    mockNowData = {
-      dateTimeLabel: 'Monday, November 25 • 10:30 AM',
-      progressState: {
-        mode: 'dots',
-        percent: 33,
-        completedCount: 1,
-        totalEligibleCount: 3,
-        dots: [true, false, false],
-      },
-      weekStatus: 'on_track',
-      weekHealth: 'on_track',
+    // Set up mock data with one active todo and one locked habit
+    mockTodayStats = createMockStats({
       lockedItems: [
         {
           id: 'habit-1',
@@ -110,23 +183,7 @@ describe('NOW Screen - UnifiedOverlayV2 Integration', () => {
           locked: false,
         },
       ],
-      futureItems: [],
-      vaultSummary: {
-        topThree: [{ id: 'list-1', name: 'Groceries', itemCount: 5 }],
-        overflowCount: 0,
-        thisWeekStats: {
-          listCount: 0,
-          journalCount: 2,
-          ideaCount: 3,
-          personCount: 1,
-        },
-      },
-      completedToday: [],
-      hasYesterdayCarryOver: false,
-      weeklySummaries: [],
-      loading: false,
-      reload: jest.fn().mockResolvedValue(undefined),
-    };
+    });
   });
 
   afterEach(() => {

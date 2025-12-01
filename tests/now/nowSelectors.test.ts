@@ -199,7 +199,7 @@ describe('getLockedItems', () => {
       id: 'habit-locked',
       cadence: 'daily',
     });
-    (habit as any).locked = true;
+    (habit as any).commitment = true;
 
     const items = getLockedItems([habit], completionHistory, testDate);
 
@@ -213,7 +213,7 @@ describe('getLockedItems', () => {
       id: 'todo-locked',
       due_day: '2025-11-26',
     });
-    (todo as any).locked = true;
+    (todo as any).commitment = true;
 
     const items = getLockedItems([todo], completionHistory, testDate);
 
@@ -241,7 +241,7 @@ describe('getLockedItems', () => {
       cadence: 'weekly',
       target_per_period: 3,
     });
-    (habit as any).locked = true;
+    (habit as any).commitment = true;
 
     // 1 completion, 2 needed, 4 days left -> flexible (not needed today)
     completionHistory.set('habit-weekly', 1);
@@ -289,7 +289,7 @@ describe('getActiveTodayItems', () => {
       id: 'habit-locked',
       cadence: 'daily',
     });
-    (habit as any).locked = true;
+    (habit as any).commitment = true;
 
     const items = getActiveTodayItems([habit], completionHistory, testDate);
 
@@ -518,7 +518,7 @@ describe('getProgressEligibleItems', () => {
       id: 'habit-locked',
       cadence: 'daily',
     });
-    (habit as any).locked = true;
+    (habit as any).commitment = true;
 
     const items = getProgressEligibleItems([habit], completionHistory, testDate);
 
@@ -1173,7 +1173,7 @@ describe('archived item filtering', () => {
         due_day: '2025-11-26',
         status: 'active',
       } as any);
-      (activeTodo as any).locked = true;
+      (activeTodo as any).commitment = true;
 
       const archivedTodo = createMockTodo({
         id: 'todo-archived',
@@ -1181,7 +1181,7 @@ describe('archived item filtering', () => {
         due_day: '2025-11-26',
         status: 'archived',
       } as any);
-      (archivedTodo as any).locked = true;
+      (archivedTodo as any).commitment = true;
 
       const items = getLockedItems([activeTodo, archivedTodo], completionHistory, testDate);
 
@@ -1196,7 +1196,7 @@ describe('archived item filtering', () => {
         cadence: 'daily',
         status: 'active',
       } as any);
-      (activeHabit as any).locked = true;
+      (activeHabit as any).commitment = true;
 
       const archivedHabit = createMockHabit({
         id: 'habit-archived',
@@ -1204,7 +1204,7 @@ describe('archived item filtering', () => {
         cadence: 'daily',
         status: 'archived',
       } as any);
-      (archivedHabit as any).locked = true;
+      (archivedHabit as any).commitment = true;
 
       const items = getLockedItems([activeHabit, archivedHabit], completionHistory, testDate);
 
@@ -1219,7 +1219,7 @@ describe('archived item filtering', () => {
         due_day: '2025-11-26',
         status: 'active',
       } as any);
-      (activeTodo as any).locked = true;
+      (activeTodo as any).commitment = true;
 
       const completedTodo = createMockTodo({
         id: 'todo-completed',
@@ -1227,7 +1227,7 @@ describe('archived item filtering', () => {
         due_day: '2025-11-26',
         status: 'completed',
       } as any);
-      (completedTodo as any).locked = true;
+      (completedTodo as any).commitment = true;
 
       const items = getLockedItems([activeTodo, completedTodo], completionHistory, testDate);
 

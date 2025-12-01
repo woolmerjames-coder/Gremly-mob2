@@ -1,8 +1,10 @@
 /**
  * Unit test for SupabaseRepo.create() - Todo creation
  *
- * Verifies that create() does NOT send id, owner_id, created_at, or updated_at
- * to the database, relying instead on DB defaults.
+ * Verifies that create() properly maps fields to database schema:
+ * - details → body (full Mind Drop sentence)
+ * - due_at → due_date + due_time + due_day
+ * - labels must be array (database schema requirement)
  */
 
 import { SupabaseRepo } from '../../lib/repo/supabase';
@@ -56,6 +58,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_date: null,
       undefined_due: true,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -106,6 +109,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_date: '2025-10-20T10:00:00Z',
       undefined_due: false,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -151,6 +155,7 @@ describe('SupabaseRepo.create - Todo', () => {
       space_id: null,
       origin: 'catchall',
       ai_placed: true,
+      labels: [],
       created_at: '2025-11-17T12:00:00Z',
       updated_at: '2025-11-17T12:00:00Z',
     };
@@ -242,6 +247,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_time: '14:30',
       undefined_due: false,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -276,6 +282,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_time: null,
       undefined_due: false,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -308,6 +315,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_time: null,
       undefined_due: false,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -350,6 +358,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_time: '15:00',
       undefined_due: false,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -381,6 +390,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_time: null,
       undefined_due: true,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
@@ -414,6 +424,7 @@ describe('SupabaseRepo.create - Todo', () => {
       due_time: null,
       undefined_due: false,
       ai_placed: false,
+      labels: [],
       created_at: '2025-10-15T12:00:00Z',
       updated_at: '2025-10-15T12:00:00Z',
     };
