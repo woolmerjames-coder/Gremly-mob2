@@ -133,10 +133,10 @@ const styles = StyleSheet.create({
   rowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: 8, // Tightened from 12
+    paddingBottom: 6, // Tightened from 8
     paddingRight: 4,
-    minHeight: 52, // Maintain comfortable touch target
+    minHeight: 48, // Comfortable touch target (tightened from 52)
     // No background - uses page background
   },
   divider: {

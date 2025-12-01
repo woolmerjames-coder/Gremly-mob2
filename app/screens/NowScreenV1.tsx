@@ -36,7 +36,6 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
-import type { NowProgressDotItem } from '../../components/now/NowHeader';
 
 export default function NowScreenV1() {
   // Shared interactions from Today screen
@@ -77,30 +76,6 @@ export default function NowScreenV1() {
   const sweepStatus = useMemo(() => {
     return getSweepStatus(sweepCandidateCount, 0);
   }, [sweepCandidateCount]);
-
-  // Build progress items for dots (all today items with done status)
-  const progressItems: NowProgressDotItem[] = useMemo(() => {
-    const allItems = [...lockedItems, ...activeItems];
-    return allItems.map((item) => {
-      const isDone =
-        (item.type === 'todo' && interactions.completedTodoIds.has(item.id)) ||
-        (item.type === 'habit' && interactions.completedHabitIds.has(item.id));
-      return {
-        id: item.id,
-        type: item.type as 'todo' | 'habit',
-        done: isDone,
-      };
-    });
-  }, [lockedItems, activeItems, interactions.completedTodoIds, interactions.completedHabitIds]);
-
-  // Build justCompletedIds set from the interaction hook's lastPendingInfo
-  const justCompletedIds = useMemo(() => {
-    const set = new Set<string>();
-    if (interactions.lastPendingInfo?.persisted) {
-      set.add(interactions.lastPendingInfo.id);
-    }
-    return set;
-  }, [interactions.lastPendingInfo]);
 
   // Filter out completed items from the display lists
   const displayLockedItems = useMemo(() => {
@@ -264,54 +239,43 @@ export default function NowScreenV1() {
         dateTimeLabel={nowData.dateTimeLabel}
         totalTasksToday={totalTasksToday}
         totalCompletedToday={totalCompletedToday}
-        progressFraction={progressFraction}
         weeklySummaries={nowData.weeklySummaries}
         capturesCount={capturesCount}
-        progressItems={progressItems}
-        justCompletedIds={justCompletedIds}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
+        onPressLogs={() => {
+          // TODO: Open logs list/view when implemented
+          // For now, could open the Week popup which shows habits
+          // or add a dedicated logs modal later
+          if (__DEV__) {
+            console.log('[NowScreenV1] Logs row pressed, count:', capturesCount);
+          }
+        }}
       />
-      <View style={styles.sectionHeaderRow}>
-        {/* Left: Two-line header block */}
-        <View style={styles.sectionHeaderLeft}>
-          <Text style={styles.sectionTitle}>Today's Focus</Text>
-          <View style={styles.sectionSubtitleRow}>
-            <CompletionCheckIcon completed={totalCompletedToday > 0} size={16} />
-            <Text style={styles.sectionSubtitle}>
-              <Text style={styles.completedCount}>{totalCompletedToday}</Text> of {totalTasksToday}{' '}
-              done
-            </Text>
-          </View>
+      <View style={styles.focusSectionHeader}>
+        {/* Left: Section title only */}
+        <View style={styles.focusSectionHeaderLeft}>
+          <Text style={styles.focusSectionTitle}>Today's Focus</Text>
         </View>
-        {/* Right: Sweep pill in HIGH state (uses showInHeader flag) */}
-        {sweepStatus.showInHeader && (
-          <TodayPillsRow
-            sweepLevel={sweepStatus.level}
-            sweepLabel={sweepStatus.headerLabel}
-            sweepCountLabel=""
-            onSweepPress={handleSweepPress}
-            onAddPress={handleAddPress}
-            showSweepOnly
-            compact
-          />
-        )}
       </View>
-      <TodayFocusList
-        lockedItems={displayLockedItems}
-        activeItems={displayActiveItems}
-        futureItems={futureItems}
-        progressPercent={progressPercent}
-        completedTodoIds={interactions.completedTodoIds}
-        completedHabitIds={interactions.completedHabitIds}
-        hasAnyTodayWork={hasAnyTodayWork}
-        onPressItem={handlePressItem}
-        onToggleComplete={handleToggleComplete}
-        optimisticQuickAdd={optimisticQuickAdd}
-        sweepStatus={sweepStatus}
-        onSweepPress={handleSweepPress}
-        onAddPress={handleAddPress}
-      />
+      <View style={styles.focusSectionDivider} />
+      <View style={styles.focusSectionWrapper}>
+        <TodayFocusList
+          lockedItems={displayLockedItems}
+          activeItems={displayActiveItems}
+          futureItems={futureItems}
+          progressPercent={progressPercent}
+          completedTodoIds={interactions.completedTodoIds}
+          completedHabitIds={interactions.completedHabitIds}
+          hasAnyTodayWork={hasAnyTodayWork}
+          onPressItem={handlePressItem}
+          onToggleComplete={handleToggleComplete}
+          optimisticQuickAdd={optimisticQuickAdd}
+          sweepStatus={sweepStatus}
+          onSweepPress={handleSweepPress}
+          onAddPress={handleAddPress}
+        />
+      </View>
 
       {/* Quick Add toast */}
       {QuickAddToast}
@@ -650,18 +614,15 @@ function TodayFocusList({
         />
       ))}
 
-      {/* Bottom pills section - uses showAtBottom flag from sweep status */}
-      {/* When showInHeader is true (high state), only show Add pill */}
-      {/* When showAtBottom is true (normal/moderate), show both pills */}
-      {/* When level is 'none', don't show sweep pill at all */}
+      {/* Bottom pills section - Add to Today only */}
       <View style={styles.pillsRowContainer}>
         <TodayPillsRow
-          sweepLevel={sweepStatus.level}
-          sweepLabel={sweepStatus.label}
-          sweepCountLabel={sweepStatus.countLabel}
+          sweepLevel="none"
+          sweepLabel=""
+          sweepCountLabel=""
           onSweepPress={onSweepPress}
           onAddPress={onAddPress}
-          showAddOnly={!sweepStatus.showAtBottom}
+          showAddOnly
         />
       </View>
 
@@ -675,45 +636,46 @@ const styles = StyleSheet.create({
     flex: 1,
     // backgroundColor inherited from Screen component (t.colors.bg = #FFFDF8)
   },
-  sectionHeaderRow: {
+  // Focus section divider - separates header cards from Today's Focus
+  focusSectionDivider: {
+    height: 1,
+    backgroundColor: '#E8E6E1',
+    marginHorizontal: 24,
+    marginTop: 8,
+  },
+  // Warm background wrapper for the entire focus section (header + list)
+  focusSectionWrapper: {
+    flex: 1,
+    backgroundColor: '#FCFBF9', // Almost white but warm
+  },
+  // Focus section header row
+  focusSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    marginTop: 0,
-    marginBottom: 8, // Reduced from 12 to match section spacing
+    paddingTop: 10,
+    paddingBottom: 2, // Tight spacing before list
+    backgroundColor: '#FCFBF9', // Match wrapper background
   },
-  sectionHeaderLeft: {
+  focusSectionHeaderLeft: {
     flexDirection: 'column',
     flex: 1,
-    flexShrink: 1, // Allow shrinking to prevent text wrap
-    marginRight: 12, // Gap before sweep pill when present
+    flexShrink: 1,
+    marginRight: 12,
   },
-  sectionTitle: {
+  focusSectionTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#0E1116',
   },
-  sectionSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#757575', // subtle color, matches WEEK label style
-  },
-  sectionSubtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 2, // Reduced from 4 for tighter header
-  },
-  completedCount: {
-    fontWeight: '700',
-  },
   listContainer: {
     flex: 1,
-    // backgroundColor inherited from parent for continuous surface
+    backgroundColor: '#FCFBF9', // Match warm wrapper background for scroll continuity
   },
   listContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8, // Space between subtitle and first item (8-10px)
     paddingBottom: 24,
   },
   banner: {
@@ -788,7 +750,7 @@ const styles = StyleSheet.create({
   },
   // TodayPillsRow container - used below cards
   pillsRowContainer: {
-    marginTop: 8, // Tightened spacing after cards
+    marginTop: 4, // Tightened spacing after last item
     marginBottom: 0, // listBottomSpacer handles bottom spacing
   },
 });

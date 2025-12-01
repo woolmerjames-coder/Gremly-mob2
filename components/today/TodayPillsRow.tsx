@@ -133,8 +133,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'stretch', // Pills fill the row height evenly
+    justifyContent: 'flex-end', // Right-align pills
     paddingHorizontal: 16, // Horizontal padding for the container
-    columnGap: 12, // Generous gap between pills
+    columnGap: 18, // Increased gap between pills for visual distinction
   },
   rowCompact: {
     paddingHorizontal: 12,
@@ -145,12 +146,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center', // Center content horizontally
-    minHeight: 56, // Minimum height for comfortable touch
-    paddingHorizontal: 16, // Generous horizontal padding
-    paddingVertical: 10, // Vertical padding for breathing room
-    borderRadius: 28,
+    minHeight: 42, // 25% smaller than 56
+    paddingHorizontal: 12, // 25% smaller than 16
+    paddingVertical: 7, // 25% smaller than 10
+    borderRadius: 21, // 25% smaller than 28
     backgroundColor: PILL_BG, // Slightly darker than page background
-    gap: 10,
+    gap: 7, // 25% smaller than 10
     // Soft elevation shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -210,19 +211,23 @@ const styles = StyleSheet.create({
   },
   // Add Pill
   addPill: {
-    // Background inherited from base pill style (LINEN)
+    backgroundColor: SAGE_MIST, // Light sage green background
   },
   gremlyIcon: {
-    width: 32,
-    height: 32,
+    width: 31, // 25% smaller than 42px
+    height: 31,
     flexShrink: 0, // Icon never shrinks
+    marginLeft: -4, // Adjusted for smaller size
+    marginRight: -4,
   },
   gremlyIconCompact: {
-    width: 24,
-    height: 24,
+    width: 23, // 25% smaller than 31px
+    height: 23,
+    marginLeft: -3,
+    marginRight: -3,
   },
   addLabel: {
-    fontSize: 15,
+    fontSize: 11, // 25% smaller than 15
     fontWeight: '600',
     color: MOSS_GREEN,
     flexShrink: 1, // Allow label to shrink if needed
@@ -230,6 +235,6 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   addLabelCompact: {
-    fontSize: 13,
+    fontSize: 10, // 25% smaller than 13
   },
 });
