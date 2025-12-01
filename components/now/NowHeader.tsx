@@ -57,10 +57,12 @@ interface NowHeaderProps {
   totalCompletedToday: number;
   weeklySummaries: NowWeeklyHabitSummary[];
   capturesCount: number;
+  /** Preview text for notes card (e.g., "Grocery List, Journal...") */
+  notesPreview?: string;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
-  /** Handler for Your Notes card press */
-  onPressLogs?: () => void;
+  /** Handler for Your Notes card press - opens YourNotesPopup */
+  onNotesPress?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,9 +134,10 @@ export function NowHeader({
   totalCompletedToday,
   weeklySummaries,
   capturesCount,
+  notesPreview,
   onPressProgress,
   onPressWeek,
-  onPressLogs,
+  onNotesPress,
 }: NowHeaderProps) {
   const styles = useStyles();
   const greeting = getTimeOfDayGreeting();
@@ -244,7 +247,7 @@ export function NowHeader({
           </TouchableOpacity>
 
           {/* Your Notes Card */}
-          <TouchableOpacity style={styles.notesCard} onPress={onPressLogs} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.notesCard} onPress={onNotesPress} activeOpacity={0.8}>
             <View style={styles.notesCardHeader}>
               <View style={styles.notesTitleRow}>
                 <Icon name="FileText" size="sm" color={MOSS_GREEN} />
@@ -254,6 +257,11 @@ export function NowHeader({
               </View>
               <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
+            {notesPreview ? (
+              <Text style={styles.notesPreview} numberOfLines={1}>
+                {notesPreview}
+              </Text>
+            ) : null}
           </TouchableOpacity>
         </View>
       </View>
@@ -399,7 +407,7 @@ const useStyles = makeStyles((t) => ({
   },
   // Your Notes card (bottom of right column)
   notesCard: {
-    height: 41,
+    minHeight: 41,
     backgroundColor: CARD_BG_NOTES,
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -411,6 +419,13 @@ const useStyles = makeStyles((t) => ({
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
+  },
+  notesPreview: {
+    fontSize: 12,
+    fontFamily: t.typography.fontFamily.regular,
+    color: INK_SUBTLE,
+    marginTop: 2,
+    marginLeft: 22, // Align with text after icon
   },
   notesCardTitle: {
     fontSize: 14,

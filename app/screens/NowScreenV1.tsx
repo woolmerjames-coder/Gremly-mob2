@@ -26,6 +26,8 @@ import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
+import { YourNotesPopup } from '../../components/now/YourNotesPopup';
+import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
 import TodayPillsRow from '../../components/today/TodayPillsRow';
 import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useTodayStats } from '../../lib/today/hooks';
@@ -192,6 +194,7 @@ export default function NowScreenV1() {
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isSweepVisible, setSweepVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
+  const [isNotesVisible, setNotesVisible] = useState(false);
 
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
   const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
@@ -317,6 +320,58 @@ export default function NowScreenV1() {
   // Use today's logs count from useTodayStats
   const capturesCount = logsToday;
 
+  // Fetch recent logs for Your Notes card preview
+  const { logs: recentLogs, totalCount: recentLogsCount } = useRecentLogs(7);
+
+  // Compute preview text for Your Notes card
+  const notesPreview = useMemo(() => {
+    if (recentLogs.length === 0) return 'No notes this week';
+    if (recentLogs.length === 1) return recentLogs[0].title;
+    // Show first 2 titles truncated
+    const first = recentLogs[0].title.slice(0, 20);
+    const second = recentLogs[1].title.slice(0, 15);
+    return `${first}${recentLogs[0].title.length > 20 ? '...' : ''}, ${second}${recentLogs[1].title.length > 15 ? '...' : ''}`;
+  }, [recentLogs]);
+
+  // Handle Your Notes card press
+  const handleNotesPress = useCallback(() => {
+    setNotesVisible(true);
+  }, []);
+
+  // Handle selecting a log from YourNotesPopup
+  const handleSelectLog = useCallback(
+    (log: LogItem) => {
+      setNotesVisible(false);
+      // Open overlay to edit this note
+      overlayController.openEdit({
+        record: { id: log.id, type: 'note' } as any,
+      });
+    },
+    [overlayController],
+  );
+
+  // Handle selecting a journal from YourNotesPopup
+  const handleSelectJournal = useCallback(
+    (log: LogItem) => {
+      setNotesVisible(false);
+      // For now, open overlay to edit (Phase 3: navigate to JournalFullScreen)
+      overlayController.openEdit({
+        record: { id: log.id, type: 'note' } as any,
+      });
+    },
+    [overlayController],
+  );
+
+  // Handle creating new note from YourNotesPopup quick capture
+  const handleNotesCreateNew = useCallback(
+    (text: string) => {
+      setNotesVisible(false);
+      // Use the quick add pipeline to process the text
+      quickAdd.onQuickAdd(text);
+    },
+    [quickAdd],
+  );
+
   if (loading) {
     return (
       <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
@@ -332,17 +387,11 @@ export default function NowScreenV1() {
         totalTasksToday={totalTasksToday}
         totalCompletedToday={totalCompletedToday}
         weeklySummaries={nowData.weeklySummaries}
-        capturesCount={capturesCount}
+        capturesCount={recentLogsCount}
+        notesPreview={notesPreview}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
-        onPressLogs={() => {
-          // TODO: Open logs list/view when implemented
-          // For now, could open the Week popup which shows habits
-          // or add a dedicated logs modal later
-          if (__DEV__) {
-            console.log('[NowScreenV1] Logs row pressed, count:', capturesCount);
-          }
-        }}
+        onNotesPress={handleNotesPress}
       />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
@@ -429,6 +478,14 @@ export default function NowScreenV1() {
         onClose={() => setQuickAddVisible(false)}
         onSubmit={handleQuickAddSubmit}
         onPressManualAdd={handleQuickAddManual}
+      />
+
+      <YourNotesPopup
+        visible={isNotesVisible}
+        onClose={() => setNotesVisible(false)}
+        onSelectLog={handleSelectLog}
+        onSelectJournal={handleSelectJournal}
+        onCreateNew={handleNotesCreateNew}
       />
     </Screen>
   );
