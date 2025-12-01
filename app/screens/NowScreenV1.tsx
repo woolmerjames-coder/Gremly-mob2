@@ -367,12 +367,19 @@ export default function NowScreenV1() {
 
   // Handle creating new note from YourNotesPopup quick capture
   const handleNotesCreateNew = useCallback(
-    (text: string) => {
+    (text: string, noteType: 'journal' | 'idea' | 'general', _isList: boolean) => {
       setNotesVisible(false);
-      // Use the quick add pipeline to process the text
-      quickAdd.onQuickAdd(text);
+      // Map UI note type to LogSubtype
+      const logSubtype = noteType === 'general' ? 'everything_else' : noteType;
+      // Open overlay with prefilled text and type
+      overlayController.openCreate({
+        type: 'log',
+        logSubtype,
+        initialText: text,
+        // TODO: Handle _isList flag when list creation is supported
+      });
     },
-    [quickAdd],
+    [overlayController],
   );
 
   if (loading) {
