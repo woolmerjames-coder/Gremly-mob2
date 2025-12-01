@@ -436,7 +436,7 @@ export const convertUnsortedToLog = async (
 export const convertUnsortedToHabit = async (
   repo: IRepo,
   noteId: string,
-  options: { frequency?: string; nameOverride?: string } = {},
+  options: { frequency?: string; frequencyValue?: number | null; nameOverride?: string } = {},
 ): Promise<{ habit: Habit; updatedNote: Note }> => {
   logConversionStart({ from: 'unsorted', to: 'habit', originId: noteId });
 
@@ -478,6 +478,7 @@ export const convertUnsortedToHabit = async (
       type: 'habit',
       name: habitName,
       frequency,
+      frequency_value: options.frequencyValue ?? null,
       subtype: 'start_habit', // Default: most habits are about starting new behaviors
       notes: derived.notes, // Preserve full Mind Drop text in notes field using shared helper
       space_id: note.space_id ?? null,

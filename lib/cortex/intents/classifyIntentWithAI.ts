@@ -169,12 +169,10 @@ export async function classifyIntentWithAI(
   }
 
   try {
-    // Call AI classifier
+    // Call AI classifier using text parameter (worker's classify route)
+    // This uses the worker's built-in classification which correctly identifies habits
     const result = await callClassify({
-      messages: [
-        { role: 'system', content: AI_CLASSIFICATION_PROMPT },
-        { role: 'user', content: text.slice(0, 500) }, // Limit to 500 chars
-      ],
+      text: text.slice(0, 500), // Limit to 500 chars
       timeoutMs,
     });
 
@@ -218,6 +216,13 @@ export async function classifyIntentWithAI(
     // Parse and validate confidence
     const aiConfidence = parseConfidence(parsed.confidence);
 
+    console.log('[classifyIntentWithAI][canonicalInputs]', {
+      ruleKind: fallback.kind,
+      ruleConfidence: fallback.confidence,
+      aiCategory: rawType,
+      aiConfidenceNormalized: (aiConfidence ?? 0) / 100,
+    });
+
     // Use canonical intent resolver for unified decision logic
     const canonical = resolveCanonicalIntent({
       ruleKind: fallback.kind,
@@ -225,7 +230,17 @@ export async function classifyIntentWithAI(
       aiCategory: rawType,
       aiConfidence: (aiConfidence ?? 0) / 100, // Normalize to 0-1 scale
       text,
-    }); // Map canonical type back to IntentKind
+    });
+
+    console.log('[classifyIntentWithAI][canonicalResult]', {
+      type: canonical.type,
+      confidence: canonical.confidence,
+      allowAutoCreate: canonical.allowAutoCreate,
+      suppressChips: canonical.suppressChips,
+      reasoning: canonical.reasoning,
+    });
+
+    // Map canonical type back to IntentKind
     const finalKind = CANONICAL_TO_INTENT_KIND[canonical.type];
 
     // Build result with canonical classification

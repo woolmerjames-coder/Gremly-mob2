@@ -20,6 +20,7 @@ import { convertUnsortedToTodo } from '../conversion';
 import { convertUnsortedToHabit } from '../conversion';
 import { backgroundPrefill } from './backgroundPrefill';
 import { persistedToCanonical } from '../cortex/canonicalMap';
+import { buildHabitFields } from '../cortex/textNormalization';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Log Shape Mapping - Maps Cortex log intents to proper note shape
@@ -297,10 +298,11 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
       }
 
       // No existing habit found - create new one
-      const freqRaw = firstAction.payload.freq;
-      const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
+      const { freq: parsedFreq, frequencyValue } = buildHabitFields(text, firstAction.payload.freq);
+      const frequency = parsedFreq;
       const result = await convertUnsortedToHabit(repo, unsortedNoteId, {
         frequency,
+        frequencyValue,
       });
       createdHabit = result.habit;
 

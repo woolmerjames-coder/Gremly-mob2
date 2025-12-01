@@ -3284,6 +3284,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               console.debug(
                 '[MindDrop][Ask] Reusing existing unsorted note, not creating duplicate',
               );
+              // Fallback: create unsorted note if ref is still null despite duplicate text
+              if (unsortedIdRef.current == null) {
+                console.warn(
+                  '[MindDrop][Ask] unsortedIdRef was null despite duplicate text, creating anyway',
+                );
+                const id = await saveToUnsortedTray(repo as any, cleanedText, {
+                  sourceMessageId: validSourceMessageId ?? undefined,
+                  whyString: 'Awaiting chip selection',
+                  dropId,
+                });
+                if (id) {
+                  unsortedNotesByDropIdRef.current.set(dropId, id);
+                }
+                unsortedIdRef.current = id ?? null;
+              }
             }
           }
 
