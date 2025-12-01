@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FDF8F3', // Warm cream - Gremly brand
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: SCREEN_HEIGHT * 0.7,
+    height: SCREEN_HEIGHT * 0.7, // Fixed height so ScrollView flex: 1 works
     paddingBottom: 34, // Safe area
   },
   // Header
