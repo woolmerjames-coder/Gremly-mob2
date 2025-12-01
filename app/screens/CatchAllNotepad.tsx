@@ -142,8 +142,8 @@ const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
 
 const CHIPS_AUTO_DISMISS_MS =
-  Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
-  12000;
+  Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '10000'), 10) ||
+  10000;
 
 const DUE_STRIP =
   String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
@@ -2101,12 +2101,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
 
-  // Auto-dismiss category chips after configured interval
+  // Auto-dismiss category chips after timeout - default to log-general
   useEffect(() => {
     if (!categoryChips?.length) return;
-    const timeout = setTimeout(() => setCategoryChips([]), CHIPS_AUTO_DISMISS_MS);
+    const timeout = setTimeout(() => {
+      // Log timeout for telemetry before auto-selecting
+      logMetrics('chip_timeout', {
+        chips: categoryChips.map((c) => c.kind),
+        defaultedTo: 'log-general',
+        timeoutMs: CHIPS_AUTO_DISMISS_MS,
+      });
+
+      // Auto-select "Just Save It" (log-general)
+      handleCategoryChipPick('log');
+    }, CHIPS_AUTO_DISMISS_MS);
     return () => clearTimeout(timeout);
-  }, [categoryChips, CHIPS_AUTO_DISMISS_MS]);
+  }, [categoryChips, CHIPS_AUTO_DISMISS_MS, logMetrics, handleCategoryChipPick]);
 
   // Auto-dismiss photo text nudge after 5 seconds
   useEffect(() => {
