@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { jsonToFrequency, getFrequencyLabel } from '../../../components/overlay/frequencyHelpers';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -6,7 +7,8 @@ import { useMemo } from 'react';
 
 export type FrequencyType = 'daily' | 'x_per_week' | 'specific_days';
 export type HabitStatus = 'on_track' | 'needs_attention' | 'done_for_week';
-export type DayDot = 'done' | 'missed' | 'future';
+// 'pending' = past day that's tappable but not yet done (for x_per_week habits)
+export type DayDot = 'done' | 'missed' | 'future' | 'pending';
 
 export interface HabitProgressRecord {
   occurred_day: string; // ISO date string e.g. "2025-11-24"
@@ -17,6 +19,7 @@ export interface RawHabit {
   name: string;
   frequency: string; // "daily", "x_per_week", "specific_days"
   frequency_value: number | number[]; // number for daily/x_per_week, array for specific_days
+  frequency_json?: any; // The structured JSON from overlay: { type: 'simple', value: 'daily' } etc.
   labels?: string[];
   type?: string;
   habit_progress?: HabitProgressRecord[];
@@ -33,6 +36,7 @@ export interface WeeklyHabitStats {
   dayDots: DayDot[];
   dayDates: string[]; // ISO dates for Monday → Sunday
   formattedFrequency: string;
+  frequencyLabel: string; // Human-readable label from frequency_json
 }
 
 export interface WeeklySummary {
@@ -190,6 +194,7 @@ function computeDailyStats(
     dayDots,
     dayDates,
     formattedFrequency: formatFrequency('daily', weeklyTarget),
+    frequencyLabel: '', // Will be overwritten in computeHabitStats
   };
 }
 
@@ -217,9 +222,9 @@ function computeXPerWeekStats(
       dayDots.push('done');
       weeklyCompleted++;
     } else {
-      // For x_per_week, past days without completion are not "missed"
-      // They're just not done yet - show as future to indicate flexibility
-      dayDots.push('future');
+      // For x_per_week, past days without completion are 'pending' - still tappable
+      // This allows user to mark any past day as done for flexible habits
+      dayDots.push('pending');
     }
   }
 
@@ -246,6 +251,7 @@ function computeXPerWeekStats(
     dayDots,
     dayDates,
     formattedFrequency: formatFrequency('x_per_week', weeklyTarget),
+    frequencyLabel: '', // Will be overwritten in computeHabitStats
   };
 }
 
@@ -303,7 +309,38 @@ function computeSpecificDaysStats(
     dayDots,
     dayDates,
     formattedFrequency: formatFrequency('specific_days', weeklyTarget, scheduledDays),
+    frequencyLabel: '', // Will be overwritten in computeHabitStats
   };
+}
+
+/**
+ * Derive human-readable frequency label from frequency_json.
+ * Falls back to formattedFrequency if no structured JSON.
+ */
+function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
+  if (habit.frequency_json) {
+    try {
+      const config = jsonToFrequency(habit.frequency_json);
+      if (config) {
+        const label = getFrequencyLabel(config);
+        console.log('[deriveFrequencyLabel]', {
+          habitName: habit.name,
+          frequency_json: habit.frequency_json,
+          config,
+          label,
+        });
+        return label;
+      }
+    } catch {
+      // Fall through to fallback
+    }
+  }
+  console.log('[deriveFrequencyLabel] fallback', {
+    habitName: habit.name,
+    frequency_json: habit.frequency_json,
+    fallback,
+  });
+  return fallback;
 }
 
 function computeHabitStats(
@@ -329,16 +366,28 @@ function computeHabitStats(
 
   const frequencyType = parseFrequencyType(habit.frequency);
 
+  let baseStats: WeeklyHabitStats;
   switch (frequencyType) {
     case 'daily':
-      return computeDailyStats(habit, weekDays, today, progressDates);
+      baseStats = computeDailyStats(habit, weekDays, today, progressDates);
+      break;
     case 'x_per_week':
-      return computeXPerWeekStats(habit, weekDays, today, weekStart, progressDates);
+      baseStats = computeXPerWeekStats(habit, weekDays, today, weekStart, progressDates);
+      break;
     case 'specific_days':
-      return computeSpecificDaysStats(habit, weekDays, today, progressDates);
+      baseStats = computeSpecificDaysStats(habit, weekDays, today, progressDates);
+      break;
     default:
-      return computeDailyStats(habit, weekDays, today, progressDates);
+      baseStats = computeDailyStats(habit, weekDays, today, progressDates);
   }
+
+  // Derive frequencyLabel from frequency_json (source of truth)
+  const frequencyLabel = deriveFrequencyLabel(habit, baseStats.formattedFrequency);
+
+  return {
+    ...baseStats,
+    frequencyLabel,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
