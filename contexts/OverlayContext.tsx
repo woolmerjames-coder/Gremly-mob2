@@ -20,6 +20,8 @@ interface ConversionMeta {
   initialNote?: string;
   initialDueDate?: string | null;
   initialTags?: string[];
+  initialListItems?: Array<{ id: string; text: string; checked: boolean }>;
+  initialIsList?: boolean;
 }
 
 interface OverlayState {

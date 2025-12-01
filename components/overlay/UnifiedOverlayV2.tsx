@@ -928,6 +928,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialText,
     initialLogPhotoUris,
     defaultDueToday,
+    conversionMeta,
   } = props;
 
   // Extract full entity from props (passed by OverlayHost in edit mode)
@@ -1481,7 +1482,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const rawText = typeof initialText === 'string' ? initialText : '';
     const hasText = rawText.trim().length > 0;
 
-    if (!override && !hasText && !defaultDueToday) {
+    // Check for conversionMeta prefill (Idea → Todo/Habit conversion)
+    const hasConversionMeta =
+      conversionMeta &&
+      (conversionMeta.initialTitle ||
+        conversionMeta.initialNote ||
+        conversionMeta.initialTags?.length ||
+        conversionMeta.initialListItems?.length);
+
+    if (!override && !hasText && !defaultDueToday && !hasConversionMeta) {
       createPrefillAppliedRef.current = true;
       return;
     }
@@ -1494,6 +1503,49 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       payload.log = { ...initialV2State.log, body: rawText, title };
       payload.todo = { ...initialV2State.todo, details: rawText, title };
       payload.habit = { ...initialV2State.habit, notes: rawText, title };
+    }
+
+    // Apply conversionMeta prefill (Idea → Todo/Habit conversion)
+    if (hasConversionMeta) {
+      const { initialTitle, initialNote, initialTags, initialListItems, initialIsList } =
+        conversionMeta as any;
+
+      // Apply title and note
+      if (initialTitle || initialNote) {
+        const title = initialTitle || '';
+        const note = initialNote || '';
+        payload.todo = {
+          ...(payload.todo || initialV2State.todo),
+          title,
+          details: note,
+        };
+        payload.habit = {
+          ...(payload.habit || initialV2State.habit),
+          title,
+          notes: note,
+        };
+      }
+
+      // Apply tags (filter out system tags)
+      if (initialTags && Array.isArray(initialTags) && initialTags.length > 0) {
+        const systemTags = ['idea', 'journal', 'reference', 'list'];
+        const filteredTags = initialTags.filter(
+          (tag: string) => !systemTags.includes(tag.toLowerCase()),
+        );
+        if (filteredTags.length > 0) {
+          payload.tags = filteredTags;
+        }
+      }
+
+      // Apply list items
+      if (
+        initialIsList &&
+        initialListItems &&
+        Array.isArray(initialListItems) &&
+        initialListItems.length > 0
+      ) {
+        payload.list = { items: initialListItems };
+      }
     }
 
     // Default todo to due today when defaultDueToday is true (Now page)
@@ -1510,7 +1562,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
 
     createPrefillAppliedRef.current = true;
-  }, [mode, initialEntity, initialText, defaultDueToday, dispatch]);
+  }, [mode, initialEntity, initialText, defaultDueToday, conversionMeta, dispatch]);
 
   // Initial defaults (match brief: text-first; first line becomes title)
   // CRITICAL: Always fetch full entity from Supabase to ensure commitment fields round-trip
@@ -4306,6 +4358,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     const ideaTitle = state.log.title || '';
                                     const ideaBody = state.log.body || '';
                                     const ideaTags = state.tags || [];
+                                    const ideaListItems = state.list?.items;
+                                    const ideaIsList = !!state.list?.items?.length;
                                     const ideaId = (initialEntity as any)?.id;
 
                                     // Close current overlay then open create todo overlay
@@ -4318,6 +4372,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           initialTitle: ideaTitle,
                                           initialNote: ideaBody,
                                           initialTags: ideaTags,
+                                          initialListItems: ideaIsList ? ideaListItems : undefined,
+                                          initialIsList: ideaIsList,
                                         },
                                       });
                                     }, 100);
@@ -4351,6 +4407,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     const ideaTitle = state.log.title || '';
                                     const ideaBody = state.log.body || '';
                                     const ideaTags = state.tags || [];
+                                    const ideaListItems = state.list?.items;
+                                    const ideaIsList = !!state.list?.items?.length;
                                     const ideaId = (initialEntity as any)?.id;
 
                                     // Close current overlay then open create habit overlay
@@ -4363,6 +4421,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           initialTitle: ideaTitle,
                                           initialNote: ideaBody,
                                           initialTags: ideaTags,
+                                          initialListItems: ideaIsList ? ideaListItems : undefined,
+                                          initialIsList: ideaIsList,
                                         },
                                       });
                                     }, 100);

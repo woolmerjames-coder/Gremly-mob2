@@ -171,6 +171,9 @@ export type UnifiedCreateOverlayProps = {
     initialDueDate?: string | null;
     // Phase 10.7D: Initial tags for prefill
     initialTags?: string[];
+    // Phase 10.7E: Initial list items for prefill
+    initialListItems?: Array<{ id: string; text: string; checked: boolean }>;
+    initialIsList?: boolean;
   };
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
