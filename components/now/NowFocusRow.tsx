@@ -124,6 +124,7 @@ export function NowFocusRow({
   const [completionMessage] = useState(
     () => COMPLETION_MESSAGES[Math.floor(Math.random() * COMPLETION_MESSAGES.length)],
   );
+  const [measuredHeight, setMeasuredHeight] = useState(ROW_HEIGHT);
 
   // Refs for managing timeouts
   const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -132,7 +133,7 @@ export function NowFocusRow({
 
   // Shared values for animations
   const translateX = useSharedValue(0);
-  const rowHeight = useSharedValue(ROW_HEIGHT);
+  const rowHeight = useSharedValue(measuredHeight);
   const messageOpacity = useSharedValue(0);
   const checkboxScale = useSharedValue(1);
 
@@ -305,6 +306,19 @@ export function NowFocusRow({
     transform: [{ scale: checkboxScale.value }],
   }));
 
+  // Handle layout measurement for accurate collapse animation
+  const handleLayout = useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      const { height } = event.nativeEvent.layout;
+      if (animationPhase === 'idle' && height > 0) {
+        setMeasuredHeight(height);
+        // eslint-disable-next-line react-hooks/immutability
+        rowHeight.value = height;
+      }
+    },
+    [animationPhase, rowHeight],
+  );
+
   // Determine visual checkbox state
   const showChecked = localChecked || isCompleted;
 
@@ -314,7 +328,7 @@ export function NowFocusRow({
   }
 
   return (
-    <Animated.View style={[styles.rowWrapper, rowAnimatedStyle]}>
+    <Animated.View style={[styles.rowWrapper, rowAnimatedStyle]} onLayout={handleLayout}>
       {/* Message revealed underneath - positioned absolutely behind the card */}
       <Animated.View style={[styles.messageContainer, messageAnimatedStyle]}>
         <Image source={GREMLY_FACE} style={styles.gremlyFace} resizeMode="contain" />
@@ -407,11 +421,12 @@ export function NowFocusRow({
 const styles = StyleSheet.create({
   rowWrapper: {
     position: 'relative',
-    minHeight: ROW_HEIGHT,
     backgroundColor: '#FDF8F3', // Match page background
+    overflow: 'hidden', // Required for collapse animation
   },
   cardContainer: {
     backgroundColor: '#FDF8F3', // Match page background
+    zIndex: 1, // Card sits above message
   },
   messageContainer: {
     position: 'absolute',
@@ -423,7 +438,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
-    zIndex: 0, // Behind the card
+    zIndex: 0, // Message is behind card
+    backgroundColor: '#FDF8F3', // Ensure message area has background
   },
   gremlyFace: {
     width: 26,
@@ -439,9 +455,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingTop: 10,
-    paddingBottom: 14, // FIX 2: Increased bottom padding for breathing room
+    paddingBottom: 14, // Increased bottom padding for breathing room
     paddingRight: 4,
-    minHeight: ROW_HEIGHT,
   },
   divider: {
     height: 1,
