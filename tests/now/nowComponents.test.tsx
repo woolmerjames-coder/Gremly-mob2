@@ -60,7 +60,6 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        progressFraction={0.42}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -76,7 +75,6 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        progressFraction={0.42}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -92,7 +90,6 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        progressFraction={0.42}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -101,13 +98,12 @@ describe('NowHeader', () => {
     expect(screen.getByText(/10:30 AM/)).toBeTruthy();
   });
 
-  it('displays week indicator', () => {
+  it('displays card labels', () => {
     render(
       <NowHeader
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        progressFraction={0.42}
         weeklySummaries={[
           {
             habitId: 'habit-1',
@@ -120,9 +116,10 @@ describe('NowHeader', () => {
         capturesCount={3}
       />,
     );
-    expect(screen.getByText('WEEK:')).toBeTruthy();
-    expect(screen.getByText('HABITS BEHIND')).toBeTruthy();
-    expect(screen.getByText('LOGS: 3')).toBeTruthy();
+    // Check for card titles
+    expect(screen.getByText('Today')).toBeTruthy();
+    expect(screen.getByText('Habits')).toBeTruthy();
+    expect(screen.getByText('Your Notes')).toBeTruthy();
   });
 });
 
