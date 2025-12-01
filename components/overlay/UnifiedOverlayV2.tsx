@@ -4305,6 +4305,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   onPress={() => {
                                     const ideaTitle = state.log.title || '';
                                     const ideaBody = state.log.body || '';
+                                    const ideaTags = state.tags || [];
                                     const ideaId = (initialEntity as any)?.id;
 
                                     // Close current overlay then open create todo overlay
@@ -4316,6 +4317,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           origin: 'idea_conversion',
                                           initialTitle: ideaTitle,
                                           initialNote: ideaBody,
+                                          initialTags: ideaTags,
                                         },
                                       });
                                     }, 100);
@@ -4348,6 +4350,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   onPress={() => {
                                     const ideaTitle = state.log.title || '';
                                     const ideaBody = state.log.body || '';
+                                    const ideaTags = state.tags || [];
                                     const ideaId = (initialEntity as any)?.id;
 
                                     // Close current overlay then open create habit overlay
@@ -4359,6 +4362,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           origin: 'idea_conversion',
                                           initialTitle: ideaTitle,
                                           initialNote: ideaBody,
+                                          initialTags: ideaTags,
                                         },
                                       });
                                     }, 100);

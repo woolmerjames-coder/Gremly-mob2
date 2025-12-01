@@ -19,6 +19,7 @@ interface ConversionMeta {
   initialTitle?: string;
   initialNote?: string;
   initialDueDate?: string | null;
+  initialTags?: string[];
 }
 
 interface OverlayState {
