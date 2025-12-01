@@ -819,6 +819,26 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Commitment fields for todos (Phase 6)
+      if ('commitment' in normalizedPatch)
+        updatePayload.commitment = !!(normalizedPatch as any).commitment;
+      if ('commitment_note' in normalizedPatch)
+        updatePayload.commitment_note = (normalizedPatch as any).commitment_note ?? null;
+      if ('commitment_started_at' in normalizedPatch)
+        updatePayload.commitment_started_at =
+          normalizeIsoDatetime((normalizedPatch as any).commitment_started_at) ?? null;
+
+      // Map reminders → reminders_json for todo reminders
+      if ('reminders' in normalizedPatch) {
+        updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+
+      // Development logging for todo updates
+      if (__DEV__) {
+        console.log('[TodoEdit] patch', normalizedPatch);
+        console.log('[TodoEdit] updatePayload', updatePayload);
+      }
     } else if (existing.type === 'habit') {
       // DATABASE SCHEMA: habits table has both 'name' and 'title' columns
       // Keep both columns in sync for consistency
@@ -849,11 +869,35 @@ export class SupabaseRepo implements IRepo {
 
       if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
         updatePayload.frequency = normalizedPatch.frequency;
+      // Map frequency_value → frequency_json for habit cadence updates
+      if ('frequency_value' in normalizedPatch) {
+        updatePayload.frequency_json = (normalizedPatch as any).frequency_value ?? null;
+      }
       if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Commitment fields for habits (Phase 6)
+      if ('commitment' in normalizedPatch)
+        updatePayload.commitment = !!(normalizedPatch as any).commitment;
+      if ('commitment_note' in normalizedPatch)
+        updatePayload.commitment_note = (normalizedPatch as any).commitment_note ?? null;
+      if ('commitment_started_at' in normalizedPatch)
+        updatePayload.commitment_started_at =
+          normalizeIsoDatetime((normalizedPatch as any).commitment_started_at) ?? null;
+
+      // Map reminders → reminders_json for habit reminders
+      if ('reminders' in normalizedPatch) {
+        updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+
+      // Development logging for habit updates
+      if (__DEV__) {
+        console.log('[HabitEdit] patch', normalizedPatch);
+        console.log('[HabitEdit] updatePayload', updatePayload);
+      }
     } else if (existing.type === 'note') {
       if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
 
@@ -873,6 +917,28 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Journal-specific fields for notes (Phase L4+)
+      if ('mood' in normalizedPatch) updatePayload.mood = (normalizedPatch as any).mood ?? null;
+      if ('fmt' in normalizedPatch) updatePayload.fmt = (normalizedPatch as any).fmt ?? null;
+      if ('date' in normalizedPatch)
+        updatePayload.date = normalizeIsoDatetime((normalizedPatch as any).date) ?? null;
+      if ('private' in normalizedPatch) updatePayload.private = !!(normalizedPatch as any).private;
+      if ('journal_subtype' in normalizedPatch)
+        updatePayload.journal_subtype = (normalizedPatch as any).journal_subtype ?? null;
+      // Map reminders → reminders_json for note reminders
+      if ('reminders' in normalizedPatch) {
+        updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+      // Map photo_uri directly
+      if ('photo_uri' in normalizedPatch)
+        updatePayload.photo_uri = (normalizedPatch as any).photo_uri ?? null;
+
+      // Development logging for note updates
+      if (__DEV__) {
+        console.log('[NoteEdit] patch', normalizedPatch);
+        console.log('[NoteEdit] updatePayload', updatePayload);
+      }
     }
 
     if ('tags' in normalizedPatch) updatePayload.tags = normalizedPatch.tags ?? null;
@@ -885,11 +951,6 @@ export class SupabaseRepo implements IRepo {
     if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
     if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
     if ('dropId' in normalizedPatch) updatePayload.drop_id = normalizedPatch.dropId ?? null;
-
-    // Development logging for todo updates
-    if (__DEV__ && existing.type === 'todo') {
-      console.log('[TodoUpdate] dbPayload', updatePayload);
-    }
 
     // Guard: Don't call Supabase if the patch is empty (prevents PGRST116 error)
     if (Object.keys(updatePayload).length === 0) {
@@ -912,7 +973,17 @@ export class SupabaseRepo implements IRepo {
 
     // Development logging for todo updates
     if (__DEV__ && existing.type === 'todo') {
-      console.log('[TodoUpdate] db result', result, error);
+      console.log('[TodoEdit] db result', result, error);
+    }
+
+    // Development logging for habit updates
+    if (__DEV__ && existing.type === 'habit') {
+      console.log('[HabitEdit] db result', result, error);
+    }
+
+    // Development logging for note updates
+    if (__DEV__ && existing.type === 'note') {
+      console.log('[NoteEdit] db result', result, error);
     }
 
     if (error) {
@@ -922,9 +993,25 @@ export class SupabaseRepo implements IRepo {
     if (!result) throw new Error('No data returned from update');
 
     const record = { ...result, type: existing.type };
-    if (existing.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-    if (existing.type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-    return noteZ.parse(mapNoteFromDb(record));
+    if (existing.type === 'habit') {
+      const updated = habitZ.parse(mapHabitFromDb(record));
+      if (__DEV__) {
+        console.log('[HabitEdit] updated habit', updated);
+      }
+      return updated;
+    }
+    if (existing.type === 'todo') {
+      const updated = todoZ.parse(mapTodoFromDb(record));
+      if (__DEV__) {
+        console.log('[TodoEdit] updated todo', updated);
+      }
+      return updated;
+    }
+    const updated = noteZ.parse(mapNoteFromDb(record));
+    if (__DEV__) {
+      console.log('[NoteEdit] updated note', updated);
+    }
+    return updated;
   }
 
   async remove(id: ID): Promise<void> {
@@ -2493,6 +2580,44 @@ export class SupabaseRepo implements IRepo {
   }
 
   /**
+   * Silent version of completeHabitForDate - does NOT emit events.
+   * Use this when you want local-only updates without triggering global reloads.
+   */
+  async completeHabitForDateSilent(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0];
+
+    console.log('[SupabaseRepo] completeHabitForDateSilent:', { habitId, occurredDay });
+
+    // Check if already completed for this day
+    const { data: existing } = await supabase
+      .from('habit_progress')
+      .select('id')
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay)
+      .maybeSingle();
+
+    if (existing) {
+      return; // Already completed
+    }
+
+    // Insert new progress record
+    const { error } = await supabase.from('habit_progress').insert({
+      owner_id: userId,
+      habit_id: habitId,
+      count: 1,
+      occurred_at: new Date(occurredDay).toISOString(),
+      occurred_day: occurredDay,
+    });
+
+    if (error) {
+      throw new Error(`Failed to complete habit for date: ${error.message}`);
+    }
+    // No event emission - caller handles local state
+  }
+
+  /**
    * Remove a habit completion for a specific date (for weekly habit tracking).
    * Deletes the row from habit_progress matching that day.
    */
@@ -2515,6 +2640,29 @@ export class SupabaseRepo implements IRepo {
 
     // Emit event for UI sync
     eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
+  /**
+   * Silent version of removeHabitCompletion - does NOT emit events.
+   * Use this when you want local-only updates without triggering global reloads.
+   */
+  async removeHabitCompletionSilent(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0];
+
+    console.log('[SupabaseRepo] removeHabitCompletionSilent:', { habitId, occurredDay });
+
+    const { error } = await supabase
+      .from('habit_progress')
+      .delete()
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay);
+
+    if (error) {
+      throw new Error(`Failed to remove habit completion: ${error.message}`);
+    }
+    // No event emission - caller handles local state
   }
 
   // ==========================
@@ -3956,3 +4104,51 @@ export class SupabaseSpaceMilestoneRepo {
     return data as import('../types').SpaceMilestone;
   }
 }
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * OVERLAY → SUPABASE FIELD MAPPING AUDIT (2025-11-30)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * This audit ensures all overlay-editable fields are correctly mapped
+ * from the overlay state → patch → Supabase columns.
+ *
+ * FIELDS FIXED IN THIS AUDIT:
+ *
+ * HABITS:
+ * - frequency_value → frequency_json (FIXED - was missing before)
+ * - commitment → commitment (ADDED)
+ * - commitment_note → commitment_note (ADDED)
+ * - commitment_started_at → commitment_started_at (ADDED)
+ * - reminders → reminders_json (ADDED)
+ *
+ * TODOS:
+ * - commitment → commitment (ADDED)
+ * - commitment_note → commitment_note (ADDED)
+ * - commitment_started_at → commitment_started_at (ADDED)
+ * - reminders → reminders_json (ADDED)
+ *
+ * NOTES/LOGS:
+ * - mood → mood (ADDED)
+ * - fmt → fmt (ADDED)
+ * - date → date (ADDED)
+ * - private → private (ADDED)
+ * - journal_subtype → journal_subtype (ADDED)
+ * - reminders → reminders_json (ADDED)
+ * - photo_uri → photo_uri (ADDED)
+ *
+ * FIELDS INTENTIONALLY NOT PERSISTED:
+ * - log.kind: Derived from content at runtime, not stored
+ * - detected.mentions/dates: Runtime detection, not persisted
+ * - undoStack: UI-only state
+ * - expanded: UI-only state
+ * - person: Linked via entity_people junction table (separate flow)
+ * - userEditedTitle/compactTitleSource: Internal tracking, not persisted
+ *
+ * LOGGING:
+ * - [TodoEdit] patch/updatePayload/db result/updated todo
+ * - [HabitEdit] patch/updatePayload/db result/updated habit
+ * - [NoteEdit] patch/updatePayload/db result/updated note
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ */

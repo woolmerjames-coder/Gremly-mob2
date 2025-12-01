@@ -541,6 +541,31 @@ export class MemoryRepo implements IRepo {
   }
 
   /**
+   * Silent version of completeHabitForDate - does NOT emit events.
+   */
+  async completeHabitForDateSilent(habitId: ID, dateIso: string): Promise<void> {
+    const item = this.data.find((r) => r.id === habitId && r.owner_id === this.currentUserId);
+    if (!item || item.type !== 'habit') throw new Error('Habit not found');
+
+    const occurredDay = dateIso.split('T')[0];
+
+    if (!(item as any).habit_progress) {
+      (item as any).habit_progress = [];
+    }
+
+    const already = (item as any).habit_progress.some(
+      (p: { occurred_day: string }) => p.occurred_day === occurredDay,
+    );
+    if (already) return;
+
+    (item as any).habit_progress.push({
+      occurred_day: occurredDay,
+      count: 1,
+    });
+    // No event emission
+  }
+
+  /**
    * Remove a habit completion for a specific date (for weekly habit tracking).
    */
   async removeHabitCompletion(habitId: ID, dateIso: string): Promise<void> {
@@ -558,6 +583,23 @@ export class MemoryRepo implements IRepo {
 
     // Emit event for UI sync
     eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
+  /**
+   * Silent version of removeHabitCompletion - does NOT emit events.
+   */
+  async removeHabitCompletionSilent(habitId: ID, dateIso: string): Promise<void> {
+    const item = this.data.find((r) => r.id === habitId && r.owner_id === this.currentUserId);
+    if (!item || item.type !== 'habit') throw new Error('Habit not found');
+
+    const occurredDay = dateIso.split('T')[0];
+
+    if (!(item as any).habit_progress) return;
+
+    (item as any).habit_progress = (item as any).habit_progress.filter(
+      (p: { occurred_day: string }) => p.occurred_day !== occurredDay,
+    );
+    // No event emission
   }
 
   // =======================================================

@@ -267,6 +267,10 @@ export interface IRepo {
   completeHabitForDate(habitId: ID, dateIso: string): Promise<void>;
   removeHabitCompletion(habitId: ID, dateIso: string): Promise<void>;
 
+  // Silent versions - same as above but don't emit events (for local-only UI updates)
+  completeHabitForDateSilent(habitId: ID, dateIso: string): Promise<void>;
+  removeHabitCompletionSilent(habitId: ID, dateIso: string): Promise<void>;
+
   /**
    * Convenience helper to add an item marked as unsorted (catch-all inbox).
    * Forces ai_placed=true and origin='catchall'. spaceId may be null for unassigned.
