@@ -57,8 +57,6 @@ interface NowHeaderProps {
   totalCompletedToday: number;
   weeklySummaries: NowWeeklyHabitSummary[];
   capturesCount: number;
-  /** Preview text for notes card (e.g., "Grocery List, Journal...") */
-  notesPreview?: string;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
   /** Handler for Your Notes card press - opens YourNotesPopup */
@@ -134,7 +132,6 @@ export function NowHeader({
   totalCompletedToday,
   weeklySummaries,
   capturesCount,
-  notesPreview,
   onPressProgress,
   onPressWeek,
   onNotesPress,
@@ -257,11 +254,6 @@ export function NowHeader({
               </View>
               <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
-            {notesPreview ? (
-              <Text style={styles.notesPreview} numberOfLines={1}>
-                {notesPreview}
-              </Text>
-            ) : null}
           </TouchableOpacity>
         </View>
       </View>
@@ -419,13 +411,6 @@ const useStyles = makeStyles((t) => ({
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
-  },
-  notesPreview: {
-    fontSize: 11,
-    fontFamily: t.typography.fontFamily.regular,
-    color: '#888888',
-    marginTop: 4,
-    marginLeft: 22, // Align with text after icon
   },
   notesCardTitle: {
     fontSize: 14,

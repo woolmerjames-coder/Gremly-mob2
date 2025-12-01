@@ -326,19 +326,6 @@ export default function NowScreenV1() {
   // Fetch recent logs for Your Notes card preview
   const { logs: recentLogs, totalCount: recentLogsCount } = useRecentLogs(7);
 
-  // Compute preview text for Your Notes card
-  const notesPreview = useMemo(() => {
-    if (recentLogs.length === 0) return 'No notes this week';
-    if (recentLogs.length === 1) {
-      const title = recentLogs[0].title;
-      return title.length > 20 ? `${title.slice(0, 20)}...` : title;
-    }
-    // Show first two titles truncated
-    const first = recentLogs[0].title.slice(0, 12);
-    const second = recentLogs[1].title.slice(0, 12);
-    return `${first}${recentLogs[0].title.length > 12 ? '...' : ''}, ${second}${recentLogs[1].title.length > 12 ? '...' : ''}`;
-  }, [recentLogs]);
-
   // Handle Your Notes card press
   const handleNotesPress = useCallback(() => {
     setNotesVisible(true);
@@ -396,7 +383,6 @@ export default function NowScreenV1() {
         totalCompletedToday={totalCompletedToday}
         weeklySummaries={nowData.weeklySummaries}
         capturesCount={recentLogsCount}
-        notesPreview={notesPreview}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
         onNotesPress={handleNotesPress}
