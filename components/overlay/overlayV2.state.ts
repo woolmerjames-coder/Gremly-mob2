@@ -39,6 +39,11 @@ export function classifyLogKind(raw: string): LogKind {
   return 'basic';
 }
 
+/**
+ * TodoState - Overlay-editable fields for todos
+ * Persisted fields: title → name/title, details → body, due_day, due_time
+ * Also persisted via V2State: tags, tags_meta, spaceId, commitment fields
+ */
 export type TodoState = {
   title: string;
   details: string;
@@ -48,12 +53,18 @@ export type TodoState = {
   /** Specific time HH:mm - only if user explicitly set a time */
   due_time?: string | null;
 };
+
+/**
+ * HabitState - Overlay-editable fields for habits
+ * Persisted fields: title → name/title, notes, frequency_json, subtype
+ * Also persisted via V2State: tags, tags_meta, spaceId, commitment fields
+ */
 export type HabitState = {
   title: string;
   notes: string;
   schedule?: 'daily' | 'weekly' | 'custom';
-  frequency_json?: any; // Structured frequency configuration
-  subtype?: 'start_habit' | 'break_habit' | 'routine'; // Habit mode
+  frequency_json?: any; // Structured frequency configuration → frequency_json column
+  subtype?: 'start_habit' | 'break_habit' | 'routine'; // Habit mode → subtype column
 };
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
@@ -61,6 +72,32 @@ export type PersonLink = { id: string; display: string } | null;
 export type MoodValue = 'pos' | 'neu' | 'neg';
 export type LogSubtypeOverride = 'journal' | 'list' | 'reference' | 'idea' | 'plain' | null;
 
+/**
+ * V2State - Complete overlay state for all entity types
+ *
+ * PERSISTED FIELDS (to Supabase via toCreateOrUpdateInput):
+ * - baseType: Determines which table (habits/todos/notes)
+ * - tags → tags column (JSON array)
+ * - stickyTags/tagTombstones → tags_meta column (JSON object)
+ * - mood → mood column (notes only)
+ * - spaceId → space_id column
+ * - format → fmt column (notes only)
+ * - reminderAt → date column (notes) or reminders_json (todos/habits)
+ * - commitment/commitmentNote/commitmentStartedAt → commitment columns
+ * - logSubtypeOverride → subtype column (notes)
+ * - logIsPrivate → views.private_journal (notes/journal)
+ * - log.title/body → title/body columns (notes)
+ * - todo.title/details/due_day/due_time → name/body/due_day/due_time columns
+ * - habit.title/notes/frequency_json/subtype → name/notes/frequency_json/subtype columns
+ *
+ * NOT PERSISTED (UI-only):
+ * - list: Runtime list items state
+ * - detected: Runtime @mentions and date detection
+ * - expanded: UI toggle state
+ * - person: Linked via entity_people junction (separate flow)
+ * - undoStack: UI-only undo history
+ * - userEditedTitle/compactTitle/compactTitleSource: Internal title tracking
+ */
 export type V2State = {
   baseType: BaseType;
   tags: TagKey[];

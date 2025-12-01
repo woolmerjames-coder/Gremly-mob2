@@ -91,6 +91,7 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
+import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -101,6 +102,24 @@ import {
 } from './frequencyHelpers';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+
+/**
+ * TYPE_FAMILY maps BaseType to Supabase table family.
+ * - 'note' family: logs/notes (stored in `notes` table)
+ * - 'todo' family: todos (stored in `todos` table)
+ * - 'habit' family: habits (stored in `habits` table)
+ *
+ * When converting between different families, we must:
+ * 1. Create a new record in the target table
+ * 2. Archive/delete the old record in the source table
+ * 3. Preserve drop_id to maintain Mind Drop linkage
+ */
+type TypeFamily = 'note' | 'todo' | 'habit';
+const TYPE_FAMILY: Record<BaseType, TypeFamily> = {
+  log: 'note',
+  todo: 'todo',
+  habit: 'habit',
+};
 
 // Preset time options for time picker
 const PRESET_TIMES = [
@@ -1187,6 +1206,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     dispatch({ type: 'TOGGLE_EXPANDED' });
   }, [dispatch, reduceMotion]);
 
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   * TYPE CHANGE HANDLER
+   * ─────────────────────────────────────────────────────────────────────────
+   *
+   * Handles user switching between types (log ↔ todo ↔ habit) in the overlay.
+   *
+   * BEHAVIOR:
+   * - Updates local state.baseType immediately for UI feedback
+   * - Copies current content to the new type's slot (text, tags, etc.)
+   * - Pushes undo entry to allow reverting the type change
+   * - Emits OverlayTypeChanged telemetry event
+   *
+   * CROSS-TABLE CONVERSION (handled in onSave):
+   * - When baseType differs from initialEntity.type at save time
+   * - Creates new record in target table with drop_id preserved
+   * - Archives/deletes old record from source table
+   * - Emits OverlayTypeConverted event
+   *
+   * SUPPORTED CONVERSIONS:
+   * - note/log → todo: Creates todo, archives note
+   * - note/log → habit: Creates habit, archives note
+   * - todo → note/log: Creates note, archives todo
+   * - todo → habit: Creates habit, archives todo
+   * - habit → todo: Creates todo, archives habit
+   * - habit → note/log: Creates note, archives habit
+   * ─────────────────────────────────────────────────────────────────────────
+   */
   const handleTypeSelect = useCallback(
     (next: BaseType) => {
       if (state.baseType === next) return;
@@ -2773,10 +2820,131 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ? (input as any).tags.length
         : state.tags.length;
       const telemetryDueAt = baseType === 'todo' ? ((input as any)?.due_at ?? null) : null;
-      const result =
-        mode === 'edit' && (initialEntity as any)?.id
-          ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
-          : await repo.create(input as any);
+
+      /**
+       * ─────────────────────────────────────────────────────────────────────────
+       * TYPE CHANGE DETECTION AND CROSS-TABLE CONVERSION
+       * ─────────────────────────────────────────────────────────────────────────
+       *
+       * When the user changes the type in the overlay (e.g., log → todo), we need
+       * to handle cross-table conversions properly since Supabase uses separate
+       * tables for each entity type (notes, todos, habits).
+       *
+       * CONVERSION FLOW:
+       * 1. Detect if the target type family differs from the original entity's family
+       * 2. If cross-table conversion needed:
+       *    a. Create new record in the target table with all fields + drop_id
+       *    b. Archive/delete the old record in the source table
+       *    c. Emit conversion telemetry
+       * 3. If same-table update (e.g., log subtype change):
+       *    a. Use standard repo.update()
+       *
+       * SUPPORTED CONVERSIONS:
+       * - note/log → todo: Create todo, archive note
+       * - note/log → habit: Create habit, archive note
+       * - todo → note/log: Create note, archive todo
+       * - todo → habit: Create habit, archive todo
+       * - habit → todo: Create todo, archive habit
+       * - habit → note/log: Create note, archive habit
+       * ─────────────────────────────────────────────────────────────────────────
+       */
+
+      // Determine original and target type families
+      const originalEntityType = (initialEntity as any)?.type;
+      const originalFamily: TypeFamily | null =
+        originalEntityType === 'todo'
+          ? 'todo'
+          : originalEntityType === 'habit'
+            ? 'habit'
+            : originalEntityType === 'note'
+              ? 'note'
+              : null;
+      const targetFamily = TYPE_FAMILY[baseType];
+
+      // Detect cross-table type conversion
+      const isTypeConversion =
+        mode === 'edit' &&
+        (initialEntity as any)?.id &&
+        originalFamily !== null &&
+        originalFamily !== targetFamily;
+
+      let result;
+
+      if (isTypeConversion) {
+        // ─────────────────────────────────────────────────────────────────────
+        // CROSS-TABLE CONVERSION FLOW
+        // ─────────────────────────────────────────────────────────────────────
+        const oldId = (initialEntity as any).id;
+        const dropId = (fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null;
+
+        if (__DEV__) {
+          console.log('[OverlayTypeChange] Cross-table conversion detected', {
+            oldId,
+            dropId,
+            originalFamily,
+            targetFamily,
+            from: originalEntityType,
+            to: baseType,
+          });
+        }
+
+        // Ensure drop_id is preserved in the create input
+        const createInput = {
+          ...(input as any),
+          dropId: dropId, // Preserve Mind Drop linkage
+        };
+
+        // Step 1: Create new record in target table
+        result = await repo.create(createInput);
+
+        if (__DEV__) {
+          console.log('[OverlayTypeChange] New record created', {
+            newId: result?.id,
+            newType: result?.type,
+            dropId,
+          });
+        }
+
+        // Step 2: Archive/delete old record from source table
+        try {
+          const entityType = originalEntityType as 'todo' | 'habit' | 'note';
+          await deleteEntityOrDrop(repo, oldId, entityType, dropId);
+
+          if (__DEV__) {
+            console.log('[OverlayTypeChange] Old record archived/deleted', {
+              oldId,
+              entityType,
+            });
+          }
+        } catch (removeError) {
+          console.warn(
+            '[OverlayTypeChange] Failed to remove original during conversion:',
+            removeError,
+          );
+          // Non-fatal: continue even if old record cleanup fails
+        }
+
+        // Emit conversion telemetry
+        try {
+          eventBus.emit('OverlayTypeConverted', {
+            from: originalEntityType,
+            to: baseType,
+            oldId,
+            newId: result?.id ?? '',
+            dropId,
+          });
+        } catch (e) {
+          // Ignore telemetry errors
+        }
+      } else {
+        // ─────────────────────────────────────────────────────────────────────
+        // STANDARD UPDATE/CREATE FLOW (same table or new entity)
+        // ─────────────────────────────────────────────────────────────────────
+        result =
+          mode === 'edit' && (initialEntity as any)?.id
+            ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
+            : await repo.create(input as any);
+      }
 
       // Handle multi-photo uploads and deletions for logs (Phase L5)
       if (baseType === 'log' && result?.id && userId) {

@@ -28,6 +28,13 @@ export type EventMap = {
   // Overlay funnel / UX telemetry
   OverlayOpened: { mode: 'create' | 'edit'; baseType: string | null };
   OverlayTypeChanged: { from: string; to: string };
+  OverlayTypeConverted: {
+    from: string;
+    to: string;
+    oldId: string;
+    newId: string;
+    dropId: string | null;
+  };
   OverlayCommitmentToggled: { on: boolean };
   OverlaySaved: { id: string; type?: string };
   // Cortex classification events (Phase 10)
