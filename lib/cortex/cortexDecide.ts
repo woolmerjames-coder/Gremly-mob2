@@ -10,7 +10,16 @@
 
 import { createCortexEngine } from '../../cortex/createEngine';
 import type { CortexInput } from '../../cortex/ICortexEngine';
-import { type DecisionMode } from './thresholds';
+import {
+  type DecisionMode,
+  CHIPS_FLOOR,
+  AUTO_TODO,
+  AUTO_HABIT,
+  AUTO_LIST,
+  IDEA_HEURISTIC_TRIGGER,
+  QUESTION_SUPPRESS_CHIPS,
+  DEFAULT_ENGINE_CONFIDENCE,
+} from './thresholds';
 import { buildMindDropAskChips, type ChipSuggestion } from '../cortex/policy/chips';
 import { analyzeListShape } from './policy/listHeuristics';
 import { analyzeIdeaShape } from './policy/ideaHeuristics';
@@ -271,7 +280,7 @@ export async function cortexDecide(
     rawSentence: '', // Phase 2A: Will be populated with user input
   };
 
-  const midLower = 0.55; // offer chips for mid confidence
+  const midLower = CHIPS_FLOOR; // offer chips for mid confidence
 
   try {
     // Apply default lane if not specified (backward compatibility)
@@ -294,7 +303,7 @@ export async function cortexDecide(
     const listAnalysis = analyzeListShape(userText);
     const ideaAnalysis = analyzeIdeaShape(userText);
     const listHeuristicTriggered = listAnalysis.score >= 0.6;
-    const ideaHeuristicTriggered = ideaAnalysis.score >= 0.5;
+    const ideaHeuristicTriggered = ideaAnalysis.score >= IDEA_HEURISTIC_TRIGGER;
 
     console.log('[DEBUG][cortexDecide] Intent detected:', {
       text: userText.substring(0, 50),
@@ -325,7 +334,10 @@ export async function cortexDecide(
     };
 
     // Check for meta-comments FIRST - these should NEVER create actions
-    if (detected.suppressChips || (detected.kind === 'question' && detected.confidence >= 0.9)) {
+    if (
+      detected.suppressChips ||
+      (detected.kind === 'question' && detected.confidence >= QUESTION_SUPPRESS_CHIPS)
+    ) {
       console.log('[DEBUG][cortexDecide] Meta-comment/question detected - returning reply mode');
       // This is a question or meta-comment, not an action request
       const isMetaComment = detected.suppressChips;
@@ -524,11 +536,9 @@ export async function cortexDecide(
       : 0;
     const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
 
-    const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
-    const autoThreshold = Number.isFinite(autoThresholdEnv) ? autoThresholdEnv : 0.85;
+    const autoThreshold = AUTO_TODO;
 
-    const habitAutoFloorEnv = parseFloat(String(process.env.INTENT_HABIT_AUTO_FLOOR ?? '0.90'));
-    const habitAutoFloor = Number.isFinite(habitAutoFloorEnv) ? habitAutoFloorEnv : 0.9;
+    const habitAutoFloor = AUTO_HABIT;
 
     const hasDate = hasExplicitDateOrTime(userText);
     const habitByText = looksHabitText(userText);
@@ -540,9 +550,9 @@ export async function cortexDecide(
       ideaHeuristicTriggered &&
       !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
 
-    // Strong list patterns (score >= 0.7) should auto-create as logs without chips
-    // Weak list patterns (0.5-0.7) should show chips for confirmation
-    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.7;
+    // Strong list patterns (score >= AUTO_LIST) should auto-create as logs without chips
+    // Weak list patterns (0.5-AUTO_LIST) should show chips for confirmation
+    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= AUTO_LIST;
     const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
 
@@ -1226,8 +1236,11 @@ function normalizeEngineOutput(
 ): NormalizedEngineResult {
   const actions: CortexAction[] = [];
 
-  // Extract confidence if available, default to high confidence (0.85) if engine made a classification
-  const confidence = typeof engineOutput.confidence === 'number' ? engineOutput.confidence : 0.85;
+  // Extract confidence if available, default to high confidence if engine made a classification
+  const confidence =
+    typeof engineOutput.confidence === 'number'
+      ? engineOutput.confidence
+      : DEFAULT_ENGINE_CONFIDENCE;
 
   // Use original text as fallback for title/name/text
   const fallbackText = originalText || 'Untitled';
