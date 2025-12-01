@@ -117,6 +117,9 @@ export function NowFocusRow({
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
 
+  // Debug: Log reducedMotion value
+  console.log('[NowFocusRow] reducedMotion:', reducedMotion);
+
   // Animation state
   const [animationPhase, setAnimationPhase] = useState<AnimationPhase>('idle');
   const [localChecked, setLocalChecked] = useState(false);
@@ -151,8 +154,9 @@ export function NowFocusRow({
   // Handle animation completion callback
   const handleAnimationDone = useCallback(() => {
     setAnimationPhase('done');
+    onToggleComplete?.(); // Update data AFTER animation completes
     onAnimationComplete?.();
-  }, [onAnimationComplete]);
+  }, [onToggleComplete, onAnimationComplete]);
 
   // Start the swipe-out animation sequence (after undo window expires)
   const startSwipeOutSequence = useCallback(() => {
@@ -282,11 +286,10 @@ export function NowFocusRow({
     const totalUndoTime =
       TIMING.CHECKBOX_FILL + TIMING.PAUSE_AFTER_CHECK + TIMING.STRIKETHROUGH + TIMING.UNDO_WINDOW;
     undoTimeoutRef.current = setTimeout(() => {
-      // Undo window expired, proceed with completion
-      onToggleComplete?.();
+      // Undo window expired, proceed with animation
       startSwipeOutSequence();
     }, totalUndoTime);
-  }, [animationPhase, checkboxScale, onToggleComplete, startSwipeOutSequence]);
+  }, [animationPhase, checkboxScale, startSwipeOutSequence]);
 
   // Animated styles
   const cardAnimatedStyle = useAnimatedStyle(() => ({
