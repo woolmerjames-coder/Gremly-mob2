@@ -172,11 +172,13 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
 
       // Query notes table for recent logs
       // Notes table stores journals, ideas, and general notes
+      // Filter out archived notes (archived = true means deleted/converted)
       const { data, error: queryError } = await supabase
         .from('notes')
         .select('id, title, body, subtype, tags, mood, created_at, updated_at')
         .eq('owner_id', userId)
         .gte('created_at', thresholdISO)
+        .or('archived.is.null,archived.eq.false')
         .order('created_at', { ascending: false });
 
       if (queryError) {
