@@ -298,7 +298,9 @@ export async function runMindDropStageAClassification(params: StageAParams): Pro
       }
 
       // No existing habit found - create new one
-      const { freq: parsedFreq, frequencyValue } = buildHabitFields(text, firstAction.payload.freq);
+      // Parse frequency from text directly - don't use AI's freq which may be incorrect
+      // e.g., "Run 3x per week" should be weekly with frequencyValue=3, not daily
+      const { freq: parsedFreq, frequencyValue } = buildHabitFields(text);
       const frequency = parsedFreq;
       const result = await convertUnsortedToHabit(repo, unsortedNoteId, {
         frequency,

@@ -108,6 +108,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { Pencil, Trash2 } from 'lucide-react-native';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 
@@ -3856,12 +3857,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               dropIdRef.current ||
               null;
 
-            // Get existing frequency if available, otherwise default to 'daily'
-            const existingFrequency = (original as any)?.frequency || 'daily';
+            // Extract frequency from the original text using buildHabitFields
+            // This handles patterns like "Run 3x per week" → frequency='weekly', frequencyValue=3
+            const rawText = (original as any)?.body ?? (original as any)?.title ?? '';
+            const habitFields = buildHabitFields(rawText);
 
-            // Use the conversion helper to create a first-class habit
+            // Use the conversion helper to create a first-class habit with parsed frequency
             const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedId, {
-              frequency: existingFrequency,
+              frequency: habitFields.freq,
+              frequencyValue: habitFields.frequencyValue ?? null,
             });
 
             setOrganizedToday((prev) => prev + 1);

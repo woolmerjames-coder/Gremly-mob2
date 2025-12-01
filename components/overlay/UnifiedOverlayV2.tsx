@@ -105,6 +105,37 @@ import {
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
 /**
+ * Constructs frequency_json from DB columns: frequency (string) and frequency_value (number)
+ * This bridges the DB schema (frequency + frequency_value) to the overlay's FrequencyConfig format
+ */
+function buildFrequencyJsonFromDb(
+  frequency: string | null | undefined,
+  frequencyValue: number | null | undefined,
+): any {
+  // If frequency_value is already a JSON object, use it directly (legacy support)
+  if (frequencyValue && typeof frequencyValue === 'object') {
+    return frequencyValue;
+  }
+
+  const freq = frequency || 'daily';
+
+  // If there's a numeric frequency_value, it means "N times per <freq>"
+  if (typeof frequencyValue === 'number' && frequencyValue > 0) {
+    // Map frequency to custom unit
+    const unit = freq === 'weekly' ? 'week' : freq === 'monthly' ? 'month' : 'day';
+    return { type: 'custom', count: frequencyValue, unit };
+  }
+
+  // Simple frequency (daily, weekly, monthly)
+  if (freq === 'daily' || freq === 'weekly' || freq === 'monthly') {
+    return { type: 'simple', value: freq };
+  }
+
+  // Custom frequency without a value - default to simple daily
+  return { type: 'simple', value: 'daily' };
+}
+
+/**
  * TYPE_FAMILY maps BaseType to Supabase table family.
  * - 'note' family: logs/notes (stored in `notes` table)
  * - 'todo' family: todos (stored in `todos` table)
@@ -6025,14 +6056,20 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     const commitmentNote = (entity as any)?.commitment_note ?? '';
     const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
 
+    // Build frequency_json from DB columns (frequency + frequency_value)
+    const dbFrequency = (entity as any)?.frequency;
+    const dbFrequencyValue = (entity as any)?.frequency_value;
+    const frequencyJson = buildFrequencyJsonFromDb(dbFrequency, dbFrequencyValue);
+
     if (__DEV__) {
       console.log('[UnifiedOverlayV2.init] Loaded habit with:', {
         id: (entity as any)?.id,
         commitment,
         commitmentNote: commitmentNote?.slice?.(0, 30) || null,
         commitmentStartedAt,
-        frequency: (entity as any)?.frequency,
-        frequency_value: (entity as any)?.frequency_value,
+        frequency: dbFrequency,
+        frequency_value: dbFrequencyValue,
+        frequencyJson,
       });
     }
 
@@ -6044,7 +6081,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         title: compactTitle,
         notes: habitLongText,
         schedule: 'custom',
-        frequency_json: (entity as any)?.frequency_value ?? null, // Load frequency_json from DB
+        frequency_json: frequencyJson, // Built from frequency + frequency_value columns
         subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
       },
       todo: {
@@ -6138,6 +6175,11 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   // Hydrate reminders from entity (used for journal entries and todos)
   const reminders = (entity as any)?.reminders ?? null;
 
+  // Build frequency_json from DB columns (for habits loaded via todo/log path)
+  const entityFrequency = (entity as any)?.frequency;
+  const entityFrequencyValue = (entity as any)?.frequency_value;
+  const habitFrequencyJson = buildFrequencyJsonFromDb(entityFrequency, entityFrequencyValue);
+
   if (__DEV__) {
     console.log('[UnifiedOverlayV2.init] Loaded entity with:', {
       id: (entity as any)?.id,
@@ -6149,6 +6191,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       due_day: (entity as any)?.due_day,
       due_time: (entity as any)?.due_time,
       mood: (entity as any)?.mood,
+      frequency: entityFrequency,
+      frequency_value: entityFrequencyValue,
     });
   }
 
@@ -6177,7 +6221,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       title: name || title || '',
       notes: rawDetails || '',
       schedule: 'custom',
-      frequency_json: (entity as any)?.frequency_value ?? null,
+      frequency_json: habitFrequencyJson, // Built from frequency + frequency_value columns
       subtype: (entity as any)?.subtype ?? 'start_habit',
     },
     tags: extractedTags, // Initialize tags from entity for all types
