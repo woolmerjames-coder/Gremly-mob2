@@ -433,9 +433,10 @@ describe('useTodayData', () => {
 import { getSweepPillLines } from '../lib/today/useTodayData';
 
 describe('getSweepPillLines', () => {
-  it('returns "all clear ✨" for 0 items', () => {
+  // Updated copy: "All caught up" replaced "all clear ✨" in brand refresh
+  it('returns "All caught up" for 0 items', () => {
     const result = getSweepPillLines(0);
-    expect(result).toEqual({ title: 'Sweep', subtitle: 'all clear ✨' });
+    expect(result).toEqual({ title: 'Sweep', subtitle: 'All caught up' });
   });
 
   it('returns "1 thing waiting" for 1 item', () => {
