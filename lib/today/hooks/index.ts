@@ -2,4 +2,4 @@ export * from './useTodayEntries';
 export * from './useFocusCard';
 export * from './useDropZoneSummary';
 export * from './useSweepPreview';
-export * from './useTodayStats';
+export { useTodayStats } from './useTodayStats';

@@ -207,7 +207,7 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
 
     // Compute sweep candidates using shared selector
     // Only todos that are incomplete and due today/overdue/carry-forward
-    const todayDayString = (nowData.today ?? new Date()).toISOString().split('T')[0];
+    const todayDayString = new Date().toISOString().split('T')[0];
 
     // Build the todos array for sweep selection from todosToday
     // Filter out optimistically completed items

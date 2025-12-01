@@ -236,7 +236,7 @@ describe('Overlay Round-Trip Sanity', () => {
       const updatedFields = {
         name: 'Updated Habit Name',
         frequency: 'custom',
-        subtype: 'break_habit',
+        subtype: 'break_habit' as const,
         frequency_value: { type: 'days', days: [1, 3, 5] },
         tags: ['#health', '#morning'],
         reminders: [{ id: 'r1', time: '07:00', repeat: 'daily' }],

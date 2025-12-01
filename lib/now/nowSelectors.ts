@@ -179,7 +179,6 @@ export function getTodayLogsCount(logs: Note[], date: Date = new Date()): number
   return logs.filter((log) => {
     // Exclude unsorted/catchall items - they are NOT logs
     // They appear in Mind Drop (CatchAllNotepad) until converted
-    if (log.unsorted === true) return false;
     if (log.subtype === 'catchall') return false;
 
     // Also exclude items with 'needs_review' or 'catchall' labels

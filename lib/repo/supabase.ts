@@ -243,7 +243,7 @@ function mapHabitFromDb(dbRecord: any): any {
     drop_id: dbRecord.drop_id ?? null,
     views: normalizeViews(dbRecord.views),
     // Commitment fields (Phase 6)
-    commitment: dbRecord.commitment ?? false,
+    commitment: dbRecord.commitment === null ? undefined : dbRecord.commitment,
     commitment_note: dbRecord.commitment_note ?? null,
     commitment_started_at: dbRecord.commitment_started_at ?? null,
     // Common fields
@@ -298,7 +298,7 @@ function mapTodoFromDb(dbRecord: any): any {
     drop_id: dbRecord.drop_id ?? null,
     views: normalizeViews(dbRecord.views),
     // Commitment fields (Phase 6)
-    commitment: dbRecord.commitment ?? false,
+    commitment: dbRecord.commitment === null ? undefined : dbRecord.commitment,
     commitment_note: dbRecord.commitment_note ?? null,
     commitment_started_at: dbRecord.commitment_started_at ?? null,
     // Date fields
@@ -738,11 +738,11 @@ export class SupabaseRepo implements IRepo {
     const record = { ...result, type: input.type };
     let parsedRecord: AppRecord;
     if (input.type === 'habit') {
-      parsedRecord = habitZ.parse(mapHabitFromDb(record));
+      parsedRecord = habitZ.parse(mapHabitFromDb(record)) as Habit;
     } else if (input.type === 'todo') {
-      parsedRecord = todoZ.parse(mapTodoFromDb(record));
+      parsedRecord = todoZ.parse(mapTodoFromDb(record)) as Todo;
     } else {
-      parsedRecord = noteZ.parse(mapNoteFromDb(record));
+      parsedRecord = noteZ.parse(mapNoteFromDb(record)) as Note;
     }
 
     eventBus.emit('ItemSaved', { id: parsedRecord.id });
@@ -1097,20 +1097,20 @@ export class SupabaseRepo implements IRepo {
 
     const record = { ...result, type: existing.type };
     if (existing.type === 'habit') {
-      const updated = habitZ.parse(mapHabitFromDb(record));
+      const updated = habitZ.parse(mapHabitFromDb(record)) as Habit;
       if (__DEV__) {
         console.log('[HabitEdit] updated habit', updated);
       }
       return updated;
     }
     if (existing.type === 'todo') {
-      const updated = todoZ.parse(mapTodoFromDb(record));
+      const updated = todoZ.parse(mapTodoFromDb(record)) as Todo;
       if (__DEV__) {
         console.log('[TodoEdit] updated todo', updated);
       }
       return updated;
     }
-    const updated = noteZ.parse(mapNoteFromDb(record));
+    const updated = noteZ.parse(mapNoteFromDb(record)) as Note;
     if (__DEV__) {
       console.log('[NoteEdit] updated note', updated);
     }
@@ -1148,9 +1148,9 @@ export class SupabaseRepo implements IRepo {
 
       if (data) {
         const record = { ...data, type };
-        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-        return noteZ.parse(mapNoteFromDb(record));
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record)) as Habit;
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record)) as Todo;
+        return noteZ.parse(mapNoteFromDb(record)) as Note;
       }
 
       if (error && error.code !== 'PGRST116') {
@@ -1178,9 +1178,9 @@ export class SupabaseRepo implements IRepo {
       if (data) {
         for (const row of data) {
           const record = { ...row, type };
-          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)));
-          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)));
-          else results.push(noteZ.parse(mapNoteFromDb(record)));
+          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)) as Habit);
+          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)) as Todo);
+          else results.push(noteZ.parse(mapNoteFromDb(record)) as Note);
         }
       }
     }
@@ -1214,7 +1214,7 @@ export class SupabaseRepo implements IRepo {
     if (!data) return null;
 
     const record = { ...data, type: 'note' as const };
-    return noteZ.parse(mapNoteFromDb(record));
+    return noteZ.parse(mapNoteFromDb(record)) as Note;
   }
 
   /**
@@ -1247,7 +1247,7 @@ export class SupabaseRepo implements IRepo {
     if (!data) return null;
 
     const record = { ...data, type: 'todo' as const };
-    return todoZ.parse(record);
+    return todoZ.parse(record) as Todo;
   }
 
   /**
@@ -1280,7 +1280,7 @@ export class SupabaseRepo implements IRepo {
     if (!data) return null;
 
     const record = { ...data, type: 'habit' as const };
-    return habitZ.parse(record);
+    return habitZ.parse(record) as Habit;
   }
 
   /**
@@ -1408,9 +1408,9 @@ export class SupabaseRepo implements IRepo {
 
       return rows.map((item) => {
         const record = { ...item, type };
-        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-        return noteZ.parse(mapNoteFromDb(record));
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record)) as Habit;
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record)) as Todo;
+        return noteZ.parse(mapNoteFromDb(record)) as Note;
       });
     } finally {
       if (hasTagFilter && perfStart !== null && perfLabel) {
@@ -1487,9 +1487,9 @@ export class SupabaseRepo implements IRepo {
       if (data) {
         const parsed = data.map((item) => {
           const record = { ...item, type };
-          if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-          if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-          return noteZ.parse(mapNoteFromDb(record));
+          if (type === 'habit') return habitZ.parse(mapHabitFromDb(record)) as Habit;
+          if (type === 'todo') return todoZ.parse(mapTodoFromDb(record)) as Todo;
+          return noteZ.parse(mapNoteFromDb(record)) as Note;
         });
         results.push(...parsed);
       }
@@ -1512,7 +1512,9 @@ export class SupabaseRepo implements IRepo {
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
     if (habits) {
-      results.push(...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))));
+      results.push(
+        ...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })) as Habit),
+      );
     }
 
     // Search todos (name and body)
@@ -1525,7 +1527,7 @@ export class SupabaseRepo implements IRepo {
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
     if (todos) {
-      results.push(...todos.map((t) => todoZ.parse({ ...t, type: 'todo' })));
+      results.push(...todos.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo));
     }
 
     // Search notes (title and body)
@@ -1653,7 +1655,7 @@ export class SupabaseRepo implements IRepo {
           return false;
         }
       });
-      results.push(...todayTodos.map((t) => todoZ.parse({ ...t, type: 'todo' })));
+      results.push(...todayTodos.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo));
     }
 
     // Note: Habits don't have due_date in this schema, but if they did we'd query them here too
@@ -1674,7 +1676,7 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to list undefined due todos: ${error.message}`);
     if (!data) return [];
 
-    return data.map((t) => todoZ.parse({ ...t, type: 'todo' }));
+    return data.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo);
   }
 
   // ==========================
@@ -3060,9 +3062,11 @@ export class SupabaseRepo implements IRepo {
       }
 
       return {
-        habits: groupedRaw.habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))),
-        todos: groupedRaw.todos.map((t) => todoZ.parse({ ...t, type: 'todo' })),
-        notes: groupedRaw.notes.map((n) => noteZ.parse({ ...n, type: 'note' })),
+        habits: groupedRaw.habits.map(
+          (h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })) as Habit,
+        ),
+        todos: groupedRaw.todos.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo),
+        notes: groupedRaw.notes.map((n) => noteZ.parse({ ...n, type: 'note' }) as Note),
       };
     } finally {
       if (hasTagFilter && perfStart !== null) {
