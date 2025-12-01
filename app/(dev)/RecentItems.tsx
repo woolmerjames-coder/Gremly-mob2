@@ -1,114 +1,119 @@
 /**
- * DEV-ONLY: Recent Items Screen
+ * DEV-ONLY: Habits Weekly Screen
  *
- * Shows the last 20 items across all types with metadata for debugging.
- * Displays: id, type, title, space name, created_at, updated_at
+ * Shows all habits with weekly progress using the new weekly habit system.
+ * Displays: habit name, frequency, weekly progress dots, status, fraction
  *
  * Access via DEV floating button.
  */
 
-import React, { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { FlatList, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRepo } from '../../providers/RepoProvider';
-import type { AppRecord, Space } from '../../lib/types';
+import type { Habit } from '../../lib/types';
 import { Text } from '../../ui/Text';
 import { Box } from '../../ui/Box';
-import { Card } from '../../design-system/Card';
-
-interface ItemWithMeta {
-  id: string;
-  type: 'habit' | 'todo' | 'note';
-  created_at: string;
-  updated_at: string;
-  space_id?: string | null;
-  ai_placed: boolean;
-  archived?: boolean;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
-  spaceName?: string;
-  displayTitle: string;
-}
+import {
+  useWeeklyHabitStats,
+  getWeeklySummary,
+  type RawHabit,
+  type WeeklyHabitStats,
+} from '../../lib/today/hooks/useWeeklyHabitStats';
+import { HabitWeeklyRow } from '../../components/habits/HabitWeeklyRow';
+import { HabitDetailModal } from '../../components/habits/HabitDetailModal';
 
 export default function RecentItems() {
   const repo = useRepo();
-  const [items, setItems] = useState<ItemWithMeta[]>([]);
+  const [habits, setHabits] = useState<RawHabit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadRecentItems();
+  // Compute weekly stats from habits
+  const stats = useWeeklyHabitStats(habits);
+  const summary = getWeeklySummary(stats);
+
+  // Modal state
+  const [selectedHabit, setSelectedHabit] = useState<WeeklyHabitStats | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  const openHabitDetail = useCallback((habit: WeeklyHabitStats) => {
+    setSelectedHabit(habit);
+    setModalVisible(true);
   }, []);
 
-  const loadRecentItems = async () => {
+  const closeHabitDetail = useCallback(() => {
+    setModalVisible(false);
+    setSelectedHabit(null);
+  }, []);
+
+  useEffect(() => {
+    loadHabits();
+  }, []);
+
+  const loadHabits = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch all items and spaces
-      const [habits, todos, notes, spaces] = await Promise.all([
-        repo.listByType('habit'),
-        repo.listByType('todo'),
-        repo.listByType('note'),
-        repo.listSpaces(),
-      ]);
+      // Fetch all habits
+      const allHabits = (await repo.listByType('habit')) as Habit[];
 
-      // Create space lookup map
-      const spaceMap = new Map<string, Space>();
-      spaces.forEach((s) => spaceMap.set(s.id, s));
+      // Get week date range for fetching progress
+      const today = new Date();
+      const weekStart = getWeekStart(today);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      const weekStartIso = toDateString(weekStart);
+      const weekEndIso = toDateString(weekEnd);
 
-      // Combine all items
-      const allItems: AppRecord[] = [...habits, ...todos, ...notes];
+      // Fetch progress dates for each habit and enrich
+      const enrichedHabits: RawHabit[] = await Promise.all(
+        allHabits.map(async (habit) => {
+          const progressDates = await repo.getHabitProgressDates(
+            habit.id,
+            weekStartIso,
+            weekEndIso,
+          );
+          return {
+            id: habit.id,
+            name: habit.name,
+            frequency: habit.frequency || 'daily',
+            frequency_value:
+              (habit as any).frequency_value ?? (habit as any).target_per_period ?? 1,
+            labels: habit.labels,
+            type: habit.type,
+            habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
+            schedule_days: (habit as any).days_active?.map((d: string) => {
+              const dayMap: Record<string, number> = {
+                sun: 0,
+                mon: 1,
+                tue: 2,
+                wed: 3,
+                thu: 4,
+                fri: 5,
+                sat: 6,
+              };
+              return dayMap[d.toLowerCase()] ?? parseInt(d, 10);
+            }),
+          };
+        }),
+      );
 
-      // Sort by updated_at descending (most recent first)
-      allItems.sort((a, b) => {
-        const dateA = new Date(a.updated_at || a.created_at).getTime();
-        const dateB = new Date(b.updated_at || b.created_at).getTime();
-        return dateB - dateA;
-      });
-
-      // Take last 20 and enrich with space names
-      const recent = allItems.slice(0, 20).map((item): ItemWithMeta => {
-        const spaceName = item.space_id ? spaceMap.get(item.space_id)?.name : undefined;
-
-        let displayTitle = '';
-        if (item.type === 'habit' || item.type === 'todo') {
-          displayTitle = item.name || '(no name)';
-        } else {
-          displayTitle = item.title || item.body?.slice(0, 50) || '(no title)';
-        }
-
-        return {
-          id: item.id,
-          type: item.type,
-          created_at: item.created_at,
-          updated_at: item.updated_at,
-          space_id: item.space_id,
-          ai_placed: item.ai_placed,
-          archived: item.archived,
-          origin: item.origin,
-          spaceName,
-          displayTitle,
-        };
-      });
-
-      setItems(recent);
+      setHabits(enrichedHabits);
     } catch (err) {
-      console.error('[RecentItems] Failed to load:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load items');
+      console.error('[RecentItems] Failed to load habits:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load habits');
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDate = (isoString: string) => {
-    const date = new Date(isoString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const renderItem = ({ item, index }: { item: WeeklyHabitStats; index: number }) => (
+    <Pressable onPress={() => openHabitDetail(item)}>
+      <HabitWeeklyRow habit={item} showDivider={index < stats.length - 1} />
+    </Pressable>
+  );
 
   if (loading) {
     return (
@@ -116,7 +121,7 @@ export default function RecentItems() {
         <Box style={styles.centerBox}>
           <ActivityIndicator size="large" />
           <Text variant="body" style={styles.centerText}>
-            Loading recent items...
+            Loading habits...
           </Text>
         </Box>
       </SafeAreaView>
@@ -140,122 +145,68 @@ export default function RecentItems() {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView style={styles.scrollView}>
-        <Box p={4} gap={3}>
-          <Text variant="display" style={styles.header}>
-            📋 Recent Items ({items.length})
+      {/* Header */}
+      <Box style={styles.header}>
+        <Box style={styles.headerTop}>
+          <Text variant="title" style={styles.title}>
+            Habits
           </Text>
-          <Text variant="subtle" style={styles.subtitle}>
-            Last 20 items sorted by most recently updated
+          <Text variant="subtle" style={styles.thisWeek}>
+            This week
           </Text>
-
-          {items.map((item, index) => (
-            <Card key={item.id} style={styles.card}>
-              <Box p={3} gap={2}>
-                {/* Header row: type badge + title */}
-                <Box style={styles.headerRow}>
-                  <View
-                    style={[
-                      styles.typeBadge,
-                      item.type === 'habit'
-                        ? styles.habitBadge
-                        : item.type === 'todo'
-                          ? styles.todoBadge
-                          : styles.noteBadge,
-                    ]}
-                  >
-                    <Text style={styles.badgeText}>{item.type.toUpperCase()}</Text>
-                  </View>
-                  <Text variant="title" style={styles.titleText} numberOfLines={2}>
-                    {item.displayTitle}
-                  </Text>
-                </Box>
-
-                {/* Metadata grid */}
-                <Box gap={1}>
-                  <Box style={styles.metaRow}>
-                    <Text variant="subtle" style={styles.metaLabel}>
-                      ID:
-                    </Text>
-                    <Text variant="subtle" style={styles.metaValue} numberOfLines={1}>
-                      {item.id}
-                    </Text>
-                  </Box>
-
-                  {item.spaceName && (
-                    <Box style={styles.metaRow}>
-                      <Text variant="subtle" style={styles.metaLabel}>
-                        Space:
-                      </Text>
-                      <Text variant="body" style={styles.metaValue}>
-                        {item.spaceName}
-                      </Text>
-                    </Box>
-                  )}
-
-                  <Box style={styles.metaRow}>
-                    <Text variant="subtle" style={styles.metaLabel}>
-                      Created:
-                    </Text>
-                    <Text variant="subtle" style={styles.metaValue}>
-                      {formatDate(item.created_at)}
-                    </Text>
-                  </Box>
-
-                  <Box style={styles.metaRow}>
-                    <Text variant="subtle" style={styles.metaLabel}>
-                      Updated:
-                    </Text>
-                    <Text variant="subtle" style={styles.metaValue}>
-                      {formatDate(item.updated_at)}
-                    </Text>
-                  </Box>
-
-                  {/* Additional flags */}
-                  <Box style={styles.flagRow}>
-                    {item.ai_placed && (
-                      <View style={styles.flag}>
-                        <Text style={styles.flagText}>🤖 AI</Text>
-                      </View>
-                    )}
-                    {item.archived && (
-                      <View style={styles.flag}>
-                        <Text style={styles.flagText}>📦 Archived</Text>
-                      </View>
-                    )}
-                    {item.origin === 'catchall' && (
-                      <View style={styles.flag}>
-                        <Text style={styles.flagText}>📥 Catchall</Text>
-                      </View>
-                    )}
-                  </Box>
-                </Box>
-              </Box>
-            </Card>
-          ))}
-
-          {items.length === 0 && (
-            <Card>
-              <Box p={4} style={{ alignItems: 'center' }}>
-                <Text variant="body" style={styles.centerText}>
-                  No items found
-                </Text>
-              </Box>
-            </Card>
-          )}
         </Box>
-      </ScrollView>
+        <Text variant="subtle" style={styles.summary}>
+          {summary.onTrackCount} of {summary.totalHabits} on track
+        </Text>
+      </Box>
+
+      {/* List */}
+      <FlatList
+        data={stats}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <Box style={styles.emptyBox}>
+            <Text variant="subtle" style={styles.emptyText}>
+              No habits found
+            </Text>
+          </Box>
+        }
+      />
+
+      {/* Habit Detail Modal */}
+      <HabitDetailModal
+        visible={modalVisible}
+        habitId={selectedHabit?.id ?? null}
+        habitName={selectedHabit?.name}
+        onClose={closeHabitDetail}
+      />
     </SafeAreaView>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toDateString(date: Date): string {
+  return date.toISOString().split('T')[0];
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  scrollView: {
-    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   centerBox: {
     flex: 1,
@@ -271,68 +222,42 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   header: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
   },
-  subtitle: {
-    marginTop: -8,
-  },
-  card: {
-    backgroundColor: '#fff',
-  },
-  headerRow: {
+  headerTop: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
-  typeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#212121',
   },
-  habitBadge: {
-    backgroundColor: '#10b981',
+  thisWeek: {
+    fontSize: 14,
+    color: '#757575',
   },
-  todoBadge: {
-    backgroundColor: '#3b82f6',
+  summary: {
+    fontSize: 14,
+    color: '#9E9E9E',
   },
-  noteBadge: {
-    backgroundColor: '#8b5cf6',
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#fff',
+  emptyBox: {
+    paddingVertical: 48,
+    alignItems: 'center',
   },
-  titleText: {
-    flex: 1,
+  emptyText: {
     fontSize: 16,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  metaLabel: {
-    width: 70,
-    fontSize: 12,
-  },
-  metaValue: {
-    flex: 1,
-    fontSize: 12,
-  },
-  flagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4,
-  },
-  flag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 3,
-  },
-  flagText: {
-    fontSize: 11,
+    color: '#9E9E9E',
   },
 });

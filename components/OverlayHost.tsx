@@ -376,6 +376,7 @@ export const OverlayHost = () => {
   } = overlay;
 
   const canTapOutsideToClose = (overlay.state as any)?.canTapOutsideToClose ?? false;
+  const defaultDueToday = (overlay.state as any)?.defaultDueToday ?? false;
 
   // Extract full entity for edit mode pre-fill
   const fullEntity = (overlay.state as any).entity ?? null;
@@ -433,6 +434,7 @@ export const OverlayHost = () => {
               conversionMeta={conversionMeta}
               initialText={initialText ?? undefined}
               initialLogPhotoUris={initialLogPhotoUris}
+              defaultDueToday={defaultDueToday}
               onClose={handleClose}
               onSaved={handleSaved}
             />

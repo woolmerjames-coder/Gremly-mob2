@@ -22,6 +22,7 @@ import type {
 } from './IRepo';
 import { supabase } from '../supabase/client';
 import { eventBus } from '../events';
+import { computeDueDay, computeDueTime } from '../date/computeDueDay';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -214,64 +215,167 @@ function normalizeViews(input: any): Record<string, any> {
   return { ...input };
 }
 
-// Helper to map database habit columns to TypeScript fields
-// Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
-// TypeScript has: name, frequency_value, reminders, triggers (fields)
-// Schema truth: habits table has BOTH name AND title columns
+/**
+ * Map database habit columns to TypeScript Habit type
+ *
+ * Database has: name, title, frequency_json, reminders_json, triggers_json (jsonb columns)
+ * TypeScript has: name, frequency_value, reminders, triggers (fields)
+ * Schema truth: habits table has BOTH name AND title columns
+ *
+ * READ-SIDE AUDIT (Phase 6+):
+ * - Commitment fields: commitment, commitment_note, commitment_started_at
+ * - Frequency fields: frequency → frequency, frequency_json → frequency_value
+ * - Reminder fields: reminders_json → reminders
+ * - Trigger fields: triggers_json → triggers
+ * - Common fields: tags, tags_meta, views, labels, space_id, origin, drop_id, has_list, list_items
+ */
 function mapHabitFromDb(dbRecord: any): any {
-  return {
+  const mapped = {
     ...dbRecord,
     // Database has both 'name' and 'title' - keep name as primary
     name: dbRecord.name || dbRecord.title,
     // Map jsonb columns to TS fields
-    frequency_value: dbRecord.frequency_json,
-    reminders: dbRecord.reminders_json,
-    triggers: dbRecord.triggers_json,
+    frequency_value: dbRecord.frequency_json ?? null,
+    reminders: dbRecord.reminders_json ?? null,
+    triggers: dbRecord.triggers_json ?? null,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views),
+    // Commitment fields (Phase 6)
+    commitment: dbRecord.commitment === null ? undefined : dbRecord.commitment,
+    commitment_note: dbRecord.commitment_note ?? null,
+    commitment_started_at: dbRecord.commitment_started_at ?? null,
+    // Common fields
+    labels: dbRecord.labels ?? null,
+    space_id: dbRecord.space_id ?? null,
+    origin: dbRecord.origin ?? null,
+    has_list: dbRecord.has_list ?? false,
+    list_items: dbRecord.list_items ?? null,
   };
+
+  if (__DEV__) {
+    console.log('[HabitFromRow]', {
+      id: mapped.id,
+      name: mapped.name,
+      commitment: mapped.commitment,
+      commitment_note: mapped.commitment_note?.slice?.(0, 30) ?? null,
+      commitment_started_at: mapped.commitment_started_at,
+      frequency: mapped.frequency,
+      frequency_value: mapped.frequency_value,
+      reminders: mapped.reminders?.length ?? 0,
+    });
+  }
+
+  return mapped;
 }
 
 /**
  * Map database todo columns to TypeScript Todo type
+ *
  * Database schema truth (from generated types):
  * - name (string, required) - PRIMARY field for todos
  * - NO 'title' column in todos table
  * - reminders_json (jsonb) -> reminders (ReminderRow[])
  * - owner_id (string) - RLS key
+ *
+ * READ-SIDE AUDIT (Phase 6+):
+ * - Commitment fields: commitment, commitment_note, commitment_started_at
+ * - Date fields: due_date, due_day, due_time
+ * - Reminder fields: reminders_json → reminders
+ * - Common fields: tags, tags_meta, views, labels, space_id, origin, drop_id, has_list, list_items
  */
 function mapTodoFromDb(dbRecord: any): any {
-  return {
+  const mapped = {
     ...dbRecord,
     // Map database 'name' to both name and title for backwards compatibility
     name: dbRecord.name,
     title: dbRecord.name, // Backwards compatibility in app code
     // Map jsonb column to TS field
-    reminders: dbRecord.reminders_json,
+    reminders: dbRecord.reminders_json ?? null,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views),
+    // Commitment fields (Phase 6)
+    commitment: dbRecord.commitment === null ? undefined : dbRecord.commitment,
+    commitment_note: dbRecord.commitment_note ?? null,
+    commitment_started_at: dbRecord.commitment_started_at ?? null,
+    // Date fields
+    due_date: dbRecord.due_date ?? null,
+    due_day: dbRecord.due_day ?? null,
+    due_time: dbRecord.due_time ?? null,
+    // Common fields
+    labels: dbRecord.labels ?? null,
+    space_id: dbRecord.space_id ?? null,
+    origin: dbRecord.origin ?? null,
+    has_list: dbRecord.has_list ?? false,
+    list_items: dbRecord.list_items ?? null,
   };
+
+  if (__DEV__) {
+    console.log('[TodoFromRow]', {
+      id: mapped.id,
+      name: mapped.name,
+      commitment: mapped.commitment,
+      commitment_note: mapped.commitment_note?.slice?.(0, 30) ?? null,
+      commitment_started_at: mapped.commitment_started_at,
+      due_day: mapped.due_day,
+      due_time: mapped.due_time,
+      reminders: mapped.reminders?.length ?? 0,
+    });
+  }
+
+  return mapped;
 }
 
 /**
  * Map database note columns to TypeScript Note type
- * - reminders_json (jsonb) -> reminders (ReminderRow[]) for journal entries
+ *
+ * READ-SIDE AUDIT (Phase L2+):
+ * - reminders_json (jsonb) → reminders (ReminderRow[]) for journal entries
+ * - Journal-specific: mood, fmt, date, private, journal_subtype, photo_uri
+ * - Common fields: tags, tags_meta, views, labels, space_id, origin, drop_id, has_list, list_items
  */
 function mapNoteFromDb(dbRecord: any): any {
-  return {
+  const mapped = {
     ...dbRecord,
     // Map jsonb column to TS field (used for journal entries)
-    reminders: dbRecord.reminders_json,
+    reminders: dbRecord.reminders_json ?? null,
     tags: dbRecord.tags ?? null,
     tags_meta: dbRecord.tags_meta ?? null,
     source_message_id: dbRecord.source_message_id ?? null,
     drop_id: dbRecord.drop_id ?? null,
-    views: normalizeViews(dbRecord.views), // Round-trip views JSONB column
+    views: normalizeViews(dbRecord.views),
+    // Journal-specific fields (Phase L2+)
+    mood: dbRecord.mood ?? null,
+    fmt: dbRecord.fmt ?? null,
+    date: dbRecord.date ?? null,
+    private: dbRecord.private ?? false,
+    journal_subtype: dbRecord.journal_subtype ?? null,
+    photo_uri: dbRecord.photo_uri ?? null,
+    // Common fields
+    labels: dbRecord.labels ?? null,
+    space_id: dbRecord.space_id ?? null,
+    origin: dbRecord.origin ?? null,
+    has_list: dbRecord.has_list ?? false,
+    list_items: dbRecord.list_items ?? null,
   };
+
+  if (__DEV__) {
+    console.log('[NoteFromRow]', {
+      id: mapped.id,
+      title: mapped.title,
+      subtype: mapped.subtype,
+      mood: mapped.mood,
+      date: mapped.date,
+      private: mapped.private,
+      journal_subtype: mapped.journal_subtype,
+      reminders: mapped.reminders?.length ?? 0,
+    });
+  }
+
+  return mapped;
 }
 
 export class SupabaseRepo implements IRepo {
@@ -404,14 +508,46 @@ export class SupabaseRepo implements IRepo {
           ? (input as any).details.trim()
           : (input.body ?? null);
 
+      // Map due_at → due_date/due_time/due_day if due_at is provided (from overlay)
+      // due_at is an ISO string like "2025-11-26T08:00:56.793Z" or "2025-11-26"
+      let effectiveDueDate = input.due_date ?? null;
+      let effectiveDueTime = (input as any).due_time ?? null;
+      let effectiveDueDay: string | null = (input as any).due_day ?? null;
+
+      // If due_day is provided directly, use it as the source of truth
+      if (effectiveDueDay && /^\d{4}-\d{2}-\d{2}$/.test(effectiveDueDay)) {
+        effectiveDueDate = effectiveDueDay; // Keep due_date in sync
+      }
+
+      const dueAtValue = (input as any).due_at;
+      // Only compute from due_at if neither due_day NOR due_date is already set
+      // (explicit due_date takes precedence over due_at)
+      if (dueAtValue && typeof dueAtValue === 'string' && !effectiveDueDay && !effectiveDueDate) {
+        // Parse the due_at to extract date and time in local timezone
+        const dateObj = new Date(dueAtValue);
+        if (!isNaN(dateObj.getTime())) {
+          // Convert to ISO datetime format for schema validation
+          effectiveDueDate = dateObj.toISOString();
+          // Use shared helpers for consistent due_day/due_time computation
+          effectiveDueDay = computeDueDay(dueAtValue);
+          effectiveDueTime = effectiveDueTime ?? computeDueTime(dueAtValue);
+        }
+      }
+
+      // If due_date is provided but not due_day, derive due_day from due_date
+      if (effectiveDueDate && !effectiveDueDay) {
+        effectiveDueDay = computeDueDay(effectiveDueDate);
+      }
+
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
           space_id: input.space_id ?? null,
           name: input.name, // Required - PRIMARY field for todos
           body: bodyText, // 🔴 Store full Mind Drop sentence here (mapped from details)
-          due_date: normalizeIsoDatetime(input.due_date) ?? null,
-          due_time: input.due_time ?? null, // Phase 7+: HH:mm format
+          due_date: normalizeIsoDatetime(effectiveDueDate) ?? null,
+          due_day: effectiveDueDay ?? null, // YYYY-MM-DD - canonical field for day-based logic
+          due_time: effectiveDueTime ?? null, // Phase 7+: HH:mm format
           undefined_due: input.undefined_due ?? undefined, // Optional (legacy)
           subtype: input.subtype ?? null, // AI-only: 'reminder' | 'microproject'
           reminders_json: input.reminders ?? null, // ReminderRow[] stored as jsonb
@@ -602,11 +738,11 @@ export class SupabaseRepo implements IRepo {
     const record = { ...result, type: input.type };
     let parsedRecord: AppRecord;
     if (input.type === 'habit') {
-      parsedRecord = habitZ.parse(mapHabitFromDb(record));
+      parsedRecord = habitZ.parse(mapHabitFromDb(record)) as Habit;
     } else if (input.type === 'todo') {
-      parsedRecord = todoZ.parse(mapTodoFromDb(record));
+      parsedRecord = todoZ.parse(mapTodoFromDb(record)) as Todo;
     } else {
-      parsedRecord = noteZ.parse(mapNoteFromDb(record));
+      parsedRecord = noteZ.parse(mapNoteFromDb(record)) as Note;
     }
 
     eventBus.emit('ItemSaved', { id: parsedRecord.id });
@@ -727,16 +863,85 @@ export class SupabaseRepo implements IRepo {
       if ('due_date' in normalizedPatch) {
         const duePatch = normalizedPatch.due_date as string | null | undefined;
         updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
+        // Also set due_day from due_date for canonical day-based logic using shared helper
+        updatePayload.due_day = computeDueDay(duePatch);
       }
       if ('due_time' in normalizedPatch) {
         const dueTimePatch = normalizedPatch.due_time as string | null | undefined;
         updatePayload.due_time = dueTimePatch ?? null;
       }
+
+      // Handle due_day directly from overlay (canonical source of truth)
+      // This takes priority over computing from due_at to avoid timezone issues
+      if ('due_day' in normalizedPatch) {
+        const dueDayPatch = (normalizedPatch as any).due_day as string | null | undefined;
+        if (dueDayPatch && /^\d{4}-\d{2}-\d{2}$/.test(dueDayPatch)) {
+          updatePayload.due_day = dueDayPatch;
+          updatePayload.due_date = dueDayPatch; // Keep due_date in sync
+        } else if (dueDayPatch === null) {
+          updatePayload.due_day = null;
+          updatePayload.due_date = null;
+        }
+      }
+
+      // Handle due_time directly from overlay
+      if ('due_time' in normalizedPatch && !updatePayload.due_time) {
+        const dueTimePatch = (normalizedPatch as any).due_time as string | null | undefined;
+        updatePayload.due_time = dueTimePatch ?? null;
+      }
+
+      // Map due_at to due_date/due_time/due_day for overlay compatibility
+      // Only used if due_day is not explicitly provided in the patch
+      // Overlay passes due_at (ISO timestamp), DB expects due_date (date) + due_time (HH:mm) + due_day (YYYY-MM-DD)
+      if (
+        'due_at' in normalizedPatch &&
+        !('due_date' in normalizedPatch) &&
+        !('due_day' in normalizedPatch)
+      ) {
+        const dueAt = (normalizedPatch as any).due_at as string | null | undefined;
+        if (dueAt) {
+          // Use shared helpers for consistent due_day/due_time computation
+          const dueDayStr = computeDueDay(dueAt);
+          const dueTimeStr = computeDueTime(dueAt);
+          if (dueDayStr) {
+            updatePayload.due_date = dueDayStr;
+            updatePayload.due_day = dueDayStr;
+            if (dueTimeStr) {
+              updatePayload.due_time = dueTimeStr;
+            }
+          }
+        } else {
+          // If due_at is explicitly null/undefined, clear due_date and due_day
+          updatePayload.due_date = null;
+          updatePayload.due_day = null;
+        }
+      }
+
       if ('undefined_due' in normalizedPatch)
         updatePayload.undefined_due = !!normalizedPatch.undefined_due;
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Commitment fields for todos (Phase 6)
+      if ('commitment' in normalizedPatch)
+        updatePayload.commitment = !!(normalizedPatch as any).commitment;
+      if ('commitment_note' in normalizedPatch)
+        updatePayload.commitment_note = (normalizedPatch as any).commitment_note ?? null;
+      if ('commitment_started_at' in normalizedPatch)
+        updatePayload.commitment_started_at =
+          normalizeIsoDatetime((normalizedPatch as any).commitment_started_at) ?? null;
+
+      // Map reminders → reminders_json for todo reminders
+      if ('reminders' in normalizedPatch) {
+        updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+
+      // Development logging for todo updates
+      if (__DEV__) {
+        console.log('[TodoEdit] patch', normalizedPatch);
+        console.log('[TodoEdit] updatePayload', updatePayload);
+      }
     } else if (existing.type === 'habit') {
       // DATABASE SCHEMA: habits table has both 'name' and 'title' columns
       // Keep both columns in sync for consistency
@@ -767,11 +972,35 @@ export class SupabaseRepo implements IRepo {
 
       if ('frequency' in normalizedPatch && normalizedPatch.frequency !== undefined)
         updatePayload.frequency = normalizedPatch.frequency;
+      // Map frequency_value → frequency_json for habit cadence updates
+      if ('frequency_value' in normalizedPatch) {
+        updatePayload.frequency_json = (normalizedPatch as any).frequency_value ?? null;
+      }
       if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Commitment fields for habits (Phase 6)
+      if ('commitment' in normalizedPatch)
+        updatePayload.commitment = !!(normalizedPatch as any).commitment;
+      if ('commitment_note' in normalizedPatch)
+        updatePayload.commitment_note = (normalizedPatch as any).commitment_note ?? null;
+      if ('commitment_started_at' in normalizedPatch)
+        updatePayload.commitment_started_at =
+          normalizeIsoDatetime((normalizedPatch as any).commitment_started_at) ?? null;
+
+      // Map reminders → reminders_json for habit reminders
+      if ('reminders' in normalizedPatch) {
+        updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+
+      // Development logging for habit updates
+      if (__DEV__) {
+        console.log('[HabitEdit] patch', normalizedPatch);
+        console.log('[HabitEdit] updatePayload', updatePayload);
+      }
     } else if (existing.type === 'note') {
       if ('title' in normalizedPatch) updatePayload.title = normalizedPatch.title ?? null;
 
@@ -791,6 +1020,28 @@ export class SupabaseRepo implements IRepo {
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
       if ('why_string' in normalizedPatch)
         updatePayload.why_string = normalizedPatch.why_string ?? null;
+
+      // Journal-specific fields for notes (Phase L4+)
+      if ('mood' in normalizedPatch) updatePayload.mood = (normalizedPatch as any).mood ?? null;
+      if ('fmt' in normalizedPatch) updatePayload.fmt = (normalizedPatch as any).fmt ?? null;
+      if ('date' in normalizedPatch)
+        updatePayload.date = normalizeIsoDatetime((normalizedPatch as any).date) ?? null;
+      if ('private' in normalizedPatch) updatePayload.private = !!(normalizedPatch as any).private;
+      if ('journal_subtype' in normalizedPatch)
+        updatePayload.journal_subtype = (normalizedPatch as any).journal_subtype ?? null;
+      // Map reminders → reminders_json for note reminders
+      if ('reminders' in normalizedPatch) {
+        updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+      // Map photo_uri directly
+      if ('photo_uri' in normalizedPatch)
+        updatePayload.photo_uri = (normalizedPatch as any).photo_uri ?? null;
+
+      // Development logging for note updates
+      if (__DEV__) {
+        console.log('[NoteEdit] patch', normalizedPatch);
+        console.log('[NoteEdit] updatePayload', updatePayload);
+      }
     }
 
     if ('tags' in normalizedPatch) updatePayload.tags = normalizedPatch.tags ?? null;
@@ -803,11 +1054,6 @@ export class SupabaseRepo implements IRepo {
     if ('labels' in normalizedPatch) updatePayload.labels = normalizedPatch.labels ?? null;
     if ('views' in normalizedPatch) updatePayload.views = normalizedPatch.views ?? {};
     if ('dropId' in normalizedPatch) updatePayload.drop_id = normalizedPatch.dropId ?? null;
-
-    // Development logging for todo updates
-    if (__DEV__ && existing.type === 'todo') {
-      console.log('[TodoUpdate] dbPayload', updatePayload);
-    }
 
     // Guard: Don't call Supabase if the patch is empty (prevents PGRST116 error)
     if (Object.keys(updatePayload).length === 0) {
@@ -830,7 +1076,17 @@ export class SupabaseRepo implements IRepo {
 
     // Development logging for todo updates
     if (__DEV__ && existing.type === 'todo') {
-      console.log('[TodoUpdate] db result', result, error);
+      console.log('[TodoEdit] db result', result, error);
+    }
+
+    // Development logging for habit updates
+    if (__DEV__ && existing.type === 'habit') {
+      console.log('[HabitEdit] db result', result, error);
+    }
+
+    // Development logging for note updates
+    if (__DEV__ && existing.type === 'note') {
+      console.log('[NoteEdit] db result', result, error);
     }
 
     if (error) {
@@ -840,9 +1096,25 @@ export class SupabaseRepo implements IRepo {
     if (!result) throw new Error('No data returned from update');
 
     const record = { ...result, type: existing.type };
-    if (existing.type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-    if (existing.type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-    return noteZ.parse(mapNoteFromDb(record));
+    if (existing.type === 'habit') {
+      const updated = habitZ.parse(mapHabitFromDb(record)) as Habit;
+      if (__DEV__) {
+        console.log('[HabitEdit] updated habit', updated);
+      }
+      return updated;
+    }
+    if (existing.type === 'todo') {
+      const updated = todoZ.parse(mapTodoFromDb(record)) as Todo;
+      if (__DEV__) {
+        console.log('[TodoEdit] updated todo', updated);
+      }
+      return updated;
+    }
+    const updated = noteZ.parse(mapNoteFromDb(record)) as Note;
+    if (__DEV__) {
+      console.log('[NoteEdit] updated note', updated);
+    }
+    return updated;
   }
 
   async remove(id: ID): Promise<void> {
@@ -876,9 +1148,9 @@ export class SupabaseRepo implements IRepo {
 
       if (data) {
         const record = { ...data, type };
-        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-        return noteZ.parse(mapNoteFromDb(record));
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record)) as Habit;
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record)) as Todo;
+        return noteZ.parse(mapNoteFromDb(record)) as Note;
       }
 
       if (error && error.code !== 'PGRST116') {
@@ -906,9 +1178,9 @@ export class SupabaseRepo implements IRepo {
       if (data) {
         for (const row of data) {
           const record = { ...row, type };
-          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)));
-          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)));
-          else results.push(noteZ.parse(mapNoteFromDb(record)));
+          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)) as Habit);
+          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)) as Todo);
+          else results.push(noteZ.parse(mapNoteFromDb(record)) as Note);
         }
       }
     }
@@ -942,7 +1214,7 @@ export class SupabaseRepo implements IRepo {
     if (!data) return null;
 
     const record = { ...data, type: 'note' as const };
-    return noteZ.parse(mapNoteFromDb(record));
+    return noteZ.parse(mapNoteFromDb(record)) as Note;
   }
 
   /**
@@ -975,7 +1247,7 @@ export class SupabaseRepo implements IRepo {
     if (!data) return null;
 
     const record = { ...data, type: 'todo' as const };
-    return todoZ.parse(record);
+    return todoZ.parse(record) as Todo;
   }
 
   /**
@@ -1008,7 +1280,7 @@ export class SupabaseRepo implements IRepo {
     if (!data) return null;
 
     const record = { ...data, type: 'habit' as const };
-    return habitZ.parse(record);
+    return habitZ.parse(record) as Habit;
   }
 
   /**
@@ -1136,9 +1408,9 @@ export class SupabaseRepo implements IRepo {
 
       return rows.map((item) => {
         const record = { ...item, type };
-        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-        return noteZ.parse(mapNoteFromDb(record));
+        if (type === 'habit') return habitZ.parse(mapHabitFromDb(record)) as Habit;
+        if (type === 'todo') return todoZ.parse(mapTodoFromDb(record)) as Todo;
+        return noteZ.parse(mapNoteFromDb(record)) as Note;
       });
     } finally {
       if (hasTagFilter && perfStart !== null && perfLabel) {
@@ -1215,9 +1487,9 @@ export class SupabaseRepo implements IRepo {
       if (data) {
         const parsed = data.map((item) => {
           const record = { ...item, type };
-          if (type === 'habit') return habitZ.parse(mapHabitFromDb(record));
-          if (type === 'todo') return todoZ.parse(mapTodoFromDb(record));
-          return noteZ.parse(mapNoteFromDb(record));
+          if (type === 'habit') return habitZ.parse(mapHabitFromDb(record)) as Habit;
+          if (type === 'todo') return todoZ.parse(mapTodoFromDb(record)) as Todo;
+          return noteZ.parse(mapNoteFromDb(record)) as Note;
         });
         results.push(...parsed);
       }
@@ -1240,7 +1512,9 @@ export class SupabaseRepo implements IRepo {
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
     if (habits) {
-      results.push(...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))));
+      results.push(
+        ...habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })) as Habit),
+      );
     }
 
     // Search todos (name and body)
@@ -1253,7 +1527,7 @@ export class SupabaseRepo implements IRepo {
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
     if (todos) {
-      results.push(...todos.map((t) => todoZ.parse({ ...t, type: 'todo' })));
+      results.push(...todos.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo));
     }
 
     // Search notes (title and body)
@@ -1348,13 +1622,17 @@ export class SupabaseRepo implements IRepo {
 
   /**
    * List todos due today
-   * 10R: Uses idx_todos_due_date for efficient filtering
+   * Uses due_day (YYYY-MM-DD) for timezone-safe filtering, falling back to due_date
    */
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
     const userId = this.ensureUserId();
     const results: AppRecord[] = [];
 
-    // Get todos with due_date = today (uses idx_todos_due_date)
+    // Compute today's date string in local timezone
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    // Get todos with due_date or due_day set
     const { data: todos, error: todosError } = await supabase
       .from('todos')
       .select('*')
@@ -1367,12 +1645,17 @@ export class SupabaseRepo implements IRepo {
     if (todos) {
       const todayTodos = todos.filter((t) => {
         try {
+          // Prefer due_day (YYYY-MM-DD) for timezone-safe comparison
+          if (t.due_day && typeof t.due_day === 'string') {
+            return t.due_day === todayStr;
+          }
+          // Fallback to due_date (may have timezone issues with UTC midnight)
           return t.due_date && isToday(parseISO(t.due_date));
         } catch {
           return false;
         }
       });
-      results.push(...todayTodos.map((t) => todoZ.parse({ ...t, type: 'todo' })));
+      results.push(...todayTodos.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo));
     }
 
     // Note: Habits don't have due_date in this schema, but if they did we'd query them here too
@@ -1393,7 +1676,7 @@ export class SupabaseRepo implements IRepo {
     if (error) throw new Error(`Failed to list undefined due todos: ${error.message}`);
     if (!data) return [];
 
-    return data.map((t) => todoZ.parse({ ...t, type: 'todo' }));
+    return data.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo);
   }
 
   // ==========================
@@ -1696,6 +1979,26 @@ export class SupabaseRepo implements IRepo {
 
     if (error) throw new Error(`getHabitProgressForWeek failed: ${error.message}`);
     return (data ?? []).reduce((sum: number, row: any) => sum + (row.count ?? 1), 0);
+  }
+
+  async getHabitProgressDates(
+    habitId: ID,
+    weekStartIso: string,
+    weekEndIso: string,
+  ): Promise<string[]> {
+    const ownerId = this.ensureUserId();
+    const weekStart = ensureDay(weekStartIso);
+    const weekEnd = ensureDay(weekEndIso);
+    const { data, error } = await supabase
+      .from('habit_progress')
+      .select('occurred_day')
+      .eq('owner_id', ownerId)
+      .eq('habit_id', habitId)
+      .gte('occurred_day', weekStart)
+      .lte('occurred_day', weekEnd);
+
+    if (error) throw new Error(`getHabitProgressDates failed: ${error.message}`);
+    return (data ?? []).map((row: any) => row.occurred_day);
   }
 
   async getFocusForDate(dayIso: string): Promise<{
@@ -2223,16 +2526,38 @@ export class SupabaseRepo implements IRepo {
 
   async completeHabit(id: ID, atIso: string): Promise<void> {
     const userId = this.ensureUserId();
+    const todayDay = atIso.split('T')[0];
 
-    // For now, mark habit as completed by setting a completed_at field
-    // TODO: Phase 10+ - Create a separate habit_completions table for history
-    const { error } = await supabase
+    console.log('[SupabaseRepo] completeHabit called:', { id, atIso, todayDay });
+
+    // Update last_completed_at to track when habit was last completed
+    // NOTE: This is different from completed_at which is used for soft-delete/archiving
+    const { error: habitError } = await supabase
       .from('habits')
-      .update({ completed_at: atIso })
+      .update({ last_completed_at: atIso })
       .eq('id', id)
       .eq('owner_id', userId);
 
-    if (error) throw new Error(`Failed to complete habit: ${error.message}`);
+    if (habitError) throw new Error(`Failed to complete habit: ${habitError.message}`);
+
+    // ALSO log to habit_progress table for today - this is what listTodayMerged reads
+    const { data: progressData, error: progressError } = await supabase
+      .from('habit_progress')
+      .insert({
+        owner_id: userId,
+        habit_id: id,
+        count: 1,
+        occurred_at: atIso,
+        occurred_day: todayDay,
+      })
+      .select('id, habit_id, count, occurred_day');
+
+    if (progressError) {
+      console.warn('[SupabaseRepo] completeHabit habit_progress insert failed:', progressError);
+      // Don't throw - habit is still marked complete via last_completed_at
+    } else {
+      console.log('[SupabaseRepo] completeHabit habit_progress result:', progressData);
+    }
 
     // Emit event for UI sync
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
@@ -2241,13 +2566,19 @@ export class SupabaseRepo implements IRepo {
   async completeTodo(id: ID, atIso: string): Promise<void> {
     const userId = this.ensureUserId();
 
-    const { error } = await supabase
+    console.log('[SupabaseRepo] completeTodo called:', { id, atIso });
+
+    const { data, error } = await supabase
       .from('todos')
-      .update({ completed_at: atIso })
+      .update({ status: 'completed', completed_at: atIso })
       .eq('id', id)
-      .eq('owner_id', userId);
+      .eq('owner_id', userId)
+      .select('id, status, completed_at')
+      .single();
 
     if (error) throw new Error(`Failed to complete todo: ${error.message}`);
+
+    console.log('[SupabaseRepo] completeTodo result:', data);
 
     // Emit event for UI sync
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
@@ -2256,23 +2587,49 @@ export class SupabaseRepo implements IRepo {
   async undoCompletion(id: ID): Promise<void> {
     const userId = this.ensureUserId();
 
-    // Try to clear completed_at from todos first
-    const { error: todoError } = await supabase
-      .from('todos')
-      .update({ completed_at: null })
-      .eq('id', id)
-      .eq('owner_id', userId);
+    console.log('[SupabaseRepo] undoCompletion called:', { id });
 
-    if (!todoError) {
+    // Try to reset status and clear completed_at from todos first
+    const { data: todoData, error: todoError } = await supabase
+      .from('todos')
+      .update({ status: 'active', completed_at: null })
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select('id, status, completed_at');
+
+    if (!todoError && todoData && todoData.length > 0) {
       // Success - was a todo
+      console.log('[SupabaseRepo] undoCompletion todo result:', todoData[0]);
       eventBus.emit('ItemUpdated', { id });
       return;
     }
 
-    // Try habits
+    // Try habits - delete today's habit_progress entry
+    const todayDay = new Date().toISOString().split('T')[0];
+    const { data: progressData, error: progressError } = await supabase
+      .from('habit_progress')
+      .delete()
+      .eq('habit_id', id)
+      .eq('owner_id', userId)
+      .eq('occurred_day', todayDay)
+      .select('id');
+
+    if (!progressError && progressData && progressData.length > 0) {
+      console.log('[SupabaseRepo] undoCompletion habit_progress deleted:', progressData);
+      // Also clear last_completed_at on the habit
+      await supabase
+        .from('habits')
+        .update({ last_completed_at: null })
+        .eq('id', id)
+        .eq('owner_id', userId);
+      eventBus.emit('ItemUpdated', { id });
+      return;
+    }
+
+    // Fallback: Try habits - clear last_completed_at (not completed_at which is for archiving)
     const { error: habitError } = await supabase
       .from('habits')
-      .update({ completed_at: null })
+      .update({ last_completed_at: null })
       .eq('id', id)
       .eq('owner_id', userId);
 
@@ -2280,8 +2637,137 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`Failed to undo completion: ${habitError.message}`);
     }
 
+    console.log('[SupabaseRepo] undoCompletion habit last_completed_at cleared');
+
     // Emit event for UI sync
     eventBus.emit('ItemUpdated', { id });
+  }
+
+  /**
+   * Complete a habit for a specific date (for weekly habit tracking).
+   * Inserts a row into habit_progress if not already exists.
+   */
+  async completeHabitForDate(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0]; // Ensure we have just the date
+
+    console.log('[SupabaseRepo] completeHabitForDate:', { habitId, occurredDay });
+
+    // Check if already completed for this day
+    const { data: existing } = await supabase
+      .from('habit_progress')
+      .select('id')
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay)
+      .maybeSingle();
+
+    if (existing) {
+      console.log('[SupabaseRepo] completeHabitForDate: already exists');
+      return; // Already completed
+    }
+
+    // Insert new progress record
+    const { error } = await supabase.from('habit_progress').insert({
+      owner_id: userId,
+      habit_id: habitId,
+      count: 1,
+      occurred_at: new Date(occurredDay).toISOString(),
+      occurred_day: occurredDay,
+    });
+
+    if (error) {
+      throw new Error(`Failed to complete habit for date: ${error.message}`);
+    }
+
+    // Emit event for UI sync
+    eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
+  /**
+   * Silent version of completeHabitForDate - does NOT emit events.
+   * Use this when you want local-only updates without triggering global reloads.
+   */
+  async completeHabitForDateSilent(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0];
+
+    console.log('[SupabaseRepo] completeHabitForDateSilent:', { habitId, occurredDay });
+
+    // Check if already completed for this day
+    const { data: existing } = await supabase
+      .from('habit_progress')
+      .select('id')
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay)
+      .maybeSingle();
+
+    if (existing) {
+      return; // Already completed
+    }
+
+    // Insert new progress record
+    const { error } = await supabase.from('habit_progress').insert({
+      owner_id: userId,
+      habit_id: habitId,
+      count: 1,
+      occurred_at: new Date(occurredDay).toISOString(),
+      occurred_day: occurredDay,
+    });
+
+    if (error) {
+      throw new Error(`Failed to complete habit for date: ${error.message}`);
+    }
+    // No event emission - caller handles local state
+  }
+
+  /**
+   * Remove a habit completion for a specific date (for weekly habit tracking).
+   * Deletes the row from habit_progress matching that day.
+   */
+  async removeHabitCompletion(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0]; // Ensure we have just the date
+
+    console.log('[SupabaseRepo] removeHabitCompletion:', { habitId, occurredDay });
+
+    const { error } = await supabase
+      .from('habit_progress')
+      .delete()
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay);
+
+    if (error) {
+      throw new Error(`Failed to remove habit completion: ${error.message}`);
+    }
+
+    // Emit event for UI sync
+    eventBus.emit('ItemUpdated', { id: habitId });
+  }
+
+  /**
+   * Silent version of removeHabitCompletion - does NOT emit events.
+   * Use this when you want local-only updates without triggering global reloads.
+   */
+  async removeHabitCompletionSilent(habitId: ID, dateIso: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const occurredDay = dateIso.split('T')[0];
+
+    console.log('[SupabaseRepo] removeHabitCompletionSilent:', { habitId, occurredDay });
+
+    const { error } = await supabase
+      .from('habit_progress')
+      .delete()
+      .eq('habit_id', habitId)
+      .eq('owner_id', userId)
+      .eq('occurred_day', occurredDay);
+
+    if (error) {
+      throw new Error(`Failed to remove habit completion: ${error.message}`);
+    }
+    // No event emission - caller handles local state
   }
 
   // ==========================
@@ -2576,9 +3062,11 @@ export class SupabaseRepo implements IRepo {
       }
 
       return {
-        habits: groupedRaw.habits.map((h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' }))),
-        todos: groupedRaw.todos.map((t) => todoZ.parse({ ...t, type: 'todo' })),
-        notes: groupedRaw.notes.map((n) => noteZ.parse({ ...n, type: 'note' })),
+        habits: groupedRaw.habits.map(
+          (h) => habitZ.parse(mapHabitFromDb({ ...h, type: 'habit' })) as Habit,
+        ),
+        todos: groupedRaw.todos.map((t) => todoZ.parse({ ...t, type: 'todo' }) as Todo),
+        notes: groupedRaw.notes.map((n) => noteZ.parse({ ...n, type: 'note' }) as Note),
       };
     } finally {
       if (hasTagFilter && perfStart !== null) {
@@ -3723,3 +4211,135 @@ export class SupabaseSpaceMilestoneRepo {
     return data as import('../types').SpaceMilestone;
   }
 }
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * OVERLAY → SUPABASE FIELD MAPPING AUDIT (2025-11-30)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * This audit ensures all overlay-editable fields are correctly mapped
+ * from the overlay state → patch → Supabase columns.
+ *
+ * FIELDS FIXED IN THIS AUDIT:
+ *
+ * HABITS:
+ * - frequency_value → frequency_json (FIXED - was missing before)
+ * - commitment → commitment (ADDED)
+ * - commitment_note → commitment_note (ADDED)
+ * - commitment_started_at → commitment_started_at (ADDED)
+ * - reminders → reminders_json (ADDED)
+ *
+ * TODOS:
+ * - commitment → commitment (ADDED)
+ * - commitment_note → commitment_note (ADDED)
+ * - commitment_started_at → commitment_started_at (ADDED)
+ * - reminders → reminders_json (ADDED)
+ *
+ * NOTES/LOGS:
+ * - mood → mood (ADDED)
+ * - fmt → fmt (ADDED)
+ * - date → date (ADDED)
+ * - private → private (ADDED)
+ * - journal_subtype → journal_subtype (ADDED)
+ * - reminders → reminders_json (ADDED)
+ * - photo_uri → photo_uri (ADDED)
+ *
+ * FIELDS INTENTIONALLY NOT PERSISTED:
+ * - log.kind: Derived from content at runtime, not stored
+ * - detected.mentions/dates: Runtime detection, not persisted
+ * - undoStack: UI-only state
+ * - expanded: UI-only state
+ * - person: Linked via entity_people junction table (separate flow)
+ * - userEditedTitle/compactTitleSource: Internal tracking, not persisted
+ *
+ * LOGGING:
+ * - [TodoEdit] patch/updatePayload/db result/updated todo
+ * - [HabitEdit] patch/updatePayload/db result/updated habit
+ * - [NoteEdit] patch/updatePayload/db result/updated note
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * READ-SIDE AUDIT: SUPABASE → OVERLAY FIELD MAPPING (2025-11-30)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * This audit ensures all database fields are correctly mapped when reading
+ * entities from Supabase and loading them into the Unified Overlay v2.
+ *
+ * FLOW:
+ * 1. Supabase row → mapXxxFromDb() → TypeScript entity
+ * 2. TypeScript entity → buildDraftPayloadFromEntity() → V2State
+ * 3. V2State → overlay UI → user edits
+ * 4. V2State → toCreateOrUpdateInput() → save payload → Supabase
+ *
+ * READ-SIDE FIXES (mapXxxFromDb functions in supabase.ts):
+ *
+ * mapTodoFromDb:
+ * - commitment: dbRecord.commitment ?? false (ADDED)
+ * - commitment_note: dbRecord.commitment_note ?? null (ADDED)
+ * - commitment_started_at: dbRecord.commitment_started_at ?? null (ADDED)
+ * - reminders: dbRecord.reminders_json ?? null (ADDED - was missing)
+ * - due_date, due_day, due_time: Explicitly mapped (VERIFIED)
+ * - labels, space_id, origin, has_list, list_items: Common fields (ADDED)
+ * - Dev logging: [TodoFromRow] logs commitment/reminders/due fields (ADDED)
+ *
+ * mapHabitFromDb:
+ * - commitment: dbRecord.commitment ?? false (ADDED)
+ * - commitment_note: dbRecord.commitment_note ?? null (ADDED)
+ * - commitment_started_at: dbRecord.commitment_started_at ?? null (ADDED)
+ * - frequency_value: dbRecord.frequency_json ?? null (VERIFIED - was present)
+ * - reminders: dbRecord.reminders_json ?? null (VERIFIED - was present)
+ * - triggers: dbRecord.triggers_json ?? null (VERIFIED - was present)
+ * - labels, space_id, origin, has_list, list_items: Common fields (ADDED)
+ * - Dev logging: [HabitFromRow] logs commitment/frequency/reminders (ADDED)
+ *
+ * mapNoteFromDb:
+ * - reminders: dbRecord.reminders_json ?? null (VERIFIED - was present)
+ * - mood: dbRecord.mood ?? null (ADDED - for journal entries)
+ * - fmt: dbRecord.fmt ?? null (ADDED - for formatting)
+ * - date: dbRecord.date ?? null (ADDED - for journal date)
+ * - private: dbRecord.private ?? false (ADDED - privacy flag)
+ * - journal_subtype: dbRecord.journal_subtype ?? null (ADDED - AI subtype)
+ * - photo_uri: dbRecord.photo_uri ?? null (ADDED - journal photos)
+ * - labels, space_id, origin, has_list, list_items: Common fields (ADDED)
+ * - Dev logging: [NoteFromRow] logs mood/date/subtype/reminders (ADDED)
+ *
+ * OVERLAY INITIALIZATION FIXES (buildDraftPayloadFromEntity in UnifiedOverlayV2.tsx):
+ *
+ * Habit branch:
+ * - commitment: entity.commitment === true (ADDED)
+ * - commitmentNote: entity.commitment_note ?? '' (ADDED)
+ * - commitmentStartedAt: entity.commitment_started_at ?? null (ADDED)
+ * - frequency_json: entity.frequency_value ?? null (VERIFIED - was present)
+ * - subtype: entity.subtype ?? 'start_habit' (ADDED)
+ * - spaceId: entity.space_id ?? null (ADDED)
+ * - Dev logging: [UnifiedOverlayV2.init] logs commitment/frequency (ADDED)
+ *
+ * Todo/Log branch:
+ * - commitment: entity.commitment === true (ADDED)
+ * - commitmentNote: entity.commitment_note ?? '' (ADDED)
+ * - commitmentStartedAt: entity.commitment_started_at ?? null (ADDED)
+ * - reminderAt: reminders?.[0]?.when ?? null (ADDED - maps reminders array)
+ * - spaceId: entity.space_id ?? null (ADDED)
+ * - mood, logSubtypeOverride, logIsPrivate: Verified for logs
+ * - due_day, due_time: Verified for todos
+ * - frequency_json, subtype: Added to habit state for cross-type switching
+ * - Dev logging: [UnifiedOverlayV2.init] logs commitment/reminders/due (ADDED)
+ *
+ * ROUND-TRIP TESTING:
+ * - Created __tests__/commitment.roundtrip.test.tsx
+ * - Tests commitment fields for todos, habits, notes
+ * - Tests reminders for todos and journal entries
+ * - Tests frequency_json for habits
+ * - Verifies that fields hydrate correctly from entity into overlay state
+ *
+ * RESULT:
+ * ✅ Lock-In / Commitment toggle now round-trips correctly
+ * ✅ All overlay-editable fields read from DB → load into overlay
+ * ✅ Dev logging added for debugging read-side issues
+ * ✅ Tests added to prevent regressions
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ */

@@ -47,6 +47,20 @@ const AUTO_HABIT_FLOOR = 0.8;
 const MIN_AI_FLOOR = 0.4;
 const HIGH_CONF_ACTION = 0.8; // High-confidence threshold for auto-create todos/habits
 
+// Explicit ignore patterns - text that should truly be discarded
+// These are safeguards for explicit opt-outs regardless of AI classification
+const EXPLICIT_IGNORE_PATTERNS = [
+  /^ignore\s+this$/i,
+  /^do\s+not\s+save$/i,
+  /^don'?t\s+save\s+this$/i,
+  /^test\s+prompt$/i,
+  /^testing\s+1\s*2\s*3$/i,
+  /^never\s*mind$/i,
+  /^forget\s+it$/i,
+  /^cancel$/i,
+  /^stop$/i,
+];
+
 // Reflection keywords for safety rule
 const REFLECTION_KEYWORDS = [
   'thinking',
@@ -110,6 +124,8 @@ const ACTION_VERBS = [
   'pay',
   'finish',
   'complete',
+  'test',
+  'fix',
 ];
 
 // Temporal keywords for ambiguous social plan detection
@@ -140,6 +156,15 @@ const SOCIAL_EVENT_WORDS = [
   'meeting',
   'call',
 ];
+
+/**
+ * Check if text matches explicit ignore patterns
+ * These are safeguards for explicit opt-outs like "ignore this", "test prompt", etc.
+ */
+function isExplicitIgnore(text: string): boolean {
+  const trimmed = text.trim();
+  return EXPLICIT_IGNORE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
 
 /**
  * Check if text contains reflection keywords
@@ -194,6 +219,54 @@ function isAmbiguousSocialPlan(text: string): boolean {
   const hasPerson = hasPersonIndicators(text);
 
   return hasPerson && (hasTemporal || hasSocial);
+}
+
+/**
+ * Detect direct imperative command: starts with action verb (no hedging)
+ * Examples: "Test the MindDrop", "Email Sarah about the meeting", "Buy groceries"
+ * These are direct commands that should be todos with high confidence
+ */
+function isDirectImperative(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+
+  // Imperative action verbs that often start direct commands
+  const imperativeVerbs = [
+    'test',
+    'fix',
+    'get',
+    'buy',
+    'email',
+    'call',
+    'book',
+    'schedule',
+    'finish',
+    'complete',
+    'pay',
+    'check',
+    'find',
+    'order',
+    'pick up',
+    'clean',
+    'make',
+    'send',
+    'write',
+    'update',
+    'review',
+    'submit',
+    'set up',
+    'install',
+    'download',
+    'create',
+  ];
+
+  // Check if text starts with an imperative verb
+  for (const verb of imperativeVerbs) {
+    if (lower.startsWith(verb + ' ') || lower === verb) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -313,6 +386,19 @@ function normalizeRuleKind(kind: IntentKind): CanonicalType {
 export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentResult {
   const { ruleKind, ruleConfidence, aiCategory, aiConfidence, text } = inputs;
 
+  // EXPLICIT IGNORE SAFEGUARD (text-based, highest priority)
+  // Explicit opt-outs like "ignore this", "test prompt", "never mind" are truly ignored
+  // This runs before any AI/rule processing
+  if (isExplicitIgnore(text)) {
+    return {
+      type: 'ignore',
+      confidence: 1.0,
+      allowAutoCreate: false,
+      suppressChips: true,
+      reasoning: 'Explicit ignore pattern matched (text-based safeguard)',
+    };
+  }
+
   // Normalize inputs
   const normalizedAI = normalizeAICategory(aiCategory);
   const normalizedRule = normalizeRuleKind(ruleKind);
@@ -337,6 +423,25 @@ export function resolveCanonicalIntent(inputs: IntentInputs): CanonicalIntentRes
       },
       probableKind: 'todo',
       reasoning: 'Medium-confidence todo (proto-task, manual confirmation)',
+    };
+  }
+
+  // DIRECT IMPERATIVE RULE - commands starting with action verbs
+  // Applies when:
+  // 1. AI returns null/unknown category (like "junk"), OR
+  // 2. AI returns non-todo type with low confidence (< 0.5)
+  // Examples: "Test the MindDrop", "Email Sarah", "Buy groceries"
+  // This catches valid tasks when AI fails to classify or has low confidence in a wrong type
+  const isImperative = isDirectImperative(text);
+  const aiIsLowConfidenceNonTodo = normalizedAI !== null && normalizedAI !== 'todo' && aiConf < 0.5;
+
+  if (isImperative && (normalizedAI === null || aiIsLowConfidenceNonTodo)) {
+    return {
+      type: 'todo',
+      confidence: 0.85,
+      allowAutoCreate: true,
+      suppressChips: false,
+      reasoning: 'High-confidence todo (direct imperative command)',
     };
   }
 

@@ -7,7 +7,8 @@ export function mergeTodayData(todos: any[], rollingHabits: any[]): TodayItem[] 
     kind: 'todo',
     title: todo.title ?? 'Untitled',
     completed: Boolean(todo.completed),
-    dueAt: todo.due_at ?? null,
+    // GREMLY TODO DATE MODEL: Prefer due_day (canonical), fallback to due_at for legacy data
+    dueAt: todo.due_day ?? todo.due_at ?? null,
   }));
 
   const habitItems = (rollingHabits ?? []).map((habit) => {

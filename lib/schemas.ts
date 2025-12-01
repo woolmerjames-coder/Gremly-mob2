@@ -106,6 +106,10 @@ export const habitZ = baseRecordZ.extend({
   triggers: z.array(z.string()).nullable().optional(),
   replacement_habit_id: z.string().nullable().optional(),
   replacement_text: z.string().nullable().optional(),
+  // Commitment/Lock-In fields (Phase X)
+  commitment: z.boolean().nullable().optional(),
+  commitmentNote: z.string().nullable().optional(),
+  commitmentStartedAt: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const todoZ = baseRecordZ.extend({
@@ -118,12 +122,17 @@ export const todoZ = baseRecordZ.extend({
   title: z.string().optional(), // Backwards compatibility (NOT nullable per type definition)
   body: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(), // Accept any string format from DB
+  due_day: z.string().nullable().optional(), // YYYY-MM-DD format - canonical field for day-based logic
   due_time: z.string().nullable().optional(), // HH:mm format
   undefined_due: z.boolean().optional(), // Now optional (legacy field)
   subtype: z.enum(['reminder', 'microproject']).nullable().optional(), // AI-only (already permissive)
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   notes: z.string().nullable().optional(), // Additional notes
   tags: tagsZ, // Searchable, AI-editable JSON array persisted in DB
+  // Commitment/Lock-In fields (Phase X)
+  commitment: z.boolean().nullable().optional(),
+  commitmentNote: z.string().nullable().optional(),
+  commitmentStartedAt: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({
@@ -148,6 +157,10 @@ export const noteZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  // Commitment/Lock-In fields (Phase X)
+  commitment: z.boolean().nullable().optional(),
+  commitmentNote: z.string().nullable().optional(),
+  commitmentStartedAt: z.string().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
@@ -199,6 +212,11 @@ export const todoInsertSchema = z.object({
   name: z.string().min(1), // Required - DATABASE TRUTH: todos table has 'name' column (NO 'title')
   body: z.string().optional().nullable(),
   due_date: z.string().datetime().nullable().optional(),
+  due_day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(), // YYYY-MM-DD format - canonical field for day-based logic
   due_time: z
     .string()
     .regex(/^\d{2}:\d{2}$/)

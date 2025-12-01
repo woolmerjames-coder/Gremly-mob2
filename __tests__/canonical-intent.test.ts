@@ -86,12 +86,13 @@ describe('Canonical Intent Resolver', () => {
     });
 
     it('should show chips for medium-confidence todo (0.40-0.85)', () => {
+      // Use non-imperative text so direct imperative rule doesn't apply
       const result = resolveCanonicalIntent({
         ruleKind: 'todo',
         ruleConfidence: 0.6,
         aiCategory: 'todo',
         aiConfidence: 0.65, // 0-1 scale
-        text: 'Email Sarah about the project',
+        text: 'Need to review the project proposal',
       });
 
       expect(result.type).toBe('todo');
@@ -182,6 +183,149 @@ describe('Canonical Intent Resolver', () => {
       });
 
       expect(result.type).toBe('log');
+    });
+  });
+
+  describe('Task descriptions about testing/apps should NOT be classified as ignore', () => {
+    it('should treat "Test the MindDrop and get it working perfectly" as a todo even when AI says junk', () => {
+      // AI backend sometimes returns "junk" for task-sounding phrases
+      // The direct imperative rule should catch this and classify as todo
+      const result = resolveCanonicalIntent({
+        ruleKind: 'none',
+        ruleConfidence: 0,
+        aiCategory: 'junk', // AI returned "junk" (not recognized)
+        aiConfidence: 1.0, // High confidence junk
+        text: 'Test the MindDrop and get it working perfectly',
+      });
+
+      // Should be classified as a todo (direct imperative command)
+      expect(result.type).toBe('todo');
+      expect(result.type).not.toBe('ignore');
+      expect(result.type).not.toBe('log');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.8);
+      expect(result.reasoning).toContain('direct imperative');
+    });
+
+    it('should treat "Fix the bug in the login feature" as a todo', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'none',
+        ruleConfidence: 0,
+        aiCategory: 'junk',
+        aiConfidence: 1.0,
+        text: 'Fix the bug in the login feature',
+      });
+
+      expect(result.type).toBe('todo');
+      expect(result.allowAutoCreate).toBe(true);
+      expect(result.reasoning).toContain('direct imperative');
+    });
+
+    it('should treat "Get the app working on iOS" as a todo', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'none',
+        ruleConfidence: 0,
+        aiCategory: 'junk',
+        aiConfidence: 1.0,
+        text: 'Get the app working on iOS',
+      });
+
+      expect(result.type).toBe('todo');
+      expect(result.reasoning).toContain('direct imperative');
+    });
+
+    it('should treat "Email Sarah about the project" as a todo', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'none',
+        ruleConfidence: 0,
+        aiCategory: null,
+        aiConfidence: 0,
+        text: 'Email Sarah about the project',
+      });
+
+      expect(result.type).toBe('todo');
+      expect(result.allowAutoCreate).toBe(true);
+    });
+
+    it('should treat "Buy groceries" as a todo', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'none',
+        ruleConfidence: 0,
+        aiCategory: 'log',
+        aiConfidence: 0.3,
+        text: 'Buy groceries',
+      });
+
+      expect(result.type).toBe('todo');
+      expect(result.allowAutoCreate).toBe(true);
+    });
+  });
+
+  describe('Explicit ignore patterns (text-based safeguards)', () => {
+    it('should ignore "ignore this" regardless of AI classification', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'todo',
+        ruleConfidence: 0.9,
+        aiCategory: 'todo',
+        aiConfidence: 0.95, // 0-1 scale
+        text: 'ignore this',
+      });
+
+      expect(result.type).toBe('ignore');
+      expect(result.suppressChips).toBe(true);
+      expect(result.reasoning).toContain('Explicit ignore pattern');
+    });
+
+    it('should ignore "test prompt" as it is a common testing phrase', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'todo',
+        ruleConfidence: 0.8,
+        aiCategory: 'todo',
+        aiConfidence: 0.85, // 0-1 scale
+        text: 'test prompt',
+      });
+
+      expect(result.type).toBe('ignore');
+      expect(result.suppressChips).toBe(true);
+    });
+
+    it('should ignore "do not save" as explicit opt-out', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'note',
+        ruleConfidence: 0.5,
+        aiCategory: 'log',
+        aiConfidence: 0.6, // 0-1 scale
+        text: 'do not save',
+      });
+
+      expect(result.type).toBe('ignore');
+      expect(result.suppressChips).toBe(true);
+    });
+
+    it('should ignore "nevermind" as explicit opt-out', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'note',
+        ruleConfidence: 0.5,
+        aiCategory: 'log',
+        aiConfidence: 0.6, // 0-1 scale
+        text: 'nevermind',
+      });
+
+      expect(result.type).toBe('ignore');
+      expect(result.suppressChips).toBe(true);
+    });
+
+    it('should NOT ignore longer phrases containing "test" like "Test the login flow"', () => {
+      const result = resolveCanonicalIntent({
+        ruleKind: 'todo',
+        ruleConfidence: 0.8,
+        aiCategory: 'todo',
+        aiConfidence: 0.85, // 0-1 scale
+        text: 'Test the login flow',
+      });
+
+      // Should be treated as a todo, not ignored
+      expect(result.type).toBe('todo');
+      expect(result.type).not.toBe('ignore');
     });
   });
 });

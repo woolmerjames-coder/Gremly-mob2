@@ -1,14 +1,14 @@
 /**
- * Integration Tests for NOW Weekly Summary
+ * Integration Tests for NOW Your Notes Section
  */
 
 import React from 'react';
 import { renderWithProviders, screen } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
-import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
-// Create a variable to hold the mock now data
-let mockNowData: Partial<UseNowDataReturn>;
+// Create variables to hold mock data
+let mockTodayStats: Record<string, unknown>;
+let mockRecentLogsData: Record<string, unknown>;
 
 // Create mock functions for overlay controller
 const mockOpenEdit = jest.fn();
@@ -17,7 +17,6 @@ const mockClose = jest.fn();
 
 // Create mock function for openEntityOverlay that calls mockOpenEdit
 const mockOpenEntityOverlay = jest.fn((item) => {
-  // Simulate what the real openEntityOverlay does - convert to AppRecord and call openEdit
   mockOpenEdit({
     record: {
       ...item,
@@ -44,9 +43,30 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
-// Mock useNowData to return our test data
-jest.mock('../../lib/now/useNowData', () => ({
-  useNowData: () => mockNowData,
+// Mock useRepo to avoid RepoProvider dependency
+jest.mock('../../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    listHabits: jest.fn().mockResolvedValue([]),
+    getHabitProgressForWeek: jest.fn().mockResolvedValue(0),
+  }),
+}));
+
+// Mock useTodayStats - the main data hook for NowScreenV1
+jest.mock('../../lib/today/hooks', () => ({
+  useTodayStats: () => mockTodayStats,
+}));
+
+// Mock useRecentLogs for the Your Notes section
+jest.mock('../../lib/notes/useRecentLogs', () => ({
+  useRecentLogs: () => mockRecentLogsData,
+}));
+
+// Mock useNowQuickAdd to avoid RepoProvider dependency
+jest.mock('../../lib/now/useNowQuickAdd', () => ({
+  useNowQuickAdd: () => ({
+    handleQuickAdd: jest.fn().mockResolvedValue(undefined),
+    isProcessing: false,
+  }),
 }));
 
 // Mock the unified overlay controller
@@ -69,7 +89,34 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
     undoLastCompletion: jest.fn(),
     completedHabitIds: new Set(),
     completedTodoIds: new Set(),
-    undoState: null,
+    deletedItemIds: new Set(),
+    lastPendingInfo: null,
+  }),
+}));
+
+// Mock useActionToast to avoid RepoProvider dependency
+jest.mock('../../src/hooks/useActionToast', () => ({
+  useActionToast: () => ({
+    showToast: jest.fn(),
+    hideToast: jest.fn(),
+    isVisible: false,
+    Toast: null,
+  }),
+}));
+
+// Mock useOverwhelmFlow
+jest.mock('../../lib/now/useOverwhelmFlow', () => ({
+  useOverwhelmFlow: () => ({
+    state: 'idle',
+    selectedItems: [],
+    selectedIds: [],
+    focusItem: null,
+    startFlow: jest.fn(),
+    selectItems: jest.fn(),
+    confirmSelection: jest.fn(),
+    setFocusItem: jest.fn(),
+    exitFocus: jest.fn(),
+    reset: jest.fn(),
   }),
 }));
 
@@ -84,7 +131,33 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
   });
 });
 
-describe('NOW Captures Indicator Tests', () => {
+// Helper to create default mock stats
+function createMockStats(overrides: Record<string, unknown> = {}) {
+  return {
+    lockedItems: [],
+    activeItems: [],
+    futureItems: [],
+    completedToday: [],
+    habitsToday: [],
+    completedHabitsToday: [],
+    totalTasksToday: 4,
+    totalCompletedToday: 2,
+    progressFraction: 0.5,
+    progressPercent: 50,
+    hasAnyTodayWork: false,
+    logsToday: [],
+    sweepCandidateCount: 0,
+    loading: false,
+    reload: jest.fn().mockResolvedValue(undefined),
+    nowData: {
+      dateTimeLabel: 'Monday, November 25 • 2:00 PM',
+      weeklySummaries: [],
+    },
+    ...overrides,
+  };
+}
+
+describe('NOW Your Notes Section Tests', () => {
   const mockDate = new Date('2025-11-25T14:00:00');
 
   beforeEach(() => {
@@ -92,40 +165,20 @@ describe('NOW Captures Indicator Tests', () => {
     jest.setSystemTime(mockDate);
     jest.clearAllMocks();
 
-    // Set up mock data with vault summary
-    mockNowData = {
-      dateTimeLabel: 'Monday, November 25 • 2:00 PM',
-      progressState: {
-        mode: 'dots',
-        percent: 50,
-        completedCount: 2,
-        totalEligibleCount: 4,
-        dots: [true, true, false, false],
-      },
-      weekStatus: 'on_track',
-      weekHealth: 'on_track',
-      lockedItems: [],
-      activeItems: [],
-      futureItems: [],
-      vaultSummary: {
-        topThree: [
-          { id: 'list-1', name: 'Groceries', itemCount: 5 },
-          { id: 'list-2', name: 'Work tasks', itemCount: 3 },
-          { id: 'list-3', name: 'Weekend plans', itemCount: 2 },
-        ],
-        overflowCount: 2,
-        thisWeekStats: {
-          listCount: 5,
-          journalCount: 4,
-          ideaCount: 7,
-          personCount: 2,
-        },
-      },
-      completedToday: [],
-      hasYesterdayCarryOver: false,
-      weeklySummaries: [],
+    // Set up default mock data
+    mockTodayStats = createMockStats();
+    mockRecentLogsData = {
+      logs: [
+        { id: 'log-1', name: 'Test note', noteType: 'general' },
+        { id: 'log-2', name: 'Test journal', noteType: 'journal' },
+      ],
+      journals: [{ id: 'log-2', name: 'Test journal', noteType: 'journal' }],
+      ideas: [],
+      general: [{ id: 'log-1', name: 'Test note', noteType: 'general' }],
+      totalCount: 2,
       loading: false,
-      reload: jest.fn().mockResolvedValue(undefined),
+      reload: jest.fn(),
+      refresh: jest.fn(),
     };
   });
 
@@ -133,69 +186,32 @@ describe('NOW Captures Indicator Tests', () => {
     jest.useRealTimers();
   });
 
-  describe('Header Captures Display', () => {
-    it('shows captures indicator with non-zero counts', () => {
+  describe('Your Notes Card Display', () => {
+    it('shows Your Notes card with count', () => {
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.getByText('CAPTURES: 16')).toBeTruthy();
+      // Should show the Your Notes card
+      expect(screen.getByText('Your Notes')).toBeTruthy();
+      // Should show the count
+      expect(screen.getByText('2')).toBeTruthy();
     });
 
-    it('hides captures indicator when all counts are zero', () => {
-      mockNowData = {
-        ...mockNowData,
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
+    it('shows zero count when no notes', () => {
+      mockRecentLogsData = {
+        logs: [],
+        journals: [],
+        ideas: [],
+        general: [],
+        totalCount: 0,
+        loading: false,
+        reload: jest.fn(),
+        refresh: jest.fn(),
       };
 
       renderWithProviders(<NowScreenV1 />);
 
-      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
-    });
-
-    it('shows captures indicator with only lists', () => {
-      mockNowData = {
-        ...mockNowData,
-        vaultSummary: {
-          ...mockNowData.vaultSummary!,
-          thisWeekStats: {
-            listCount: 3,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-      };
-
-      renderWithProviders(<NowScreenV1 />);
-
-      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
-    });
-
-    it('shows captures indicator with mixed counts', () => {
-      mockNowData = {
-        ...mockNowData,
-        vaultSummary: {
-          ...mockNowData.vaultSummary!,
-          thisWeekStats: {
-            listCount: 2,
-            journalCount: 1,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-      };
-
-      renderWithProviders(<NowScreenV1 />);
-
-      expect(screen.getByText('CAPTURES: 3')).toBeTruthy();
+      expect(screen.getByText('Your Notes')).toBeTruthy();
+      expect(screen.getByText('0')).toBeTruthy();
     });
 
     it('does not show Mind Vault card', () => {

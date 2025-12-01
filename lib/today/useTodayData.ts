@@ -89,6 +89,175 @@ export interface TodayData {
   error: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sweep Status Evaluator (pure function, no imports, no side effects)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sweep escalation levels:
+ * - "none": No items to sweep, hide all sweep pills
+ * - "normal": Bottom sweep pill visible, header has no sweep pill
+ * - "moderate": Bottom sweep pill only (slightly bolder style)
+ * - "high": Header sweep pill visible, bottom sweep pill hidden
+ */
+export type SweepLevel = 'none' | 'normal' | 'moderate' | 'high';
+
+export interface SweepStatus {
+  level: SweepLevel;
+  label: string;
+  countLabel: string;
+  /** Label to use when rendering in the header (no subtitle, short text) */
+  headerLabel: string;
+  /** Whether to show sweep pill in header (right side of Today's Focus) */
+  showInHeader: boolean;
+  /** Whether to show sweep pill at bottom (next to Add pill) */
+  showAtBottom: boolean;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// SWEEP COPY HELPERS
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * SWEEP TONE GUIDELINES
+ * - No urgency, no pressure, no shame.
+ * - Never imply the user is "behind" or has "failed".
+ * - Always sound calm, supportive, and lightly playful.
+ * - Use simple, low-friction verbs: sweep, tidy, review, set aside.
+ * - Avoid emoji; use brand icons only (except the one "✨" in the all-clear case).
+ * - Keep strings short — 1–2 lines max.
+ */
+
+/**
+ * Get the header-mode label for the Sweep pill based on escalation level.
+ * Short, no numbers, no extra punctuation.
+ *
+ * @param level - The escalation level
+ * @returns Label string for header mode
+ */
+export function getHeaderSweepLabel(level: SweepLevel): string {
+  switch (level) {
+    case 'high':
+      return 'Ready for a quick Sweep';
+    case 'moderate':
+      return 'A few things to tidy';
+    case 'normal':
+      return 'Sweep is waiting';
+    case 'none':
+    default:
+      return '';
+  }
+}
+
+/**
+ * Get calm, supportive copy for the Sweep pill based on item count.
+ *
+ * Copy Rules (no urgency, no pressure, no shame):
+ * • 0 items     → "all clear ✨"
+ * • 1 item      → "1 thing waiting"
+ * • 2–9 items   → "{count} things waiting"
+ * • 10–14 items → "{count} things ready for review"
+ * • 15+ items   → "Quite a few things — want to tidy?"
+ *
+ * @param count - Number of items waiting in the sweep queue
+ * @returns { title, subtitle } for the Sweep pill
+ */
+export function getSweepPillLines(count: number): { title: string; subtitle: string } {
+  const title = 'Sweep';
+
+  if (count === 0) {
+    return { title, subtitle: 'All caught up' };
+  }
+  if (count === 1) {
+    return { title, subtitle: '1 thing waiting' };
+  }
+  if (count >= 2 && count <= 9) {
+    return { title, subtitle: `${count} things waiting` };
+  }
+  if (count >= 10 && count <= 14) {
+    return { title, subtitle: `${count} things ready for review` };
+  }
+  // 15+
+  return { title, subtitle: 'Quite a few things — want to tidy?' };
+}
+
+/**
+ * Evaluate the sweep urgency based on pending items and days since last sweep.
+ *
+ * Escalation Rules:
+ * • "none"     → pendingCount === 0 (no sweep needed)
+ * • "normal"   → pendingCount < 5 AND daysSinceSweep < 3
+ * • "moderate" → (pendingCount >= 5 AND pendingCount < 10) OR (daysSinceSweep >= 3 AND daysSinceSweep < 5)
+ * • "high"     → pendingCount >= 10 OR daysSinceSweep >= 5
+ *
+ * Placement Rules:
+ * • "none"     → no pill anywhere
+ * • "normal"   → bottom pill only
+ * • "moderate" → bottom pill only (bolder style)
+ * • "high"     → header pill only (bottom hidden)
+ *
+ * @param pendingCount - Number of items waiting in the sweep queue
+ * @param daysSinceSweep - Days since the user last performed a sweep
+ * @returns SweepStatus with level, label, countLabel, and placement flags
+ */
+export function getSweepStatus(pendingCount: number, daysSinceSweep: number): SweepStatus {
+  // Get calm, supportive copy
+  const { title, subtitle } = getSweepPillLines(pendingCount);
+
+  // No items to sweep - still show pill with "All caught up" message
+  if (pendingCount === 0) {
+    return {
+      level: 'none',
+      label: title,
+      countLabel: 'All caught up',
+      headerLabel: '',
+      showInHeader: false,
+      showAtBottom: true, // Always show Sweep pill for consistent layout
+    };
+  }
+
+  // Determine level based on rules
+  let level: SweepLevel;
+
+  if (pendingCount >= 10 || daysSinceSweep >= 5) {
+    level = 'high';
+  } else if (
+    (pendingCount >= 5 && pendingCount < 10) ||
+    (daysSinceSweep >= 3 && daysSinceSweep < 5)
+  ) {
+    level = 'moderate';
+  } else {
+    level = 'normal';
+  }
+
+  // Get header label for this level
+  const headerLabel = getHeaderSweepLabel(level);
+
+  // Build placement based on level
+  switch (level) {
+    case 'high':
+      return {
+        level,
+        label: title,
+        countLabel: subtitle,
+        headerLabel,
+        showInHeader: true,
+        showAtBottom: false,
+      };
+    case 'moderate':
+    case 'normal':
+    default:
+      return {
+        level,
+        label: title,
+        countLabel: subtitle,
+        headerLabel,
+        showInHeader: false,
+        showAtBottom: true,
+      };
+  }
+}
+
 const MAX_VISIBLE = 5;
 const MAX_SUGGESTIONS = 3;
 
@@ -268,12 +437,12 @@ function orderTodos(todos: EnrichedTodo[]): EnrichedTodo[] {
 
 /**
  * Hook to fetch and enrich Today screen data with ordering, capping, and event sync
- * 
+ *
  * Mind Drop v3 Integration:
  * - Today shows CANONICAL entities (todos/habits from all sources)
  * - Includes Mind Drop-created items that have reached 'prefilled' stage
  * - Does NOT show raw Mind Drop notes (those stay in Catch-All until converted)
- * 
+ *
  * Data Source:
  * - repo.listDueToday() returns all todos with due_date = today (regardless of origin)
  * - This means Mind Drop-created todos appear here once they have a due_date

@@ -47,10 +47,14 @@ const AI_CLASSIFICATION_PROMPT = `You are an intent classifier for a productivit
   - ANY thought or idea the user might want to remember later
 
 'ignore' should ONLY be used for:
-  - Meta-comments about the app: "this app is confusing", "how does this work?"
-  - Explicit opt-outs: "don't save this", "never mind", "forget it", "stop"
-  - Feedback about the app: "you made a mistake", "that doesn't make sense"
-  - Questions about the app's behavior: "why did you do that?"
+  - Explicit opt-outs: "don't save this", "never mind", "forget it", "stop", "ignore this"
+  - App feedback: "you made a mistake", "that doesn't make sense"
+  - Broken or garbled input: keyboard smashing, random characters
+
+IMPORTANT: Task descriptions that happen to reference testing, apps, or software are STILL todos.
+  - "Test the login flow" → todo (a task to do)
+  - "Get the app working" → todo (a task to do)
+  - "Fix the bug in the feature" → todo (a task to do)
 
 When in doubt between 'log' and 'ignore', choose 'log' with low confidence (< 50).
 
@@ -68,7 +72,7 @@ Example valid outputs:
 {"type": "habit", "confidence": 88}
 {"type": "log", "confidence": 62}
 {"type": "log", "confidence": 40}  ← Use this for vague reflective thoughts
-{"type": "ignore", "confidence": 30}  ← Only for meta-comments/feedback
+{"type": "ignore", "confidence": 30}  ← Only for explicit opt-outs
 
 Do not include any other fields or commentary. Use "type" as the key.`;
 

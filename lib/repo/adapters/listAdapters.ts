@@ -27,7 +27,17 @@ export function augmentRepoWithListAdapters<T extends IRepo>(
 } {
   const adaptList = (type: AppRecord['type']) => async (opts?: ListOpts) => {
     const all = await repo.listByType(type);
-    const sorted = [...all].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+    // Additional client-side filter for notes: exclude archived items
+    // (Database filter should already handle this, but this is a safeguard)
+    let filtered = all;
+    if (type === 'note') {
+      filtered = all.filter((item) => !(item as any).archived);
+    }
+
+    const sorted = [...filtered].sort((a, b) =>
+      (b.created_at || '').localeCompare(a.created_at || ''),
+    );
     if (opts?.createdAfter) {
       const after = opts.createdAfter;
       return sorted.filter((i) => (i.created_at || '') >= after).slice(0, 100);

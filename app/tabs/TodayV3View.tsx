@@ -1,23 +1,32 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Screen, Box, Button } from '../../ui';
 import FocusCard from '../../components/today/v3/FocusCard';
 import TaskHabitStack from '../../components/today/v3/TaskHabitStack';
 import DropZoneCard from '../../components/today/v3/DropZoneCard';
 import SweepPreviewFooter from '../../components/today/v3/SweepPreviewFooter';
 import FocusPickerModal from '../../components/today/v3/FocusPickerModal';
-import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import TodayHeader from '../../components/today/v3/TodayHeader';
+import CompletedItemsModal from '../../components/today/v3/CompletedItemsModal';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useCommitments } from '../../lib/today/hooks/useCommitments';
+import { useTodayEntries, getTodayCompletionSummary } from '../../lib/today/hooks/useTodayEntries';
 import CommitmentsSection from '../today/CommitmentsSection';
 import { useRepo } from '../../providers/RepoProvider';
 import { eventBus } from '../../lib/events';
+import { useActionToast } from '../../src/hooks/useActionToast';
+import type { TodayProgressItem } from '../../components/today/v3/TodayProgressHeader';
+
+/** Duration to show glow effect after item completion (ms) */
+const GLOW_DURATION_MS = 800;
 
 export default function TodayV3View() {
   const overlay = useUnifiedOverlayController();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [sweepOpen, setSweepOpen] = useState(false);
+  const [completedModalOpen, setCompletedModalOpen] = useState(false);
+  const [justCompletedIds, setJustCompletedIds] = useState<string[]>([]);
+  const glowTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const repo = useRepo();
+  const { showToast, Toast } = useActionToast();
   const commitmentsEnabled = useMemo(
     () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase(),
     [],
@@ -28,6 +37,57 @@ export default function TodayV3View() {
   );
   const { items: commitmentItems } = useCommitments(showCommitments);
 
+  // Get today's entries for progress header
+  const { items: activeItems, doneItems, reload: reloadEntries } = useTodayEntries();
+
+  // Compute completion summary using shared helper
+  const completion = useMemo(
+    () => getTodayCompletionSummary(activeItems, doneItems),
+    [activeItems, doneItems],
+  );
+
+  // Convert completion items to TodayProgressItem format for the header dots
+  const progressItems: TodayProgressItem[] = useMemo(() => {
+    return completion.items.map((item) => ({
+      id: item.id,
+      type: item.type,
+      done: item.isDone,
+    }));
+  }, [completion.items]);
+
+  // Track completions for glow effect
+  // ItemCompleted fires AFTER the 2s undo window and DB persistence
+  useEffect(() => {
+    const unsubscribe = eventBus.on('ItemCompleted', ({ id }) => {
+      // Add to justCompletedIds for temporary glow effect
+      setJustCompletedIds((prev) => {
+        if (prev.includes(id)) return prev;
+        return [...prev, id];
+      });
+
+      // Clear any existing timeout for this id
+      const existingTimeout = glowTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      // Remove from justCompletedIds after glow duration
+      const timeoutId = setTimeout(() => {
+        setJustCompletedIds((prev) => prev.filter((itemId) => itemId !== id));
+        glowTimeoutsRef.current.delete(id);
+      }, GLOW_DURATION_MS);
+
+      glowTimeoutsRef.current.set(id, timeoutId);
+    });
+
+    return () => {
+      unsubscribe();
+      // Clean up all glow timeouts on unmount
+      glowTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      glowTimeoutsRef.current.clear();
+    };
+  }, []);
+
   const handleRemoveCommitment = useCallback(
     async (id: string, type: 'habit' | 'todo') => {
       await repo.removeCommitment(id, type);
@@ -36,13 +96,39 @@ export default function TodayV3View() {
     [repo],
   );
 
+  // Handle sweep complete - show appropriate toast after modal closes
+  const handleSweepComplete = useCallback(
+    (summary: { archived: number; total: number }) => {
+      if (summary.archived > 0) {
+        showToast({ type: 'success', content: "Everything's where it should be." });
+      } else if (summary.total > 0) {
+        showToast({ type: 'success', content: "You're all set for today." });
+      }
+    },
+    [showToast],
+  );
+
+  // Open completed items modal when progress bar is tapped
+  const handleProgressPress = useCallback(() => {
+    setCompletedModalOpen(true);
+  }, []);
+
+  // Convert justCompletedIds array to Set for the header
+  const justCompletedIdsSet = useMemo(() => new Set(justCompletedIds), [justCompletedIds]);
+
   return (
     <Screen scroll padded testID="today-v3-screen">
       <Box gap={4}>
         {showCommitments && (
           <CommitmentsSection items={commitmentItems} onRemove={handleRemoveCommitment} />
         )}
-        <TodayHeader />
+        <TodayHeader
+          completedCount={completion.completedCount}
+          totalCount={completion.totalCount}
+          items={progressItems}
+          justCompletedIds={justCompletedIdsSet}
+          onProgressPress={handleProgressPress}
+        />
 
         <Box testID="today-hero">
           <FocusCard onChange={() => setPickerOpen(true)} onClear={() => {}} />
@@ -56,11 +142,23 @@ export default function TodayV3View() {
           <Button label="Add More" variant="primary" onPress={() => overlay.openCreate()} />
         </Box>
 
-        <SweepPreviewFooter onStart={() => setSweepOpen(true)} onPeek={() => setSweepOpen(true)} />
+        <SweepPreviewFooter
+          onStart={() => setCompletedModalOpen(true)}
+          onPeek={() => setCompletedModalOpen(true)}
+          completedTodayCount={doneItems.length}
+        />
       </Box>
 
       <FocusPickerModal visible={pickerOpen} onClose={() => setPickerOpen(false)} />
-      <SweepDrawer visible={sweepOpen} onClose={() => setSweepOpen(false)} />
+      <CompletedItemsModal
+        visible={completedModalOpen}
+        onClose={() => setCompletedModalOpen(false)}
+        completedItems={doneItems}
+        onActionComplete={reloadEntries}
+        onSweepComplete={handleSweepComplete}
+      />
+
+      {Toast}
     </Screen>
   );
 }

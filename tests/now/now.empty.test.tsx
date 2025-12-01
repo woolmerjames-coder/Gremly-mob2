@@ -5,7 +5,6 @@
 import React from 'react';
 import { renderWithProviders, screen } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
-import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
 // Mock useAuth to return a test user
 jest.mock('../../providers/AuthProvider', () => ({
@@ -24,12 +23,42 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
-// Create a variable to hold the mock now data
-let mockNowData: Partial<UseNowDataReturn>;
+// Mock useRepo to avoid RepoProvider dependency
+jest.mock('../../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    listHabits: jest.fn().mockResolvedValue([]),
+    getHabitProgressForWeek: jest.fn().mockResolvedValue(0),
+  }),
+}));
 
-// Mock useNowData to return our test data
-jest.mock('../../lib/now/useNowData', () => ({
-  useNowData: () => mockNowData,
+// Create variables to hold mock data
+let mockTodayStats: Record<string, unknown>;
+
+// Mock useTodayStats - the main data hook for NowScreenV1
+jest.mock('../../lib/today/hooks', () => ({
+  useTodayStats: () => mockTodayStats,
+}));
+
+// Mock useRecentLogs for the Your Notes section
+jest.mock('../../lib/notes/useRecentLogs', () => ({
+  useRecentLogs: () => ({
+    logs: [],
+    journals: [],
+    ideas: [],
+    general: [],
+    totalCount: 0,
+    loading: false,
+    reload: jest.fn(),
+    refresh: jest.fn(),
+  }),
+}));
+
+// Mock useNowQuickAdd to avoid RepoProvider dependency
+jest.mock('../../lib/now/useNowQuickAdd', () => ({
+  useNowQuickAdd: () => ({
+    handleQuickAdd: jest.fn().mockResolvedValue(undefined),
+    isProcessing: false,
+  }),
 }));
 
 // Mock useTodayInteractions
@@ -41,7 +70,8 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
     undoLastCompletion: jest.fn(),
     completedHabitIds: new Set(),
     completedTodoIds: new Set(),
-    undoState: null,
+    deletedItemIds: new Set(),
+    lastPendingInfo: null,
   }),
 }));
 
@@ -56,6 +86,32 @@ jest.mock('../../hooks/useUnifiedOverlayController', () => ({
   }),
 }));
 
+// Mock useActionToast to avoid RepoProvider dependency
+jest.mock('../../src/hooks/useActionToast', () => ({
+  useActionToast: () => ({
+    showToast: jest.fn(),
+    hideToast: jest.fn(),
+    isVisible: false,
+    Toast: null,
+  }),
+}));
+
+// Mock useOverwhelmFlow
+jest.mock('../../lib/now/useOverwhelmFlow', () => ({
+  useOverwhelmFlow: () => ({
+    state: 'idle',
+    selectedItems: [],
+    selectedIds: [],
+    focusItem: null,
+    startFlow: jest.fn(),
+    selectItems: jest.fn(),
+    confirmSelection: jest.fn(),
+    setFocusItem: jest.fn(),
+    exitFocus: jest.fn(),
+    reset: jest.fn(),
+  }),
+}));
+
 // Mock SweepDrawer component
 jest.mock('../../components/today/v3/SweepDrawer', () => {
   const React = require('react');
@@ -66,6 +122,32 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
     return <View testID="sweep-drawer" />;
   });
 });
+
+// Helper to create default mock stats
+function createMockStats(overrides: Record<string, unknown> = {}) {
+  return {
+    lockedItems: [],
+    activeItems: [],
+    futureItems: [],
+    completedToday: [],
+    habitsToday: [],
+    completedHabitsToday: [],
+    totalTasksToday: 0,
+    totalCompletedToday: 0,
+    progressFraction: 0,
+    progressPercent: 0,
+    hasAnyTodayWork: false,
+    logsToday: [],
+    sweepCandidateCount: 0,
+    loading: false,
+    reload: jest.fn().mockResolvedValue(undefined),
+    nowData: {
+      dateTimeLabel: 'Monday, November 25 • 2:00 PM',
+      weeklySummaries: [],
+    },
+    ...overrides,
+  };
+}
 
 describe('NOW Empty States Tests', () => {
   const mockDate = new Date('2025-11-25T14:00:00');
@@ -82,36 +164,9 @@ describe('NOW Empty States Tests', () => {
 
   describe('Empty Item List', () => {
     it('shows empty state when no locked or active items', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 2:00 PM',
-        progressState: {
-          mode: 'dots',
-          percent: 0,
-          completedCount: 0,
-          totalEligibleCount: 0,
-          dots: [],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+      mockTodayStats = createMockStats({
+        hasAnyTodayWork: false,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
@@ -121,17 +176,7 @@ describe('NOW Empty States Tests', () => {
     });
 
     it('does not show empty state when items exist', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 2:00 PM',
-        progressState: {
-          mode: 'dots',
-          percent: 50,
-          completedCount: 1,
-          totalEligibleCount: 2,
-          dots: [true, false],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
+      mockTodayStats = createMockStats({
         lockedItems: [
           {
             id: 'habit-1',
@@ -149,23 +194,12 @@ describe('NOW Empty States Tests', () => {
             locked: false,
           },
         ],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+        totalTasksToday: 2,
+        totalCompletedToday: 1,
+        progressFraction: 0.5,
+        progressPercent: 50,
+        hasAnyTodayWork: true,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
@@ -180,18 +214,8 @@ describe('NOW Empty States Tests', () => {
   });
 
   describe('All Done Banner', () => {
-    it('shows "All done!" banner when progressState.percent is 100', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 2:00 PM',
-        progressState: {
-          mode: 'dots',
-          percent: 100,
-          completedCount: 2,
-          totalEligibleCount: 2,
-          dots: [true, true],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
+    it('shows "All done!" banner when progress is 100% with items', () => {
+      mockTodayStats = createMockStats({
         lockedItems: [
           {
             id: 'habit-1',
@@ -210,17 +234,6 @@ describe('NOW Empty States Tests', () => {
             locked: false,
           },
         ],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
         completedToday: [
           {
             id: 'habit-1',
@@ -235,11 +248,12 @@ describe('NOW Empty States Tests', () => {
             completedAt: new Date().toISOString(),
           },
         ],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+        totalTasksToday: 2,
+        totalCompletedToday: 2,
+        progressFraction: 1,
+        progressPercent: 100,
+        hasAnyTodayWork: true,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
@@ -248,17 +262,7 @@ describe('NOW Empty States Tests', () => {
     });
 
     it('does not show banner when progress is less than 100%', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 2:00 PM',
-        progressState: {
-          mode: 'dots',
-          percent: 75,
-          completedCount: 3,
-          totalEligibleCount: 4,
-          dots: [true, true, true, false],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
+      mockTodayStats = createMockStats({
         lockedItems: [
           {
             id: 'habit-1',
@@ -276,23 +280,12 @@ describe('NOW Empty States Tests', () => {
             locked: false,
           },
         ],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+        totalTasksToday: 4,
+        totalCompletedToday: 3,
+        progressFraction: 0.75,
+        progressPercent: 75,
+        hasAnyTodayWork: true,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
@@ -301,36 +294,9 @@ describe('NOW Empty States Tests', () => {
     });
 
     it('does not show banner when item list is empty', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 2:00 PM',
-        progressState: {
-          mode: 'dots',
-          percent: 100,
-          completedCount: 0,
-          totalEligibleCount: 0,
-          dots: [],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+      mockTodayStats = createMockStats({
+        hasAnyTodayWork: false,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 

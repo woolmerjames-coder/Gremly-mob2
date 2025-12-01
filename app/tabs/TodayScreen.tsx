@@ -43,12 +43,7 @@ const COMMITMENTS_FEATURE_ENABLED = (() => {
   return rawValue === 'on' || rawValue === 'true' || rawValue === '1';
 })();
 
-type UndoState = {
-  id: string;
-  type: 'habit' | 'todo';
-  label: string;
-  persisted: boolean;
-};
+// UndoState removed - now using PendingCompletionInfo from useTodayInteractions
 
 // Helper types and functions for space grouping
 type Group<T> = { key: string; items: T[] };
@@ -149,6 +144,7 @@ function TodayScreenV2() {
     onReload: todayData.reload,
     celebrationEnabled,
     onCelebration: () => setCelebrationVisible(true),
+    showCelebrationToast: false, // Disable toast on Today - use dot glow instead
   });
 
   // Local state for UI
@@ -327,7 +323,7 @@ function TodayScreenV2() {
           </Box>
         )}
 
-        {interactions.undoState && (
+        {interactions.lastPendingInfo && (
           <Card testID="today-undo-banner">
             <Box
               p={3}
@@ -339,7 +335,7 @@ function TodayScreenV2() {
               }}
             >
               <Text variant="body" style={{ flex: 1, marginRight: 12 }} numberOfLines={2}>
-                {`Marked "${interactions.undoState.label}" ${interactions.undoState.type === 'habit' ? 'habit' : 'to-do'} complete.`}
+                {`Marked "${interactions.lastPendingInfo.label}" ${interactions.lastPendingInfo.type === 'habit' ? 'habit' : 'to-do'} complete.`}
               </Text>
               <Button
                 title="Undo"

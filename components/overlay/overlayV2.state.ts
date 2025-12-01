@@ -39,13 +39,32 @@ export function classifyLogKind(raw: string): LogKind {
   return 'basic';
 }
 
-export type TodoState = { title: string; details: string; due_at?: string | null };
+/**
+ * TodoState - Overlay-editable fields for todos
+ * Persisted fields: title → name/title, details → body, due_day, due_time
+ * Also persisted via V2State: tags, tags_meta, spaceId, commitment fields
+ */
+export type TodoState = {
+  title: string;
+  details: string;
+  due_at?: string | null;
+  /** Canonical local date YYYY-MM-DD - source of truth for date */
+  due_day?: string | null;
+  /** Specific time HH:mm - only if user explicitly set a time */
+  due_time?: string | null;
+};
+
+/**
+ * HabitState - Overlay-editable fields for habits
+ * Persisted fields: title → name/title, notes, frequency_json, subtype
+ * Also persisted via V2State: tags, tags_meta, spaceId, commitment fields
+ */
 export type HabitState = {
   title: string;
   notes: string;
   schedule?: 'daily' | 'weekly' | 'custom';
-  frequency_json?: any; // Structured frequency configuration
-  subtype?: 'start_habit' | 'break_habit' | 'routine'; // Habit mode
+  frequency_json?: any; // Structured frequency configuration → frequency_json column
+  subtype?: 'start_habit' | 'break_habit' | 'routine'; // Habit mode → subtype column
 };
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
@@ -53,6 +72,32 @@ export type PersonLink = { id: string; display: string } | null;
 export type MoodValue = 'pos' | 'neu' | 'neg';
 export type LogSubtypeOverride = 'journal' | 'list' | 'reference' | 'idea' | 'plain' | null;
 
+/**
+ * V2State - Complete overlay state for all entity types
+ *
+ * PERSISTED FIELDS (to Supabase via toCreateOrUpdateInput):
+ * - baseType: Determines which table (habits/todos/notes)
+ * - tags → tags column (JSON array)
+ * - stickyTags/tagTombstones → tags_meta column (JSON object)
+ * - mood → mood column (notes only)
+ * - spaceId → space_id column
+ * - format → fmt column (notes only)
+ * - reminderAt → date column (notes) or reminders_json (todos/habits)
+ * - commitment/commitmentNote/commitmentStartedAt → commitment columns
+ * - logSubtypeOverride → subtype column (notes)
+ * - logIsPrivate → views.private_journal (notes/journal)
+ * - log.title/body → title/body columns (notes)
+ * - todo.title/details/due_day/due_time → name/body/due_day/due_time columns
+ * - habit.title/notes/frequency_json/subtype → name/notes/frequency_json/subtype columns
+ *
+ * NOT PERSISTED (UI-only):
+ * - list: Runtime list items state
+ * - detected: Runtime @mentions and date detection
+ * - expanded: UI toggle state
+ * - person: Linked via entity_people junction (separate flow)
+ * - undoStack: UI-only undo history
+ * - userEditedTitle/compactTitle/compactTitleSource: Internal title tracking
+ */
 export type V2State = {
   baseType: BaseType;
   tags: TagKey[];
@@ -105,7 +150,7 @@ export const initialV2State: V2State = {
   compactTitleSource: '',
   userEditedTitle: false,
   log: { title: '', body: '', kind: 'basic', private: false },
-  todo: { title: '', details: '', due_at: null },
+  todo: { title: '', details: '', due_at: null, due_day: null, due_time: null },
   habit: { title: '', notes: '', schedule: 'custom', subtype: 'start_habit' },
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
@@ -118,7 +163,12 @@ type Action =
   | { type: 'HYDRATE_EDIT'; payload: Partial<V2State> }
   | { type: 'SET_TITLE'; title: string; force?: boolean } // force=true bypasses userEditedTitle guard
   | { type: 'SET_COMPACT_TITLE'; title: string }
-  | { type: 'SET_TODO_DUE'; due_at: string | null }
+  | {
+      type: 'SET_TODO_DUE';
+      due_at: string | null;
+      due_day?: string | null;
+      due_time?: string | null;
+    }
   | { type: 'SET_HABIT_FREQUENCY'; frequency_json: any }
   | { type: 'SET_HABIT_SUBTYPE'; subtype: 'start_habit' | 'break_habit' | 'routine' }
   | { type: 'TOGGLE_COMMITMENT' }
@@ -297,7 +347,21 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_TODO_DUE':
-      return { ...state, todo: { ...state.todo, due_at: action.due_at } };
+      // GREMLY TODO DATE MODEL:
+      // When clearing due date, all fields should be set to null explicitly.
+      // We use 'due_day' in action.due_day to check if it was explicitly provided,
+      // and we DON'T use ?? fallback because null is a valid value (means "clear").
+      return {
+        ...state,
+        todo: {
+          ...state.todo,
+          due_at: action.due_at,
+          // Only use fallback if due_day was NOT provided in the action (undefined)
+          // If due_day is null, that means "clear" - we should set it to null
+          due_day: 'due_day' in action ? action.due_day : state.todo.due_day,
+          due_time: 'due_time' in action ? action.due_time : state.todo.due_time,
+        },
+      };
     case 'SET_HABIT_FREQUENCY':
       return { ...state, habit: { ...state.habit, frequency_json: action.frequency_json } };
     case 'SET_HABIT_SUBTYPE':

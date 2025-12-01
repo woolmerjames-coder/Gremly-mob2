@@ -169,9 +169,15 @@ export type UnifiedCreateOverlayProps = {
     initialNote?: string;
     // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
     initialDueDate?: string | null;
+    // Phase 10.7D: Initial tags for prefill
+    initialTags?: string[];
+    // Phase 10.7E: Initial list items for prefill
+    initialListItems?: Array<{ id: string; text: string; checked: boolean }>;
+    initialIsList?: boolean;
   };
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
+  defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
   onClose: () => void;
   onSaved?: (result: OverlaySavedPayload) => void;
   onCommitmentsChanged?: () => void | Promise<void>;
@@ -1205,11 +1211,25 @@ export function UnifiedCreateOverlay({
       }
     }
 
+    // Phase 10.7D: Apply initial tags from conversion
+    const initialTags = (conversionMeta as any)?.initialTags;
+    if (initialTags && Array.isArray(initialTags) && initialTags.length > 0) {
+      // Filter out system tags like 'idea', 'journal' that don't apply to the new type
+      const systemTags = ['idea', 'journal', 'reference', 'list'];
+      const filteredTags = initialTags.filter(
+        (tag: string) => !systemTags.includes(tag.toLowerCase()),
+      );
+      if (filteredTags.length > 0) {
+        setTagsState(filteredTags);
+      }
+    }
+
     if ((__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') && hasPrefill) {
       console.log('[CORTEX][10.7C] overlay_prefill_applied:', {
         hasTitle: !!initialTitle,
         hasNote: !!initialNote,
         hasDue: !!initialDueDate,
+        hasTags: !!initialTags?.length,
         selectedType,
       });
     }

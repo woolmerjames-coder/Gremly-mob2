@@ -40,6 +40,8 @@ class CelebrationEventBus {
         break;
 
       case 'habit_checkin':
+        // Skip celebration if explicitly disabled (e.g., on Today screen)
+        if (chatEvent.payload.skipCelebration) break;
         this.emit({
           type: 'habit_checkin',
           payload: {
@@ -49,6 +51,8 @@ class CelebrationEventBus {
         break;
 
       case 'todo_completed':
+        // Skip celebration if explicitly disabled (e.g., on Today screen)
+        if (chatEvent.payload.skipCelebration) break;
         this.emit({
           type: 'todo_completed',
           payload: {

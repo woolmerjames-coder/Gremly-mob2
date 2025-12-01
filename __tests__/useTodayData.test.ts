@@ -425,3 +425,67 @@ describe('useTodayData', () => {
     // See docs/phase9-step5-qa-checklist.md for manual QA validation
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────────
+// getSweepPillLines unit tests
+// ───────────────────────────────────────────────────────────────────────────────
+
+import { getSweepPillLines } from '../lib/today/useTodayData';
+
+describe('getSweepPillLines', () => {
+  // Updated copy: "All caught up" replaced "all clear ✨" in brand refresh
+  it('returns "All caught up" for 0 items', () => {
+    const result = getSweepPillLines(0);
+    expect(result).toEqual({ title: 'Sweep', subtitle: 'All caught up' });
+  });
+
+  it('returns "1 thing waiting" for 1 item', () => {
+    const result = getSweepPillLines(1);
+    expect(result).toEqual({ title: 'Sweep', subtitle: '1 thing waiting' });
+  });
+
+  it.each([2, 5, 9])('returns "%s things waiting" for 2-9 items', (count) => {
+    const result = getSweepPillLines(count);
+    expect(result).toEqual({ title: 'Sweep', subtitle: `${count} things waiting` });
+  });
+
+  it.each([10, 12, 14])('returns "%s things ready for review" for 10-14 items', (count) => {
+    const result = getSweepPillLines(count);
+    expect(result).toEqual({ title: 'Sweep', subtitle: `${count} things ready for review` });
+  });
+
+  it.each([15, 20, 100])('returns friendly overflow message for 15+ items', (count) => {
+    const result = getSweepPillLines(count);
+    expect(result).toEqual({ title: 'Sweep', subtitle: 'Quite a few things — want to tidy?' });
+  });
+
+  it('always returns "Sweep" as title', () => {
+    [0, 1, 5, 10, 15, 50].forEach((count) => {
+      expect(getSweepPillLines(count).title).toBe('Sweep');
+    });
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// getHeaderSweepLabel unit tests
+// ───────────────────────────────────────────────────────────────────────────────
+
+import { getHeaderSweepLabel } from '../lib/today/useTodayData';
+
+describe('getHeaderSweepLabel', () => {
+  it('returns "Ready for a quick Sweep" for high level', () => {
+    expect(getHeaderSweepLabel('high')).toBe('Ready for a quick Sweep');
+  });
+
+  it('returns "A few things to tidy" for moderate level', () => {
+    expect(getHeaderSweepLabel('moderate')).toBe('A few things to tidy');
+  });
+
+  it('returns "Sweep is waiting" for normal level', () => {
+    expect(getHeaderSweepLabel('normal')).toBe('Sweep is waiting');
+  });
+
+  it('returns empty string for none level', () => {
+    expect(getHeaderSweepLabel('none')).toBe('');
+  });
+});

@@ -36,14 +36,17 @@ test('note reminder maps to date', () => {
   expect(out.date).toBe('2025-11-10T12:00:00.000Z');
 });
 
-test('todo due or reminder maps to due_at', () => {
+test('todo due_day and due_time map correctly (Gremly date model)', () => {
   const s = { ...initialV2State } as any;
   s.baseType = 'todo';
   s.todo.details = 'do this';
-  s.todo.due_at = null;
-  s.reminderAt = '2025-11-11T08:00:00.000Z';
+  s.todo.due_day = '2025-11-11';
+  s.todo.due_time = '08:00:00';
   const out = toCreateOrUpdateInput('todo', s, null as any);
-  expect(out.due_at).toBe('2025-11-11T08:00:00.000Z');
+  // Gremly date model: due_at is always null, use due_day/due_time instead
+  expect(out.due_at).toBeNull();
+  expect(out.due_day).toBe('2025-11-11');
+  expect(out.due_time).toBe('08:00:00');
   expect(out.name).toBe('do this');
   expect(out.tags).toEqual([]);
 });

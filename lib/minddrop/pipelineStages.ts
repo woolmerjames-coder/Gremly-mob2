@@ -19,6 +19,44 @@ import type { CortexResponse, CortexContext } from '../cortex/cortexDecide';
 import { convertUnsortedToTodo } from '../conversion';
 import { convertUnsortedToHabit } from '../conversion';
 import { backgroundPrefill } from './backgroundPrefill';
+import { persistedToCanonical } from '../cortex/canonicalMap';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Log Shape Mapping - Maps Cortex log intents to proper note shape
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maps raw log subtype from Cortex to a valid NoteSubtype.
+ * Ensures notes classified as "log" have proper shape, not "catchall".
+ */
+function mapLogSubtypeToNoteSubtype(rawSubtype: string | undefined | null): NoteSubtype {
+  switch (rawSubtype) {
+    case 'journal':
+      return 'journal';
+    case 'list':
+      return 'list';
+    case 'idea':
+      return 'idea';
+    case 'reference':
+      return 'reference';
+    // 'everything_else' and undefined map to 'journal' as the default log subtype
+    // This ensures log-classified notes don't stay as 'catchall'
+    default:
+      return 'journal';
+  }
+}
+
+/**
+ * Build the proper labels for a log-classified note.
+ * Removes 'catchall' and 'needs_review', adds 'log' label.
+ */
+function buildLogLabels(existingLabels: string[] | undefined): string[] {
+  const labels = (existingLabels ?? []).filter((l) => l !== 'catchall' && l !== 'needs_review');
+  if (!labels.includes('log')) {
+    labels.push('log');
+  }
+  return labels;
+}
 
 export interface StageAParams {
   repo: IRepo;
@@ -65,30 +103,20 @@ export interface StageBResult {
  *
  * Intent detection + canonical resolution → entity creation
  * Sets views.minddrop_stage = 'classified'
- * 
+ *
  * On success:
  * - views.minddrop_stage = 'classified'
  * - views.ai_pending = true (still waiting for prefill)
  * - views.ai_failed = false
- * 
+ *
  * On failure:
  * - views.ai_pending = false
  * - views.ai_failed = true
  * - minddrop_stage stays 'pending'
  */
-export async function runMindDropStageAClassification(
-  params: StageAParams,
-): Promise<StageAResult> {
-  const {
-    repo,
-    text,
-    cleanedText,
-    decision,
-    dropId,
-    sourceMessageId,
-    parsedDue,
-    unsortedNoteId,
-  } = params;
+export async function runMindDropStageAClassification(params: StageAParams): Promise<StageAResult> {
+  const { repo, text, cleanedText, decision, dropId, sourceMessageId, parsedDue, unsortedNoteId } =
+    params;
 
   // Telemetry: Stage A start
   console.debug('[MindDrop.StageA.Start]', {
@@ -148,7 +176,7 @@ export async function runMindDropStageAClassification(
           createdTodo = existingTodo;
           createdIds.todos.push(existingTodo.id);
           entityDetails.push({ kind: 'todo' });
-          
+
           // Update stage to classified (in case retry happened during Stage A)
           await repo.update({
             id: existingTodo.id,
@@ -161,7 +189,7 @@ export async function runMindDropStageAClassification(
               },
             },
           });
-          
+
           // Archive the unsorted note if it's not already archived
           if (unsortedNoteId) {
             const unsortedNote = await repo.getById(unsortedNoteId);
@@ -174,7 +202,7 @@ export async function runMindDropStageAClassification(
               });
             }
           }
-          
+
           // Don't create a new todo - use existing
           return {
             entities: createdIds,
@@ -184,7 +212,7 @@ export async function runMindDropStageAClassification(
           };
         }
       }
-      
+
       // No existing todo found - create new one
       const due = firstAction.payload.due ?? parsedDue ?? null;
       const result = await convertUnsortedToTodo(repo, unsortedNoteId, {
@@ -231,7 +259,7 @@ export async function runMindDropStageAClassification(
           createdHabit = existingHabit;
           createdIds.habits.push(existingHabit.id);
           entityDetails.push({ kind: 'habit' });
-          
+
           // Update stage to classified (in case retry happened during Stage A)
           await repo.update({
             id: existingHabit.id,
@@ -244,7 +272,7 @@ export async function runMindDropStageAClassification(
               },
             },
           });
-          
+
           // Archive the unsorted note if it's not already archived
           if (unsortedNoteId) {
             const unsortedNote = await repo.getById(unsortedNoteId);
@@ -257,7 +285,7 @@ export async function runMindDropStageAClassification(
               });
             }
           }
-          
+
           // Don't create a new habit - use existing
           return {
             entities: createdIds,
@@ -267,7 +295,7 @@ export async function runMindDropStageAClassification(
           };
         }
       }
-      
+
       // No existing habit found - create new one
       const freqRaw = firstAction.payload.freq;
       const frequency: string = freqRaw === 'weekly' ? 'weekly' : 'daily';
@@ -298,29 +326,54 @@ export async function runMindDropStageAClassification(
         stage: 'classified',
       });
     } else if (firstAction.type === 'create.note' || firstAction.type === 'add.to.list') {
-      // For notes: Stage A just marks as classified
+      // For notes: Stage A updates note shape based on log classification
+      // This ensures log-classified notes have proper subtype, labels, and canonical_type
       const existingNote = await repo.getById(unsortedNoteId);
-      
+
       if (existingNote && existingNote.type === 'note') {
-        // Mark classification complete (success transition)
+        // Extract log subtype from action payload or mindDropDecision
+        const rawSubtype =
+          firstAction.type === 'add.to.list'
+            ? 'list'
+            : (firstAction.payload.subtype ??
+              decision.mindDropDecision?.logSubtype ??
+              'everything_else');
+
+        // Map to proper NoteSubtype (avoids staying as 'catchall')
+        const subtype = mapLogSubtypeToNoteSubtype(rawSubtype);
+        const canonicalType = persistedToCanonical('note', subtype);
+
+        // Build proper labels for log notes
+        const existingLabels = (existingNote as any)?.labels;
+        const updatedLabels = buildLogLabels(existingLabels);
+
+        // Mark classification complete with proper shape
         await repo.update({
           id: unsortedNoteId,
           patch: {
+            subtype,
+            canonicalType,
+            ai_placed: true, // Now classified by AI
+            labels: updatedLabels,
             views: {
               ...(existingNote.views ?? {}),
               minddrop_stage: 'classified',
               ai_pending: true, // Still waiting for prefill
               ai_failed: false,
+              alsoShowIn: ['Hub:Catch-All'],
             },
-          },
+          } as any,
         });
 
         createdIds.notes.push(unsortedNoteId);
-        entityDetails.push({ kind: 'note' });
+        entityDetails.push({ kind: 'note', noteSubtype: subtype });
 
-        console.log('[StageA] Marked note as classified', {
+        console.log('[StageA] Classified note with proper shape', {
           id: unsortedNoteId,
           dropId,
+          subtype,
+          canonicalType,
+          labels: updatedLabels,
           stage: 'classified',
         });
       }
@@ -332,7 +385,7 @@ export async function runMindDropStageAClassification(
       error: err instanceof Error ? err.message : String(err),
     });
     console.error('[StageA] Classification failed', err);
-    
+
     // Mark failure on unsorted note
     if (unsortedNoteId) {
       try {
@@ -354,7 +407,7 @@ export async function runMindDropStageAClassification(
         console.error('[StageA] Failed to mark failure state', updateErr);
       }
     }
-    
+
     throw err;
   }
 
@@ -378,13 +431,13 @@ export async function runMindDropStageAClassification(
  * Stage B: Prefill
  *
  * AI enhancement (title, tags, subtypes) for classified entities
- * 
+ *
  * On success:
  * - views.minddrop_stage = 'prefilled'
  * - views.minddrop_prefilled_v1 = true
  * - views.ai_pending = false
  * - views.ai_failed = false
- * 
+ *
  * On failure:
  * - views.ai_pending = false
  * - views.ai_failed = true
@@ -415,7 +468,7 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
     } catch (err) {
       console.error('[StageB] Failed to enrich todo', { id: todoId, error: err });
       failures.push(todoId);
-      
+
       // Mark failure on entity
       try {
         const failedTodo = await repo.getById(todoId);
@@ -450,7 +503,7 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
     } catch (err) {
       console.error('[StageB] Failed to enrich habit', { id: habitId, error: err });
       failures.push(habitId);
-      
+
       // Mark failure on entity
       try {
         const failedHabit = await repo.getById(habitId);
@@ -485,7 +538,7 @@ export async function runMindDropStageBPrefill(params: StageBParams): Promise<St
     } catch (err) {
       console.error('[StageB] Failed to enrich note', { id: noteId, error: err });
       failures.push(noteId);
-      
+
       // Mark failure on entity
       try {
         const failedNote = await repo.getById(noteId);

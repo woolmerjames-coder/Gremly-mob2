@@ -1,20 +1,14 @@
 /**
  * Integration Tests for NOW Screen V1
- * Tests the full screen with mocked useNowData
+ * Tests the full screen with mocked useTodayStats
  */
 
 import React from 'react';
 import { renderWithProviders, screen } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
-import type { UseNowDataReturn } from '../../lib/now/useNowData';
 
-// Create a variable to hold the mock now data so we can update it per test
-let mockNowData: Partial<UseNowDataReturn>;
-
-// Mock useNowData to return our test data
-jest.mock('../../lib/now/useNowData', () => ({
-  useNowData: () => mockNowData,
-}));
+// Create variables to hold mock data
+let mockTodayStats: Record<string, unknown>;
 
 // Mock useAuth to return a test user
 jest.mock('../../providers/AuthProvider', () => ({
@@ -33,6 +27,41 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
+// Mock useRepo to avoid RepoProvider dependency
+jest.mock('../../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    listHabits: jest.fn().mockResolvedValue([]),
+    getHabitProgressForWeek: jest.fn().mockResolvedValue(0),
+  }),
+}));
+
+// Mock useTodayStats - the main data hook for NowScreenV1
+jest.mock('../../lib/today/hooks', () => ({
+  useTodayStats: () => mockTodayStats,
+}));
+
+// Mock useRecentLogs for the Your Notes section
+jest.mock('../../lib/notes/useRecentLogs', () => ({
+  useRecentLogs: () => ({
+    logs: [],
+    journals: [],
+    ideas: [],
+    general: [],
+    totalCount: 5,
+    loading: false,
+    reload: jest.fn(),
+    refresh: jest.fn(),
+  }),
+}));
+
+// Mock useNowQuickAdd to avoid RepoProvider dependency
+jest.mock('../../lib/now/useNowQuickAdd', () => ({
+  useNowQuickAdd: () => ({
+    handleQuickAdd: jest.fn().mockResolvedValue(undefined),
+    isProcessing: false,
+  }),
+}));
+
 // Mock useTodayInteractions since NowScreenV1 uses it for interactions
 jest.mock('../../lib/today/useTodayInteractions', () => ({
   useTodayInteractions: () => ({
@@ -42,7 +71,8 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
     undoLastCompletion: jest.fn(),
     completedHabitIds: new Set(),
     completedTodoIds: new Set(),
-    undoState: null,
+    deletedItemIds: new Set(),
+    lastPendingInfo: null,
   }),
 }));
 
@@ -57,6 +87,32 @@ jest.mock('../../hooks/useUnifiedOverlayController', () => ({
   }),
 }));
 
+// Mock useActionToast to avoid RepoProvider dependency
+jest.mock('../../src/hooks/useActionToast', () => ({
+  useActionToast: () => ({
+    showToast: jest.fn(),
+    hideToast: jest.fn(),
+    isVisible: false,
+    Toast: null,
+  }),
+}));
+
+// Mock useOverwhelmFlow
+jest.mock('../../lib/now/useOverwhelmFlow', () => ({
+  useOverwhelmFlow: () => ({
+    state: 'idle',
+    selectedItems: [],
+    selectedIds: [],
+    focusItem: null,
+    startFlow: jest.fn(),
+    selectItems: jest.fn(),
+    confirmSelection: jest.fn(),
+    setFocusItem: jest.fn(),
+    exitFocus: jest.fn(),
+    reset: jest.fn(),
+  }),
+}));
+
 // Mock SweepDrawer component
 jest.mock('../../components/today/v3/SweepDrawer', () => {
   const React = require('react');
@@ -67,6 +123,32 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
     return <View testID="sweep-drawer" />;
   });
 });
+
+// Helper to create default mock stats
+function createMockStats(overrides: Record<string, unknown> = {}) {
+  return {
+    lockedItems: [],
+    activeItems: [],
+    futureItems: [],
+    completedToday: [],
+    habitsToday: [],
+    completedHabitsToday: [],
+    totalTasksToday: 0,
+    totalCompletedToday: 0,
+    progressFraction: 0,
+    progressPercent: 0,
+    hasAnyTodayWork: false,
+    logsToday: [],
+    sweepCandidateCount: 0,
+    loading: false,
+    reload: jest.fn().mockResolvedValue(undefined),
+    nowData: {
+      dateTimeLabel: 'Monday, November 25 • 10:30 AM',
+      weeklySummaries: [],
+    },
+    ...overrides,
+  };
+}
 
 describe('NowScreenV1 Integration Tests', () => {
   const mockDate = new Date('2025-11-25T10:30:00');
@@ -82,18 +164,7 @@ describe('NowScreenV1 Integration Tests', () => {
 
   describe('Full Data Scenario', () => {
     it('renders complete NOW screen with all sections', () => {
-      // Set the mock NOW data for this test
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 10:30 AM',
-        progressState: {
-          mode: 'dots',
-          percent: 50,
-          completedCount: 2,
-          totalEligibleCount: 4,
-          dots: [true, false, true, false],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
+      mockTodayStats = createMockStats({
         lockedItems: [
           {
             id: 'habit-1',
@@ -125,41 +196,31 @@ describe('NowScreenV1 Integration Tests', () => {
             name: 'Call dentist',
           },
         ],
-        vaultSummary: {
-          topThree: [
-            { id: 'list-1', name: 'Groceries', itemCount: 5 },
-            { id: 'list-2', name: 'Gift ideas', itemCount: 3 },
-            { id: 'list-3', name: 'Mexico list', itemCount: 2 },
+        totalTasksToday: 4,
+        totalCompletedToday: 2,
+        progressFraction: 0.5,
+        progressPercent: 50,
+        hasAnyTodayWork: true,
+        nowData: {
+          dateTimeLabel: 'Monday, November 25 • 10:30 AM',
+          weeklySummaries: [
+            {
+              habitId: 'habit-1',
+              name: 'Morning Meditation',
+              targetPerWeek: 7,
+              completionsThisWeek: 3,
+              status: 'on_track_today',
+            },
+            {
+              habitId: 'habit-2',
+              name: 'Evening Walk',
+              targetPerWeek: 3,
+              completionsThisWeek: 1,
+              status: 'flexible',
+            },
           ],
-          overflowCount: 2,
-          thisWeekStats: {
-            listCount: 7,
-            journalCount: 3,
-            ideaCount: 8,
-            personCount: 0,
-          },
         },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [
-          {
-            habitId: 'habit-1',
-            name: 'Morning Meditation',
-            targetPerWeek: 7,
-            completionsThisWeek: 3,
-            status: 'on_track_today',
-          },
-          {
-            habitId: 'habit-2',
-            name: 'Evening Walk',
-            targetPerWeek: 3,
-            completionsThisWeek: 1,
-            status: 'flexible',
-          },
-        ],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
@@ -169,12 +230,6 @@ describe('NowScreenV1 Integration Tests', () => {
 
       // Assert: Date/time label renders
       expect(screen.getByText(/Monday, November 25/i)).toBeTruthy();
-
-      // Assert: Week indicator renders
-      expect(screen.getByText('WEEK:')).toBeTruthy();
-
-      // Assert: Captures indicator shows aggregated count
-      expect(screen.getByText('CAPTURES: 18')).toBeTruthy();
 
       // Assert: Mind Vault card should NOT be present
       expect(screen.queryByText('Mind Vault')).toBeFalsy();
@@ -192,44 +247,22 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Future item appears
       expect(screen.getByText('Call dentist')).toBeTruthy();
 
-      // Assert: Sweep bar should NOT show when hasYesterdayCarryOver=false
-      expect(screen.queryByText('✨ Time to Sweep!')).toBeNull();
+      // Assert: Your Notes card appears
+      expect(screen.getByText('Your Notes')).toBeTruthy();
+
+      // Assert: Today card appears
+      expect(screen.getByText('Today')).toBeTruthy();
+
+      // Assert: Habits card appears
+      expect(screen.getByText('Habits')).toBeTruthy();
     });
   });
 
   describe('Empty State', () => {
     it('renders empty state gracefully when no data', () => {
-      // Set the mock NOW data for empty state
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 10:30 AM',
-        progressState: {
-          mode: 'dots',
-          percent: 0,
-          completedCount: 0,
-          totalEligibleCount: 0,
-          dots: [],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+      mockTodayStats = createMockStats({
+        hasAnyTodayWork: false,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
@@ -240,199 +273,72 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Date/time label still renders
       expect(screen.getByText(/Monday, November 25/i)).toBeTruthy();
 
-      // Assert: Week indicator still renders
-      expect(screen.getByText('WEEK:')).toBeTruthy();
+      // Assert: Empty state message appears
+      expect(screen.getByText('Nothing scheduled for today.')).toBeTruthy();
 
-      // Assert: No items appear
-      expect(screen.queryByText('Morning Meditation')).toBeNull();
-      expect(screen.queryByText('Finish report')).toBeNull();
-
-      // Assert: Future divider should NOT appear when no future items
-      expect(screen.queryByText('Future')).toBeNull();
-
-      // Assert: Sweep bar should NOT show
-      expect(screen.queryByText('Time to Sweep!')).toBeNull();
-
-      // Assert: Mind Vault should NOT be visible (replaced with weekly summary)
-      expect(screen.queryByText('Mind Vault')).toBeFalsy();
-      // Weekly summary should not show when all counts are zero
-      expect(screen.queryByText('This week…')).toBeFalsy();
+      // Assert: Add to Today button still visible
+      expect(screen.getByText('Add to Today')).toBeTruthy();
     });
   });
 
-  describe('Week Status Indicators', () => {
-    it('renders week indicator with on_track status', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 10:30 AM',
-        progressState: {
-          mode: 'dots',
-          percent: 0,
-          completedCount: 0,
-          totalEligibleCount: 0,
-          dots: [],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+  describe('Loading State', () => {
+    it('shows loading view when loading', () => {
+      mockTodayStats = createMockStats({
+        loading: true,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Assert: Week indicator renders label and status text
-      expect(screen.getByText('WEEK:')).toBeTruthy();
-      expect(screen.getByText('HABITS ON TRACK')).toBeTruthy();
-      expect(screen.queryByText(/CAPTURES:/)).toBeFalsy();
+      // When loading, the screen shows a loading indicator (not the full content)
+      // Just verify the component renders without error
+      expect(screen.toJSON()).toBeTruthy();
     });
   });
 
-  describe('Phase 4: Progress Popup', () => {
-    it('shows progress popup when tapping progress area', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 10:30 AM',
-        progressState: {
-          mode: 'dots',
-          percent: 67,
-          completedCount: 2,
-          totalEligibleCount: 3,
-          dots: [true, true, false],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [
-          {
-            id: 'habit-1',
-            type: 'habit',
-            name: 'Morning Meditation',
-            completedAt: '2025-11-25T08:00:00Z',
-            progressCount: 1,
-          },
-          {
-            id: 'todo-1',
-            type: 'todo',
-            name: 'Finish report',
-            completedAt: '2025-11-25T09:30:00Z',
-          },
-        ],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
-
-      const { getByText, queryByText } = renderWithProviders(<NowScreenV1 />);
-
-      // Verify the data structure is correct for popup display
-      expect(mockNowData.completedToday).toHaveLength(2);
-      expect(mockNowData.completedToday![0].name).toBe('Morning Meditation');
-      expect(mockNowData.completedToday![0].completedAt).toBe('2025-11-25T08:00:00Z');
-      expect(mockNowData.completedToday![1].name).toBe('Finish report');
-      expect(mockNowData.completedToday![1].completedAt).toBe('2025-11-25T09:30:00Z');
-
-      // Verify progress state reflects completed items
-      expect(mockNowData.progressState!.completedCount).toBe(2);
-      expect(mockNowData.progressState!.percent).toBe(67);
-    });
-  });
-
-  describe('Phase 4: Week Popup', () => {
-    it('shows week popup with habit summaries when tapping WEEK indicator', () => {
-      mockNowData = {
-        dateTimeLabel: 'Monday, November 25 • 10:30 AM',
-        progressState: {
-          mode: 'dots',
-          percent: 50,
-          completedCount: 1,
-          totalEligibleCount: 2,
-          dots: [true, false],
-        },
-        weekStatus: 'on_track',
-        weekHealth: 'on_track',
-        lockedItems: [],
-        activeItems: [],
-        futureItems: [],
-        vaultSummary: {
-          topThree: [],
-          overflowCount: 0,
-          thisWeekStats: {
-            listCount: 0,
-            journalCount: 0,
-            ideaCount: 0,
-            personCount: 0,
-          },
-        },
-        completedToday: [],
-        hasYesterdayCarryOver: false,
-        weeklySummaries: [
-          {
-            habitId: 'habit-1',
-            name: 'Morning Meditation',
-            targetPerWeek: 7,
-            completionsThisWeek: 5,
-            status: 'on_track_today',
-          },
-          {
-            habitId: 'habit-2',
-            name: 'Evening Walk',
-            targetPerWeek: 3,
-            completionsThisWeek: 2,
-            status: 'flexible',
-          },
-          {
-            habitId: 'habit-3',
-            name: 'Read 30 min',
-            targetPerWeek: 7,
-            completionsThisWeek: 7,
-            status: 'week_complete',
-          },
-        ],
-        loading: false,
-        reload: jest.fn().mockResolvedValue(undefined),
-      };
+  describe('Header Cards', () => {
+    it('shows Today progress card with correct count', () => {
+      mockTodayStats = createMockStats({
+        totalTasksToday: 5,
+        totalCompletedToday: 2,
+        hasAnyTodayWork: true,
+      });
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Verify weekly summaries exist in data
-      expect(mockNowData.weeklySummaries).toHaveLength(3);
-      expect(mockNowData.weeklySummaries![0].name).toBe('Morning Meditation');
-      expect(mockNowData.weeklySummaries![0].completionsThisWeek).toBe(5);
-      expect(mockNowData.weeklySummaries![0].targetPerWeek).toBe(7);
+      // Today card should show 2/5
+      expect(screen.getByText('2/5')).toBeTruthy();
+    });
 
-      expect(mockNowData.weeklySummaries![1].name).toBe('Evening Walk');
-      expect(mockNowData.weeklySummaries![2].name).toBe('Read 30 min');
-      expect(mockNowData.weeklySummaries![2].status).toBe('week_complete');
+    it('shows Habits card', () => {
+      mockTodayStats = createMockStats({
+        nowData: {
+          dateTimeLabel: 'Monday, November 25 • 10:30 AM',
+          weeklySummaries: [
+            {
+              habitId: 'habit-1',
+              name: 'Test Habit',
+              targetPerWeek: 7,
+              completionsThisWeek: 3,
+              status: 'on_track_today',
+            },
+          ],
+        },
+      });
 
-      // WEEK indicator should be visible
-      expect(screen.getByText('WEEK:')).toBeTruthy();
+      renderWithProviders(<NowScreenV1 />);
+
+      expect(screen.getByText('Habits')).toBeTruthy();
+      expect(screen.getByText(/this week/)).toBeTruthy();
+    });
+
+    it('shows Your Notes card with count', () => {
+      mockTodayStats = createMockStats();
+
+      renderWithProviders(<NowScreenV1 />);
+
+      expect(screen.getByText('Your Notes')).toBeTruthy();
+      // Mock returns totalCount: 5
+      expect(screen.getByText('5')).toBeTruthy();
     });
   });
 });

@@ -2,6 +2,11 @@
  * NOW Page Selectors
  * Pure functions for deriving NOW page data from repo entities
  * No UI code - deterministic data transformations only
+ *
+ * GREMLY TODO DATE MODEL:
+ * Uses due_day (YYYY-MM-DD) as the canonical field for todo date comparisons.
+ * Today lane filtering uses simple string comparison: todo.due_day === getTodayDayString()
+ * This avoids UTC timezone drift issues.
  */
 
 import type { Habit, Todo, Note } from '../types';
@@ -18,6 +23,12 @@ import type {
   NowWeeklyHabitSummary,
   NowWeekHealth,
 } from './nowTypes';
+import { getTodayDayString } from '../date/computeDueDay';
+import {
+  jsonToFrequency,
+  getFrequencyLabel,
+  type FrequencyConfig,
+} from '../../components/overlay/frequencyHelpers';
 
 export interface NowWeeklyCaptureCounts {
   listCount: number;
@@ -49,7 +60,27 @@ function buildCadenceLabelForHabit(
   habit: Habit,
   progress: HabitProgressSnapshot,
 ): string | undefined {
-  const cadence = habit.cadence ?? 'daily';
+  // CANONICAL SOURCE: Use frequency_value (maps to frequency_json in DB)
+  // This is what the overlay editor writes, so it's always up-to-date
+  const frequencyJson = (habit as any).frequency_value;
+
+  if (__DEV__) {
+    console.log('[buildCadenceLabelForHabit]', {
+      habitName: habit.name,
+      frequency_value: frequencyJson,
+      frequency: habit.frequency,
+      cadence: habit.cadence,
+    });
+  }
+
+  // If we have frequency_value (from the overlay), use the shared helper
+  if (frequencyJson && typeof frequencyJson === 'object') {
+    const config = jsonToFrequency(frequencyJson);
+    return getFrequencyLabel(config);
+  }
+
+  // Fallback to legacy cadence field for backwards compatibility
+  const cadence = habit.cadence ?? habit.frequency ?? 'daily';
 
   if (cadence === 'daily') {
     const targetPerDay = habit.target_per_day ?? 1;
@@ -60,30 +91,34 @@ function buildCadenceLabelForHabit(
       const completed = clampProgress(progress.today, targetPerDay);
       return `${completed}/${targetPerDay} today`;
     }
-    // TODO: Daily cadence labels for multi-per-day habits require progress_today to be hydrated.
-    return undefined;
+    return 'Daily';
   }
 
   if (cadence === 'weekly') {
-    const targetPerWeek = habit.target_per_period ?? 0;
+    const targetPerWeek = habit.target_per_period ?? 1;
     if (targetPerWeek > 0 && typeof progress.thisWeek === 'number') {
       const completed = clampProgress(progress.thisWeek, targetPerWeek);
       return `${completed}/${targetPerWeek} this week`;
     }
-    return undefined;
+    return `${targetPerWeek}× per week`;
   }
 
   if (cadence === 'monthly') {
-    const targetPerMonth = habit.target_per_period;
-    if (typeof targetPerMonth === 'number' && typeof progress.thisMonth === 'number') {
+    const targetPerMonth = habit.target_per_period ?? 1;
+    if (typeof progress.thisMonth === 'number') {
       const completed = clampProgress(progress.thisMonth, targetPerMonth);
       return `${completed}/${targetPerMonth} this month`;
     }
-    // TODO: Monthly cadence label requires monthly aggregation from habit_progress.
-    return undefined;
+    return `${targetPerMonth}× per month`;
   }
 
-  return undefined;
+  // Handle 'custom' frequency string - try to derive from target_per_period
+  if (cadence === 'custom') {
+    const target = habit.target_per_period ?? 1;
+    return `${target}× per week`;
+  }
+
+  return 'Daily'; // Default fallback
 }
 
 function getHabitProgressSnapshot(
@@ -117,6 +152,56 @@ function getWeekStart(date: Date): Date {
   return new Date(d.setDate(diff));
 }
 
+/**
+ * Get count of logs created TODAY
+ *
+ * TODAY LOGIC for logs:
+ * - If the note has an explicit `date` field (journal entries), use that
+ * - Otherwise, fall back to `created_at` timestamp in local timezone
+ * - This handles MindDrop logs which may not have `date` set
+ *
+ * EXCLUSIONS:
+ * - Unsorted/catchall notes are NOT counted as logs
+ * - Notes with subtype 'catchall' or unsorted=true are excluded
+ * - Only proper logs (journal, idea, list, reference, everything_else, plain) are counted
+ *
+ * @param logs - Array of notes to filter
+ * @param date - Reference date for "today" (defaults to now)
+ * @returns Count of logs created today
+ */
+export function getTodayLogsCount(logs: Note[], date: Date = new Date()): number {
+  // Compute today string in local timezone
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
+
+  return logs.filter((log) => {
+    // Exclude unsorted/catchall items - they are NOT logs
+    // They appear in Mind Drop (CatchAllNotepad) until converted
+    if (log.subtype === 'catchall') return false;
+
+    // Also exclude items with 'needs_review' or 'catchall' labels
+    const labels = log.labels ?? [];
+    if (labels.includes('needs_review') || labels.includes('catchall')) return false;
+
+    // First check explicit date field (used by journal entries)
+    if (log.date) {
+      // date field is already YYYY-MM-DD format
+      return log.date === todayStr;
+    }
+
+    // Fall back to created_at for MindDrop logs without explicit date
+    // Parse created_at (ISO timestamp) and compare in local timezone
+    const createdDate = new Date(log.created_at);
+    const cYear = createdDate.getFullYear();
+    const cMonth = String(createdDate.getMonth() + 1).padStart(2, '0');
+    const cDay = String(createdDate.getDate()).padStart(2, '0');
+    const createdDateStr = `${cYear}-${cMonth}-${cDay}`;
+    return createdDateStr === todayStr;
+  }).length;
+}
+
 export function getWeeklyCaptureCounts(
   logs: Note[],
   date: Date = new Date(),
@@ -139,6 +224,52 @@ export function getWeeklyCaptureCounts(
     journalCount,
     ideaCount,
   };
+}
+
+/**
+ * Get today's date as YYYY-MM-DD string in local timezone
+ * This is the canonical format for day-based comparisons.
+ * Uses the central helper from computeDueDay.ts
+ */
+function getTodayString(date: Date = new Date()): string {
+  // For compatibility with existing code that passes a specific date,
+  // compute the string in local timezone
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Check if a todo is due today using ONLY due_day (canonical field)
+ * GREMLY TODO DATE MODEL:
+ * - Uses ONLY due_day (YYYY-MM-DD) for filtering
+ * - Todos with null/undefined due_day are NOT shown in Today
+ * - No fallback to due_date or due_at timestamps (avoids timezone drift)
+ * @param todo - The todo to check
+ * @param todayStr - Today's date as YYYY-MM-DD string
+ */
+function isTodoDueToday(todo: Todo, todayStr: string): boolean {
+  // ONLY use due_day - no fallbacks to avoid timezone issues
+  // Todos without due_day are NOT shown in Today's Focus
+  if (!todo.due_day) {
+    return false;
+  }
+  return todo.due_day === todayStr;
+}
+
+/**
+ * Check if a todo is in the future (due after today)
+ * GREMLY TODO DATE MODEL: Uses ONLY due_day for comparison
+ * @param todo - The todo to check
+ * @param todayStr - Today's date as YYYY-MM-DD string
+ */
+function isTodoDueFuture(todo: Todo, todayStr: string): boolean {
+  // ONLY use due_day - no fallbacks
+  if (!todo.due_day) {
+    return false;
+  }
+  return todo.due_day > todayStr;
 }
 
 /**
@@ -247,18 +378,22 @@ function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
     return dueTime;
   }
 
-  if (todo.due_date) {
-    if (isToday(date, todo.due_date)) {
+  const todayStr = getTodayString(date);
+
+  // ONLY use due_day for status text
+  if (todo.due_day) {
+    if (isTodoDueToday(todo, todayStr)) {
       return 'Due today';
     }
-    if (isFuture(date, todo.due_date)) {
-      const dueDate = parseDateString(todo.due_date);
+    if (isTodoDueFuture(todo, todayStr)) {
+      const dueDate = parseDateString(todo.due_day);
       return `Due ${dueDate.toLocaleDateString(undefined, { weekday: 'short' })}`;
     }
     return 'Overdue';
   }
 
-  return 'On track';
+  // No due date set
+  return 'No due date';
 }
 
 /**
@@ -292,9 +427,14 @@ export function getLockedItems(
   const locked: NowLockedItem[] = [];
 
   for (const entity of allEntities) {
-    // Check if entity has locked flag
-    const isLocked = (entity as any).locked === true;
+    // Check if entity has commitment flag (locked-in for today)
+    // The database field is 'commitment', UI uses 'locked' terminology
+    const isLocked = (entity as any).commitment === true;
     if (!isLocked) continue;
+
+    // Skip completed or archived items
+    const status = (entity as any).status;
+    if (status === 'completed' || status === 'archived') continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;
@@ -318,19 +458,19 @@ export function getLockedItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
+      const todayStr = getTodayString(date);
 
-      // Include if due today or overdue
-      if (
-        todo.due_date &&
-        (isToday(date, todo.due_date) || isFuture(date, todo.due_date) === false)
-      ) {
+      // Only include todos due TODAY using due_day (canonical)
+      // Todos with null due_day are NOT shown
+      if (isTodoDueToday(todo, todayStr)) {
         locked.push({
           id: todo.id,
           type: 'todo',
           name: todo.name,
           statusText: formatTodoStatusText(todo, date),
           locked: true,
-          dueAt: todo.due_date,
+          dueDay: todo.due_day, // Canonical field
+          dueAt: todo.due_day, // Deprecated but kept for backwards compat
         });
       }
     }
@@ -356,8 +496,9 @@ export function getActiveTodayItems(
     // Skip locked items
     if (lockedIds.has(entity.id)) continue;
 
-    // Skip completed items
-    if ((entity as any).status === 'completed') continue;
+    // Skip completed or archived items
+    const status = (entity as any).status;
+    if (status === 'completed' || status === 'archived') continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;
@@ -383,17 +524,21 @@ export function getActiveTodayItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
+      const todayStr = getTodayString(date);
 
-      // Include if due today
-      if (todo.due_date && isToday(date, todo.due_date)) {
+      // Only include todos due TODAY using due_day (canonical)
+      // Todos with null due_day are NOT shown
+      if (isTodoDueToday(todo, todayStr)) {
         active.push({
           id: todo.id,
           type: 'todo',
           name: todo.name,
           statusText: formatTodoStatusText(todo, date),
           locked: false,
-          dueAt: todo.due_date,
+          dueDay: todo.due_day, // Canonical field
+          dueAt: todo.due_day, // Deprecated but kept for backwards compat
           dueTime: (todo as any).due_time || null,
+          timeWindow: (todo as any).time_window || 'any',
         });
       }
     }
@@ -420,8 +565,9 @@ export function getFutureItems(
     // Skip items already in today/locked
     if (todayIds.has(entity.id)) continue;
 
-    // Skip completed items
-    if ((entity as any).status === 'completed') continue;
+    // Skip completed or archived items
+    const status = (entity as any).status;
+    if (status === 'completed' || status === 'archived') continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;
@@ -439,20 +585,9 @@ export function getFutureItems(
         targetPerPeriod: habit.target_per_period,
         weeklyStatus,
       });
-    } else if (entity.type === 'todo') {
-      const todo = entity as Todo;
-
-      // Include if due in future
-      if (todo.due_date && isFuture(date, todo.due_date)) {
-        future.push({
-          id: todo.id,
-          type: 'todo',
-          name: todo.name,
-          statusText: formatTodoStatusText(todo, date),
-          dueAt: todo.due_date,
-        });
-      }
     }
+    // Note: Todos are NOT included in Future lane
+    // The Now page only shows items due TODAY to keep the experience simple
   }
 
   return future;
@@ -487,9 +622,11 @@ export function getProgressEligibleItems(
       }
     } else if (entity.type === 'todo') {
       const todo = entity as Todo;
+      const todayStr = getTodayString(date);
 
-      // Include todos due today (including time-specific ones)
-      if (todo.due_date && isToday(date, todo.due_date)) {
+      // Only include todos due TODAY using due_day (canonical)
+      // Todos with null due_day are NOT eligible for progress
+      if (isTodoDueToday(todo, todayStr)) {
         eligible.push({ id: todo.id, type: 'todo' });
       }
     }

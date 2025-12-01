@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useAuth } from '../../../providers/AuthProvider';
+import TodayProgressHeader, { type TodayProgressItem } from './TodayProgressHeader';
 
 function formatLongDate(d: Date = new Date()): string {
   return d.toLocaleDateString(undefined, {
@@ -12,7 +13,26 @@ function formatLongDate(d: Date = new Date()): string {
   });
 }
 
-export default function TodayHeader() {
+export type TodayHeaderProps = {
+  /** Number of completed items today */
+  completedCount?: number;
+  /** Total number of items for today */
+  totalCount?: number;
+  /** Individual items for the dot row */
+  items?: TodayProgressItem[];
+  /** IDs that were just completed this session (for glow effect) */
+  justCompletedIds?: Set<string>;
+  /** Called when user taps on the progress header */
+  onProgressPress?: () => void;
+};
+
+export default function TodayHeader({
+  completedCount = 0,
+  totalCount = 0,
+  items = [],
+  justCompletedIds,
+  onProgressPress,
+}: TodayHeaderProps) {
   const { user } = useAuth();
   const firstName = useMemo(() => {
     type AuthDisplayUser = {
@@ -25,10 +45,21 @@ export default function TodayHeader() {
     return String(name).split(' ')[0];
   }, [user]);
 
+  const showProgress = totalCount > 0;
+
   return (
     <View style={styles.wrap} testID="today-header">
       <Text style={styles.greeting}>Hi {firstName}</Text>
       <Text style={styles.date}>{formatLongDate()}</Text>
+      {showProgress && (
+        <TodayProgressHeader
+          completedCount={completedCount}
+          totalCount={totalCount}
+          items={items}
+          justCompletedIds={justCompletedIds}
+          onProgressPress={onProgressPress}
+        />
+      )}
     </View>
   );
 }

@@ -42,7 +42,7 @@ jest.mock('../../lib/today/useTodayInteractions', () => ({
     undoLastCompletion: jest.fn(),
     completedHabitIds: new Set(),
     completedTodoIds: new Set(),
-    undoState: null,
+    lastPendingInfo: null,
   }),
 }));
 
@@ -57,6 +57,16 @@ jest.mock('../../hooks/useUnifiedOverlayController', () => ({
   }),
 }));
 
+// Mock useActionToast to avoid RepoProvider dependency
+jest.mock('../../src/hooks/useActionToast', () => ({
+  useActionToast: () => ({
+    showToast: jest.fn(),
+    hideToast: jest.fn(),
+    isVisible: false,
+    Toast: null,
+  }),
+}));
+
 // Mock SweepDrawer component
 jest.mock('../../components/today/v3/SweepDrawer', () => {
   const React = require('react');
@@ -68,7 +78,9 @@ jest.mock('../../components/today/v3/SweepDrawer', () => {
   });
 });
 
-describe('Overwhelm Flow Integration Tests', () => {
+// Skipped: Overwhelm entry point is temporarily hidden (SHOW_OVERWHELM_ENTRY = false)
+// These tests can be re-enabled when the feature is shown again
+describe.skip('Overwhelm Flow Integration Tests', () => {
   const mockDate = new Date('2025-11-25T14:00:00');
 
   beforeEach(() => {

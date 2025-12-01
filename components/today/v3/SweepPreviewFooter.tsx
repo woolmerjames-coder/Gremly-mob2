@@ -4,14 +4,31 @@ import { Text, Box, Button } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useSweepPreview } from '../../../lib/today/hooks/useSweepPreview';
 
-type Props = { onStart?: () => void; onPeek?: () => void };
+type Props = {
+  onStart?: () => void;
+  onPeek?: () => void;
+  /** Count of completed items today (habits + todos) */
+  completedTodayCount?: number;
+};
 
 const noop = () => {};
 
-export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
-  const { completed, remaining, available } = useSweepPreview();
+/**
+ * Pluralize "item" based on count
+ */
+function itemLabel(count: number): string {
+  return count === 1 ? 'item' : 'items';
+}
 
-  if (!available || (completed === 0 && remaining === 0)) return null;
+export default function SweepPreviewFooter({ onStart, onPeek, completedTodayCount }: Props) {
+  const { completed: internalCompleted, available } = useSweepPreview();
+
+  // Use override if provided, otherwise fall back to internal count
+  const completed = completedTodayCount ?? internalCompleted;
+
+  if (!available || completed === 0) return null;
+
+  const label = `${completed} ${itemLabel(completed)} completed today`;
 
   return (
     <View
@@ -22,9 +39,9 @@ export default function SweepPreviewFooter({ onStart, onPeek }: Props) {
         <Text
           style={styles.text}
           accessibilityRole="summary"
-          accessibilityLabel={`Sweep ready soon. ${completed} done and ${remaining} to tidy.`}
+          accessibilityLabel={`Review completed items. ${label}.`}
         >
-          Sweep ready soon — {completed} done · {remaining} to tidy
+          {label}
         </Text>
         <Box row style={styles.ctaWrap}>
           <Button

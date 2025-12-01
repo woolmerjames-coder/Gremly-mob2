@@ -195,6 +195,9 @@ export interface IRepo {
   /** Returns total progress for a habit within a date range (inclusive). */
   getHabitProgressForWeek(habitId: ID, weekStartIso: string, weekEndIso: string): Promise<number>;
 
+  /** Returns the actual progress records (dates) for a habit within a date range. */
+  getHabitProgressDates(habitId: ID, weekStartIso: string, weekEndIso: string): Promise<string[]>;
+
   /** Focus card getters/setters (one focus per owner per day). */
   getFocusForDate(dayIso: string): Promise<{
     id: ID;
@@ -259,6 +262,14 @@ export interface IRepo {
   completeHabit(id: ID, atIso: string): Promise<void>;
   completeTodo(id: ID, atIso: string): Promise<void>;
   undoCompletion(id: ID): Promise<void>;
+
+  // Date-specific habit completion (for weekly habit tracking)
+  completeHabitForDate(habitId: ID, dateIso: string): Promise<void>;
+  removeHabitCompletion(habitId: ID, dateIso: string): Promise<void>;
+
+  // Silent versions - same as above but don't emit events (for local-only UI updates)
+  completeHabitForDateSilent(habitId: ID, dateIso: string): Promise<void>;
+  removeHabitCompletionSilent(habitId: ID, dateIso: string): Promise<void>;
 
   /**
    * Convenience helper to add an item marked as unsorted (catch-all inbox).

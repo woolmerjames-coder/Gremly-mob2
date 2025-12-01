@@ -47,6 +47,7 @@ import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import { toDayString, getTodayDayString, parseDayString } from '../../lib/date/computeDueDay';
 import {
   lightTokens,
   darkTokens,
@@ -78,6 +79,7 @@ import {
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
+import { getTodayISO } from '../../app/utils/recurrence';
 import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
 // Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
@@ -89,6 +91,8 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
+import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -99,6 +103,24 @@ import {
 } from './frequencyHelpers';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+
+/**
+ * TYPE_FAMILY maps BaseType to Supabase table family.
+ * - 'note' family: logs/notes (stored in `notes` table)
+ * - 'todo' family: todos (stored in `todos` table)
+ * - 'habit' family: habits (stored in `habits` table)
+ *
+ * When converting between different families, we must:
+ * 1. Create a new record in the target table
+ * 2. Archive/delete the old record in the source table
+ * 3. Preserve drop_id to maintain Mind Drop linkage
+ */
+type TypeFamily = 'note' | 'todo' | 'habit';
+const TYPE_FAMILY: Record<BaseType, TypeFamily> = {
+  log: 'note',
+  todo: 'todo',
+  habit: 'habit',
+};
 
 // Preset time options for time picker
 const PRESET_TIMES = [
@@ -905,12 +927,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     onSaved,
     initialText,
     initialLogPhotoUris,
+    defaultDueToday,
+    conversionMeta,
   } = props;
 
   // Extract full entity from props (passed by OverlayHost in edit mode)
   const fullEntity = (props as any).entity ?? null;
 
   const repo = useRepo();
+  const globalOverlay = useGlobalOverlay();
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
   const baseType = state.baseType;
   const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
@@ -1184,6 +1209,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     dispatch({ type: 'TOGGLE_EXPANDED' });
   }, [dispatch, reduceMotion]);
 
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   * TYPE CHANGE HANDLER
+   * ─────────────────────────────────────────────────────────────────────────
+   *
+   * Handles user switching between types (log ↔ todo ↔ habit) in the overlay.
+   *
+   * BEHAVIOR:
+   * - Updates local state.baseType immediately for UI feedback
+   * - Copies current content to the new type's slot (text, tags, etc.)
+   * - Pushes undo entry to allow reverting the type change
+   * - Emits OverlayTypeChanged telemetry event
+   *
+   * CROSS-TABLE CONVERSION (handled in onSave):
+   * - When baseType differs from initialEntity.type at save time
+   * - Creates new record in target table with drop_id preserved
+   * - Archives/deletes old record from source table
+   * - Emits OverlayTypeConverted event
+   *
+   * SUPPORTED CONVERSIONS:
+   * - note/log → todo: Creates todo, archives note
+   * - note/log → habit: Creates habit, archives note
+   * - todo → note/log: Creates note, archives todo
+   * - todo → habit: Creates habit, archives todo
+   * - habit → todo: Creates todo, archives habit
+   * - habit → note/log: Creates note, archives habit
+   * ─────────────────────────────────────────────────────────────────────────
+   */
   const handleTypeSelect = useCallback(
     (next: BaseType) => {
       if (state.baseType === next) return;
@@ -1405,6 +1458,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }
 
+  /**
+   * Format due_day (YYYY-MM-DD) for display.
+   * This is the canonical way to display todo due dates.
+   */
+  function formatDueDay(dueDay: string | null | undefined): string {
+    if (!dueDay) return '';
+    try {
+      // Parse the YYYY-MM-DD string as a local date
+      const parsed = parseDayString(dueDay);
+      if (!parsed) return '';
+      return format(parsed, 'MMM d');
+    } catch (e) {
+      return '';
+    }
+  }
+
   useEffect(() => {
     if (mode !== 'create') return;
     if (createPrefillAppliedRef.current) return;
@@ -1413,7 +1482,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const rawText = typeof initialText === 'string' ? initialText : '';
     const hasText = rawText.trim().length > 0;
 
-    if (!override && !hasText) {
+    // Check for conversionMeta prefill (Idea → Todo/Habit conversion)
+    const hasConversionMeta =
+      conversionMeta &&
+      (conversionMeta.initialTitle ||
+        conversionMeta.initialNote ||
+        conversionMeta.initialTags?.length ||
+        conversionMeta.initialListItems?.length);
+
+    if (!override && !hasText && !defaultDueToday && !hasConversionMeta) {
       createPrefillAppliedRef.current = true;
       return;
     }
@@ -1428,21 +1505,106 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       payload.habit = { ...initialV2State.habit, notes: rawText, title };
     }
 
+    // Apply conversionMeta prefill (Idea → Todo/Habit conversion)
+    if (hasConversionMeta) {
+      const { initialTitle, initialNote, initialTags, initialListItems, initialIsList } =
+        conversionMeta as any;
+
+      // Apply title and note
+      if (initialTitle || initialNote) {
+        const title = initialTitle || '';
+        const note = initialNote || '';
+        payload.todo = {
+          ...(payload.todo || initialV2State.todo),
+          title,
+          details: note,
+        };
+        payload.habit = {
+          ...(payload.habit || initialV2State.habit),
+          title,
+          notes: note,
+        };
+      }
+
+      // Apply tags (filter out system tags)
+      if (initialTags && Array.isArray(initialTags) && initialTags.length > 0) {
+        const systemTags = ['idea', 'journal', 'reference', 'list'];
+        const filteredTags = initialTags.filter(
+          (tag: string) => !systemTags.includes(tag.toLowerCase()),
+        );
+        if (filteredTags.length > 0) {
+          payload.tags = filteredTags;
+        }
+      }
+
+      // Apply list items
+      if (
+        initialIsList &&
+        initialListItems &&
+        Array.isArray(initialListItems) &&
+        initialListItems.length > 0
+      ) {
+        payload.list = { items: initialListItems };
+      }
+    }
+
+    // Default todo to due today when defaultDueToday is true (Now page)
+    if (defaultDueToday && (override === 'todo' || !override)) {
+      const todayISO = getTodayISO();
+      payload.todo = {
+        ...(payload.todo || initialV2State.todo),
+        due_at: todayISO,
+      };
+    }
+
     if (Object.keys(payload).length > 0) {
       dispatch({ type: 'HYDRATE_EDIT', payload });
     }
 
     createPrefillAppliedRef.current = true;
-  }, [mode, initialEntity, initialText, dispatch]);
+  }, [mode, initialEntity, initialText, defaultDueToday, conversionMeta, dispatch]);
 
   // Initial defaults (match brief: text-first; first line becomes title)
+  // CRITICAL: Always fetch full entity from Supabase to ensure commitment fields round-trip
+  // Today/Now selectors may pass truncated entity shapes that lose commitment fields
   useEffect(() => {
-    if (mode === 'edit' && initialEntity) {
-      const payload = buildDraftPayloadFromEntity(initialEntity);
+    const hydrateEditMode = async () => {
+      if (mode !== 'edit' || !initialEntity) return;
+
+      const entityId = (initialEntity as any)?.id;
+      let entityToUse = initialEntity;
+
+      // Always fetch fresh entity from Supabase to get ALL fields including commitment
+      if (entityId) {
+        try {
+          console.log('[UnifiedOverlayV2] Fetching full entity from Supabase:', entityId);
+          const freshEntity = await repo.getById(entityId);
+          if (freshEntity) {
+            console.log('[UnifiedOverlayV2] Fresh entity fetched:', {
+              id: freshEntity.id,
+              type: freshEntity.type,
+              commitment: (freshEntity as any).commitment,
+              commitmentNote: (freshEntity as any).commitmentNote,
+            });
+            entityToUse = freshEntity;
+          } else {
+            console.warn('[UnifiedOverlayV2] Could not fetch entity, using initialEntity fallback');
+          }
+        } catch (err) {
+          console.error('[UnifiedOverlayV2] Error fetching full entity:', err);
+          // Fall back to initialEntity on error
+        }
+      }
+
+      const payload = buildDraftPayloadFromEntity(entityToUse);
+      console.log('[UnifiedOverlayV2] Hydrating with payload:', {
+        commitment: payload.commitment,
+        commitmentNote: payload.commitmentNote,
+      });
       dispatch({ type: 'HYDRATE_EDIT', payload } as any);
 
       // Hydrate mood for journal logs (Phase L4)
-      const entity = initialEntity as any;
+      const entity = entityToUse as any;
       if (
         entity?.mood &&
         (entity.mood === 'happy' || entity.mood === 'neutral' || entity.mood === 'sad')
@@ -1454,8 +1616,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (entity?.photo_uri) {
         setPhotoUri(entity.photo_uri);
       }
-    }
-  }, [mode, initialEntity]);
+    };
+
+    hydrateEditMode();
+  }, [mode, initialEntity, repo]);
 
   // Load existing log photos from database (Phase L5)
   useEffect(() => {
@@ -1528,11 +1692,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const { backgroundPrefill } = await import('../../lib/minddrop/backgroundPrefill');
 
         // Get raw text for prefill
-        const rawText =
-          entity.body?.trim() ||
-          entity.title?.trim() ||
-          entity.name?.trim() ||
-          '';
+        const rawText = entity.body?.trim() || entity.title?.trim() || entity.name?.trim() || '';
 
         // Retry prefill
         await backgroundPrefill(entity, rawText);
@@ -2219,13 +2379,39 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [isLog]);
 
   const handleTodoDueChange = useCallback(
-    (iso: string | null, options?: { label?: string }) => {
-      dispatch({ type: 'SET_TODO_DUE', due_at: iso });
-      if (iso) {
-        const formatted = options?.label ?? (safeFormat(iso) || 'selected date');
+    (dateOrNull: Date | null, options?: { label?: string }) => {
+      // GREMLY TODO DATE MODEL:
+      // Use due_day (YYYY-MM-DD) as the canonical source of truth.
+      // Do NOT use due_at for Mind Drop / Today logic.
+      // This avoids UTC timezone drift issues.
+
+      if (dateOrNull) {
+        // Compute due_day using local timezone helper
+        const dueDay = toDayString(dateOrNull);
+
+        console.log('[handleTodoDueChange] Setting due_day:', dueDay);
+
+        // Dispatch with due_day as source of truth, due_at = null (not used)
+        dispatch({
+          type: 'SET_TODO_DUE',
+          due_at: null, // Explicitly null - we don't use due_at for all-day todos
+          due_day: dueDay,
+          due_time: null, // All-day todos have no specific time
+        });
+
+        const formatted = options?.label ?? format(dateOrNull, 'MMM d');
         showDueToast(`Due set for ${formatted}`);
         void emitOverlayEvent({ type: 'overlay_due_set' });
       } else {
+        // Clear all due date fields - user pressed Clear
+        console.log('[handleTodoDueChange] Clearing due date (due_day: null)');
+
+        dispatch({
+          type: 'SET_TODO_DUE',
+          due_at: null,
+          due_day: null,
+          due_time: null,
+        });
         showDueToast('Due cleared');
         void emitOverlayEvent({ type: 'overlay_due_clear' });
       }
@@ -2434,11 +2620,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           existing: initialEntity,
         });
 
-        const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
+        // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
+        // due_at is NOT used for todos - we only send due_day and due_date
+        const dueDay = s.todo.due_day ?? null;
         return {
           type: 'todo' as const,
           ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
-          due_at: dueAt,
+          due_at: null, // Explicitly null - we use due_day instead
+          due_day: dueDay,
+          due_date: dueDay, // Set due_date same as due_day for backwards compatibility
+          undefined_due: !dueDay, // True if no due date is set
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -2462,13 +2653,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const effectiveTitle =
         overlayTitle || compactTitle || (rawDetails ? firstLine(rawDetails) : '');
 
-      const dueAt = coerceIsoTimestamp(s.todo.due_at) ?? coerceIsoTimestamp(s.reminderAt);
+      // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
+      // due_at is NOT used for todos - we only send due_day and due_date
+      const dueDay = s.todo.due_day ?? null;
       return {
         type: 'todo' as const,
         title: effectiveTitle,
         name: effectiveTitle,
         details: rawDetails || null,
-        due_at: dueAt,
+        due_at: null, // Explicitly null - we use due_day instead
+        due_day: dueDay,
+        due_date: dueDay, // Set due_date same as due_day for backwards compatibility
+        undefined_due: !dueDay, // True if no due date is set
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -2713,10 +2909,131 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ? (input as any).tags.length
         : state.tags.length;
       const telemetryDueAt = baseType === 'todo' ? ((input as any)?.due_at ?? null) : null;
-      const result =
-        mode === 'edit' && (initialEntity as any)?.id
-          ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
-          : await repo.create(input as any);
+
+      /**
+       * ─────────────────────────────────────────────────────────────────────────
+       * TYPE CHANGE DETECTION AND CROSS-TABLE CONVERSION
+       * ─────────────────────────────────────────────────────────────────────────
+       *
+       * When the user changes the type in the overlay (e.g., log → todo), we need
+       * to handle cross-table conversions properly since Supabase uses separate
+       * tables for each entity type (notes, todos, habits).
+       *
+       * CONVERSION FLOW:
+       * 1. Detect if the target type family differs from the original entity's family
+       * 2. If cross-table conversion needed:
+       *    a. Create new record in the target table with all fields + drop_id
+       *    b. Archive/delete the old record in the source table
+       *    c. Emit conversion telemetry
+       * 3. If same-table update (e.g., log subtype change):
+       *    a. Use standard repo.update()
+       *
+       * SUPPORTED CONVERSIONS:
+       * - note/log → todo: Create todo, archive note
+       * - note/log → habit: Create habit, archive note
+       * - todo → note/log: Create note, archive todo
+       * - todo → habit: Create habit, archive todo
+       * - habit → todo: Create todo, archive habit
+       * - habit → note/log: Create note, archive habit
+       * ─────────────────────────────────────────────────────────────────────────
+       */
+
+      // Determine original and target type families
+      const originalEntityType = (initialEntity as any)?.type;
+      const originalFamily: TypeFamily | null =
+        originalEntityType === 'todo'
+          ? 'todo'
+          : originalEntityType === 'habit'
+            ? 'habit'
+            : originalEntityType === 'note'
+              ? 'note'
+              : null;
+      const targetFamily = TYPE_FAMILY[baseType];
+
+      // Detect cross-table type conversion
+      const isTypeConversion =
+        mode === 'edit' &&
+        (initialEntity as any)?.id &&
+        originalFamily !== null &&
+        originalFamily !== targetFamily;
+
+      let result;
+
+      if (isTypeConversion) {
+        // ─────────────────────────────────────────────────────────────────────
+        // CROSS-TABLE CONVERSION FLOW
+        // ─────────────────────────────────────────────────────────────────────
+        const oldId = (initialEntity as any).id;
+        const dropId = (fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null;
+
+        if (__DEV__) {
+          console.log('[OverlayTypeChange] Cross-table conversion detected', {
+            oldId,
+            dropId,
+            originalFamily,
+            targetFamily,
+            from: originalEntityType,
+            to: baseType,
+          });
+        }
+
+        // Ensure drop_id is preserved in the create input
+        const createInput = {
+          ...(input as any),
+          dropId: dropId, // Preserve Mind Drop linkage
+        };
+
+        // Step 1: Create new record in target table
+        result = await repo.create(createInput);
+
+        if (__DEV__) {
+          console.log('[OverlayTypeChange] New record created', {
+            newId: result?.id,
+            newType: result?.type,
+            dropId,
+          });
+        }
+
+        // Step 2: Archive/delete old record from source table
+        try {
+          const entityType = originalEntityType as 'todo' | 'habit' | 'note';
+          await deleteEntityOrDrop(repo, oldId, entityType, dropId);
+
+          if (__DEV__) {
+            console.log('[OverlayTypeChange] Old record archived/deleted', {
+              oldId,
+              entityType,
+            });
+          }
+        } catch (removeError) {
+          console.warn(
+            '[OverlayTypeChange] Failed to remove original during conversion:',
+            removeError,
+          );
+          // Non-fatal: continue even if old record cleanup fails
+        }
+
+        // Emit conversion telemetry
+        try {
+          eventBus.emit('OverlayTypeConverted', {
+            from: originalEntityType,
+            to: baseType,
+            oldId,
+            newId: result?.id ?? '',
+            dropId,
+          });
+        } catch (e) {
+          // Ignore telemetry errors
+        }
+      } else {
+        // ─────────────────────────────────────────────────────────────────────
+        // STANDARD UPDATE/CREATE FLOW (same table or new entity)
+        // ─────────────────────────────────────────────────────────────────────
+        result =
+          mode === 'edit' && (initialEntity as any)?.id
+            ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
+            : await repo.create(input as any);
+      }
 
       // Handle multi-photo uploads and deletions for logs (Phase L5)
       if (baseType === 'log' && result?.id && userId) {
@@ -3515,20 +3832,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           <Pressable
                             style={styles.dueDatePill}
                             onPress={() => {
+                              // Pre-fill date picker with current due_day if set
+                              if (state.todo.due_day) {
+                                const parsed = parseDayString(state.todo.due_day);
+                                if (parsed) {
+                                  setSelectedDate(parsed);
+                                }
+                              } else {
+                                setSelectedDate(new Date());
+                              }
                               setDateModalTarget('todo');
                               setShowDateModal(true);
                             }}
                             accessibilityRole="button"
                             accessibilityLabel={
-                              state.todo.due_at
-                                ? `Due date: ${safeFormat(state.todo.due_at)}`
+                              state.todo.due_day
+                                ? `Due date: ${formatDueDay(state.todo.due_day)}`
                                 : 'Add due date'
                             }
                           >
                             <Calendar
                               size={16}
                               color={
-                                state.todo.due_at
+                                state.todo.due_day
                                   ? colorMode === 'dark'
                                     ? 'rgba(255,255,255,0.7)'
                                     : '#666666'
@@ -3541,13 +3867,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Text
                               style={[
                                 styles.dueDateText,
-                                !state.todo.due_at && {
+                                !state.todo.due_day && {
                                   color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#777777',
                                   fontWeight: '400',
                                 },
                               ]}
                             >
-                              {state.todo.due_at ? safeFormat(state.todo.due_at) : 'Add due date'}
+                              {state.todo.due_day
+                                ? formatDueDay(state.todo.due_day)
+                                : 'Add due date'}
                             </Text>
                           </Pressable>
                         ) : null}
@@ -3792,11 +4120,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       style: 'destructive',
                                       onPress: async () => {
                                         try {
-                                          await repo.remove((initialEntity as any).id);
-                                          eventBus.emit('ItemUpdated', {
-                                            id: (initialEntity as any).id,
+                                          const itemId = (initialEntity as any).id;
+                                          // Emit delete event BEFORE closing for optimistic UI
+                                          eventBus.emit('ItemDeleted', {
+                                            id: itemId,
+                                            type: 'todo',
                                           });
                                           onClose();
+                                          // Perform actual delete in background
+                                          await repo.remove(itemId);
+                                          eventBus.emit('ItemUpdated', { id: itemId });
                                         } catch (err) {
                                           console.error('[UnifiedOverlayV2] Delete failed:', err);
                                           Alert.alert(
@@ -3893,11 +4226,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       style: 'destructive',
                                       onPress: async () => {
                                         try {
-                                          await repo.remove((initialEntity as any).id);
-                                          eventBus.emit('ItemUpdated', {
-                                            id: (initialEntity as any).id,
+                                          const itemId = (initialEntity as any).id;
+                                          // Emit delete event BEFORE closing for optimistic UI
+                                          eventBus.emit('ItemDeleted', {
+                                            id: itemId,
+                                            type: 'habit',
                                           });
                                           onClose();
+                                          // Perform actual delete in background
+                                          await repo.remove(itemId);
+                                          eventBus.emit('ItemUpdated', { id: itemId });
                                         } catch (err) {
                                           console.error('[UnifiedOverlayV2] Delete failed:', err);
                                           Alert.alert(
@@ -4002,6 +4340,121 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </View>
                           ) : null}
 
+                          {/* Idea Conversion Section */}
+                          {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
+                            <View style={{ marginTop: 16 }}>
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  color: '#888',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                Convert to...
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <Pressable
+                                  onPress={() => {
+                                    const ideaTitle = state.log.title || '';
+                                    const ideaBody = state.log.body || '';
+                                    const ideaTags = state.tags || [];
+                                    const ideaListItems = state.list?.items;
+                                    const ideaIsList = !!state.list?.items?.length;
+                                    const ideaId = (initialEntity as any)?.id;
+
+                                    // Close current overlay then open create todo overlay
+                                    onClose();
+                                    setTimeout(() => {
+                                      globalOverlay.openCreate({
+                                        type: 'todo',
+                                        conversionMeta: {
+                                          origin: 'idea_conversion',
+                                          initialTitle: ideaTitle,
+                                          initialNote: ideaBody,
+                                          initialTags: ideaTags,
+                                          initialListItems: ideaIsList ? ideaListItems : undefined,
+                                          initialIsList: ideaIsList,
+                                        },
+                                      });
+                                    }, 100);
+
+                                    // Archive the original idea
+                                    if (ideaId) {
+                                      repo.update({ id: ideaId, patch: { archived: true } });
+                                      eventBus.emit('ItemUpdated', { id: ideaId });
+                                    }
+                                  }}
+                                  style={({ pressed }) => ({
+                                    flex: 1,
+                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                    borderRadius: 8,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    minHeight: 44,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexDirection: 'row',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <Text style={{ fontSize: 15 }}>📋</Text>
+                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
+                                    To-Do
+                                  </Text>
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => {
+                                    const ideaTitle = state.log.title || '';
+                                    const ideaBody = state.log.body || '';
+                                    const ideaTags = state.tags || [];
+                                    const ideaListItems = state.list?.items;
+                                    const ideaIsList = !!state.list?.items?.length;
+                                    const ideaId = (initialEntity as any)?.id;
+
+                                    // Close current overlay then open create habit overlay
+                                    onClose();
+                                    setTimeout(() => {
+                                      globalOverlay.openCreate({
+                                        type: 'habit',
+                                        conversionMeta: {
+                                          origin: 'idea_conversion',
+                                          initialTitle: ideaTitle,
+                                          initialNote: ideaBody,
+                                          initialTags: ideaTags,
+                                          initialListItems: ideaIsList ? ideaListItems : undefined,
+                                          initialIsList: ideaIsList,
+                                        },
+                                      });
+                                    }, 100);
+
+                                    // Archive the original idea
+                                    if (ideaId) {
+                                      repo.update({ id: ideaId, patch: { archived: true } });
+                                      eventBus.emit('ItemUpdated', { id: ideaId });
+                                    }
+                                  }}
+                                  style={({ pressed }) => ({
+                                    flex: 1,
+                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                    borderRadius: 8,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    minHeight: 44,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexDirection: 'row',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <Text style={{ fontSize: 15 }}>🔄</Text>
+                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
+                                    Habit
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          ) : null}
+
                           {/* 4) Divider before Delete */}
                           {mode === 'edit' && (initialEntity as any)?.id ? (
                             <>
@@ -4020,11 +4473,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       style: 'destructive',
                                       onPress: async () => {
                                         try {
-                                          await repo.remove((initialEntity as any).id);
-                                          eventBus.emit('ItemUpdated', {
-                                            id: (initialEntity as any).id,
+                                          const itemId = (initialEntity as any).id;
+                                          // Emit delete event BEFORE closing for optimistic UI
+                                          eventBus.emit('ItemDeleted', {
+                                            id: itemId,
+                                            type: 'note',
                                           });
                                           onClose();
+                                          // Perform actual delete in background
+                                          await repo.remove(itemId);
+                                          eventBus.emit('ItemUpdated', { id: itemId });
                                         } catch (err) {
                                           console.error(
                                             '[UnifiedOverlayV2] Delete log failed:',
@@ -4075,9 +4533,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       variant="ghost"
                       onPress={() => {
                         if (d === '__token:today') {
-                          handleTodoDueChange(new Date().toISOString(), { label: 'Today' });
+                          handleTodoDueChange(new Date(), { label: 'Today' });
                         } else if (d === '__token:tomorrow') {
-                          handleTodoDueChange(addDays(new Date(), 1).toISOString(), {
+                          handleTodoDueChange(addDays(new Date(), 1), {
                             label: 'Tomorrow',
                           });
                         } else {
@@ -4461,11 +4919,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         variant="primary"
                         onPress={() => {
                           try {
-                            let finalIso: string | null = null;
+                            let finalDate: Date | null = null;
 
                             if (!clearDateFlag) {
                               // Combine date and optional time
-                              let finalDate = selectedDate;
+                              finalDate = selectedDate;
 
                               if (showTimePicker && selectedTime) {
                                 // Merge the selected time into the selected date
@@ -4474,21 +4932,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   selectedTime.getHours(),
                                 );
                               } else {
-                                // No time selected, use midnight
-                                finalDate = setHours(setMinutes(selectedDate, 0), 0);
+                                // No time selected, use the date as-is (all-day)
+                                finalDate = selectedDate;
                               }
-
-                              finalIso = finalDate.toISOString();
                             }
 
                             // Apply the change
                             if (dateModalTarget === 'reminder') {
-                              dispatch({ type: 'SET_REMINDER', when: finalIso });
+                              // Reminders still use ISO timestamps
+                              dispatch({
+                                type: 'SET_REMINDER',
+                                when: finalDate?.toISOString() ?? null,
+                              });
                             } else {
-                              const label = finalIso
-                                ? safeFormat(finalIso) || format(selectedDate, 'MMM d')
-                                : '';
-                              handleTodoDueChange(finalIso, { label });
+                              // Todos use due_day (local date string) - pass Date object
+                              const label = finalDate ? format(finalDate, 'MMM d') : '';
+                              handleTodoDueChange(finalDate, { label });
                             }
 
                             // Reset and close
@@ -5561,6 +6020,22 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
     const tagsMeta = (entity as any)?.tags_meta ?? {};
 
+    // Hydrate commitment fields from entity (Phase 6)
+    const commitment = (entity as any)?.commitment === true;
+    const commitmentNote = (entity as any)?.commitment_note ?? '';
+    const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
+
+    if (__DEV__) {
+      console.log('[UnifiedOverlayV2.init] Loaded habit with:', {
+        id: (entity as any)?.id,
+        commitment,
+        commitmentNote: commitmentNote?.slice?.(0, 30) || null,
+        commitmentStartedAt,
+        frequency: (entity as any)?.frequency,
+        frequency_value: (entity as any)?.frequency_value,
+      });
+    }
+
     return {
       baseType: 'habit',
       compactTitle,
@@ -5570,6 +6045,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         notes: habitLongText,
         schedule: 'custom',
         frequency_json: (entity as any)?.frequency_value ?? null, // Load frequency_json from DB
+        subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
       },
       todo: {
         title: compactTitle,
@@ -5585,6 +6061,12 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       tags: extractedTags,
       stickyTags: normalizeMetaValues(tagsMeta?.sticky),
       tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
+      // Commitment fields (Phase 6)
+      commitment,
+      commitmentNote,
+      commitmentStartedAt,
+      // Space and other fields
+      spaceId: (entity as any)?.space_id ?? null,
       logSubtypeOverride: null, // Phase L8: Default for habits
       logIsPrivate: false, // Phase L9: Default for habits
     };
@@ -5647,6 +6129,29 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       ? !!(entity?.views && (entity.views as any).private_journal === true)
       : false;
 
+  // Hydrate commitment fields from entity (Phase 6)
+  // Todos and notes can have commitment fields (habits use habit-specific path above)
+  const commitment = (entity as any)?.commitment === true;
+  const commitmentNote = (entity as any)?.commitment_note ?? '';
+  const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
+
+  // Hydrate reminders from entity (used for journal entries and todos)
+  const reminders = (entity as any)?.reminders ?? null;
+
+  if (__DEV__) {
+    console.log('[UnifiedOverlayV2.init] Loaded entity with:', {
+      id: (entity as any)?.id,
+      type: baseType,
+      commitment,
+      commitmentNote: commitmentNote?.slice?.(0, 30) || null,
+      commitmentStartedAt,
+      reminders: reminders?.length ?? 0,
+      due_day: (entity as any)?.due_day,
+      due_time: (entity as any)?.due_time,
+      mood: (entity as any)?.mood,
+    });
+  }
+
   const payload: Partial<V2State> = {
     baseType,
     compactTitle: title || '', // Preserve entity title as compactTitle
@@ -5660,12 +6165,20 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     todo: {
       title: todoTitle,
       details: todoDetails,
-      due_at: (entity as any)?.due_at ?? (entity as any)?.due_date ?? null,
+      // GREMLY TODO DATE MODEL:
+      // Use due_day (YYYY-MM-DD) as the canonical source of truth.
+      // due_at is NOT used for Mind Drop / Today logic.
+      due_at: null, // Explicitly null - we don't rely on due_at
+      // Prefer due_day, fallback to computing from due_date if needed
+      due_day: (entity as any)?.due_day ?? null,
+      due_time: (entity as any)?.due_time ?? null,
     },
     habit: {
       title: name || title || '',
       notes: rawDetails || '',
       schedule: 'custom',
+      frequency_json: (entity as any)?.frequency_value ?? null,
+      subtype: (entity as any)?.subtype ?? 'start_habit',
     },
     tags: extractedTags, // Initialize tags from entity for all types
     stickyTags: normalizeMetaValues(tagsMeta?.sticky),
@@ -5673,6 +6186,14 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     mood: (entity as any)?.mood ?? null, // Hydrate mood for journal logs (Phase L2)
     logSubtypeOverride, // Phase L8: Manual log subtype override
     logIsPrivate, // Phase L9: Private flag for journal logs
+    // Commitment fields (Phase 6) - for todos and notes
+    commitment,
+    commitmentNote,
+    commitmentStartedAt,
+    // Space and other common fields
+    spaceId: (entity as any)?.space_id ?? null,
+    // Reminder support (for journals and todos)
+    reminderAt: reminders?.[0]?.when ?? null, // Map first reminder to reminderAt for backwards compat
   };
 
   return payload;

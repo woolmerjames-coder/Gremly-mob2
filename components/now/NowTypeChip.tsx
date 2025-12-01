@@ -28,18 +28,20 @@ export function NowTypeChip({ type }: NowTypeChipProps) {
   );
 }
 
+/** Compact chip for meta line - minimal vertical footprint */
 const useStyles = makeStyles((t) => ({
   container: {
     borderRadius: t.radius[1],
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     alignSelf: 'flex-start',
   },
   label: {
-    fontSize: t.typography.size.xs,
+    fontSize: 11,
     fontFamily: t.typography.fontFamily.medium,
     color: t.colors.subtle,
     textTransform: 'capitalize',
+    lineHeight: 13,
   },
   habit: {
     backgroundColor: '#EAF7ED',

@@ -3,9 +3,10 @@
  * Fetches and transforms data using NOW selectors
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { eventBus } from '../events';
 import type { Habit, Todo, Note } from '../types';
 import type {
   NowLockedItem,
@@ -30,6 +31,7 @@ import {
   getWeeklyHabitSummaries,
   computeWeekHealth,
   getWeeklyCaptureCounts,
+  getTodayLogsCount,
 } from './nowSelectors';
 import { getGreeting } from '../today/copy';
 import type { TimeWindow } from '../env';
@@ -50,7 +52,10 @@ export interface NowData {
   weeklySummaries: NowWeeklyHabitSummary[];
   weekHealth: NowWeekHealth;
   capturesCount: number;
+  unsortedCount: number;
   loading: boolean;
+  /** All habits (not just today's) for weekly tracking */
+  allHabits: Habit[];
 }
 
 export interface UseNowDataReturn extends NowData {
@@ -123,10 +128,15 @@ function calculateWeekStatus(
 
 /**
  * Main hook for NOW page data
+ * Uses stale-while-revalidate pattern: keeps existing data visible during reload
  */
 export function useNowData(today: Date = new Date()): UseNowDataReturn {
   const repo = useRepo();
   const { user } = useAuth();
+  const errorCountRef = useRef(0);
+  const lastErrorTimeRef = useRef(0);
+  const isLoadingRef = useRef(false);
+  const hasLoadedOnceRef = useRef(false);
 
   const [data, setData] = useState<NowData>({
     greeting: getGreeting(getTimeWindow(today)),
@@ -157,11 +167,20 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
     weeklySummaries: [],
     weekHealth: 'on_track',
     capturesCount: 0,
+    unsortedCount: 0,
     loading: true,
+    allHabits: [],
   });
 
   const load = useCallback(async () => {
+    // Prevent duplicate simultaneous calls
+    if (isLoadingRef.current) {
+      console.log('[useNowData] Skipping load - already loading');
+      return;
+    }
+
     if (!user) {
+      console.log('[useNowData] No user, showing default greeting');
       const timeWindow = getTimeWindow(today);
       setData((prev) => ({
         ...prev,
@@ -172,9 +191,27 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       return;
     }
 
+    console.log('[useNowData] Starting load...');
+    isLoadingRef.current = true;
+
+    // STALE-WHILE-REVALIDATE: Only show loading state on initial load
+    // For subsequent reloads, keep existing data visible while fetching
+    if (!hasLoadedOnceRef.current) {
+      setData((prev) => ({ ...prev, loading: true }));
+    }
+    // Note: We do NOT set loading: true for reloads - existing data stays visible
+
     try {
       // Fetch all data in parallel
-      const [allRecords, allNotes] = await Promise.all([repo.getAll(), repo.listByType('note')]);
+      const [allRecords, allNotes, unsortedCount] = await Promise.all([
+        repo.getAll(),
+        repo.listByType('note'),
+        repo.countUnsorted(),
+      ]);
+
+      // Reset error counter on success
+      errorCountRef.current = 0;
+      lastErrorTimeRef.current = 0;
 
       // Filter by type
       const habits = allRecords.filter((r): r is Habit => r.type === 'habit');
@@ -211,10 +248,11 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const futureItems = getFutureItems(allEntities, completionHistory, today);
       const completedToday = getCompletedTodayItems(allEntities, today);
       const weeklyCaptureCounts = getWeeklyCaptureCounts(notes, today);
-      const capturesCount =
-        (weeklyCaptureCounts?.listCount ?? 0) +
-        (weeklyCaptureCounts?.journalCount ?? 0) +
-        (weeklyCaptureCounts?.ideaCount ?? 0);
+
+      // Count TODAY's logs for the LOGS label in the header
+      // Uses getTodayLogsCount which handles both explicit date and created_at fallback
+      const capturesCount = getTodayLogsCount(notes, today);
+
       const vaultSummary = getMindVaultSummary(notes, today, weeklyCaptureCounts);
 
       // Calculate progress
@@ -229,17 +267,26 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       const weeklySummaries = getWeeklyHabitSummaries(habits, completionHistory, today);
       const weekHealth = computeWeekHealth(weeklySummaries);
 
-      // Check for yesterday carry-over
+      // Check for yesterday carry-over using due_day (canonical)
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayDateStr = yesterday.toISOString().split('T')[0];
+      const yesterdayYear = yesterday.getFullYear();
+      const yesterdayMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+      const yesterdayDay = String(yesterday.getDate()).padStart(2, '0');
+      const yesterdayDayStr = `${yesterdayYear}-${yesterdayMonth}-${yesterdayDay}`;
 
       const hasYesterdayCarryOver = todos.some((todo) => {
-        if ((todo as any).status === 'completed' || !todo.due_date) return false;
-        return todo.due_date === yesterdayDateStr;
+        // Skip completed todos
+        if ((todo as any).status === 'completed') return false;
+        // Use due_day as canonical
+        if (!todo.due_day) return false;
+        return todo.due_day === yesterdayDayStr;
       });
 
       const timeWindow = getTimeWindow(today);
+
+      // Mark that we've loaded at least once
+      hasLoadedOnceRef.current = true;
 
       setData({
         greeting: getGreeting(timeWindow, user.email?.split('@')[0] || ''),
@@ -255,16 +302,77 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         weeklySummaries,
         weekHealth,
         capturesCount,
+        unsortedCount,
         loading: false,
+        allHabits: habits,
       });
+      isLoadingRef.current = false;
+      console.log('[useNowData] ✅ Load complete');
     } catch (error) {
-      console.error('[useNowData] Error loading data:', error);
+      // Throttle error logging to prevent spam
+      const now = Date.now();
+      const timeSinceLastError = now - lastErrorTimeRef.current;
+
+      // Only log error if it's been more than 5 seconds since last error
+      if (timeSinceLastError > 5000) {
+        console.error('[useNowData] Error loading data:', error);
+        errorCountRef.current = 1;
+      } else {
+        errorCountRef.current += 1;
+      }
+
+      lastErrorTimeRef.current = now;
+
+      // If we've had 3+ errors in quick succession, log a summary
+      if (errorCountRef.current === 3) {
+        console.error(
+          '[useNowData] Multiple network errors detected. Check:',
+          '\n1. Are you logged in?',
+          '\n2. Is your internet connection working?',
+          '\n3. Are your Supabase credentials correct?',
+        );
+      }
+
       setData((prev) => ({ ...prev, loading: false }));
+      isLoadingRef.current = false;
     }
-  }, [repo, user, today]);
+  }, [repo, user]); // Removed 'today' from deps - it causes infinite loops since it's a new Date() each time
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // Auto-reload when an overlay is saved or an item is updated/deleted
+  // This ensures the Today lane updates immediately without waiting for Supabase realtime
+  useEffect(() => {
+    const unsubscribes: Array<() => void> = [];
+
+    unsubscribes.push(
+      eventBus.on('OverlaySaved', (event: { id?: string; type?: string }) => {
+        console.log('[useNowData] OverlaySaved event, reloading...', event);
+        void load();
+      }),
+    );
+
+    // Listen for ItemUpdated (emitted on delete, update)
+    unsubscribes.push(
+      eventBus.on('ItemUpdated', (event: { id: string }) => {
+        console.log('[useNowData] ItemUpdated event, reloading...', event);
+        void load();
+      }),
+    );
+
+    // Listen for ItemCompleted (emitted on completion)
+    unsubscribes.push(
+      eventBus.on('ItemCompleted', () => {
+        console.log('[useNowData] ItemCompleted event, reloading...');
+        void load();
+      }),
+    );
+
+    return () => {
+      unsubscribes.forEach((unsub) => unsub());
+    };
   }, [load]);
 
   return {
