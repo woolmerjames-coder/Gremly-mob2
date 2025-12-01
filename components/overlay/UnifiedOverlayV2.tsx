@@ -92,6 +92,7 @@ import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -933,6 +934,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const fullEntity = (props as any).entity ?? null;
 
   const repo = useRepo();
+  const globalOverlay = useGlobalOverlay();
   const [state, dispatch] = useReducer(v2Reducer, initialV2State);
   const baseType = state.baseType;
   const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
@@ -4283,6 +4285,109 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 trackColor={{ false: '#D1D5DB', true: '#10B981' }}
                                 thumbColor="#FFFFFF"
                               />
+                            </View>
+                          ) : null}
+
+                          {/* Idea Conversion Section */}
+                          {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
+                            <View style={{ marginTop: 16 }}>
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  color: '#888',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                Convert to...
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <Pressable
+                                  onPress={() => {
+                                    const ideaTitle = state.log.title || '';
+                                    const ideaBody = state.log.body || '';
+                                    const ideaId = (initialEntity as any)?.id;
+
+                                    // Close current overlay then open create todo overlay
+                                    onClose();
+                                    setTimeout(() => {
+                                      globalOverlay.openCreate({
+                                        type: 'todo',
+                                        conversionMeta: {
+                                          origin: 'idea_conversion',
+                                          initialTitle: ideaTitle,
+                                          initialNote: ideaBody,
+                                        },
+                                      });
+                                    }, 100);
+
+                                    // Archive the original idea
+                                    if (ideaId) {
+                                      repo.update({ id: ideaId, patch: { archived: true } });
+                                      eventBus.emit('ItemUpdated', { id: ideaId });
+                                    }
+                                  }}
+                                  style={({ pressed }) => ({
+                                    flex: 1,
+                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                    borderRadius: 8,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    minHeight: 44,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexDirection: 'row',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <Text style={{ fontSize: 15 }}>📋</Text>
+                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
+                                    To-Do
+                                  </Text>
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => {
+                                    const ideaTitle = state.log.title || '';
+                                    const ideaBody = state.log.body || '';
+                                    const ideaId = (initialEntity as any)?.id;
+
+                                    // Close current overlay then open create habit overlay
+                                    onClose();
+                                    setTimeout(() => {
+                                      globalOverlay.openCreate({
+                                        type: 'habit',
+                                        conversionMeta: {
+                                          origin: 'idea_conversion',
+                                          initialTitle: ideaTitle,
+                                          initialNote: ideaBody,
+                                        },
+                                      });
+                                    }, 100);
+
+                                    // Archive the original idea
+                                    if (ideaId) {
+                                      repo.update({ id: ideaId, patch: { archived: true } });
+                                      eventBus.emit('ItemUpdated', { id: ideaId });
+                                    }
+                                  }}
+                                  style={({ pressed }) => ({
+                                    flex: 1,
+                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                    borderRadius: 8,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    minHeight: 44,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexDirection: 'row',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <Text style={{ fontSize: 15 }}>🔄</Text>
+                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
+                                    Habit
+                                  </Text>
+                                </Pressable>
+                              </View>
                             </View>
                           ) : null}
 
