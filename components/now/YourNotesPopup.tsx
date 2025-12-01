@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDF8F3', // Warm cream - Gremly brand
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: SCREEN_HEIGHT * 0.7,
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFFFF', // Keep white for input card contrast
     borderWidth: 1,
     borderColor: BORDER_SUBTLE,
     // Shadow for lifted appearance
