@@ -90,34 +90,48 @@ function mapToLogSubtype(dbSubtype: string | null, tags?: string[]): LogSubtypeD
 /**
  * Parse list items from note body if present
  * Detects markdown-style lists (- item, * item, 1. item)
+ *
+ * Note: The notes table doesn't have a list_items column - list data
+ * is stored in a separate list_items table linked to the lists table.
+ * For notes/logs, we parse the body text to detect lists.
  */
 function parseListItems(body: string | null): LogListItem[] | undefined {
   if (!body) return undefined;
 
-  // Match lines that look like list items
-  const listPattern = /^[\s]*[-*•]\s+(.+)$|^[\s]*\d+[.)]\s+(.+)$/gm;
+  // Match lines that look like list items (including checkbox syntax)
+  // Supports: - item, * item, • item, 1. item, [ ] item, [x] item
+  const listPattern = /^[\s]*(?:[-*•]|\d+[.)]|\[[ xX]\])\s+(.+)$/gm;
   const matches = [...body.matchAll(listPattern)];
 
   if (matches.length === 0) return undefined;
 
-  return matches.map((match, index) => ({
-    id: `list-item-${index}`,
-    label: (match[1] || match[2] || '').trim(),
-    checked: false, // Default to unchecked - could parse [ ] or [x] later
-  }));
+  return matches.map((match, index) => {
+    const line = match[0];
+    const label = match[1]?.trim() || '';
+    // Detect checked state from [x] or [X] checkbox
+    const isChecked = /^\s*\[[xX]\]/.test(line);
+
+    return {
+      id: `list-item-${index}`,
+      label,
+      checked: isChecked,
+    };
+  });
 }
 
 /**
  * Check if note content appears to be a list
+ * Detects bullet points, numbered lists, and checkbox syntax
  */
 function detectIsList(body: string | null): boolean {
   if (!body) return false;
 
-  // Count list-like lines
-  const listPattern = /^[\s]*[-*•]\s+.+$|^[\s]*\d+[.)]\s+.+$/gm;
+  // Count list-like lines (including checkbox syntax)
+  const listPattern = /^[\s]*(?:[-*•]|\d+[.)]|\[[ xX]\])\s+.+$/gm;
   const matches = body.match(listPattern);
 
-  // Consider it a list if more than 50% of lines are list items
+  // Consider it a list if we have at least 2 list items
+  // and they make up at least 50% of non-empty lines
   if (matches && matches.length >= 2) {
     const totalLines = body.split('\n').filter((l) => l.trim()).length;
     return matches.length / totalLines >= 0.5;

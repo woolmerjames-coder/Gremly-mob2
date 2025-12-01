@@ -27,6 +27,7 @@ import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverla
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
+import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
 import TodayPillsRow from '../../components/today/TodayPillsRow';
 import SweepDrawer from '../../components/today/v3/SweepDrawer';
@@ -195,6 +196,8 @@ export default function NowScreenV1() {
   const [isSweepVisible, setSweepVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
+  const [isJournalVisible, setJournalVisible] = useState(false);
+  const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
   const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
@@ -354,16 +357,11 @@ export default function NowScreenV1() {
   );
 
   // Handle selecting a journal from YourNotesPopup
-  const handleSelectJournal = useCallback(
-    (log: LogItem) => {
-      setNotesVisible(false);
-      // For now, open overlay to edit (Phase 3: navigate to JournalFullScreen)
-      overlayController.openEdit({
-        record: { id: log.id, type: 'note' } as any,
-      });
-    },
-    [overlayController],
-  );
+  const handleSelectJournal = useCallback((log: LogItem) => {
+    setNotesVisible(false);
+    setSelectedJournalId(log.id);
+    setJournalVisible(true);
+  }, []);
 
   // Handle creating new note from YourNotesPopup quick capture
   const handleNotesCreateNew = useCallback(
@@ -496,6 +494,21 @@ export default function NowScreenV1() {
         onSelectLog={handleSelectLog}
         onSelectJournal={handleSelectJournal}
         onCreateNew={handleNotesCreateNew}
+      />
+
+      <JournalFullScreen
+        visible={isJournalVisible}
+        logId={selectedJournalId ?? undefined}
+        onClose={() => {
+          setJournalVisible(false);
+          setSelectedJournalId(null);
+        }}
+        onSave={() => {
+          setJournalVisible(false);
+          setSelectedJournalId(null);
+          // Refresh recent logs to show updated journal
+          void reload();
+        }}
       />
     </Screen>
   );
