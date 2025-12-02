@@ -4778,14 +4778,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={insets.top + SPACE * 6}
+        keyboardVerticalOffset={0}
       >
         <View
           style={[
             styles.contentWrapper,
             {
               paddingTop: insets.top + SPACE * 3,
-              paddingBottom: insets.bottom,
+              paddingBottom: 8,
               paddingHorizontal: SPACE * 2,
             },
           ]}
