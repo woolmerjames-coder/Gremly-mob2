@@ -58,6 +58,7 @@ import { Layers, Plus, X } from 'lucide-react-native';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import BUTTON_HP from '../../assets/buttonforHP.png';
 import GREMLY_WAVING from '../../assets/gremlywaving.png';
+import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -76,6 +77,17 @@ const getSpaceIcon = (name: string) => {
   if (/home|house|family/i.test(name)) return '🏠';
   if (/learn|study|book|education/i.test(name)) return '📚';
   return '📁';
+};
+
+// Helper to get user initials from email
+const getUserInitials = (email?: string | null): string => {
+  if (!email) return 'G';
+  const name = email.split('@')[0];
+  const parts = name.split(/[._-]/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 };
 
 function GremlyHomeScreen() {
@@ -170,6 +182,23 @@ function GremlyHomeScreen() {
     >
       <Screen scroll padded={false} testID="spaces-screen">
         {dsMarker}
+
+        {/* Top Navigation Bar */}
+        <View style={styles.topNavBar}>
+          <Image source={GREMLY_WORDMARK} style={styles.topNavWordmark} resizeMode="contain" />
+          <Pressable
+            onPress={() => {
+              // TODO: Navigate to Settings/Profile when available
+              Alert.alert('Profile', `Logged in as ${user?.email || 'Guest'}`);
+            }}
+            style={styles.topNavAvatar}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
+          >
+            <Text style={styles.topNavAvatarText}>{getUserInitials(user?.email)}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.topNavDivider} />
 
         {/* Hero Section - New Welcome */}
         <View style={styles.heroSection}>
@@ -359,6 +388,37 @@ function GremlyHomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Top Navigation Bar
+  topNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9F6F1', // Linen Cream
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  topNavWordmark: {
+    height: 32,
+    width: 100,
+  },
+  topNavAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#2E5540', // Moss Green
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topNavAvatarText: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  topNavDivider: {
+    height: 1,
+    backgroundColor: 'rgba(46, 85, 64, 0.12)', // Moss Green at ~12%
+  },
   heroSection: {
     alignItems: 'center',
     paddingTop: 24,
