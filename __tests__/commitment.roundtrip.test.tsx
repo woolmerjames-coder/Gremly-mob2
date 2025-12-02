@@ -225,7 +225,8 @@ describe('Commitment Round-Trip', () => {
 
       const payload = buildDraftPayloadFromEntity(mockHabit);
 
-      expect(payload.habit?.frequency_json).toBe(null);
+      // When frequency_value is missing, defaults to simple daily
+      expect(payload.habit?.frequency_json).toEqual({ type: 'simple', value: 'daily' });
     });
   });
 });

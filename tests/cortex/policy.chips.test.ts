@@ -66,8 +66,9 @@ describe('buildMindDropAskChips (canonical flag on)', () => {
         confidence: 0.55,
       });
 
+      // Habit name should be the activity only, cadence is stored in freq field
       expect(chips.find((chip) => chip.type === 'create.habit')).toMatchObject({
-        payload: { name: 'Run 3 times a week', freq: 'weekly' },
+        payload: { name: 'Run', freq: 'weekly' },
       });
     });
 
