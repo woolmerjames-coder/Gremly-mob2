@@ -55,11 +55,9 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { Plus, X, ChevronRight } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
-import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import BUTTON_HP from '../../assets/buttonforHP.png';
 import GREMLY_WAVING from '../../assets/gremlywaving.png';
 import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
-import SPACES_TITLE from '../../assets/spacestitle.png';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
