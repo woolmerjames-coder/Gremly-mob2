@@ -899,7 +899,7 @@ function removeMetaTag(
   const key = canonical.toLowerCase();
   return list.filter((entry) => typeof entry === 'string' && entry.toLowerCase() !== key);
 }
-const SHEET_H = Math.round(Dimensions.get('window').height * 0.8);
+const SHEET_MAX_H = Math.round(Dimensions.get('window').height * 0.9);
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -2474,12 +2474,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
-  // Phase 6a: Overlay surface background - light mode should be pure white for a clean sheet look
-  const sheetBackground = colorMode === 'dark' ? darkTokens.colors.linen : '#FFFFFF';
+  // Phase 6a: Overlay surface background - use brand cream color for warmth
+  const sheetBackground = colorMode === 'dark' ? darkTokens.colors.linen : '#F9F6F1'; // linenCream
+  // Footer bar keeps a clean white background for contrast with Save button
+  const footerBackground = sheetBackground; // Match sheet background
   const sheetBorderColor = colorMode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
   const handleColor = colorMode === 'dark' ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.16)';
-  const typeTabActiveColor =
-    colorMode === 'dark' ? darkTokens.colors.charcoal : lightTokens.colors.charcoal;
+  const typeTabActiveColor = colorMode === 'dark' ? darkTokens.colors.moss : '#2E5540';
   const typeTabInactiveColor =
     colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
   const typeTabUnderlineColor =
@@ -3396,7 +3397,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   return (
     <KeyboardAvoidingView
-      style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.05)' }]}
+      style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.10)' }]}
       behavior={Platform.select({ ios: 'position', android: undefined })}
       keyboardVerticalOffset={0}
       contentContainerStyle={{ flex: 1 }}
@@ -3421,7 +3422,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             style={{
               width: '100%',
               alignSelf: 'stretch',
-              height: SHEET_H,
+              maxHeight: SHEET_MAX_H,
               borderTopLeftRadius: tokenRadius.md,
               borderTopRightRadius: tokenRadius.md,
               overflow: 'hidden',
@@ -3615,45 +3616,39 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </View>
                 {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
               </View>
+              {/* Decorative title divider */}
+              <View
+                style={{
+                  width: '35%',
+                  height: 1,
+                  backgroundColor: 'rgba(191, 216, 192, 0.9)',
+                  marginTop: 8,
+                  marginBottom: 16,
+                }}
+              />
             </Box>
 
             {/* Body: entire form stack in a single scroll context */}
             <ScrollView
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120, paddingTop: 0 }}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, paddingTop: 0 }}
             >
-              {/* Phase 6c: Type selector - underline style directly below header */}
-              <View style={[styles.typeTabsRow, { marginTop: 12, marginBottom: 10 }]}>
+              {/* Phase 6c: Type selector - segmented control */}
+              <View style={styles.tabsContainer}>
                 {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
                   const selected = baseType === t;
                   return (
                     <Pressable
                       key={t}
                       onPress={() => handleTypeSelect(t)}
-                      style={styles.typeTab}
+                      style={[styles.tab, selected && styles.tabActive]}
                       accessibilityRole="tab"
                       accessibilityState={{ selected }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Text
-                        style={[
-                          styles.typeTabLabel,
-                          {
-                            color: selected ? typeTabActiveColor : typeTabInactiveColor,
-                            fontWeight: selected ? '600' : '500',
-                          },
-                        ]}
-                      >
+                      <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>
                         {BASE_LABEL[t]}
                       </Text>
-                      <View
-                        style={[
-                          styles.typeTabUnderline,
-                          {
-                            backgroundColor: selected ? getTypeAccentColor(t) : 'transparent',
-                          },
-                        ]}
-                      />
                     </Pressable>
                   );
                 })}
@@ -3666,8 +3661,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    marginTop: 4,
-                    marginBottom: 8,
+                    marginTop: 0,
+                    marginBottom: 16,
                     paddingHorizontal: 4,
                   }}
                 >
@@ -3695,7 +3690,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               )}
 
               {/* Main text field - moved above tags */}
-              <Box px={4} mt={3}>
+              <Box style={{ marginBottom: 16 }}>
                 <View style={{ position: 'relative' }}>
                   {/* Standard text input for all log subtypes */}
                   <TextInput
@@ -3731,8 +3726,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       onPress={handleOpenMultiPhotoActionSheet}
                       style={({ pressed }) => ({
                         position: 'absolute',
-                        bottom: 12,
-                        right: 12,
+                        bottom: 14,
+                        right: 14,
                         width: 40,
                         height: 40,
                         borderRadius: 20,
@@ -3811,7 +3806,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               )}
 
               {/* Tags row - now directly below text field */}
-              <Box px={4} mt={2.5}>
+              <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
                 <TagsRow
                   tags={activeTagChips}
                   suggested={suggestionChips}
@@ -3831,7 +3826,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
               {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
               {isJournal ? (
-                <Box px={4} mt={3}>
+                <Box style={{ marginBottom: 16 }}>
                   <View style={styles.logMetaRow}>
                     {logTimestampLabel ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -3878,9 +3873,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </Box>
               ) : null}
 
-              <Box px={4}>
+              <Box>
                 {baseType === 'todo' || baseType === 'habit' ? (
-                  <Box mt={3}>
+                  <Box style={{ marginBottom: 0 }}>
                     {/* Due date + Lock In row */}
                     <View style={styles.dueAndLockRow}>
                       {/* Left side: Due date */}
@@ -4101,39 +4096,49 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Box>
                 ) : null}
 
-                <Box mt={3.5} row style={{ alignItems: 'center' }}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
+                  <Pressable
                     onPress={handleToggleDetails}
-                    title={state.expanded ? 'Hide details' : '+ Details'}
-                  />
-                  <Box flex={1} />
-                </Box>
+                    hitSlop={8}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                  >
+                    <Text
+                      style={{
+                        color: 'rgba(46, 85, 64, 0.75)',
+                        fontWeight: '500',
+                        fontSize: 14,
+                      }}
+                    >
+                      {state.expanded ? 'Hide details' : 'Show details'}
+                    </Text>
+                  </Pressable>
+                </View>
                 {state.expanded ? (
-                  <Reanimated.View style={[detailsStyle, { marginTop: tokenSpacing.sm }]}>
+                  <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
                     <Box pb={2}>
                       {/* To-Do Details */}
                       {baseType === 'todo' ? (
-                        <View style={{ marginTop: 8 }}>
+                        <View>
                           {/* 1) Reminders row */}
                           <Pressable
                             onPress={() => {
                               setShowRemindersModal(true);
                             }}
                             style={({ pressed }) => [
-                              styles.detailRow,
-                              pressed && styles.detailRowPressed,
+                              styles.detailsRow,
+                              pressed && styles.detailsRowPressed,
                             ]}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Bell
-                                size={18}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                              />
-                              <Text style={styles.detailRowText}>Reminders</Text>
+                            <View style={styles.detailsRowLeft}>
+                              <View style={styles.detailsRowIcon}>
+                                <Bell
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                              </View>
+                              <Text style={styles.detailsRowLabel}>Reminders</Text>
                             </View>
-                            <Text style={styles.detailRowValue}>
+                            <Text style={styles.detailsRowValue}>
                               {formatReminderSummary(reminders)}
                             </Text>
                           </Pressable>
@@ -4142,20 +4147,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           <Pressable
                             onPress={() => setShowSpaceModal(true)}
                             style={({ pressed }) => [
-                              styles.detailRow,
-                              { marginTop: 8 },
-                              pressed && styles.detailRowPressed,
+                              styles.detailsRow,
+                              pressed && styles.detailsRowPressed,
                             ]}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Folder
-                                size={18}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                              />
-                              <Text style={styles.detailRowText}>Add to Space</Text>
+                            <View style={styles.detailsRowLeft}>
+                              <View style={styles.detailsRowIcon}>
+                                <Folder
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                              </View>
+                              <Text style={styles.detailsRowLabel}>Add to Space</Text>
                             </View>
                             {state.spaceId ? (
-                              <Text style={styles.detailRowValue}>
+                              <Text style={styles.detailsRowValue}>
                                 {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
                               </Text>
                             ) : null}
@@ -4163,83 +4169,78 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           {/* 3) Delete To-Do row (only in edit mode) */}
                           {mode === 'edit' && (initialEntity as any)?.id ? (
-                            <View style={{ marginTop: 16 }}>
-                              <View style={styles.detailDivider} />
-                              <Pressable
-                                onPress={() => {
-                                  Alert.alert('Delete this to-do?', "This can't be undone.", [
-                                    {
-                                      text: 'Cancel',
-                                      style: 'cancel',
+                            <Pressable
+                              onPress={() => {
+                                Alert.alert('Delete this to-do?', "This can't be undone.", [
+                                  {
+                                    text: 'Cancel',
+                                    style: 'cancel',
+                                  },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        const itemId = (initialEntity as any).id;
+                                        // Emit delete event BEFORE closing for optimistic UI
+                                        eventBus.emit('ItemDeleted', {
+                                          id: itemId,
+                                          type: 'todo',
+                                        });
+                                        onClose();
+                                        // Perform actual delete in background
+                                        await repo.remove(itemId);
+                                        eventBus.emit('ItemUpdated', { id: itemId });
+                                      } catch (err) {
+                                        console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                        Alert.alert(
+                                          'Error',
+                                          'Failed to delete to-do. Please try again.',
+                                        );
+                                      }
                                     },
-                                    {
-                                      text: 'Delete',
-                                      style: 'destructive',
-                                      onPress: async () => {
-                                        try {
-                                          const itemId = (initialEntity as any).id;
-                                          // Emit delete event BEFORE closing for optimistic UI
-                                          eventBus.emit('ItemDeleted', {
-                                            id: itemId,
-                                            type: 'todo',
-                                          });
-                                          onClose();
-                                          // Perform actual delete in background
-                                          await repo.remove(itemId);
-                                          eventBus.emit('ItemUpdated', { id: itemId });
-                                        } catch (err) {
-                                          console.error('[UnifiedOverlayV2] Delete failed:', err);
-                                          Alert.alert(
-                                            'Error',
-                                            'Failed to delete to-do. Please try again.',
-                                          );
-                                        }
-                                      },
-                                    },
-                                  ]);
-                                }}
-                                style={({ pressed }) => [
-                                  { paddingVertical: 12 },
-                                  pressed && { opacity: 0.7 },
-                                ]}
-                              >
-                                <View
-                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                                >
-                                  <Trash2 size={16} color="#DC2626" />
-                                  <Text
-                                    style={{ color: '#DC2626', fontSize: 14, fontWeight: '500' }}
-                                  >
-                                    Delete to-do
-                                  </Text>
+                                  },
+                                ]);
+                              }}
+                              style={({ pressed }) => [
+                                styles.detailsRow,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                <View style={styles.detailsRowIcon}>
+                                  <Trash2 size={18} color="#D9534F" />
                                 </View>
-                              </Pressable>
-                            </View>
+                                <Text style={styles.deleteText}>Delete to-do</Text>
+                              </View>
+                            </Pressable>
                           ) : null}
                         </View>
                       ) : null}
 
                       {/* Habit Details */}
                       {baseType === 'habit' ? (
-                        <View style={{ marginTop: 8 }}>
+                        <View>
                           {/* 1) Reminders row */}
                           <Pressable
                             onPress={() => {
                               setShowRemindersModal(true);
                             }}
                             style={({ pressed }) => [
-                              styles.detailRow,
-                              pressed && styles.detailRowPressed,
+                              styles.detailsRow,
+                              pressed && styles.detailsRowPressed,
                             ]}
                           >
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Bell
-                                size={18}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                              />
-                              <Text style={styles.detailRowText}>Reminders</Text>
+                              <View style={styles.detailsRowIcon}>
+                                <Bell
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                              </View>
+                              <Text style={styles.detailsRowLabel}>Reminders</Text>
                             </View>
-                            <Text style={styles.detailRowValue}>
+                            <Text style={styles.detailsRowValue}>
                               {formatReminderSummary(reminders)}
                             </Text>
                           </Pressable>
@@ -4248,20 +4249,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           <Pressable
                             onPress={() => setShowSpaceModal(true)}
                             style={({ pressed }) => [
-                              styles.detailRow,
-                              { marginTop: 8 },
-                              pressed && styles.detailRowPressed,
+                              styles.detailsRow,
+                              { marginTop: 0 },
+                              pressed && styles.detailsRowPressed,
                             ]}
                           >
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Folder
-                                size={18}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                              />
-                              <Text style={styles.detailRowText}>Add to Space</Text>
+                              <View style={styles.detailsRowIcon}>
+                                <Folder
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                              </View>
+                              <Text style={styles.detailsRowLabel}>Add to Space</Text>
                             </View>
                             {state.spaceId ? (
-                              <Text style={styles.detailRowValue}>
+                              <Text style={styles.detailsRowValue}>
                                 {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
                               </Text>
                             ) : null}
@@ -4269,83 +4272,78 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           {/* 3) Delete Habit row (only in edit mode) */}
                           {mode === 'edit' && (initialEntity as any)?.id ? (
-                            <View style={{ marginTop: 16 }}>
-                              <View style={styles.detailDivider} />
-                              <Pressable
-                                onPress={() => {
-                                  Alert.alert('Delete this habit?', "This can't be undone.", [
-                                    {
-                                      text: 'Cancel',
-                                      style: 'cancel',
+                            <Pressable
+                              onPress={() => {
+                                Alert.alert('Delete this habit?', "This can't be undone.", [
+                                  {
+                                    text: 'Cancel',
+                                    style: 'cancel',
+                                  },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        const itemId = (initialEntity as any).id;
+                                        // Emit delete event BEFORE closing for optimistic UI
+                                        eventBus.emit('ItemDeleted', {
+                                          id: itemId,
+                                          type: 'habit',
+                                        });
+                                        onClose();
+                                        // Perform actual delete in background
+                                        await repo.remove(itemId);
+                                        eventBus.emit('ItemUpdated', { id: itemId });
+                                      } catch (err) {
+                                        console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                        Alert.alert(
+                                          'Error',
+                                          'Failed to delete habit. Please try again.',
+                                        );
+                                      }
                                     },
-                                    {
-                                      text: 'Delete',
-                                      style: 'destructive',
-                                      onPress: async () => {
-                                        try {
-                                          const itemId = (initialEntity as any).id;
-                                          // Emit delete event BEFORE closing for optimistic UI
-                                          eventBus.emit('ItemDeleted', {
-                                            id: itemId,
-                                            type: 'habit',
-                                          });
-                                          onClose();
-                                          // Perform actual delete in background
-                                          await repo.remove(itemId);
-                                          eventBus.emit('ItemUpdated', { id: itemId });
-                                        } catch (err) {
-                                          console.error('[UnifiedOverlayV2] Delete failed:', err);
-                                          Alert.alert(
-                                            'Error',
-                                            'Failed to delete habit. Please try again.',
-                                          );
-                                        }
-                                      },
-                                    },
-                                  ]);
-                                }}
-                                style={({ pressed }) => [
-                                  { paddingVertical: 12 },
-                                  pressed && { opacity: 0.7 },
-                                ]}
-                              >
-                                <View
-                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                                >
-                                  <Trash2 size={16} color="#DC2626" />
-                                  <Text
-                                    style={{ color: '#DC2626', fontSize: 14, fontWeight: '500' }}
-                                  >
-                                    Delete habit
-                                  </Text>
+                                  },
+                                ]);
+                              }}
+                              style={({ pressed }) => [
+                                styles.detailsRow,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                <View style={styles.detailsRowIcon}>
+                                  <Trash2 size={18} color="#D9534F" />
                                 </View>
-                              </Pressable>
-                            </View>
+                                <Text style={styles.deleteText}>Delete habit</Text>
+                              </View>
+                            </Pressable>
                           ) : null}
                         </View>
                       ) : null}
 
                       {/* Log Details */}
                       {baseType === 'log' ? (
-                        <View style={{ marginTop: 16, paddingHorizontal: 16 }}>
+                        <View>
                           {/* 1) Reminders row */}
                           <Pressable
                             onPress={() => {
                               setShowRemindersModal(true);
                             }}
                             style={({ pressed }) => [
-                              styles.detailRow,
-                              pressed && styles.detailRowPressed,
+                              styles.detailsRow,
+                              pressed && styles.detailsRowPressed,
                             ]}
                           >
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Bell
-                                size={18}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                              />
-                              <Text style={styles.detailRowText}>Reminders</Text>
+                              <View style={styles.detailsRowIcon}>
+                                <Bell
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                              </View>
+                              <Text style={styles.detailsRowLabel}>Reminders</Text>
                             </View>
-                            <Text style={styles.detailRowValue}>
+                            <Text style={styles.detailsRowValue}>
                               {formatReminderSummary(reminders)}
                             </Text>
                           </Pressable>
@@ -4354,19 +4352,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           <Pressable
                             onPress={() => setShowSpaceModal(true)}
                             style={({ pressed }) => [
-                              styles.detailRow,
-                              { marginTop: 12 },
-                              pressed && styles.detailRowPressed,
+                              styles.detailsRow,
+                              { marginTop: 0 },
+                              pressed && styles.detailsRowPressed,
                             ]}
                           >
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Folder
-                                size={18}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                              />
-                              <Text style={styles.detailRowText}>Add to Space</Text>
+                              <View style={styles.detailsRowIcon}>
+                                <Folder
+                                  size={18}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                />
+                              </View>
+                              <Text style={styles.detailsRowLabel}>Add to Space</Text>
                             </View>
-                            <Text style={styles.detailRowValue}>
+                            <Text style={styles.detailsRowValue}>
                               {state.spaceId
                                 ? (spaces.find((s) => s.id === state.spaceId)?.name ?? 'Unassigned')
                                 : 'Unassigned'}
@@ -4375,13 +4375,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
                           {showLogPrivateToggle ? (
-                            <View style={[styles.detailRow, { marginTop: 12 }]}>
+                            <View style={[styles.detailsRow, { marginTop: 0 }]}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                <Lock
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                                <Text style={styles.detailRowText}>Private</Text>
+                                <View style={styles.detailsRowIcon}>
+                                  <Lock
+                                    size={18}
+                                    color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
+                                  />
+                                </View>
+                                <Text style={styles.detailsRowLabel}>Private</Text>
                               </View>
                               <Switch
                                 value={state.logIsPrivate}
@@ -4512,65 +4514,53 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </View>
                           ) : null}
 
-                          {/* 4) Divider before Delete */}
+                          {/* 4) Delete log row (only in edit mode) */}
                           {mode === 'edit' && (initialEntity as any)?.id ? (
-                            <>
-                              <View style={[styles.detailDivider, { marginTop: 16 }]} />
-
-                              {/* 5) Delete log row */}
-                              <Pressable
-                                onPress={() => {
-                                  Alert.alert('Delete this log?', "This can't be undone.", [
-                                    {
-                                      text: 'Cancel',
-                                      style: 'cancel',
+                            <Pressable
+                              onPress={() => {
+                                Alert.alert('Delete this log?', "This can't be undone.", [
+                                  {
+                                    text: 'Cancel',
+                                    style: 'cancel',
+                                  },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        const itemId = (initialEntity as any).id;
+                                        // Emit delete event BEFORE closing for optimistic UI
+                                        eventBus.emit('ItemDeleted', {
+                                          id: itemId,
+                                          type: 'note',
+                                        });
+                                        onClose();
+                                        // Perform actual delete in background
+                                        await repo.remove(itemId);
+                                        eventBus.emit('ItemUpdated', { id: itemId });
+                                      } catch (err) {
+                                        console.error('[UnifiedOverlayV2] Delete log failed:', err);
+                                        Alert.alert(
+                                          'Error',
+                                          'Failed to delete log. Please try again.',
+                                        );
+                                      }
                                     },
-                                    {
-                                      text: 'Delete',
-                                      style: 'destructive',
-                                      onPress: async () => {
-                                        try {
-                                          const itemId = (initialEntity as any).id;
-                                          // Emit delete event BEFORE closing for optimistic UI
-                                          eventBus.emit('ItemDeleted', {
-                                            id: itemId,
-                                            type: 'note',
-                                          });
-                                          onClose();
-                                          // Perform actual delete in background
-                                          await repo.remove(itemId);
-                                          eventBus.emit('ItemUpdated', { id: itemId });
-                                        } catch (err) {
-                                          console.error(
-                                            '[UnifiedOverlayV2] Delete log failed:',
-                                            err,
-                                          );
-                                          Alert.alert(
-                                            'Error',
-                                            'Failed to delete log. Please try again.',
-                                          );
-                                        }
-                                      },
-                                    },
-                                  ]);
-                                }}
-                                style={({ pressed }) => [
-                                  { paddingVertical: 12 },
-                                  pressed && { opacity: 0.7 },
-                                ]}
-                              >
-                                <View
-                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                                >
-                                  <Trash2 size={16} color="#DC2626" />
-                                  <Text
-                                    style={{ color: '#DC2626', fontSize: 14, fontWeight: '500' }}
-                                  >
-                                    Delete log
-                                  </Text>
+                                  },
+                                ]);
+                              }}
+                              style={({ pressed }) => [
+                                styles.detailsRow,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                <View style={styles.detailsRowIcon}>
+                                  <Trash2 size={18} color="#D9534F" />
                                 </View>
-                              </Pressable>
-                            </>
+                                <Text style={styles.deleteText}>Delete log</Text>
+                              </View>
+                            </Pressable>
                           ) : null}
                         </View>
                       ) : null}
@@ -5921,25 +5911,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             ) : null}
 
             {/* Phase 6d: Footer with better spacing and clear primary action */}
-            <SafeAreaView
+            <View
               style={{
-                backgroundColor: sheetBackground,
-                paddingBottom: (insets?.bottom ?? 0) + 12,
+                backgroundColor: footerBackground,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(191, 216, 192, 0.4)',
               }}
             >
               <Box
                 style={{
                   paddingHorizontal: 16,
-                  paddingVertical: 14,
                   paddingTop: 20,
-                  // soften footer separation
-                  borderTopWidth: 0,
-                  paddingBottom: 0, // handled by SafeAreaView padding
-                  backgroundColor: sheetBackground,
+                  paddingBottom: 20,
+                  backgroundColor: footerBackground,
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  gap: 12,
                 }}
               >
                 {/* Cancel button - text-only, subtle */}
@@ -5950,7 +5937,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   accessibilityRole="button"
                   accessibilityLabel="Cancel"
                   style={{
-                    paddingHorizontal: 12,
                     paddingVertical: 12,
                     minHeight: 44,
                     justifyContent: 'center',
@@ -5962,9 +5948,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         ? colorMode === 'dark'
                           ? 'rgba(255,255,255,0.3)'
                           : 'rgba(34,34,34,0.3)'
-                        : '#666666',
+                        : 'rgba(34,34,34,0.7)',
                       fontSize: 14,
-                      fontWeight: '400',
+                      fontWeight: '500',
                     }}
                   >
                     Cancel
@@ -6009,13 +5995,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Pressable>
                 </Reanimated.View>
               </Box>
-            </SafeAreaView>
-            <ToastUndo
-              visible={showUndoToast}
-              onUndo={handleUndo}
-              onHide={() => setShowUndoToast(false)}
-              message="Change saved"
-            />
+            </View>
           </View>
         </RNAnimated.View>
       </View>
@@ -6530,33 +6510,45 @@ function buildCreateOrUpdateInput({
 }
 
 const styles = StyleSheet.create({
-  // Phase 6c: Type selector - underline style
-  typeTabsRow: {
+  // Phase 6c: Type selector - segmented control
+  tabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(191, 216, 192, 0.18)',
+    padding: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
   },
-  typeTab: {
+  tab: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 6,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
   },
-  typeTabLabel: {
-    fontSize: 12,
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8A8F8A',
   },
-  typeTabUnderline: {
-    alignSelf: 'stretch',
-    height: 2,
-    marginTop: 4,
-    borderRadius: tokenRadius.sm,
+  tabActive: {
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+  },
+  tabLabelActive: {
+    color: '#2E5540',
+    fontWeight: '600',
   },
   textArea: {
     minHeight: 120,
     fontSize: 16,
     lineHeight: 24,
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 0,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    textAlignVertical: 'top',
   },
 
   /* Due date pill styling */
@@ -6600,6 +6592,7 @@ const styles = StyleSheet.create({
   },
   lockIcon: {
     opacity: 0.7,
+    marginRight: 2,
   },
   lockLabel: {
     fontSize: 13,
@@ -6635,13 +6628,6 @@ const styles = StyleSheet.create({
     borderColor: lightTokens.colors.border,
     // use token elevation for a subtle shadow
     ...lightTokens.elevation.lg,
-  },
-
-  detailsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: tokenSpacing.sm,
-    marginTop: tokenSpacing.sm,
   },
 
   controlButton: {
@@ -6682,22 +6668,40 @@ const styles = StyleSheet.create({
   },
 
   /* Detail row styles for redesigned To-Do details section */
-  detailRow: {
+  /* Details row styles - unified layout */
+  detailsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 44,
     paddingVertical: 10,
   },
-  detailRowPressed: {
+  detailsRowPressed: {
     backgroundColor: 'rgba(0,0,0,0.02)',
   },
-  detailRowText: {
-    fontSize: 15,
-    color: '#111827',
+  detailsRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  detailRowValue: {
+  detailsRowIcon: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  detailsRowLabel: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#222222',
+  },
+  detailsRowValue: {
+    fontSize: 14,
+    color: '#8A8F8A',
+  },
+  deleteText: {
+    color: '#D9534F',
+    fontWeight: '500',
+    fontSize: 14,
   },
   detailDivider: {
     height: StyleSheet.hairlineWidth,
