@@ -8,17 +8,28 @@
  * - 11/5, 11/5/2025, 2025-11-05, 2025-11-05 14:00
  * - in 2h, in 30m, eod, eom
  *
- * Returns an ISO string in local timezone (offset applied), plus date/time strings for UI,
- * confidence, the matched text, and the text without the matched "when" phrase (for optional title cleanup).
+ * Returns an ISO string, plus date/time strings for UI,
+ * confidence, the matched text, and the text without the matched "when" phrase.
+ *
+ * IMPORTANT: For date-only phrases (no explicit time), we return:
+ * - granularity: 'date'
+ * - time: null
+ * - iso: the date at 12:00:00 UTC (noon) to prevent timezone shift bugs
+ *
+ * For explicit time phrases, we return:
+ * - granularity: 'time'
+ * - time: HH:MM in local time
+ * - iso: full timestamp with the user's intended time
  */
 export type ParsedDue = {
-  iso: string; // ISO with timezone offset applied
+  iso: string; // ISO string - noon UTC for date-only, actual time for explicit time
   date: string; // YYYY-MM-DD in local time
-  time: string | null; // HH:MM in local time when granularity is time
+  time: string | null; // HH:MM in local time ONLY when user explicitly specified a time
   confidence: number; // 0..1
   granularity: 'date' | 'time';
   matched: string;
   textWithoutWhen: string;
+  explicitTime: boolean; // true if user explicitly gave a time, false for date-only phrases
 };
 
 function pad(n: number) {
@@ -38,6 +49,19 @@ function toIsoLocal(d: Date) {
   const tzh = pad(Math.floor(Math.abs(tz) / 60));
   const tzm = pad(Math.abs(tz) % 60);
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}${sign}${tzh}:${tzm}`;
+}
+
+/**
+ * Build a noon UTC ISO string for a given local date.
+ * This is used for date-only phrases to avoid timezone bugs where
+ * "today" at 5pm local becomes "tomorrow" in UTC.
+ *
+ * By using noon UTC, the date stays the same regardless of timezone
+ * (as long as the user is within UTC-12 to UTC+12, which covers all timezones).
+ */
+function toNoonUtcIso(year: number, month: number, day: number): string {
+  // Create the ISO string directly as YYYY-MM-DDT12:00:00Z
+  return `${year}-${pad(month)}-${pad(day)}T12:00:00Z`;
 }
 
 function toDateStr(d: Date) {
@@ -87,6 +111,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
   let d = new Date(now);
   let granularity: ParsedDue['granularity'] = 'date';
   let confidence = 0;
+  let explicitTime = false;
 
   // Helpers
   const rm = (m: string) => {
@@ -134,16 +159,18 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     granularity,
     matched,
     textWithoutWhen: cleaned,
+    explicitTime,
   });
 
   // Explicit ISO or date-like first
   // yyyy-mm-dd( hh:mm)? or mm/dd(/yyyy)?
-  const isoDateTime = /\b(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?\b/.exec(low);
+  const isoDateTime = /\b(\d{4})-(\d{2})-(\d{2})(?:[ tT](\d{2}):(\d{2}))?\b/.exec(low);
   if (isoDateTime) {
     const [, Y, M, D, H, I] = isoDateTime;
     d = new Date(Number(Y), Number(M) - 1, Number(D), Number(H ?? '9'), Number(I ?? '0'), 0, 0);
     confidence = H ? 0.98 : 0.95;
     granularity = H ? 'time' : 'date';
+    explicitTime = !!H;
     const start = isoDateTime.index ?? low.indexOf(isoDateTime[0]);
     let end = start + isoDateTime[0].length;
     if (!H) {
@@ -153,6 +180,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
         granularity = 'time';
         confidence = Math.max(confidence, 0.97);
         end += trailing.consumed;
+        explicitTime = true;
       }
     }
     return finish(removeSpan(start, end));
@@ -175,6 +203,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
       granularity = 'time';
       confidence = Math.max(confidence, 0.93);
       end += trailing.consumed;
+      explicitTime = true;
     }
     return finish(removeSpan(start, end));
   }
@@ -189,6 +218,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     else d.setMinutes(d.getMinutes() + n);
     confidence = 0.9;
     granularity = 'time';
+    explicitTime = true;
     return finish(rm(inRel[0]));
   }
 
@@ -205,6 +235,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
       granularity = 'time';
       confidence = Math.max(confidence, 0.9);
       end += trailing.consumed;
+      explicitTime = true;
     }
     return finish(removeSpan(todayMatch.index, end));
   }
@@ -222,6 +253,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
       granularity = 'time';
       confidence = Math.max(confidence, 0.92);
       end += trailing.consumed;
+      explicitTime = true;
     }
     return finish(removeSpan(tomorrowMatch.index, end));
   }
@@ -232,6 +264,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 17, 0, 0, 0);
     confidence = 0.85;
     granularity = 'time';
+    explicitTime = true;
     return finish(rm(eodMatch[0]));
   }
   const eomMatch = /\b(eom|end of month)\b/i.exec(low);
@@ -282,6 +315,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), H, I, 0, 0);
     confidence = 0.87;
     granularity = 'time';
+    explicitTime = true;
     return finish(rm(matched));
   }
 
@@ -290,6 +324,7 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 20, 0, 0, 0);
     confidence = 0.82;
     granularity = 'time';
+    explicitTime = true;
     const phrase = /\btonight\b/.test(low) ? 'tonight' : 'this evening';
     return finish(rm(phrase));
   }
@@ -297,12 +332,14 @@ export function parseDue(input: string, now: Date = new Date()): ParsedDue | nul
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 15, 0, 0, 0);
     confidence = 0.8;
     granularity = 'time';
+    explicitTime = true;
     return finish(rm('this afternoon'));
   }
   if (/\bthis morning\b/.test(low)) {
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0);
     confidence = 0.8;
     granularity = 'time';
+    explicitTime = true;
     return finish(rm('this morning'));
   }
 

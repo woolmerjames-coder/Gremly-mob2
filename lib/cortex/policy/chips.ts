@@ -19,6 +19,8 @@ export type ChipSuggestion =
         undefined_due: boolean;
         due?: string | null;
         due_date?: string | null;
+        due_day?: string | null;
+        due_time?: string | null;
       };
     })
   | (BaseChipSuggestion & {
@@ -141,6 +143,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
         undefined_due: !due,
         due,
         due_date: due,
+        due_day: todoFields.dueDay ?? null,
+        due_time: todoFields.dueTime ?? null,
       },
     });
 
@@ -199,6 +203,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
           undefined_due: !due,
           due,
           due_date: due,
+          due_day: todoFields.dueDay ?? null,
+          due_time: todoFields.dueTime ?? null,
         },
       });
     }
@@ -226,6 +232,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
         undefined_due: !due,
         due,
         due_date: due,
+        due_day: todoFields.dueDay ?? null,
+        due_time: todoFields.dueTime ?? null,
       },
     });
 
@@ -264,6 +272,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
         undefined_due: !due,
         due,
         due_date: due,
+        due_day: todoFields.dueDay ?? null,
+        due_time: todoFields.dueTime ?? null,
       },
       reason: 'list-heuristic',
     });
@@ -292,6 +302,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
         undefined_due: !due,
         due,
         due_date: due,
+        due_day: todoFields.dueDay ?? null,
+        due_time: todoFields.dueTime ?? null,
       },
       reason: 'idea-heuristic',
     });
@@ -311,6 +323,8 @@ export function buildMindDropAskChips(input: BuildChipsInput): ChipSuggestion[] 
       undefined_due: !due,
       due,
       due_date: due,
+      due_day: todoFields.dueDay ?? null,
+      due_time: todoFields.dueTime ?? null,
     },
   });
 
