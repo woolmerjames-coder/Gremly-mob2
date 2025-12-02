@@ -459,14 +459,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   mindDropTile: {
-    backgroundColor: '#FFFFFF', // White tile on Linen Cream bg
+    backgroundColor: 'rgba(191, 216, 192, 0.12)', // Sage Mist at ~12% opacity
     borderRadius: 24,
     padding: 22,
     marginTop: 0,
-    shadowColor: 'rgba(0,0,0,0.06)',
+    shadowColor: 'rgba(0,0,0,0.05)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 8,
+    shadowRadius: 6,
     elevation: 2,
   },
   mindDropTileHeader: {
