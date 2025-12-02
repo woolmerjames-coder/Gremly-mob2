@@ -379,22 +379,24 @@ const styles = StyleSheet.create({
   heroSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 20,
-    paddingBottom: 24,
-    paddingHorizontal: 16,
-    gap: 16,
+    justifyContent: 'flex-start',
+    paddingTop: 16,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    gap: 12,
   },
   heroMascot: {
-    height: 168,
-    width: 168,
+    height: 160,
+    width: 160,
   },
   heroText: {
     fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
     textAlign: 'left',
     flex: 1,
+    lineHeight: 24,
   },
   paddedContent: {
     paddingHorizontal: 16,
