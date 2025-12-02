@@ -61,17 +61,20 @@ function normalizeCategoryToType(value: unknown): 'todo' | 'habit' | 'note' {
 
 /**
  * Determine note subtype using classifyV2 heuristics when engine only returns 'note'.
- * Maps classifyV2 result to the note subtype format: journal, list, idea, or catchall.
+ * Maps classifyV2 result to the note subtype format: journal, idea, or general.
+ *
+ * NOTE: 'list' is NOT a subtype - it's a tag that can apply to any type.
+ * List detection is handled separately via #list tag and detectListFromText().
  */
-function determineNoteSubtype(text: string): 'journal' | 'list' | 'idea' | 'catchall' {
+function determineNoteSubtype(text: string): 'journal' | 'idea' | 'general' {
   const v2Result = classifyV2(text);
 
   // Only use V2 result if it classifies as 'log' type
   if (v2Result.type !== 'log') {
-    return 'catchall';
+    return 'general';
   }
 
-  // Map V2 subtype to engine subtype
+  // Map V2 subtype directly - classifyV2 only returns 'journal' | 'idea' | 'general'
   switch (v2Result.subtype) {
     case 'journal':
       return 'journal';
@@ -79,7 +82,7 @@ function determineNoteSubtype(text: string): 'journal' | 'list' | 'idea' | 'catc
       return 'idea';
     case 'general':
     default:
-      return 'catchall';
+      return 'general';
   }
 }
 
