@@ -252,8 +252,11 @@ function GremlyHomeScreen() {
           </View>
         </View>
 
-        {/* Spacer at bottom */}
-        <View style={{ height: 24 }} />
+        {/* Philosophy Footer */}
+        <View style={styles.philosophyFooter}>
+          <Image source={BUTTON_HP} style={styles.philosophyIcon} resizeMode="contain" />
+          <Text style={styles.philosophyText}>From scattered to unstoppable.</Text>
+        </View>
       </Screen>
 
       {/* Spaces Modal */}
@@ -428,6 +431,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
+  },
+  // Philosophy Footer
+  philosophyFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 36,
+    marginBottom: 80,
+    gap: 8,
+  },
+  philosophyIcon: {
+    width: 20,
+    height: 20,
+    tintColor: '#2E5540', // Moss Green
+  },
+  philosophyText: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    color: 'rgba(34, 34, 34, 0.5)', // Charcoal Ink at 50%
   },
   // Spaces Tile Card
   spacesTile: {
