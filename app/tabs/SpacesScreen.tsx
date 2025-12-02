@@ -401,9 +401,10 @@ const styles = StyleSheet.create({
   },
   featureGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap', // Wrap on very small devices
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginTop: 24,
+    marginTop: 28,
     paddingHorizontal: 20,
   },
   featureGridLeft: {
@@ -416,12 +417,18 @@ const styles = StyleSheet.create({
   },
   // Compact Feature Tile
   featureTile: {
-    borderRadius: 24,
+    borderRadius: 16, // rounded-2xl
     padding: 16,
-    height: 160,
+    minHeight: 160,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    // Soft shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   featureTileContent: {
     flex: 1,
@@ -447,10 +454,10 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   mindDropTile: {
-    backgroundColor: 'rgba(46, 85, 64, 0.06)', // Light green tint
+    backgroundColor: 'rgba(46, 85, 64, 0.08)', // Sage Mist - Gremly brand
   },
   spacesTile: {
-    backgroundColor: 'rgba(156, 166, 224, 0.10)', // Light periwinkle tint
+    backgroundColor: 'rgba(156, 166, 224, 0.12)', // Periwinkle Smoke - Gremly brand
   },
   // Philosophy Footer
   philosophyFooter: {
