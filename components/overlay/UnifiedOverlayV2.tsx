@@ -43,6 +43,7 @@ import {
   ChevronRight,
   Trash2,
   Camera,
+  Diamond,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -3519,8 +3520,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Text>
                     {/* Lock In badge */}
                     {isLockedIn ? (
-                      <View style={styles.lockedBadge}>
-                        <Text style={styles.lockedBadgeText}>⚡ Locked In</Text>
+                      <View
+                        style={[
+                          styles.lockedBadge,
+                          { flexDirection: 'row', alignItems: 'center', gap: 4 },
+                        ]}
+                      >
+                        <Diamond size={12} color="#2E5540" fill="#2E5540" />
+                        <Text style={styles.lockedBadgeText}>Locked In</Text>
                       </View>
                     ) : null}
                     {/* Log subtype chip - tappable for manual override */}
@@ -3599,20 +3606,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       ) : null}
                     </View>
                   ) : null}
-
-                  {/* Close button - Phase 6b */}
-                  <Pressable
-                    onPress={handleCancel}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                    style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-                  >
-                    <CloseIcon
-                      size={20}
-                      color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                    />
-                  </Pressable>
                 </View>
                 {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
               </View>
@@ -3936,7 +3929,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       {/* Right side: Lock In toggle (for todos only) */}
                       {commitmentsOn && baseType === 'todo' ? (
                         <View style={styles.lockInRight}>
-                          <Lock
+                          <Diamond
                             size={14}
                             color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
                             style={styles.lockIcon}
@@ -4054,7 +4047,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       {/* Right side: Lock In toggle (same as todos) */}
                       {commitmentsOn ? (
                         <View style={styles.lockInRight}>
-                          <Lock
+                          <Diamond
                             size={14}
                             color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
                             style={styles.lockIcon}
@@ -4207,11 +4200,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 pressed && { opacity: 0.7 },
                               ]}
                             >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <View style={styles.detailsRowLeft}>
                                 <View style={styles.detailsRowIcon}>
                                   <Trash2 size={18} color="#D9534F" />
                                 </View>
-                                <Text style={styles.deleteText}>Delete to-do</Text>
+                                <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                  Delete to-do
+                                </Text>
                               </View>
                             </Pressable>
                           ) : null}
@@ -4231,7 +4226,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               pressed && styles.detailsRowPressed,
                             ]}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <View style={styles.detailsRowLeft}>
                               <View style={styles.detailsRowIcon}>
                                 <Bell
                                   size={18}
@@ -4254,7 +4249,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               pressed && styles.detailsRowPressed,
                             ]}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <View style={styles.detailsRowLeft}>
                               <View style={styles.detailsRowIcon}>
                                 <Folder
                                   size={18}
@@ -4310,11 +4305,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 pressed && { opacity: 0.7 },
                               ]}
                             >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <View style={styles.detailsRowLeft}>
                                 <View style={styles.detailsRowIcon}>
                                   <Trash2 size={18} color="#D9534F" />
                                 </View>
-                                <Text style={styles.deleteText}>Delete habit</Text>
+                                <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                  Delete habit
+                                </Text>
                               </View>
                             </Pressable>
                           ) : null}
@@ -4334,7 +4331,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               pressed && styles.detailsRowPressed,
                             ]}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <View style={styles.detailsRowLeft}>
                               <View style={styles.detailsRowIcon}>
                                 <Bell
                                   size={18}
@@ -4357,7 +4354,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               pressed && styles.detailsRowPressed,
                             ]}
                           >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <View style={styles.detailsRowLeft}>
                               <View style={styles.detailsRowIcon}>
                                 <Folder
                                   size={18}
@@ -4376,7 +4373,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
                           {showLogPrivateToggle ? (
                             <View style={[styles.detailsRow, { marginTop: 0 }]}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <View style={styles.detailsRowLeft}>
                                 <View style={styles.detailsRowIcon}>
                                   <Lock
                                     size={18}
@@ -4554,11 +4551,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 pressed && { opacity: 0.7 },
                               ]}
                             >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <View style={styles.detailsRowLeft}>
                                 <View style={styles.detailsRowIcon}>
                                   <Trash2 size={18} color="#D9534F" />
                                 </View>
-                                <Text style={styles.deleteText}>Delete log</Text>
+                                <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                  Delete log
+                                </Text>
                               </View>
                             </Pressable>
                           ) : null}
@@ -5920,7 +5919,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             >
               <Box
                 style={{
-                  paddingHorizontal: 16,
+                  paddingHorizontal: 20,
                   paddingTop: 20,
                   paddingBottom: 20,
                   backgroundColor: footerBackground,
@@ -6523,7 +6522,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 999,
   },
