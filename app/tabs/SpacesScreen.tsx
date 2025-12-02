@@ -52,13 +52,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Image, Pressable, Alert, Modal, ScrollView } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { Layers, Plus, X } from 'lucide-react-native';
+import { Plus, X } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import BUTTON_HP from '../../assets/buttonforHP.png';
 import GREMLY_WAVING from '../../assets/gremlywaving.png';
 import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
+import SPACES_TITLE from '../../assets/spacestitle.png';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -266,12 +267,7 @@ function GremlyHomeScreen() {
         {/* Spaces Tile Card */}
         <View style={styles.paddedContent}>
           <View style={styles.spacesTile}>
-            <View style={styles.spacesTileHeader}>
-              <View style={styles.spacesTileIconContainer}>
-                <Layers size={20} color="#2E5540" />
-              </View>
-              <Text style={styles.spacesTileTitle}>Spaces</Text>
-            </View>
+            <Image source={SPACES_TITLE} style={styles.spacesTitleImage} resizeMode="contain" />
             <Text style={styles.spacesTileDescription}>
               Group your tasks, notes, and habits by project or theme.
             </Text>
@@ -522,35 +518,20 @@ const styles = StyleSheet.create({
   },
   // Spaces Tile Card
   spacesTile: {
-    backgroundColor: '#FFFFFF', // White tile on Linen Cream bg
+    backgroundColor: 'rgba(156, 166, 224, 0.10)', // Periwinkle Smoke at 10% opacity
     borderRadius: 24,
     padding: 22,
     marginTop: 20,
-    shadowColor: 'rgba(0,0,0,0.06)',
+    shadowColor: 'rgba(0,0,0,0.05)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 8,
+    shadowRadius: 6,
     elevation: 2,
   },
-  spacesTileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  spacesTitleImage: {
+    height: 30,
+    width: 120,
     marginBottom: 8,
-  },
-  spacesTileIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#E8F0E9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  spacesTileTitle: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#2E5540', // Moss Green
   },
   spacesTileDescription: {
     fontSize: 15,
