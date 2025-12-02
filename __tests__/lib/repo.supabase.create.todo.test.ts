@@ -445,4 +445,80 @@ describe('SupabaseRepo.create - Todo', () => {
     expect(insertPayload.due_day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(insertPayload.due_date).toBe('2025-12-15');
   });
+
+  it('should use due_day directly when passed without due_time (date-only)', async () => {
+    // Simulates: user typed "call mom today" - date-only phrase
+    const dueDay = '2025-12-02';
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Call mom',
+      body: null,
+      space_id: null,
+      due_date: dueDay, // Should be date-only string
+      due_day: dueDay,
+      due_time: null, // No time when user didn't specify one
+      undefined_due: false,
+      ai_placed: false,
+      labels: [],
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Call mom',
+      due_day: dueDay,
+      due_time: null, // No explicit time
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should have due_day and due_date both as date-only string
+    expect(insertPayload.due_day).toBe(dueDay);
+    expect(insertPayload.due_date).toBe(dueDay); // Date-only, no time component
+    expect(insertPayload.due_time).toBeFalsy(); // null or undefined
+  });
+
+  it('should use both due_day and due_time when passed (explicit time)', async () => {
+    // Simulates: user typed "call mom today at 3pm" - explicit time
+    const dueDay = '2025-12-02';
+    const dueTime = '15:00';
+
+    const dbResult = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      owner_id: 'test-user-id',
+      name: 'Call mom',
+      body: null,
+      space_id: null,
+      due_date: dueDay, // DB may store this differently
+      due_day: dueDay,
+      due_time: dueTime,
+      undefined_due: false,
+      ai_placed: false,
+      labels: [],
+      created_at: '2025-10-15T12:00:00Z',
+      updated_at: '2025-10-15T12:00:00Z',
+    };
+
+    mockSingle.mockResolvedValue({ data: dbResult, error: null });
+
+    await repo.create({
+      type: 'todo',
+      name: 'Call mom',
+      due_day: dueDay,
+      due_time: dueTime, // Explicit time
+    } as any);
+
+    const insertPayload = mockInsert.mock.calls[0][0];
+
+    // Should have due_day, due_date, and due_time all set
+    expect(insertPayload.due_day).toBe(dueDay);
+    expect(insertPayload.due_time).toBe(dueTime);
+    // due_date should be set (may be date-only or with time depending on implementation)
+    expect(insertPayload.due_date).toBeTruthy();
+  });
 });
