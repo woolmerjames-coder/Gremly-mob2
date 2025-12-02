@@ -125,11 +125,10 @@ const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
 // Auto-grow constants: aligned for deterministic behavior
 const LINE_HEIGHT = 24; // Must match styles.input lineHeight
-const INPUT_VERTICAL_PADDING = 24; // paddingTop (12) + paddingBottom (12)
+const INPUT_VERTICAL_PADDING = 20; // paddingTop + paddingBottom
 const MAX_LINES = 8;
 
-// Start at ~2 lines high and grow as the user types
-const START_HEIGHT = 80; // ~2 lines: 2 * 24 + 24 + small buffer
+const START_HEIGHT = 72; // slightly tighter than 80 so 2 lines feel snug
 const MIN_HEIGHT = START_HEIGHT;
 
 const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
@@ -4517,9 +4516,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             accessibilityIgnoresInvertColors
           />
         </View>
-        <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
-          {contextPrompt}
-        </Text>
 
         {/* Scrollable Recent Drops in the middle */}
         <Pressable style={styles.scrollableSection} onPress={Keyboard.dismiss} accessible={false}>
@@ -4944,8 +4940,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       padding: 0,
       margin: 0,
-      paddingTop: 12,
-      paddingBottom: 12,
+      paddingTop: 14,
+      paddingBottom: 6,
     },
     inputFocused: {},
     inputHeightWrapper: {
@@ -5377,7 +5373,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontSize: 13,
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
-      paddingVertical: 10,
+      paddingTop: 4,
+      paddingBottom: 10,
     },
     // Skeleton styles for pending state
     titleSkeletonContainer: {
