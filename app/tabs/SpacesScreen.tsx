@@ -50,13 +50,13 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
-import { StyleSheet, View, Image, Pressable, Alert } from 'react-native';
+import { StyleSheet, View, Image, Pressable, Alert, Modal, ScrollView } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { Layers, Plus, X } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import BUTTON_HP from '../../assets/buttonforHP.png';
-import SPACES_TITLE from '../../assets/spacestitle.png';
 import GREMLY_WAVING from '../../assets/gremlywaving.png';
 
 import { useRepo } from '../../providers/RepoProvider';
@@ -64,7 +64,6 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
-import { ListItem } from '../../design-system/ListItem';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { setNewSpaceCallback } from '../../components/NewSpaceModal';
 import { useReducedMotion } from '../../design/animations';
@@ -90,8 +89,8 @@ function GremlyHomeScreen() {
   const [spaces, setSpaces] = useState<Array<{ id: string; name: string; description?: string }>>(
     [],
   );
-  const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [spacesModalVisible, setSpacesModalVisible] = useState(false);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -162,19 +161,7 @@ function GremlyHomeScreen() {
     [repo],
   );
 
-  // Filter spaces by search query
-  const filteredSpaces = q.trim()
-    ? spaces.filter((s) => s.name?.toLowerCase().includes(q.toLowerCase()))
-    : spaces;
-
-  // Show all spaces on homepage
-  const previewSpaces = filteredSpaces;
-
-  // Space count label
-  const spaceCountLabel = `${filteredSpaces.length} space${filteredSpaces.length === 1 ? '' : 's'}`;
-
-  // Empty state (no spaces or filtered empty)
-  const isEmpty = filteredSpaces.length === 0;
+  // Use all spaces directly (search removed for simplified tile UI)
 
   return (
     <Animated.View
@@ -243,106 +230,127 @@ function GremlyHomeScreen() {
           </Pressable>
         </View>
 
-        {/* Section Divider */}
-        <View style={styles.sectionDivider} />
-
-        {/* Spaces Section - with padding */}
+        {/* Spaces Tile Card */}
         <View style={styles.paddedContent}>
-          {!error && (
-            <Box gap={2}>
-              <Box
-                row
-                style={{
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  marginBottom: 12,
-                }}
-              >
-                <View style={styles.spacesTitleContainer}>
-                  <Image
-                    source={SPACES_TITLE}
-                    style={styles.spacesTitleImage}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.spacesSubtitle}>Organize by project or area.</Text>
-                </View>
-                <Button
-                  title="New Space"
-                  onPress={onCreateSpace}
-                  testID="spaces-new"
-                  variant="ghost"
-                />
-              </Box>
-
-              {/* Spaces Preview (first 2) */}
-              {isEmpty ? (
-                <View style={styles.emptySpaces}>
-                  <Image
-                    source={require('../../assets/mascot/ACTUAL GREMLY.png')}
-                    style={styles.emptyMascot}
-                    resizeMode="contain"
-                  />
-                  <Text variant="title" style={styles.emptyTitle}>
-                    No spaces yet
-                  </Text>
-                  <Text variant="body" style={styles.emptySubtitle}>
-                    Create one to organize by topic.
-                  </Text>
-                  <View style={{ marginTop: 8 }}>
-                    <Button
-                      title="Create a Space"
-                      onPress={onCreateSpace}
-                      testID="spaces-empty-cta"
-                    />
-                  </View>
-                </View>
-              ) : (
-                <View>
-                  {previewSpaces.map((space, index) => (
-                    <View
-                      key={space.id}
-                      style={[
-                        styles.spaceRow,
-                        index < previewSpaces.length - 1 && styles.spaceRowWithDivider,
-                      ]}
-                    >
-                      <Pressable
-                        onPress={() => {
-                          const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on')
-                            .toString()
-                            .trim()
-                            .toLowerCase();
-                          const v3 =
-                            raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
-                          if (v3) {
-                            navigation.navigate('SpaceHome', { spaceId: space.id });
-                          } else {
-                            navigation.navigate('SpaceDetail', { id: space.id });
-                          }
-                        }}
-                        testID={`space-item-${space.id}`}
-                        style={styles.spaceRowContent}
-                      >
-                        <Text style={styles.spaceEmoji}>{getSpaceIcon(space.name)}</Text>
-                        <Text variant="body" style={styles.spaceName}>
-                          {space.name}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => handleSpaceMenu(space)}
-                        style={styles.spaceMenu}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Text style={styles.spaceMenuIcon}>⋯</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </Box>
-          )}
+          <View style={styles.spacesTile}>
+            <View style={styles.spacesTileHeader}>
+              <View style={styles.spacesTileIconContainer}>
+                <Layers size={20} color="#2E5540" />
+              </View>
+              <Text style={styles.spacesTileTitle}>Spaces</Text>
+            </View>
+            <Text style={styles.spacesTileDescription}>
+              Group your tasks, notes, and habits by project or theme.
+            </Text>
+            <Pressable
+              onPress={() => setSpacesModalVisible(true)}
+              testID="spaces-new"
+              style={({ pressed }) => [styles.spacesTileButton, pressed && { opacity: 0.9 }]}
+            >
+              <Text style={styles.spacesTileButtonText}>Open Spaces →</Text>
+            </Pressable>
+          </View>
         </View>
+
+        {/* Spacer at bottom */}
+        <View style={{ height: 24 }} />
       </Screen>
+
+      {/* Spaces Modal */}
+      <Modal
+        visible={spacesModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setSpacesModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Spaces</Text>
+            <Pressable
+              onPress={() => setSpacesModalVisible(false)}
+              style={styles.modalCloseButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={24} color="#6A6F76" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {/* Create Space Button */}
+            <Pressable
+              onPress={() => {
+                setSpacesModalVisible(false);
+                onCreateSpace();
+              }}
+              testID="spaces-empty-cta"
+              style={({ pressed }) => [styles.createSpaceButton, pressed && { opacity: 0.9 }]}
+            >
+              <Plus size={20} color="#2E5540" />
+              <Text style={styles.createSpaceButtonText}>Create a Space</Text>
+            </Pressable>
+
+            {/* Spaces List */}
+            {spaces.length === 0 ? (
+              <View style={styles.emptySpacesModal}>
+                <Image
+                  source={require('../../assets/mascot/ACTUAL GREMLY.png')}
+                  style={styles.emptyMascot}
+                  resizeMode="contain"
+                />
+                <Text variant="title" style={styles.emptyTitle}>
+                  No spaces yet
+                </Text>
+                <Text variant="body" style={styles.emptySubtitle}>
+                  Create one to organize by topic.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.spacesListModal}>
+                {spaces.map((space, index) => (
+                  <View
+                    key={space.id}
+                    style={[
+                      styles.spaceRowModal,
+                      index < spaces.length - 1 && styles.spaceRowWithDivider,
+                    ]}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        setSpacesModalVisible(false);
+                        const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on')
+                          .toString()
+                          .trim()
+                          .toLowerCase();
+                        const v3 =
+                          raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+                        if (v3) {
+                          navigation.navigate('SpaceHome', { spaceId: space.id });
+                        } else {
+                          navigation.navigate('SpaceDetail', { id: space.id });
+                        }
+                      }}
+                      testID={`space-item-${space.id}`}
+                      style={styles.spaceRowContent}
+                    >
+                      <Text style={styles.spaceEmoji}>{getSpaceIcon(space.name)}</Text>
+                      <Text variant="body" style={styles.spaceName}>
+                        {space.name}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleSpaceMenu(space)}
+                      style={styles.spaceMenu}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Text style={styles.spaceMenuIcon}>⋯</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </Animated.View>
   );
 }
@@ -421,35 +429,119 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2E5540', // Moss Green
   },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: '#D1D5DB',
-    opacity: 0.7,
-    marginTop: 24,
-    marginBottom: 20,
-    marginHorizontal: 16,
+  // Spaces Tile Card
+  spacesTile: {
+    backgroundColor: '#F9F6F1', // Linen Cream
+    borderRadius: 24,
+    padding: 22,
+    marginTop: 20,
+    shadowColor: 'rgba(0,0,0,0.05)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  spacesTitleContainer: {
-    alignItems: 'flex-start',
-    marginLeft: -4,
+  spacesTileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
   },
-  spacesTitleImage: {
-    height: 38,
-    width: 160,
-    marginBottom: 4,
+  spacesTileIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#E8F0E9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  spacesSubtitle: {
+  spacesTileTitle: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
+  },
+  spacesTileDescription: {
     fontSize: 15,
-    opacity: 0.7,
     color: '#6A6F76',
-    marginLeft: 2,
+    lineHeight: 21,
+    marginBottom: 16,
   },
-  spaceRow: {
+  spacesTileButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#2E5540', // Moss Green
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  spacesTileButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
+  },
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  modalTitle: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#222222',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  createSpaceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#E8F0E9',
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginBottom: 24,
+  },
+  createSpaceButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
+  },
+  emptySpacesModal: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 16,
+  },
+  spacesListModal: {
+    backgroundColor: '#F9F6F1', // Linen Cream
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  spaceRowModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
   },
   spaceRowContent: {
     flexDirection: 'row',
@@ -477,12 +569,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#6A6F76',
     lineHeight: 20,
-  },
-  emptySpaces: {
-    alignItems: 'center',
-    marginTop: 16, // spacing[4]
-    paddingVertical: 24, // spacing[6]
-    paddingHorizontal: 16, // spacing[4]
   },
   emptyMascot: {
     width: 72,
