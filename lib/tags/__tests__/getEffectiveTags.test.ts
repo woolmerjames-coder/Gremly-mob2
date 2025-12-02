@@ -1,120 +1,115 @@
 /**
  * Tests for getEffectiveTags - Unified tag extraction pipeline
+ *
+ * Strategy:
+ * 1. Always runs V2 extraction for name detection (@mentions)
+ * 2. Tries AI extraction for additional topic tags
+ * 3. Merges: V2 names (@mentions) + AI topic tags (filtered against names)
+ * 4. If AI fails, falls back to V2 entirely
  */
 
 import { getEffectiveTags } from '../getEffectiveTags';
 
-// Mock both extractors
+// Mock extractTagsAI
 jest.mock('../extractTagsAI', () => ({
   extractTagsAI: jest.fn(),
 }));
 
-jest.mock('../extractTags', () => ({
-  extractMeaningfulTags: jest.fn(),
+// Mock extractTagsV2 to control the test
+jest.mock('../extractTagsV2', () => ({
+  extractTagsV2: jest.fn(),
+  tagsToArray: jest.fn(),
 }));
 
 const { extractTagsAI } = require('../extractTagsAI');
-const { extractMeaningfulTags } = require('../extractTags');
+const { extractTagsV2, tagsToArray } = require('../extractTagsV2');
 
 describe('getEffectiveTags', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default V2 mock - returns empty result
+    extractTagsV2.mockReturnValue({ mentions: [], keywords: [], themes: [] });
+    tagsToArray.mockReturnValue([]);
   });
 
-  it('should use AI tags when AI succeeds', async () => {
-    extractTagsAI.mockResolvedValue(['dentist', 'appointment']);
-    extractMeaningfulTags.mockReturnValue(['fallback-tag']);
+  it('should merge AI tags with V2 mentions', async () => {
+    // V2 detects name "john"
+    extractTagsV2.mockReturnValue({ mentions: ['john'], keywords: [], themes: [] });
+    // AI returns topic tags
+    extractTagsAI.mockResolvedValue(['contract', 'business']);
 
-    const result = await getEffectiveTags('Book dentist appointment');
+    const result = await getEffectiveTags('Email John about the contract');
 
-    expect(result).toEqual(['dentist', 'appointment']);
-    expect(extractTagsAI).toHaveBeenCalledWith('Book dentist appointment');
-    expect(extractMeaningfulTags).not.toHaveBeenCalled();
+    expect(result).toEqual(['@john', 'contract', 'business']);
   });
 
-  it('should use fallback when AI returns empty', async () => {
+  it('should filter AI tags that match V2 mentions', async () => {
+    // V2 detects name "sarah"
+    extractTagsV2.mockReturnValue({ mentions: ['sarah'], keywords: [], themes: [] });
+    // AI returns both "sarah" (duplicate) and "meeting"
+    extractTagsAI.mockResolvedValue(['sarah', 'meeting']);
+
+    const result = await getEffectiveTags('Meeting with Sarah');
+
+    // "sarah" should be filtered from AI tags since V2 already has @sarah
+    expect(result).toEqual(['@sarah', 'meeting']);
+  });
+
+  it('should use V2 fallback when AI returns empty', async () => {
+    extractTagsV2.mockReturnValue({ mentions: ['mike'], keywords: ['project'], themes: [] });
+    tagsToArray.mockReturnValue(['@mike', '#project']);
     extractTagsAI.mockResolvedValue([]);
-    extractMeaningfulTags.mockReturnValue(['meeting', 'office']);
 
-    const result = await getEffectiveTags('Meeting at the office');
+    const result = await getEffectiveTags('Project update from Mike');
 
-    expect(result).toEqual(['meeting', 'office']);
-    expect(extractTagsAI).toHaveBeenCalled();
-    expect(extractMeaningfulTags).toHaveBeenCalledWith('Meeting at the office');
+    // Falls back to full V2 extraction
+    expect(result).toEqual(['@mike', '#project']);
+    expect(tagsToArray).toHaveBeenCalled();
   });
 
-  it('should use fallback when AI fails with exception', async () => {
+  it('should use V2 fallback when AI fails with exception', async () => {
+    extractTagsV2.mockReturnValue({ mentions: [], keywords: ['park'], themes: [] });
+    tagsToArray.mockReturnValue(['#park']);
     extractTagsAI.mockRejectedValue(new Error('Network error'));
-    extractMeaningfulTags.mockReturnValue(['walk', 'park']);
 
     const result = await getEffectiveTags('Walk in the park');
 
-    expect(result).toEqual(['walk', 'park']);
-    expect(extractMeaningfulTags).toHaveBeenCalled();
+    expect(result).toEqual(['#park']);
   });
 
   it('should handle empty text', async () => {
     const result = await getEffectiveTags('');
 
     expect(result).toEqual([]);
+    expect(extractTagsV2).not.toHaveBeenCalled();
     expect(extractTagsAI).not.toHaveBeenCalled();
-    expect(extractMeaningfulTags).not.toHaveBeenCalled();
   });
 
   it('should handle whitespace-only text', async () => {
     const result = await getEffectiveTags('   \n  \t  ');
 
     expect(result).toEqual([]);
+    expect(extractTagsV2).not.toHaveBeenCalled();
     expect(extractTagsAI).not.toHaveBeenCalled();
-    expect(extractMeaningfulTags).not.toHaveBeenCalled();
   });
 
-  it('should allow empty result from both extractors', async () => {
-    extractTagsAI.mockResolvedValue([]);
-    extractMeaningfulTags.mockReturnValue([]);
-
-    const result = await getEffectiveTags('I feel good today');
-
-    expect(result).toEqual([]);
-  });
-
-  it('should prioritize AI over fallback', async () => {
-    extractTagsAI.mockResolvedValue(['ai-tag']);
-    extractMeaningfulTags.mockReturnValue(['fallback-tag']);
-
-    const result = await getEffectiveTags('Test text');
-
-    expect(result).toEqual(['ai-tag']);
-    expect(extractMeaningfulTags).not.toHaveBeenCalled();
-  });
-
-  it('should pass text to AI extractor unchanged', async () => {
+  it('should always run V2 for name detection', async () => {
+    extractTagsV2.mockReturnValue({ mentions: [], keywords: [], themes: [] });
     extractTagsAI.mockResolvedValue(['test']);
 
-    const longText = 'This is a longer piece of text with multiple words';
-    await getEffectiveTags(longText);
+    await getEffectiveTags('Test text');
 
-    expect(extractTagsAI).toHaveBeenCalledWith(longText);
+    expect(extractTagsV2).toHaveBeenCalledWith('Test text', { maxKeywords: 4 });
   });
 
-  it('should pass text to fallback extractor when AI fails', async () => {
-    extractTagsAI.mockResolvedValue([]);
-    extractMeaningfulTags.mockReturnValue(['test']);
+  it('should deduplicate merged results', async () => {
+    extractTagsV2.mockReturnValue({ mentions: ['john'], keywords: [], themes: [] });
+    // AI returns duplicate @john
+    extractTagsAI.mockResolvedValue(['@john', 'contract']);
 
-    const text = 'Test text for fallback';
-    await getEffectiveTags(text);
+    const result = await getEffectiveTags('Email John about contract');
 
-    expect(extractMeaningfulTags).toHaveBeenCalledWith(text);
-  });
-
-  it('should handle AI timeout gracefully', async () => {
-    extractTagsAI.mockImplementation(
-      () => new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 100)),
-    );
-    extractMeaningfulTags.mockReturnValue(['fallback']);
-
-    const result = await getEffectiveTags('Test');
-
-    expect(result).toEqual(['fallback']);
+    // Should deduplicate
+    expect(result.filter((t: string) => t === '@john').length).toBe(1);
   });
 });

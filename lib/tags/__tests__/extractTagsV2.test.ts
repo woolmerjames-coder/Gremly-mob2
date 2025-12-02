@@ -162,7 +162,8 @@ describe('extractTagsV2', () => {
         subtype: undefined,
       };
       const arr = tagsToArray(extracted);
-      expect(arr.filter((t) => t === 'work').length).toBe(1);
+      // Keywords now get # prefix
+      expect(arr.filter((t) => t === '#work').length).toBe(1);
     });
   });
 

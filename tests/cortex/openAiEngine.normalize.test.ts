@@ -24,13 +24,13 @@ describe('OpenAiEngine normalize', () => {
     } as any);
 
     const result = await engine.classify({ text: 'Finish report' });
-    // CP-TAG-3: Heuristic tag extraction creates @finish (person mention from capitalized word) and #report (topic)
+    // Heuristic tag extraction: "Finish" is a verb (not a name), "report" is a topic
     expect(result).toEqual({
       type: 'todo',
       undefinedDue: true,
       aiPlaced: false,
       whyString: 'auto',
-      tags: ['@finish', '#report'],
+      tags: ['#report'],
     });
   });
 

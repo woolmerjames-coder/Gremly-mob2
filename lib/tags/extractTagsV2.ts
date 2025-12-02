@@ -836,20 +836,23 @@ export function extractTagsV2(text: string, options: TagExtractionOptions = {}):
  */
 export function tagsToArray(extracted: ExtractedTags): string[] {
   const result: string[] = [];
+  const mentionSet = new Set(extracted.mentions.map((m) => m.toLowerCase()));
 
   // @mentions (prefixed)
   for (const m of extracted.mentions) {
     result.push(`@${m}`);
   }
 
-  // #keywords
+  // #keywords (filter out any that match mentions)
   for (const k of extracted.keywords) {
-    result.push(k);
+    if (!mentionSet.has(k.toLowerCase())) {
+      result.push(`#${k}`);
+    }
   }
 
   // #themes
   for (const t of extracted.themes) {
-    result.push(t);
+    result.push(`#${t}`);
   }
 
   // #subtype (for logs)

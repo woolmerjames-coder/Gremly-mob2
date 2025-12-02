@@ -2551,10 +2551,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const sanitized = sanitizeSuggestedTags(textForTags ?? '', Array.isArray(s.tags) ? s.tags : []);
     const combined = new Map<string, string>();
 
-    // Add extracted tags first
+    // Add extracted tags first (preserving @ prefix for names)
     extractedTags.forEach((tag) => {
-      const key = tag.toLowerCase();
-      if (!combined.has(key)) combined.set(key, `#${tag}`);
+      // Tags from getEffectiveTags may have @ prefix for names
+      const hasAtPrefix = tag.startsWith('@');
+      const stripped = tag.replace(/^[@#]/, '');
+      const key = stripped.toLowerCase();
+      if (!combined.has(key)) {
+        // Preserve @ prefix for names, use # for regular tags
+        combined.set(key, hasAtPrefix ? `@${stripped}` : `#${stripped}`);
+      }
     });
 
     // Add user-provided tags (preserving format)
