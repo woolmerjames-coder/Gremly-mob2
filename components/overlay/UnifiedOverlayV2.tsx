@@ -85,6 +85,7 @@ import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsR
 import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
+import { extractTagsV2 } from '../../lib/tags/extractTagsV2';
 import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
 import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
@@ -375,10 +376,12 @@ function hydrateRemindersFromLegacy(reminderAt: string | null): OverlayReminder[
 
 function normalizeTagCandidate(value: unknown): string {
   if (typeof value !== 'string') return '';
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^[^a-z0-9]+/, '');
+  const trimmed = value.trim().toLowerCase();
+  // Preserve @ and # prefixes, only strip other leading chars
+  if (/^[@#]/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.replace(/^[^a-z0-9]+/, '');
 }
 
 function normalizeToTagKey(value: unknown): TagKey | null {
@@ -423,10 +426,23 @@ function extractTagKeysFromEntity(entity: any): TagKey[] {
     }
   }
 
+  // Detect names from entity text to convert #name to @name
+  const rawText = getMindDropRawText(entity) || entity.body || entity.title || entity.name || '';
+  const v2Result = extractTagsV2(rawText, { maxKeywords: 4 });
+  const detectedNames = new Set(v2Result.mentions.map((m) => m.toLowerCase()));
+
   const seen = new Set<TagKey>();
   for (const entry of tagsToProcess) {
-    const tag = normalizeToTagKey(entry);
-    if (tag && !seen.has(tag)) seen.add(tag);
+    let tag = normalizeToTagKey(entry);
+    if (!tag) continue;
+
+    // Convert #name to @name if detected as a name
+    const stripped = tag.replace(/^[#@]/, '').toLowerCase();
+    if (detectedNames.has(stripped) && !tag.startsWith('@')) {
+      tag = `@${stripped}` as TagKey;
+    }
+
+    if (!seen.has(tag)) seen.add(tag);
   }
   return Array.from(seen);
 }
