@@ -621,6 +621,7 @@ const KEYWORD_BLOCKLIST = new Set([
   'oh',
   'ah',
   'hmm',
+  'hmmm',
   'huh',
   'wow',
   'hey',
@@ -636,6 +637,9 @@ const KEYWORD_BLOCKLIST = new Set([
   'wanna',
   'gotta',
   'dunno',
+  'not',
+  'sure',
+  'unsure',
 
   // Vague adjectives/descriptors
   'better',
