@@ -80,17 +80,6 @@ const getSpaceIcon = (name: string) => {
   return '📁';
 };
 
-// Helper to get user initials from email
-const getUserInitials = (email?: string | null): string => {
-  if (!email) return 'G';
-  const name = email.split('@')[0];
-  const parts = name.split(/[._-]/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-};
-
 function GremlyHomeScreen() {
   const repo = useRepo();
   const { user } = useAuth();
@@ -187,17 +176,6 @@ function GremlyHomeScreen() {
         {/* Top Navigation Bar */}
         <View style={styles.topNavBar}>
           <Image source={GREMLY_WORDMARK} style={styles.topNavWordmark} resizeMode="contain" />
-          <Pressable
-            onPress={() => {
-              // TODO: Navigate to Settings/Profile when available
-              Alert.alert('Profile', `Logged in as ${user?.email || 'Guest'}`);
-            }}
-            style={styles.topNavAvatar}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile"
-          >
-            <Text style={styles.topNavAvatarText}>{getUserInitials(user?.email)}</Text>
-          </Pressable>
         </View>
         <View style={styles.topNavDivider} />
 
@@ -392,28 +370,13 @@ const styles = StyleSheet.create({
   topNavBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#F9F6F1', // Linen Cream
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   topNavWordmark: {
-    height: 32,
-    width: 100,
-  },
-  topNavAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#2E5540', // Moss Green
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topNavAvatarText: {
-    fontFamily: 'Inter',
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    height: 28,
+    width: 90,
   },
   topNavDivider: {
     height: 1,
