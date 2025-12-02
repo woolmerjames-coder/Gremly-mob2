@@ -127,7 +127,7 @@ const LINE_HEIGHT = 24; // Must match styles.input lineHeight
 const INPUT_VERTICAL_PADDING = 20; // paddingTop + paddingBottom
 const MAX_LINES = 8;
 
-const START_HEIGHT = 72; // slightly tighter than 80 so 2 lines feel snug
+const START_HEIGHT = 64; // compact starting height
 const MIN_HEIGHT = START_HEIGHT;
 
 const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
@@ -4923,7 +4923,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       padding: 0,
       margin: 0,
       paddingTop: 14,
-      paddingBottom: 6,
+      paddingBottom: 4,
     },
     inputFocused: {},
     inputHeightWrapper: {
