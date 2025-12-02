@@ -379,15 +379,15 @@ const styles = StyleSheet.create({
   heroSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     paddingTop: 16,
     paddingBottom: 20,
-    paddingHorizontal: 20,
-    gap: 12,
+    paddingHorizontal: 40,
+    gap: 16,
   },
   heroMascot: {
-    height: 160,
-    width: 160,
+    height: 150,
+    width: 150,
   },
   heroText: {
     fontFamily: 'PlusJakartaSans-SemiBold',
@@ -395,7 +395,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2E5540', // Moss Green
     textAlign: 'left',
-    flex: 1,
+    maxWidth: 140,
     lineHeight: 24,
   },
   paddedContent: {
