@@ -378,23 +378,24 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(46, 85, 64, 0.12)', // Moss Green at ~12%
   },
   heroSection: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     paddingTop: 20,
     paddingBottom: 24,
     paddingHorizontal: 16,
+    gap: 16,
   },
   heroMascot: {
-    height: 170,
-    width: 170,
+    height: 140,
+    width: 140,
   },
   heroText: {
     fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
-    textAlign: 'center',
-    marginTop: 16,
+    textAlign: 'left',
+    flex: 1,
   },
   paddedContent: {
     paddingHorizontal: 16,
