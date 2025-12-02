@@ -930,21 +930,15 @@ function formatLogTimestamp(mode: 'create' | 'edit', entity: any | null): string
 }
 
 // Helper to get log subtype chip label
-function getLogSubtypeChipLabel(
-  subtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain',
-): string | null {
+function getLogSubtypeChipLabel(subtype: 'journal' | 'idea' | 'general'): string {
   switch (subtype) {
     case 'journal':
       return 'Journal';
-    case 'list':
-      return 'List';
-    case 'reference':
-      return 'Reference';
     case 'idea':
       return 'Idea';
-    case 'plain':
+    case 'general':
     default:
-      return null;
+      return 'General';
   }
 }
 
@@ -979,35 +973,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isListLog = isLog && logKind === 'list';
 
   // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
-  // Priority order: manual override > tags > entity subtype > AI classification > fallback
-  const effectiveLogSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' = useMemo(() => {
-    if (!isLog) return 'plain';
+  // Priority order: manual override > tags > entity subtype > fallback
+  const effectiveLogSubtype: 'journal' | 'idea' | 'general' = useMemo(() => {
+    if (!isLog) return 'general';
 
     // 1. Manual override takes HIGHEST precedence (user explicitly chose)
     if (state.logSubtypeOverride) return state.logSubtypeOverride;
 
-    // 2. Tag-based detection (auto-detection from #list, #journal, etc.)
-    if (state.tags.includes('list')) return 'list';
-    if (state.tags.includes('journal')) return 'journal';
-    if (state.tags.includes('idea')) return 'idea';
-    if (state.tags.includes('reference')) return 'reference';
-
-    // 3. Fallback to entity.subtype if present (edit mode)
+    // 2. Fallback to entity.subtype if present (from classification system or edit mode)
     const entity = initialEntity as any;
     const rawSubtype = entity?.subtype as string | undefined;
-    if (
-      rawSubtype === 'journal' ||
-      rawSubtype === 'list' ||
-      rawSubtype === 'reference' ||
-      rawSubtype === 'idea'
-    ) {
+    if (rawSubtype === 'journal' || rawSubtype === 'idea' || rawSubtype === 'general') {
       return rawSubtype;
     }
 
-    // For new logs or when entity has no subtype, AI classification will be used in toCreateOrUpdateInput
-    // Return 'plain' here as placeholder - actual AI classification happens at save time
-    return 'plain';
-  }, [isLog, state.logSubtypeOverride, initialEntity, state.tags]);
+    return 'general';
+  }, [isLog, state.logSubtypeOverride, initialEntity]);
 
   // Journal detection for mood selector (Phase L4) - now uses effectiveLogSubtype
   const isJournal = isLog && effectiveLogSubtype === 'journal';
@@ -1559,7 +1540,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Apply tags (filter out system tags)
       if (initialTags && Array.isArray(initialTags) && initialTags.length > 0) {
-        const systemTags = ['idea', 'journal', 'reference', 'list'];
+        const systemTags = ['idea', 'journal', 'general', 'list'];
         const filteredTags = initialTags.filter(
           (tag: string) => !systemTags.includes(tag.toLowerCase()),
         );
@@ -1891,7 +1872,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     let extractionSubtype: string | undefined;
     if (baseType === 'log') {
       // Use effectiveLogSubtype for logs
-      extractionSubtype = effectiveLogSubtype === 'plain' ? undefined : effectiveLogSubtype;
+      extractionSubtype = effectiveLogSubtype === 'general' ? undefined : effectiveLogSubtype;
     }
 
     // Extract meaningful tags deterministically
@@ -2312,7 +2293,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Determine subtype for tag extraction
       let extractionSubtype: string | undefined;
       if (baseType === 'log') {
-        extractionSubtype = effectiveLogSubtype === 'plain' ? undefined : effectiveLogSubtype;
+        extractionSubtype = effectiveLogSubtype === 'general' ? undefined : effectiveLogSubtype;
       }
 
       // Extract tags deterministically
@@ -2350,9 +2331,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleLogSubtypeChipPress = useCallback(() => {
     if (!isLog) return;
 
-    const options = ['Journal', 'List', 'Reference', 'Idea', 'Clear subtype', 'Cancel'];
-    const destructiveButtonIndex = 4; // Clear subtype
-    const cancelButtonIndex = 5;
+    const options = ['Journal', 'Idea', 'General', 'Clear subtype', 'Cancel'];
+    const destructiveButtonIndex = 3; // Clear subtype
+    const cancelButtonIndex = 4;
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -2365,12 +2346,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         (buttonIndex) => {
           if (buttonIndex === cancelButtonIndex) return;
 
-          const subtypeMap: Record<number, 'journal' | 'list' | 'reference' | 'idea' | null> = {
+          const subtypeMap: Record<number, 'journal' | 'idea' | 'general' | null> = {
             0: 'journal',
-            1: 'list',
-            2: 'reference',
-            3: 'idea',
-            4: null, // Clear subtype
+            1: 'idea',
+            2: 'general',
+            3: null, // Clear subtype
           };
 
           const value = subtypeMap[buttonIndex];
@@ -2385,16 +2365,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'journal' }),
         },
         {
-          text: 'List',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'list' }),
-        },
-        {
-          text: 'Reference',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'reference' }),
-        },
-        {
           text: 'Idea',
           onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'idea' }),
+        },
+        {
+          text: 'General',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'general' }),
         },
         {
           text: 'Clear subtype',
@@ -2510,24 +2486,35 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
     mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
-    effectiveLogSubtype?: 'journal' | 'list' | 'reference' | 'idea' | 'plain', // Phase L8: Manual log subtype
+    effectiveLogSubtype?: 'journal' | 'idea' | 'general', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
 
-    // For logs: if effectiveLogSubtype is 'plain', use AI to classify the subtype
+    // For logs: if effectiveLogSubtype is 'general', use AI to classify the subtype
     // BUT: Skip AI classification for Mind Drop edits since buildCanonicalFromMindDrop already does it
-    let aiClassifiedSubtype: 'journal' | 'list' | 'reference' | 'idea' | 'plain' | undefined;
+    let aiClassifiedSubtype: 'journal' | 'idea' | 'general' | undefined;
 
-    if (baseType === 'log' && effectiveLogSubtype === 'plain' && s.log.body && !isEditingMindDrop) {
+    if (
+      baseType === 'log' &&
+      effectiveLogSubtype === 'general' &&
+      s.log.body &&
+      !isEditingMindDrop
+    ) {
       try {
-        aiClassifiedSubtype = await getEffectiveLogSubtype(s.log.body);
+        const aiResult = await getEffectiveLogSubtype(s.log.body);
+        // Map AI result to simplified subtypes
+        if (aiResult === 'journal' || aiResult === 'idea') {
+          aiClassifiedSubtype = aiResult;
+        } else {
+          aiClassifiedSubtype = 'general';
+        }
         console.log('[UnifiedOverlayV2] AI classified log subtype:', aiClassifiedSubtype);
       } catch (err) {
         console.warn(
           '[UnifiedOverlayV2] AI log subtype classification failed, using fallback',
           err,
         );
-        aiClassifiedSubtype = 'journal'; // Fallback to journal on AI failure
+        aiClassifiedSubtype = 'general'; // Fallback to general on AI failure
       }
     }
 
@@ -2786,9 +2773,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const datePatch = reminderIso ? { date: reminderIso } : {};
 
       // Phase L8: Use effective log subtype for Mind Drop logs
-      // For list/journal/idea, use the detected subtype
-      // For plain, use null (database allows null subtypes)
-      const subtype = finalLogSubtype === 'plain' ? null : finalLogSubtype;
+      // For journal/idea, use the detected subtype
+      // For general, use null (database allows null subtypes)
+      const subtype = finalLogSubtype === 'general' ? null : finalLogSubtype;
 
       // For Mind Drop logs confirmed as logs, ensure canonicalType and labels are set
       // This clears catchall/needs_review labels and marks the item as a confirmed log
@@ -2826,9 +2813,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
 
     // Phase L8: Use effective log subtype for base note payload
-    // For list/journal/idea, use the detected subtype
-    // For plain, use null (database allows null subtypes)
-    const subtype2 = finalLogSubtype === 'plain' ? null : finalLogSubtype;
+    // For journal/idea, use the detected subtype
+    // For general, use null (database allows null subtypes)
+    const subtype2 = finalLogSubtype === 'general' ? null : finalLogSubtype;
 
     // Preserve AI-generated title when editing existing entities
     // Only use fallback (firstLine) for new entities or when user explicitly cleared title
@@ -3658,47 +3645,35 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               {/* Main text field - moved above tags */}
               <Box px={4} mt={3}>
                 <View style={{ position: 'relative' }}>
-                  {/* Conditional rendering: ChecklistInput for lists, TextInput otherwise */}
-                  {effectiveLogSubtype === 'list' ? (
-                    <ChecklistInput
-                      text={currentText}
-                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                      colorMode={colorMode}
-                      onFocus={() => setBodyFocused(true)}
-                      onBlur={() => setBodyFocused(false)}
-                      hasCamera={isLog}
-                    />
-                  ) : (
-                    <TextInput
-                      ref={textInputRef}
-                      value={currentText}
-                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                      accessibilityLabel="Overlay content input"
-                      onFocus={() => setBodyFocused(true)}
-                      onBlur={() => setBodyFocused(false)}
-                      placeholder="Add notes..."
-                      placeholderTextColor={lightTokens.colors.subtle}
-                      multiline
-                      scrollEnabled={false}
-                      autoFocus
-                      textAlignVertical="top"
-                      style={[
-                        styles.textArea,
-                        {
-                          color: lightTokens.colors.text,
-                          backgroundColor:
-                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                          borderWidth: 1,
-                          borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                          shadowColor: '#000',
-                          shadowOpacity: 0.03,
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowRadius: 2,
-                          paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                        },
-                      ]}
-                    />
-                  )}
+                  {/* Standard text input for all log subtypes */}
+                  <TextInput
+                    ref={textInputRef}
+                    value={currentText}
+                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                    accessibilityLabel="Overlay content input"
+                    onFocus={() => setBodyFocused(true)}
+                    onBlur={() => setBodyFocused(false)}
+                    placeholder="Add notes..."
+                    placeholderTextColor={lightTokens.colors.subtle}
+                    multiline
+                    scrollEnabled={false}
+                    autoFocus
+                    textAlignVertical="top"
+                    style={[
+                      styles.textArea,
+                      {
+                        color: lightTokens.colors.text,
+                        backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                        borderWidth: 1,
+                        borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                        shadowColor: '#000',
+                        shadowOpacity: 0.03,
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowRadius: 2,
+                        paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                      },
+                    ]}
+                  />
                   {/* Camera button inside text area for logs only */}
                   {isLog && (
                     <Pressable
@@ -6151,12 +6126,12 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
   // Phase L8: Hydrate logSubtypeOverride from entity.subtype for logs
   const rawSubtype = (entity as any)?.subtype as string | undefined;
-  let logSubtypeOverride: 'journal' | 'list' | 'idea' | 'plain' | null = null;
+  let logSubtypeOverride: 'journal' | 'idea' | 'general' | null = null;
   if (baseType === 'log') {
-    if (rawSubtype === 'journal' || rawSubtype === 'list' || rawSubtype === 'idea') {
+    if (rawSubtype === 'journal' || rawSubtype === 'idea') {
       logSubtypeOverride = rawSubtype;
-    } else if (rawSubtype === null || rawSubtype === undefined || rawSubtype === 'catchall') {
-      logSubtypeOverride = 'plain';
+    } else {
+      logSubtypeOverride = 'general';
     }
   }
 

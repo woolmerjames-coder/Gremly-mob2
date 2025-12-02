@@ -70,7 +70,7 @@ export type HabitState = {
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
 export type MoodValue = 'pos' | 'neu' | 'neg';
-export type LogSubtypeOverride = 'journal' | 'list' | 'reference' | 'idea' | 'plain' | null;
+export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | null;
 
 /**
  * V2State - Complete overlay state for all entity types
