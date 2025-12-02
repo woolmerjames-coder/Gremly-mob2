@@ -2810,8 +2810,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Photo support for logs (Phase L3)
       const photoPatch = photoUri ? { photo_uri: photoUri } : {};
 
-      // Phase L7: Private mode support (deprecated - kept for compatibility)
-      const privatePatch = { private: s.log.private };
+      // NOTE: 'private' column does NOT exist in notes table
+      // Private flag is stored in views.private_journal instead (see below)
 
       // Phase L9: Private toggle for journal logs via views.private_journal
       const viewsWithPrivate =
@@ -2830,7 +2830,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...fmtPatch,
         ...datePatch,
         ...photoPatch,
-        ...privatePatch,
       };
     }
 
@@ -2881,8 +2880,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Photo support for logs (Phase L3)
     const photoPatch = photoUri ? { photo_uri: photoUri } : {};
 
-    // Phase L7: Private mode support (deprecated - kept for compatibility)
-    const privatePatch = { private: s.log.private };
+    // NOTE: 'private' column does NOT exist in notes table
+    // Private flag is stored in views.private_journal instead (see below)
 
     // Phase L9: Private toggle for journal logs via views.private_journal
     const viewsWithPrivate2 =
@@ -2897,7 +2896,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ...fmtPatch,
       ...datePatch,
       ...photoPatch,
-      ...privatePatch,
     };
   }
 

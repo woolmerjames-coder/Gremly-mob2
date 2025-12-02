@@ -1026,7 +1026,10 @@ export class SupabaseRepo implements IRepo {
       if ('fmt' in normalizedPatch) updatePayload.fmt = (normalizedPatch as any).fmt ?? null;
       if ('date' in normalizedPatch)
         updatePayload.date = normalizeIsoDatetime((normalizedPatch as any).date) ?? null;
-      if ('private' in normalizedPatch) updatePayload.private = !!(normalizedPatch as any).private;
+      // NOTE: 'private' column does NOT exist in the notes table schema
+      // Private flag is stored in views.private_journal instead (handled via 'views' patch below)
+      // Removing this line that was causing PGRST204 error:
+      // if ('private' in normalizedPatch) updatePayload.private = !!(normalizedPatch as any).private;
       if ('journal_subtype' in normalizedPatch)
         updatePayload.journal_subtype = (normalizedPatch as any).journal_subtype ?? null;
       // Map reminders → reminders_json for note reminders
