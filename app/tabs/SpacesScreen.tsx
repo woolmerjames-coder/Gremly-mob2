@@ -52,7 +52,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Image, Pressable, Alert, Modal, ScrollView } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { Plus, X } from 'lucide-react-native';
+import { Plus, X, ChevronRight } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
@@ -218,42 +218,40 @@ function GremlyHomeScreen() {
               accessibilityRole="button"
               accessibilityLabel="Open Mind Drop"
               style={({ pressed }) => [
+                styles.featureTile,
                 styles.mindDropTile,
-                pressed && { opacity: 0.95, transform: [{ scale: 0.98 }] },
+                pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
               ]}
             >
-              <View style={styles.mindDropTileHeader}>
-                <Image source={BUTTON_HP} style={styles.mindDropTileIcon} resizeMode="contain" />
-                <Image
-                  source={MINDDROP_HEADER}
-                  style={styles.mindDropTileTitle}
-                  resizeMode="contain"
-                />
+              <View style={styles.featureTileContent}>
+                <Image source={BUTTON_HP} style={styles.featureTileIcon} resizeMode="contain" />
+                <Text style={styles.featureTileTitle}>MindDrop</Text>
+                <Text style={styles.featureTileDescription}>Drop thoughts here</Text>
               </View>
-              <Text style={styles.mindDropTileDescription}>
-                Drop anything on your mind — I'll organize it for you.
-              </Text>
-              <View style={styles.mindDropTileButton}>
-                <Text style={styles.mindDropTileButtonText}>Drop a thought →</Text>
-              </View>
+              <ChevronRight size={20} color="#2E5540" style={styles.featureTileChevron} />
             </Pressable>
           </View>
 
           {/* Spaces Tile */}
           <View style={styles.featureGridRight}>
-            <View style={styles.spacesTile}>
-              <Image source={SPACES_TITLE} style={styles.spacesTitleImage} resizeMode="contain" />
-              <Text style={styles.spacesTileDescription}>
-                Group your tasks, notes, and habits by project or theme.
-              </Text>
-              <Pressable
-                onPress={() => setSpacesModalVisible(true)}
-                testID="spaces-new"
-                style={({ pressed }) => [styles.spacesTileButton, pressed && { opacity: 0.9 }]}
-              >
-                <Text style={styles.spacesTileButtonText}>Open Spaces →</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={() => setSpacesModalVisible(true)}
+              testID="spaces-new"
+              accessibilityRole="button"
+              accessibilityLabel="Open Spaces"
+              style={({ pressed }) => [
+                styles.featureTile,
+                styles.spacesTile,
+                pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+              ]}
+            >
+              <View style={styles.featureTileContent}>
+                <Image source={BUTTON_HP} style={styles.featureTileIcon} resizeMode="contain" />
+                <Text style={styles.featureTileTitle}>Spaces</Text>
+                <Text style={styles.featureTileDescription}>Organize by project</Text>
+              </View>
+              <ChevronRight size={20} color="#5A6199" style={styles.featureTileChevron} />
+            </Pressable>
           </View>
         </View>
 
@@ -418,48 +416,43 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 10,
   },
-  mindDropTile: {
-    backgroundColor: 'rgba(191, 216, 192, 0.12)', // Sage Mist at ~12% opacity
+  // Compact Feature Tile
+  featureTile: {
     borderRadius: 24,
-    padding: 22,
-    marginTop: 0,
-    shadowColor: 'rgba(0,0,0,0.05)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  mindDropTileHeader: {
+    padding: 16,
+    height: 160,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    justifyContent: 'space-between',
   },
-  mindDropTileIcon: {
-    width: 36,
-    height: 36,
+  featureTileContent: {
+    flex: 1,
   },
-  mindDropTileTitle: {
-    height: 54, // ~15% smaller than 64
-    width: 138, // ~15% smaller than 162
+  featureTileIcon: {
+    width: 32,
+    height: 32,
+    marginBottom: 12,
   },
-  mindDropTileDescription: {
-    fontSize: 15,
-    color: '#6A6F76',
-    lineHeight: 21,
-    marginBottom: 16,
+  featureTileTitle: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222222',
+    marginBottom: 4,
   },
-  mindDropTileButton: {
-    backgroundColor: '#BFD8C0', // Sage Mist
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
+  featureTileDescription: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    color: 'rgba(34, 34, 34, 0.6)',
   },
-  mindDropTileButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2E5540', // Moss Green
+  featureTileChevron: {
+    marginLeft: 8,
+  },
+  mindDropTile: {
+    backgroundColor: 'rgba(46, 85, 64, 0.06)', // Light green tint
+  },
+  spacesTile: {
+    backgroundColor: 'rgba(156, 166, 224, 0.10)', // Light periwinkle tint
   },
   // Philosophy Footer
   philosophyFooter: {
@@ -479,43 +472,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter',
     fontSize: 14,
     color: 'rgba(34, 34, 34, 0.5)', // Charcoal Ink at 50%
-  },
-  // Spaces Tile Card
-  spacesTile: {
-    backgroundColor: 'rgba(156, 166, 224, 0.10)', // Periwinkle Smoke at 10% opacity
-    borderRadius: 24,
-    padding: 22,
-    marginTop: 20,
-    shadowColor: 'rgba(0,0,0,0.05)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  spacesTitleImage: {
-    height: 30,
-    width: 120,
-    marginBottom: 8,
-  },
-  spacesTileDescription: {
-    fontSize: 15,
-    color: '#6A6F76',
-    lineHeight: 21,
-    marginBottom: 16,
-  },
-  spacesTileButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#2E5540', // Moss Green
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  spacesTileButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2E5540', // Moss Green
   },
   // Modal Styles
   modalContainer: {
