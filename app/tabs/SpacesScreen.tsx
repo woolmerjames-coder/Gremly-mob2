@@ -67,6 +67,7 @@ import Animated, {
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import BUTTON_HP from '../../assets/buttonforHP.png';
 import SPACES_TITLE from '../../assets/spacestitle.png';
+import GREMLY_WAVING from '../../assets/gremlywaving.png';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -234,18 +235,14 @@ function GremlyHomeScreen() {
       entering={isReducedMotion || __DEV__ ? undefined : FadeIn.duration(150)}
     >
       <Screen scroll padded={false} testID="spaces-screen">
-        {/* Custom Header - with padding */}
-        <View style={styles.customHeader}>
-          <View>
-            <Image
-              source={require('../../assets/gremly_wordmark-removebg.png')}
-              style={styles.wordmark}
-              resizeMode="contain"
-            />
-          </View>
-        </View>
-
         {dsMarker}
+
+        {/* Hero Section - New Welcome */}
+        <View style={styles.heroSection}>
+          <Image source={GREMLY_WAVING} style={styles.heroMascot} resizeMode="contain" />
+          <Text style={styles.heroHeadline}>Hi, I'm Gremly — your calm companion.</Text>
+          <Text style={styles.heroSubline}>Drop your thoughts. Build your spaces. Stay clear.</Text>
+        </View>
 
         {/* Error state - with padding */}
         {error && (
@@ -404,17 +401,35 @@ function GremlyHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  customHeader: {
-    paddingVertical: 12, // spacing[3]
+  heroSection: {
+    alignItems: 'center',
+    paddingTop: 24,
+    paddingBottom: 20,
     paddingHorizontal: 16,
-    marginBottom: 12, // Added breathing room before MindDrop section
+  },
+  heroMascot: {
+    height: 150,
+    width: 150,
+    marginBottom: 16,
+  },
+  heroHeadline: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 28,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  heroSubline: {
+    fontFamily: 'Inter',
+    fontSize: 16,
+    color: 'rgba(34, 34, 34, 0.7)', // Charcoal Ink at 70%
+    textAlign: 'center',
+    maxWidth: 300,
+    lineHeight: 22,
   },
   paddedContent: {
     paddingHorizontal: 16,
-  },
-  wordmark: {
-    height: 28,
-    width: 120, // Adjusted for better proportions
   },
   mindDropSection: {
     backgroundColor: '#E8F4EA', // Light sage - full width band
