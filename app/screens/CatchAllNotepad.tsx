@@ -2568,11 +2568,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [repo, showActionToast, TOASTS_ON]);
 
-  // Navigate to Hub → Recent (fallback toast if route missing)
+  // Navigate to Search → Recent (fallback toast if route missing)
   const handleViewDetails = useCallback(() => {
     try {
-      // Navigate to Hub tab; pass filter for future use if supported
-      (navigation as any).navigate('Tabs', { screen: 'Hub', params: { filter: 'recent' } });
+      // Navigate to Search tab; pass filter for future use if supported
+      (navigation as any).navigate('Tabs', { screen: 'Search', params: { filter: 'recent' } });
     } catch (err) {
       if (TOASTS_ON) {
         showActionToast({
