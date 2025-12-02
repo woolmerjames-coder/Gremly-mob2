@@ -51,17 +51,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Image, Pressable, Alert } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withRepeat,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 // Images for Mind Drop hero and Spaces section
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
@@ -95,24 +85,6 @@ function GremlyHomeScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isReducedMotion = useReducedMotion();
-
-  // Animation values for Mind Drop card press
-  const mindDropScale = useSharedValue(1);
-  const breathingScale = useSharedValue(1);
-
-  // Breathing animation for Gremly button
-  useEffect(() => {
-    if (!isReducedMotion) {
-      breathingScale.value = withRepeat(
-        withTiming(1.03, {
-          duration: 4000,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        -1, // infinite
-        true, // reverse
-      );
-    }
-  }, [isReducedMotion, breathingScale]);
 
   // State
   const [spaces, setSpaces] = useState<Array<{ id: string; name: string; description?: string }>>(
@@ -204,31 +176,6 @@ function GremlyHomeScreen() {
   // Empty state (no spaces or filtered empty)
   const isEmpty = filteredSpaces.length === 0;
 
-  // Animated styles for Mind Drop card
-  const mindDropAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: mindDropScale.value }],
-  }));
-
-  // Breathing animation style for Gremly button
-  const breathingAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: breathingScale.value }],
-  }));
-
-  // Press handlers for Mind Drop
-  const handleMindDropPressIn = useCallback(() => {
-    if (!isReducedMotion) {
-      // eslint-disable-next-line react-hooks/immutability
-      mindDropScale.value = withSpring(0.97, { damping: 15, stiffness: 150 });
-    }
-  }, [isReducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleMindDropPressOut = useCallback(() => {
-    if (!isReducedMotion) {
-      // eslint-disable-next-line react-hooks/immutability
-      mindDropScale.value = withSpring(1, { damping: 15, stiffness: 150 });
-    }
-  }, [isReducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
     <Animated.View
       style={{ flex: 1 }}
@@ -267,34 +214,34 @@ function GremlyHomeScreen() {
           </View>
         )}
 
-        {/* MindDrop Section - Full Width Band with Gradient */}
-        <LinearGradient colors={['#c9ddcf', '#E8F4EA']} style={styles.mindDropSection}>
-          <View style={styles.mindDropContent}>
-            <Image
-              source={MINDDROP_HEADER}
-              style={styles.mindDropHeaderImage}
-              resizeMode="contain"
-            />
-            <Text style={styles.mindDropHeadline}>Your brain dump, organized.</Text>
-            <Text style={styles.mindDropDescription}>To-Dos • Habits • Anything</Text>
-            <Pressable
-              onPress={() => navigation.navigate('CatchAllNotepad')}
-              onPressIn={handleMindDropPressIn}
-              onPressOut={handleMindDropPressOut}
-              testID="spaces-catchall-button"
-              accessibilityRole="button"
-              accessibilityLabel="Open Mind Drop"
-            >
-              <Animated.View style={mindDropAnimatedStyle}>
-                <Animated.View style={[styles.mindDropPill, breathingAnimatedStyle]}>
-                  <Image source={BUTTON_HP} style={styles.mindDropButton} resizeMode="contain" />
-                  <Text style={styles.mindDropLabel}>Tap Gremly</Text>
-                </Animated.View>
-              </Animated.View>
-            </Pressable>
-            <Text style={styles.mindDropStat}>✨ 12 organized ever</Text>
-          </View>
-        </LinearGradient>
+        {/* MindDrop Tile Card */}
+        <View style={styles.paddedContent}>
+          <Pressable
+            onPress={() => navigation.navigate('CatchAllNotepad')}
+            testID="spaces-catchall-button"
+            accessibilityRole="button"
+            accessibilityLabel="Open Mind Drop"
+            style={({ pressed }) => [
+              styles.mindDropTile,
+              pressed && { opacity: 0.95, transform: [{ scale: 0.98 }] },
+            ]}
+          >
+            <View style={styles.mindDropTileHeader}>
+              <Image source={BUTTON_HP} style={styles.mindDropTileIcon} resizeMode="contain" />
+              <Image
+                source={MINDDROP_HEADER}
+                style={styles.mindDropTileTitle}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.mindDropTileDescription}>
+              Drop anything on your mind — I'll organize it for you.
+            </Text>
+            <View style={styles.mindDropTileButton}>
+              <Text style={styles.mindDropTileButtonText}>Drop a thought →</Text>
+            </View>
+          </Pressable>
+        </View>
 
         {/* Section Divider */}
         <View style={styles.sectionDivider} />
@@ -431,67 +378,48 @@ const styles = StyleSheet.create({
   paddedContent: {
     paddingHorizontal: 16,
   },
-  mindDropSection: {
-    backgroundColor: '#E8F4EA', // Light sage - full width band
-    width: '100%',
-    paddingVertical: 24,
-    marginLeft: 0,
-    marginRight: 0,
+  mindDropTile: {
+    backgroundColor: '#F9F6F1', // Linen Cream
+    borderRadius: 24,
+    padding: 22,
+    marginTop: 8,
+    shadowColor: 'rgba(0,0,0,0.05)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  mindDropContent: {
-    paddingHorizontal: 20,
-  },
-  mindDropHeaderImage: {
-    height: 64,
-    width: 162,
-    alignSelf: 'center',
-    marginBottom: 8,
-  },
-  mindDropHeadline: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 3,
-    color: '#222222',
-  },
-  mindDropDescription: {
-    fontSize: 14,
-    fontWeight: '400',
-    textAlign: 'center',
-    color: '#6A6F76',
-    marginBottom: 20,
-  },
-  mindDropPill: {
+  mindDropTileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    paddingVertical: 8,
-    borderRadius: 32,
-    backgroundColor: '#2E5540', // Dark green
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 4,
-    gap: 11,
-    alignSelf: 'center',
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 8,
   },
-  mindDropButton: {
-    width: 48,
-    height: 48,
+  mindDropTileIcon: {
+    width: 36,
+    height: 36,
   },
-  mindDropLabel: {
-    fontSize: 17,
-    fontWeight: '500',
-    color: '#F9F6F1', // Cream
+  mindDropTileTitle: {
+    height: 54, // ~15% smaller than 64
+    width: 138, // ~15% smaller than 162
   },
-  mindDropStat: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginTop: 0,
+  mindDropTileDescription: {
+    fontSize: 15,
+    color: '#6A6F76',
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  mindDropTileButton: {
+    backgroundColor: '#BFD8C0', // Sage Mist
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  mindDropTileButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
   },
   sectionDivider: {
     height: 1,
