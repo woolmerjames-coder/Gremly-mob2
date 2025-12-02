@@ -407,7 +407,7 @@ describe('Mind Drop Card Visual States', () => {
       expect(screen.queryByText(/organizing/i)).toBeNull();
     });
 
-    it('should still show edit and delete actions in failed state', async () => {
+    it('should still be interactive in failed state (card is tappable)', async () => {
       const failedNote = makeFailedNote('failed-4', 'Note', true);
 
       mockNotesList.mockResolvedValue([failedNote] as any);
@@ -425,15 +425,12 @@ describe('Mind Drop Card Visual States', () => {
       // ASSERTION 2: Failed hint present (confirms failed state)
       expect(screen.getByTestId('minddrop-failed-hint')).toBeTruthy();
 
-      // ASSERTION 3: Edit action is still available (failure doesn't block interaction)
-      const editButtons = screen.getAllByLabelText('Edit');
-      expect(editButtons.length).toBeGreaterThan(0);
+      // ASSERTION 3: Card is tappable (accessibilityRole="button" with "Edit" label)
+      // The entire card is now the edit target, not a separate icon button
+      const tappableCards = screen.getAllByLabelText(/Edit/i);
+      expect(tappableCards.length).toBeGreaterThan(0);
 
-      // ASSERTION 4: Delete action is still available
-      const deleteButtons = screen.getAllByLabelText('Delete');
-      expect(deleteButtons.length).toBeGreaterThan(0);
-
-      // ASSERTION 5: No blocking error UI or disabled states
+      // ASSERTION 4: No blocking error UI or disabled states
       // The card should be as interactive as a successful note
       expect(screen.queryByText(/disabled/i)).toBeNull();
       expect(screen.queryByText(/unavailable/i)).toBeNull();

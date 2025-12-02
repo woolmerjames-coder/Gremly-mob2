@@ -110,7 +110,6 @@ import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
-import { Pencil, Trash2 } from 'lucide-react-native';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 
 export const THINKING_DURATION = 1200;
@@ -897,10 +896,13 @@ const AnimatedMindDropCard: React.FC<{
   const isFailed = visualState === 'failed';
 
   return (
-    <View
+    <Pressable
       key={`${item.kind}:${item.id}`}
       testID={`minddrop-recent-${item.kind}-${item.id}`}
       style={styles.recentCard}
+      onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${item.title || item.text || 'item'}`}
     >
       {/* Top row: Title (left) + Due/Time (right) */}
       <View style={styles.recentTopRow}>
@@ -923,7 +925,7 @@ const AnimatedMindDropCard: React.FC<{
         )}
       </View>
 
-      {/* Second row: Category, tags, and actions */}
+      {/* Second row: Category and tags */}
       <View style={styles.recentMetaRow}>
         <View style={styles.recentMetaLeft}>
           {/* Category pill */}
@@ -946,28 +948,8 @@ const AnimatedMindDropCard: React.FC<{
             </Text>
           ) : null}
         </View>
-
-        {/* Right side: Actions */}
-        <View style={styles.recentMetaRight}>
-          <Pressable
-            onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Edit"
-          >
-            <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
-          </Pressable>
-          <Pressable
-            onPress={() => handleDelete(item.id, item.kind)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Delete"
-          >
-            <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
-          </Pressable>
-        </View>
       </View>
-    </View>
+    </Pressable>
   );
 };
 
