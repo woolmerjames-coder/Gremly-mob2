@@ -1,6 +1,11 @@
 import React from 'react';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { render } from '@testing-library/react-native';
 
+// SKIP: Context prompt was removed from the UI in the tweaks-for-phone branch
+// The contextPrompt element is no longer rendered in CatchAllNotepad.tsx
+
+// Original mocks kept for reference - needed if tests are re-enabled
 jest.mock('@/src/config/featureFlags', () => ({
   __esModule: true,
   MIND_DROP_V2: true,
@@ -59,9 +64,10 @@ jest.mock('../providers/RepoProvider', () => ({
 }));
 
 // Import after all mocks to ensure supabase mock is in place
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
-describe('Mind Drop contextual prompt', () => {
+describe.skip('Mind Drop contextual prompt (REMOVED FROM UI)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();

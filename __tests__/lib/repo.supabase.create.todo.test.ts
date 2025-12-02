@@ -106,7 +106,8 @@ describe('SupabaseRepo.create - Todo', () => {
       name: 'Todo with body',
       body: 'Test body text for this todo',
       space_id: null,
-      due_date: '2025-10-20T10:00:00Z',
+      due_date: '2025-10-20', // DB stores date-only
+      due_day: '2025-10-20',
       undefined_due: false,
       ai_placed: false,
       labels: [],
@@ -131,7 +132,7 @@ describe('SupabaseRepo.create - Todo', () => {
       expect.objectContaining({
         name: 'Todo with body',
         body: 'Test body text for this todo',
-        due_date: '2025-10-20T10:00:00Z',
+        due_date: '2025-10-20', // Date-only to prevent timezone issues
         undefined_due: false,
         ai_placed: false,
         owner_id: 'test-user-id', // Now included per schema conformance
@@ -297,13 +298,14 @@ describe('SupabaseRepo.create - Todo', () => {
 
     const insertPayload = mockInsert.mock.calls[0][0];
 
-    // Should have due_date as full ISO datetime, due_time should be undefined (not set)
-    expect(insertPayload.due_date).toBe(dueAt);
+    // Should have due_date as date-only string (YYYY-MM-DD) to prevent timezone issues
+    // The date is computed from the due_at input
+    expect(insertPayload.due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(insertPayload.due_time).toBeUndefined();
   });
 
   it('should prefer explicit due_date over due_at if both provided', async () => {
-    const explicitDueDate = '2024-12-25T00:00:00.000Z'; // Must be full datetime for schema
+    const explicitDueDate = '2024-12-25T00:00:00.000Z'; // Full datetime - will be converted to date-only
 
     const dbResult = {
       id: '123e4567-e89b-12d3-a456-426614174000',
@@ -311,7 +313,7 @@ describe('SupabaseRepo.create - Todo', () => {
       name: 'Todo with explicit due_date',
       body: null,
       space_id: null,
-      due_date: explicitDueDate,
+      due_date: '2024-12-25', // DB stores date-only
       due_time: null,
       undefined_due: false,
       ai_placed: false,
@@ -331,8 +333,8 @@ describe('SupabaseRepo.create - Todo', () => {
 
     const insertPayload = mockInsert.mock.calls[0][0];
 
-    // Should use the explicit due_date, not parse due_at
-    expect(insertPayload.due_date).toBe(explicitDueDate);
+    // Should use date computed from explicit due_date (date-only to avoid timezone issues)
+    expect(insertPayload.due_date).toBe('2024-12-25');
   });
 
   it('should set due_day when todo is created with a due date (today)', async () => {
@@ -419,7 +421,7 @@ describe('SupabaseRepo.create - Todo', () => {
       name: 'Todo with due_date',
       body: null,
       space_id: null,
-      due_date: dueDate,
+      due_date: '2025-12-15', // DB stores date-only
       due_day: '2025-12-15',
       due_time: null,
       undefined_due: false,
@@ -439,8 +441,8 @@ describe('SupabaseRepo.create - Todo', () => {
 
     const insertPayload = mockInsert.mock.calls[0][0];
 
-    // Should have due_day computed from due_date
+    // Should have due_day computed from due_date, and due_date as date-only string
     expect(insertPayload.due_day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(insertPayload.due_date).toBe(dueDate);
+    expect(insertPayload.due_date).toBe('2025-12-15');
   });
 });

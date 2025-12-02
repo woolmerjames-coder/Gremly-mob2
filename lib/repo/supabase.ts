@@ -539,6 +539,17 @@ export class SupabaseRepo implements IRepo {
         effectiveDueDay = computeDueDay(effectiveDueDate);
       }
 
+      // CRITICAL FIX: Ensure due_date and due_day are in sync
+      // If we computed due_day, set due_date to just the date string (YYYY-MM-DD)
+      // This prevents timezone issues where "today at 5pm" becomes "tomorrow" in UTC
+      // The database will store just the date part, avoiding UTC conversion issues
+      if (effectiveDueDay && effectiveDueDate && effectiveDueDate !== effectiveDueDay) {
+        // Only keep the time if due_time is explicitly set
+        if (!effectiveDueTime) {
+          effectiveDueDate = effectiveDueDay;
+        }
+      }
+
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
@@ -862,9 +873,12 @@ export class SupabaseRepo implements IRepo {
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('due_date' in normalizedPatch) {
         const duePatch = normalizedPatch.due_date as string | null | undefined;
-        updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
-        // Also set due_day from due_date for canonical day-based logic using shared helper
-        updatePayload.due_day = computeDueDay(duePatch);
+        // Compute due_day first to ensure consistency
+        const computedDueDay = computeDueDay(duePatch);
+        updatePayload.due_day = computedDueDay;
+        // CRITICAL FIX: Use the date string (YYYY-MM-DD) for due_date to avoid timezone issues
+        // This prevents "today at 5pm" becoming "tomorrow" when converted to UTC
+        updatePayload.due_date = computedDueDay ?? normalizeIsoDatetime(duePatch) ?? null;
       }
       if ('due_time' in normalizedPatch) {
         const dueTimePatch = normalizedPatch.due_time as string | null | undefined;
