@@ -507,8 +507,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   philosophyIcon: {
-    width: 20,
-    height: 20,
+    width: 16,
+    height: 16,
     tintColor: '#2E5540', // Moss Green
   },
   philosophyText: {
