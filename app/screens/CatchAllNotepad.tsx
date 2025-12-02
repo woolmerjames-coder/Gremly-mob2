@@ -124,11 +124,14 @@ const THINKING_MICROCOPY = [
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
 // Auto-grow constants: aligned for deterministic behavior
-const LINE_HEIGHT = 24; // Must match styles.input lineHeight (increased for better readability)
-const INPUT_VERTICAL_PADDING = 24; // paddingTop (12) + paddingBottom (12) from styles.input
+const LINE_HEIGHT = 24; // Must match styles.input lineHeight
+const INPUT_VERTICAL_PADDING = 24; // paddingTop (12) + paddingBottom (12)
 const MAX_LINES = 8;
-const START_HEIGHT = 140; // Show ~4-5 lines initially for a more spacious input area
-const MIN_HEIGHT = 120;
+
+// Start at ~2 lines high and grow as the user types
+const START_HEIGHT = 80; // ~2 lines: 2 * 24 + 24 + small buffer
+const MIN_HEIGHT = START_HEIGHT;
+
 const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
 
 export const INPUT_LINE_HEIGHT = LINE_HEIGHT;
@@ -4918,7 +4921,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: c.linenCream ?? '#F9F6F1',
       borderWidth: 1,
       borderColor: '#E0E0E0',
-      minHeight: 140,
+      minHeight: START_HEIGHT,
     },
     inputContainerFocused: {
       borderRadius: 16,
