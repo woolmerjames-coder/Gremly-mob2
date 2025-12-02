@@ -253,12 +253,8 @@ describe('extractTagsAI', () => {
 
     expect(callClassify).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: expect.arrayContaining([
-          expect.objectContaining({
-            role: 'user',
-            content: longText.slice(0, 500),
-          }),
-        ]),
+        text: longText.slice(0, 500),
+        timeoutMs: 3000,
       }),
     );
   });

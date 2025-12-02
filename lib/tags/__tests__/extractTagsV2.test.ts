@@ -39,7 +39,10 @@ describe('extractTagsV2', () => {
     it('extracts meaningful nouns', () => {
       const result = extractTagsV2('Book dentist appointment for checkup');
       expect(result.keywords).toContain('dentist');
-      expect(result.keywords).toContain('appointment');
+      expect(result.keywords).toContain('checkup');
+      // 'appointment' and 'book' are generic action words, filtered
+      expect(result.keywords).not.toContain('appointment');
+      expect(result.keywords).not.toContain('book');
     });
 
     it('does NOT extract pronouns', () => {
@@ -177,8 +180,9 @@ describe('extractTagsV2', () => {
       const result = extractTagsV2('Should probably book dentist appointment');
       expect(result.keywords).not.toContain('should');
       expect(result.keywords).not.toContain('probably');
-      expect(result.keywords).toContain('dentist');
-      expect(result.keywords).toContain('appointment');
+      expect(result.keywords).not.toContain('book'); // generic action verb
+      expect(result.keywords).not.toContain('appointment'); // too generic
+      expect(result.keywords).toContain('dentist'); // meaningful noun
     });
 
     it('Feeling overwhelmed lately', () => {

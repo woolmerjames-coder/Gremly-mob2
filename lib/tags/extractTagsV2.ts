@@ -21,6 +21,34 @@ const NAME_CONTEXT_PATTERNS = [
   /\b(Ms\.?\s+[A-Z][a-z]+)\b/g, // "Ms. Davis"
 ];
 
+// Family/role names to treat as @mentions
+const FAMILY_ROLE_NAMES = new Set([
+  'mom',
+  'dad',
+  'mother',
+  'father',
+  'mum',
+  'papa',
+  'mama',
+  'grandma',
+  'grandpa',
+  'grandmother',
+  'grandfather',
+  'boss',
+  'manager',
+  'coach',
+  'therapist',
+  'sister',
+  'brother',
+  'aunt',
+  'uncle',
+  'cousin',
+  'wife',
+  'husband',
+  'partner',
+  'spouse',
+]);
+
 // NOT names - exclude these
 const NOT_NAMES = new Set([
   // Days
@@ -281,6 +309,94 @@ const KEYWORD_BLOCKLIST = new Set([
   'showing',
   'shown',
 
+  // Action verbs (generic task verbs)
+  'call',
+  'calls',
+  'called',
+  'calling',
+  'email',
+  'emails',
+  'emailed',
+  'emailing',
+  'meet',
+  'meets',
+  'met',
+  'meeting',
+  'schedule',
+  'schedules',
+  'scheduled',
+  'scheduling',
+  'send',
+  'sends',
+  'sent',
+  'sending',
+  'check',
+  'checks',
+  'checked',
+  'checking',
+  'buy',
+  'buys',
+  'bought',
+  'buying',
+  'pick',
+  'picks',
+  'picked',
+  'picking',
+  'discuss',
+  'discusses',
+  'discussed',
+  'discussing',
+  'mention',
+  'mentions',
+  'mentioned',
+  'mentioning',
+  'talk',
+  'talks',
+  'talked',
+  'talking',
+  'write',
+  'writes',
+  'wrote',
+  'written',
+  'writing',
+  'read',
+  'reads',
+  'reading',
+  'plan',
+  'plans',
+  'planned',
+  'planning',
+  'finish',
+  'finishes',
+  'finished',
+  'finishing',
+  'start',
+  'starts',
+  'started',
+  'starting',
+  'pay',
+  'pays',
+  'paid',
+  'paying',
+  'book',
+  'books',
+  'booked',
+  'booking',
+  'cancel',
+  'cancels',
+  'cancelled',
+  'canceled',
+  'cancelling',
+  'canceling',
+  'appointment',
+  'appointments',
+
+  // Work-related verbs
+  'work',
+  'works',
+  'worked',
+  'working',
+
   // Determiners & articles
   'the',
   'a',
@@ -333,6 +449,7 @@ const KEYWORD_BLOCKLIST = new Set([
   'off',
   'away',
   'around',
+  'per',
 
   // Conjunctions
   'and',
@@ -363,6 +480,8 @@ const KEYWORD_BLOCKLIST = new Set([
   'week',
   'month',
   'year',
+  'times',
+  'x',
   'day',
   'time',
   'now',
@@ -509,6 +628,52 @@ const KEYWORD_BLOCKLIST = new Set([
   'bye',
   'please',
   'thanks',
+  'idk',
+  'kinda',
+  'sorta',
+  'gonna',
+  'wanna',
+  'gotta',
+  'dunno',
+
+  // Vague adjectives/descriptors
+  'better',
+  'worse',
+  'good',
+  'bad',
+  'great',
+  'nice',
+  'weird',
+  'strange',
+  'odd',
+  'fine',
+  'different',
+  'same',
+  'new',
+  'old',
+  'big',
+  'small',
+  'long',
+  'short',
+  'hard',
+  'easy',
+  'simple',
+  'complex',
+
+  // Adverbs
+  'even',
+  'still',
+  'ever',
+  'already',
+  'anymore',
+  'yet',
+  'only',
+  'actually',
+  'basically',
+  'literally',
+  'honestly',
+  'seriously',
+  'definitely',
 ]);
 
 // Short words whitelist (allowed despite being <3 chars)
@@ -548,6 +713,16 @@ function extractNames(text: string): string[] {
     }
   }
 
+  // Also extract family/role names from anywhere in text
+  const lowerText = text.toLowerCase();
+  const words = lowerText.split(/\s+/);
+  for (const word of words) {
+    const cleaned = word.replace(/[^a-z]/g, '');
+    if (FAMILY_ROLE_NAMES.has(cleaned)) {
+      names.add(cleaned);
+    }
+  }
+
   return Array.from(names);
 }
 
@@ -563,7 +738,8 @@ function extractKeywords(text: string, maxKeywords: number = 4): string[] {
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length >= 3 || SHORT_WORD_WHITELIST.has(w))
-    .filter((w) => !KEYWORD_BLOCKLIST.has(w));
+    .filter((w) => !KEYWORD_BLOCKLIST.has(w))
+    .filter((w) => !FAMILY_ROLE_NAMES.has(w)); // Don't extract as keywords - they become @mentions
 
   // Count frequency (crude keyword extraction)
   const freq = new Map<string, number>();
@@ -636,9 +812,10 @@ export function extractTagsV2(text: string, options: TagExtractionOptions = {}):
   // Stage 3: Themes → #themes (double-signal required)
   const themes = extractThemes(text);
 
-  // Stage 4: Quality gate (applied to keywords and themes, not mentions)
+  // Stage 4: Quality gate (applied to keywords, NOT to themes - themes are controlled by THEME_TRIGGERS)
   const filteredKeywords = applyQualityGate(keywords);
-  const filteredThemes = applyQualityGate(themes);
+  // Themes bypass blocklist since they're already controlled by THEME_TRIGGERS
+  const filteredThemes = themes.filter((t) => t.length >= 2 && t.length <= 25);
 
   return {
     mentions,

@@ -13,16 +13,6 @@
 
 import { callClassify } from '../cortex/CortexClient';
 
-const TAG_EXTRACTION_PROMPT = `Extract meaningful tags from this text.
-
-Rules:
-- ONLY extract: proper names (people/places), specific topics, concrete objects, activities
-- DO NOT extract: verbs (know, think, feel), adjectives (good, bad, amazing), filler words
-- Prefer specificity: "dentist" over "appointment", "meditation" over "relax"
-- 3–6 tags max
-
-Return ONLY the tags as a JSON array of strings, like: ["tag1", "tag2", "tag3"]`;
-
 /**
  * Validate and normalize a single tag string.
  * Returns normalized tag or null if invalid.
@@ -64,10 +54,7 @@ export async function extractTagsAI(text: string): Promise<string[]> {
 
   try {
     const result = await callClassify({
-      messages: [
-        { role: 'system', content: TAG_EXTRACTION_PROMPT },
-        { role: 'user', content: text.slice(0, 500) }, // Limit to 500 chars
-      ],
+      text: text.slice(0, 500), // Limit to 500 chars
       timeoutMs: 3000, // 3 second timeout
     });
 
