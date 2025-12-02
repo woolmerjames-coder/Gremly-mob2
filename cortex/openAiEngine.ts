@@ -4,6 +4,7 @@ import { filterAndNormalizeTags, normalizeTag } from '../lib/tags/normalize';
 import { applyTagQualityFilter } from '../lib/tags/quality';
 import { heuristicEngine } from './heuristicEngine';
 import { extractMeaningfulTags } from '../lib/tags/extractTags';
+import { classifyV2 } from '../lib/cortex/classify/classifyV2';
 
 interface OpenAiEngineConfig {
   apiKey: string; // Kept for backward compatibility but no longer used
@@ -56,6 +57,30 @@ function normalizeCategoryToType(value: unknown): 'todo' | 'habit' | 'note' {
   if (HABIT_KEYWORDS.has(norm)) return 'habit';
   if (NOTE_KEYWORDS.has(norm)) return 'note';
   return 'note';
+}
+
+/**
+ * Determine note subtype using classifyV2 heuristics when engine only returns 'note'.
+ * Maps classifyV2 result to the note subtype format: journal, list, idea, or catchall.
+ */
+function determineNoteSubtype(text: string): 'journal' | 'list' | 'idea' | 'catchall' {
+  const v2Result = classifyV2(text);
+
+  // Only use V2 result if it classifies as 'log' type
+  if (v2Result.type !== 'log') {
+    return 'catchall';
+  }
+
+  // Map V2 subtype to engine subtype
+  switch (v2Result.subtype) {
+    case 'journal':
+      return 'journal';
+    case 'idea':
+      return 'idea';
+    case 'general':
+    default:
+      return 'catchall';
+  }
 }
 
 function isNonActionIdeasNote(text: string): boolean {
@@ -559,8 +584,17 @@ export class OpenAiEngine implements ICortexEngine {
         const c = classifyRes.classification;
         if (DEBUG) console.log('[CORTEX][LLM] classify route raw category:', c.category);
 
+        // Determine note subtype using classifyV2 heuristics when engine returns 'note'
+        // This ensures journal/idea/list entries are properly classified
+        const categoryNormalized = normalizeCategoryToType(c.category);
+        const noteSubtype = categoryNormalized === 'note' ? determineNoteSubtype(text) : undefined;
+        if (DEBUG && noteSubtype) {
+          console.log('[CORTEX][LLM] determined note subtype via classifyV2:', noteSubtype);
+        }
+
         const normalized = normalizeExternal({
           category: c.category,
+          subtype: noteSubtype, // Pass the determined subtype
           whyString: `Proxy classify: ${c.category} (${Math.round((c.confidence ?? 0) * 100)}%)`,
         });
 
