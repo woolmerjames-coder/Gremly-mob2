@@ -44,6 +44,8 @@ import {
   Image,
   ActionSheetIOS,
   Keyboard,
+  PanResponder,
+  PanResponderGestureState,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
@@ -2112,6 +2114,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
   }, []);
+
+  // PanResponder for swipe-down-to-dismiss-keyboard gesture
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (
+        _evt: GestureResponderEvent,
+        gestureState: PanResponderGestureState,
+      ) => {
+        const { dx, dy, vy } = gestureState;
+        // Start handling when the user clearly drags mostly downward
+        const isVerticalSwipe = Math.abs(dy) > Math.abs(dx);
+        const isDownward = dy > 10 && vy >= 0;
+        return isVerticalSwipe && isDownward;
+      },
+      onPanResponderMove: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        if (gestureState.dy > 10) {
+          Keyboard.dismiss();
+        }
+      },
+      onPanResponderRelease: () => {
+        Keyboard.dismiss();
+      },
+    }),
+  ).current;
 
   // Compute photo hint text: show gentle prompt when photos exist but text is empty
   const noteIsEmpty = note.trim().length === 0;
@@ -4459,7 +4485,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const statsVisible = organizedToday > 0;
 
     return (
-      <View style={styles.mainContainer}>
+      <View style={styles.mainContainer} {...panResponder.panHandlers}>
         {/* Header + greeting at the top */}
         <View style={styles.headerContainer}>
           <View style={styles.headerRow} testID="minddrop-header">
