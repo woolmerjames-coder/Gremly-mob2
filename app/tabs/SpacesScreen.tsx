@@ -208,49 +208,52 @@ function GremlyHomeScreen() {
           </View>
         )}
 
-        {/* MindDrop Tile Card */}
-        <View style={styles.paddedContent}>
-          <Pressable
-            onPress={() => navigation.navigate('CatchAllNotepad')}
-            testID="spaces-catchall-button"
-            accessibilityRole="button"
-            accessibilityLabel="Open Mind Drop"
-            style={({ pressed }) => [
-              styles.mindDropTile,
-              pressed && { opacity: 0.95, transform: [{ scale: 0.98 }] },
-            ]}
-          >
-            <View style={styles.mindDropTileHeader}>
-              <Image source={BUTTON_HP} style={styles.mindDropTileIcon} resizeMode="contain" />
-              <Image
-                source={MINDDROP_HEADER}
-                style={styles.mindDropTileTitle}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.mindDropTileDescription}>
-              Drop anything on your mind — I'll organize it for you.
-            </Text>
-            <View style={styles.mindDropTileButton}>
-              <Text style={styles.mindDropTileButtonText}>Drop a thought →</Text>
-            </View>
-          </Pressable>
-        </View>
-
-        {/* Spaces Tile Card */}
-        <View style={styles.paddedContent}>
-          <View style={styles.spacesTile}>
-            <Image source={SPACES_TITLE} style={styles.spacesTitleImage} resizeMode="contain" />
-            <Text style={styles.spacesTileDescription}>
-              Group your tasks, notes, and habits by project or theme.
-            </Text>
+        {/* Feature Grid - 2 Column Layout */}
+        <View style={styles.featureGrid}>
+          {/* MindDrop Tile */}
+          <View style={styles.featureGridLeft}>
             <Pressable
-              onPress={() => setSpacesModalVisible(true)}
-              testID="spaces-new"
-              style={({ pressed }) => [styles.spacesTileButton, pressed && { opacity: 0.9 }]}
+              onPress={() => navigation.navigate('CatchAllNotepad')}
+              testID="spaces-catchall-button"
+              accessibilityRole="button"
+              accessibilityLabel="Open Mind Drop"
+              style={({ pressed }) => [
+                styles.mindDropTile,
+                pressed && { opacity: 0.95, transform: [{ scale: 0.98 }] },
+              ]}
             >
-              <Text style={styles.spacesTileButtonText}>Open Spaces →</Text>
+              <View style={styles.mindDropTileHeader}>
+                <Image source={BUTTON_HP} style={styles.mindDropTileIcon} resizeMode="contain" />
+                <Image
+                  source={MINDDROP_HEADER}
+                  style={styles.mindDropTileTitle}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.mindDropTileDescription}>
+                Drop anything on your mind — I'll organize it for you.
+              </Text>
+              <View style={styles.mindDropTileButton}>
+                <Text style={styles.mindDropTileButtonText}>Drop a thought →</Text>
+              </View>
             </Pressable>
+          </View>
+
+          {/* Spaces Tile */}
+          <View style={styles.featureGridRight}>
+            <View style={styles.spacesTile}>
+              <Image source={SPACES_TITLE} style={styles.spacesTitleImage} resizeMode="contain" />
+              <Text style={styles.spacesTileDescription}>
+                Group your tasks, notes, and habits by project or theme.
+              </Text>
+              <Pressable
+                onPress={() => setSpacesModalVisible(true)}
+                testID="spaces-new"
+                style={({ pressed }) => [styles.spacesTileButton, pressed && { opacity: 0.9 }]}
+              >
+                <Text style={styles.spacesTileButtonText}>Open Spaces →</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
 
@@ -399,6 +402,21 @@ const styles = StyleSheet.create({
   },
   paddedContent: {
     paddingHorizontal: 16,
+  },
+  featureGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  featureGridLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  featureGridRight: {
+    flex: 1,
+    marginLeft: 10,
   },
   mindDropTile: {
     backgroundColor: 'rgba(191, 216, 192, 0.12)', // Sage Mist at ~12% opacity
