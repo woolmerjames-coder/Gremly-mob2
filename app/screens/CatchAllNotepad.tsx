@@ -4514,8 +4514,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         {/* Fixed bottom section: input + chips + button + stats */}
         <View style={styles.fixedTopSection}>
-          <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
-
           <View style={styles.inputBlock}>
             <MindDropInput
               value={note}
@@ -4888,7 +4886,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     inputBlock: {
       position: 'relative',
-      marginTop: 0,
+      marginTop: 10, // Spacing after recent drops (divider removed)
       marginBottom: 0,
     },
     inputContainer: {
