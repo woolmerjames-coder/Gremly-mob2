@@ -179,15 +179,10 @@ function GremlyHomeScreen() {
         </View>
         <View style={styles.topNavDivider} />
 
-        {/* Hero Section - Horizontal Row */}
+        {/* Hero Section - Centered Mascot */}
         <View style={styles.heroSection}>
           <Image source={GREMLY_WAVING} style={styles.heroMascot} resizeMode="contain" />
-          <View style={styles.heroTextColumn}>
-            <Text style={styles.heroHeadline}>Hi, I'm Gremly — your calm companion.</Text>
-            <Text style={styles.heroSubline}>
-              Drop your thoughts. Build your spaces. Stay clear.
-            </Text>
-          </View>
+          <Text style={styles.heroText}>So… where do we begin?</Text>
         </View>
 
         {/* Error state - with padding */}
@@ -383,36 +378,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(46, 85, 64, 0.12)', // Moss Green at ~12%
   },
   heroSection: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 24,
-    paddingBottom: 28,
+    justifyContent: 'center',
+    paddingTop: 20,
+    paddingBottom: 24,
     paddingHorizontal: 16,
-    gap: 16,
   },
   heroMascot: {
-    height: 100,
-    width: 100,
-    alignSelf: 'flex-start',
+    height: 170,
+    width: 170,
   },
-  heroTextColumn: {
-    flex: 1,
-    maxWidth: 220,
-  },
-  heroHeadline: {
+  heroText: {
     fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
-    textAlign: 'left',
-    marginBottom: 6,
-  },
-  heroSubline: {
-    fontFamily: 'Inter',
-    fontSize: 15,
-    color: 'rgba(34, 34, 34, 0.7)', // Charcoal Ink at 70%
-    textAlign: 'left',
-    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: 16,
   },
   paddedContent: {
     paddingHorizontal: 16,
