@@ -1729,7 +1729,7 @@ const RecentDrops: React.FC<{
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 && pendingItems.length === 0 ? (
             <Text style={styles.recentEmpty}>
-              {showOlder ? 'No drops yet.' : 'Ready when you are'}
+              {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
             </Text>
           ) : (
             <ScrollView
