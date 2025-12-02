@@ -43,6 +43,7 @@ import {
   TextInputContentSizeChangeEventData,
   Image,
   ActionSheetIOS,
+  Keyboard,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
@@ -4473,50 +4474,67 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return (
       <View style={styles.mainContainer}>
-        {/* Phase 5A: Fixed header/input area - does not scroll */}
-        <View style={styles.fixedTopSection}>
-          <View style={styles.headerContainer}>
-            <View style={styles.headerRow} testID="minddrop-header">
-              <View style={styles.headerLeftGroup}>
-                <Pressable
-                  accessibilityLabel="Go back"
-                  accessibilityRole="button"
-                  onPress={handleBack}
-                  hitSlop={12}
-                  style={styles.headerBackBtn}
-                >
-                  <Text style={styles.headerBackText}>{'<'}</Text>
-                </Pressable>
-                <Image
-                  ref={headerTitleRef}
-                  source={MINDDROP_HEADER}
-                  style={styles.headerTitle}
-                  resizeMode="contain"
-                  accessibilityLabel="Mind Drop"
-                  accessibilityIgnoresInvertColors
-                />
-                <Pressable
-                  accessibilityLabel="About Mind Drop"
-                  accessibilityRole="button"
-                  testID="minddrop-info-header"
-                  style={styles.headerInfoBtn}
-                  onPress={handleInfoOpen}
-                  hitSlop={12}
-                >
-                  <Icon name="Info" size="sm" color={c.mossGreen} />
-                </Pressable>
-              </View>
+        {/* Header + greeting at the top */}
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow} testID="minddrop-header">
+            <View style={styles.headerLeftGroup}>
+              <Pressable
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                onPress={handleBack}
+                hitSlop={12}
+                style={styles.headerBackBtn}
+              >
+                <Text style={styles.headerBackText}>{'<'}</Text>
+              </Pressable>
+              <Image
+                ref={headerTitleRef}
+                source={MINDDROP_HEADER}
+                style={styles.headerTitle}
+                resizeMode="contain"
+                accessibilityLabel="Mind Drop"
+                accessibilityIgnoresInvertColors
+              />
+              <Pressable
+                accessibilityLabel="About Mind Drop"
+                accessibilityRole="button"
+                testID="minddrop-info-header"
+                style={styles.headerInfoBtn}
+                onPress={handleInfoOpen}
+                hitSlop={12}
+              >
+                <Icon name="Info" size="sm" color={c.mossGreen} />
+              </Pressable>
             </View>
-            <Image
-              source={GREMLY_TOP}
-              style={styles.headerMascot}
-              resizeMode="contain"
-              accessibilityIgnoresInvertColors
-            />
           </View>
-          <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
-            {contextPrompt}
-          </Text>
+          <Image
+            source={GREMLY_TOP}
+            style={styles.headerMascot}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+        <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
+          {contextPrompt}
+        </Text>
+
+        {/* Scrollable Recent Drops in the middle */}
+        <Pressable style={styles.scrollableSection} onPress={Keyboard.dismiss} accessible={false}>
+          <RecentDropsMemo
+            overlay={overlay}
+            refreshSignal={recentRefresh}
+            onEdited={noopCallback}
+            onDeleted={noopCallback}
+            onTodayCountChange={handleTodayCountChange}
+            onAddPendingItem={handleReceiveAddPendingItem}
+            initiallyOpen={true}
+          />
+        </Pressable>
+
+        {/* Fixed bottom section: input + chips + button + stats */}
+        <View style={styles.fixedTopSection}>
+          <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
+
           <View style={styles.inputBlock}>
             <MindDropInput
               value={note}
@@ -4544,6 +4562,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               photoHintText={photoHintText}
             />
           </View>
+
           {pendingPhotoUris.length > 0 && (
             <ScrollView
               horizontal
@@ -4576,6 +4595,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               )}
             </ScrollView>
           )}
+
           {note.length > 0 ? (
             <View style={styles.helperRow}>
               <View style={styles.helperLeft}>
@@ -4592,6 +4612,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               ) : null}
             </View>
           ) : null}
+
           {categoryChips.length > 0
             ? (() => {
                 console.log('[MindDrop][UI] Rendering category chips', {
@@ -4612,6 +4633,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 console.log('[MindDrop][UI] No category chips to render');
                 return null;
               })()}
+
           {timingChips.length > 0 ? (
             <MidConfidenceChips
               variant="timing"
@@ -4621,6 +4643,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               autoDismissMs={5000}
             />
           ) : null}
+
           <View
             style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
           >
@@ -4665,6 +4688,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Animated.View>
             </Pressable>
           </View>
+
           {showPhotoTextNudge && (
             <View style={styles.photoTextNudge}>
               <View style={styles.photoTextNudgeHeaderRow}>
@@ -4676,6 +4700,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Text>
             </View>
           )}
+
           {statsVisible ? (
             <View style={styles.trustRow} testID="minddrop-trust">
               <Text style={styles.trustStyled} testID="minddrop-trust-text">
@@ -4685,21 +4710,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Text>
             </View>
           ) : null}
-          <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
-        </View>
-        {/* Phase 5A: End fixed section, begin scrollable Recent Drops */}
-
-        {/* Phase 5A: Scrollable Recent Drops section */}
-        <View style={styles.scrollableSection}>
-          <RecentDropsMemo
-            overlay={overlay}
-            refreshSignal={recentRefresh}
-            onEdited={noopCallback}
-            onDeleted={noopCallback}
-            onTodayCountChange={handleTodayCountChange}
-            onAddPendingItem={handleReceiveAddPendingItem}
-            initiallyOpen={true}
-          />
         </View>
       </View>
     );
@@ -4823,17 +4833,18 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     contentWrapper: {
       flex: 1, // Phase 5A: Changed from flexGrow to flex for proper layout
     },
-    // Phase 5A: New container for entire Mind Drop UI
+    // Container for entire Mind Drop UI with header-middle-bottom layout
     mainContainer: {
       flex: 1,
     },
-    // Phase 5A: Fixed section containing header, input, button (non-scrolling)
-    fixedTopSection: {
-      // No flex: this section sizes to its content
-    },
-    // Phase 5A: Scrollable section for Recent Drops only
+    // Scrollable section for Recent Drops in the middle
     scrollableSection: {
       flex: 1, // Takes remaining space, enables scrolling
+    },
+    // Fixed section at bottom containing input, chips, button (non-scrolling)
+    fixedTopSection: {
+      // No flex: this section sizes to its content
+      // Note: Name kept as fixedTopSection for compatibility but now positioned at bottom
     },
     headerContainer: {
       position: 'relative',
