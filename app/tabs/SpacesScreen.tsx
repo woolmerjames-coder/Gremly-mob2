@@ -177,10 +177,10 @@ function GremlyHomeScreen() {
 
   return (
     <Animated.View
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: '#F9F6F1' }}
       entering={isReducedMotion || __DEV__ ? undefined : FadeIn.duration(150)}
     >
-      <Screen scroll padded={false} testID="spaces-screen">
+      <Screen scroll padded={false} testID="spaces-screen" style={{ backgroundColor: '#F9F6F1' }}>
         {dsMarker}
 
         {/* Top Navigation Bar */}
@@ -426,8 +426,8 @@ const styles = StyleSheet.create({
   heroSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingTop: 24,
+    paddingBottom: 28,
     paddingHorizontal: 16,
     gap: 16,
   },
@@ -459,14 +459,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   mindDropTile: {
-    backgroundColor: '#F9F6F1', // Linen Cream
+    backgroundColor: '#FFFFFF', // White tile on Linen Cream bg
     borderRadius: 24,
     padding: 22,
-    marginTop: 8,
-    shadowColor: 'rgba(0,0,0,0.05)',
+    marginTop: 0,
+    shadowColor: 'rgba(0,0,0,0.06)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 6,
+    shadowRadius: 8,
     elevation: 2,
   },
   mindDropTileHeader: {
@@ -522,14 +522,14 @@ const styles = StyleSheet.create({
   },
   // Spaces Tile Card
   spacesTile: {
-    backgroundColor: '#F9F6F1', // Linen Cream
+    backgroundColor: '#FFFFFF', // White tile on Linen Cream bg
     borderRadius: 24,
     padding: 22,
     marginTop: 20,
-    shadowColor: 'rgba(0,0,0,0.05)',
+    shadowColor: 'rgba(0,0,0,0.06)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 6,
+    shadowRadius: 8,
     elevation: 2,
   },
   spacesTileHeader: {
