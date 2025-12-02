@@ -19,6 +19,10 @@ import {
   Alert,
   Image,
   ActionSheetIOS,
+  Keyboard,
+  PanResponder,
+  GestureResponderEvent,
+  PanResponderGestureState,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -1060,6 +1064,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
+
+  // PanResponder for swipe-down-to-dismiss-keyboard gesture
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (
+        _evt: GestureResponderEvent,
+        gestureState: PanResponderGestureState,
+      ) => {
+        const { dx, dy, vy } = gestureState;
+        // Start handling when the user clearly drags mostly downward
+        const isVerticalSwipe = Math.abs(dy) > Math.abs(dx);
+        const isDownward = dy > 10 && vy >= 0;
+        return isVerticalSwipe && isDownward;
+      },
+      onPanResponderMove: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        if (gestureState.dy > 10) {
+          Keyboard.dismiss();
+        }
+      },
+      onPanResponderRelease: () => {
+        Keyboard.dismiss();
+      },
+    }),
+  ).current;
 
   // Photo support for logs (Phase L3 - single photo)
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -3369,8 +3397,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   return (
     <KeyboardAvoidingView
       style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.05)' }]}
-      behavior={Platform.select({ ios: 'padding', android: undefined })}
+      behavior={Platform.select({ ios: 'position', android: undefined })}
       keyboardVerticalOffset={0}
+      contentContainerStyle={{ flex: 1 }}
     >
       <View
         style={{
@@ -3378,6 +3407,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           justifyContent: 'flex-end',
           alignSelf: 'stretch',
         }}
+        {...panResponder.panHandlers}
       >
         {/* Bottom-anchored sheet: max 80% of viewport, rounded top corners */}
         <RNAnimated.View
