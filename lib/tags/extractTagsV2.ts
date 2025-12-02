@@ -15,6 +15,7 @@ const NAME_CONTEXT_PATTERNS = [
   /\bto\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/g, // "to Jennifer"
   /\bfor\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/g, // "for David"
   /\band\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/g, // "and Lisa"
+  /\b(?:Email|Call|Text|Message|Contact|Meet|Ping|Ask|Tell|Remind)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/g, // "Email John", "Call Sarah"
   /\b(Dr\.?\s+[A-Z][a-z]+)\b/g, // "Dr. Smith"
   /\b(Mr\.?\s+[A-Z][a-z]+)\b/g, // "Mr. Johnson"
   /\b(Mrs\.?\s+[A-Z][a-z]+)\b/g, // "Mrs. Williams"

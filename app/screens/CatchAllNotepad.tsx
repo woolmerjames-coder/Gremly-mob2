@@ -2814,7 +2814,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
               const qualityFiltered = applyTagQualityFilter(narrativeTags);
               const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
-              const id = await saveToUnsortedTray(repo as any, cleanedText, {
+              // Use trimmed (original text) to preserve full body including date references
+              const id = await saveToUnsortedTray(repo as any, trimmed, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
@@ -2959,7 +2960,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
               const qualityFiltered = applyTagQualityFilter(tagsForUnsorted);
 
-              const createdId = await saveToUnsortedTray(repo, cleanedText, {
+              // Use trimmed (original text) to preserve full body including date references
+              const createdId = await saveToUnsortedTray(repo, trimmed, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Auto-organizing via Mind Drop',
                 tags: qualityFiltered,
@@ -3257,7 +3259,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
 
                 // Mode='ask' means user needs to pick category, so use 'Awaiting chip selection'
-                const id = await saveToUnsortedTray(repo as any, cleanedText, {
+                // Use trimmed (original text) to preserve full body including date references
+                const id = await saveToUnsortedTray(repo as any, trimmed, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
                   tags: tagsForCreate ?? undefined,
@@ -3290,7 +3293,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 console.warn(
                   '[MindDrop][Ask] unsortedIdRef was null despite duplicate text, creating anyway',
                 );
-                const id = await saveToUnsortedTray(repo as any, cleanedText, {
+                // Use trimmed (original text) to preserve full body including date references
+                const id = await saveToUnsortedTray(repo as any, trimmed, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
                   dropId,

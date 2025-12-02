@@ -11,7 +11,7 @@
  */
 
 import { extractTagsAI } from './extractTagsAI';
-import { extractMeaningfulTags } from './extractTags';
+import { extractTagsV2, tagsToArray } from './extractTagsV2';
 
 /**
  * Extract tags using AI-first approach with deterministic fallback.
@@ -40,8 +40,9 @@ export async function getEffectiveTags(text: string): Promise<string[]> {
     // AI failed, will fall back to deterministic
   }
 
-  // Fall back to deterministic extraction (v3 with @person/@place support)
-  const fallbackTags = extractMeaningfulTags(text);
+  // Fall back to deterministic v2 extraction
+  const extracted = extractTagsV2(text, { maxKeywords: 4 });
+  const fallbackTags = tagsToArray(extracted);
 
   return fallbackTags;
 }

@@ -17,14 +17,15 @@ export interface TagsMeta {
   tombstones: string[];
 }
 
-const LOG_SUBTYPE_TAGS: Record<string, string> = {
+const LOG_SUBTYPE_TAGS: Record<string, string | null> = {
   idea: '#idea',
   journal: '#journal',
   reflection: '#reflection',
   insight: '#insight',
   decision: '#decision',
   list: '#list',
-  everything_else: '#general',
+  // everything_else intentionally has no visible tag - the subtype metadata is sufficient
+  everything_else: null,
 };
 
 /**
