@@ -8,10 +8,13 @@
  * - ONLY extracts: proper names, specific topics, concrete objects, activities
  * - EXCLUDES: verbs (think, feel), adjectives, filler words
  * - 3-6 tags max
- * - Validates and filters all responses
+ * - Validates and filters all responses through v2 blocklist
  */
 
 import { callClassify } from '../cortex/CortexClient';
+import { _testExports } from './extractTagsV2';
+
+const { KEYWORD_BLOCKLIST } = _testExports;
 
 /**
  * Validate and normalize a single tag string.
@@ -37,6 +40,15 @@ function validateTag(tag: string): string | null {
 
   // Only allow alphanumeric and single hyphens
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(normalized)) return null;
+
+  // QUALITY GATE: Check against v2 blocklist
+  // For hyphenated tags, check each part
+  const parts = normalized.split('-');
+  for (const part of parts) {
+    if (KEYWORD_BLOCKLIST.has(part)) {
+      return null; // Blocked word found
+    }
+  }
 
   return normalized;
 }
