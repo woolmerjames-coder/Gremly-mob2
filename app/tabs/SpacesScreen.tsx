@@ -386,12 +386,12 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   heroMascot: {
-    height: 140,
-    width: 140,
+    height: 168,
+    width: 168,
   },
   heroText: {
     fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
     textAlign: 'left',
