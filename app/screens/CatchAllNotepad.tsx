@@ -904,7 +904,7 @@ const AnimatedMindDropCard: React.FC<{
       accessibilityRole="button"
       accessibilityLabel={`Edit ${item.title || item.text || 'item'}`}
     >
-      {/* Top row: Title (left) + Due/Time (right) */}
+      {/* First row: Title only */}
       <View style={styles.recentTopRow}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
           <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
@@ -914,18 +914,9 @@ const AnimatedMindDropCard: React.FC<{
             <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
           )}
         </View>
-
-        {/* Right side: Due date OR time ago */}
-        {effectiveKind === 'todo' ? (
-          <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentDueBadge}>
-            {formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time })}
-          </Text>
-        ) : (
-          <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-        )}
       </View>
 
-      {/* Second row: Category and tags */}
+      {/* Second row: All metadata (type chip, tags, due/time) */}
       <View style={styles.recentMetaRow}>
         <View style={styles.recentMetaLeft}>
           {/* Category pill */}
@@ -947,6 +938,15 @@ const AnimatedMindDropCard: React.FC<{
               Saved as-is
             </Text>
           ) : null}
+
+          {/* Due date OR time ago - now in metadata row */}
+          {effectiveKind === 'todo' ? (
+            <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentMetaDue}>
+              {formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time })}
+            </Text>
+          ) : (
+            <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+          )}
         </View>
       </View>
     </Pressable>
@@ -5342,6 +5342,20 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontSize: 12,
       fontFamily: 'Inter-Regular',
       flex: 1,
+    },
+    // Due date in metadata row - smaller, lighter weight for secondary info
+    recentMetaDue: {
+      fontSize: 12,
+      color: c.mutedText,
+      fontFamily: 'Inter-Regular',
+      flexShrink: 0,
+    },
+    // Time ago in metadata row - same as recentMetaDue for consistency
+    recentMetaTime: {
+      color: c.mutedText,
+      fontSize: 12,
+      fontFamily: 'Inter-Regular',
+      flexShrink: 0,
     },
     // Time ago styling - regular weight, smaller (13px), secondary gray
     recentTime: {
