@@ -10,7 +10,16 @@
 
 import { createCortexEngine } from '../../cortex/createEngine';
 import type { CortexInput } from '../../cortex/ICortexEngine';
-import { type DecisionMode } from './thresholds';
+import {
+  type DecisionMode,
+  CHIPS_FLOOR,
+  AUTO_TODO,
+  AUTO_HABIT,
+  AUTO_LIST,
+  IDEA_HEURISTIC_TRIGGER,
+  QUESTION_SUPPRESS_CHIPS,
+  DEFAULT_ENGINE_CONFIDENCE,
+} from './thresholds';
 import { buildMindDropAskChips, type ChipSuggestion } from '../cortex/policy/chips';
 import { analyzeListShape } from './policy/listHeuristics';
 import { analyzeIdeaShape } from './policy/ideaHeuristics';
@@ -21,7 +30,7 @@ import {
   explainAmbiguous,
   type Tone,
 } from './explain';
-import { env } from '../env';
+import { env, FF_CLASSIFY_V2, FF_CLASSIFY_V2_SHADOW } from '../env';
 import { detectIntent } from './intents/detectIntent';
 import { classifyIntentWithAI, isAIClassificationAvailable } from './intents/classifyIntentWithAI';
 import { resolveCanonicalIntent, type CanonicalIntentResult } from './intents/canonicalIntent';
@@ -31,6 +40,8 @@ import { type CortexContextBase, type Lane } from './lane';
 import { buildHabitFields, buildTodoFields } from './textNormalization';
 import type { CanonicalType, LogSubtype, NoteSubtype } from '../types';
 import { canonicalToPersisted } from '../canonical';
+import { classifyV2 } from './classify/classifyV2';
+import { runShadowIfEnabled, type V1Result } from './classify/shadowCompare';
 
 // Re-export lane types for convenience
 export type { Lane, CortexContextBase } from './lane';
@@ -271,7 +282,7 @@ export async function cortexDecide(
     rawSentence: '', // Phase 2A: Will be populated with user input
   };
 
-  const midLower = 0.55; // offer chips for mid confidence
+  const midLower = CHIPS_FLOOR; // offer chips for mid confidence
 
   try {
     // Apply default lane if not specified (backward compatibility)
@@ -294,7 +305,7 @@ export async function cortexDecide(
     const listAnalysis = analyzeListShape(userText);
     const ideaAnalysis = analyzeIdeaShape(userText);
     const listHeuristicTriggered = listAnalysis.score >= 0.6;
-    const ideaHeuristicTriggered = ideaAnalysis.score >= 0.5;
+    const ideaHeuristicTriggered = ideaAnalysis.score >= IDEA_HEURISTIC_TRIGGER;
 
     console.log('[DEBUG][cortexDecide] Intent detected:', {
       text: userText.substring(0, 50),
@@ -325,7 +336,10 @@ export async function cortexDecide(
     };
 
     // Check for meta-comments FIRST - these should NEVER create actions
-    if (detected.suppressChips || (detected.kind === 'question' && detected.confidence >= 0.9)) {
+    if (
+      detected.suppressChips ||
+      (detected.kind === 'question' && detected.confidence >= QUESTION_SUPPRESS_CHIPS)
+    ) {
       console.log('[DEBUG][cortexDecide] Meta-comment/question detected - returning reply mode');
       // This is a question or meta-comment, not an action request
       const isMetaComment = detected.suppressChips;
@@ -407,6 +421,7 @@ export async function cortexDecide(
     let engineFailed = false;
     if (!classifyCatchAll) {
       engineOutput = null;
+      console.log('[DEBUG][engine] Classification disabled by flag');
     } else {
       // Call engine with timeout protection
       try {
@@ -420,6 +435,7 @@ export async function cortexDecide(
         // Treat engine failure like disabled classification and attempt intent mapping fallback
         engineOutput = null;
         engineFailed = true;
+        console.log('[DEBUG][engine] Engine failed/timed out:', _err);
       }
     }
 
@@ -427,47 +443,65 @@ export async function cortexDecide(
     let normalized: NormalizedEngineResult = { actions: [], confidence: 0 };
 
     if (engineOutput) {
+      console.log('[DEBUG][engineOutput.raw]', JSON.stringify(engineOutput, null, 2));
       normalized = normalizeEngineOutput(engineOutput as any, normalizedCtx, engineInput.text);
-    } else if (detected.confidence >= 0.9 && !detected.suppressChips) {
-      // Map high-confidence intents to actions when engine is disabled/unavailable
-      // NEVER create actions when suppressChips is true (meta-comments/questions)
-      const title = (detected as any).title || engineInput.text;
-      if (detected.kind === 'note') {
-        normalized = {
-          actions: [
-            {
-              type: 'create.note',
-              payload: { text: title, subtype: 'note', spaceId: normalizedCtx.activeSpaceId },
-            },
-          ],
-          confidence: detected.confidence,
-          canonicalType: 'log',
-          canonicalSubtype: 'everything_else',
-        };
-      } else if (detected.kind === 'todo') {
-        normalized = {
-          actions: [
-            {
-              type: 'create.todo',
-              payload: { title, spaceId: normalizedCtx.activeSpaceId },
-            },
-          ],
-          confidence: detected.confidence,
-          canonicalType: 'todo',
-        };
-      } else if (detected.kind === 'habit') {
-        normalized = {
-          actions: [
-            {
-              type: 'create.habit',
-              payload: { name: title, freq: 'daily', spaceId: normalizedCtx.activeSpaceId },
-            },
-          ],
-          confidence: detected.confidence,
-          canonicalType: 'habit',
-        };
-      } else {
-        normalized = { actions: [], confidence: 0 };
+      console.log(
+        '[DEBUG][normalized]',
+        JSON.stringify(
+          {
+            canonicalType: normalized.canonicalType,
+            canonicalSubtype: normalized.canonicalSubtype,
+            confidence: normalized.confidence,
+            actionsCount: normalized.actions?.length ?? 0,
+            firstActionType: normalized.actions?.[0]?.type,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log('[DEBUG][engine] No engine output, using fallback. engineFailed=' + engineFailed);
+      if (detected.confidence >= 0.9 && !detected.suppressChips) {
+        // Map high-confidence intents to actions when engine is disabled/unavailable
+        // NEVER create actions when suppressChips is true (meta-comments/questions)
+        const title = (detected as any).title || engineInput.text;
+        if (detected.kind === 'note') {
+          normalized = {
+            actions: [
+              {
+                type: 'create.note',
+                payload: { text: title, subtype: 'note', spaceId: normalizedCtx.activeSpaceId },
+              },
+            ],
+            confidence: detected.confidence,
+            canonicalType: 'log',
+            canonicalSubtype: 'everything_else',
+          };
+        } else if (detected.kind === 'todo') {
+          normalized = {
+            actions: [
+              {
+                type: 'create.todo',
+                payload: { title, spaceId: normalizedCtx.activeSpaceId },
+              },
+            ],
+            confidence: detected.confidence,
+            canonicalType: 'todo',
+          };
+        } else if (detected.kind === 'habit') {
+          normalized = {
+            actions: [
+              {
+                type: 'create.habit',
+                payload: { name: title, freq: 'daily', spaceId: normalizedCtx.activeSpaceId },
+              },
+            ],
+            confidence: detected.confidence,
+            canonicalType: 'habit',
+          };
+        } else {
+          normalized = { actions: [], confidence: 0 };
+        }
       }
     }
 
@@ -524,11 +558,9 @@ export async function cortexDecide(
       : 0;
     const hasConfidence = typeof confidence === 'number' && !Number.isNaN(confidence);
 
-    const autoThresholdEnv = parseFloat(String(process.env.INTENT_MIN_CONFIDENCE ?? '0.85'));
-    const autoThreshold = Number.isFinite(autoThresholdEnv) ? autoThresholdEnv : 0.85;
+    const autoThreshold = AUTO_TODO;
 
-    const habitAutoFloorEnv = parseFloat(String(process.env.INTENT_HABIT_AUTO_FLOOR ?? '0.90'));
-    const habitAutoFloor = Number.isFinite(habitAutoFloorEnv) ? habitAutoFloorEnv : 0.9;
+    const habitAutoFloor = AUTO_HABIT;
 
     const hasDate = hasExplicitDateOrTime(userText);
     const habitByText = looksHabitText(userText);
@@ -540,9 +572,9 @@ export async function cortexDecide(
       ideaHeuristicTriggered &&
       !((probable === 'todo' || probable === 'habit') && confidence >= 0.9);
 
-    // Strong list patterns (score >= 0.7) should auto-create as logs without chips
-    // Weak list patterns (0.5-0.7) should show chips for confirmation
-    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= 0.7;
+    // Strong list patterns (score >= AUTO_LIST) should auto-create as logs without chips
+    // Weak list patterns (0.5-AUTO_LIST) should show chips for confirmation
+    const listStrong = listAnalysis.looksLikeList && listAnalysis.score >= AUTO_LIST;
     const forceListAsk = listHeuristicApplied && !listStrong; // Only ask for weak lists
     const forceIdeaAsk = ideaHeuristicApplied;
 
@@ -558,6 +590,20 @@ export async function cortexDecide(
         ? detected.aiConfidence / 100 // AI confidence in 0-100 scale, normalize to 0-1
         : detectorConfidence, // Use detector confidence directly (already 0-1 scale)
       text: userText,
+    });
+
+    console.log('[DEBUG][canonicalIntent.inputs]', {
+      ruleKind: detected.kind,
+      ruleConfidence: detectorConfidence,
+      aiCategory: normalized.canonicalType || probable,
+      aiConfidence: detected.aiConfidence ? detected.aiConfidence / 100 : detectorConfidence,
+    });
+
+    console.log('[DEBUG][canonicalIntent.result]', {
+      type: canonicalIntent.type,
+      allowAutoCreate: canonicalIntent.allowAutoCreate,
+      confidence: canonicalIntent.confidence,
+      reasoning: canonicalIntent.reasoning,
     });
 
     if (__DEV__) {
@@ -591,7 +637,7 @@ export async function cortexDecide(
 
     // CRITICAL: Respect explicit engine confidence when provided
     // If engine explicitly returns confidence at or below threshold, don't auto-create
-    const hasExplicitEngineConfidence = typeof engineOutput.confidence === 'number';
+    const hasExplicitEngineConfidence = engineOutput && typeof engineOutput.confidence === 'number';
     const engineConfidenceBelowThreshold =
       hasExplicitEngineConfidence && engineOutput.confidence <= autoThreshold;
     const engineConfidenceHigh = hasExplicitEngineConfidence && engineOutput.confidence >= 0.7;
@@ -609,6 +655,7 @@ export async function cortexDecide(
     // In that case, respect the engine's confidence assessment
     const engineSameTypeWithLowConfidence =
       hasExplicitEngineConfidence &&
+      engineOutput &&
       engineOutput.confidence <= autoThreshold && // Use <= to include threshold exactly
       ((normalized.canonicalType === 'todo' && canonicalIntent.type === 'todo') ||
         (normalized.canonicalType === 'habit' && canonicalIntent.type === 'habit'));
@@ -635,6 +682,18 @@ export async function cortexDecide(
       !canonicalIntent.suppressChips &&
       canonicalIntent.confidence >= 0.55 &&
       (canonicalIsHighConfidenceAction || !engineConfidenceBelowThreshold);
+
+    console.log('[DEBUG][shouldAutoCreate]', {
+      shouldAutoCreateFromCanonical,
+      canonicalAllowAutoCreate: canonicalIntent.allowAutoCreate,
+      canonicalSuppressChips: canonicalIntent.suppressChips,
+      canonicalConfidence: canonicalIntent.confidence,
+      canonicalIsHighConfidenceAction,
+      engineConfidenceBelowThreshold,
+      engineConfidenceHigh,
+      engineTypeOverride,
+      effectiveCandidateActionsLength: effectiveCandidateActions.length,
+    });
 
     // Step 2: Build actions based on canonical type if we're auto-creating
     if (shouldAutoCreateFromCanonical) {
@@ -721,7 +780,8 @@ export async function cortexDecide(
         (confidence > autoThreshold || preferHabitAuto || listStrong || canonicalForceAuto);
 
       // CRITICAL: If engine gave very low confidence (<0.5), keep mode should be 'keep'
-      const engineConfidenceVeryLow = hasExplicitEngineConfidence && engineOutput.confidence < 0.5;
+      const engineConfidenceVeryLow =
+        hasExplicitEngineConfidence && engineOutput && engineOutput.confidence < 0.5;
 
       if (!hasConfidence || confidence < 0 || engineConfidenceVeryLow) {
         mode = 'keep';
@@ -730,6 +790,17 @@ export async function cortexDecide(
       } else if (confidence >= midLower) {
         mode = 'ask';
       }
+
+      console.log('[DEBUG][mode.decision]', {
+        mode,
+        shouldAutoCreateFromCanonical,
+        canonicalIsHighConfidenceAction,
+        engineConfidenceBelowThreshold,
+        probable,
+        confidence,
+        hasConfidence,
+        engineConfidenceVeryLow,
+      });
 
       if (forceListAsk || forceIdeaAsk) {
         mode = 'ask';
@@ -809,6 +880,14 @@ export async function cortexDecide(
     if (effectiveCandidateActions.length === 0) {
       mode = 'ask';
     }
+
+    console.log('[DEBUG][final.mode.actions]', {
+      mode,
+      actionsCount: effectiveCandidateActions.length,
+      actionTypes: effectiveCandidateActions.map((a) => a.type),
+      listActionLowRisk,
+      autoTodoWithStrongList,
+    });
 
     if (mode === 'auto' || mode === 'ask') {
       console.log('[cortexDecide][confidence]', {
@@ -966,6 +1045,21 @@ export async function cortexDecide(
       engineTags,
     };
 
+    // Phase 4b: V2 Classification Shadow Mode
+    // Run V2 classifier in shadow mode to compare with V1 results
+    // When FF_CLASSIFY_V2_SHADOW is on, V2 runs in parallel for logging only
+    if (FF_CLASSIFY_V2_SHADOW && !FF_CLASSIFY_V2) {
+      // Build V1 result for shadow comparison
+      const v1Result: V1Result = {
+        type: probable === 'unknown' ? 'unsorted' : probable,
+        subtype: effectiveCanonicalSubtype ?? undefined,
+        confidence,
+        mode: mode === 'auto' ? 'auto' : mode === 'ask' ? 'ask' : 'keep',
+      };
+      // Run shadow comparison (non-blocking, catches its own errors)
+      runShadowIfEnabled(userText, v1Result, true);
+    }
+
     console.log('[cortexDecide][final]', {
       mode: result.mode,
       confidence: result.confidence,
@@ -1018,9 +1112,16 @@ function hasExplicitDateOrTime(text: string): boolean {
 
 function looksHabitText(text: string): boolean {
   const t = (text || '').toLowerCase();
+
+  // "every day", "each week", "daily", "weekly", "monthly"
   const hasGenericFrequency =
     /\bevery\b|\beach\b|\bdaily\b|\bevery day\b|\bweekly\b|\bmonthly\b/.test(t);
-  const hasTimesPerPeriod = /\b\d+\s+times?\s+(a|per)\s+(day|week|month)\b/.test(t);
+
+  // "3 times a week", "3x per week", "3x a week", "twice daily", "twice a week"
+  const hasTimesPerPeriod =
+    /\b(\d+\s*x|\d+\s+times?|twice|once)\s+(a|per)\s+(day|week|month)\b/i.test(t);
+
+  // "30 minutes per day", "1 hour a day"
   const hasDurationPerDay =
     /\b\d+\s+(minutes?|minute|hours?|hour)\b.*\b((per|each|every)\s*day|a\s+day|in\s+(a\s+)?day)\b/.test(
       t,
@@ -1226,8 +1327,11 @@ function normalizeEngineOutput(
 ): NormalizedEngineResult {
   const actions: CortexAction[] = [];
 
-  // Extract confidence if available, default to high confidence (0.85) if engine made a classification
-  const confidence = typeof engineOutput.confidence === 'number' ? engineOutput.confidence : 0.85;
+  // Extract confidence if available, default to high confidence if engine made a classification
+  const confidence =
+    typeof engineOutput.confidence === 'number'
+      ? engineOutput.confidence
+      : DEFAULT_ENGINE_CONFIDENCE;
 
   // Use original text as fallback for title/name/text
   const fallbackText = originalText || 'Untitled';

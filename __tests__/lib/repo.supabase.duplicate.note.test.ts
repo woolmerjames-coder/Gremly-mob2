@@ -105,7 +105,7 @@ describe('SupabaseRepo - Duplicate Note Handling (23505)', () => {
     // First call (insert) returns mockInsert
     // Second call (select for fetch) returns mockSelect
     let callCount = 0;
-    mockFrom.mockImplementation((table: string) => {
+    mockFrom.mockImplementation((_table: string) => {
       callCount++;
       if (callCount === 1) {
         return { insert: mockInsert };
@@ -278,7 +278,7 @@ describe('SupabaseRepo - Duplicate Note Handling (23505)', () => {
     });
 
     let callCount = 0;
-    mockFrom.mockImplementation((table: string) => {
+    mockFrom.mockImplementation((_table: string) => {
       callCount++;
       if (callCount === 1) {
         return { insert: mockInsert };

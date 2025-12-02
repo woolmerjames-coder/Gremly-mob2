@@ -18,6 +18,8 @@
  * Examples: ["@jeff", "@gym", "meditation", "dentist", "dinner"]
  */
 
+import { extractTagsV2, tagsToArray } from './extractTagsV2';
+
 /**
  * Helper to normalize a word into a tag slug (without # prefix)
  */
@@ -592,38 +594,26 @@ const ACTIVITY_NOUNS = new Set([
 export function extractMeaningfulTags(rawText: string, subtype?: string): string[] {
   if (!rawText?.trim()) return [];
 
-  const text = rawText.trim();
-  const lowerText = text.toLowerCase();
+  // Use V2 pipeline
+  const extracted = extractTagsV2(rawText, {
+    logSubtype: subtype as 'journal' | 'idea' | 'general' | undefined,
+    maxKeywords: 4,
+  });
 
-  const tags: string[] = [];
-  const foundEmotions: string[] = [];
-
-  // Step 1: Extract people (names - capitalized words + family/role names)
-  // CP-TAG-2: Returns @-prefixed tags (max 2)
-  const people = extractPeople(text);
-  tags.push(...people);
-
-  // Step 2: Extract places (capitalized words after location prepositions)
-  // CP-TAG-2: Returns @-prefixed tags (max 2)
-  const places = extractPlaces(text, people);
-  tags.push(...places);
-
-  // Step 3: Extract concrete nouns and activities
-  const topics = extractTopics(lowerText, subtype, people, places);
-  tags.push(...topics);
-
-  // Step 4: Extract emotions (max 1, only if explicit)
-  if (subtype === 'journal' || isReflective(lowerText)) {
-    const emotion = extractEmotion(lowerText);
-    if (emotion) {
-      foundEmotions.push(emotion);
-    }
+  // Convert to flat array format expected by callers
+  // Don't include subtype - it's metadata, not a user-facing tag
+  const result: string[] = [];
+  for (const m of extracted.mentions) {
+    result.push(`@${m}`);
+  }
+  for (const k of extracted.keywords) {
+    result.push(`#${k}`);
+  }
+  for (const t of extracted.themes) {
+    result.push(`#${t}`);
   }
 
-  // Step 5: Prioritize and limit to 6 tags
-  const prioritized = prioritizeTags(tags, foundEmotions);
-
-  return prioritized.slice(0, 6);
+  return result.slice(0, 6);
 }
 
 /**

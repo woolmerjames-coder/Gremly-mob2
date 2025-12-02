@@ -108,6 +108,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { Pencil, Trash2 } from 'lucide-react-native';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 
@@ -142,8 +143,8 @@ const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
 
 const CHIPS_AUTO_DISMISS_MS =
-  Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '12000'), 10) ||
-  12000;
+  Number.parseInt(String(process.env.EXPO_PUBLIC_MINDDROP_CHIPS_AUTO_DISMISS_MS ?? '10000'), 10) ||
+  10000;
 
 const DUE_STRIP =
   String(process.env.EXPO_PUBLIC_MINDDROP_DUE_STRIP ?? 'on').toLowerCase() !== 'off';
@@ -2101,13 +2102,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
 
-  // Auto-dismiss category chips after configured interval
-  useEffect(() => {
-    if (!categoryChips?.length) return;
-    const timeout = setTimeout(() => setCategoryChips([]), CHIPS_AUTO_DISMISS_MS);
-    return () => clearTimeout(timeout);
-  }, [categoryChips, CHIPS_AUTO_DISMISS_MS]);
-
   // Auto-dismiss photo text nudge after 5 seconds
   useEffect(() => {
     if (!showPhotoTextNudge) return;
@@ -2115,22 +2109,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [showPhotoTextNudge]);
 
-  // Auto-dismiss timing chips after configured interval
-  useEffect(() => {
-    if (!timingChips?.length) return;
-    // Auto-dismiss after 5s and assign 'Someday' (due null)
-    const timeout = setTimeout(() => {
-      setTimingChips([]);
-      if (pendingTodoId) {
-        // Auto-assign "Someday" (no due date)
-        metricsRef.current.timingFallback += 1;
-        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
-
-        handleTimingSelection('someday');
-      }
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [timingChips, pendingTodoId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
   const [submitScale] = useState(() => new Animated.Value(1));
@@ -2803,7 +2781,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
               const qualityFiltered = applyTagQualityFilter(narrativeTags);
               const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
-              const id = await saveToUnsortedTray(repo as any, cleanedText, {
+              // Use trimmed (original text) to preserve full body including date references
+              const id = await saveToUnsortedTray(repo as any, trimmed, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
@@ -2948,7 +2927,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               // Phase 4A: Apply quality filter to initial tags (same as BackgroundPrefill)
               const qualityFiltered = applyTagQualityFilter(tagsForUnsorted);
 
-              const createdId = await saveToUnsortedTray(repo, cleanedText, {
+              // Use trimmed (original text) to preserve full body including date references
+              const createdId = await saveToUnsortedTray(repo, trimmed, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Auto-organizing via Mind Drop',
                 tags: qualityFiltered,
@@ -3246,7 +3226,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
 
                 // Mode='ask' means user needs to pick category, so use 'Awaiting chip selection'
-                const id = await saveToUnsortedTray(repo as any, cleanedText, {
+                // Use trimmed (original text) to preserve full body including date references
+                const id = await saveToUnsortedTray(repo as any, trimmed, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
                   tags: tagsForCreate ?? undefined,
@@ -3274,6 +3255,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               console.debug(
                 '[MindDrop][Ask] Reusing existing unsorted note, not creating duplicate',
               );
+              // Fallback: create unsorted note if ref is still null despite duplicate text
+              if (unsortedIdRef.current == null) {
+                console.warn(
+                  '[MindDrop][Ask] unsortedIdRef was null despite duplicate text, creating anyway',
+                );
+                // Use trimmed (original text) to preserve full body including date references
+                const id = await saveToUnsortedTray(repo as any, trimmed, {
+                  sourceMessageId: validSourceMessageId ?? undefined,
+                  whyString: 'Awaiting chip selection',
+                  dropId,
+                });
+                if (id) {
+                  unsortedNotesByDropIdRef.current.set(dropId, id);
+                }
+                unsortedIdRef.current = id ?? null;
+              }
             }
           }
 
@@ -3831,12 +3828,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               dropIdRef.current ||
               null;
 
-            // Get existing frequency if available, otherwise default to 'daily'
-            const existingFrequency = (original as any)?.frequency || 'daily';
+            // Extract frequency from the original text using buildHabitFields
+            // This handles patterns like "Run 3x per week" → frequency='weekly', frequencyValue=3
+            const rawText = (original as any)?.body ?? (original as any)?.title ?? '';
+            const habitFields = buildHabitFields(rawText);
 
-            // Use the conversion helper to create a first-class habit
+            // Use the conversion helper to create a first-class habit with parsed frequency
             const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedId, {
-              frequency: existingFrequency,
+              frequency: habitFields.freq,
+              frequencyValue: habitFields.frequencyValue ?? null,
             });
 
             setOrganizedToday((prev) => prev + 1);
@@ -4004,6 +4004,40 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       logMetrics,
     ],
   );
+
+  // Auto-dismiss category chips after timeout - default to log-general
+  useEffect(() => {
+    if (!categoryChips?.length) return;
+    const timeout = setTimeout(() => {
+      // Log timeout for telemetry before auto-selecting
+      logMetrics('chip_timeout', {
+        chips: categoryChips.map((c) => c.kind),
+        defaultedTo: 'log-general',
+        timeoutMs: CHIPS_AUTO_DISMISS_MS,
+      });
+
+      // Auto-select "Just Save It" (log-general)
+      handleCategoryChipPick('log');
+    }, CHIPS_AUTO_DISMISS_MS);
+    return () => clearTimeout(timeout);
+  }, [categoryChips, CHIPS_AUTO_DISMISS_MS, logMetrics, handleCategoryChipPick]);
+
+  // Auto-dismiss timing chips after configured interval
+  useEffect(() => {
+    if (!timingChips?.length) return;
+    // Auto-dismiss after 5s and assign 'Someday' (due null)
+    const timeout = setTimeout(() => {
+      setTimingChips([]);
+      if (pendingTodoId) {
+        // Auto-assign "Someday" (no due date)
+        metricsRef.current.timingFallback += 1;
+        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
+
+        handleTimingSelection('someday');
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [timingChips, pendingTodoId, logMetrics, handleTimingSelection]);
 
   const handleChangeText = useCallback(
     (value: string) => {

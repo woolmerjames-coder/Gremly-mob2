@@ -200,10 +200,10 @@ describe('Overlay Round-Trip Sanity', () => {
       );
 
       // Also verify overlay hydration (payload uses camelCase)
-      // Note: Tags are normalized (# prefix stripped) by buildDraftPayloadFromEntity
+      // Note: Tags include # prefix when loaded from entity
       expect(afterPayload.commitment).toBe(true);
       expect(afterPayload.commitmentNote).toBe('Locked in for focus');
-      expect(afterPayload.tags).toEqual(['work', 'urgent']);
+      expect(afterPayload.tags).toEqual(['#work', '#urgent']);
 
       expect(failures.length).toBe(0);
     });

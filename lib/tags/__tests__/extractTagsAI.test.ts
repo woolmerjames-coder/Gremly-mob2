@@ -1,5 +1,9 @@
 /**
  * Tests for extractTagsAI - AI-powered tag extraction
+ *
+ * Note: Tests use words that are NOT in the KEYWORD_BLOCKLIST from extractTagsV2.
+ * Blocked words include: appointment, morning, meeting, work, email, etc.
+ * Safe words include: dentist, healthcare, running, exercise, project, etc.
  */
 
 import { extractTagsAI } from '../extractTagsAI';
@@ -21,7 +25,7 @@ describe('extractTagsAI', () => {
       ok: true,
       id: 'test-id',
       classification: {
-        category: '["dentist", "appointment", "healthcare"]',
+        category: '["dentist", "checkup", "healthcare"]',
         tags: [],
         spaceName: null,
         confidence: 0.9,
@@ -29,9 +33,9 @@ describe('extractTagsAI', () => {
       },
     });
 
-    const result = await extractTagsAI('Book dentist appointment for next week');
+    const result = await extractTagsAI('Book dentist checkup for next week');
 
-    expect(result).toEqual(['dentist', 'appointment', 'healthcare']);
+    expect(result).toEqual(['dentist', 'checkup', 'healthcare']);
     expect(callClassify).toHaveBeenCalledWith(
       expect.objectContaining({
         timeoutMs: 3000,
@@ -45,16 +49,16 @@ describe('extractTagsAI', () => {
       id: 'test-id',
       classification: {
         category: 'activities',
-        tags: ['running', 'exercise', 'morning'],
+        tags: ['running', 'exercise', 'fitness'],
         spaceName: null,
         confidence: 0.85,
         title: null,
       },
     });
 
-    const result = await extractTagsAI('Going for a morning run');
+    const result = await extractTagsAI('Going for a run');
 
-    expect(result).toEqual(['running', 'exercise', 'morning']);
+    expect(result).toEqual(['running', 'exercise', 'fitness']);
   });
 
   it('should deduplicate tags', async () => {
@@ -62,7 +66,7 @@ describe('extractTagsAI', () => {
       ok: true,
       id: 'test-id',
       classification: {
-        category: '["dentist", "DENTIST", "appointment", "dentist"]',
+        category: '["dentist", "DENTIST", "checkup", "dentist"]',
         tags: [],
         spaceName: null,
         confidence: 0.9,
@@ -70,9 +74,9 @@ describe('extractTagsAI', () => {
       },
     });
 
-    const result = await extractTagsAI('Dentist appointment');
+    const result = await extractTagsAI('Dentist checkup');
 
-    expect(result).toEqual(['dentist', 'appointment']);
+    expect(result).toEqual(['dentist', 'checkup']);
   });
 
   it('should enforce max 6 tags', async () => {
@@ -119,7 +123,7 @@ describe('extractTagsAI', () => {
       ok: true,
       id: 'test-id',
       classification: {
-        category: '["dentist", "ab", "x", "appointment"]',
+        category: '["dentist", "ab", "x", "healthcare"]',
         tags: [],
         spaceName: null,
         confidence: 0.9,
@@ -132,7 +136,7 @@ describe('extractTagsAI', () => {
     expect(result).not.toContain('ab');
     expect(result).not.toContain('x');
     expect(result).toContain('dentist');
-    expect(result).toContain('appointment');
+    expect(result).toContain('healthcare');
   });
 
   it('should return empty array on AI failure', async () => {
@@ -195,7 +199,7 @@ describe('extractTagsAI', () => {
       ok: true,
       id: 'test-id',
       classification: {
-        category: '["Dentist", "APPOINTMENT", "HealthCare"]',
+        category: '["Dentist", "CHECKUP", "HealthCare"]',
         tags: [],
         spaceName: null,
         confidence: 0.9,
@@ -205,7 +209,7 @@ describe('extractTagsAI', () => {
 
     const result = await extractTagsAI('Test text');
 
-    expect(result).toEqual(['dentist', 'appointment', 'healthcare']);
+    expect(result).toEqual(['dentist', 'checkup', 'healthcare']);
   });
 
   it('should strip punctuation except hyphens', async () => {
@@ -213,7 +217,8 @@ describe('extractTagsAI', () => {
       ok: true,
       id: 'test-id',
       classification: {
-        category: '["email-server", "work!", "meeting?"]',
+        // Use words not in KEYWORD_BLOCKLIST
+        category: '["data-center", "dentist!", "project?"]',
         tags: [],
         spaceName: null,
         confidence: 0.9,
@@ -223,9 +228,9 @@ describe('extractTagsAI', () => {
 
     const result = await extractTagsAI('Test text');
 
-    expect(result).toContain('email-server');
-    expect(result).toContain('work');
-    expect(result).toContain('meeting');
+    expect(result).toContain('data-center'); // hyphenated word preserved
+    expect(result).toContain('dentist'); // punctuation stripped
+    expect(result).toContain('project'); // punctuation stripped
   });
 
   it('should handle empty text', async () => {
@@ -253,13 +258,28 @@ describe('extractTagsAI', () => {
 
     expect(callClassify).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: expect.arrayContaining([
-          expect.objectContaining({
-            role: 'user',
-            content: longText.slice(0, 500),
-          }),
-        ]),
+        text: longText.slice(0, 500),
+        timeoutMs: 3000,
       }),
     );
+  });
+
+  it('should filter out blocked words from KEYWORD_BLOCKLIST', async () => {
+    callClassify.mockResolvedValue({
+      ok: true,
+      id: 'test-id',
+      classification: {
+        // appointment, meeting, work are all in the blocklist
+        category: '["dentist", "appointment", "meeting", "work"]',
+        tags: [],
+        spaceName: null,
+        confidence: 0.9,
+        title: null,
+      },
+    });
+
+    const result = await extractTagsAI('Test text');
+
+    expect(result).toEqual(['dentist']); // Only dentist passes
   });
 });

@@ -30,7 +30,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
       // Filter logic: ai_pending=true → include
       const views = note.views ?? {};
       const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-      
+
       expect(shouldInclude).toBe(true);
     });
 
@@ -47,7 +47,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
 
       const views = note.views ?? {};
       const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-      
+
       expect(shouldInclude).toBe(true);
     });
 
@@ -64,7 +64,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
 
       const views = note.views ?? {};
       const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-      
+
       expect(shouldInclude).toBe(true);
     });
 
@@ -81,7 +81,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
 
       const views = note.views ?? {};
       const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-      
+
       expect(shouldInclude).toBe(false);
     });
 
@@ -100,7 +100,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
 
       const views = note.views ?? {};
       const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-      
+
       expect(shouldInclude).toBe(false);
     });
 
@@ -113,8 +113,9 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
       };
 
       const views = note.views ?? {};
-      const shouldInclude = (views as any).ai_pending === true || (views as any).minddrop_stage !== 'prefilled';
-      
+      const shouldInclude =
+        (views as any).ai_pending === true || (views as any).minddrop_stage !== 'prefilled';
+
       expect(shouldInclude).toBe(true);
     });
 
@@ -132,7 +133,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
 
       const views = note.views ?? {};
       const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-      
+
       expect(shouldInclude).toBe(true);
     });
   });
@@ -155,7 +156,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
 
       // v2 behavior: include all non-archived items
       const shouldInclude = !prefilled.archived;
-      
+
       expect(shouldInclude).toBe(true);
     });
 
@@ -168,7 +169,7 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
       };
 
       const shouldInclude = !archived.archived;
-      
+
       expect(shouldInclude).toBe(false);
     });
   });
@@ -188,14 +189,14 @@ describe('Catch-All Filter (Mind Drop v3)', () => {
         [undefined, 'classified', true],
       ];
 
-      testCases.forEach(([ai_pending, minddrop_stage, expected], i) => {
+      testCases.forEach(([ai_pending, minddrop_stage, expected], _i) => {
         const views = {
           ai_pending: ai_pending as boolean | undefined,
           minddrop_stage: minddrop_stage as 'pending' | 'classified' | 'prefilled' | undefined,
         };
 
         const shouldInclude = views.ai_pending === true || views.minddrop_stage !== 'prefilled';
-        
+
         expect(shouldInclude).toBe(expected);
       });
     });

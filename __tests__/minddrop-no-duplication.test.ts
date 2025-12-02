@@ -106,7 +106,7 @@ describe('Mind Drop v3 - No Duplication Between Catch-All and Canonical Views', 
         title: 'Buy milk',
       };
 
-      const canonicalTodo = {
+      const _canonicalTodo = {
         id: 'todo-2',
         kind: 'todo' as const,
         drop_id: 'drop-789', // Same drop_id
@@ -122,7 +122,7 @@ describe('Mind Drop v3 - No Duplication Between Catch-All and Canonical Views', 
     });
 
     it('prefers canonical habit over unsorted note when drop_id matches', () => {
-      const unsortedNote = {
+      const _unsortedNote = {
         id: 'note-1',
         kind: 'note' as const,
         drop_id: 'drop-999',
@@ -130,7 +130,7 @@ describe('Mind Drop v3 - No Duplication Between Catch-All and Canonical Views', 
         title: 'Run daily',
       };
 
-      const canonicalHabit = {
+      const _canonicalHabit = {
         id: 'habit-2',
         kind: 'habit' as const,
         drop_id: 'drop-999', // Same drop_id
@@ -195,8 +195,7 @@ describe('Mind Drop v3 - No Duplication Between Catch-All and Canonical Views', 
       };
 
       // Catch-All v3: Archived note excluded
-      const catchAllNoteFilter =
-        archivedNote.origin === 'catchall' && !archivedNote.archived;
+      const catchAllNoteFilter = archivedNote.origin === 'catchall' && !archivedNote.archived;
       expect(catchAllNoteFilter).toBe(false);
 
       // Catch-All v3: Canonical todo excluded (even though stage='classified')
@@ -236,9 +235,7 @@ describe('Mind Drop v3 - No Duplication Between Catch-All and Canonical Views', 
 
       // Today: Still included (due_date unchanged)
       const todayFinalFilter =
-        enrichedTodo.type === 'todo' &&
-        !enrichedTodo.completed_at &&
-        enrichedTodo.due_date != null;
+        enrichedTodo.type === 'todo' && !enrichedTodo.completed_at && enrichedTodo.due_date != null;
       expect(todayFinalFilter).toBe(true);
 
       // Summary: NO DUPLICATION

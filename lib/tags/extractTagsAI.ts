@@ -8,20 +8,13 @@
  * - ONLY extracts: proper names, specific topics, concrete objects, activities
  * - EXCLUDES: verbs (think, feel), adjectives, filler words
  * - 3-6 tags max
- * - Validates and filters all responses
+ * - Validates and filters all responses through v2 blocklist
  */
 
 import { callClassify } from '../cortex/CortexClient';
+import { _testExports } from './extractTagsV2';
 
-const TAG_EXTRACTION_PROMPT = `Extract meaningful tags from this text.
-
-Rules:
-- ONLY extract: proper names (people/places), specific topics, concrete objects, activities
-- DO NOT extract: verbs (know, think, feel), adjectives (good, bad, amazing), filler words
-- Prefer specificity: "dentist" over "appointment", "meditation" over "relax"
-- 3–6 tags max
-
-Return ONLY the tags as a JSON array of strings, like: ["tag1", "tag2", "tag3"]`;
+const { KEYWORD_BLOCKLIST } = _testExports;
 
 /**
  * Validate and normalize a single tag string.
@@ -48,6 +41,15 @@ function validateTag(tag: string): string | null {
   // Only allow alphanumeric and single hyphens
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(normalized)) return null;
 
+  // QUALITY GATE: Check against v2 blocklist
+  // For hyphenated tags, check each part
+  const parts = normalized.split('-');
+  for (const part of parts) {
+    if (KEYWORD_BLOCKLIST.has(part)) {
+      return null; // Blocked word found
+    }
+  }
+
   return normalized;
 }
 
@@ -64,10 +66,7 @@ export async function extractTagsAI(text: string): Promise<string[]> {
 
   try {
     const result = await callClassify({
-      messages: [
-        { role: 'system', content: TAG_EXTRACTION_PROMPT },
-        { role: 'user', content: text.slice(0, 500) }, // Limit to 500 chars
-      ],
+      text: text.slice(0, 500), // Limit to 500 chars
       timeoutMs: 3000, // 3 second timeout
     });
 

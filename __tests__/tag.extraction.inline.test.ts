@@ -6,7 +6,8 @@ describe('Tag Extraction v3 - Inline Verification Tests', () => {
   });
 
   test('extracts activities', () => {
-    expect(extractMeaningfulTags('Start running every morning')).toContain('running');
+    // extractMeaningfulTags returns tags with # prefix
+    expect(extractMeaningfulTags('Start running every morning')).toContain('#running');
   });
 
   test.skip('extracts proper nouns', () => {

@@ -48,6 +48,19 @@ const raw = {
   EVENING_SWEEP_V1: process.env.EXPO_PUBLIC_EVENING_SWEEP_V1 ?? 'off',
   DEBUG_TODAY_TIMEWINDOW: process.env.EXPO_PUBLIC_DEBUG_TODAY_TIMEWINDOW,
 
+  /**
+   * Feature flag for V2 classification cascade
+   * When enabled, runs new 8-layer cascade
+   * Default: off (shadow mode logs only)
+   */
+  CLASSIFY_V2: process.env.EXPO_PUBLIC_FF_CLASSIFY_V2 ?? 'off',
+
+  /**
+   * Shadow mode: run V2 in parallel and log comparison
+   * Only active when FF_CLASSIFY_V2 is off
+   */
+  CLASSIFY_V2_SHADOW: process.env.EXPO_PUBLIC_FF_CLASSIFY_V2_SHADOW ?? 'on',
+
   CORTEX_URL: process.env.EXPO_PUBLIC_CORTEX_URL,
   CORTEX_ENGINE: process.env.EXPO_PUBLIC_CORTEX_ENGINE ?? 'LLM',
   CORTEX_MODEL: process.env.EXPO_PUBLIC_CORTEX_MODEL ?? 'gpt-4o-mini',
@@ -167,6 +180,12 @@ const featureConfig = {
     enabled: flag(raw.MASCOT),
     debug: flag(raw.MASCOT_DEBUG),
   },
+
+  // Classification V2 feature flags (Phase 3 Classification Revamp)
+  classify: {
+    v2: flag(raw.CLASSIFY_V2),
+    v2Shadow: flag(raw.CLASSIFY_V2_SHADOW),
+  },
 } as const;
 
 export const env = {
@@ -221,3 +240,18 @@ export const getBgTimeoutMs = (): number => env.cortex.bgTimeoutMs;
 export const getBgRetries = (): number => env.cortex.bgRetries;
 export const getMinThinkMs = (): number => env.cortex.minThinkMs;
 export const getMaxThinkMs = (): number => env.cortex.maxThinkMs;
+
+/**
+ * Feature flag for V2 classification cascade
+ * When enabled, runs new 8-layer cascade
+ * Default: off (shadow mode logs only)
+ */
+export const FF_CLASSIFY_V2 =
+  String(process.env.EXPO_PUBLIC_FF_CLASSIFY_V2 ?? 'off').toLowerCase() === 'on';
+
+/**
+ * Shadow mode: run V2 in parallel and log comparison
+ * Only active when FF_CLASSIFY_V2 is off
+ */
+export const FF_CLASSIFY_V2_SHADOW =
+  String(process.env.EXPO_PUBLIC_FF_CLASSIFY_V2_SHADOW ?? 'on').toLowerCase() === 'on';

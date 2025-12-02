@@ -136,8 +136,9 @@ describe('Theme Tag Integration', () => {
 
     it('adds #money to tax todo', () => {
       const rawSentence = 'Email accountant about tax letter before Friday';
-      const aiTags = ['email', 'accountant', 'friday'];
-      const existingTags = ['#email', '#accountant'];
+      // Note: 'email' is now a stop word (action verb), so it won't appear in tags
+      const aiTags = ['accountant', 'friday'];
+      const existingTags = ['#accountant', '#taxes'];
 
       const normalizedAiTags = filterAndNormalizeTags(aiTags);
       const effectiveTags =
@@ -148,7 +149,6 @@ describe('Theme Tag Integration', () => {
 
       expect(finalTags).toContain('#money'); // theme added (tax keyword)
       expect(finalTags).toContain('#accountant');
-      expect(finalTags).toContain('#email');
     });
   });
 

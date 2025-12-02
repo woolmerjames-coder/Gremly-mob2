@@ -155,6 +155,9 @@ const LOW_QUALITY_TAGS = new Set([
   'daily',
   'weekly',
   'monthly',
+  'per',
+  'times',
+  'x',
 
   // Conjunctions & prepositions
   'since',

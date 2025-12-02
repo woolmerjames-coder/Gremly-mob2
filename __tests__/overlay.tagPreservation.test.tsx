@@ -1,6 +1,8 @@
 /**
  * Test to verify that Mind Drop AI-generated tags are preserved
  * when saving a todo/habit without modifying tags
+ *
+ * NOTE: Tags in the overlay state include prefixes (#tag, @person)
  */
 
 import { buildDraftPayloadFromEntity } from '../components/overlay/UnifiedOverlayV2';
@@ -24,8 +26,8 @@ describe('Overlay Tag Preservation', () => {
 
       const payload = buildDraftPayloadFromEntity(todoEntity);
 
-      // Tags should be extracted from entity
-      expect(payload.tags).toEqual(['appointment', 'dentist']);
+      // Tags should be extracted from entity with # prefixes preserved
+      expect(payload.tags).toEqual(['#appointment', '#dentist']);
       expect(payload.todo?.title).toBe('Dentist Appointment');
       expect(payload.todo?.details).toBe('Book dentist appointment');
     });
@@ -46,8 +48,8 @@ describe('Overlay Tag Preservation', () => {
 
       const payload = buildDraftPayloadFromEntity(habitEntity);
 
-      // Tags should be extracted from entity
-      expect(payload.tags).toEqual(['yoga', 'wellness']);
+      // Tags should be extracted from entity with # prefixes preserved
+      expect(payload.tags).toEqual(['#yoga', '#wellness']);
       expect(payload.habit?.title).toBe('Morning Yoga');
       expect(payload.habit?.notes).toBe('Practice yoga every morning');
     });
@@ -136,12 +138,12 @@ describe('Overlay Tag Preservation', () => {
       // Expected behavior documented in test description
       expect(originalEntity.tags).toEqual(['#appointment', '#dentist']);
 
-      // When overlay initializes from this entity:
+      // When overlay initializes from this entity (tags include prefixes):
       const initialState = buildDraftPayloadFromEntity(originalEntity);
-      expect(initialState.tags).toEqual(['appointment', 'dentist']);
+      expect(initialState.tags).toEqual(['#appointment', '#dentist']);
 
       // When user changes only due_date and saves:
-      // - areTagsEqual(['#appointment', '#dentist'], ['appointment', 'dentist']) should return true
+      // - areTagsEqual(['#appointment', '#dentist'], ['#appointment', '#dentist']) should return true
       // - shouldIncludeTags should be false (mode === 'edit' && !tagsChanged)
       // - tagsPayload should be { tags_meta: existingTagsMeta } (no tags field)
       // - Final patch should not contain tags
@@ -149,7 +151,7 @@ describe('Overlay Tag Preservation', () => {
 
       // This behavior is verified by the areTagsEqual helper function
       const originalTags = ['#appointment', '#dentist'];
-      const overlayTags = ['appointment', 'dentist'];
+      const overlayTags = ['#appointment', '#dentist'];
 
       // Normalize both for comparison
       const normalize = (tags: string[]) =>

@@ -230,11 +230,6 @@ export function TagsRow({
                     ]}
                   >
                     {chip.display}
-                    {provenance ? (
-                      <Text style={[styles.provenance, { color: metadataColor }]}>
-                        {typeof provenance === 'string' ? provenance : ''}
-                      </Text>
-                    ) : null}
                   </Text>
                   {!chip.locked ? (
                     <Pressable
@@ -277,11 +272,6 @@ export function TagsRow({
                       ]}
                     >
                       {chip.display}
-                      {provenance ? (
-                        <Text style={[styles.provenance, { color: metadataColor }]}>
-                          {typeof provenance === 'string' ? provenance : ''}
-                        </Text>
-                      ) : null}
                     </Text>
                   </View>
                 </Pressable>
