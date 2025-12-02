@@ -1735,6 +1735,8 @@ const RecentDrops: React.FC<{
             <ScrollView
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
+              onScrollBeginDrag={Keyboard.dismiss}
+              keyboardShouldPersistTaps="handled"
             >
               {/* Pending items (optimistic UI) */}
               {pendingItems.map((item) => {
