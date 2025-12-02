@@ -293,9 +293,8 @@ export default function NowScreenV1() {
     },
     onError: (error) => {
       console.error('[NowScreenV1] Quick add error:', error.message);
-      // Clear optimistic card and show error toast
+      // Clear optimistic card - no toast needed, error is logged
       setOptimisticQuickAdd(null);
-      showToast({ type: 'success', content: 'Something went wrong. Please try again.' });
     },
   });
 

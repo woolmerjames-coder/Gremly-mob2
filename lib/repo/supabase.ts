@@ -125,6 +125,15 @@ function stripNulls<T extends Record<string, any>>(obj: T) {
   ) as T;
 }
 
+// Helper to strip non-DB fields from note payloads
+// These fields are used in the app layer but don't exist in the notes table schema
+const NON_DB_NOTE_FIELDS = ['labels', 'tags_meta', 'views', 'canonicalType', 'canonical_type'];
+function stripNonDbNoteFields<T extends Record<string, any>>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([key]) => !NON_DB_NOTE_FIELDS.includes(key)),
+  ) as T;
+}
+
 type TagsMetaPayload = {
   sticky?: string[] | null;
   tombstones?: string[] | null;
@@ -646,7 +655,13 @@ export class SupabaseRepo implements IRepo {
     //   - TODOS: Use 'name' only
     //   - NOTES: Use 'title' only
     //   - HABITS: Use both 'name' AND 'title'
-    const cleanPayload = stripNulls(payload);
+    let cleanPayload = stripNulls(payload);
+
+    // For notes, strip app-layer fields that don't exist in the DB schema
+    // (labels, tags_meta, views, canonicalType are used in-app but not DB columns)
+    if (input.type === 'note') {
+      cleanPayload = stripNonDbNoteFields(cleanPayload);
+    }
 
     // Attach owner_id to ensure RLS policies work
     // Note: owner_id is the PRIMARY key for RLS, user_id is legacy/deprecated
