@@ -78,7 +78,7 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
 
       // Query all records - should have 1 todo + 1 archived note
       const todosAfterFirst = await repo.listByType('todo');
-      const notesAfterFirst = await repo.listByType('note');
+      const _notesAfterFirst = await repo.listByType('note');
 
       expect(todosAfterFirst.length).toBe(1);
       expect(todosAfterFirst[0].id).toBe(firstTodoId);

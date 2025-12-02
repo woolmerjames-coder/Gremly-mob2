@@ -173,7 +173,7 @@ async function simulateMindDropPipeline(text: string): Promise<MindDropPipelineR
 
   // Step 5: Determine what entity would be created
   // In production, performSave() creates an unsorted note first, then converts it
-  let finalType: 'todo' | 'habit' | 'note' = 'note';
+  let _finalType: 'todo' | 'habit' | 'note' = 'note';
   let finalSubtype: string | null = 'catchall';
   let finalLabels: string[] = ['catchall', 'needs_review'];
   let finalTags: string[] = [];
@@ -184,17 +184,17 @@ async function simulateMindDropPipeline(text: string): Promise<MindDropPipelineR
     const firstAction = decision.actions[0];
 
     if (firstAction.type === 'create.todo') {
-      finalType = 'todo';
+      _finalType = 'todo';
       finalSubtype = null;
       finalLabels = ['todo'];
       finalTags = []; // Tags added by BackgroundPrefill
     } else if (firstAction.type === 'create.habit') {
-      finalType = 'habit';
+      _finalType = 'habit';
       finalSubtype = null;
       finalLabels = ['habit'];
       finalTags = []; // Tags added by BackgroundPrefill (e.g., #exercise for running)
     } else if (firstAction.type === 'create.note') {
-      finalType = 'note';
+      _finalType = 'note';
       const rawSubtype = firstAction.payload.subtype ?? 'everything_else';
       finalSubtype =
         rawSubtype === 'journal' ? 'journal' : rawSubtype === 'list' ? 'list' : 'everything_else';
@@ -210,7 +210,7 @@ async function simulateMindDropPipeline(text: string): Promise<MindDropPipelineR
     }
   } else if (decision.mode === 'ask') {
     // Ask mode: creates unsorted note and shows chips
-    finalType = 'note';
+    _finalType = 'note';
     finalSubtype = 'catchall';
     finalLabels = ['catchall', 'needs_review'];
     finalTags = [];
@@ -384,7 +384,7 @@ describe.skip('Mind Drop v3 Phase 6: Extended Integration Tests', () => {
       // This tests that the DB constraint OR app-level deduplication prevents duplicates
 
       const text = 'Buy groceries';
-      const dropId = 'test-drop-constraint-123';
+      const _dropId = 'test-drop-constraint-123';
 
       // First decision
       const context1: CortexContext = {

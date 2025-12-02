@@ -2102,23 +2102,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
 
-  // Auto-dismiss category chips after timeout - default to log-general
-  useEffect(() => {
-    if (!categoryChips?.length) return;
-    const timeout = setTimeout(() => {
-      // Log timeout for telemetry before auto-selecting
-      logMetrics('chip_timeout', {
-        chips: categoryChips.map((c) => c.kind),
-        defaultedTo: 'log-general',
-        timeoutMs: CHIPS_AUTO_DISMISS_MS,
-      });
-
-      // Auto-select "Just Save It" (log-general)
-      handleCategoryChipPick('log');
-    }, CHIPS_AUTO_DISMISS_MS);
-    return () => clearTimeout(timeout);
-  }, [categoryChips, CHIPS_AUTO_DISMISS_MS, logMetrics, handleCategoryChipPick]);
-
   // Auto-dismiss photo text nudge after 5 seconds
   useEffect(() => {
     if (!showPhotoTextNudge) return;
@@ -2126,22 +2109,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [showPhotoTextNudge]);
 
-  // Auto-dismiss timing chips after configured interval
-  useEffect(() => {
-    if (!timingChips?.length) return;
-    // Auto-dismiss after 5s and assign 'Someday' (due null)
-    const timeout = setTimeout(() => {
-      setTimingChips([]);
-      if (pendingTodoId) {
-        // Auto-assign "Someday" (no due date)
-        metricsRef.current.timingFallback += 1;
-        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
-
-        handleTimingSelection('someday');
-      }
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [timingChips, pendingTodoId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
   const [submitScale] = useState(() => new Animated.Value(1));
@@ -4037,6 +4004,40 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       logMetrics,
     ],
   );
+
+  // Auto-dismiss category chips after timeout - default to log-general
+  useEffect(() => {
+    if (!categoryChips?.length) return;
+    const timeout = setTimeout(() => {
+      // Log timeout for telemetry before auto-selecting
+      logMetrics('chip_timeout', {
+        chips: categoryChips.map((c) => c.kind),
+        defaultedTo: 'log-general',
+        timeoutMs: CHIPS_AUTO_DISMISS_MS,
+      });
+
+      // Auto-select "Just Save It" (log-general)
+      handleCategoryChipPick('log');
+    }, CHIPS_AUTO_DISMISS_MS);
+    return () => clearTimeout(timeout);
+  }, [categoryChips, CHIPS_AUTO_DISMISS_MS, logMetrics, handleCategoryChipPick]);
+
+  // Auto-dismiss timing chips after configured interval
+  useEffect(() => {
+    if (!timingChips?.length) return;
+    // Auto-dismiss after 5s and assign 'Someday' (due null)
+    const timeout = setTimeout(() => {
+      setTimingChips([]);
+      if (pendingTodoId) {
+        // Auto-assign "Someday" (no due date)
+        metricsRef.current.timingFallback += 1;
+        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
+
+        handleTimingSelection('someday');
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [timingChips, pendingTodoId, logMetrics, handleTimingSelection]);
 
   const handleChangeText = useCallback(
     (value: string) => {

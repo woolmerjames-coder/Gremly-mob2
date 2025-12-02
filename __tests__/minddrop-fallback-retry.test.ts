@@ -14,7 +14,7 @@
 
 import { MemoryRepo } from '../lib/repo/memory';
 import type { IRepo } from '../lib/repo/IRepo';
-import { backgroundPrefill } from '../lib/minddrop/backgroundPrefill';
+import { backgroundPrefill as _backgroundPrefill } from '../lib/minddrop/backgroundPrefill';
 
 // Mock backgroundPrefill to track calls
 const mockBackgroundPrefill = jest.fn();
