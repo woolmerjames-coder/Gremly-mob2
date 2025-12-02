@@ -3362,13 +3362,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     onClose?.();
   }, [draftKey, onClose]);
 
+  console.log('[UnifiedOverlayV2] render', { visible, mode, baseType });
+
   if (!visible) return null;
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.05)' }]}
       behavior={Platform.select({ ios: 'padding', android: undefined })}
-      keyboardVerticalOffset={Platform.select({ ios: 64, android: 0 })}
+      keyboardVerticalOffset={0}
     >
       <View
         style={{
@@ -3677,7 +3679,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     placeholderTextColor={lightTokens.colors.subtle}
                     multiline
                     scrollEnabled={false}
-                    autoFocus
                     textAlignVertical="top"
                     style={[
                       styles.textArea,
