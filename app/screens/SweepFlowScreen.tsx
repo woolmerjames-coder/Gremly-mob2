@@ -5,11 +5,12 @@
  * Currently implements:
  * - Step 0: Mood check-in
  * - Step 1: Wrap up today
+ * - Step 2: Decision cards
  *
  * Future steps will be added as the feature evolves.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -22,9 +23,16 @@ import {
 } from 'react-native';
 import { Screen, Text, Button } from '../../ui';
 import { useRepo } from '../../providers/RepoProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { useTodayEntries, type TodayMergedEntry } from '../../lib/today/hooks/useTodayEntries';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
+import { supabase } from '../../lib/supabase/client';
+import { fetchSweepCandidatesForUser, applySweepAction } from '../../lib/sweep/engine';
+import type { SweepCandidate } from '../../lib/sweep/types';
+import { SweepCard } from '../../components/sweep/SweepCard';
+import { useOverlayController } from '../../hooks/useOverlayController';
+import type { AppRecord } from '../../lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -455,6 +463,234 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
   );
 }
 
+/**
+ * Step 2: Decision Cards
+ *
+ * Shows items that need a decision (keep, defer, archive).
+ * This is the main triage step of the Evening Sweep.
+ *
+ * Fetches candidates from the sweep engine and allows the user
+ * to triage each item one at a time.
+ */
+interface DecisionStepProps {
+  onFinished: () => void;
+}
+
+function SweepDecisionStep({ onFinished }: DecisionStepProps) {
+  const { userId } = useAuth();
+  const repo = useRepo();
+  const overlayController = useOverlayController();
+
+  // State for candidates and navigation
+  const [candidates, setCandidates] = useState<SweepCandidate[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // TODO: Track summary stats for the sweep completion screen
+  // const [stats, setStats] = useState({ kept: 0, cleared: 0, skipped: 0 });
+
+  // Fetch candidates on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCandidates() {
+      if (!userId) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const items = await fetchSweepCandidatesForUser(userId, supabase);
+        if (!cancelled) {
+          setCandidates(items ?? []);
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error('[SweepDecisionStep] Failed to fetch candidates:', error);
+        if (!cancelled) {
+          setCandidates([]);
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadCandidates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Handlers for card actions
+  const handleKeep = useCallback(async () => {
+    const candidate = candidates[currentIndex];
+    if (!candidate) return;
+
+    try {
+      // Apply keep action
+      await applySweepAction({ type: 'keep', id: candidate.id, kind: candidate.kind }, supabase);
+      // TODO: Update stats.kept
+    } catch (error) {
+      console.error('[SweepDecisionStep] handleKeep error:', error);
+    }
+
+    // Move to next card (completion screen shows when currentIndex >= candidates.length)
+    setCurrentIndex((prev) => prev + 1);
+  }, [candidates, currentIndex]);
+
+  const handleClear = useCallback(async () => {
+    const candidate = candidates[currentIndex];
+    if (!candidate) return;
+
+    try {
+      // Apply clear action
+      await applySweepAction({ type: 'clear', id: candidate.id, kind: candidate.kind }, supabase);
+      // TODO: Update stats.cleared
+    } catch (error) {
+      console.error('[SweepDecisionStep] handleClear error:', error);
+    }
+
+    // Move to next card (completion screen shows when currentIndex >= candidates.length)
+    setCurrentIndex((prev) => prev + 1);
+  }, [candidates, currentIndex]);
+
+  const handleSkip = useCallback(async () => {
+    const candidate = candidates[currentIndex];
+    if (!candidate) return;
+
+    try {
+      // Apply skip action
+      await applySweepAction({ type: 'skip', id: candidate.id, kind: candidate.kind }, supabase);
+      // TODO: Update stats.skipped
+    } catch (error) {
+      console.error('[SweepDecisionStep] handleSkip error:', error);
+    }
+
+    // Move to next card (completion screen shows when currentIndex >= candidates.length)
+    setCurrentIndex((prev) => prev + 1);
+  }, [candidates, currentIndex]);
+
+  const handleOpenEdit = useCallback(async () => {
+    const candidate = candidates[currentIndex];
+    if (!candidate) return;
+
+    try {
+      // Fetch the full record from DB to ensure all fields are available
+      const fullRecord = await repo.getById(candidate.id);
+
+      if (fullRecord && fullRecord.type === candidate.kind) {
+        // Open UnifiedOverlayV2 with the full record
+        overlayController.openEdit({ record: fullRecord as AppRecord });
+      } else {
+        // Fallback: construct a minimal record from the raw data
+        console.warn(
+          '[SweepDecisionStep] handleOpenEdit: record not found or type mismatch, using raw',
+        );
+        const fallbackRecord = {
+          ...candidate.raw,
+          type: candidate.kind,
+        } as AppRecord;
+        overlayController.openEdit({ record: fallbackRecord });
+      }
+    } catch (error) {
+      console.error('[SweepDecisionStep] handleOpenEdit error:', error);
+      // Fallback: construct a minimal record from the raw data
+      const fallbackRecord = {
+        ...candidate.raw,
+        type: candidate.kind,
+      } as AppRecord;
+      overlayController.openEdit({ record: fallbackRecord });
+    }
+  }, [candidates, currentIndex, repo, overlayController]);
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.decisionLoadingContainer}>
+          <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
+          <Text variant="subtle" style={styles.decisionLoadingText}>
+            Preparing your Sweep…
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Empty state - nothing to sweep
+  if (candidates.length === 0) {
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.decisionEmptyContainer}>
+          <Text variant="title" style={styles.decisionEmptyTitle}>
+            ✨
+          </Text>
+          <Text variant="body" style={styles.decisionEmptyText}>
+            Nothing to Sweep right now — you're all clear.
+          </Text>
+        </View>
+        <View style={styles.buttonContainer}>
+          <Button title="Done" variant="primary" onPress={onFinished} />
+        </View>
+      </View>
+    );
+  }
+
+  // All cards processed - sweep complete
+  if (currentIndex >= candidates.length) {
+    // TODO: Call markSweepCompleted with stats
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.decisionEmptyContainer}>
+          <Text variant="title" style={styles.decisionEmptyTitle}>
+            🎉
+          </Text>
+          <Text variant="body" style={styles.decisionEmptyText}>
+            Sweep complete!
+          </Text>
+          {/* TODO: Show summary stats (kept, cleared, skipped) */}
+        </View>
+        <View style={styles.buttonContainer}>
+          <Button title="Finish Sweep" variant="primary" onPress={onFinished} />
+        </View>
+      </View>
+    );
+  }
+
+  // Current candidate to display
+  const currentCandidate = candidates[currentIndex];
+
+  return (
+    <View style={styles.stepContainer}>
+      {/* Header */}
+      <Text variant="title" style={styles.stepTitle}>
+        Review your items
+      </Text>
+      <Text variant="subtle" style={styles.stepDescription}>
+        Decide what to keep, defer, or let go.
+      </Text>
+
+      {/* Progress indicator */}
+      <Text variant="subtle" style={styles.decisionProgress}>
+        Item {currentIndex + 1} of {candidates.length}
+      </Text>
+
+      {/* Card area */}
+      <View style={styles.decisionCardArea}>
+        <SweepCard
+          candidate={currentCandidate}
+          index={currentIndex}
+          total={candidates.length}
+          onKeep={handleKeep}
+          onClear={handleClear}
+          onSkip={handleSkip}
+          onOpenEdit={handleOpenEdit}
+        />
+      </View>
+    </View>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Screen Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,9 +702,9 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
  * Steps:
  * - 0: Mood check-in
  * - 1: Wrap up today
- * - (more steps to come)
+ * - 2: Decision cards
  */
-export default function SweepFlowScreen(_props: Props) {
+export default function SweepFlowScreen({ navigation }: Props) {
   const [step, setStep] = useState<number>(0);
 
   const handleMoodContinue = () => {
@@ -476,8 +712,13 @@ export default function SweepFlowScreen(_props: Props) {
   };
 
   const handleWrapUpContinue = () => {
-    // TODO: Navigate to next step (step 2) when implemented
-    // For now, this is a no-op placeholder
+    setStep(2);
+  };
+
+  const handleDecisionFinished = () => {
+    // TODO: Navigate to summary step or exit Sweep
+    // For now, go back to previous screen
+    navigation?.goBack();
   };
 
   return (
@@ -491,6 +732,7 @@ export default function SweepFlowScreen(_props: Props) {
       <View style={styles.content}>
         {step === 0 && <SweepMoodStep onContinue={handleMoodContinue} />}
         {step === 1 && <SweepWrapUpStep onContinue={handleWrapUpContinue} />}
+        {step === 2 && <SweepDecisionStep onFinished={handleDecisionFinished} />}
       </View>
     </Screen>
   );
@@ -689,5 +931,101 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: BRAND.colors.inkSubtle,
+  },
+  // SweepDecisionStep styles
+  decisionPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  decisionLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  decisionLoadingText: {
+    marginTop: 16,
+  },
+  decisionEmptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  decisionEmptyTitle: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  decisionEmptyText: {
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
+  decisionProgress: {
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  decisionCardArea: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  decisionCardPlaceholder: {
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.lg,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    padding: 24,
+    alignItems: 'center',
+  },
+  decisionCardKind: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  decisionCardDate: {
+    marginTop: 12,
+  },
+  decisionActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 16,
+  },
+  decisionActionButton: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: BRAND.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  decisionActionClear: {
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  decisionActionSkip: {
+    backgroundColor: BRAND.colors.surface,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+  },
+  decisionActionKeep: {
+    backgroundColor: BRAND.colors.sageMist,
+  },
+  decisionActionTextClear: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+  },
+  decisionActionTextSkip: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+  },
+  decisionActionTextKeep: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
 });

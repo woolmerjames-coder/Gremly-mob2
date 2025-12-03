@@ -8,6 +8,19 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
+// Mock sweep engine
+const mockFetchSweepCandidates = jest.fn().mockResolvedValue([]);
+jest.mock('../../../lib/sweep/engine', () => ({
+  __esModule: true,
+  fetchSweepCandidatesForUser: (...args: any[]) => mockFetchSweepCandidates(...args),
+}));
+
+// Mock Supabase client
+jest.mock('../../../lib/supabase/client', () => ({
+  __esModule: true,
+  supabase: {},
+}));
+
 // Mock RepoProvider
 jest.mock('../../../providers/RepoProvider', () => ({
   __esModule: true,
@@ -21,7 +34,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 // Mock AuthProvider
 jest.mock('../../../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ user: { id: 'test-user' } }),
+  useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
 // Mock useTodayEntries with EMPTY data for empty state testing

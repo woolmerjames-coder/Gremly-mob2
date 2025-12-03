@@ -8,6 +8,19 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
+// Mock sweep engine (we stay on step 0, but need to mock for imports)
+const mockFetchSweepCandidates = jest.fn().mockResolvedValue([]);
+jest.mock('../../../lib/sweep/engine', () => ({
+  __esModule: true,
+  fetchSweepCandidatesForUser: (...args: any[]) => mockFetchSweepCandidates(...args),
+}));
+
+// Mock Supabase client
+jest.mock('../../../lib/supabase/client', () => ({
+  __esModule: true,
+  supabase: {},
+}));
+
 // Mock RepoProvider
 const mockCreate = jest.fn(() => Promise.resolve({ id: 'test-note-id' }));
 jest.mock('../../../providers/RepoProvider', () => ({
@@ -20,7 +33,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 // Mock AuthProvider
 jest.mock('../../../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ user: { id: 'test-user' } }),
+  useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
 // Mock useTodayEntries (used by WrapUpStep, but we stay on step 0)

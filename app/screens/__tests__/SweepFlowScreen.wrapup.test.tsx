@@ -8,6 +8,19 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
+// Mock sweep engine (to prevent fetch during wrapup tests)
+const mockFetchSweepCandidates = jest.fn().mockResolvedValue([]);
+jest.mock('../../../lib/sweep/engine', () => ({
+  __esModule: true,
+  fetchSweepCandidatesForUser: (...args: any[]) => mockFetchSweepCandidates(...args),
+}));
+
+// Mock Supabase client
+jest.mock('../../../lib/supabase/client', () => ({
+  __esModule: true,
+  supabase: {},
+}));
+
 // Mock RepoProvider
 const mockCreate = jest.fn(() => Promise.resolve({ id: 'test-note-id' }));
 const mockUpdate = jest.fn(() => Promise.resolve());
@@ -25,7 +38,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
 // Mock AuthProvider
 jest.mock('../../../providers/AuthProvider', () => ({
   __esModule: true,
-  useAuth: () => ({ user: { id: 'test-user' } }),
+  useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
 // Mock data for useTodayEntries
@@ -163,14 +176,19 @@ describe('SweepFlowScreen - Wrap Up Step', () => {
     expect(getAllByText('Clear').length).toBeGreaterThan(0);
   });
 
-  it('does not crash when pressing Start Sweep', async () => {
-    const { getByText } = await renderAtWrapUpStep();
+  it('advances to decision step when pressing Start Sweep', async () => {
+    const { getByText, queryByText } = await renderAtWrapUpStep();
 
-    // Press Start Sweep - should not throw
+    // Press Start Sweep - should advance to step 2
     fireEvent.press(getByText('Start Sweep'));
 
-    // Component should still be rendered
-    expect(getByText('Wrap up today')).toBeTruthy();
+    // Should now show decision step content (empty state since mock returns [])
+    await waitFor(() => {
+      expect(getByText("Nothing to Sweep right now — you're all clear.")).toBeTruthy();
+    });
+
+    // Wrap up step should no longer be visible
+    expect(queryByText('Wrap up today')).toBeNull();
   });
 });
 
