@@ -202,9 +202,14 @@ export async function applySweepAction(
 /**
  * Record that the user has completed a sweep session.
  *
+ * This is a **best-effort** operation for logging and metadata purposes.
+ * It should NOT block the Sweep UX — if either operation fails, we log
+ * the error and continue. The user should still see their sweep complete
+ * successfully even if analytics/preferences fail to update.
+ *
  * This does two things:
- * 1. Logs an event with the sweep summary (for analytics/history)
- * 2. Updates last_sweep_completed_at so future sweeps know the cutoff
+ * 1. Logs an event to the `events` table with the sweep summary (for analytics/history)
+ * 2. Updates `last_sweep_completed_at` in `cortex_preferences` so future sweeps know the cutoff
  *
  * @param ownerId - The user's ID
  * @param client - Supabase client instance
@@ -217,27 +222,34 @@ export async function markSweepCompleted(
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  // TODO: Insert event for analytics/history
-  //
-  // await client.from('events').insert({
-  //   owner_id: ownerId,
-  //   kind: 'sweep_completed',
-  //   payload_json: {
-  //     kept: summary.kept,
-  //     cleared: summary.cleared,
-  //     skipped: summary.skipped,
-  //     completed_at: now,
-  //   },
-  // });
+  try {
+    // 1. Insert event for analytics/history
+    const { error: eventError } = await client.from('events').insert({
+      owner_id: ownerId,
+      kind: 'sweep_completed',
+      payload_json: {
+        ...summary,
+        completed_at: now,
+      },
+    });
 
-  // TODO: Update cortex_preferences.last_sweep_completed_at
-  //
-  // await client
-  //   .from('cortex_preferences')
-  //   .upsert({
-  //     owner_id: ownerId,
-  //     last_sweep_completed_at: now,
-  //   }, { onConflict: 'owner_id' });
+    if (eventError) {
+      console.error('[Sweep] Failed to log sweep_completed event:', eventError);
+    }
+
+    // 2. Update cortex_preferences.last_sweep_completed_at
+    const { error: prefError } = await client
+      .from('cortex_preferences')
+      .update({ last_sweep_completed_at: now })
+      .eq('owner_id', ownerId);
+
+    if (prefError) {
+      console.error('[Sweep] Failed to update last_sweep_completed_at:', prefError);
+    }
+  } catch (error) {
+    // Swallow any unexpected errors — this is best-effort logging
+    console.error('[Sweep] Unexpected error in markSweepCompleted:', error);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
