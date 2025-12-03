@@ -221,7 +221,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('calls onFinished when Done is pressed', async () => {
+    it('transitions to summary step when Done is pressed', async () => {
       mockFetchSweepCandidates.mockResolvedValue([]);
 
       const result = await renderAtDecisionStep();
@@ -230,6 +230,14 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Done');
       });
 
+      fireEvent.press(result.getByText('Done'));
+
+      // Should now be on Summary step
+      await waitFor(() => {
+        expect(result.getByText('Sweep complete')).toBeTruthy();
+      });
+
+      // Press Done on Summary step to go back
       fireEvent.press(result.getByText('Done'));
 
       expect(mockGoBack).toHaveBeenCalledTimes(1);
@@ -433,7 +441,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('calls onFinished when Finish Sweep is pressed', async () => {
+    it('transitions to summary step when Finish Sweep is pressed', async () => {
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -449,6 +457,15 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
 
       fireEvent.press(result.getByText('Finish Sweep'));
+
+      // Should now be on Summary step with stats
+      await waitFor(() => {
+        expect(result.getByText('Sweep complete')).toBeTruthy();
+        expect(result.getByText('1')).toBeTruthy(); // keptCount
+      });
+
+      // Press Done on Summary step to go back
+      fireEvent.press(result.getByText('Done'));
 
       expect(mockGoBack).toHaveBeenCalledTimes(1);
     });

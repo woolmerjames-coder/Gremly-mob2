@@ -6,8 +6,7 @@
  * - Step 0: Mood check-in
  * - Step 1: Wrap up today
  * - Step 2: Decision cards
- *
- * Future steps will be added as the feature evolves.
+ * - Step 3: Summary/celebration
  */
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
@@ -472,8 +471,14 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
  * Fetches candidates from the sweep engine and allows the user
  * to triage each item one at a time.
  */
+interface SweepSummary {
+  kept: number;
+  cleared: number;
+  skipped: number;
+}
+
 interface DecisionStepProps {
-  onFinished: () => void;
+  onFinished: (summary: SweepSummary) => void;
 }
 
 function SweepDecisionStep({ onFinished }: DecisionStepProps) {
@@ -486,8 +491,8 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // TODO: Track summary stats for the sweep completion screen
-  // const [stats, setStats] = useState({ kept: 0, cleared: 0, skipped: 0 });
+  // Track summary stats for the sweep completion screen
+  const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0, skipped: 0 });
 
   // Fetch candidates on mount
   useEffect(() => {
@@ -529,7 +534,7 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
     try {
       // Apply keep action
       await applySweepAction({ type: 'keep', id: candidate.id, kind: candidate.kind }, supabase);
-      // TODO: Update stats.kept
+      setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
     } catch (error) {
       console.error('[SweepDecisionStep] handleKeep error:', error);
     }
@@ -545,7 +550,7 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
     try {
       // Apply clear action
       await applySweepAction({ type: 'clear', id: candidate.id, kind: candidate.kind }, supabase);
-      // TODO: Update stats.cleared
+      setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
     } catch (error) {
       console.error('[SweepDecisionStep] handleClear error:', error);
     }
@@ -561,7 +566,7 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
     try {
       // Apply skip action
       await applySweepAction({ type: 'skip', id: candidate.id, kind: candidate.kind }, supabase);
-      // TODO: Update stats.skipped
+      setStats((prev) => ({ ...prev, skipped: prev.skipped + 1 }));
     } catch (error) {
       console.error('[SweepDecisionStep] handleSkip error:', error);
     }
@@ -630,7 +635,11 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
           </Text>
         </View>
         <View style={styles.buttonContainer}>
-          <Button title="Done" variant="primary" onPress={onFinished} />
+          <Button
+            title="Done"
+            variant="primary"
+            onPress={() => onFinished({ kept: 0, cleared: 0, skipped: 0 })}
+          />
         </View>
       </View>
     );
@@ -648,10 +657,9 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
           <Text variant="body" style={styles.decisionEmptyText}>
             Sweep complete!
           </Text>
-          {/* TODO: Show summary stats (kept, cleared, skipped) */}
         </View>
         <View style={styles.buttonContainer}>
-          <Button title="Finish Sweep" variant="primary" onPress={onFinished} />
+          <Button title="Finish Sweep" variant="primary" onPress={() => onFinished(stats)} />
         </View>
       </View>
     );
@@ -691,6 +699,89 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
   );
 }
 
+/**
+ * Step 3: Summary/Celebration
+ *
+ * Shows the user a calm summary of their sweep session.
+ * Displays counts of items kept, cleared, and skipped.
+ * Non-gamified, gentle "you did it" feel.
+ */
+interface SummaryStepProps {
+  keptCount: number;
+  clearedCount: number;
+  skippedCount: number;
+  onDone: () => void;
+}
+
+function SweepSummaryStep({ keptCount, clearedCount, skippedCount, onDone }: SummaryStepProps) {
+  const totalProcessed = keptCount + clearedCount + skippedCount;
+
+  return (
+    <View style={styles.stepContainer}>
+      <ScrollView
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.summaryScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* TODO: Replace with calm/completed Gremly illustration if available */}
+        {/* For now, using a gentle leaf emoji as placeholder */}
+        <Text style={styles.summaryEmoji}>🌿</Text>
+
+        {/* Title */}
+        <Text variant="title" style={styles.stepTitle}>
+          Sweep complete
+        </Text>
+
+        {/* Subtitle */}
+        <Text variant="subtle" style={styles.stepDescription}>
+          You made clear choices about your day. Here's what you just did.
+        </Text>
+
+        {/* Stats Summary */}
+        {totalProcessed > 0 ? (
+          <View style={styles.summaryStatsContainer}>
+            <View style={styles.summaryStatRow}>
+              <Text variant="body" style={styles.summaryStatLabel}>
+                Kept
+              </Text>
+              <Text variant="body" style={styles.summaryStatValue}>
+                {keptCount}
+              </Text>
+            </View>
+            <View style={styles.summaryStatRow}>
+              <Text variant="body" style={styles.summaryStatLabel}>
+                Cleared
+              </Text>
+              <Text variant="body" style={styles.summaryStatValue}>
+                {clearedCount}
+              </Text>
+            </View>
+            <View style={styles.summaryStatRow}>
+              <Text variant="body" style={styles.summaryStatLabel}>
+                Skipped for later
+              </Text>
+              <Text variant="body" style={styles.summaryStatValue}>
+                {skippedCount}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.summaryEmptyContainer}>
+            <Text variant="body" style={styles.summaryEmptyText}>
+              Nothing needed your attention this time — you're all clear.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Done Button */}
+      <View style={styles.buttonContainer}>
+        <Button title="Done" variant="primary" onPress={onDone} />
+      </View>
+    </View>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Screen Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -703,9 +794,15 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
  * - 0: Mood check-in
  * - 1: Wrap up today
  * - 2: Decision cards
+ * - 3: Summary/celebration
  */
 export default function SweepFlowScreen({ navigation }: Props) {
   const [step, setStep] = useState<number>(0);
+
+  // Track sweep stats across the session
+  const [keptCount, setKeptCount] = useState(0);
+  const [clearedCount, setClearedCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
 
   const handleMoodContinue = () => {
     setStep(1);
@@ -715,9 +812,14 @@ export default function SweepFlowScreen({ navigation }: Props) {
     setStep(2);
   };
 
-  const handleDecisionFinished = () => {
-    // TODO: Navigate to summary step or exit Sweep
-    // For now, go back to previous screen
+  const handleDecisionFinished = (summary: SweepSummary) => {
+    setKeptCount(summary.kept);
+    setClearedCount(summary.cleared);
+    setSkippedCount(summary.skipped);
+    setStep(3);
+  };
+
+  const handleSummaryDone = () => {
     navigation?.goBack();
   };
 
@@ -733,6 +835,14 @@ export default function SweepFlowScreen({ navigation }: Props) {
         {step === 0 && <SweepMoodStep onContinue={handleMoodContinue} />}
         {step === 1 && <SweepWrapUpStep onContinue={handleWrapUpContinue} />}
         {step === 2 && <SweepDecisionStep onFinished={handleDecisionFinished} />}
+        {step === 3 && (
+          <SweepSummaryStep
+            keptCount={keptCount}
+            clearedCount={clearedCount}
+            skippedCount={skippedCount}
+            onDone={handleSummaryDone}
+          />
+        )}
       </View>
     </Screen>
   );
@@ -1027,5 +1137,51 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
+  },
+  // SweepSummaryStep styles
+  summaryScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
+  },
+  summaryEmoji: {
+    fontSize: 48,
+    textAlign: 'center',
+    marginBottom: 16,
+    marginTop: 24,
+  },
+  summaryStatsContainer: {
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    padding: 16,
+    marginTop: 8,
+  },
+  summaryStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.borderSubtle,
+  },
+  summaryStatLabel: {
+    fontSize: 15,
+    color: BRAND.colors.charcoalInk,
+  },
+  summaryStatValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+  summaryEmptyContainer: {
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+  },
+  summaryEmptyText: {
+    fontSize: 15,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });
