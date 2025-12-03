@@ -242,68 +242,84 @@ export async function fetchSweepCandidatesForUser(
 /**
  * Apply a user's action to a sweep candidate.
  *
- * Actions:
- * - `keep`: Clear skipped_in_sweep_at (item stays as-is, won't reappear in sweep)
- * - `clear`: Archive the item (set archived = true, archived_reason = 'swept')
- * - `skip`: Set skipped_in_sweep_at = now() (item will reappear in next sweep)
+ * This function performs a single Supabase update per action.
+ * Errors are logged but not thrown — the calling UI should continue
+ * the Sweep even if one update fails.
  *
- * @param action - The action to apply
- * @param client - Supabase client instance
+ * **Actions:**
+ * - `keep`: Clears `skipped_in_sweep_at` to NULL.
+ *   The user reviewed this item and wants to keep it as-is.
+ *   It won't reappear in future sweeps unless new activity occurs.
+ *
+ * - `clear`: Archives the item by setting:
+ *   - `archived = true`
+ *   - `archived_reason = 'swept'`
+ *   - `archived_at = now()`
+ *
+ * - `skip`: Sets `skipped_in_sweep_at = now()`.
+ *   The user deferred the decision — this item will reappear
+ *   in the next sweep session.
+ *
+ * @param action - The action to apply (keep, clear, or skip)
+ * @param client - Supabase client instance (do not create a new one)
  */
 export async function applySweepAction(
   action: SweepAction,
   client: SupabaseClient<Database>,
 ): Promise<void> {
   const tableName = getTableName(action.kind);
+  const now = new Date().toISOString();
 
-  switch (action.type) {
-    case 'keep': {
-      // TODO: Clear skipped_in_sweep_at for this row.
-      // This means the user confirmed the item - it won't appear in future sweeps
-      // unless it's edited or new activity occurs.
-      //
-      // await client
-      //   .from(tableName)
-      //   .update({ skipped_in_sweep_at: null })
-      //   .eq('id', action.id);
-      break;
-    }
+  try {
+    switch (action.type) {
+      case 'keep': {
+        // Clear skipped_in_sweep_at — user confirmed the item.
+        // It won't reappear in future sweeps unless edited or new.
+        const { error } = await client
+          .from(tableName)
+          .update({ skipped_in_sweep_at: null })
+          .eq('id', action.id);
 
-    case 'clear': {
-      // TODO: Archive the item.
-      // Set archived = true, archived_reason = 'swept', archived_at = now()
-      //
-      // For todos/notes:
-      // await client
-      //   .from(tableName)
-      //   .update({
-      //     archived: true,
-      //     archived_reason: 'swept',
-      //     archived_at: new Date().toISOString(),
-      //   })
-      //   .eq('id', action.id);
-      //
-      // For habits (which use completed_at):
-      // await client
-      //   .from('habits')
-      //   .update({
-      //     completed_at: new Date().toISOString(),
-      //     // Note: habits may not have archived_reason field - check schema
-      //   })
-      //   .eq('id', action.id);
-      break;
-    }
+        if (error) {
+          console.error(`[Sweep] Failed to apply 'keep' to ${action.kind}:`, error);
+        }
+        break;
+      }
 
-    case 'skip': {
-      // TODO: Set skipped_in_sweep_at = now()
-      // This defers the decision - item will reappear in the next sweep session.
-      //
-      // await client
-      //   .from(tableName)
-      //   .update({ skipped_in_sweep_at: new Date().toISOString() })
-      //   .eq('id', action.id);
-      break;
+      case 'clear': {
+        // Archive the item with reason 'swept'.
+        // All three tables (todos, habits, notes) have these fields.
+        const { error } = await client
+          .from(tableName)
+          .update({
+            archived: true,
+            archived_reason: 'swept',
+            archived_at: now,
+          })
+          .eq('id', action.id);
+
+        if (error) {
+          console.error(`[Sweep] Failed to apply 'clear' to ${action.kind}:`, error);
+        }
+        break;
+      }
+
+      case 'skip': {
+        // Set skipped_in_sweep_at — item will reappear in next sweep.
+        const { error } = await client
+          .from(tableName)
+          .update({ skipped_in_sweep_at: now })
+          .eq('id', action.id);
+
+        if (error) {
+          console.error(`[Sweep] Failed to apply 'skip' to ${action.kind}:`, error);
+        }
+        break;
+      }
     }
+  } catch (error) {
+    // Swallow unexpected errors — don't block the sweep UX
+    console.error(`[Sweep] Unexpected error in applySweepAction (${action.type}):`, error);
   }
 }
 
