@@ -2,10 +2,16 @@
  * Gremly Home Screen Tests (formerly Spaces DS Screen)
  *
  * Tests for the Design System version of Gremly Home screen (/app/tabs/SpacesScreen.tsx)
- * Verifies testIDs, mascot greeting, search functionality, empty states, and space list rendering
+ * Verifies testIDs, mascot greeting, feature bars, and spaces modal functionality
+ *
+ * UI REDESIGN (Dec 2025):
+ * - Homepage now shows hero greeting + feature bars (Mind Drop / Spaces)
+ * - Spaces list moved to a modal (opened via "spaces-new" button)
+ * - New copy: "Hi", "So…where do we begin?", "To-dos, Thoughts, Habits, Anything..."
  */
 
 import React from 'react';
+import { fireEvent } from '@testing-library/react-native';
 import { renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 
@@ -58,49 +64,48 @@ describe('Spaces DS Screen', () => {
     });
   });
 
-  it('displays Mind Drop headline', async () => {
+  it('displays hero greeting text', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('Your brain dump, organized.')).toBeTruthy();
+      expect(screen.getByText('Hi')).toBeTruthy();
+      expect(screen.getByText(/So…where do/)).toBeTruthy();
     });
   });
 
-  it('displays Mind Drop description', async () => {
+  it('displays Mind Drop feature bar description', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('To-Dos • Habits • Anything')).toBeTruthy();
+      expect(
+        screen.getByText(/To-dos, Thoughts, Habits, Anything.*capture.*organize/i),
+      ).toBeTruthy();
     });
   });
 
-  it('displays all spaces with correct testIDs', async () => {
+  it('displays Mind Drop CTA button', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('space-item-space-1')).toBeTruthy();
-      expect(screen.getByTestId('space-item-space-2')).toBeTruthy();
-      // All spaces should be shown (not just a preview of 2)
-      expect(screen.getByTestId('space-item-space-3')).toBeTruthy();
+      expect(screen.getByTestId('spaces-catchall-button')).toBeTruthy();
+      expect(screen.getByText('Drop here')).toBeTruthy();
     });
   });
 
-  it('displays all space names correctly', async () => {
+  it('displays Spaces feature bar with CTA', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('Fitness')).toBeTruthy();
-      expect(screen.getByText('Work')).toBeTruthy();
-      // All spaces shown
-      expect(screen.getByText('Personal')).toBeTruthy();
+      expect(screen.getByTestId('spaces-new')).toBeTruthy();
+      expect(screen.getByText('Go deep here')).toBeTruthy();
     });
   });
 
-  it('displays Spaces section subtitle', async () => {
+  it('displays Spaces feature bar description', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('Organize by project or area.')).toBeTruthy();
+      expect(screen.getByText(/Where your projects live/)).toBeTruthy();
     });
   });
 
@@ -112,6 +117,82 @@ describe('Spaces DS Screen', () => {
       expect(screen.getByText('DS')).toBeTruthy();
     });
   });
+
+  it('displays philosophy footer', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('From scattered to unstoppable.')).toBeTruthy();
+    });
+  });
+});
+
+describe('Spaces DS Screen - Spaces Modal', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('opens spaces modal when pressing spaces button', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spaces-new')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('spaces-new'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Spaces')).toBeTruthy();
+      expect(screen.getByText('Create a Space')).toBeTruthy();
+    });
+  });
+
+  it('displays all spaces with correct testIDs in modal', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    // Open the modal
+    await waitFor(() => {
+      expect(screen.getByTestId('spaces-new')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByTestId('spaces-new'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('space-item-space-1')).toBeTruthy();
+      expect(screen.getByTestId('space-item-space-2')).toBeTruthy();
+      expect(screen.getByTestId('space-item-space-3')).toBeTruthy();
+    });
+  });
+
+  it('displays all space names correctly in modal', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    // Open the modal
+    await waitFor(() => {
+      expect(screen.getByTestId('spaces-new')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByTestId('spaces-new'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Fitness')).toBeTruthy();
+      expect(screen.getByText('Work')).toBeTruthy();
+      expect(screen.getByText('Personal')).toBeTruthy();
+    });
+  });
+
+  it('shows create space CTA in modal', async () => {
+    renderWithProviders(<SpacesScreen />);
+
+    // Open the modal
+    await waitFor(() => {
+      expect(screen.getByTestId('spaces-new')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByTestId('spaces-new'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spaces-empty-cta')).toBeTruthy();
+      expect(screen.getByText('Create a Space')).toBeTruthy();
+    });
+  });
 });
 
 describe('Spaces DS Screen - Empty State', () => {
@@ -119,7 +200,7 @@ describe('Spaces DS Screen - Empty State', () => {
     jest.clearAllMocks();
   });
 
-  it('shows empty state when no spaces exist', async () => {
+  it('shows empty state when no spaces exist in modal', async () => {
     // Override mock to return empty array
     jest.spyOn(require('../providers/RepoProvider'), 'useRepo').mockReturnValue({
       listSpaces: jest.fn(() => Promise.resolve([])),
@@ -131,6 +212,12 @@ describe('Spaces DS Screen - Empty State', () => {
     });
 
     renderWithProviders(<SpacesScreen />);
+
+    // Open the modal
+    await waitFor(() => {
+      expect(screen.getByTestId('spaces-new')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByTestId('spaces-new'));
 
     await waitFor(() => {
       expect(screen.getByText(/no spaces yet/i)).toBeTruthy();
