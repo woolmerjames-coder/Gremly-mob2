@@ -70,7 +70,7 @@ export type HabitState = {
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
 export type MoodValue = 'pos' | 'neu' | 'neg';
-export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | null;
+export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | 'list' | null;
 
 /**
  * V2State - Complete overlay state for all entity types
@@ -128,6 +128,8 @@ export type V2State = {
   logSubtypeOverride: LogSubtypeOverride;
   // Phase L9: Private flag for journal logs (persisted via views.private_journal)
   logIsPrivate: boolean;
+  // UI-only: Checklist formatting mode (applies to log, todo, habit)
+  isChecklistMode: boolean;
 };
 
 export const initialV2State: V2State = {
@@ -155,6 +157,7 @@ export const initialV2State: V2State = {
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
   logIsPrivate: false, // Phase L9: Private flag for journal logs
+  isChecklistMode: false, // UI-only: Checklist formatting mode
 };
 
 type Action =
@@ -188,6 +191,8 @@ type Action =
   | { type: 'TOGGLE_LOG_PRIVATE' }
   | { type: 'SET_LOG_SUBTYPE_OVERRIDE'; value: LogSubtypeOverride }
   | { type: 'SET_LOG_IS_PRIVATE'; value: boolean }
+  | { type: 'SET_CHECKLIST_MODE'; enabled: boolean }
+  | { type: 'TOGGLE_CHECKLIST_MODE' }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
   | { type: 'UNDO_LAST' };
 
@@ -419,6 +424,10 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, logSubtypeOverride: action.value };
     case 'SET_LOG_IS_PRIVATE':
       return { ...state, logIsPrivate: action.value };
+    case 'SET_CHECKLIST_MODE':
+      return { ...state, isChecklistMode: action.enabled };
+    case 'TOGGLE_CHECKLIST_MODE':
+      return { ...state, isChecklistMode: !state.isChecklistMode };
     default:
       return state;
   }
