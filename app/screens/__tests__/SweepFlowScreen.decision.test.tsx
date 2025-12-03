@@ -272,9 +272,9 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        expect(result.getByText('Clear')).toBeTruthy();
+        expect(result.getByRole('button', { name: 'Clear this item' })).toBeTruthy();
         expect(result.getByText('Skip until next Sweep')).toBeTruthy();
-        expect(result.getByText('Keep')).toBeTruthy();
+        expect(result.getByRole('button', { name: 'Keep this item' })).toBeTruthy();
       });
     });
 
@@ -287,7 +287,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Item 1 of 2');
       });
 
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         expect(result.getByText('Item 2 of 2')).toBeTruthy();
@@ -304,7 +304,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Item 1 of 2');
       });
 
-      fireEvent.press(result.getByText('Clear'));
+      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
       await waitFor(() => {
         expect(result.getByText('Item 2 of 2')).toBeTruthy();
@@ -339,10 +339,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Keep');
+        result.getByRole('button', { name: 'Keep this item' });
       });
 
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         expect(mockApplySweepAction).toHaveBeenCalledWith(
@@ -358,10 +358,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Clear');
+        result.getByRole('button', { name: 'Clear this item' });
       });
 
-      fireEvent.press(result.getByText('Clear'));
+      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
       await waitFor(() => {
         expect(mockApplySweepAction).toHaveBeenCalledWith(
@@ -400,7 +400,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Item 1 of 2');
       });
 
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Should still advance despite error
       await waitFor(() => {
@@ -416,10 +416,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Keep');
+        result.getByRole('button', { name: 'Keep this item' });
       });
 
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         expect(result.getByText('Sweep complete!')).toBeTruthy();
@@ -432,10 +432,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Keep');
+        result.getByRole('button', { name: 'Keep this item' });
       });
 
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         expect(result.getByText('Finish Sweep')).toBeTruthy();
@@ -448,10 +448,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Keep');
+        result.getByRole('button', { name: 'Keep this item' });
       });
 
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Finish Sweep');

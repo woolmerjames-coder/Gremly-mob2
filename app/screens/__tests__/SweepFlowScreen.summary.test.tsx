@@ -219,7 +219,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       });
 
       // Keep the item
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Wait for completion state
       await waitFor(() => {
@@ -249,7 +249,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       });
 
       // Clear the item
-      fireEvent.press(result.getByText('Clear'));
+      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
       await waitFor(() => {
         result.getByText('Finish Sweep');
@@ -376,12 +376,12 @@ describe('SweepFlowScreen - Summary Step', () => {
       await waitFor(() => {
         result.getByText('Task 1');
       });
-      fireEvent.press(result.getByText('Keep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Task 2');
       });
-      fireEvent.press(result.getByText('Clear'));
+      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
       await waitFor(() => {
         result.getByText('Task 3');
