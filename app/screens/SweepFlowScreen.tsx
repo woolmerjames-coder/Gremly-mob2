@@ -27,7 +27,11 @@ import { BRAND } from '../../design/brand';
 import { useTodayEntries, type TodayMergedEntry } from '../../lib/today/hooks/useTodayEntries';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { supabase } from '../../lib/supabase/client';
-import { fetchSweepCandidatesForUser, applySweepAction } from '../../lib/sweep/engine';
+import {
+  fetchSweepCandidatesForUser,
+  applySweepAction,
+  markSweepCompleted,
+} from '../../lib/sweep/engine';
 import type { SweepCandidate } from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
@@ -797,6 +801,7 @@ function SweepSummaryStep({ keptCount, clearedCount, skippedCount, onDone }: Sum
  * - 3: Summary/celebration
  */
 export default function SweepFlowScreen({ navigation }: Props) {
+  const { user } = useAuth();
   const [step, setStep] = useState<number>(0);
 
   // Track sweep stats across the session
@@ -813,9 +818,19 @@ export default function SweepFlowScreen({ navigation }: Props) {
   };
 
   const handleDecisionFinished = (summary: SweepSummary) => {
+    // Update local state for Summary step display
     setKeptCount(summary.kept);
     setClearedCount(summary.cleared);
     setSkippedCount(summary.skipped);
+
+    // Record completion in DB (best-effort, non-blocking)
+    if (user?.id) {
+      markSweepCompleted(user.id, supabase, summary).catch((err) => {
+        console.error('Failed to mark sweep as completed', err);
+      });
+    }
+
+    // Advance to Summary step
     setStep(3);
   };
 

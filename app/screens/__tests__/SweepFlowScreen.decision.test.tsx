@@ -15,6 +15,7 @@ jest.mock('../../../lib/sweep/engine', () => ({
   __esModule: true,
   fetchSweepCandidatesForUser: (...args: [string, any]) => mockFetchSweepCandidates(...args),
   applySweepAction: (...args: [any, any]) => mockApplySweepAction(...args),
+  markSweepCompleted: () => Promise.resolve(),
 }));
 
 // Mock Supabase client
