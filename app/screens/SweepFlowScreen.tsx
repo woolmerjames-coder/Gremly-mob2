@@ -651,7 +651,7 @@ function SweepDecisionStep({ onFinished }: DecisionStepProps) {
 
   // All cards processed - sweep complete
   if (currentIndex >= candidates.length) {
-    // TODO: Call markSweepCompleted with stats
+    // Stats are finalized and markSweepCompleted is called in the parent when onFinished is invoked.
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionEmptyContainer}>

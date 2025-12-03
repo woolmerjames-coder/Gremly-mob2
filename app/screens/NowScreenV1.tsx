@@ -3,6 +3,9 @@
  * Feature flag: EXPO_PUBLIC_NOW_V1
  * Phase 3: Real data wiring
  * Phase 4: Wire interactions
+ *
+ * TODO: Remove legacy SweepDrawer component once Sweep v2 has shipped to prod.
+ *       SweepDrawer.tsx still exists at components/today/v3/SweepDrawer.tsx but is no longer used.
  */
 
 import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react';
@@ -33,7 +36,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
 import TodayPillsRow from '../../components/today/TodayPillsRow';
-// TODO: SweepDrawer is deprecated in favor of SweepFlowScreen (navigation route 'Sweep')
+// Legacy SweepDrawer import removed - now using SweepFlowScreen via navigation route 'Sweep'
 // import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useTodayStats } from '../../lib/today/hooks';
 import { getSweepStatus, type SweepStatus } from '../../lib/today/useTodayData';
@@ -446,9 +449,7 @@ export default function NowScreenV1() {
         onExit={overwhelm.exitFocusMode}
       />
 
-      {/* TODO: SweepDrawer is deprecated - now using SweepFlowScreen via navigation.
-          The old SweepDrawer component still exists at components/today/v3/SweepDrawer.tsx
-          but is no longer rendered here. Remove SweepDrawer entirely in a future cleanup. */}
+      {/* Legacy SweepDrawer removed - see TODO at top of file */}
 
       <NowQuickAddModal
         visible={isQuickAddVisible}
