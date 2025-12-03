@@ -50,85 +50,193 @@ export async function getLastSweepCompletedAt(
   ownerId: string,
   client: SupabaseClient<Database>,
 ): Promise<string | null> {
-  // TODO: Read last_sweep_completed_at from public.cortex_preferences for this owner.
-  //
-  // Implementation plan:
-  // 1. Query cortex_preferences where owner_id = ownerId
-  // 2. Return the last_sweep_completed_at value (may be null)
-  //
-  // Example:
-  // const { data, error } = await client
-  //   .from('cortex_preferences')
-  //   .select('last_sweep_completed_at')
-  //   .eq('owner_id', ownerId)
-  //   .single();
-  // return data?.last_sweep_completed_at ?? null;
+  try {
+    const { data, error } = await client
+      .from('cortex_preferences')
+      .select('last_sweep_completed_at')
+      .eq('owner_id', ownerId)
+      .maybeSingle();
 
-  return null;
+    if (error) {
+      console.error('[Sweep] Failed to get last_sweep_completed_at:', error);
+      return null;
+    }
+
+    return data?.last_sweep_completed_at ?? null;
+  } catch (error) {
+    console.error('[Sweep] Unexpected error in getLastSweepCompletedAt:', error);
+    return null;
+  }
 }
 
 /**
  * Fetch all items that should appear in the current sweep session.
  *
- * Candidates are items that:
+ * Candidates are items that meet ALL of the following criteria:
  * 1. Belong to the user (owner_id matches)
  * 2. Are NOT archived
- * 3. Were created AFTER the last sweep completed, OR
- * 4. Were previously skipped (skipped_in_sweep_at is not null)
+ * 3. Meet one of these time-based conditions:
+ *    - Were created AFTER the last sweep completed, OR
+ *    - Were previously skipped (skipped_in_sweep_at is not null)
  *
- * This queries todos, habits, and notes tables and normalizes them
- * into SweepCandidate objects.
+ * For first-time users (no previous sweep), we use a 48-hour lookback window
+ * to avoid overwhelming them with old items.
+ *
+ * **Why include skipped items?**
+ * When a user clicks "Skip" during a sweep, we set `skipped_in_sweep_at` on that item.
+ * This ensures the item reappears in the next sweep session for another decision,
+ * even if it was created before the last sweep timestamp.
+ *
+ * **Entity-specific filters:**
+ * - Todos: All non-archived todos (any canonical_type that maps to a task)
+ * - Habits: Active habits only (completed_at is null)
+ * - Notes: Only logs/journals (subtype = 'log' or canonical_type in ['log', 'journal'])
  *
  * @param ownerId - The user's ID
  * @param client - Supabase client instance
- * @returns Array of sweep candidates across all entity types
+ * @returns Array of sweep candidates across all entity types, sorted by createdAt ascending
  */
 export async function fetchSweepCandidatesForUser(
   ownerId: string,
   client: SupabaseClient<Database>,
 ): Promise<SweepCandidate[]> {
-  // TODO: Select from todos, habits, notes where:
-  //   - owner_id = ownerId
-  //   - archived = false (or is null)
-  //   - created_at > last_sweep_completed_at OR skipped_in_sweep_at IS NOT NULL
-  //
-  // Implementation plan:
-  //
-  // 1. First get lastSweepAt = await getLastSweepCompletedAt(ownerId, client)
-  //
-  // 2. For TODOS:
-  //    const { data: todos } = await client
-  //      .from('todos')
-  //      .select('*')
-  //      .eq('owner_id', ownerId)
-  //      .or('archived.is.null,archived.eq.false')
-  //      .or(`created_at.gt.${lastSweepAt},skipped_in_sweep_at.not.is.null`);
-  //
-  // 3. For HABITS:
-  //    const { data: habits } = await client
-  //      .from('habits')
-  //      .select('*')
-  //      .eq('owner_id', ownerId)
-  //      .is('completed_at', null)  // habits use completed_at for "archived"
-  //      .or(`created_at.gt.${lastSweepAt},skipped_in_sweep_at.not.is.null`);
-  //
-  // 4. For NOTES:
-  //    const { data: notes } = await client
-  //      .from('notes')
-  //      .select('*')
-  //      .eq('owner_id', ownerId)
-  //      .or('archived.is.null,archived.eq.false')
-  //      .or(`created_at.gt.${lastSweepAt},skipped_in_sweep_at.not.is.null`);
-  //
-  // 5. Normalize each row into SweepCandidate format:
-  //    - Extract id, kind, createdAt, dropId, skippedInSweepAt
-  //    - Attach raw row for UI rendering
-  //
-  // 6. Combine and sort by createdAt (newest first? oldest first? TBD)
-  //
-  // 7. Return combined array
+  // Get the cutoff timestamp for "new" items
+  const lastSweepAt = await getLastSweepCompletedAt(ownerId, client);
 
-  return [];
+  // For first-time users, use a 48-hour lookback window
+  const fallbackCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const cutoffTimestamp = lastSweepAt ?? fallbackCutoff;
+
+  const candidates: SweepCandidate[] = [];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fetch TODOS
+  // ─────────────────────────────────────────────────────────────────────────
+  try {
+    // Query todos that are:
+    // - Owned by user
+    // - Not archived
+    // - Either new (created after cutoff) OR previously skipped
+    const { data: todos, error: todoError } = await client
+      .from('todos')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
+
+    if (todoError) {
+      console.error('[Sweep] Failed to fetch todos:', todoError);
+    } else if (todos) {
+      for (const row of todos) {
+        candidates.push({
+          id: row.id,
+          kind: 'todo',
+          createdAt: row.created_at ?? new Date().toISOString(),
+          dropId: row.drop_id,
+          skippedInSweepAt: row.skipped_in_sweep_at,
+          raw: row,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Sweep] Unexpected error fetching todos:', error);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fetch HABITS
+  // ─────────────────────────────────────────────────────────────────────────
+  try {
+    // Query habits that are:
+    // - Owned by user
+    // - Not completed (completed_at is null = active habit)
+    // - Either new (created after cutoff) OR previously skipped
+    const { data: habits, error: habitError } = await client
+      .from('habits')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .is('completed_at', null)
+      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
+
+    if (habitError) {
+      console.error('[Sweep] Failed to fetch habits:', habitError);
+    } else if (habits) {
+      for (const row of habits) {
+        candidates.push({
+          id: row.id,
+          kind: 'habit',
+          createdAt: row.created_at ?? new Date().toISOString(),
+          dropId: row.drop_id,
+          skippedInSweepAt: row.skipped_in_sweep_at,
+          raw: row,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Sweep] Unexpected error fetching habits:', error);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fetch NOTES (logs/journals only)
+  // ─────────────────────────────────────────────────────────────────────────
+  try {
+    // Query notes that are:
+    // - Owned by user
+    // - Not archived
+    // - Are logs/journals (subtype = 'log' OR canonical_type in ['log', 'journal'])
+    // - Either new (created after cutoff) OR previously skipped
+    //
+    // We include both subtype and canonical_type checks for compatibility
+    // with both the old and new classification systems.
+    const { data: notes, error: noteError } = await client
+      .from('notes')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .or('subtype.eq.log,canonical_type.eq.log,canonical_type.eq.journal')
+      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
+
+    if (noteError) {
+      console.error('[Sweep] Failed to fetch notes:', noteError);
+    } else if (notes) {
+      for (const row of notes) {
+        candidates.push({
+          id: row.id,
+          kind: 'note',
+          createdAt: row.created_at ?? new Date().toISOString(),
+          dropId: row.drop_id,
+          skippedInSweepAt: row.skipped_in_sweep_at,
+          raw: row,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Sweep] Unexpected error fetching notes:', error);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Sort by createdAt ascending (oldest first)
+  // ─────────────────────────────────────────────────────────────────────────
+  // This ensures users process older items first, which makes more sense
+  // for a "sweep" workflow where you're catching up on things.
+  candidates.sort((a, b) => {
+    const dateA = new Date(a.createdAt).getTime();
+    const dateB = new Date(b.createdAt).getTime();
+    return dateA - dateB;
+  });
+
+  console.log('[Sweep] fetchSweepCandidatesForUser:', {
+    ownerId,
+    cutoffTimestamp,
+    lastSweepAt,
+    candidateCount: candidates.length,
+    breakdown: {
+      todos: candidates.filter((c) => c.kind === 'todo').length,
+      habits: candidates.filter((c) => c.kind === 'habit').length,
+      notes: candidates.filter((c) => c.kind === 'note').length,
+    },
+  });
+
+  return candidates;
 }
 
 /**
