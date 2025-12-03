@@ -89,4 +89,90 @@ describe('parseDue', () => {
     const parsed = parseDue('thinking out loud', FIXED);
     expect(parsed).toBeNull();
   });
+
+  describe('explicitTime field', () => {
+    test('date-only phrases have explicitTime false', () => {
+      // "today" without time
+      const today = parseDue('finish today', FIXED);
+      expect(today?.explicitTime).toBe(false);
+      expect(today?.granularity).toBe('date');
+
+      // "tomorrow" without time
+      const tomorrow = parseDue('buy flowers tomorrow', FIXED);
+      expect(tomorrow?.explicitTime).toBe(false);
+      expect(tomorrow?.granularity).toBe('date');
+
+      // ISO date without time
+      const isoDate = parseDue('Finish by 2025-11-03', FIXED);
+      expect(isoDate?.explicitTime).toBe(false);
+      expect(isoDate?.granularity).toBe('date');
+
+      // US date without time
+      const usDate = parseDue('due 11/03', FIXED);
+      expect(usDate?.explicitTime).toBe(false);
+      expect(usDate?.granularity).toBe('date');
+
+      // next weekday
+      const nextWed = parseDue('kickoff next wed', FIXED);
+      expect(nextWed?.explicitTime).toBe(false);
+      expect(nextWed?.granularity).toBe('date');
+
+      // end of month (just a date)
+      const eom = parseDue('quarterly report eom', FIXED);
+      expect(eom?.explicitTime).toBe(false);
+      expect(eom?.granularity).toBe('date');
+    });
+
+    test('explicit time phrases have explicitTime true', () => {
+      // "today at 3pm"
+      const todayAt3 = parseDue('finish today at 3pm', FIXED);
+      expect(todayAt3?.explicitTime).toBe(true);
+      expect(todayAt3?.granularity).toBe('time');
+
+      // "tomorrow at 9am"
+      const tomorrowAt9 = parseDue('buy flowers tomorrow at 9am', FIXED);
+      expect(tomorrowAt9?.explicitTime).toBe(true);
+      expect(tomorrowAt9?.granularity).toBe('time');
+
+      // ISO datetime with time
+      const isoDateTime = parseDue('meeting 2025-11-03T15:00', FIXED);
+      expect(isoDateTime?.explicitTime).toBe(true);
+      expect(isoDateTime?.granularity).toBe('time');
+
+      // US date with trailing time
+      const usDateTime = parseDue('appt 11/03 at 3pm', FIXED);
+      expect(usDateTime?.explicitTime).toBe(true);
+      expect(usDateTime?.granularity).toBe('time');
+
+      // relative time "in 2h"
+      const in2h = parseDue('follow up in 2h', FIXED);
+      expect(in2h?.explicitTime).toBe(true);
+      expect(in2h?.granularity).toBe('time');
+
+      // standalone time "3pm"
+      const just3pm = parseDue('call at 3pm', FIXED);
+      expect(just3pm?.explicitTime).toBe(true);
+      expect(just3pm?.granularity).toBe('time');
+
+      // "tonight"
+      const tonight = parseDue('send notes tonight', FIXED);
+      expect(tonight?.explicitTime).toBe(true);
+      expect(tonight?.granularity).toBe('time');
+
+      // "this afternoon"
+      const afternoon = parseDue('meeting this afternoon', FIXED);
+      expect(afternoon?.explicitTime).toBe(true);
+      expect(afternoon?.granularity).toBe('time');
+
+      // "this morning"
+      const morning = parseDue('call this morning', FIXED);
+      expect(morning?.explicitTime).toBe(true);
+      expect(morning?.granularity).toBe('time');
+
+      // "eod" / "end of day"
+      const eod = parseDue('finish report eod', FIXED);
+      expect(eod?.explicitTime).toBe(true);
+      expect(eod?.granularity).toBe('time');
+    });
+  });
 });

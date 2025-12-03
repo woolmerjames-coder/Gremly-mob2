@@ -269,7 +269,7 @@ describe('Mind Drop submit -> toast + actions', () => {
     const navArgs = mockNavigate.mock.calls[0];
     expect(navArgs[0]).toBe('Tabs');
     expect(navArgs[1]).toEqual(
-      expect.objectContaining({ screen: 'Hub', params: { filter: 'recent' } }),
+      expect.objectContaining({ screen: 'Search', params: { filter: 'recent' } }),
     );
   });
 

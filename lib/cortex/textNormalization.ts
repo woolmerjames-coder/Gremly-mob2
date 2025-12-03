@@ -3,8 +3,11 @@ import { parseDue } from './entities/datetime';
 export interface TodoFieldResult {
   title: string;
   due?: string;
+  dueDay?: string; // YYYY-MM-DD date component only
+  dueTime?: string; // HH:MM time component, only if explicitly provided
   removedDue: boolean;
   inferredDue?: string;
+  explicitTime: boolean; // true if user explicitly specified a time
 }
 
 export interface TodoFieldOptions {
@@ -58,11 +61,20 @@ export function buildTodoFields(
   const baseText = hasParsedText && parsed ? parsed.textWithoutWhen : source;
   const title = finalizeTitle(baseText || source, { removeLeadingPreposition: hasParsedText });
 
+  // Extract date and time components from parsed result
+  const explicitTime = parsed?.explicitTime ?? false;
+  const dueDay = parsed?.date ?? undefined;
+  // Only set dueTime if user explicitly provided a time
+  const dueTime = explicitTime && parsed?.time ? parsed.time : undefined;
+
   return {
     title: title || 'Untitled',
     due,
+    dueDay,
+    dueTime,
     removedDue: hasParsedText,
     inferredDue: dueFromText,
+    explicitTime,
   };
 }
 

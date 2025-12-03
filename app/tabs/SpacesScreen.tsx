@@ -50,22 +50,15 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
-import { StyleSheet, View, Image, Pressable, Alert } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withRepeat,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
+import { StyleSheet, View, Image, Pressable, Alert, Modal, ScrollView } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { Plus, X, ChevronRight } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
-import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import BUTTON_HP from '../../assets/buttonforHP.png';
+import GREMLY_WAVING from '../../assets/gremlywaving.png';
+import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
+import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import SPACES_TITLE from '../../assets/spacestitle.png';
 
 import { useRepo } from '../../providers/RepoProvider';
@@ -73,7 +66,6 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
-import { ListItem } from '../../design-system/ListItem';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { setNewSpaceCallback } from '../../components/NewSpaceModal';
 import { useReducedMotion } from '../../design/animations';
@@ -95,30 +87,12 @@ function GremlyHomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isReducedMotion = useReducedMotion();
 
-  // Animation values for Mind Drop card press
-  const mindDropScale = useSharedValue(1);
-  const breathingScale = useSharedValue(1);
-
-  // Breathing animation for Gremly button
-  useEffect(() => {
-    if (!isReducedMotion) {
-      breathingScale.value = withRepeat(
-        withTiming(1.03, {
-          duration: 4000,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        -1, // infinite
-        true, // reverse
-      );
-    }
-  }, [isReducedMotion, breathingScale]);
-
   // State
   const [spaces, setSpaces] = useState<Array<{ id: string; name: string; description?: string }>>(
     [],
   );
-  const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [spacesModalVisible, setSpacesModalVisible] = useState(false);
 
   // DEV: DS marker for QA
   const dsMarker = __DEV__ ? (
@@ -189,63 +163,31 @@ function GremlyHomeScreen() {
     [repo],
   );
 
-  // Filter spaces by search query
-  const filteredSpaces = q.trim()
-    ? spaces.filter((s) => s.name?.toLowerCase().includes(q.toLowerCase()))
-    : spaces;
-
-  // Show all spaces on homepage
-  const previewSpaces = filteredSpaces;
-
-  // Space count label
-  const spaceCountLabel = `${filteredSpaces.length} space${filteredSpaces.length === 1 ? '' : 's'}`;
-
-  // Empty state (no spaces or filtered empty)
-  const isEmpty = filteredSpaces.length === 0;
-
-  // Animated styles for Mind Drop card
-  const mindDropAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: mindDropScale.value }],
-  }));
-
-  // Breathing animation style for Gremly button
-  const breathingAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: breathingScale.value }],
-  }));
-
-  // Press handlers for Mind Drop
-  const handleMindDropPressIn = useCallback(() => {
-    if (!isReducedMotion) {
-      // eslint-disable-next-line react-hooks/immutability
-      mindDropScale.value = withSpring(0.97, { damping: 15, stiffness: 150 });
-    }
-  }, [isReducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleMindDropPressOut = useCallback(() => {
-    if (!isReducedMotion) {
-      // eslint-disable-next-line react-hooks/immutability
-      mindDropScale.value = withSpring(1, { damping: 15, stiffness: 150 });
-    }
-  }, [isReducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Use all spaces directly (search removed for simplified tile UI)
 
   return (
     <Animated.View
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: '#F9F6F1' }}
       entering={isReducedMotion || __DEV__ ? undefined : FadeIn.duration(150)}
     >
-      <Screen scroll padded={false} testID="spaces-screen">
-        {/* Custom Header - with padding */}
-        <View style={styles.customHeader}>
-          <View>
-            <Image
-              source={require('../../assets/gremly_wordmark-removebg.png')}
-              style={styles.wordmark}
-              resizeMode="contain"
-            />
+      <Screen scroll padded={false} testID="spaces-screen" style={{ backgroundColor: '#F9F6F1' }}>
+        {dsMarker}
+
+        {/* Top Navigation Bar */}
+        <View style={styles.topNavBar}>
+          <Image source={GREMLY_WORDMARK} style={styles.topNavWordmark} resizeMode="contain" />
+        </View>
+        <View style={styles.topNavDivider} />
+
+        {/* Hero Section - Centered Mascot */}
+        <View style={styles.heroSection}>
+          <Image source={GREMLY_WAVING} style={styles.heroMascot} resizeMode="contain" />
+          <View style={styles.heroTextContainer}>
+            <Text style={styles.heroTextHi}>Hi</Text>
+            <Text style={styles.heroTextBody}>So…where do{'\n'}we begin?</Text>
+            <View style={styles.greetingAccent} />
           </View>
         </View>
-
-        {dsMarker}
 
         {/* Error state - with padding */}
         {error && (
@@ -270,243 +212,418 @@ function GremlyHomeScreen() {
           </View>
         )}
 
-        {/* MindDrop Section - Full Width Band with Gradient */}
-        <LinearGradient colors={['#c9ddcf', '#E8F4EA']} style={styles.mindDropSection}>
-          <View style={styles.mindDropContent}>
+        {/* Feature Bars */}
+        <View style={styles.featureBarsContainer}>
+          {/* MindDrop Bar */}
+          <Pressable
+            onPress={() => navigation.navigate('CatchAllNotepad')}
+            testID="spaces-catchall-button"
+            accessibilityRole="button"
+            accessibilityLabel="Open Mind Drop"
+            style={({ pressed }) => [
+              styles.featureCard,
+              styles.mindDropBar,
+              pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] },
+            ]}
+          >
+            <Image source={MINDDROP_HEADER} style={styles.featureCardTitle} resizeMode="contain" />
+            <View style={styles.featureCardDivider} />
+            <Text style={styles.featureCardSubtitle}>
+              To-dos, Thoughts, Habits, Anything. I'll capture & organize it here.
+            </Text>
+            <View style={styles.ctaPillMindDrop}>
+              <Image source={BUTTON_HP} style={styles.ctaPillIconMindDrop} resizeMode="contain" />
+              <Text style={styles.ctaPillTextMindDrop}>Drop here</Text>
+            </View>
+          </Pressable>
+
+          {/* Spaces Bar */}
+          <Pressable
+            onPress={() => setSpacesModalVisible(true)}
+            testID="spaces-new"
+            accessibilityRole="button"
+            accessibilityLabel="Open Spaces"
+            style={({ pressed }) => [
+              styles.featureCard,
+              styles.spacesBar,
+              pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] },
+            ]}
+          >
             <Image
-              source={MINDDROP_HEADER}
-              style={styles.mindDropHeaderImage}
+              source={SPACES_TITLE}
+              style={styles.featureCardTitleSpaces}
               resizeMode="contain"
             />
-            <Text style={styles.mindDropHeadline}>Your brain dump, organized.</Text>
-            <Text style={styles.mindDropDescription}>To-Dos • Habits • Anything</Text>
-            <Pressable
-              onPress={() => navigation.navigate('CatchAllNotepad')}
-              onPressIn={handleMindDropPressIn}
-              onPressOut={handleMindDropPressOut}
-              testID="spaces-catchall-button"
-              accessibilityRole="button"
-              accessibilityLabel="Open Mind Drop"
-            >
-              <Animated.View style={mindDropAnimatedStyle}>
-                <Animated.View style={[styles.mindDropPill, breathingAnimatedStyle]}>
-                  <Image source={BUTTON_HP} style={styles.mindDropButton} resizeMode="contain" />
-                  <Text style={styles.mindDropLabel}>Tap Gremly</Text>
-                </Animated.View>
-              </Animated.View>
-            </Pressable>
-            <Text style={styles.mindDropStat}>✨ 12 organized ever</Text>
-          </View>
-        </LinearGradient>
+            <View style={styles.featureCardDividerSpaces} />
+            <Text style={styles.featureCardSubtitle}>
+              Where your projects live — notes, schedules, habits, research.
+            </Text>
+            <View style={styles.ctaPillSpaces}>
+              <Image source={BUTTON_HP} style={styles.ctaPillIconSpaces} resizeMode="contain" />
+              <Text style={styles.ctaPillTextSpaces}>Go deep here</Text>
+            </View>
+          </Pressable>
+        </View>
 
-        {/* Section Divider */}
-        <View style={styles.sectionDivider} />
-
-        {/* Spaces Section - with padding */}
-        <View style={styles.paddedContent}>
-          {!error && (
-            <Box gap={2}>
-              <Box
-                row
-                style={{
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  marginBottom: 12,
-                }}
-              >
-                <View style={styles.spacesTitleContainer}>
-                  <Image
-                    source={SPACES_TITLE}
-                    style={styles.spacesTitleImage}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.spacesSubtitle}>Organize by project or area.</Text>
-                </View>
-                <Button
-                  title="New Space"
-                  onPress={onCreateSpace}
-                  testID="spaces-new"
-                  variant="ghost"
-                />
-              </Box>
-
-              {/* Spaces Preview (first 2) */}
-              {isEmpty ? (
-                <View style={styles.emptySpaces}>
-                  <Image
-                    source={require('../../assets/mascot/ACTUAL GREMLY.png')}
-                    style={styles.emptyMascot}
-                    resizeMode="contain"
-                  />
-                  <Text variant="title" style={styles.emptyTitle}>
-                    No spaces yet
-                  </Text>
-                  <Text variant="body" style={styles.emptySubtitle}>
-                    Create one to organize by topic.
-                  </Text>
-                  <View style={{ marginTop: 8 }}>
-                    <Button
-                      title="Create a Space"
-                      onPress={onCreateSpace}
-                      testID="spaces-empty-cta"
-                    />
-                  </View>
-                </View>
-              ) : (
-                <View>
-                  {previewSpaces.map((space, index) => (
-                    <View
-                      key={space.id}
-                      style={[
-                        styles.spaceRow,
-                        index < previewSpaces.length - 1 && styles.spaceRowWithDivider,
-                      ]}
-                    >
-                      <Pressable
-                        onPress={() => {
-                          const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on')
-                            .toString()
-                            .trim()
-                            .toLowerCase();
-                          const v3 =
-                            raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
-                          if (v3) {
-                            navigation.navigate('SpaceHome', { spaceId: space.id });
-                          } else {
-                            navigation.navigate('SpaceDetail', { id: space.id });
-                          }
-                        }}
-                        testID={`space-item-${space.id}`}
-                        style={styles.spaceRowContent}
-                      >
-                        <Text style={styles.spaceEmoji}>{getSpaceIcon(space.name)}</Text>
-                        <Text variant="body" style={styles.spaceName}>
-                          {space.name}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => handleSpaceMenu(space)}
-                        style={styles.spaceMenu}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Text style={styles.spaceMenuIcon}>⋯</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </Box>
-          )}
+        {/* Philosophy Footer */}
+        <View style={styles.philosophyFooter}>
+          <View style={styles.philosophyDot} />
+          <Text style={styles.philosophyText}>From scattered to unstoppable.</Text>
         </View>
       </Screen>
+
+      {/* Spaces Modal */}
+      <Modal
+        visible={spacesModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setSpacesModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Spaces</Text>
+            <Pressable
+              onPress={() => setSpacesModalVisible(false)}
+              style={styles.modalCloseButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={24} color="#6A6F76" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {/* Create Space Button */}
+            <Pressable
+              onPress={() => {
+                setSpacesModalVisible(false);
+                onCreateSpace();
+              }}
+              testID="spaces-empty-cta"
+              style={({ pressed }) => [styles.createSpaceButton, pressed && { opacity: 0.9 }]}
+            >
+              <Plus size={20} color="#2E5540" />
+              <Text style={styles.createSpaceButtonText}>Create a Space</Text>
+            </Pressable>
+
+            {/* Spaces List */}
+            {spaces.length === 0 ? (
+              <View style={styles.emptySpacesModal}>
+                <Image
+                  source={require('../../assets/mascot/ACTUAL GREMLY.png')}
+                  style={styles.emptyMascot}
+                  resizeMode="contain"
+                />
+                <Text variant="title" style={styles.emptyTitle}>
+                  No spaces yet
+                </Text>
+                <Text variant="body" style={styles.emptySubtitle}>
+                  Create one to organize by topic.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.spacesListModal}>
+                {spaces.map((space, index) => (
+                  <View
+                    key={space.id}
+                    style={[
+                      styles.spaceRowModal,
+                      index < spaces.length - 1 && styles.spaceRowWithDivider,
+                    ]}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        setSpacesModalVisible(false);
+                        const raw = (process.env.EXPO_PUBLIC_SPACE_V3 ?? 'on')
+                          .toString()
+                          .trim()
+                          .toLowerCase();
+                        const v3 =
+                          raw === 'on' || raw === 'true' || raw === '1' || raw === 'enabled';
+                        if (v3) {
+                          navigation.navigate('SpaceHome', { spaceId: space.id });
+                        } else {
+                          navigation.navigate('SpaceDetail', { id: space.id });
+                        }
+                      }}
+                      testID={`space-item-${space.id}`}
+                      style={styles.spaceRowContent}
+                    >
+                      <Text style={styles.spaceEmoji}>{getSpaceIcon(space.name)}</Text>
+                      <Text variant="body" style={styles.spaceName}>
+                        {space.name}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleSpaceMenu(space)}
+                      style={styles.spaceMenu}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Text style={styles.spaceMenuIcon}>⋯</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  customHeader: {
-    paddingVertical: 12, // spacing[3]
-    paddingHorizontal: 16,
-    marginBottom: 12, // Added breathing room before MindDrop section
+  // Top Navigation Bar
+  topNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9F6F1', // Linen Cream
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  topNavWordmark: {
+    height: 28,
+    width: 90,
+  },
+  topNavDivider: {
+    height: 1,
+    backgroundColor: 'rgba(46, 85, 64, 0.10)', // very soft Moss Green line
+  },
+  heroSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 32,
+    paddingBottom: 12,
+    paddingHorizontal: 24,
+    paddingLeft: 36,
+    gap: 16,
+  },
+  heroMascot: {
+    height: 150,
+    width: 150,
+  },
+  heroTextContainer: {
+    maxWidth: 140,
+  },
+  heroTextHi: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2E5540', // Moss Green
+    textAlign: 'left',
+    marginBottom: 6,
+  },
+  heroTextBody: {
+    fontFamily: 'PlusJakartaSans-Regular',
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#2E5540', // Moss Green
+    textAlign: 'left',
+    lineHeight: 20,
+  },
+  greetingAccent: {
+    height: 1,
+    width: '30%',
+    marginTop: 8,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+    borderRadius: 999,
   },
   paddedContent: {
     paddingHorizontal: 16,
   },
-  wordmark: {
-    height: 28,
-    width: 120, // Adjusted for better proportions
+  // Feature Bars Container
+  featureBarsContainer: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    gap: 20,
   },
-  mindDropSection: {
-    backgroundColor: '#E8F4EA', // Light sage - full width band
-    width: '100%',
-    paddingVertical: 24,
-    marginLeft: 0,
-    marginRight: 0,
-  },
-  mindDropContent: {
+  // Feature Card (shared) - vertical layout
+  featureCard: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderRadius: 30,
+    position: 'relative',
+    overflow: 'visible',
   },
-  mindDropHeaderImage: {
-    height: 64,
-    width: 162,
-    alignSelf: 'center',
-    marginBottom: 8,
+  featureCardTitle: {
+    height: 44,
+    maxWidth: 168,
   },
-  mindDropHeadline: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 3,
-    color: '#222222',
+  featureCardTitleSpaces: {
+    height: 38,
+    maxWidth: 144,
   },
-  mindDropDescription: {
+  featureCardDivider: {
+    height: 1,
+    backgroundColor: 'rgba(46, 85, 64, 0.12)', // very soft Moss line
+    marginTop: 8,
+    width: '28%',
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+  },
+  featureCardDividerSpaces: {
+    height: 1,
+    backgroundColor: 'rgba(156, 166, 224, 0.25)', // hint of Periwinkle
+    marginTop: 8,
+    width: '28%',
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+  },
+  featureCardSubtitle: {
+    fontFamily: 'Inter',
     fontSize: 14,
-    fontWeight: '400',
-    textAlign: 'center',
-    color: '#6A6F76',
-    marginBottom: 20,
+    color: 'rgba(34, 34, 34, 0.78)', // Charcoal Ink at 78%
+    marginTop: 4,
+    marginBottom: 0,
+    textAlign: 'left',
+    lineHeight: 20,
   },
-  mindDropPill: {
+  // MindDrop Card - primary, grounded
+  mindDropBar: {
+    backgroundColor: 'rgba(46, 85, 64, 0.07)', // very soft Moss tint over linen
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  // Spaces Card - secondary, exploratory
+  spacesBar: {
+    backgroundColor: 'rgba(156, 166, 224, 0.07)', // ultra-light Periwinkle Smoke wash
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  // CTA Pills
+  ctaPillMindDrop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    paddingVertical: 8,
-    borderRadius: 32,
-    backgroundColor: '#2E5540', // Dark green
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 4,
-    gap: 11,
-    alignSelf: 'center',
-    marginBottom: 12,
+    backgroundColor: '#2E5540', // solid Moss Green - strongest CTA
+    height: 42,
+    borderRadius: 9999,
+    paddingHorizontal: 18,
+    alignSelf: 'flex-end',
+    marginRight: 4,
+    marginTop: 16,
   },
-  mindDropButton: {
-    width: 48,
-    height: 48,
+  ctaPillSpaces: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(156, 166, 224, 0.18)', // slightly stronger Periwinkle wash
+    height: 42,
+    borderRadius: 9999,
+    paddingHorizontal: 18,
+    alignSelf: 'flex-end',
+    marginRight: 4,
+    marginTop: 16,
   },
-  mindDropLabel: {
-    fontSize: 17,
-    fontWeight: '500',
-    color: '#F9F6F1', // Cream
+  ctaPillIconMindDrop: {
+    width: 22,
+    height: 22,
+    marginRight: 8,
   },
-  mindDropStat: {
+  ctaPillIconSpaces: {
+    width: 22,
+    height: 22,
+    marginRight: 8,
+  },
+  ctaPillTextMindDrop: {
+    fontFamily: 'Inter',
     fontSize: 14,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginTop: 0,
+    fontWeight: '600',
+    color: '#F9F6F1', // Linen Cream
   },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: '#D1D5DB',
-    opacity: 0.7,
-    marginTop: 24,
-    marginBottom: 20,
-    marginHorizontal: 16,
+  ctaPillTextSpaces: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
   },
-  spacesTitleContainer: {
-    alignItems: 'flex-start',
-    marginLeft: -4,
+  // Philosophy Footer
+  philosophyFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 80,
+    gap: 8,
   },
-  spacesTitleImage: {
-    height: 38,
-    width: 160,
-    marginBottom: 4,
+  philosophyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0C47A', // Golden Pear
   },
-  spacesSubtitle: {
-    fontSize: 15,
-    opacity: 0.7,
-    color: '#6A6F76',
-    marginLeft: 2,
+  philosophyText: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    color: 'rgba(34, 34, 34, 0.5)', // Charcoal Ink at 50%
   },
-  spaceRow: {
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  modalTitle: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#222222',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  createSpaceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#E8F0E9',
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginBottom: 24,
+  },
+  createSpaceButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
+  },
+  emptySpacesModal: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 16,
+  },
+  spacesListModal: {
+    backgroundColor: '#F9F6F1', // Linen Cream
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  spaceRowModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
   },
   spaceRowContent: {
     flexDirection: 'row',
@@ -534,12 +651,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#6A6F76',
     lineHeight: 20,
-  },
-  emptySpaces: {
-    alignItems: 'center',
-    marginTop: 16, // spacing[4]
-    paddingVertical: 24, // spacing[6]
-    paddingHorizontal: 16, // spacing[4]
   },
   emptyMascot: {
     width: 72,

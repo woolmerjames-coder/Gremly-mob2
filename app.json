@@ -15,7 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gremly.mob2"
+      "bundleIdentifier": "com.gremly.mob2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -30,7 +33,10 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2"
+      "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2",
+      "eas": {
+        "projectId": "4c82fb8d-fdff-41a8-8fec-ce46ee3e6183"
+      }
     }
   }
 }

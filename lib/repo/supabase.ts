@@ -125,6 +125,15 @@ function stripNulls<T extends Record<string, any>>(obj: T) {
   ) as T;
 }
 
+// Helper to strip non-DB fields from note payloads
+// These fields are used in the app layer but don't exist in the notes table schema
+const NON_DB_NOTE_FIELDS = ['labels', 'tags_meta', 'views', 'canonicalType', 'canonical_type'];
+function stripNonDbNoteFields<T extends Record<string, any>>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([key]) => !NON_DB_NOTE_FIELDS.includes(key)),
+  ) as T;
+}
+
 type TagsMetaPayload = {
   sticky?: string[] | null;
   tombstones?: string[] | null;
@@ -539,6 +548,17 @@ export class SupabaseRepo implements IRepo {
         effectiveDueDay = computeDueDay(effectiveDueDate);
       }
 
+      // CRITICAL FIX: Ensure due_date and due_day are in sync
+      // If we computed due_day, set due_date to just the date string (YYYY-MM-DD)
+      // This prevents timezone issues where "today at 5pm" becomes "tomorrow" in UTC
+      // The database will store just the date part, avoiding UTC conversion issues
+      if (effectiveDueDay && effectiveDueDate && effectiveDueDate !== effectiveDueDay) {
+        // Only keep the time if due_time is explicitly set
+        if (!effectiveDueTime) {
+          effectiveDueDate = effectiveDueDay;
+        }
+      }
+
       // Build minimal payload with Insert schema validation
       payload = todoInsertSchema.parse(
         compact({
@@ -635,7 +655,13 @@ export class SupabaseRepo implements IRepo {
     //   - TODOS: Use 'name' only
     //   - NOTES: Use 'title' only
     //   - HABITS: Use both 'name' AND 'title'
-    const cleanPayload = stripNulls(payload);
+    let cleanPayload = stripNulls(payload);
+
+    // For notes, strip app-layer fields that don't exist in the DB schema
+    // (labels, tags_meta, views, canonicalType are used in-app but not DB columns)
+    if (input.type === 'note') {
+      cleanPayload = stripNonDbNoteFields(cleanPayload);
+    }
 
     // Attach owner_id to ensure RLS policies work
     // Note: owner_id is the PRIMARY key for RLS, user_id is legacy/deprecated
@@ -862,9 +888,12 @@ export class SupabaseRepo implements IRepo {
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('due_date' in normalizedPatch) {
         const duePatch = normalizedPatch.due_date as string | null | undefined;
-        updatePayload.due_date = normalizeIsoDatetime(duePatch) ?? null;
-        // Also set due_day from due_date for canonical day-based logic using shared helper
-        updatePayload.due_day = computeDueDay(duePatch);
+        // Compute due_day first to ensure consistency
+        const computedDueDay = computeDueDay(duePatch);
+        updatePayload.due_day = computedDueDay;
+        // CRITICAL FIX: Use the date string (YYYY-MM-DD) for due_date to avoid timezone issues
+        // This prevents "today at 5pm" becoming "tomorrow" when converted to UTC
+        updatePayload.due_date = computedDueDay ?? normalizeIsoDatetime(duePatch) ?? null;
       }
       if ('due_time' in normalizedPatch) {
         const dueTimePatch = normalizedPatch.due_time as string | null | undefined;

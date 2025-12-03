@@ -211,7 +211,22 @@ export const todoInsertSchema = z.object({
   space_id: z.string().uuid().nullable().optional(),
   name: z.string().min(1), // Required - DATABASE TRUTH: todos table has 'name' column (NO 'title')
   body: z.string().optional().nullable(),
-  due_date: z.string().datetime().nullable().optional(),
+  // Accept both datetime (ISO) and date-only (YYYY-MM-DD) formats
+  // Date-only prevents timezone issues where "today at 5pm" becomes "tomorrow" in UTC
+  due_date: z
+    .string()
+    .refine(
+      (val) => {
+        // Accept YYYY-MM-DD format
+        if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return true;
+        // Accept ISO datetime format
+        const d = new Date(val);
+        return !isNaN(d.getTime());
+      },
+      { message: 'Invalid date or datetime format' },
+    )
+    .nullable()
+    .optional(),
   due_day: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)

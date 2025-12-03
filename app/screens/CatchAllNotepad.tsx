@@ -43,6 +43,9 @@ import {
   TextInputContentSizeChangeEventData,
   Image,
   ActionSheetIOS,
+  Keyboard,
+  PanResponder,
+  PanResponderGestureState,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
@@ -109,7 +112,6 @@ import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
-import { Pencil, Trash2 } from 'lucide-react-native';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 
 export const THINKING_DURATION = 1200;
@@ -123,11 +125,13 @@ const THINKING_MICROCOPY = [
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
 // Auto-grow constants: aligned for deterministic behavior
-const LINE_HEIGHT = 24; // Must match styles.input lineHeight (increased for better readability)
-const INPUT_VERTICAL_PADDING = 24; // paddingTop (12) + paddingBottom (12) from styles.input
+const LINE_HEIGHT = 24; // Must match styles.input lineHeight
+const INPUT_VERTICAL_PADDING = 20; // paddingTop + paddingBottom
 const MAX_LINES = 8;
-const START_HEIGHT = 140; // Show ~4-5 lines initially for a more spacious input area
-const MIN_HEIGHT = 120;
+
+const START_HEIGHT = 64; // compact starting height
+const MIN_HEIGHT = START_HEIGHT;
+
 const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
 
 export const INPUT_LINE_HEIGHT = LINE_HEIGHT;
@@ -894,12 +898,15 @@ const AnimatedMindDropCard: React.FC<{
   const isFailed = visualState === 'failed';
 
   return (
-    <View
+    <Pressable
       key={`${item.kind}:${item.id}`}
       testID={`minddrop-recent-${item.kind}-${item.id}`}
       style={styles.recentCard}
+      onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${item.title || item.text || 'item'}`}
     >
-      {/* Top row: Title (left) + Due/Time (right) */}
+      {/* First row: Title only */}
       <View style={styles.recentTopRow}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
           <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
@@ -909,18 +916,9 @@ const AnimatedMindDropCard: React.FC<{
             <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
           )}
         </View>
-
-        {/* Right side: Due date OR time ago */}
-        {effectiveKind === 'todo' ? (
-          <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentDueBadge}>
-            {formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time })}
-          </Text>
-        ) : (
-          <Text style={styles.recentTime}>{relativeTime(item.created_at)}</Text>
-        )}
       </View>
 
-      {/* Second row: Category, tags, and actions */}
+      {/* Second row: All metadata (type chip, tags, due/time) */}
       <View style={styles.recentMetaRow}>
         <View style={styles.recentMetaLeft}>
           {/* Category pill */}
@@ -942,29 +940,18 @@ const AnimatedMindDropCard: React.FC<{
               Saved as-is
             </Text>
           ) : null}
-        </View>
 
-        {/* Right side: Actions */}
-        <View style={styles.recentMetaRight}>
-          <Pressable
-            onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Edit"
-          >
-            <Pencil size={16} color={c.mutedText} strokeWidth={1.5} />
-          </Pressable>
-          <Pressable
-            onPress={() => handleDelete(item.id, item.kind)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Delete"
-          >
-            <Trash2 size={16} color={c.mutedText} strokeWidth={1.5} />
-          </Pressable>
+          {/* Due date OR time ago - now in metadata row */}
+          {effectiveKind === 'todo' ? (
+            <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentMetaDue}>
+              {formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time })}
+            </Text>
+          ) : (
+            <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+          )}
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 };
 
@@ -1744,12 +1731,14 @@ const RecentDrops: React.FC<{
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 && pendingItems.length === 0 ? (
             <Text style={styles.recentEmpty}>
-              {showOlder ? 'No drops yet.' : 'Ready when you are'}
+              {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
             </Text>
           ) : (
             <ScrollView
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
+              onScrollBeginDrag={Keyboard.dismiss}
+              keyboardShouldPersistTaps="handled"
             >
               {/* Pending items (optimistic UI) */}
               {pendingItems.map((item) => {
@@ -2125,6 +2114,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const handleInputFocusChange = useCallback((focused: boolean) => {
     inputFocusRef.current = focused;
   }, []);
+
+  // PanResponder for swipe-down-to-dismiss-keyboard gesture
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (
+        _evt: GestureResponderEvent,
+        gestureState: PanResponderGestureState,
+      ) => {
+        const { dx, dy, vy } = gestureState;
+        // Start handling when the user clearly drags mostly downward
+        const isVerticalSwipe = Math.abs(dy) > Math.abs(dx);
+        const isDownward = dy > 10 && vy >= 0;
+        return isVerticalSwipe && isDownward;
+      },
+      onPanResponderMove: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        if (gestureState.dy > 10) {
+          Keyboard.dismiss();
+        }
+      },
+      onPanResponderRelease: () => {
+        Keyboard.dismiss();
+      },
+    }),
+  ).current;
 
   // Compute photo hint text: show gentle prompt when photos exist but text is empty
   const noteIsEmpty = note.trim().length === 0;
@@ -2568,11 +2581,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [repo, showActionToast, TOASTS_ON]);
 
-  // Navigate to Hub → Recent (fallback toast if route missing)
+  // Navigate to Search → Recent (fallback toast if route missing)
   const handleViewDetails = useCallback(() => {
     try {
-      // Navigate to Hub tab; pass filter for future use if supported
-      (navigation as any).navigate('Tabs', { screen: 'Hub', params: { filter: 'recent' } });
+      // Navigate to Search tab; pass filter for future use if supported
+      (navigation as any).navigate('Tabs', { screen: 'Search', params: { filter: 'recent' } });
     } catch (err) {
       if (TOASTS_ON) {
         showActionToast({
@@ -4472,51 +4485,63 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const statsVisible = organizedToday > 0;
 
     return (
-      <View style={styles.mainContainer}>
-        {/* Phase 5A: Fixed header/input area - does not scroll */}
-        <View style={styles.fixedTopSection}>
-          <View style={styles.headerContainer}>
-            <View style={styles.headerRow} testID="minddrop-header">
-              <View style={styles.headerLeftGroup}>
-                <Pressable
-                  accessibilityLabel="Go back"
-                  accessibilityRole="button"
-                  onPress={handleBack}
-                  hitSlop={12}
-                  style={styles.headerBackBtn}
-                >
-                  <Text style={styles.headerBackText}>{'<'}</Text>
-                </Pressable>
-                <Image
-                  ref={headerTitleRef}
-                  source={MINDDROP_HEADER}
-                  style={styles.headerTitle}
-                  resizeMode="contain"
-                  accessibilityLabel="Mind Drop"
-                  accessibilityIgnoresInvertColors
-                />
-                <Pressable
-                  accessibilityLabel="About Mind Drop"
-                  accessibilityRole="button"
-                  testID="minddrop-info-header"
-                  style={styles.headerInfoBtn}
-                  onPress={handleInfoOpen}
-                  hitSlop={12}
-                >
-                  <Icon name="Info" size="sm" color={c.mossGreen} />
-                </Pressable>
-              </View>
+      <View style={styles.mainContainer} {...panResponder.panHandlers}>
+        {/* Header + greeting at the top */}
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow} testID="minddrop-header">
+            <View style={styles.headerLeftGroup}>
+              <Pressable
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                onPress={handleBack}
+                hitSlop={12}
+                style={styles.headerBackBtn}
+              >
+                <Text style={styles.headerBackText}>{'<'}</Text>
+              </Pressable>
+              <Image
+                ref={headerTitleRef}
+                source={MINDDROP_HEADER}
+                style={styles.headerTitle}
+                resizeMode="contain"
+                accessibilityLabel="Mind Drop"
+                accessibilityIgnoresInvertColors
+              />
+              <Pressable
+                accessibilityLabel="About Mind Drop"
+                accessibilityRole="button"
+                testID="minddrop-info-header"
+                style={styles.headerInfoBtn}
+                onPress={handleInfoOpen}
+                hitSlop={12}
+              >
+                <Icon name="Info" size="sm" color={c.mossGreen} />
+              </Pressable>
             </View>
-            <Image
-              source={GREMLY_TOP}
-              style={styles.headerMascot}
-              resizeMode="contain"
-              accessibilityIgnoresInvertColors
-            />
           </View>
-          <Text style={styles.contextPrompt} testID="minddrop-context-prompt">
-            {contextPrompt}
-          </Text>
+          <Image
+            source={GREMLY_TOP}
+            style={styles.headerMascot}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+
+        {/* Scrollable Recent Drops in the middle */}
+        <Pressable style={styles.scrollableSection} onPress={Keyboard.dismiss} accessible={false}>
+          <RecentDropsMemo
+            overlay={overlay}
+            refreshSignal={recentRefresh}
+            onEdited={noopCallback}
+            onDeleted={noopCallback}
+            onTodayCountChange={handleTodayCountChange}
+            onAddPendingItem={handleReceiveAddPendingItem}
+            initiallyOpen={true}
+          />
+        </Pressable>
+
+        {/* Fixed bottom section: input + chips + button + stats */}
+        <View style={styles.fixedTopSection}>
           <View style={styles.inputBlock}>
             <MindDropInput
               value={note}
@@ -4544,6 +4569,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               photoHintText={photoHintText}
             />
           </View>
+
           {pendingPhotoUris.length > 0 && (
             <ScrollView
               horizontal
@@ -4576,6 +4602,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               )}
             </ScrollView>
           )}
+
           {note.length > 0 ? (
             <View style={styles.helperRow}>
               <View style={styles.helperLeft}>
@@ -4592,6 +4619,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               ) : null}
             </View>
           ) : null}
+
           {categoryChips.length > 0
             ? (() => {
                 console.log('[MindDrop][UI] Rendering category chips', {
@@ -4612,6 +4640,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 console.log('[MindDrop][UI] No category chips to render');
                 return null;
               })()}
+
           {timingChips.length > 0 ? (
             <MidConfidenceChips
               variant="timing"
@@ -4621,6 +4650,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               autoDismissMs={5000}
             />
           ) : null}
+
           <View
             style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
           >
@@ -4665,6 +4695,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Animated.View>
             </Pressable>
           </View>
+
           {showPhotoTextNudge && (
             <View style={styles.photoTextNudge}>
               <View style={styles.photoTextNudgeHeaderRow}>
@@ -4676,6 +4707,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Text>
             </View>
           )}
+
           {statsVisible ? (
             <View style={styles.trustRow} testID="minddrop-trust">
               <Text style={styles.trustStyled} testID="minddrop-trust-text">
@@ -4685,21 +4717,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Text>
             </View>
           ) : null}
-          <View style={[styles.sectionDivider, !statsVisible && styles.sectionDividerNoStats]} />
-        </View>
-        {/* Phase 5A: End fixed section, begin scrollable Recent Drops */}
-
-        {/* Phase 5A: Scrollable Recent Drops section */}
-        <View style={styles.scrollableSection}>
-          <RecentDropsMemo
-            overlay={overlay}
-            refreshSignal={recentRefresh}
-            onEdited={noopCallback}
-            onDeleted={noopCallback}
-            onTodayCountChange={handleTodayCountChange}
-            onAddPendingItem={handleReceiveAddPendingItem}
-            initiallyOpen={true}
-          />
         </View>
       </View>
     );
@@ -4789,14 +4806,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={insets.top + SPACE * 6}
+        keyboardVerticalOffset={0}
       >
         <View
           style={[
             styles.contentWrapper,
             {
               paddingTop: insets.top + SPACE * 3,
-              paddingBottom: insets.bottom,
+              paddingBottom: 8,
               paddingHorizontal: SPACE * 2,
             },
           ]}
@@ -4823,17 +4840,18 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     contentWrapper: {
       flex: 1, // Phase 5A: Changed from flexGrow to flex for proper layout
     },
-    // Phase 5A: New container for entire Mind Drop UI
+    // Container for entire Mind Drop UI with header-middle-bottom layout
     mainContainer: {
       flex: 1,
     },
-    // Phase 5A: Fixed section containing header, input, button (non-scrolling)
-    fixedTopSection: {
-      // No flex: this section sizes to its content
-    },
-    // Phase 5A: Scrollable section for Recent Drops only
+    // Scrollable section for Recent Drops in the middle
     scrollableSection: {
       flex: 1, // Takes remaining space, enables scrolling
+    },
+    // Fixed section at bottom containing input, chips, button (non-scrolling)
+    fixedTopSection: {
+      // No flex: this section sizes to its content
+      // Note: Name kept as fixedTopSection for compatibility but now positioned at bottom
     },
     headerContainer: {
       position: 'relative',
@@ -4896,18 +4914,19 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     inputBlock: {
       position: 'relative',
-      marginTop: 0,
+      marginTop: 10, // Spacing after recent drops (divider removed)
       marginBottom: 0,
     },
     inputContainer: {
       width: '100%',
       borderRadius: 16,
       paddingHorizontal: INPUT_PADDING_LEFT,
-      paddingVertical: 12,
+      paddingTop: 14,
+      paddingBottom: 12,
       backgroundColor: c.linenCream ?? '#F9F6F1',
       borderWidth: 1,
       borderColor: '#E0E0E0',
-      minHeight: 140,
+      minHeight: START_HEIGHT,
     },
     inputContainerFocused: {
       borderRadius: 16,
@@ -4930,8 +4949,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       padding: 0,
       margin: 0,
-      paddingTop: 12,
-      paddingBottom: 12,
+      paddingTop: 0,
+      paddingBottom: 4,
     },
     inputFocused: {},
     inputHeightWrapper: {
@@ -5351,6 +5370,20 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       flex: 1,
     },
+    // Due date in metadata row - smaller, lighter weight for secondary info
+    recentMetaDue: {
+      fontSize: 12,
+      color: c.mutedText,
+      fontFamily: 'Inter-Regular',
+      flexShrink: 0,
+    },
+    // Time ago in metadata row - same as recentMetaDue for consistency
+    recentMetaTime: {
+      color: c.mutedText,
+      fontSize: 12,
+      fontFamily: 'Inter-Regular',
+      flexShrink: 0,
+    },
     // Time ago styling - regular weight, smaller (13px), secondary gray
     recentTime: {
       color: c.mutedText,
@@ -5363,7 +5396,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontSize: 13,
       textAlign: 'center',
       fontFamily: 'Inter-Regular',
-      paddingVertical: 10,
+      paddingTop: 4,
+      paddingBottom: 10,
     },
     // Skeleton styles for pending state
     titleSkeletonContainer: {

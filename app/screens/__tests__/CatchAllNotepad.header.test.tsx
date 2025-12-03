@@ -133,7 +133,7 @@ describe('CatchAllNotepad header + info sheet', () => {
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('minddrop-info-sheet')).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('Tabs', {
-      screen: 'Hub',
+      screen: 'Search',
       params: { filter: 'recent' },
     });
   });
