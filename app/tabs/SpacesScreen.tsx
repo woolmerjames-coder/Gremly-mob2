@@ -58,6 +58,8 @@ import { Plus, X, ChevronRight } from 'lucide-react-native';
 import BUTTON_HP from '../../assets/buttonforHP.png';
 import GREMLY_WAVING from '../../assets/gremlywaving.png';
 import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
+import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
+import SPACES_TITLE from '../../assets/spacestitle.png';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -180,7 +182,11 @@ function GremlyHomeScreen() {
         {/* Hero Section - Centered Mascot */}
         <View style={styles.heroSection}>
           <Image source={GREMLY_WAVING} style={styles.heroMascot} resizeMode="contain" />
-          <Text style={styles.heroText}>So… where do we begin?</Text>
+          <View style={styles.heroTextContainer}>
+            <Text style={styles.heroTextHi}>Hi</Text>
+            <Text style={styles.heroTextBody}>So…where do{'\n'}we begin?</Text>
+            <View style={styles.greetingAccent} />
+          </View>
         </View>
 
         {/* Error state - with padding */}
@@ -206,56 +212,62 @@ function GremlyHomeScreen() {
           </View>
         )}
 
-        {/* Feature Grid - 2 Column Layout */}
-        <View style={styles.featureGrid}>
-          {/* MindDrop Tile */}
-          <View style={styles.featureGridLeft}>
-            <Pressable
-              onPress={() => navigation.navigate('CatchAllNotepad')}
-              testID="spaces-catchall-button"
-              accessibilityRole="button"
-              accessibilityLabel="Open Mind Drop"
-              style={({ pressed }) => [
-                styles.featureTile,
-                styles.mindDropTile,
-                pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <View style={styles.featureTileContent}>
-                <Image source={BUTTON_HP} style={styles.featureTileIcon} resizeMode="contain" />
-                <Text style={styles.featureTileTitle}>MindDrop</Text>
-                <Text style={styles.featureTileDescription}>Drop thoughts here</Text>
-              </View>
-              <ChevronRight size={20} color="#2E5540" style={styles.featureTileChevron} />
-            </Pressable>
-          </View>
+        {/* Feature Bars */}
+        <View style={styles.featureBarsContainer}>
+          {/* MindDrop Bar */}
+          <Pressable
+            onPress={() => navigation.navigate('CatchAllNotepad')}
+            testID="spaces-catchall-button"
+            accessibilityRole="button"
+            accessibilityLabel="Open Mind Drop"
+            style={({ pressed }) => [
+              styles.featureCard,
+              styles.mindDropBar,
+              pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] },
+            ]}
+          >
+            <Image source={MINDDROP_HEADER} style={styles.featureCardTitle} resizeMode="contain" />
+            <View style={styles.featureCardDivider} />
+            <Text style={styles.featureCardSubtitle}>
+              To-dos, Thoughts, Habits, Anything. I'll capture & organize it here.
+            </Text>
+            <View style={styles.ctaPillMindDrop}>
+              <Image source={BUTTON_HP} style={styles.ctaPillIconMindDrop} resizeMode="contain" />
+              <Text style={styles.ctaPillTextMindDrop}>Drop here</Text>
+            </View>
+          </Pressable>
 
-          {/* Spaces Tile */}
-          <View style={styles.featureGridRight}>
-            <Pressable
-              onPress={() => setSpacesModalVisible(true)}
-              testID="spaces-new"
-              accessibilityRole="button"
-              accessibilityLabel="Open Spaces"
-              style={({ pressed }) => [
-                styles.featureTile,
-                styles.spacesTile,
-                pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <View style={styles.featureTileContent}>
-                <Image source={BUTTON_HP} style={styles.featureTileIcon} resizeMode="contain" />
-                <Text style={styles.featureTileTitle}>Spaces</Text>
-                <Text style={styles.featureTileDescription}>Organize by project</Text>
-              </View>
-              <ChevronRight size={20} color="#5A6199" style={styles.featureTileChevron} />
-            </Pressable>
-          </View>
+          {/* Spaces Bar */}
+          <Pressable
+            onPress={() => setSpacesModalVisible(true)}
+            testID="spaces-new"
+            accessibilityRole="button"
+            accessibilityLabel="Open Spaces"
+            style={({ pressed }) => [
+              styles.featureCard,
+              styles.spacesBar,
+              pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] },
+            ]}
+          >
+            <Image
+              source={SPACES_TITLE}
+              style={styles.featureCardTitleSpaces}
+              resizeMode="contain"
+            />
+            <View style={styles.featureCardDividerSpaces} />
+            <Text style={styles.featureCardSubtitle}>
+              Where your projects live — notes, schedules, habits, research.
+            </Text>
+            <View style={styles.ctaPillSpaces}>
+              <Image source={BUTTON_HP} style={styles.ctaPillIconSpaces} resizeMode="contain" />
+              <Text style={styles.ctaPillTextSpaces}>Go deep here</Text>
+            </View>
+          </Pressable>
         </View>
 
         {/* Philosophy Footer */}
         <View style={styles.philosophyFooter}>
-          <Image source={BUTTON_HP} style={styles.philosophyIcon} resizeMode="contain" />
+          <View style={styles.philosophyDot} />
           <Text style={styles.philosophyText}>From scattered to unstoppable.</Text>
         </View>
       </Screen>
@@ -374,106 +386,177 @@ const styles = StyleSheet.create({
   },
   topNavDivider: {
     height: 1,
-    backgroundColor: 'rgba(46, 85, 64, 0.12)', // Moss Green at ~12%
+    backgroundColor: 'rgba(46, 85, 64, 0.10)', // very soft Moss Green line
   },
   heroSection: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 16,
-    paddingBottom: 20,
-    paddingHorizontal: 40,
+    paddingTop: 32,
+    paddingBottom: 12,
+    paddingHorizontal: 24,
+    paddingLeft: 36,
     gap: 16,
   },
   heroMascot: {
     height: 150,
     width: 150,
   },
-  heroText: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 17,
-    fontWeight: '600',
+  heroTextContainer: {
+    maxWidth: 140,
+  },
+  heroTextHi: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#2E5540', // Moss Green
     textAlign: 'left',
-    maxWidth: 140,
-    lineHeight: 24,
+    marginBottom: 6,
+  },
+  heroTextBody: {
+    fontFamily: 'PlusJakartaSans-Regular',
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#2E5540', // Moss Green
+    textAlign: 'left',
+    lineHeight: 20,
+  },
+  greetingAccent: {
+    height: 1,
+    width: '30%',
+    marginTop: 8,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+    borderRadius: 999,
   },
   paddedContent: {
     paddingHorizontal: 16,
   },
-  featureGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap', // Wrap on very small devices
-    justifyContent: 'space-between',
+  // Feature Bars Container
+  featureBarsContainer: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    gap: 20,
+  },
+  // Feature Card (shared) - vertical layout
+  featureCard: {
+    flexDirection: 'column',
     alignItems: 'flex-start',
-    marginTop: 28,
     paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderRadius: 30,
+    position: 'relative',
+    overflow: 'visible',
   },
-  featureGridLeft: {
-    flex: 1,
-    marginRight: 10,
+  featureCardTitle: {
+    height: 44,
+    maxWidth: 168,
   },
-  featureGridRight: {
-    flex: 1,
-    marginLeft: 10,
+  featureCardTitleSpaces: {
+    height: 38,
+    maxWidth: 144,
   },
-  // Compact Feature Tile
-  featureTile: {
-    borderRadius: 16, // rounded-2xl
-    padding: 16,
-    minHeight: 160,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    // Soft shadow
+  featureCardDivider: {
+    height: 1,
+    backgroundColor: 'rgba(46, 85, 64, 0.12)', // very soft Moss line
+    marginTop: 8,
+    width: '28%',
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+  },
+  featureCardDividerSpaces: {
+    height: 1,
+    backgroundColor: 'rgba(156, 166, 224, 0.25)', // hint of Periwinkle
+    marginTop: 8,
+    width: '28%',
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+  },
+  featureCardSubtitle: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    color: 'rgba(34, 34, 34, 0.78)', // Charcoal Ink at 78%
+    marginTop: 4,
+    marginBottom: 0,
+    textAlign: 'left',
+    lineHeight: 20,
+  },
+  // MindDrop Card - primary, grounded
+  mindDropBar: {
+    backgroundColor: 'rgba(46, 85, 64, 0.07)', // very soft Moss tint over linen
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  // Spaces Card - secondary, exploratory
+  spacesBar: {
+    backgroundColor: 'rgba(156, 166, 224, 0.07)', // ultra-light Periwinkle Smoke wash
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 2,
   },
-  featureTileContent: {
-    flex: 1,
+  // CTA Pills
+  ctaPillMindDrop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2E5540', // solid Moss Green - strongest CTA
+    height: 42,
+    borderRadius: 9999,
+    paddingHorizontal: 18,
+    alignSelf: 'flex-end',
+    marginRight: 4,
+    marginTop: 16,
   },
-  featureTileIcon: {
-    width: 32,
-    height: 32,
-    marginBottom: 12,
+  ctaPillSpaces: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(156, 166, 224, 0.18)', // slightly stronger Periwinkle wash
+    height: 42,
+    borderRadius: 9999,
+    paddingHorizontal: 18,
+    alignSelf: 'flex-end',
+    marginRight: 4,
+    marginTop: 16,
   },
-  featureTileTitle: {
-    fontFamily: 'PlusJakartaSans-Bold',
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#222222',
-    marginBottom: 4,
+  ctaPillIconMindDrop: {
+    width: 22,
+    height: 22,
+    marginRight: 8,
   },
-  featureTileDescription: {
+  ctaPillIconSpaces: {
+    width: 22,
+    height: 22,
+    marginRight: 8,
+  },
+  ctaPillTextMindDrop: {
     fontFamily: 'Inter',
-    fontSize: 13,
-    color: 'rgba(34, 34, 34, 0.6)',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#F9F6F1', // Linen Cream
   },
-  featureTileChevron: {
-    marginLeft: 8,
-  },
-  mindDropTile: {
-    backgroundColor: 'rgba(46, 85, 64, 0.08)', // Sage Mist - Gremly brand
-  },
-  spacesTile: {
-    backgroundColor: 'rgba(156, 166, 224, 0.12)', // Periwinkle Smoke - Gremly brand
+  ctaPillTextSpaces: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2E5540', // Moss Green
   },
   // Philosophy Footer
   philosophyFooter: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 36,
+    marginTop: 20,
     marginBottom: 80,
     gap: 8,
   },
-  philosophyIcon: {
-    width: 16,
-    height: 16,
-    tintColor: '#2E5540', // Moss Green
+  philosophyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0C47A', // Golden Pear
   },
   philosophyText: {
     fontFamily: 'Inter',
