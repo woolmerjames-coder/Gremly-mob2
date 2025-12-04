@@ -26,6 +26,7 @@ import {
   Switch,
   ScrollView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -39,13 +40,25 @@ import Animated, {
   interpolateColor,
 } from 'react-native-reanimated';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Pencil, Calendar, Clock } from 'lucide-react-native';
+import {
+  Pencil,
+  Clock,
+  Archive,
+  Check,
+  Calendar,
+  ArrowRight,
+  Repeat,
+  CheckSquare,
+  BookOpen,
+  MoreHorizontal,
+} from 'lucide-react-native';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { Text, Button, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { toDayString, parseDayString } from '../../lib/date/computeDueDay';
 import { useRepo } from '../../providers/RepoProvider';
-import type { SweepCandidate } from '../../lib/sweep/types';
+import type { SweepCandidate, SweepPrimaryActionConfig } from '../../lib/sweep/types';
+import { getPrimaryActionForCandidate } from '../../lib/sweep/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CTA Types
@@ -70,9 +83,10 @@ const PRESET_TIMES = [
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const SWIPE_THRESHOLD = 120; // Fixed px threshold for triggering action
-const SWIPE_OUT_DISTANCE = 500; // Distance to animate card off-screen
-const VELOCITY_THRESHOLD = 500; // Velocity that can trigger swipe even if threshold not met
+const SWIPE_THRESHOLD = 100; // Reduced for card-based swiping
+const SWIPE_OUT_DISTANCE = SCREEN_WIDTH; // Animate card off to the side
+const VELOCITY_THRESHOLD = 400; // Velocity that can trigger swipe even if threshold not met
+const CARD_WIDTH = SCREEN_WIDTH * 0.84; // 84% of screen width - leaves room for edge labels
 
 // Check if we're in test environment
 const isTestEnv =
@@ -99,8 +113,12 @@ export interface SweepCardProps {
   onSkip: () => void;
   /** Called when user wants to edit/fix the item (opens full overlay) */
   onOpenEdit: () => void;
+  /** Called when user taps the primary action button (e.g., add date, review habit) */
+  onPrimaryAction?: (config: SweepPrimaryActionConfig, candidate: SweepCandidate) => void;
   /** Called when user wants to convert log to todo (opens overlay in convert mode) */
   onConvertToTodo?: () => void;
+  /** Called when user wants to save progress and exit early */
+  onClose?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,22 +134,22 @@ function computeCtaInfo(candidate: SweepCandidate): { kind: SweepCtaKind; label:
       // Check if todo has a due date (due_day is canonical)
       const hasDueDate = !!candidate.raw.due_day || !!candidate.raw.due_date;
       if (!hasDueDate) {
-        return { kind: 'todo_add_due_date', label: 'Add due date' };
+        return { kind: 'todo_add_due_date', label: 'Add date' };
       }
-      return { kind: 'todo_adjust_due_date', label: 'Adjust due date' };
+      return { kind: 'todo_adjust_due_date', label: 'Review date' };
     }
 
     case 'habit': {
       // Check if habit has a start_date
       const hasStartDate = !!candidate.raw.start_date;
       if (!hasStartDate) {
-        return { kind: 'habit_add_start_date', label: 'Add start date' };
+        return { kind: 'habit_add_start_date', label: 'Review habit' };
       }
-      return { kind: 'habit_adjust_start_date', label: 'Adjust start date' };
+      return { kind: 'habit_adjust_start_date', label: 'Review habit' };
     }
 
     case 'note': {
-      // Check if it's a journal log - journals have no main CTA
+      // Check if it's a journal log - journals show "Add reminder"
       const subtype = candidate.raw.subtype;
       const canonicalType = candidate.raw.canonical_type;
 
@@ -142,11 +160,11 @@ function computeCtaInfo(candidate: SweepCandidate): { kind: SweepCtaKind; label:
         (canonicalType && canonicalType.includes('journal'));
 
       if (isJournal) {
-        return { kind: 'none', label: '' };
+        return { kind: 'none', label: 'Add reminder' };
       }
 
       // General logs or idea logs can be converted to todo
-      return { kind: 'log_convert_to_todo', label: 'Turn into a to-do' };
+      return { kind: 'log_convert_to_todo', label: 'Convert to to-do' };
     }
 
     default:
@@ -257,7 +275,9 @@ export function SweepCard({
   onClear,
   onSkip,
   onOpenEdit,
+  onPrimaryAction,
   onConvertToTodo,
+  onClose,
 }: SweepCardProps) {
   const repo = useRepo();
   const typeLabel = getTypeChipLabel(candidate);
@@ -265,7 +285,10 @@ export function SweepCard({
   const body = getCandidateBody(candidate);
   const timestamp = formatCreatedTimestamp(candidate.createdAt);
 
-  // Compute CTA kind and label based on candidate type
+  // Compute primary action config from the new centralized helper
+  const primaryConfig = useMemo(() => getPrimaryActionForCandidate(candidate), [candidate]);
+
+  // Legacy CTA kind and label - kept for date picker modal logic
   const { kind: ctaKind, label: ctaLabel } = useMemo(() => computeCtaInfo(candidate), [candidate]);
 
   // Truncate body preview to ~100 chars
@@ -310,6 +333,15 @@ export function SweepCard({
       setSelectedDate(new Date());
     }
   }, [candidate.id, candidate.kind, candidate.raw]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Primary Action Handler
+  // ─────────────────────────────────────────────────────────────────────────
+  const handlePrimaryActionPress = useCallback(() => {
+    if (primaryConfig && onPrimaryAction) {
+      onPrimaryAction(primaryConfig, candidate);
+    }
+  }, [primaryConfig, onPrimaryAction, candidate]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Date Picker Handlers
@@ -435,14 +467,26 @@ export function SweepCard({
     [animateOut],
   );
 
-  // Pan gesture for swiping
+  // Track if card is being dragged for border effect
+  const isDragging = useSharedValue(false);
+  const borderOpacity = useSharedValue(0); // For smooth border fade
+
+  // Pan gesture for swiping - now tracks drag state
   const panGesture = Gesture.Pan()
     .activeOffsetX([-10, 10]) // Only activate for horizontal movement
     .failOffsetY([-15, 15]) // Fail if vertical movement is dominant
+    .onStart(() => {
+      isDragging.value = true;
+      // Fade in border
+      borderOpacity.value = withTiming(1, { duration: 150 });
+    })
     .onUpdate((event) => {
       translateX.value = event.translationX;
     })
     .onEnd((event) => {
+      isDragging.value = false;
+      // Fade out border
+      borderOpacity.value = withTiming(0, { duration: 200 });
       const { translationX, velocityX } = event;
 
       // Check if swipe passes threshold (by position or velocity)
@@ -464,7 +508,98 @@ export function SweepCard({
           stiffness: 150,
         });
       }
+    })
+    .onFinalize(() => {
+      isDragging.value = false;
+      // Ensure border fades out on any gesture end
+      borderOpacity.value = withTiming(0, { duration: 200 });
     });
+
+  // Animated style for the card container border (fades in Moss Green when dragging)
+  const animatedCardContainerStyle = useAnimatedStyle(() => {
+    return {
+      borderColor: BRAND.colors.mossGreen,
+      borderWidth: interpolate(borderOpacity.value, [0, 1], [0, 1], Extrapolation.CLAMP),
+    };
+  });
+
+  // Animated style for left scrim (grey, archive action)
+  const animatedLeftScrimStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, -50, 0],
+      [0.15, 0.08, 0],
+      Extrapolation.CLAMP,
+    );
+    return { opacity };
+  });
+
+  // Animated style for right scrim (sage/moss, keep action)
+  const animatedRightScrimStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [0, 50, SWIPE_THRESHOLD],
+      [0, 0.08, 0.15],
+      Extrapolation.CLAMP,
+    );
+    return { opacity };
+  });
+
+  // Animated style for left edge label ("← Clear")
+  const animatedLeftLabelStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, -50, 0],
+      [1, 0.85, 0.75],
+      Extrapolation.CLAMP,
+    );
+    return { opacity };
+  });
+
+  // Animated style for right edge label ("Keep →")
+  const animatedRightLabelStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [0, 50, SWIPE_THRESHOLD],
+      [0.75, 0.85, 1],
+      Extrapolation.CLAMP,
+    );
+    return { opacity };
+  });
+
+  // Animated style for left icon (archive)
+  const animatedLeftIconStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, -80, 0],
+      [1, 0.6, 0],
+      Extrapolation.CLAMP,
+    );
+    const scale = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, -80, 0],
+      [1, 0.8, 0.5],
+      Extrapolation.CLAMP,
+    );
+    return { opacity, transform: [{ scale }] };
+  });
+
+  // Animated style for right icon (checkmark)
+  const animatedRightIconStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [0, 80, SWIPE_THRESHOLD],
+      [0, 0.6, 1],
+      Extrapolation.CLAMP,
+    );
+    const scale = interpolate(
+      translateX.value,
+      [0, 80, SWIPE_THRESHOLD],
+      [0.5, 0.8, 1],
+      Extrapolation.CLAMP,
+    );
+    return { opacity, transform: [{ scale }] };
+  });
 
   // Animated style for the card
   const animatedCardStyle = useAnimatedStyle(() => {
@@ -480,7 +615,7 @@ export function SweepCard({
     const scale = interpolate(
       Math.abs(translateX.value),
       [0, SWIPE_THRESHOLD],
-      [1, 0.98],
+      [1, 0.97],
       Extrapolation.CLAMP,
     );
 
@@ -488,28 +623,6 @@ export function SweepCard({
       transform: [{ translateX: translateX.value }, { rotate: `${rotate}deg` }, { scale }],
       opacity: cardOpacity.value,
     };
-  });
-
-  // Animated style for left hint background (Clear) - Periwinkle gradient feel
-  const leftHintBackgroundStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD * 1.5, -SWIPE_THRESHOLD * 0.5, 0],
-      [0.95, 0.6, 0],
-      Extrapolation.CLAMP,
-    );
-    return { opacity };
-  });
-
-  // Animated style for right hint background (Keep) - Sage to Moss gradient feel
-  const rightHintBackgroundStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [0, SWIPE_THRESHOLD * 0.5, SWIPE_THRESHOLD * 1.5],
-      [0, 0.6, 0.95],
-      Extrapolation.CLAMP,
-    );
-    return { opacity };
   });
 
   // Button handlers with animation
@@ -547,157 +660,171 @@ export function SweepCard({
 
   return (
     <View style={styles.cardWrapper}>
-      {/* Swipe hint backgrounds (visible during swipe) - Full screen */}
-      <Animated.View
-        style={[styles.swipeHintBackground, styles.swipeHintLeft, leftHintBackgroundStyle]}
-        pointerEvents="none"
-      />
-      <Animated.View
-        style={[styles.swipeHintBackground, styles.swipeHintRight, rightHintBackgroundStyle]}
-        pointerEvents="none"
-      />
+      {/* Left Scrim - Grey (archive/clear action) */}
+      <Animated.View style={[styles.swipeScrimLeft, animatedLeftScrimStyle]} pointerEvents="none">
+        <Animated.View style={[styles.swipeScrimIcon, animatedLeftIconStyle]}>
+          <Archive size={32} color="rgba(80, 80, 80, 0.7)" strokeWidth={1.5} />
+        </Animated.View>
+      </Animated.View>
 
-      {/* Swipeable Full-Screen Area wrapped in GestureDetector */}
-      <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.swipeableArea, animatedCardStyle]}>
-          {/* Content Area - Scrollable */}
-          <ScrollView
-            style={styles.contentScrollView}
-            contentContainerStyle={styles.contentScrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
+      {/* Right Scrim - Sage/Moss (keep action) */}
+      <Animated.View style={[styles.swipeScrimRight, animatedRightScrimStyle]} pointerEvents="none">
+        <Animated.View style={[styles.swipeScrimIcon, animatedRightIconStyle]}>
+          <Check size={32} color={BRAND.colors.mossGreen} strokeWidth={2} />
+        </Animated.View>
+      </Animated.View>
+
+      {/* Swipe Cue Labels - ABOVE the card */}
+      <View style={styles.swipeCueRow} pointerEvents="none">
+        <Animated.View style={animatedLeftLabelStyle}>
+          <Text style={styles.swipeCueText}>← Clear</Text>
+        </Animated.View>
+        <Animated.View style={animatedRightLabelStyle}>
+          <Text style={styles.swipeCueText}>Keep →</Text>
+        </Animated.View>
+      </View>
+
+      {/* Centered Card Container - Swipeable */}
+      <View style={styles.cardCenteringContainer}>
+        <GestureDetector gesture={panGesture}>
+          <Animated.View
+            style={[styles.swipeCardContainer, animatedCardContainerStyle, animatedCardStyle]}
           >
-            {/* Top Spacer - Pushes content down slightly */}
-            <View style={styles.topSpacer} />
+            {/* Gradient Background - Very subtle cream to sage */}
+            <LinearGradient
+              colors={[
+                BRAND.colors.linenCream, // Top: 100% Linen Cream
+                'rgba(191, 216, 192, 0.12)', // Bottom: Sage Mist @ 12% opacity
+              ]}
+              locations={[0, 1]}
+              style={styles.cardGradient}
+            />
 
-            {/* Title Section with Pencil - Hero, left-aligned */}
-            <View style={styles.titleSection}>
-              <View style={styles.titleRow}>
+            {/* Inner Shadow - Top only, creates lifted sheet effect */}
+            <LinearGradient
+              colors={[
+                'rgba(34, 34, 34, 0.08)', // Charcoal Ink @ 8% at top
+                'rgba(34, 34, 34, 0)', // Fade to transparent
+              ]}
+              locations={[0, 1]}
+              style={styles.innerShadowTop}
+              pointerEvents="none"
+            />
+
+            {/* Content Area - Scrollable */}
+            <ScrollView
+              style={styles.contentScrollView}
+              contentContainerStyle={styles.contentScrollContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {/* Edit Icon - Top right corner */}
+              <TouchableOpacity
+                style={styles.cardEditIcon}
+                onPress={onOpenEdit}
+                accessibilityLabel="Edit details"
+                accessibilityRole="button"
+                activeOpacity={0.6}
+              >
+                <Pencil size={16} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+              </TouchableOpacity>
+
+              {/* 1. TITLE - Large, with space for edit icon */}
+              <View style={styles.titleSection}>
                 <Text style={styles.titleText} numberOfLines={4}>
                   {title}
                 </Text>
-                {/* Edit Button - At end of title */}
-                <TouchableOpacity
-                  style={styles.editButton}
-                  onPress={onOpenEdit}
-                  accessibilityLabel="Fix this item"
-                  accessibilityRole="button"
-                  activeOpacity={0.7}
-                >
-                  <Pencil size={14} color={BRAND.colors.mossGreen} />
-                </TouchableOpacity>
-              </View>
 
-              {/* Body Preview - Directly under title, above divider */}
-              {bodyPreview && (
-                <View style={styles.bodySection}>
+                {/* Body Preview - Under title if present */}
+                {bodyPreview && (
                   <Text style={styles.bodyText} numberOfLines={3}>
                     {bodyPreview}
                   </Text>
-                </View>
-              )}
-            </View>
-
-            {/* Bottom Horizontal Line - Shorter, left-aligned */}
-            <View style={styles.titleUnderline} />
-
-            {/* Metadata Row - Type chip and timestamp */}
-            <View style={styles.metadataRow}>
-              <View style={styles.typeChip}>
-                <Text style={styles.typeChipText}>{typeLabel.toUpperCase()}</Text>
+                )}
               </View>
-              <Text style={styles.timestamp}>{timestamp}</Text>
-            </View>
 
-            {/* Spacer - Pushes action center to ~2/3 down the page */}
-            <View style={styles.actionSpacer} />
+              {/* 2. DIVIDER - Left-aligned, subtle */}
+              <View style={styles.dividerContainer}>
+                <View style={styles.cardDivider} />
+              </View>
 
-            {/* Action Center - Date control + Skip grouped together */}
-            <View style={styles.actionCenter}>
-              {/* Combined Date Control - For todos and habits only */}
-              {(ctaKind === 'todo_add_due_date' ||
-                ctaKind === 'todo_adjust_due_date' ||
-                ctaKind === 'habit_add_start_date' ||
-                ctaKind === 'habit_adjust_start_date') && (
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={handleMainCtaPress}
-                  accessibilityLabel={ctaLabel}
-                  accessibilityRole="button"
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.actionButtonLine1}>
-                    <Calendar size={16} color={BRAND.colors.linenCream} />
-                    <Text style={styles.actionButtonText}>
-                      {candidate.kind === 'todo'
-                        ? candidate.raw.due_day || candidate.raw.due_date
-                          ? `Due ${formatDueDay(candidate.raw.due_day || candidate.raw.due_date)}`
-                          : 'Add due date'
-                        : candidate.raw.start_date
-                          ? `Starts ${formatDueDay(candidate.raw.start_date)}`
-                          : 'Add start date'}
-                    </Text>
-                  </View>
-                  <Text style={styles.actionButtonSubtext}>Edit</Text>
-                </TouchableOpacity>
-              )}
+              {/* 3. META ROW - Type and timestamp combined */}
+              <View style={styles.metadataRow}>
+                <Text style={styles.metaLineText}>
+                  {typeLabel.toUpperCase()} · {timestamp}
+                </Text>
+              </View>
 
-              {/* Convert to Todo CTA - Only for logs */}
-              {ctaKind === 'log_convert_to_todo' && (
-                <TouchableOpacity
-                  style={styles.mainCtaButton}
-                  onPress={handleMainCtaPress}
-                  activeOpacity={0.85}
-                  accessibilityLabel={ctaLabel}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.mainCtaText}>{ctaLabel.toUpperCase()}</Text>
-                </TouchableOpacity>
-              )}
+              {/* Spacer - Pushes action block to bottom of card */}
+              <View style={styles.actionSpacer} />
 
-              {/* Skip Button - Two line layout */}
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={onSkip}
-                accessibilityLabel="Skip until next Sweep"
-                accessibilityRole="button"
-                activeOpacity={0.7}
-              >
-                <View style={styles.actionButtonLine1}>
-                  <Clock size={16} color={BRAND.colors.linenCream} />
-                  <Text style={styles.actionButtonText}>Skip</Text>
+              {/* Divider above action row */}
+              <View style={styles.actionDividerContainer}>
+                <View style={styles.actionDivider} />
+              </View>
+
+              {/* 4. PRIMARY ACTION PILL - Based on primaryConfig from centralized helper */}
+              {primaryConfig && (
+                <View style={styles.ctaPillRow}>
+                  <TouchableOpacity
+                    style={styles.primaryPill}
+                    onPress={handlePrimaryActionPress}
+                    accessibilityLabel={primaryConfig.label}
+                    accessibilityRole="button"
+                    activeOpacity={0.7}
+                  >
+                    {primaryConfig.icon === 'calendar' && (
+                      <Calendar size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                    )}
+                    {primaryConfig.icon === 'habit' && (
+                      <Repeat size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                    )}
+                    {primaryConfig.icon === 'todo' && (
+                      <CheckSquare size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                    )}
+                    {primaryConfig.icon === 'journal' && (
+                      <BookOpen size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                    )}
+                    {primaryConfig.icon === 'more' && (
+                      <MoreHorizontal size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                    )}
+                    <Text style={styles.primaryPillText}>{primaryConfig.label}</Text>
+                  </TouchableOpacity>
                 </View>
-                <Text style={styles.actionButtonSubtext}>until next Sweep</Text>
-              </TouchableOpacity>
-            </View>
+              )}
 
-            {/* Bottom spacer for swipe cues */}
-            <View style={styles.bottomSpacer} />
-          </ScrollView>
+              {/* 5. SKIP ACTION - Secondary outlined pill */}
+              <View style={styles.cardActionBlock}>
+                <TouchableOpacity
+                  style={styles.skipPill}
+                  onPress={onSkip}
+                  accessibilityLabel="Skip until next Sweep"
+                  accessibilityRole="button"
+                  activeOpacity={0.6}
+                >
+                  <Clock size={14} color="rgba(46, 85, 64, 0.70)" strokeWidth={1.8} />
+                  <Text style={styles.skipPillText}>Skip</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </Animated.View>
+        </GestureDetector>
+      </View>
 
-          {/* Swipe Cues - Fixed at very bottom */}
-          <View style={styles.swipeCuesContainer}>
-            <View style={styles.swipeCuesRow}>
-              <TouchableOpacity
-                style={styles.swipeCue}
-                onPress={() => handleButtonPress('left', onClear)}
-                accessibilityLabel="Clear this item"
-                accessibilityRole="button"
-              >
-                <Text style={styles.swipeCueText}>← Not needed anymore</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.swipeCue}
-                onPress={() => handleButtonPress('right', onKeep)}
-                accessibilityLabel="Keep this item"
-                accessibilityRole="button"
-              >
-                <Text style={styles.swipeCueText}>Keep for later →</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Animated.View>
-      </GestureDetector>
+      {/* Save & Exit - Single centered text link at bottom */}
+      <View style={styles.saveExitContainer}>
+        {onClose && (
+          <TouchableOpacity
+            style={styles.saveExitButton}
+            onPress={onClose}
+            accessibilityLabel="Save and exit"
+            accessibilityRole="button"
+            activeOpacity={0.6}
+          >
+            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Inline Date Picker Modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">
@@ -881,36 +1008,62 @@ export function SweepCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Styles - Sage-toned Full-Screen Layout
+// Styles - Centered Card Layout
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Card Wrapper - Full screen container
+  // Card Wrapper - Full screen container with cream background
   cardWrapper: {
     flex: 1,
     position: 'relative',
+    backgroundColor: BRAND.colors.linenCream,
   },
 
-  // Swipe Hint Backgrounds - Full screen, visible during swipe
-  swipeHintBackground: {
+  // Card Centering Container - Centers the card horizontally, positioned toward top
+  cardCenteringContainer: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 56,
+    paddingBottom: 8,
+    zIndex: 2,
+  },
+
+  // Swipe Card Container - The actual card that swipes
+  swipeCardContainer: {
+    width: CARD_WIDTH,
+    maxWidth: 400,
+    minHeight: 320,
+    flex: 1,
+    maxHeight: '95%',
+    backgroundColor: BRAND.colors.linenCream, // Base color for gradient fallback
+    borderRadius: 16,
+    overflow: 'hidden',
+    // Soft outer shadow (same as MindDrop cards)
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+
+  // Gradient Background - Fills card, behind content
+  cardGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+  },
+
+  // Inner Shadow - Top only, gradient-based for lifted sheet effect
+  innerShadowTop: {
     position: 'absolute',
     top: 0,
-    bottom: 0,
     left: 0,
     right: 0,
-  },
-  swipeHintLeft: {
-    // Periwinkle tint for clear
-    backgroundColor: 'rgba(156, 166, 224, 0.25)', // Periwinkle @ 25%
-  },
-  swipeHintRight: {
-    // Lighter sage tint for keep
-    backgroundColor: 'rgba(191, 216, 192, 0.35)', // Sage Mist @ 35%
-  },
-
-  // Swipeable Area - Full screen
-  swipeableArea: {
-    flex: 1,
+    height: 10, // 10px blur depth
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    zIndex: 1,
   },
 
   // Content Scroll
@@ -919,49 +1072,42 @@ const styles = StyleSheet.create({
   },
   contentScrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
+    paddingTop: 48,
+    paddingBottom: 40,
+    position: 'relative',
   },
 
-  // Top Spacer - Increased for more breathing room from header
-  topSpacer: {
-    height: 64,
-  },
-
-  // Title Section - Hero with pencil inline at end
-  titleSection: {
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-  },
-  titleText: {
-    flex: 1,
-    fontSize: 26,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    lineHeight: 34,
-    letterSpacing: -0.3,
-  },
-
-  // Edit Button - Smaller pencil, inline with title
-  editButton: {
-    width: 28,
-    height: 28,
+  // Edit Icon - Top right corner of card content
+  cardEditIcon: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: BRAND.radius.sm,
-    backgroundColor: 'rgba(46, 85, 64, 0.1)', // Moss Green @ 10%
-    marginLeft: 8,
-    marginTop: 4,
+    borderRadius: 18,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)', // Sage Mist @ 25%
+    zIndex: 10,
+  },
+
+  // Title Section - Hero, airy vertical rhythm
+  titleSection: {
+    paddingTop: 0,
+    paddingBottom: 8,
+    paddingRight: 44, // Space for edit icon
+  },
+  titleText: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    lineHeight: 32,
+    letterSpacing: -0.3,
+    marginBottom: 12,
   },
 
   // Body Section - Smaller, softer text under title
-  bodySection: {
-    marginTop: 12,
-  },
   bodyText: {
     fontSize: 14,
     fontWeight: '400',
@@ -969,92 +1115,150 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // Title Underline - Shorter, left-aligned
-  titleUnderline: {
-    height: 2,
-    width: '40%',
-    backgroundColor: BRAND.colors.mossGreen,
-    opacity: 0.4,
-    marginBottom: 16,
+  // Divider Container - Left-aligned, tighter rhythm with meta
+  dividerContainer: {
+    alignItems: 'flex-start',
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  cardDivider: {
+    height: 1,
+    width: '50%',
+    backgroundColor: 'rgba(191, 216, 192, 0.6)', // sageMistBorder equiv
   },
 
-  // Metadata Row - Type chip and timestamp
+  // Metadata Row - Type and timestamp combined
   metadataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  // Type Chip - Periwinkle style
-  typeChip: {
-    backgroundColor: 'rgba(130, 130, 200, 0.2)', // Periwinkle @ 20%
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: BRAND.radius.sm,
-  },
-  typeChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(100, 100, 180, 1)', // Periwinkle
-    letterSpacing: 1,
-  },
-  // Timestamp
-  timestamp: {
+  metaLineText: {
     fontSize: 13,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.6)', // Charcoal @ 60%
+    fontWeight: '500',
+    color: 'rgba(34, 34, 34, 0.55)', // Charcoal @ 55%
+    letterSpacing: 0.3,
   },
 
-  // Spacer - Pushes action center to ~2/3 down the page
+  // CTA Pill Row - Context-aware action based on item type
+  ctaPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  ctaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    backgroundColor: 'rgba(191, 216, 192, 0.20)', // Sage Mist @ 20%
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.6)', // Sage Mist border
+    // Slight shadow like mood chips
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  ctaPillText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+
+  // Primary Action Pill - Sage Mist fill, Moss Green text/icon
+  primaryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    backgroundColor: 'rgba(191, 216, 192, 0.35)', // Sage Mist @ 35% - more prominent fill
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.7)', // Sage Mist border
+    // Slight shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  primaryPillText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+
+  // Skip Pill - Outlined, more muted secondary action
+  skipPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.6)', // Sage Mist border
+  },
+  skipPillText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(46, 85, 64, 0.70)', // Moss Green @ 70% - muted
+  },
+
+  // Spacer - Pushes action block to bottom of card
   actionSpacer: {
     flex: 1,
-    minHeight: 80,
+    minHeight: 40,
   },
 
-  // Action Center - Groups date control and skip
-  actionCenter: {
+  // Divider above action row
+  actionDividerContainer: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  actionDivider: {
+    width: '90%',
+    height: 1,
+    backgroundColor: 'rgba(191, 216, 192, 0.5)', // sageMistBorder
+  },
+
+  // Card Action Block - Pill buttons row
+  cardActionBlock: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    marginBottom: 24,
-    paddingHorizontal: 16,
+    paddingBottom: 4,
   },
 
-  // Unified Action Button Style - Darker than bg, cream text, visible shadow
-  actionButton: {
-    flex: 1,
-    maxWidth: 160,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: BRAND.radius.lg,
-    backgroundColor: 'rgba(46, 85, 64, 0.25)', // Moss Green @ 25% - darker than sage bg
-    borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.15)', // Subtle border
-    // Visible shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  actionButtonLine1: {
+  // Action Pill - Small rounded pill button
+  actionPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(191, 216, 192, 0.12)', // Very faint sage
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.5)', // Sage Mist border
   },
-  actionButtonText: {
-    fontSize: 15,
+  actionPillText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: BRAND.colors.linenCream, // Cream text
-  },
-  actionButtonSubtext: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: 'rgba(249, 246, 241, 0.75)', // Linen Cream @ 75%
+    color: BRAND.colors.mossGreen,
   },
 
   // Legacy date control styles (kept for reference)
@@ -1122,29 +1326,64 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
   },
 
-  // Bottom Spacer - Space before swipe cues
-  bottomSpacer: {
-    height: 24,
+  // Swipe Scrims - Behind the card, fade in during drag
+  swipeScrimLeft: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(100, 100, 100, 1)', // Grey
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
+  },
+  swipeScrimRight: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(191, 216, 192, 1)', // Sage Mist
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
+  },
+  swipeScrimIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
-  // Swipe Cues Container - Fixed at bottom
-  swipeCuesContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 28,
-    paddingTop: 8,
-  },
-  swipeCuesRow: {
+  // Swipe Cue Row - Above the card, aligned with card edges
+  swipeCueRow: {
+    position: 'absolute',
+    top: 16,
+    left: 32,
+    right: 32,
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  swipeCue: {
-    paddingVertical: 8,
+    zIndex: 3,
   },
   swipeCueText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: BRAND.colors.linenCream, // Full cream for visibility
-    letterSpacing: 0.3,
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(34, 34, 34, 0.70)', // Charcoal Ink @ 70%
+    letterSpacing: 0.2,
+  },
+
+  // Save & Exit Container - Single centered text link
+  saveExitContainer: {
+    paddingHorizontal: 24,
+    paddingBottom: 28,
+    paddingTop: 16,
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.linenCream,
+  },
+  saveExitButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  saveExitText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(34, 34, 34, 0.65)', // charcoalInk @ 65%
+    letterSpacing: 0.1,
   },
 
   // Date Modal Styles - Keep light themed

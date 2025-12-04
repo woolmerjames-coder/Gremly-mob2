@@ -111,7 +111,7 @@ const mockNavigation = {
 async function navigateToDecisionStep(result: ReturnType<typeof render>) {
   // Step 0: Mood - skip to step 1
   await waitFor(() => {
-    result.getByText('How are you feeling?');
+    result.getByText('How did today feel?');
   });
   fireEvent.press(result.getByText('Skip for now'));
 

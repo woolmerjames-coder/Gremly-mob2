@@ -82,7 +82,7 @@ describe('SweepFlowScreen - Mood Step', () => {
   it('renders the mood step title', () => {
     const { getByText } = render(<SweepFlowScreen />);
 
-    expect(getByText('How are you feeling?')).toBeTruthy();
+    expect(getByText('How did today feel?')).toBeTruthy();
   });
 
   it('renders the Continue button', () => {
@@ -124,7 +124,7 @@ describe('SweepFlowScreen - Mood Step', () => {
     });
 
     // Mood step title should no longer be visible
-    expect(queryByText('How are you feeling?')).toBeNull();
+    expect(queryByText('How did today feel?')).toBeNull();
   });
 
   it('advances to wrap up step when pressing Skip for now with no input', async () => {
@@ -139,7 +139,7 @@ describe('SweepFlowScreen - Mood Step', () => {
     });
 
     // Mood step title should no longer be visible
-    expect(queryByText('How are you feeling?')).toBeNull();
+    expect(queryByText('How did today feel?')).toBeNull();
   });
 
   it('advances to wrap up step when pressing Continue with text entered', async () => {
@@ -158,7 +158,7 @@ describe('SweepFlowScreen - Mood Step', () => {
     });
 
     // Mood step title should no longer be visible
-    expect(queryByText('How are you feeling?')).toBeNull();
+    expect(queryByText('How did today feel?')).toBeNull();
   });
 
   it('renders the journal input placeholder', () => {

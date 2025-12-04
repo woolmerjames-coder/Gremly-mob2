@@ -9,17 +9,18 @@
  * - Step 3: Summary/celebration
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   ActivityIndicator,
   Pressable,
+  Animated,
+  TouchableOpacity,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,12 +38,17 @@ import {
   applySweepAction,
   markSweepCompleted,
 } from '../../lib/sweep/engine';
-import type { SweepCandidate } from '../../lib/sweep/types';
+import type { SweepCandidate, SweepPrimaryActionConfig } from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
-import { emitOverlaySaved, type OverlaySavedPayload } from '../../lib/events/overlaySaved';
+import {
+  emitOverlaySaved,
+  addOverlaySavedListener,
+  type OverlaySavedPayload,
+} from '../../lib/events/overlaySaved';
+import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 import type { AppRecord } from '../../lib/types';
 
@@ -62,14 +68,14 @@ interface StepProps {
 // Mood value type - aligned with existing journal log moods
 type MoodValue = 'happy' | 'neutral' | 'sad' | 'ecstatic' | 'low' | 'tired';
 
-// Mood options for Sweep check-in (brand-style chips, no emojis)
-const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string }> = [
-  { value: 'ecstatic', label: 'Great' },
-  { value: 'happy', label: 'Good' },
-  { value: 'neutral', label: 'Okay' },
-  { value: 'low', label: 'Low' },
-  { value: 'tired', label: 'Tired' },
-  { value: 'sad', label: 'Rough' },
+// Mood options for Sweep check-in (brand-style chips with icons)
+const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string }> = [
+  { value: 'ecstatic', label: 'Great', icon: 'Sun' },
+  { value: 'happy', label: 'Good', icon: 'CheckCircle2' },
+  { value: 'neutral', label: 'Okay', icon: 'Minus' },
+  { value: 'low', label: 'Low', icon: 'TrendingDown' },
+  { value: 'tired', label: 'Tired', icon: 'Moon' },
+  { value: 'sad', label: 'Rough', icon: 'Cloud' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,44 +157,48 @@ function SweepMoodStep({ onContinue }: StepProps) {
         {/* Header Section */}
         <View style={styles.moodHeaderSection}>
           <Text variant="title" style={styles.moodStepTitle}>
-            How are you feeling?
+            How did today feel?
           </Text>
           <Text style={styles.moodStepSubcopy}>
-            A quick check-in helps you understand your day a little better.
+            A quick check-in helps Gremly match your plan to your mood.
           </Text>
         </View>
-
-        {/* Divider */}
-        <View style={styles.moodDivider} />
 
         {/* Mood Selector - Centered 2x3 Grid */}
         <View style={styles.moodGridContainer}>
           <View style={styles.moodGrid}>
-            {SWEEP_MOOD_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  styles.moodButton,
-                  selectedMood === option.value && styles.moodButtonSelected,
-                ]}
-                onPress={() => setSelectedMood(option.value)}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.moodButtonLabel,
-                    selectedMood === option.value && styles.moodButtonLabelSelected,
+            {SWEEP_MOOD_OPTIONS.map((option) => {
+              const isSelected = selectedMood === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  style={({ pressed }) => [
+                    styles.moodButton,
+                    isSelected && styles.moodButtonSelected,
+                    pressed && styles.moodButtonPressed,
                   ]}
+                  onPress={() => setSelectedMood(option.value)}
                 >
-                  {option.label.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Icon
+                    name={option.icon as any}
+                    size="xs"
+                    color={BRAND.colors.mossGreen}
+                    strokeWidth={1.8}
+                  />
+                  <Text
+                    style={[styles.moodButtonLabel, isSelected && styles.moodButtonLabelSelected]}
+                  >
+                    {option.label.toUpperCase()}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
         {/* Journal Input */}
         <View style={styles.moodJournalContainer}>
+          <Text style={styles.moodJournalLabel}>Want to jot anything down?</Text>
           <TextInput
             style={styles.moodJournalInput}
             placeholder="Today felt like…"
@@ -203,12 +213,19 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
       {/* Action Buttons */}
       <View style={styles.moodButtonContainer}>
-        <Button
-          title={isSaving ? 'Saving...' : 'Continue'}
-          variant="primary"
+        <TouchableOpacity
+          style={[styles.moodContinueButton, isSaving && styles.moodContinueButtonDisabled]}
           onPress={handleContinue}
           disabled={isSaving}
-        />
+          activeOpacity={0.8}
+        >
+          <View style={styles.moodContinueButtonContent}>
+            <Text style={styles.moodContinueButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
+            {!isSaving && (
+              <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            )}
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.moodSkipButton} onPress={handleSkip} disabled={isSaving}>
           <Text style={styles.moodSkipButtonText}>Skip for now</Text>
         </TouchableOpacity>
@@ -345,15 +362,31 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           <Text variant="title" style={styles.wrapUpStepTitle}>
             Wrap up today
           </Text>
-          <Text style={styles.wrapUpStepSubcopy}>Let's close out your day before we Sweep.</Text>
+          <Text style={styles.wrapUpStepSubcopy}>
+            Let's close out what you planned for today before we Sweep.
+          </Text>
         </View>
-        <View style={styles.wrapUpDivider} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
         </View>
       </View>
     );
   }
+
+  // Calculate remaining open items
+  const openHabitsCount = habits.length;
+  const openTodosCount = todos.length + overdue.length;
+  const totalOpenCount = openHabitsCount + openTodosCount;
+
+  // Build open items message
+  const getOpenItemsMessage = () => {
+    if (totalOpenCount === 0) return null;
+    const parts = [];
+    if (openHabitsCount > 0)
+      parts.push(`${openHabitsCount} habit${openHabitsCount !== 1 ? 's' : ''}`);
+    if (openTodosCount > 0) parts.push(`${openTodosCount} to-do${openTodosCount !== 1 ? 's' : ''}`);
+    return `${parts.join(' and ')} still open.`;
+  };
 
   return (
     <View style={styles.wrapUpStepContainer}>
@@ -367,11 +400,16 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           <Text variant="title" style={styles.wrapUpStepTitle}>
             Wrap up today
           </Text>
-          <Text style={styles.wrapUpStepSubcopy}>Let's close out your day before we Sweep.</Text>
+          <Text style={styles.wrapUpStepSubcopy}>
+            Let's close out what you planned for today before we Sweep.
+          </Text>
+          {/* Progress Summary */}
+          {completedCount > 0 && (
+            <Text style={styles.wrapUpProgressSummary}>
+              So far: {completedCount} {completedCount === 1 ? 'item' : 'items'} completed.
+            </Text>
+          )}
         </View>
-
-        {/* Divider */}
-        <View style={styles.wrapUpDivider} />
 
         {isEmpty ? (
           <View style={styles.wrapUpEmptyContainer}>
@@ -512,7 +550,23 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
 
       {/* Action Button */}
       <View style={styles.wrapUpButtonContainer}>
-        <Button title="Start Sweep" variant="primary" onPress={onContinue} />
+        {/* Open items reminder */}
+        {totalOpenCount > 0 && (
+          <Text style={styles.wrapUpOpenItemsReminder}>{getOpenItemsMessage()}</Text>
+        )}
+        {totalOpenCount === 0 && !isEmpty && (
+          <Text style={styles.wrapUpOpenItemsReminder}>All set! Everything is checked off.</Text>
+        )}
+        <TouchableOpacity
+          style={styles.wrapUpContinueButton}
+          onPress={onContinue}
+          activeOpacity={0.8}
+        >
+          <View style={styles.wrapUpContinueButtonContent}>
+            <Text style={styles.wrapUpContinueButtonText}>Start Sweep</Text>
+            <Icon name="ArrowRight" size="sm" color="#FFFFFF" strokeWidth={2.5} />
+          </View>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -551,6 +605,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0, skipped: 0 });
 
+  // Track the candidate ID currently being edited (for detecting overlay saves)
+  const editingCandidateIdRef = useRef<string | null>(null);
+
+  // Animated progress bar width - use useMemo to avoid ref access during render
+  const progressWidth = useMemo(() => new Animated.Value(0), []);
+
   // Fetch candidates on mount
   useEffect(() => {
     let cancelled = false;
@@ -583,58 +643,159 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     };
   }, [userId]);
 
-  // Handlers for card actions
-  const handleKeep = useCallback(async () => {
-    const candidate = candidates[currentIndex];
-    if (!candidate) return;
+  // Animate progress bar when currentIndex or candidates.length changes
+  useEffect(() => {
+    if (candidates.length === 0) return;
+    // Progress: (currentIndex + 1) / total - shows completion of current item
+    const progress = (currentIndex + 1) / candidates.length;
+    const maxBarWidth = 52; // 52px max width
+    const targetWidth = progress * maxBarWidth;
 
-    try {
-      // Apply keep action
-      await applySweepAction({ type: 'keep', id: candidate.id, kind: candidate.kind }, supabase);
-      setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
-    } catch (error) {
-      console.error('[SweepDecisionStep] handleKeep error:', error);
-    }
+    Animated.timing(progressWidth, {
+      toValue: targetWidth,
+      duration: 300,
+      useNativeDriver: false, // width animation requires JS driver
+    }).start();
+  }, [currentIndex, candidates.length, progressWidth]);
 
-    // Move to next card (completion screen shows when currentIndex >= candidates.length)
-    setCurrentIndex((prev) => prev + 1);
-  }, [candidates, currentIndex]);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Unified Outcome Handler
+  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * Centralized handler for all sweep card outcomes.
+   * Any meaningful action advances the card; "peek and close" stays.
+   */
+  type SweepOutcome = 'keep' | 'clear' | 'skip' | 'changed' | 'stay';
 
-  const handleClear = useCallback(async () => {
-    const candidate = candidates[currentIndex];
-    if (!candidate) return;
+  // Store handleOutcome in a ref so the effect can access the latest version
+  const handleOutcomeRef = useRef<(outcome: SweepOutcome) => void>(() => {});
 
-    try {
-      // Apply clear action
-      await applySweepAction({ type: 'clear', id: candidate.id, kind: candidate.kind }, supabase);
-      setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
-    } catch (error) {
-      console.error('[SweepDecisionStep] handleClear error:', error);
-    }
+  const handleOutcome = useCallback(
+    async (outcome: SweepOutcome) => {
+      const candidate = candidates[currentIndex];
+      if (!candidate) return;
 
-    // Move to next card (completion screen shows when currentIndex >= candidates.length)
-    setCurrentIndex((prev) => prev + 1);
-  }, [candidates, currentIndex]);
+      switch (outcome) {
+        case 'keep': {
+          try {
+            await applySweepAction(
+              { type: 'keep', id: candidate.id, kind: candidate.kind },
+              supabase,
+            );
+            setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
+          } catch (error) {
+            console.error('[SweepDecisionStep] handleOutcome keep error:', error);
+          }
+          setCurrentIndex((prev) => prev + 1);
+          break;
+        }
 
-  const handleSkip = useCallback(async () => {
-    const candidate = candidates[currentIndex];
-    if (!candidate) return;
+        case 'clear': {
+          try {
+            await applySweepAction(
+              { type: 'clear', id: candidate.id, kind: candidate.kind },
+              supabase,
+            );
+            setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
+          } catch (error) {
+            console.error('[SweepDecisionStep] handleOutcome clear error:', error);
+          }
+          setCurrentIndex((prev) => prev + 1);
+          break;
+        }
 
-    try {
-      // Apply skip action
-      await applySweepAction({ type: 'skip', id: candidate.id, kind: candidate.kind }, supabase);
-      setStats((prev) => ({ ...prev, skipped: prev.skipped + 1 }));
-    } catch (error) {
-      console.error('[SweepDecisionStep] handleSkip error:', error);
-    }
+        case 'skip': {
+          try {
+            await applySweepAction(
+              { type: 'skip', id: candidate.id, kind: candidate.kind },
+              supabase,
+            );
+            setStats((prev) => ({ ...prev, skipped: prev.skipped + 1 }));
+          } catch (error) {
+            console.error('[SweepDecisionStep] handleOutcome skip error:', error);
+          }
+          setCurrentIndex((prev) => prev + 1);
+          break;
+        }
 
-    // Move to next card (completion screen shows when currentIndex >= candidates.length)
-    setCurrentIndex((prev) => prev + 1);
-  }, [candidates, currentIndex]);
+        case 'changed': {
+          // User made a meaningful change (via primary action or edit overlay)
+          // Treat as "kept but changed" - count as kept and advance
+          try {
+            await applySweepAction(
+              { type: 'keep', id: candidate.id, kind: candidate.kind },
+              supabase,
+            );
+            setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
+          } catch (error) {
+            console.error('[SweepDecisionStep] handleOutcome changed error:', error);
+          }
+          setCurrentIndex((prev) => prev + 1);
+          break;
+        }
+
+        case 'stay':
+          // Do nothing - keep current card visible
+          return;
+      }
+    },
+    [candidates, currentIndex],
+  );
+
+  // Keep the ref updated with the latest handleOutcome
+  useEffect(() => {
+    handleOutcomeRef.current = handleOutcome;
+  }, [handleOutcome]);
+
+  // Listen for overlay save events to detect "changed" outcomes from edit/primary actions
+  useEffect(() => {
+    const unsubscribeSaved = addOverlaySavedListener((payload) => {
+      // Check if the saved item matches the candidate we're currently editing
+      const editingId = editingCandidateIdRef.current;
+      if (editingId && payload.id === editingId) {
+        // Clear the editing ref and advance the card
+        editingCandidateIdRef.current = null;
+        handleOutcomeRef.current('changed');
+      }
+    });
+
+    // Listen for overlay close events (cancel without save)
+    const unsubscribeClosed = addOverlayClosedListener((payload) => {
+      // If user cancelled editing the current candidate, just clear the ref (don't advance)
+      const editingId = editingCandidateIdRef.current;
+      if (editingId && payload.editingId === editingId && !payload.didSave) {
+        // Clear the editing ref but DON'T advance - this is "peek and close"
+        editingCandidateIdRef.current = null;
+      }
+    });
+
+    return () => {
+      unsubscribeSaved();
+      unsubscribeClosed();
+    };
+  }, []); // Empty deps - uses refs to avoid re-subscribing
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Card Action Handlers (wired to unified outcome handler)
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleKeep = useCallback(() => {
+    handleOutcome('keep');
+  }, [handleOutcome]);
+
+  const handleClear = useCallback(() => {
+    handleOutcome('clear');
+  }, [handleOutcome]);
+
+  const handleSkip = useCallback(() => {
+    handleOutcome('skip');
+  }, [handleOutcome]);
 
   const handleOpenEdit = useCallback(async () => {
     const candidate = candidates[currentIndex];
     if (!candidate) return;
+
+    // Track which candidate is being edited so we can detect saves
+    editingCandidateIdRef.current = candidate.id;
 
     try {
       // Fetch the full record from DB to ensure all fields are available
@@ -700,6 +861,103 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     }
   }, [candidates, currentIndex, repo, overlayController]);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Primary Action Handler
+  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * Handle primary action button press based on action type.
+   * Opens the appropriate overlay/picker and returns whether to advance.
+   *
+   * @returns 'advance' if meaningful change was saved, 'stay' if cancelled
+   */
+  const handlePrimaryAction = useCallback(
+    async (
+      config: SweepPrimaryActionConfig,
+      candidate: SweepCandidate,
+    ): Promise<'advance' | 'stay'> => {
+      try {
+        // Fetch the full record from DB to ensure all fields are available
+        const fullRecord = await repo.getById(candidate.id);
+        const record = fullRecord || { ...candidate.raw, type: candidate.kind };
+
+        switch (config.type) {
+          case 'todo_add_due_date':
+          case 'todo_review_due_date': {
+            // Track this candidate for overlay save detection
+            editingCandidateIdRef.current = candidate.id;
+            // Open the todo in edit mode - the overlay has date picker functionality
+            // The user can set/change the due date there
+            if (fullRecord && fullRecord.type === 'todo') {
+              overlayController.openEdit({ record: fullRecord as AppRecord });
+            } else {
+              const fallbackRecord = { ...candidate.raw, type: 'todo' } as AppRecord;
+              overlayController.openEdit({ record: fallbackRecord });
+            }
+            // Return 'stay' - the overlay save listener will advance on save
+            return 'stay';
+          }
+
+          case 'habit_review_plan': {
+            // Track this candidate for overlay save detection
+            editingCandidateIdRef.current = candidate.id;
+            // Open the habit in edit mode - allows reviewing frequency, reminders, etc.
+            if (fullRecord && fullRecord.type === 'habit') {
+              overlayController.openEdit({ record: fullRecord as AppRecord });
+            } else {
+              const fallbackRecord = { ...candidate.raw, type: 'habit' } as AppRecord;
+              overlayController.openEdit({ record: fallbackRecord });
+            }
+            return 'stay';
+          }
+
+          case 'log_idea_to_todo': {
+            // For conversion, we don't auto-advance since we're creating a new item
+            // The user should explicitly swipe/keep after conversion
+            overlayController.openCreate({
+              type: 'todo',
+              // Note: conversionMeta isn't supported in the current type,
+              // so we use the standard create flow. The user will manually
+              // copy the content if needed, or we can enhance the overlay later.
+            });
+            return 'stay';
+          }
+
+          case 'log_journal_followup': {
+            // For journal follow-up, we're creating a new entry
+            // The user should explicitly keep/clear the original after
+            overlayController.openCreate({
+              type: 'log',
+              logSubtype: 'journal',
+            });
+            return 'stay';
+          }
+
+          case 'log_general_decide': {
+            // Track this candidate for overlay save detection
+            editingCandidateIdRef.current = candidate.id;
+            // Open the full edit overlay for the log
+            // User can convert to todo/habit, add tags, reminders, etc.
+            if (fullRecord && fullRecord.type === 'note') {
+              overlayController.openEdit({ record: fullRecord as AppRecord });
+            } else {
+              const fallbackRecord = { ...candidate.raw, type: 'note' } as AppRecord;
+              overlayController.openEdit({ record: fallbackRecord });
+            }
+            return 'stay';
+          }
+
+          default:
+            console.warn('[SweepDecisionStep] Unknown primary action type:', config.type);
+            return 'stay';
+        }
+      } catch (error) {
+        console.error('[SweepDecisionStep] handlePrimaryAction error:', error);
+        return 'stay';
+      }
+    },
+    [repo, overlayController],
+  );
+
   // Loading state
   if (isLoading) {
     return (
@@ -762,22 +1020,39 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   return (
     <View style={styles.decisionStepContainer}>
-      {/* Decision Step Header - Single line with close button */}
+      {/* Decision Step Header - Counter left, pill + close right */}
       <View style={styles.decisionHeader}>
-        <Text style={styles.decisionHeaderTitle}>
-          Reviewing captured items: {currentIndex + 1}/{candidates.length}
-        </Text>
-        {onClose && (
-          <TouchableOpacity
-            style={styles.decisionCloseButton}
-            onPress={onClose}
-            activeOpacity={0.7}
-            accessibilityLabel="Close Sweep"
-            accessibilityRole="button"
-          >
-            <Icon name="X" size="sm" color={BRAND.colors.mossGreen} />
-          </TouchableOpacity>
-        )}
+        {/* Left - Item counter with progress bar */}
+        <View style={styles.decisionHeaderLeft}>
+          <Text style={styles.decisionHeaderCounter}>
+            {currentIndex + 1} of {candidates.length} items
+          </Text>
+          {/* Progress underline - Golden Pear */}
+          <View style={styles.progressBarContainer}>
+            {/* Base rail - low opacity sage */}
+            <View style={styles.progressBarRail} />
+            {/* Animated fill - Golden Pear */}
+            <Animated.View style={[styles.progressBarFill, { width: progressWidth }]} />
+          </View>
+        </View>
+
+        {/* Right - Today's Sweep pill + X icon */}
+        <View style={styles.decisionHeaderRight}>
+          <View style={styles.decisionContextPill}>
+            <Text style={styles.decisionContextPillText}>Today's Sweep</Text>
+          </View>
+          {onClose && (
+            <TouchableOpacity
+              style={styles.decisionCloseButton}
+              onPress={onClose}
+              activeOpacity={0.7}
+              accessibilityLabel="Close Sweep"
+              accessibilityRole="button"
+            >
+              <Icon name="X" size="sm" color={BRAND.colors.mossGreen} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Full-screen Card Area */}
@@ -790,7 +1065,13 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onClear={handleClear}
           onSkip={handleSkip}
           onOpenEdit={handleOpenEdit}
+          onPrimaryAction={async (config, cand) => {
+            // Open the appropriate overlay - save detection is handled
+            // by the overlay save listener which will call handleOutcome('changed')
+            await handlePrimaryAction(config, cand);
+          }}
           onConvertToTodo={handleConvertToTodo}
+          onClose={onClose}
         />
       </View>
     </View>
@@ -932,8 +1213,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   const handleOverlayClose = useCallback(() => {
     if (!overlayVisible) return;
+    // Emit close event so SweepDecisionStep knows user cancelled (didn't save)
+    const editingId = overlayInitialEntity?.id;
+    emitOverlayClosed({
+      mode: overlayMode,
+      editingId,
+      didSave: false,
+    });
     overlayClose();
-  }, [overlayClose, overlayVisible]);
+  }, [overlayClose, overlayVisible, overlayMode, overlayInitialEntity]);
 
   const handleOverlaySaved = useCallback(
     async (result: OverlaySavedPayload) => {
@@ -985,6 +1273,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     navigation.goBack();
   }, [navigation]);
 
+  // Handler for back chevron - goes to previous step or closes if on first step
+  const handleGoBack = useCallback(() => {
+    if (step > 0) {
+      setStep(step - 1);
+    } else {
+      navigation.goBack();
+    }
+  }, [step, navigation]);
+
   return (
     <>
       <Screen
@@ -996,13 +1293,24 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         {step !== 2 ? (
           /* Standard Header for Mood, Wrap-up, Summary steps */
           <View style={styles.header}>
-            {/* Left spacer for symmetry */}
-            <View style={styles.headerLeft} />
+            {/* Left - back chevron */}
+            <TouchableOpacity
+              style={styles.headerBackButton}
+              onPress={handleGoBack}
+              activeOpacity={0.7}
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+            >
+              <Icon name="ChevronLeft" size="md" color={BRAND.colors.charcoalInk} strokeWidth={2} />
+            </TouchableOpacity>
 
-            {/* Center title */}
-            <Text variant="title" style={styles.headerTitle}>
-              Sweep
-            </Text>
+            {/* Center - subtle title */}
+            <View style={styles.headerCenter}>
+              <View style={styles.headerModeIndicator}>
+                <Icon name="Sparkles" size="xs" color="rgba(46, 85, 64, 0.50)" strokeWidth={1.5} />
+                <Text style={styles.headerModeLabel}>Sweep</Text>
+              </View>
+            </View>
 
             {/* Right close button */}
             <TouchableOpacity
@@ -1012,7 +1320,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               accessibilityLabel="Close Sweep"
               accessibilityRole="button"
             >
-              <Icon name="X" size="md" color={BRAND.colors.charcoalInk} />
+              <Icon name="X" size="sm" color={BRAND.colors.charcoalInk} strokeWidth={2} />
             </TouchableOpacity>
           </View>
         ) : null}
@@ -1073,20 +1381,41 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   screenBackgroundDecision: {
-    backgroundColor: BRAND.colors.sageMist,
+    backgroundColor: BRAND.colors.linenCream, // Cream background, card has sage
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: BRAND.colors.linenCream,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
+    // No shadow, no border - pure Linen Cream
+  },
+  headerBackButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerLeft: {
-    width: 40,
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  headerModeIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerModeLabel: {
+    fontSize: 14,
+    fontWeight: '400', // Regular, not bold
+    color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75% opacity
+    letterSpacing: 0.2,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
   },
   headerTitle: {
     flex: 1,
@@ -1125,7 +1454,7 @@ const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────────────────
   moodStepContainer: {
     flex: 1,
-    paddingTop: 28,
+    paddingTop: 28, // More space between nav and header
     backgroundColor: BRAND.colors.linenCream,
   },
   scrollContainer: {
@@ -1136,95 +1465,110 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   moodHeaderSection: {
-    marginBottom: 20,
+    marginBottom: 12, // Reduced by 4-6px from 18 for tighter to chips
     paddingHorizontal: 12,
   },
   moodStepTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 20, // Reduced one more notch (Today greeting minus 1pt)
+    fontWeight: '600', // Semibold
     color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
+    marginBottom: 12, // Increased by 8px for header-subheader gap
     letterSpacing: -0.3,
   },
   moodStepSubcopy: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.85)', // Charcoal at 85%
-    lineHeight: 24,
+    fontSize: 13, // 1-2pt smaller
+    fontWeight: '400', // Regular
+    color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75%
+    lineHeight: 19, // Slightly relaxed
   },
   moodDivider: {
+    // Kept for potential future use but not rendered
     height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
+    backgroundColor: 'rgba(191, 216, 192, 0.35)',
     marginHorizontal: 12,
+    marginTop: 16,
     marginBottom: 28,
   },
-  // Mood Grid - Centered 2x3 layout
+  // Mood Grid - Centered 2x3 layout (Group 2)
   moodGridContainer: {
     alignItems: 'center',
-    marginBottom: 32,
-    paddingHorizontal: 12,
+    marginBottom: 40, // More space before journal section
+    paddingHorizontal: 16,
   },
   moodGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
+    alignItems: 'center',
     width: '100%',
-    maxWidth: 340,
-    gap: 12,
-    rowGap: 24,
+    maxWidth: 280, // Tighter for 2-col layout
+    gap: 10, // Horizontal gap
+    rowGap: 6, // Reduced by 4px for compact chip block
   },
-  // Mood Button - Gremly Brand Style
+  // Mood Button - Gremly Brand Style with icons
   moodButton: {
-    width: 100,
-    height: 52,
+    width: 130, // Fixed width for 2-col grid
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: BRAND.radius.md,
-    backgroundColor: 'rgba(191, 216, 192, 0.30)', // Sage Mist @ 30%
-    borderWidth: 1.5,
-    borderColor: 'rgba(156, 166, 224, 0.40)', // Periwinkle @ 40%
-    // Soft shadow like "Add to Today" pill
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: BRAND.radius.lg, // 14px - design token for chips
+    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Lighter Sage Mist for unselected
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.40)', // Light Sage border for unselected
+    // Soft shadow
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
   },
   moodButtonSelected: {
-    backgroundColor: BRAND.colors.sageMist, // Full Sage Mist
-    borderColor: BRAND.colors.mossGreen, // Moss Green border
-    borderWidth: 2,
-    shadowOpacity: 0.1,
+    backgroundColor: 'rgba(191, 216, 192, 0.50)', // Stronger Sage Mist for selected
+    borderColor: BRAND.colors.mossGreen, // Full Moss Green border
+    borderWidth: 1.5,
+    shadowOpacity: 0.06,
+  },
+  moodButtonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
   moodButtonLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    letterSpacing: 1.2,
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk, // Charcoal for unselected
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
   moodButtonLabelSelected: {
-    color: BRAND.colors.mossGreen,
-    fontWeight: '700',
+    color: BRAND.colors.mossGreen, // Full Moss Green for selected
+    fontWeight: '600',
   },
-  // Journal Input - Gremly Brand Style
+  // Journal Input - Gremly Brand Style (Group 3)
   moodJournalContainer: {
-    minHeight: 150,
-    marginBottom: 20,
+    marginTop: 0, // Group 2 marginBottom handles gap
+    marginBottom: 18, // Reduced by 10px from 28
     marginHorizontal: 12,
   },
+  moodJournalLabel: {
+    fontSize: 15,
+    fontWeight: '500', // Medium weight
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 12,
+  },
   moodJournalInput: {
-    flex: 1,
     backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 2,
-    borderColor: BRAND.colors.sageMist,
-    padding: 20,
+    borderRadius: BRAND.radius.lg, // 14px - design token
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.30)', // Sage Mist @ 30%
+    padding: 16,
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
-    minHeight: 150,
-    lineHeight: 26,
-    // Soft shadow
+    minHeight: 120,
+    lineHeight: 24,
+    // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -1232,52 +1576,88 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   moodButtonContainer: {
-    paddingTop: 16,
+    paddingTop: 0, // Group 3 marginBottom handles gap
     paddingBottom: 16,
     paddingHorizontal: 12,
-    gap: 12,
+    gap: 8, // Tight within Group 4
     backgroundColor: BRAND.colors.linenCream,
+  },
+  // Continue Button - CTA style with arrow
+  moodContinueButton: {
+    backgroundColor: BRAND.colors.sageMist, // Solid Sage Mist fill
+    borderWidth: 0, // No border
+    borderRadius: BRAND.radius.xl, // 18px - design token for buttons
+    height: 54, // 52-56px height (chips are ~44px)
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Soft CTA shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, // 10-15% opacity
+    shadowRadius: 10, // 8-10px blur
+    elevation: 3,
+  },
+  moodContinueButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  moodContinueButtonDisabled: {
+    opacity: 0.6,
+  },
+  moodContinueButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   moodSkipButton: {
     alignItems: 'center',
-    paddingVertical: 14,
-    marginTop: 4,
+    paddingVertical: 12,
+    marginTop: 4, // Added 4-6px spacing from Continue
   },
   moodSkipButtonText: {
-    color: BRAND.colors.inkSubtle,
+    color: 'rgba(34, 34, 34, 0.60)', // Charcoal at 60-70% - clearly secondary
     fontSize: 15,
     fontWeight: '500',
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepWrapUpStep styles - Gremly Brand Reskin
+  // SweepWrapUpStep styles - Gremly Brand Reskin (matched to Mood step)
   // ─────────────────────────────────────────────────────────────────────────
   wrapUpStepContainer: {
     flex: 1,
-    paddingTop: 28,
+    paddingTop: 28, // Match mood step top padding
     backgroundColor: BRAND.colors.linenCream,
   },
   wrapUpScrollContent: {
-    paddingBottom: 32,
+    paddingBottom: 48, // Generous bottom spacing
     paddingHorizontal: 4,
   },
   wrapUpHeaderSection: {
-    marginBottom: 20,
+    marginBottom: 24, // Gap to first section header
     paddingHorizontal: 12,
   },
   wrapUpStepTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 20, // Match mood step header size
+    fontWeight: '600', // Semibold to match mood step
     color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
+    marginBottom: 12, // Space to subheader
     letterSpacing: -0.3,
   },
   wrapUpStepSubcopy: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.85)', // Charcoal at 85%
-    lineHeight: 24,
+    fontSize: 13, // Match mood step subcopy
+    fontWeight: '400', // Regular
+    color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75%
+    lineHeight: 19,
+    marginBottom: 16, // Gap to progress summary
+  },
+  wrapUpProgressSummary: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: 'rgba(34, 34, 34, 0.65)', // Charcoal at 65%
+    lineHeight: 16,
   },
   wrapUpDivider: {
+    // Kept but not rendered - airy design
     height: 1,
     backgroundColor: BRAND.colors.borderSubtle,
     marginHorizontal: 12,
@@ -1303,50 +1683,43 @@ const styles = StyleSheet.create({
     color: 'rgba(34, 34, 34, 0.7)',
   },
   wrapUpSection: {
-    marginBottom: 28,
+    marginBottom: 24,
     paddingHorizontal: 12,
   },
   wrapUpSectionHeader: {
-    marginBottom: 14,
+    marginBottom: 12,
   },
   wrapUpSectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: BRAND.colors.inkSubtle,
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(46, 85, 64, 0.80)', // Moss Green at 80%
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 6,
+    letterSpacing: 1.2,
+    marginBottom: 8,
   },
   wrapUpSectionAccent: {
-    width: 40,
-    height: 3,
-    backgroundColor: BRAND.colors.periwinkleSmoke, // Periwinkle accent
-    borderRadius: 2,
+    height: 1,
+    backgroundColor: 'rgba(191, 216, 192, 0.50)', // Sage Mist @ 50%
   },
   wrapUpItemsList: {
-    backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
-    overflow: 'hidden',
-    // Soft shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    gap: 12, // Generous spacing between cards
   },
   wrapUpItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(191, 216, 192, 0.15)', // Sage Mist wash @ 15%
+    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Sage Mist @ 18% (match mood chips)
+    borderRadius: BRAND.radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.40)', // Sage border
   },
   wrapUpItemRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
+    // No longer used - cards are separate now
+  },
+  wrapUpItemRowChecked: {
+    borderColor: BRAND.colors.mossGreen, // Moss Green when checked
   },
   wrapUpItemName: {
     flex: 1,
@@ -1362,11 +1735,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wrapUpCheckbox: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: BRAND.colors.sageMist,
+    borderWidth: 1.5,
+    borderColor: 'rgba(191, 216, 192, 0.60)', // Sage border
     backgroundColor: BRAND.colors.linenCream,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1377,15 +1750,18 @@ const styles = StyleSheet.create({
   },
   wrapUpCheckmark: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
-    lineHeight: 20,
+    lineHeight: 18,
     textAlign: 'center',
   },
   wrapUpOverdueRow: {
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(191, 216, 192, 0.15)', // Sage Mist wash @ 15%
+    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Sage Mist @ 18%
+    borderRadius: BRAND.radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.40)',
   },
   wrapUpOverdueItemName: {
     fontSize: 16,
@@ -1423,10 +1799,40 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
   },
   wrapUpButtonContainer: {
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 16,
     paddingHorizontal: 12,
     backgroundColor: BRAND.colors.linenCream,
+  },
+  wrapUpOpenItemsReminder: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: 'rgba(34, 34, 34, 0.60)', // Charcoal at 60%
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  wrapUpContinueButton: {
+    backgroundColor: BRAND.colors.mossGreen, // Full Moss Green fill
+    borderRadius: BRAND.radius.xl, // Pill shape
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Soft CTA shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  wrapUpContinueButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  wrapUpContinueButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   // Legacy styles kept for other steps
   loadingContainer: {
@@ -1435,33 +1841,74 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: BRAND.colors.linenCream,
   },
-  // SweepDecisionStep styles - Sage Mist full-screen layout
+  // SweepDecisionStep styles - Linen Cream background with sage card
   decisionStepContainer: {
     flex: 1,
-    backgroundColor: BRAND.colors.sageMist, // Brand Sage Mist background
+    backgroundColor: BRAND.colors.linenCream, // Cream background
   },
   decisionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 28,
     paddingBottom: 12,
-    backgroundColor: BRAND.colors.sageMist, // Match container
+    backgroundColor: BRAND.colors.linenCream, // Match container
   },
-  decisionHeaderTitle: {
+  decisionHeaderLeft: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  decisionHeaderCounter: {
     fontSize: 13,
     fontWeight: '400',
-    color: 'rgba(46, 85, 64, 0.7)', // Moss Green @ 70% - softer
+    color: 'rgba(34, 34, 34, 0.70)', // Charcoal @ 70%
+    letterSpacing: 0.1,
+    marginBottom: 4,
+  },
+  progressBarContainer: {
+    width: 52,
+    height: 3,
+    position: 'relative',
+  },
+  progressBarRail: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 52,
+    height: 3,
+    backgroundColor: 'rgba(191, 216, 192, 0.4)', // Sage Mist @ 40%
+    borderRadius: 1.5,
+  },
+  progressBarFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    height: 3,
+    backgroundColor: '#E0C47A', // Golden Pear
+    borderRadius: 1.5,
+  },
+  decisionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  decisionContextPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BRAND.radius.pill,
+    borderWidth: 1,
+    borderColor: BRAND.colors.sageMist,
+    backgroundColor: 'transparent',
+  },
+  decisionContextPillText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(34, 34, 34, 0.70)', // Charcoal @ 70%
     letterSpacing: 0.2,
   },
   decisionCloseButton: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: 'rgba(46, 85, 64, 0.12)', // Moss Green @ 12%
+    padding: 4,
   },
   decisionPlaceholder: {
     flex: 1,

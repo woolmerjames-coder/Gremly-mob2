@@ -168,7 +168,7 @@ async function renderAtDecisionStep() {
 
   // Step 0: Mood step - skip to step 1
   await waitFor(() => {
-    result.getByText('How are you feeling?');
+    result.getByText('How did today feel?');
   });
   fireEvent.press(result.getByText('Skip for now'));
 
@@ -483,7 +483,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
 
       expect(result.queryByText('Wrap up today')).toBeNull();
-      expect(result.queryByText('How are you feeling?')).toBeNull();
+      expect(result.queryByText('How did today feel?')).toBeNull();
     });
   });
 

@@ -70,3 +70,122 @@ export interface SweepCandidateNote extends SweepCandidateBase {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type SweepCandidate = SweepCandidateTodo | SweepCandidateHabit | SweepCandidateNote;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Primary Action Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Discriminated union for context-aware primary actions on Sweep cards.
+ * Each type maps to a specific user intent based on item type and state.
+ */
+export type SweepPrimaryActionType =
+  | 'todo_add_due_date'
+  | 'todo_review_due_date'
+  | 'habit_review_plan'
+  | 'log_idea_to_todo'
+  | 'log_journal_followup'
+  | 'log_general_decide';
+
+/**
+ * Configuration for the primary action button shown on a Sweep card.
+ */
+export interface SweepPrimaryActionConfig {
+  type: SweepPrimaryActionType;
+  label: string;
+  icon: 'calendar' | 'habit' | 'todo' | 'journal' | 'more';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Primary Action Helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Determines the primary action configuration for a given Sweep candidate.
+ *
+ * Mapping rules:
+ * - To-do with due date → 'todo_review_due_date' ("Review date")
+ * - To-do without due date → 'todo_add_due_date' ("Add due date")
+ * - Habit (any variant) → 'habit_review_plan' ("Review habit plan")
+ * - Log – idea/actionable → 'log_idea_to_todo' ("Turn into to-do")
+ * - Log – journal → 'log_journal_followup' ("Reflect more")
+ * - Log – general/uncategorized → 'log_general_decide' ("Decide what this is")
+ *
+ * @param candidate - The Sweep candidate to analyze
+ * @returns Primary action config, or null if no action applies
+ */
+export function getPrimaryActionForCandidate(
+  candidate: SweepCandidate,
+): SweepPrimaryActionConfig | null {
+  switch (candidate.kind) {
+    case 'todo': {
+      // Check if todo has a due date (due_day is the canonical field)
+      const hasDueDate = !!candidate.raw.due_day || !!candidate.raw.due_date;
+      if (hasDueDate) {
+        return {
+          type: 'todo_review_due_date',
+          label: 'Review date',
+          icon: 'calendar',
+        };
+      }
+      return {
+        type: 'todo_add_due_date',
+        label: 'Add due date',
+        icon: 'calendar',
+      };
+    }
+
+    case 'habit': {
+      // All habits (start/build or break/reduce) get the same review action
+      return {
+        type: 'habit_review_plan',
+        label: 'Review habit plan',
+        icon: 'habit',
+      };
+    }
+
+    case 'note': {
+      const { subtype, canonical_type, journal_subtype } = candidate.raw;
+
+      // Journal detection: subtype='journal', canonical_type contains 'journal',
+      // or journal_subtype is set
+      const isJournal =
+        subtype === 'journal' ||
+        canonical_type === 'journal' ||
+        (canonical_type && canonical_type.includes('journal')) ||
+        !!journal_subtype;
+
+      if (isJournal) {
+        return {
+          type: 'log_journal_followup',
+          label: 'Reflect more',
+          icon: 'journal',
+        };
+      }
+
+      // Idea/actionable detection: subtype='idea' or canonical_type contains 'idea'
+      const isIdea =
+        subtype === 'idea' ||
+        canonical_type === 'idea' ||
+        (canonical_type && canonical_type.includes('idea'));
+
+      if (isIdea) {
+        return {
+          type: 'log_idea_to_todo',
+          label: 'Turn into to-do',
+          icon: 'todo',
+        };
+      }
+
+      // General/uncategorized log - catch-all for notes without clear categorization
+      return {
+        type: 'log_general_decide',
+        label: 'Decide what this is',
+        icon: 'more',
+      };
+    }
+
+    default:
+      return null;
+  }
+}

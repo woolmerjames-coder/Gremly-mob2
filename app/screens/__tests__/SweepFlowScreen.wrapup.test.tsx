@@ -137,7 +137,7 @@ describe('SweepFlowScreen - Wrap Up Step', () => {
     const { getByText } = await renderAtWrapUpStep();
 
     expect(getByText('Wrap up today')).toBeTruthy();
-    expect(getByText("Let's close out your day before we Sweep.")).toBeTruthy();
+    expect(getByText("Let's close out what you planned for today before we Sweep.")).toBeTruthy();
   });
 
   it("renders the Today's habits section with items", async () => {
