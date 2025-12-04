@@ -55,8 +55,11 @@ export default function TodayPillsRow({
   // Determine if we need bolder title for moderate/high states
   const isBold = sweepLevel === 'moderate' || sweepLevel === 'high';
 
+  // DEV override: always show Sweep button while developing
+  const shouldShowSweep = __DEV__ || !showAddOnly;
+
   // Determine which pills to show
-  const showSweep = !showAddOnly;
+  const showSweep = shouldShowSweep;
   const showAdd = !showSweepOnly;
 
   return (

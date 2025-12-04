@@ -81,13 +81,14 @@ export default function RootNavigator() {
           headerShown: true,
         }}
       />
-      {/* Sweep: Evening Sweep ritual flow */}
+      {/* Sweep: Evening Sweep ritual flow - full-screen with custom header */}
       <Stack.Screen
         name="Sweep"
         component={SweepFlowScreen}
         options={{
           headerShown: false, // Uses custom header in component
-          presentation: 'modal',
+          presentation: 'card',
+          gestureEnabled: false, // Disable swipe-to-dismiss
         }}
       />
       <Stack.Screen

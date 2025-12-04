@@ -262,7 +262,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        expect(result.getByText('Item 1 of 2')).toBeTruthy();
+        expect(result.getByText('1 / 2')).toBeTruthy();
       });
     });
 
@@ -284,13 +284,13 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Item 1 of 2');
+        result.getByText('1 / 2');
       });
 
       fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
-        expect(result.getByText('Item 2 of 2')).toBeTruthy();
+        expect(result.getByText('2 / 2')).toBeTruthy();
         expect(result.getByText('Test note')).toBeTruthy();
       });
     });
@@ -301,13 +301,13 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Item 1 of 2');
+        result.getByText('1 / 2');
       });
 
       fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
       await waitFor(() => {
-        expect(result.getByText('Item 2 of 2')).toBeTruthy();
+        expect(result.getByText('2 / 2')).toBeTruthy();
       });
     });
 
@@ -317,13 +317,13 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Item 1 of 2');
+        result.getByText('1 / 2');
       });
 
       fireEvent.press(result.getByText('Skip until next Sweep'));
 
       await waitFor(() => {
-        expect(result.getByText('Item 2 of 2')).toBeTruthy();
+        expect(result.getByText('2 / 2')).toBeTruthy();
       });
     });
   });
@@ -397,14 +397,14 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Item 1 of 2');
+        result.getByText('1 / 2');
       });
 
       fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Should still advance despite error
       await waitFor(() => {
-        expect(result.getByText('Item 2 of 2')).toBeTruthy();
+        expect(result.getByText('2 / 2')).toBeTruthy();
       });
     });
   });
@@ -520,7 +520,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('calls openEdit when primary button is pressed', async () => {
+    it('calls openEdit when Fix button is pressed', async () => {
       const fullRecord = {
         id: 'todo-1',
         type: 'todo',
@@ -535,10 +535,12 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Review to-do details');
+        // New combined date control (calendar icon + text)
+        result.getByText('Add due date');
       });
 
-      fireEvent.press(result.getByText('Review to-do details'));
+      // The Fix button (not the main CTA) opens the edit overlay
+      fireEvent.press(result.getByLabelText('Fix this item'));
 
       await waitFor(() => {
         expect(mockGetById).toHaveBeenCalledWith('todo-1');
@@ -607,7 +609,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Item 1 of 2');
+        result.getByText('1 / 2');
       });
 
       fireEvent.press(result.getByLabelText('Fix this item'));
@@ -617,7 +619,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
 
       // Card should still show item 1, not advance
-      expect(result.getByText('Item 1 of 2')).toBeTruthy();
+      expect(result.getByText('1 / 2')).toBeTruthy();
       expect(result.getByText('Test task')).toBeTruthy();
     });
   });

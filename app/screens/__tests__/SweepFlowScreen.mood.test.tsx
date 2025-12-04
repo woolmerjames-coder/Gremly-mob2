@@ -100,20 +100,20 @@ describe('SweepFlowScreen - Mood Step', () => {
   it('renders all mood options', () => {
     const { getByText } = render(<SweepFlowScreen />);
 
-    // Check all mood labels are present
-    expect(getByText('Great')).toBeTruthy();
-    expect(getByText('Good')).toBeTruthy();
-    expect(getByText('Okay')).toBeTruthy();
-    expect(getByText('Low')).toBeTruthy();
-    expect(getByText('Tired')).toBeTruthy();
-    expect(getByText('Rough')).toBeTruthy();
+    // Check all mood labels are present (ALL CAPS per brand reskin)
+    expect(getByText('GREAT')).toBeTruthy();
+    expect(getByText('GOOD')).toBeTruthy();
+    expect(getByText('OKAY')).toBeTruthy();
+    expect(getByText('LOW')).toBeTruthy();
+    expect(getByText('TIRED')).toBeTruthy();
+    expect(getByText('ROUGH')).toBeTruthy();
   });
 
   it('advances to wrap up step when pressing Continue with mood selected', async () => {
     const { getByText, queryByText } = render(<SweepFlowScreen />);
 
-    // Select a mood
-    fireEvent.press(getByText('Good'));
+    // Select a mood (ALL CAPS per brand reskin)
+    fireEvent.press(getByText('GOOD'));
 
     // Press Continue
     fireEvent.press(getByText('Continue'));
@@ -170,8 +170,8 @@ describe('SweepFlowScreen - Mood Step', () => {
   it('does not crash when selecting mood and entering text', () => {
     const { getByText, getByPlaceholderText } = render(<SweepFlowScreen />);
 
-    // Select a mood
-    fireEvent.press(getByText('Tired'));
+    // Select a mood (ALL CAPS per brand reskin)
+    fireEvent.press(getByText('TIRED'));
 
     // Enter text
     const input = getByPlaceholderText('Today felt like…');
@@ -184,8 +184,8 @@ describe('SweepFlowScreen - Mood Step', () => {
   it('calls repo.create and advances when Continue is pressed with mood selected', async () => {
     const { getByText } = render(<SweepFlowScreen />);
 
-    // Select a mood
-    fireEvent.press(getByText('Good'));
+    // Select a mood (ALL CAPS per brand reskin)
+    fireEvent.press(getByText('GOOD'));
 
     // Press Continue
     fireEvent.press(getByText('Continue'));

@@ -143,21 +143,21 @@ describe('SweepFlowScreen - Wrap Up Step', () => {
   it("renders the Today's habits section with items", async () => {
     const { getByText } = await renderAtWrapUpStep();
 
-    expect(getByText("Today's habits")).toBeTruthy();
+    expect(getByText("Today's Habits")).toBeTruthy();
     expect(getByText('Morning meditation')).toBeTruthy();
   });
 
   it("renders the Today's to-dos section with items", async () => {
     const { getByText } = await renderAtWrapUpStep();
 
-    expect(getByText("Today's to-dos")).toBeTruthy();
+    expect(getByText("Today's To-Dos")).toBeTruthy();
     expect(getByText('Review pull request')).toBeTruthy();
   });
 
-  it('renders the Still waiting for you section with overdue items', async () => {
+  it('renders the Still Waiting section with overdue items', async () => {
     const { getByText } = await renderAtWrapUpStep();
 
-    expect(getByText('Still waiting for you')).toBeTruthy();
+    expect(getByText('Still Waiting')).toBeTruthy();
     expect(getByText('Submit expense report')).toBeTruthy();
   });
 
