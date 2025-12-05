@@ -120,6 +120,8 @@ const mockTodoCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'todo-1',
     name: 'Test task',
@@ -129,24 +131,6 @@ const mockTodoCandidate: SweepCandidate = {
   } as any,
 };
 
-const mockHabitCandidate: SweepCandidate = {
-  id: 'habit-1',
-  kind: 'habit',
-  createdAt: new Date().toISOString(),
-  dropId: null,
-  skippedInSweepAt: null,
-  isOverdue: false,
-  raw: {
-    id: 'habit-1',
-    name: 'Test habit',
-    owner_id: 'test-user-id',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  } as any,
-};
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _mockHabitCandidate = mockHabitCandidate; // Keep for future tests
-
 const mockNoteCandidate: SweepCandidate = {
   id: 'note-1',
   kind: 'note',
@@ -154,6 +138,8 @@ const mockNoteCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'note-1',
     title: 'Test note',

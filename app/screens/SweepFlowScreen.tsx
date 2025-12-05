@@ -748,19 +748,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             return 'stay';
           }
 
-          case 'habit_review_plan': {
-            // Track this candidate for overlay save detection
-            editingCandidateIdRef.current = candidate.id;
-            // Open the habit in edit mode - allows reviewing frequency, reminders, etc.
-            if (fullRecord && fullRecord.type === 'habit') {
-              overlayController.openEdit({ record: fullRecord as AppRecord });
-            } else {
-              const fallbackRecord = { ...candidate.raw, type: 'habit' } as AppRecord;
-              overlayController.openEdit({ record: fallbackRecord });
-            }
-            return 'stay';
-          }
-
           case 'log_idea_to_todo': {
             // For conversion, we don't auto-advance since we're creating a new item
             // The user should explicitly swipe/keep after conversion

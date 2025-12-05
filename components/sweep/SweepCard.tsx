@@ -46,7 +46,6 @@ import {
   Check,
   Calendar,
   ArrowRight,
-  Repeat,
   CheckSquare,
   BookOpen,
   MoreHorizontal,
@@ -66,8 +65,6 @@ import { getPrimaryActionForCandidate } from '../../lib/sweep/types';
 export type SweepCtaKind =
   | 'todo_add_due_date'
   | 'todo_adjust_due_date'
-  | 'habit_add_start_date'
-  | 'habit_adjust_start_date'
   | 'log_convert_to_todo'
   | 'none';
 
@@ -110,7 +107,7 @@ export interface SweepCardProps {
   onClear: () => void;
   /** Called when user wants to edit/fix the item (opens full overlay) */
   onOpenEdit: () => void;
-  /** Called when user taps the primary action button (e.g., add date, review habit) */
+  /** Called when user taps the primary action button (e.g., add date, convert to todo) */
   onPrimaryAction?: (config: SweepPrimaryActionConfig, candidate: SweepCandidate) => void;
   /** Called when user wants to convert log to todo (opens overlay in convert mode) */
   onConvertToTodo?: () => void;
@@ -134,15 +131,6 @@ function computeCtaInfo(candidate: SweepCandidate): { kind: SweepCtaKind; label:
         return { kind: 'todo_add_due_date', label: 'Add date' };
       }
       return { kind: 'todo_adjust_due_date', label: 'Review date' };
-    }
-
-    case 'habit': {
-      // Check if habit has a start_date
-      const hasStartDate = !!candidate.raw.start_date;
-      if (!hasStartDate) {
-        return { kind: 'habit_add_start_date', label: 'Review habit' };
-      }
-      return { kind: 'habit_adjust_start_date', label: 'Review habit' };
     }
 
     case 'note': {
@@ -176,8 +164,6 @@ function getTypeChipLabel(candidate: SweepCandidate): string {
   switch (candidate.kind) {
     case 'todo':
       return 'To-Do';
-    case 'habit':
-      return 'Habit';
     case 'note': {
       // Check if it's a log/journal type from the raw data
       const noteRaw = candidate.raw;
@@ -196,8 +182,6 @@ function getCandidateTitle(candidate: SweepCandidate): string {
   switch (candidate.kind) {
     case 'todo':
       return candidate.raw.name || 'Untitled task';
-    case 'habit':
-      return candidate.raw.name || 'Untitled habit';
     case 'note':
       return candidate.raw.title || 'Untitled note';
   }
@@ -210,8 +194,6 @@ function getCandidateBody(candidate: SweepCandidate): string | null {
   switch (candidate.kind) {
     case 'todo':
       return candidate.raw.notes || null;
-    case 'habit':
-      return candidate.raw.notes || candidate.raw.why_string || null;
     case 'note':
       return candidate.raw.body || null;
   }
@@ -315,10 +297,6 @@ export function SweepCard({
       const parsed = parseDayString(candidate.raw.due_day);
       return parsed || new Date();
     }
-    if (candidate.kind === 'habit' && candidate.raw.start_date) {
-      const parsed = parseDayString(candidate.raw.start_date);
-      return parsed || new Date();
-    }
     return new Date();
   });
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -336,9 +314,6 @@ export function SweepCard({
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
-      setSelectedDate(parsed || new Date());
-    } else if (candidate.kind === 'habit' && candidate.raw.start_date) {
-      const parsed = parseDayString(candidate.raw.start_date);
       setSelectedDate(parsed || new Date());
     } else {
       setSelectedDate(new Date());
@@ -366,12 +341,7 @@ export function SweepCard({
         // Fallback to regular edit if no convert handler
         onOpenEdit();
       }
-    } else if (
-      ctaKind === 'todo_add_due_date' ||
-      ctaKind === 'todo_adjust_due_date' ||
-      ctaKind === 'habit_add_start_date' ||
-      ctaKind === 'habit_adjust_start_date'
-    ) {
+    } else if (ctaKind === 'todo_add_due_date' || ctaKind === 'todo_adjust_due_date') {
       setShowDatePicker(true);
     }
   }, [ctaKind, onConvertToTodo, onOpenEdit]);
@@ -381,43 +351,30 @@ export function SweepCard({
     setIsSaving(true);
 
     try {
+      if (candidate.kind !== 'todo') {
+        // Only todos have date pickers in Sweep
+        return;
+      }
+
       if (clearDateFlag) {
         // Clear the date
-        if (candidate.kind === 'todo') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              due_day: null,
-              due_date: null,
-            } as any, // Todo-specific fields
-          });
-        } else if (candidate.kind === 'habit') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              start_date: null,
-            } as any, // Habit-specific fields
-          });
-        }
+        await repo.update({
+          id: candidate.id,
+          patch: {
+            due_day: null,
+            due_date: null,
+          } as any, // Todo-specific fields
+        });
       } else {
         // Set the date
         const dueDay = toDayString(selectedDate);
-        if (candidate.kind === 'todo') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              due_day: dueDay,
-              due_date: dueDay, // Also set due_date for backward compat
-            } as any, // Todo-specific fields
-          });
-        } else if (candidate.kind === 'habit') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              start_date: dueDay,
-            } as any, // Habit-specific fields
-          });
-        }
+        await repo.update({
+          id: candidate.id,
+          patch: {
+            due_day: dueDay,
+            due_date: dueDay, // Also set due_date for backward compat
+          } as any, // Todo-specific fields
+        });
       }
     } catch (error) {
       console.error('[SweepCard] Failed to update date:', error);
@@ -808,9 +765,6 @@ export function SweepCard({
                   >
                     {primaryConfig.icon === 'calendar' && (
                       <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                    )}
-                    {primaryConfig.icon === 'habit' && (
-                      <Repeat size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
                     {primaryConfig.icon === 'todo' && (
                       <CheckSquare size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />

@@ -69,6 +69,8 @@ const mockTodoCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'todo-1',
     name: 'Buy groceries',
@@ -88,6 +90,8 @@ const mockTodoWithDueDateCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'todo-2',
     name: 'Submit report',
@@ -107,6 +111,8 @@ const mockNoteCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'note-1',
     title: 'Meeting notes',
@@ -126,6 +132,8 @@ const mockIdeaCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'idea-1',
     title: 'App feature idea',
@@ -145,6 +153,8 @@ const mockJournalCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'journal-1',
     title: 'Evening reflection',
@@ -164,6 +174,8 @@ const mockLogCandidate: SweepCandidate = {
   dropId: null,
   skippedInSweepAt: null,
   isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
   raw: {
     id: 'log-1',
     title: 'Evening reflection',
