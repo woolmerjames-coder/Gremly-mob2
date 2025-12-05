@@ -2128,9 +2128,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const headerTitleRef = useRef<any>(null);
   const [placeholder] = useState("What's on your mind?");
   const inputFocusRef = useRef(false);
-  const handleInputFocusChange = useCallback((focused: boolean) => {
-    inputFocusRef.current = focused;
-  }, []);
+  // Focused input mode: fade recent drops when keyboard is active
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [recentDropsOpacity] = useState(() => new Animated.Value(1));
+  const handleInputFocusChange = useCallback(
+    (focused: boolean) => {
+      inputFocusRef.current = focused;
+      setIsInputFocused(focused);
+      // Animate recent drops opacity
+      Animated.timing(recentDropsOpacity, {
+        toValue: focused ? 0.3 : 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    },
+    [recentDropsOpacity],
+  );
 
   // PanResponder for swipe-down-to-dismiss-keyboard gesture
   const panResponder = React.useRef(
@@ -4544,18 +4557,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           />
         </View>
 
-        {/* Scrollable Recent Drops in the middle */}
-        <Pressable style={styles.scrollableSection} onPress={Keyboard.dismiss} accessible={false}>
-          <RecentDropsMemo
-            overlay={overlay}
-            refreshSignal={recentRefresh}
-            onEdited={noopCallback}
-            onDeleted={noopCallback}
-            onTodayCountChange={handleTodayCountChange}
-            onAddPendingItem={handleReceiveAddPendingItem}
-            initiallyOpen={true}
-          />
-        </Pressable>
+        {/* Scrollable Recent Drops in the middle - fades when input is focused */}
+        <Animated.View
+          style={[styles.scrollableSection, { opacity: recentDropsOpacity }]}
+          pointerEvents={isInputFocused ? 'none' : 'auto'}
+        >
+          <Pressable onPress={Keyboard.dismiss} accessible={false} style={{ flex: 1 }}>
+            <RecentDropsMemo
+              overlay={overlay}
+              refreshSignal={recentRefresh}
+              onEdited={noopCallback}
+              onDeleted={noopCallback}
+              onTodayCountChange={handleTodayCountChange}
+              onAddPendingItem={handleReceiveAddPendingItem}
+              initiallyOpen={true}
+            />
+          </Pressable>
+        </Animated.View>
 
         {/* Fixed bottom section: input + chips + button + stats */}
         <View style={styles.fixedTopSection}>
@@ -4765,6 +4783,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     inputDynHeight,
     handleBack,
     handleInfoOpen,
+    recentDropsOpacity,
+    isInputFocused,
   ]);
 
   const content = MIND_DROP_V2 ? (

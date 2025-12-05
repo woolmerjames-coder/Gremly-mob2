@@ -90,6 +90,10 @@ export interface TodayStats {
   sweepCandidates: SweepCandidate[];
   /** Count of sweep-eligible todos */
   sweepCandidateCount: number;
+  /** Overdue todos from sweepCandidates (due_day < today) */
+  overdueTodos: SweepCandidate[];
+  /** Recent drops: items captured today that aren't in Today's Focus yet */
+  recentDrops: SweepCandidate[];
   /** Loading state */
   loading: boolean;
   /** Reload the underlying data */
@@ -228,6 +232,32 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
     const sweepCandidates = selectSweepCandidates(incompleteTodos, todayDayString);
     const sweepCandidateCount = sweepCandidates.length;
 
+    // Derive overdueTodos: todos from sweepCandidates where due_day < today
+    const overdueTodos = sweepCandidates.filter((candidate) => {
+      const dueDay =
+        candidate.due_day ?? (candidate.due_date ? candidate.due_date.split('T')[0] : null);
+      return dueDay !== null && dueDay < todayDayString;
+    });
+
+    // Derive recentDrops: items captured today that aren't already in Today's Focus
+    // Build a set of IDs already in today's focus lists
+    const todayFocusIds = new Set([
+      ...todosToday.map((t) => t.id),
+      ...habitsToday.map((h) => h.id),
+    ]);
+
+    const recentDrops = sweepCandidates.filter((candidate) => {
+      // Exclude items already in Today's Focus
+      if (todayFocusIds.has(candidate.id)) {
+        return false;
+      }
+      // Include items with no due date or unscheduled (these need sorting)
+      const dueDay =
+        candidate.due_day ?? (candidate.due_date ? candidate.due_date.split('T')[0] : null);
+      // Items without a due date or items that are carry-forward without explicit due date
+      return dueDay === null || candidate.carry_forward === true;
+    });
+
     // Build completion summary for progress header
     // Includes all items in Today's Focus (locked + active), excluding logs
     const completionSummaryItems: { id: string; isDone: boolean; type: 'habit' | 'todo' }[] = [];
@@ -277,6 +307,8 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       futureItems,
       sweepCandidates,
       sweepCandidateCount,
+      overdueTodos,
+      recentDrops,
       loading,
       reload,
       nowData,
