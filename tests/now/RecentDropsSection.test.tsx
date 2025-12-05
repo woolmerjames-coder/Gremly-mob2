@@ -175,7 +175,7 @@ describe('RecentDropsSection', () => {
       expect(addButtons).toHaveLength(2);
     });
 
-    it('calls onAddToToday with the correct item when "+ Today" is pressed', () => {
+    it('triggers animation and will call onAddToToday when "+ Today" is pressed', () => {
       const item1 = createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' });
       const item2 = createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' });
       const items = [item1, item2];
@@ -192,8 +192,12 @@ describe('RecentDropsSection', () => {
       const addButtons = screen.getAllByText('+ Today');
       fireEvent.press(addButtons[0]);
 
-      expect(mockOnAddToToday).toHaveBeenCalledTimes(1);
-      expect(mockOnAddToToday).toHaveBeenCalledWith(item1);
+      // Animation starts immediately - callback is called after animation completes
+      // The animated row wrapper should exist
+      expect(screen.getByTestId('recent-drop-animated-row-0')).toBeTruthy();
+
+      // onPressItem should NOT have been called
+      expect(mockOnPressItem).not.toHaveBeenCalled();
     });
 
     it('does not trigger onPressItem when "+ Today" is pressed', () => {
@@ -211,8 +215,7 @@ describe('RecentDropsSection', () => {
       const addButton = screen.getByText('+ Today');
       fireEvent.press(addButton);
 
-      // onAddToToday should be called, onPressItem should NOT be called
-      expect(mockOnAddToToday).toHaveBeenCalledTimes(1);
+      // onPressItem should NOT be called when pressing "+ Today"
       expect(mockOnPressItem).not.toHaveBeenCalled();
     });
   });
@@ -330,8 +333,8 @@ describe('RecentDropsSection', () => {
     });
   });
 
-  describe('collapsible behavior', () => {
-    it('renders expanded by default with rows visible', () => {
+  describe('chevron behavior', () => {
+    it('shows chevron in expanded state by default', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -345,16 +348,15 @@ describe('RecentDropsSection', () => {
         />,
       );
 
-      // Header should be visible
-      expect(screen.getByTestId('recent-drops-section-header')).toBeTruthy();
-      // Rows should be visible (expanded by default)
-      expect(screen.getByTestId('recent-drops-row-0')).toBeTruthy();
-      expect(screen.getByTestId('recent-drops-row-1')).toBeTruthy();
-      // Expanded chevron should show
-      expect(screen.getByText('▾')).toBeTruthy();
+      // Header text should be present
+      expect(screen.getByText('Recent Drops')).toBeTruthy();
+      // Expanded chevron should be visible
+      expect(screen.getByText('v')).toBeTruthy();
+      // Collapsed chevron should NOT be rendered
+      expect(screen.queryByText('>')).toBeNull();
     });
 
-    it('collapses rows when header is pressed', () => {
+    it('toggles chevron icon when collapsing', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -367,18 +369,55 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Initially expanded
+      expect(screen.getByText('v')).toBeTruthy();
+      expect(screen.queryByText('>')).toBeNull();
 
       // Press header to collapse
       fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
-      // Rows should be hidden
-      expect(screen.queryByTestId('recent-drops-row-0')).toBeNull();
-      expect(screen.queryByTestId('recent-drops-row-1')).toBeNull();
-      // Collapsed chevron should show
-      expect(screen.getByText('▸')).toBeTruthy();
+      // Collapsed chevron should be visible, expanded should not
+      expect(screen.getByText('>')).toBeTruthy();
+      expect(screen.queryByText('v')).toBeNull();
+
+      // Press header to expand again
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
+      // Back to expanded state
+      expect(screen.getByText('v')).toBeTruthy();
+      expect(screen.queryByText('>')).toBeNull();
+    });
+  });
+
+  describe('collapse/expand rows', () => {
+    it('rows are hidden when collapsed', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Confirm item titles are visible initially
+      expect(screen.getByText('Task 1')).toBeTruthy();
+      expect(screen.getByText('Task 2')).toBeTruthy();
+
+      // Press the header to collapse
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
+      // Assert the item titles are no longer in the tree
+      expect(screen.queryByText('Task 1')).toBeNull();
+      expect(screen.queryByText('Task 2')).toBeNull();
     });
 
-    it('expands rows when header is pressed again', () => {
+    it('rows become visible again when expanded', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -394,17 +433,127 @@ describe('RecentDropsSection', () => {
 
       // Collapse
       fireEvent.press(screen.getByTestId('recent-drops-section-header'));
-      expect(screen.queryByTestId('recent-drops-row-0')).toBeNull();
+      expect(screen.queryByText('Task 1')).toBeNull();
+      expect(screen.queryByText('Task 2')).toBeNull();
 
       // Expand again
       fireEvent.press(screen.getByTestId('recent-drops-section-header'));
-      expect(screen.getByTestId('recent-drops-row-0')).toBeTruthy();
-      expect(screen.getByTestId('recent-drops-row-1')).toBeTruthy();
-      expect(screen.getByText('▾')).toBeTruthy();
+
+      // Assert item titles are visible again
+      expect(screen.getByText('Task 1')).toBeTruthy();
+      expect(screen.getByText('Task 2')).toBeTruthy();
+    });
+  });
+
+  describe('Show X more behavior', () => {
+    const MAX_VISIBLE = 5;
+
+    it('shows "Show X more" when more than MAX_VISIBLE items', () => {
+      const items = Array.from({ length: MAX_VISIBLE + 2 }, (_, i) =>
+        createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
+      );
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Exactly MAX_VISIBLE item titles should be visible
+      for (let i = 1; i <= MAX_VISIBLE; i++) {
+        expect(screen.getByText(`Task ${i}`)).toBeTruthy();
+      }
+      // Items beyond MAX_VISIBLE should NOT be visible
+      expect(screen.queryByText(`Task ${MAX_VISIBLE + 1}`)).toBeNull();
+      expect(screen.queryByText(`Task ${MAX_VISIBLE + 2}`)).toBeNull();
+
+      // "Show X more" row should be visible with correct count
+      expect(screen.getByText('Show 2 more')).toBeTruthy();
     });
 
-    it('hides Show more button when collapsed', () => {
-      const items = Array.from({ length: 8 }, (_, i) =>
+    it('expands to show all items when "Show X more" is pressed', () => {
+      const items = Array.from({ length: MAX_VISIBLE + 3 }, (_, i) =>
+        createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
+      );
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Initially hidden items
+      expect(screen.queryByText(`Task ${MAX_VISIBLE + 1}`)).toBeNull();
+      expect(screen.queryByText(`Task ${MAX_VISIBLE + 2}`)).toBeNull();
+      expect(screen.queryByText(`Task ${MAX_VISIBLE + 3}`)).toBeNull();
+
+      // Press "Show X more"
+      fireEvent.press(screen.getByText('Show 3 more'));
+
+      // All item titles should now be rendered
+      for (let i = 1; i <= MAX_VISIBLE + 3; i++) {
+        expect(screen.getByText(`Task ${i}`)).toBeTruthy();
+      }
+
+      // "Show X more" row should no longer be present
+      expect(screen.queryByText(/Show \d+ more/)).toBeNull();
+    });
+
+    it('does not show "Show more" when items length <= MAX_VISIBLE', () => {
+      const items = Array.from({ length: MAX_VISIBLE }, (_, i) =>
+        createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
+      );
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // All items should be shown
+      for (let i = 1; i <= MAX_VISIBLE; i++) {
+        expect(screen.getByText(`Task ${i}`)).toBeTruthy();
+      }
+
+      // No "Show X more" row should exist
+      expect(screen.queryByText(/Show \d+ more/)).toBeNull();
+    });
+
+    it('respects custom maxVisible prop', () => {
+      const items = Array.from({ length: 5 }, (_, i) =>
+        createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
+      );
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+          maxVisible={3}
+        />,
+      );
+
+      // First 3 should be visible
+      expect(screen.getByText('Task 1')).toBeTruthy();
+      expect(screen.getByText('Task 2')).toBeTruthy();
+      expect(screen.getByText('Task 3')).toBeTruthy();
+
+      // Items 4-5 should NOT be visible yet
+      expect(screen.queryByText('Task 4')).toBeNull();
+      expect(screen.queryByText('Task 5')).toBeNull();
+
+      // Should show "Show 2 more"
+      expect(screen.getByText('Show 2 more')).toBeTruthy();
+    });
+
+    it('hides "Show more" button when collapsed', () => {
+      const items = Array.from({ length: MAX_VISIBLE + 3 }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
 

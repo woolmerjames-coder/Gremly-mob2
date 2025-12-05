@@ -6,7 +6,7 @@ process.env.JEST_WORKAROUND = '1'; // Enable test-only elements in production co
 process.env.JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT ?? '0';
 
 // JSDOM lacks ResizeObserver in some RN libs; provide a stub if accessed
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 (global as any).ResizeObserver =
   (global as any).ResizeObserver ||
   class {
@@ -14,6 +14,7 @@ process.env.JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT ?? '0';
     unobserve() {}
     disconnect() {}
   };
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Ensure requestAnimationFrame exists and is synchronous in tests
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,6 +159,8 @@ jest.mock('react-native-reanimated', () => {
     })(),
   };
 });
+
+// Note: design/animations mock is set up via moduleNameMapper in jest.config.js
 
 // Mock expo-haptics
 jest.mock('expo-haptics', () => ({

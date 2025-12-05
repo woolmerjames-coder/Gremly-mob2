@@ -4,6 +4,7 @@
  * Displays recently captured items that need sorting/triage.
  * Each row is tappable to open item details, with an "Add to Today" action.
  * Supports collapsible "Show more" for lists longer than maxVisible.
+ * Uses animated RecentDropRow for smooth removal animation.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -18,6 +19,7 @@ import {
 } from 'react-native';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
+import { RecentDropRow } from './RecentDropRow';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 
 // Enable LayoutAnimation on Android
@@ -46,15 +48,6 @@ interface RecentDropsSectionProps {
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Recent drops accent color - neutral/subtle to indicate needs sorting
-const DROPS_ACCENT = '#8B8B8B';
-
-// Row height for compact list items
-const ROW_HEIGHT = 44;
-
-// Divider color (matching NowFocusRow)
-const DIVIDER_COLOR = 'rgba(0, 0, 0, 0.08)';
-
 // Default max visible items before "Show more"
 const DEFAULT_MAX_VISIBLE = 5;
 
@@ -82,13 +75,6 @@ export function RecentDropsSection({
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowAll(true);
   }, []);
-
-  const handleAddToToday = useCallback(
-    (item: SweepCandidate) => {
-      onAddToToday(item);
-    },
-    [onAddToToday],
-  );
 
   // Don't render if no items
   if (items.length === 0) {
@@ -124,13 +110,8 @@ export function RecentDropsSection({
           ({items.length})
         </Text>
         {/* Chevron indicator */}
-        <Text
-          style={[
-            styles.chevron,
-            { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
-          ]}
-        >
-          {collapsed ? '▸' : '▾'}
+        <Text style={[styles.chevron, { color: tokens.colors.subtle }]}>
+          {collapsed ? '>' : 'v'}
         </Text>
       </Pressable>
 
@@ -139,55 +120,13 @@ export function RecentDropsSection({
         <>
           <View style={styles.list}>
             {visibleItems.map((item, index) => (
-              <React.Fragment key={item.id}>
-                {/* Divider between header and first row, or between rows */}
-                <View style={styles.divider} testID={`recent-drops-divider-${index}`} />
-
-                <Pressable
-                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                  onPress={() => onPressItem(item)}
-                  testID={`recent-drops-row-${index}`}
-                >
-                  {/* Left accent bar */}
-                  <View style={styles.accentContainer}>
-                    <View style={[styles.accentBar, { backgroundColor: DROPS_ACCENT }]} />
-                  </View>
-
-                  {/* Item title */}
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.itemTitle,
-                      {
-                        color: tokens.colors.text,
-                        fontFamily: tokens.typography.fontFamily.regular,
-                      },
-                    ]}
-                  >
-                    {item.name}
-                  </Text>
-
-                  {/* Add to Today action */}
-                  <Pressable
-                    testID={`add-to-today-${item.id}`}
-                    style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
-                    onPress={() => handleAddToToday(item)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text
-                      style={[
-                        styles.addButtonText,
-                        {
-                          color: tokens.colors.mossGreen,
-                          fontFamily: tokens.typography.fontFamily.medium,
-                        },
-                      ]}
-                    >
-                      + Today
-                    </Text>
-                  </Pressable>
-                </Pressable>
-              </React.Fragment>
+              <RecentDropRow
+                key={item.id}
+                item={item}
+                index={index}
+                onPressItem={onPressItem}
+                onAddToToday={onAddToToday}
+              />
             ))}
           </View>
 
@@ -243,54 +182,12 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   chevron: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 16,
+    lineHeight: 20,
     marginLeft: 'auto',
   },
   list: {
     // Container for rows
-  },
-  divider: {
-    height: 1,
-    backgroundColor: DIVIDER_COLOR,
-    marginLeft: 16, // Aligns with content, not accent bar
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: ROW_HEIGHT,
-    paddingRight: 16,
-  },
-  rowPressed: {
-    opacity: 0.7,
-  },
-  accentContainer: {
-    width: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 4,
-  },
-  accentBar: {
-    width: 3,
-    height: 24,
-    borderRadius: 2,
-  },
-  itemTitle: {
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  addButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginLeft: 8,
-  },
-  addButtonPressed: {
-    opacity: 0.6,
-  },
-  addButtonText: {
-    fontSize: 12,
-    lineHeight: 14,
   },
   showMoreButton: {
     paddingVertical: 10,

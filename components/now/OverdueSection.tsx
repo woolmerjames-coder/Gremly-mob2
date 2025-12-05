@@ -3,27 +3,35 @@
  *
  * Displays overdue todos in a compact, lighter format than main Today cards.
  * Each row is tappable to open the item details.
+ * Uses animated OverdueRow component for completion animation matching Today's Focus.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Pressable,
   StyleSheet,
   ViewStyle,
-  TouchableOpacity,
   LayoutAnimation,
   Platform,
   UIManager,
 } from 'react-native';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
+import { OverdueRow } from './OverdueRow';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Maximum items to show before "Show more"
+const MAX_VISIBLE = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -41,19 +49,6 @@ interface OverdueSectionProps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Overdue accent color - muted red/coral to indicate attention needed
-const OVERDUE_ACCENT = '#C45C4A';
-
-// Row height for compact list items
-const ROW_HEIGHT = 44;
-
-// Divider color (matching NowFocusRow)
-const DIVIDER_COLOR = 'rgba(0, 0, 0, 0.08)';
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -65,16 +60,26 @@ export function OverdueSection({
 }: OverdueSectionProps) {
   const tokens = useTokens();
   const [collapsed, setCollapsed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
-  const toggleCollapsed = () => {
+  const toggleCollapsed = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setCollapsed((prev) => !prev);
-  };
+  }, []);
+
+  const handleShowMore = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowAll(true);
+  }, []);
 
   // Don't render if no items
   if (items.length === 0) {
     return null;
   }
+
+  const hasMore = items.length > MAX_VISIBLE;
+  const visibleItems = showAll ? items : items.slice(0, MAX_VISIBLE);
+  const hiddenCount = items.length - MAX_VISIBLE;
 
   return (
     <View style={[styles.container, style]}>
@@ -101,58 +106,44 @@ export function OverdueSection({
           · {items.length}
         </Text>
         {/* Chevron indicator */}
-        <Text
-          style={[
-            styles.chevron,
-            { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
-          ]}
-        >
-          {collapsed ? '▸' : '▾'}
+        <Text style={[styles.chevron, { color: tokens.colors.subtle }]}>
+          {collapsed ? '>' : 'v'}
         </Text>
       </Pressable>
 
       {/* Item rows - only rendered when not collapsed */}
       {!collapsed && (
-        <View style={styles.list}>
-          {items.map((item, index) => (
-            <React.Fragment key={item.id}>
-              {/* Divider between header and first row, or between rows */}
-              <View style={styles.divider} />
+        <>
+          <View style={styles.list}>
+            {visibleItems.map((item, index) => (
+              <OverdueRow
+                key={item.id}
+                item={item}
+                index={index}
+                onPressItem={onPressItem}
+                onToggleComplete={onToggleComplete}
+              />
+            ))}
+          </View>
 
-              <Pressable
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                onPress={() => onPressItem(item)}
-                testID={`overdue-row-${index}`}
+          {/* Show more button */}
+          {hasMore && !showAll && (
+            <Pressable
+              style={({ pressed }) => [styles.showMoreButton, pressed && styles.showMorePressed]}
+              onPress={handleShowMore}
+              testID="overdue-show-more"
+            >
+              <Text
+                style={[
+                  styles.showMoreText,
+                  { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
+                ]}
               >
-                {/* Left accent bar */}
-                <View style={styles.accentContainer}>
-                  <View style={[styles.accentBar, { backgroundColor: OVERDUE_ACCENT }]} />
-                </View>
-
-                {/* Item title */}
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.itemTitle,
-                    { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.regular },
-                  ]}
-                >
-                  {item.name}
-                </Text>
-
-                {/* Checkbox */}
-                <TouchableOpacity
-                  onPress={() => onToggleComplete?.(item)}
-                  style={styles.checkboxContainer}
-                  activeOpacity={0.7}
-                  testID={`overdue-checkbox-${index}`}
-                >
-                  <View style={[styles.checkbox, { borderColor: tokens.colors.subtle }]} />
-                </TouchableOpacity>
-              </Pressable>
-            </React.Fragment>
-          ))}
-        </View>
+                Show {hiddenCount} more overdue
+              </Text>
+            </Pressable>
+          )}
+        </>
       )}
     </View>
   );
@@ -188,58 +179,24 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   chevron: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 16,
+    lineHeight: 20,
     marginLeft: 'auto',
   },
   list: {
     // Container for rows
   },
-  divider: {
-    height: 1,
-    backgroundColor: DIVIDER_COLOR,
-    marginLeft: 16, // Aligns with content, not accent bar
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: ROW_HEIGHT,
-    paddingRight: 16,
-  },
-  rowPressed: {
-    opacity: 0.7,
-  },
-  accentContainer: {
-    width: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 4,
-  },
-  accentBar: {
-    width: 3,
-    height: 24,
-    borderRadius: 2,
-  },
-  itemTitle: {
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  checkboxContainer: {
-    marginLeft: 8,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
+  showMoreButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
   },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    borderWidth: 2,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+  showMorePressed: {
+    opacity: 0.6,
+  },
+  showMoreText: {
+    fontSize: 13,
+    lineHeight: 16,
   },
 });
 
