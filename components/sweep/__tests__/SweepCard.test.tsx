@@ -68,6 +68,7 @@ const mockTodoCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'todo-1',
     name: 'Buy groceries',
@@ -86,6 +87,7 @@ const mockTodoWithDueDateCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'todo-2',
     name: 'Submit report',
@@ -104,6 +106,7 @@ const mockHabitCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'habit-1',
     name: 'Morning meditation',
@@ -122,6 +125,7 @@ const mockHabitWithStartDateCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'habit-2',
     name: 'Evening run',
@@ -140,6 +144,7 @@ const mockNoteCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'note-1',
     title: 'Meeting notes',
@@ -158,6 +163,7 @@ const mockIdeaCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'idea-1',
     title: 'App feature idea',
@@ -176,6 +182,7 @@ const mockJournalCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'journal-1',
     title: 'Evening reflection',
@@ -194,6 +201,7 @@ const mockLogCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'log-1',
     title: 'Evening reflection',
@@ -240,6 +248,87 @@ describe('SweepCard', () => {
     it('shows "LOG" chip for journal/log candidates', () => {
       const { getByText } = render(<SweepCard candidate={mockLogCandidate} {...defaultProps} />);
       expect(getByText(/LOG/)).toBeTruthy();
+    });
+  });
+
+  describe('Overdue Pill', () => {
+    it('shows "Overdue" pill when candidate isOverdue is true', () => {
+      const overdueCandidate: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-overdue',
+        isOverdue: true,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-overdue',
+          name: 'Email Sarah',
+          due_day: '2024-01-01', // past date
+        } as any,
+      };
+
+      const { getByText } = render(<SweepCard candidate={overdueCandidate} {...defaultProps} />);
+
+      expect(getByText('Overdue')).toBeTruthy();
+      expect(getByText('Email Sarah')).toBeTruthy();
+    });
+
+    it('does NOT show "Overdue" pill when candidate isOverdue is false', () => {
+      const notOverdueCandidate: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-not-overdue',
+        isOverdue: false,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-not-overdue',
+          name: 'Future task',
+          due_day: '2099-12-31', // far future date
+        } as any,
+      };
+
+      const { queryByText, getByText } = render(
+        <SweepCard candidate={notOverdueCandidate} {...defaultProps} />,
+      );
+
+      expect(queryByText('Overdue')).toBeNull();
+      expect(getByText('Future task')).toBeTruthy();
+    });
+
+    it('does NOT show "Overdue" pill for habits (even with isOverdue: false)', () => {
+      // Habits should never be overdue by design
+      const { queryByText, getByText } = render(
+        <SweepCard candidate={mockHabitCandidate} {...defaultProps} />,
+      );
+
+      expect(queryByText('Overdue')).toBeNull();
+      expect(getByText('Morning meditation')).toBeTruthy();
+    });
+
+    it('does NOT show "Overdue" pill for notes (even with isOverdue: false)', () => {
+      // Notes should never be overdue by design
+      const { queryByText, getByText } = render(
+        <SweepCard candidate={mockNoteCandidate} {...defaultProps} />,
+      );
+
+      expect(queryByText('Overdue')).toBeNull();
+      expect(getByText('Meeting notes')).toBeTruthy();
+    });
+
+    it('shows both Type chip and Overdue pill together for overdue todos', () => {
+      const overdueCandidate: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-overdue-with-chip',
+        isOverdue: true,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-overdue-with-chip',
+          name: 'Overdue task with chips',
+        } as any,
+      };
+
+      const { getByText } = render(<SweepCard candidate={overdueCandidate} {...defaultProps} />);
+
+      // Both pills should be visible
+      expect(getByText(/TO-DO/)).toBeTruthy();
+      expect(getByText('Overdue')).toBeTruthy();
     });
   });
 

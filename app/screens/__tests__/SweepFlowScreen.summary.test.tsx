@@ -197,6 +197,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       createdAt: new Date().toISOString(),
       dropId: 'drop-1',
       skippedInSweepAt: null,
+      isOverdue: false,
       raw: {
         id: 'todo-1',
         name: 'Test task',
@@ -311,6 +312,7 @@ describe('SweepFlowScreen - Summary Step', () => {
           createdAt: new Date().toISOString(),
           dropId: 'drop-1',
           skippedInSweepAt: null,
+          isOverdue: false,
           raw: {
             id: 'todo-1',
             name: 'Task 1',
@@ -325,6 +327,7 @@ describe('SweepFlowScreen - Summary Step', () => {
           createdAt: new Date().toISOString(),
           dropId: 'drop-2',
           skippedInSweepAt: null,
+          isOverdue: false,
           raw: {
             id: 'todo-2',
             name: 'Task 2',
@@ -339,6 +342,7 @@ describe('SweepFlowScreen - Summary Step', () => {
           createdAt: new Date().toISOString(),
           dropId: 'drop-3',
           skippedInSweepAt: null,
+          isOverdue: false,
           raw: {
             id: 'todo-3',
             name: 'Task 3',

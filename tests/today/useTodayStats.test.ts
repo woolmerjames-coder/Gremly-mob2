@@ -79,7 +79,16 @@ import { selectSweepCandidates } from '../../lib/today/sweepSelectors';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const todayIsoString = new Date().toISOString();
-const todayDayString = todayIsoString.split('T')[0];
+
+// Use LOCAL date format (same as getTodayDayString in useTodayStats)
+function getLocalDayString(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+const todayDayString = getLocalDayString();
 
 function createMockSweepCandidate(overrides: Partial<(typeof mockState.sweepCandidates)[0]> = {}) {
   return {
@@ -94,6 +103,24 @@ function createMockSweepCandidate(overrides: Partial<(typeof mockState.sweepCand
     archived: false,
     created_at: todayIsoString, // Default to created today
     ...overrides,
+  };
+}
+
+/**
+ * Convert a sweep candidate to allTodos format.
+ * allTodos uses a slightly different shape (same fields but typed differently)
+ */
+function toAllTodo(candidate: ReturnType<typeof createMockSweepCandidate>) {
+  return {
+    id: candidate.id,
+    type: 'todo' as const,
+    name: candidate.name,
+    due_day: candidate.due_day,
+    due_date: candidate.due_date,
+    status: candidate.status ?? 'active',
+    carry_forward: candidate.carry_forward,
+    archived: candidate.archived,
+    created_at: candidate.created_at ?? todayIsoString,
   };
 }
 
@@ -141,11 +168,10 @@ describe('useTodayStats', () => {
     });
 
     it('includes todos where due_day is before today', () => {
-      // Mock today as 2025-12-04
-      const todayString = new Date().toISOString().split('T')[0];
+      // Use local day strings for consistency with useTodayStats
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayString = yesterday.toISOString().split('T')[0];
+      const yesterdayString = getLocalDayString(yesterday);
 
       const overdueTodo = createMockSweepCandidate({
         id: 'todo-overdue',
@@ -156,7 +182,7 @@ describe('useTodayStats', () => {
       const todayTodo = createMockSweepCandidate({
         id: 'todo-today',
         name: 'Today Task',
-        due_day: todayString,
+        due_day: todayDayString,
       });
 
       mockState.sweepCandidates = [overdueTodo, todayTodo];
@@ -239,11 +265,11 @@ describe('useTodayStats', () => {
     it('handles multiple overdue todos correctly', () => {
       const twoDaysAgo = new Date();
       twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-      const twoDaysAgoString = twoDaysAgo.toISOString().split('T')[0];
+      const twoDaysAgoString = getLocalDayString(twoDaysAgo);
 
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayString = yesterday.toISOString().split('T')[0];
+      const yesterdayString = getLocalDayString(yesterday);
 
       const overdue1 = createMockSweepCandidate({
         id: 'todo-overdue-1',
@@ -269,7 +295,7 @@ describe('useTodayStats', () => {
     it('does not mutate the original sweepCandidates array', () => {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayString = yesterday.toISOString().split('T')[0];
+      const yesterdayString = getLocalDayString(yesterday);
 
       const overdueTodo = createMockSweepCandidate({
         id: 'todo-overdue',
@@ -287,8 +313,9 @@ describe('useTodayStats', () => {
   });
 
   describe('recentDrops', () => {
-    it('returns empty array when no sweep candidates exist', () => {
+    it('returns empty array when no todos exist', () => {
       mockState.sweepCandidates = [];
+      mockState.nowData.allTodos = [];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -305,6 +332,7 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [noDueDateTodo];
+      mockState.nowData.allTodos = [toAllTodo(noDueDateTodo)];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -326,6 +354,7 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [oldUnscheduledTodo];
+      mockState.nowData.allTodos = [toAllTodo(oldUnscheduledTodo)];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -347,6 +376,7 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [carryForwardTodo];
+      mockState.nowData.allTodos = [toAllTodo(carryForwardTodo)];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -382,6 +412,7 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [inFocusTodo, notInFocusTodo];
+      mockState.nowData.allTodos = [toAllTodo(inFocusTodo), toAllTodo(notInFocusTodo)];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -412,6 +443,7 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [todoWithHabitId];
+      mockState.nowData.allTodos = [toAllTodo(todoWithHabitId)];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -435,6 +467,7 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [scheduledTodo, unscheduledTodo];
+      mockState.nowData.allTodos = [toAllTodo(scheduledTodo), toAllTodo(unscheduledTodo)];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -495,6 +528,12 @@ describe('useTodayStats', () => {
         notInFocusNoDueYesterday,
         notInFocusWithDue,
       ];
+      mockState.nowData.allTodos = [
+        toAllTodo(inFocusNoDue),
+        toAllTodo(notInFocusNoDueToday),
+        toAllTodo(notInFocusNoDueYesterday),
+        toAllTodo(notInFocusWithDue),
+      ];
 
       const { result } = renderHook(() => useTodayStats());
 
@@ -503,7 +542,7 @@ describe('useTodayStats', () => {
       expect(result.current.recentDrops[0].id).toBe('todo-not-focus-no-due-today');
     });
 
-    it('does not mutate the original sweepCandidates array', () => {
+    it('does not mutate the original allTodos array', () => {
       const noDueTodo = createMockSweepCandidate({
         id: 'todo-no-due',
         due_day: null,
@@ -511,12 +550,13 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [noDueTodo];
-      const originalLength = mockState.sweepCandidates.length;
+      mockState.nowData.allTodos = [toAllTodo(noDueTodo)];
+      const originalLength = mockState.nowData.allTodos.length;
 
       const { result } = renderHook(() => useTodayStats());
 
       expect(result.current.recentDrops).toHaveLength(1);
-      expect(mockState.sweepCandidates.length).toBe(originalLength);
+      expect(mockState.nowData.allTodos.length).toBe(originalLength);
     });
 
     it('excludes items with null created_at', () => {
@@ -528,10 +568,12 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [noCreatedAtTodo];
+      // Note: allTodos requires created_at to be string, but we test that null created_at is handled
+      mockState.nowData.allTodos = [{ ...toAllTodo(noCreatedAtTodo), created_at: '' }];
 
       const { result } = renderHook(() => useTodayStats());
 
-      // Should NOT be in recentDrops because created_at is null
+      // Should NOT be in recentDrops because created_at is null/empty
       expect(result.current.recentDrops).toHaveLength(0);
     });
   });
@@ -551,7 +593,7 @@ describe('useTodayStats', () => {
     it('sweepCandidates still includes all candidates regardless of filtering', () => {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayString = yesterday.toISOString().split('T')[0];
+      const yesterdayString = getLocalDayString(yesterday);
 
       const overdue = createMockSweepCandidate({
         id: 'todo-overdue',
@@ -566,13 +608,15 @@ describe('useTodayStats', () => {
       });
 
       mockState.sweepCandidates = [overdue, noDue];
+      mockState.nowData.allTodos = [toAllTodo(overdue), toAllTodo(noDue)];
 
       const { result } = renderHook(() => useTodayStats());
 
       // sweepCandidates should have both
       expect(result.current.sweepCandidates).toHaveLength(2);
-      // But they should be split into the derived arrays
+      // overdueTodos comes from sweepCandidates (items with due_day < today)
       expect(result.current.overdueTodos).toHaveLength(1);
+      // recentDrops comes from allTodos (items created today, no due date, not in focus)
       expect(result.current.recentDrops).toHaveLength(1);
     });
   });

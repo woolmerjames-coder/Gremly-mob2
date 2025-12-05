@@ -5,11 +5,25 @@
  * Each row is tappable to open the item details.
  */
 
-import React from 'react';
-import { View, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  ViewStyle,
+  TouchableOpacity,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+} from 'react-native';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -20,6 +34,8 @@ interface OverdueSectionProps {
   items: SweepCandidate[];
   /** Callback when an item row is pressed */
   onPressItem: (item: SweepCandidate) => void;
+  /** Callback when an item's checkbox is toggled */
+  onToggleComplete?: (item: SweepCandidate) => void;
   /** Optional container style */
   style?: ViewStyle;
 }
@@ -41,8 +57,19 @@ const DIVIDER_COLOR = 'rgba(0, 0, 0, 0.08)';
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function OverdueSection({ items, onPressItem, style }: OverdueSectionProps) {
+export function OverdueSection({
+  items,
+  onPressItem,
+  onToggleComplete,
+  style,
+}: OverdueSectionProps) {
   const tokens = useTokens();
+  const [collapsed, setCollapsed] = useState(false);
+
+  const toggleCollapsed = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCollapsed((prev) => !prev);
+  };
 
   // Don't render if no items
   if (items.length === 0) {
@@ -51,8 +78,12 @@ export function OverdueSection({ items, onPressItem, style }: OverdueSectionProp
 
   return (
     <View style={[styles.container, style]}>
-      {/* Section header */}
-      <View style={styles.header}>
+      {/* Section header - pressable to toggle collapse */}
+      <Pressable
+        style={({ pressed }) => [styles.header, pressed && styles.headerPressed]}
+        onPress={toggleCollapsed}
+        testID="overdue-section-header"
+      >
         <Text
           style={[
             styles.headerLabel,
@@ -69,38 +100,60 @@ export function OverdueSection({ items, onPressItem, style }: OverdueSectionProp
         >
           · {items.length}
         </Text>
-      </View>
+        {/* Chevron indicator */}
+        <Text
+          style={[
+            styles.chevron,
+            { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
+          ]}
+        >
+          {collapsed ? '▸' : '▾'}
+        </Text>
+      </Pressable>
 
-      {/* Item rows */}
-      <View style={styles.list}>
-        {items.map((item, index) => (
-          <Pressable
-            key={item.id}
-            style={({ pressed }) => [
-              styles.row,
-              index > 0 && styles.rowWithDivider,
-              pressed && styles.rowPressed,
-            ]}
-            onPress={() => onPressItem(item)}
-          >
-            {/* Left accent bar */}
-            <View style={styles.accentContainer}>
-              <View style={[styles.accentBar, { backgroundColor: OVERDUE_ACCENT }]} />
-            </View>
+      {/* Item rows - only rendered when not collapsed */}
+      {!collapsed && (
+        <View style={styles.list}>
+          {items.map((item, index) => (
+            <React.Fragment key={item.id}>
+              {/* Divider between header and first row, or between rows */}
+              <View style={styles.divider} />
 
-            {/* Item title */}
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.itemTitle,
-                { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.regular },
-              ]}
-            >
-              {item.name}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+              <Pressable
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                onPress={() => onPressItem(item)}
+                testID={`overdue-row-${index}`}
+              >
+                {/* Left accent bar */}
+                <View style={styles.accentContainer}>
+                  <View style={[styles.accentBar, { backgroundColor: OVERDUE_ACCENT }]} />
+                </View>
+
+                {/* Item title */}
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.itemTitle,
+                    { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.regular },
+                  ]}
+                >
+                  {item.name}
+                </Text>
+
+                {/* Checkbox */}
+                <TouchableOpacity
+                  onPress={() => onToggleComplete?.(item)}
+                  style={styles.checkboxContainer}
+                  activeOpacity={0.7}
+                  testID={`overdue-checkbox-${index}`}
+                >
+                  <View style={[styles.checkbox, { borderColor: tokens.colors.subtle }]} />
+                </TouchableOpacity>
+              </Pressable>
+            </React.Fragment>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -120,6 +173,9 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
+  headerPressed: {
+    opacity: 0.7,
+  },
   headerLabel: {
     fontSize: 13,
     lineHeight: 16,
@@ -131,19 +187,24 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginLeft: 4,
   },
+  chevron: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginLeft: 'auto',
+  },
   list: {
     // Container for rows
+  },
+  divider: {
+    height: 1,
+    backgroundColor: DIVIDER_COLOR,
+    marginLeft: 16, // Aligns with content, not accent bar
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     height: ROW_HEIGHT,
     paddingRight: 16,
-  },
-  rowWithDivider: {
-    borderTopWidth: 1,
-    borderTopColor: DIVIDER_COLOR,
-    marginLeft: 16,
   },
   rowPressed: {
     opacity: 0.7,
@@ -163,6 +224,22 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     lineHeight: 18,
+  },
+  checkboxContainer: {
+    marginLeft: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

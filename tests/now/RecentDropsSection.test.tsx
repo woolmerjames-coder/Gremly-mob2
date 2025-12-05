@@ -22,6 +22,7 @@ function createMockSweepCandidate(overrides: Partial<SweepCandidate> = {}): Swee
     carry_forward: false,
     completed_at: null,
     archived: false,
+    isOverdue: false,
     ...overrides,
   };
 }
@@ -101,6 +102,32 @@ describe('RecentDropsSection', () => {
 
       expect(screen.getByText('Buy groceries')).toBeTruthy();
       expect(screen.getByText('Call dentist')).toBeTruthy();
+    });
+
+    it('renders dividers before every row for consistent alignment', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+        createMockSweepCandidate({ id: 'todo-3', name: 'Task 3' }),
+      ];
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Every row should have a divider before it (including the first row)
+      expect(screen.getByTestId('recent-drops-divider-0')).toBeTruthy();
+      expect(screen.getByTestId('recent-drops-divider-1')).toBeTruthy();
+      expect(screen.getByTestId('recent-drops-divider-2')).toBeTruthy();
+
+      // Rows should also have testIDs
+      expect(screen.getByTestId('recent-drops-row-0')).toBeTruthy();
+      expect(screen.getByTestId('recent-drops-row-1')).toBeTruthy();
+      expect(screen.getByTestId('recent-drops-row-2')).toBeTruthy();
     });
 
     it('calls onPressItem with the correct item when a row is pressed', () => {
@@ -300,6 +327,103 @@ describe('RecentDropsSection', () => {
 
       // "Show more" button should be gone
       expect(screen.queryByText(/Show .* more/)).toBeNull();
+    });
+  });
+
+  describe('collapsible behavior', () => {
+    it('renders expanded by default with rows visible', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Header should be visible
+      expect(screen.getByTestId('recent-drops-section-header')).toBeTruthy();
+      // Rows should be visible (expanded by default)
+      expect(screen.getByTestId('recent-drops-row-0')).toBeTruthy();
+      expect(screen.getByTestId('recent-drops-row-1')).toBeTruthy();
+      // Expanded chevron should show
+      expect(screen.getByText('▾')).toBeTruthy();
+    });
+
+    it('collapses rows when header is pressed', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Press header to collapse
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
+      // Rows should be hidden
+      expect(screen.queryByTestId('recent-drops-row-0')).toBeNull();
+      expect(screen.queryByTestId('recent-drops-row-1')).toBeNull();
+      // Collapsed chevron should show
+      expect(screen.getByText('▸')).toBeTruthy();
+    });
+
+    it('expands rows when header is pressed again', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Collapse
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+      expect(screen.queryByTestId('recent-drops-row-0')).toBeNull();
+
+      // Expand again
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+      expect(screen.getByTestId('recent-drops-row-0')).toBeTruthy();
+      expect(screen.getByTestId('recent-drops-row-1')).toBeTruthy();
+      expect(screen.getByText('▾')).toBeTruthy();
+    });
+
+    it('hides Show more button when collapsed', () => {
+      const items = Array.from({ length: 8 }, (_, i) =>
+        createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
+      );
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Show more should be visible when expanded
+      expect(screen.getByText('Show 3 more')).toBeTruthy();
+
+      // Collapse
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
+      // Show more should be hidden
+      expect(screen.queryByText('Show 3 more')).toBeNull();
     });
   });
 });

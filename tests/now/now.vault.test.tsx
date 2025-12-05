@@ -147,6 +147,8 @@ function createMockStats(overrides: Record<string, unknown> = {}) {
     hasAnyTodayWork: false,
     logsToday: [],
     sweepCandidateCount: 0,
+    overdueTodos: [],
+    recentDrops: [],
     loading: false,
     reload: jest.fn().mockResolvedValue(undefined),
     nowData: {

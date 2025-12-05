@@ -7,10 +7,23 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  ViewStyle,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+} from 'react-native';
 import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -58,8 +71,15 @@ export function RecentDropsSection({
 }: RecentDropsSectionProps) {
   const tokens = useTokens();
   const [showAll, setShowAll] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const toggleCollapsed = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCollapsed((prev) => !prev);
+  }, []);
 
   const handleShowMore = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowAll(true);
   }, []);
 
@@ -81,8 +101,12 @@ export function RecentDropsSection({
 
   return (
     <View style={[styles.container, style]}>
-      {/* Section header */}
-      <View style={styles.header}>
+      {/* Section header - pressable to toggle collapse */}
+      <Pressable
+        style={({ pressed }) => [styles.header, pressed && styles.headerPressed]}
+        onPress={toggleCollapsed}
+        testID="recent-drops-section-header"
+      >
         <Text
           style={[
             styles.headerLabel,
@@ -99,73 +123,91 @@ export function RecentDropsSection({
         >
           ({items.length})
         </Text>
-      </View>
+        {/* Chevron indicator */}
+        <Text
+          style={[
+            styles.chevron,
+            { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
+          ]}
+        >
+          {collapsed ? '▸' : '▾'}
+        </Text>
+      </Pressable>
 
-      {/* Item rows */}
-      <View style={styles.list}>
-        {visibleItems.map((item, index) => (
-          <Pressable
-            key={item.id}
-            style={({ pressed }) => [
-              styles.row,
-              index > 0 && styles.rowWithDivider,
-              pressed && styles.rowPressed,
-            ]}
-            onPress={() => onPressItem(item)}
-          >
-            {/* Left accent bar */}
-            <View style={styles.accentContainer}>
-              <View style={[styles.accentBar, { backgroundColor: DROPS_ACCENT }]} />
-            </View>
+      {/* Item rows - only rendered when not collapsed */}
+      {!collapsed && (
+        <>
+          <View style={styles.list}>
+            {visibleItems.map((item, index) => (
+              <React.Fragment key={item.id}>
+                {/* Divider between header and first row, or between rows */}
+                <View style={styles.divider} testID={`recent-drops-divider-${index}`} />
 
-            {/* Item title */}
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.itemTitle,
-                { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.regular },
-              ]}
-            >
-              {item.name}
-            </Text>
+                <Pressable
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={() => onPressItem(item)}
+                  testID={`recent-drops-row-${index}`}
+                >
+                  {/* Left accent bar */}
+                  <View style={styles.accentContainer}>
+                    <View style={[styles.accentBar, { backgroundColor: DROPS_ACCENT }]} />
+                  </View>
 
-            {/* Add to Today action */}
+                  {/* Item title */}
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.itemTitle,
+                      {
+                        color: tokens.colors.text,
+                        fontFamily: tokens.typography.fontFamily.regular,
+                      },
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+
+                  {/* Add to Today action */}
+                  <Pressable
+                    testID={`add-to-today-${item.id}`}
+                    style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+                    onPress={() => handleAddToToday(item)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text
+                      style={[
+                        styles.addButtonText,
+                        {
+                          color: tokens.colors.mossGreen,
+                          fontFamily: tokens.typography.fontFamily.medium,
+                        },
+                      ]}
+                    >
+                      + Today
+                    </Text>
+                  </Pressable>
+                </Pressable>
+              </React.Fragment>
+            ))}
+          </View>
+
+          {/* Show more button */}
+          {hasMore && !showAll && (
             <Pressable
-              style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
-              onPress={() => handleAddToToday(item)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={({ pressed }) => [styles.showMoreButton, pressed && styles.showMorePressed]}
+              onPress={handleShowMore}
             >
               <Text
                 style={[
-                  styles.addButtonText,
-                  {
-                    color: tokens.colors.mossGreen,
-                    fontFamily: tokens.typography.fontFamily.medium,
-                  },
+                  styles.showMoreText,
+                  { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
                 ]}
               >
-                + Today
+                Show {hiddenCount} more
               </Text>
             </Pressable>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Show more button */}
-      {hasMore && !showAll && (
-        <Pressable
-          style={({ pressed }) => [styles.showMoreButton, pressed && styles.showMorePressed]}
-          onPress={handleShowMore}
-        >
-          <Text
-            style={[
-              styles.showMoreText,
-              { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
-            ]}
-          >
-            Show {hiddenCount} more
-          </Text>
-        </Pressable>
+          )}
+        </>
       )}
     </View>
   );
@@ -186,6 +228,9 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
+  headerPressed: {
+    opacity: 0.7,
+  },
   headerLabel: {
     fontSize: 13,
     lineHeight: 16,
@@ -197,19 +242,24 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginLeft: 4,
   },
+  chevron: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginLeft: 'auto',
+  },
   list: {
     // Container for rows
+  },
+  divider: {
+    height: 1,
+    backgroundColor: DIVIDER_COLOR,
+    marginLeft: 16, // Aligns with content, not accent bar
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     height: ROW_HEIGHT,
     paddingRight: 16,
-  },
-  rowWithDivider: {
-    borderTopWidth: 1,
-    borderTopColor: DIVIDER_COLOR,
-    marginLeft: 16,
   },
   rowPressed: {
     opacity: 0.7,

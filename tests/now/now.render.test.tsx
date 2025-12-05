@@ -146,6 +146,8 @@ describe('NowScreenV1', () => {
       hasAnyTodayWork: true,
       logsToday: [],
       sweepCandidateCount: mockSweepCandidateCount,
+      overdueTodos: [],
+      recentDrops: [],
       loading: false,
       reload: jest.fn().mockResolvedValue(undefined),
       nowData: {

@@ -4,11 +4,15 @@
  */
 
 import React from 'react';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { renderWithProviders, screen } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 
 // Create variables to hold mock data
 let mockTodayStats: Record<string, unknown>;
+let mockReloadFn: jest.Mock;
+let mockRepoUpdate: jest.Mock;
+let mockOpenEntityOverlay: jest.Mock;
 
 // Mock useAuth to return a test user
 jest.mock('../../providers/AuthProvider', () => ({
@@ -32,6 +36,7 @@ jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({
     listHabits: jest.fn().mockResolvedValue([]),
     getHabitProgressForWeek: jest.fn().mockResolvedValue(0),
+    update: (...args: unknown[]) => mockRepoUpdate?.(...args),
   }),
 }));
 
@@ -65,7 +70,7 @@ jest.mock('../../lib/now/useNowQuickAdd', () => ({
 // Mock useTodayInteractions since NowScreenV1 uses it for interactions
 jest.mock('../../lib/today/useTodayInteractions', () => ({
   useTodayInteractions: () => ({
-    openEntityOverlay: jest.fn(),
+    openEntityOverlay: (...args: unknown[]) => mockOpenEntityOverlay?.(...args),
     toggleTodoComplete: jest.fn(),
     toggleHabitComplete: jest.fn(),
     undoLastCompletion: jest.fn(),
@@ -140,8 +145,11 @@ function createMockStats(overrides: Record<string, unknown> = {}) {
     hasAnyTodayWork: false,
     logsToday: [],
     sweepCandidateCount: 0,
+    overdueTodos: [],
+    recentDrops: [],
+    todayDayString: '2025-11-25', // Matches the mocked date
     loading: false,
-    reload: jest.fn().mockResolvedValue(undefined),
+    reload: mockReloadFn,
     nowData: {
       dateTimeLabel: 'Monday, November 25 • 10:30 AM',
       weeklySummaries: [],
@@ -156,6 +164,10 @@ describe('NowScreenV1 Integration Tests', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(mockDate);
+    // Initialize mock functions
+    mockReloadFn = jest.fn().mockResolvedValue(undefined);
+    mockRepoUpdate = jest.fn().mockResolvedValue(undefined);
+    mockOpenEntityOverlay = jest.fn();
   });
 
   afterEach(() => {
@@ -339,6 +351,236 @@ describe('NowScreenV1 Integration Tests', () => {
       expect(screen.getByText('Your Notes')).toBeTruthy();
       // Mock returns totalCount: 5
       expect(screen.getByText('5')).toBeTruthy();
+    });
+  });
+
+  describe('Overdue Section', () => {
+    it('renders Overdue section when overdueTodos has items', () => {
+      mockTodayStats = createMockStats({
+        overdueTodos: [
+          {
+            id: 'overdue-1',
+            name: 'Pay AMEX bill',
+            type: 'todo',
+            due_day: '2025-11-20',
+          },
+        ],
+        recentDrops: [],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Overdue header is rendered
+      expect(screen.getByText(/Overdue/i)).toBeTruthy();
+
+      // Assert: The overdue item title is visible
+      expect(screen.getByText('Pay AMEX bill')).toBeTruthy();
+
+      // Assert: Recent Drops header is NOT rendered when empty
+      expect(screen.queryByText(/Recent Drops/i)).toBeFalsy();
+    });
+
+    it('does NOT render Overdue section when overdueTodos is empty', () => {
+      mockTodayStats = createMockStats({
+        overdueTodos: [],
+        activeItems: [
+          {
+            id: 'todo-1',
+            type: 'todo',
+            name: 'Regular task',
+            locked: false,
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Regular task appears
+      expect(screen.getByText('Regular task')).toBeTruthy();
+
+      // Assert: Overdue header is NOT rendered
+      expect(screen.queryByText(/Overdue · /i)).toBeFalsy();
+    });
+  });
+
+  describe('Recent Drops Section', () => {
+    it('renders Recent Drops section when recentDrops has items', () => {
+      mockTodayStats = createMockStats({
+        overdueTodos: [],
+        recentDrops: [
+          {
+            id: 'drop-1',
+            name: 'Fix bike tire',
+            type: 'todo',
+            created_at: '2025-11-25T08:00:00Z',
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Recent Drops header is rendered
+      expect(screen.getByText(/Recent Drops/i)).toBeTruthy();
+
+      // Assert: The recent drop item title is visible
+      expect(screen.getByText('Fix bike tire')).toBeTruthy();
+
+      // Assert: Overdue header is NOT rendered when empty
+      expect(screen.queryByText(/Overdue · /i)).toBeFalsy();
+    });
+
+    it('does NOT render Recent Drops section when recentDrops is empty', () => {
+      mockTodayStats = createMockStats({
+        recentDrops: [],
+        activeItems: [
+          {
+            id: 'todo-1',
+            type: 'todo',
+            name: 'Regular task',
+            locked: false,
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Regular task appears
+      expect(screen.getByText('Regular task')).toBeTruthy();
+
+      // Assert: Recent Drops header is NOT rendered
+      expect(screen.queryByText(/Recent Drops/i)).toBeFalsy();
+    });
+  });
+
+  describe('Both Sections Together', () => {
+    it('renders both Overdue and Recent Drops sections when both have data', () => {
+      mockTodayStats = createMockStats({
+        overdueTodos: [
+          {
+            id: 'overdue-1',
+            name: 'Pay AMEX bill',
+            type: 'todo',
+            due_day: '2025-11-20',
+          },
+        ],
+        recentDrops: [
+          {
+            id: 'drop-1',
+            name: 'Fix bike tire',
+            type: 'todo',
+            created_at: '2025-11-25T08:00:00Z',
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Both headers are rendered
+      expect(screen.getByText(/Overdue/i)).toBeTruthy();
+      expect(screen.getByText(/Recent Drops/i)).toBeTruthy();
+
+      // Assert: Both item titles appear
+      expect(screen.getByText('Pay AMEX bill')).toBeTruthy();
+      expect(screen.getByText('Fix bike tire')).toBeTruthy();
+
+      // Assert: Add to Today button is still rendered (the bottom action)
+      expect(screen.getByText('Add to Today')).toBeTruthy();
+    });
+
+    it('renders + Today button in Recent Drops section', () => {
+      mockTodayStats = createMockStats({
+        recentDrops: [
+          {
+            id: 'drop-1',
+            name: 'Fix bike tire',
+            type: 'todo',
+            created_at: '2025-11-25T08:00:00Z',
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: + Today button is rendered in RecentDropsSection
+      expect(screen.getByText('+ Today')).toBeTruthy();
+    });
+  });
+
+  describe('Add to Today Interaction', () => {
+    beforeEach(() => {
+      // Use real timers for interaction tests to avoid waitFor issues
+      jest.useRealTimers();
+    });
+
+    it('tapping + Today button calls repo.update with correct payload and triggers reload', async () => {
+      mockTodayStats = createMockStats({
+        recentDrops: [
+          {
+            id: 'drop-123',
+            name: 'Quick thought',
+            type: 'todo',
+            created_at: '2025-11-25T08:00:00Z',
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Act: tap the "+ Today" button using testID
+      const addTodayButton = screen.getByTestId('add-to-today-drop-123');
+      fireEvent.press(addTodayButton);
+
+      // Assert: repo.update is called with the correct payload
+      // The due_day should match the mocked todayDayString from useTodayStats ('2025-11-25')
+      await waitFor(() => {
+        expect(mockRepoUpdate).toHaveBeenCalledWith({
+          id: 'drop-123',
+          patch: expect.objectContaining({
+            due_day: '2025-11-25',
+            carry_forward: false,
+          }),
+        });
+      });
+
+      // Assert: reload is called after the mutation
+      await waitFor(() => {
+        expect(mockReloadFn).toHaveBeenCalled();
+      });
+    });
+
+    it('tapping row opens detail overlay without calling repo.update', async () => {
+      const testItem = {
+        id: 'drop-456',
+        name: 'Another thought',
+        type: 'todo',
+        created_at: '2025-11-25T08:00:00Z',
+      };
+
+      mockTodayStats = createMockStats({
+        recentDrops: [testItem],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Act: tap the row text (not the + Today button)
+      const rowText = screen.getByText('Another thought');
+      fireEvent.press(rowText);
+
+      // Assert: repo.update is NOT called
+      expect(mockRepoUpdate).not.toHaveBeenCalled();
+
+      // Assert: openEntityOverlay is called with the full item
+      await waitFor(() => {
+        expect(mockOpenEntityOverlay).toHaveBeenCalledWith(testItem);
+      });
     });
   });
 });

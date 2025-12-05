@@ -53,6 +53,8 @@ export interface SweepCandidate {
   tags?: string[];
   /** ISO 8601 timestamp when the item was created */
   created_at?: string | null;
+  /** True if due_day (or due_date) is strictly before today */
+  isOverdue: boolean;
 }
 
 /**
@@ -138,20 +140,27 @@ export function selectSweepCandidates(
 ): SweepCandidate[] {
   const candidates = todos
     .filter((todo) => isSweepEligible(todo, todayDay))
-    .map((todo) => ({
-      id: todo.id,
-      type: 'todo' as const,
-      name: todo.name,
-      due_day: todo.due_day,
-      due_date: todo.due_date,
-      status: (todo.status ?? 'active') as 'active' | 'completed' | 'archived',
-      carry_forward: todo.carry_forward,
-      completed_at: todo.completed_at,
-      archived: todo.archived,
-      space_id: todo.space_id,
-      tags: todo.tags,
-      created_at: todo.created_at,
-    }));
+    .map((todo) => {
+      // Compute isOverdue using same logic as useTodayStats.overdueTodos
+      const dueDay = todo.due_day ?? (todo.due_date ? todo.due_date.split('T')[0] : null);
+      const isOverdue = dueDay !== null && dueDay < todayDay;
+
+      return {
+        id: todo.id,
+        type: 'todo' as const,
+        name: todo.name,
+        due_day: todo.due_day,
+        due_date: todo.due_date,
+        status: (todo.status ?? 'active') as 'active' | 'completed' | 'archived',
+        carry_forward: todo.carry_forward,
+        completed_at: todo.completed_at,
+        archived: todo.archived,
+        space_id: todo.space_id,
+        tags: todo.tags,
+        created_at: todo.created_at,
+        isOverdue,
+      };
+    });
 
   // Log for debugging sweep mismatch
   if (candidates.length > 0 || process.env.NODE_ENV === 'development') {

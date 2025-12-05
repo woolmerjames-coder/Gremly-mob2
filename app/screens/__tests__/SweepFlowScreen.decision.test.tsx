@@ -118,6 +118,7 @@ const mockTodoCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'todo-1',
     name: 'Test task',
@@ -133,6 +134,7 @@ const mockHabitCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'habit-1',
     name: 'Test habit',
@@ -150,6 +152,7 @@ const mockNoteCandidate: SweepCandidate = {
   createdAt: new Date().toISOString(),
   dropId: null,
   skippedInSweepAt: null,
+  isOverdue: false,
   raw: {
     id: 'note-1',
     title: 'Test note',

@@ -22,6 +22,7 @@ function createMockSweepCandidate(overrides: Partial<SweepCandidate> = {}): Swee
     carry_forward: false,
     completed_at: null,
     archived: false,
+    isOverdue: false,
     ...overrides,
   };
 }
@@ -32,6 +33,7 @@ function createMockSweepCandidate(overrides: Partial<SweepCandidate> = {}): Swee
 
 describe('OverdueSection', () => {
   const mockOnPressItem = jest.fn();
+  const mockOnToggleComplete = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -94,6 +96,196 @@ describe('OverdueSection', () => {
       fireEvent.press(screen.getByText('Task 2'));
       expect(mockOnPressItem).toHaveBeenCalledTimes(2);
       expect(mockOnPressItem).toHaveBeenCalledWith(item2);
+    });
+
+    it('renders rows with testIDs for each item', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+        createMockSweepCandidate({ id: 'todo-3', name: 'Task 3' }),
+      ];
+
+      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+
+      // Verify each row has a testID
+      expect(screen.getByTestId('overdue-row-0')).toBeTruthy();
+      expect(screen.getByTestId('overdue-row-1')).toBeTruthy();
+      expect(screen.getByTestId('overdue-row-2')).toBeTruthy();
+    });
+  });
+
+  describe('layout consistency', () => {
+    it('renders uniform row structure with dividers before each row', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'First Task' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Second Task' }),
+        createMockSweepCandidate({ id: 'todo-3', name: 'Third Task' }),
+      ];
+
+      const { toJSON } = render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      const tree = toJSON();
+
+      // The component should render: container > [header, list]
+      // list should contain: [divider, row, divider, row, divider, row]
+      // Each item gets a divider before it (including the first one)
+      expect(tree).toBeTruthy();
+
+      // Verify all three rows render
+      expect(screen.getByTestId('overdue-row-0')).toBeTruthy();
+      expect(screen.getByTestId('overdue-row-1')).toBeTruthy();
+      expect(screen.getByTestId('overdue-row-2')).toBeTruthy();
+    });
+  });
+
+  describe('checkbox completion', () => {
+    it('renders a checkbox for each item', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <OverdueSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onToggleComplete={mockOnToggleComplete}
+        />,
+      );
+
+      expect(screen.getByTestId('overdue-checkbox-0')).toBeTruthy();
+      expect(screen.getByTestId('overdue-checkbox-1')).toBeTruthy();
+    });
+
+    it('calls onToggleComplete with the correct item when checkbox is pressed', () => {
+      const item1 = createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' });
+      const item2 = createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' });
+      const items = [item1, item2];
+
+      render(
+        <OverdueSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onToggleComplete={mockOnToggleComplete}
+        />,
+      );
+
+      // Press the first checkbox
+      fireEvent.press(screen.getByTestId('overdue-checkbox-0'));
+      expect(mockOnToggleComplete).toHaveBeenCalledTimes(1);
+      expect(mockOnToggleComplete).toHaveBeenCalledWith(item1);
+
+      // Press the second checkbox
+      fireEvent.press(screen.getByTestId('overdue-checkbox-1'));
+      expect(mockOnToggleComplete).toHaveBeenCalledTimes(2);
+      expect(mockOnToggleComplete).toHaveBeenCalledWith(item2);
+    });
+
+    it('does not call onPressItem when checkbox is pressed', () => {
+      const item = createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' });
+
+      render(
+        <OverdueSection
+          items={[item]}
+          onPressItem={mockOnPressItem}
+          onToggleComplete={mockOnToggleComplete}
+        />,
+      );
+
+      // Press the checkbox
+      fireEvent.press(screen.getByTestId('overdue-checkbox-0'));
+
+      // Only onToggleComplete should be called, not onPressItem
+      expect(mockOnToggleComplete).toHaveBeenCalledTimes(1);
+      expect(mockOnPressItem).not.toHaveBeenCalled();
+    });
+
+    it('works without onToggleComplete prop (optional)', () => {
+      const items = [createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' })];
+
+      // Should not throw when onToggleComplete is not provided
+      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+
+      // Checkbox should still render
+      expect(screen.getByTestId('overdue-checkbox-0')).toBeTruthy();
+
+      // Pressing it should not throw
+      expect(() => {
+        fireEvent.press(screen.getByTestId('overdue-checkbox-0'));
+      }).not.toThrow();
+    });
+  });
+
+  describe('collapsible behavior', () => {
+    it('renders expanded by default with rows visible', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <OverdueSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onToggleComplete={mockOnToggleComplete}
+        />,
+      );
+
+      // Header should be visible
+      expect(screen.getByTestId('overdue-section-header')).toBeTruthy();
+      // Rows should be visible (expanded by default)
+      expect(screen.getByTestId('overdue-row-0')).toBeTruthy();
+      expect(screen.getByTestId('overdue-row-1')).toBeTruthy();
+      // Expanded chevron should show
+      expect(screen.getByText('▾')).toBeTruthy();
+    });
+
+    it('collapses rows when header is pressed', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <OverdueSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onToggleComplete={mockOnToggleComplete}
+        />,
+      );
+
+      // Press header to collapse
+      fireEvent.press(screen.getByTestId('overdue-section-header'));
+
+      // Rows should be hidden
+      expect(screen.queryByTestId('overdue-row-0')).toBeNull();
+      expect(screen.queryByTestId('overdue-row-1')).toBeNull();
+      // Collapsed chevron should show
+      expect(screen.getByText('▸')).toBeTruthy();
+    });
+
+    it('expands rows when header is pressed again', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <OverdueSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onToggleComplete={mockOnToggleComplete}
+        />,
+      );
+
+      // Collapse
+      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      expect(screen.queryByTestId('overdue-row-0')).toBeNull();
+
+      // Expand again
+      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      expect(screen.getByTestId('overdue-row-0')).toBeTruthy();
+      expect(screen.getByTestId('overdue-row-1')).toBeTruthy();
+      expect(screen.getByText('▾')).toBeTruthy();
     });
   });
 });

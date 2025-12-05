@@ -748,11 +748,16 @@ export function SweepCard({
                 <View style={styles.cardDivider} />
               </View>
 
-              {/* 3. META ROW - Type and timestamp combined */}
+              {/* 3. META ROW - Type, timestamp, and optional overdue pill */}
               <View style={styles.metadataRow}>
                 <Text style={styles.metaLineText}>
                   {typeLabel.toUpperCase()} · {timestamp}
                 </Text>
+                {candidate.isOverdue && (
+                  <View style={styles.overduePill}>
+                    <Text style={styles.overduePillText}>Overdue</Text>
+                  </View>
+                )}
               </View>
 
               {/* Spacer - Pushes action block to bottom of card */}
@@ -1155,12 +1160,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8, // Tighter spacing
+    gap: 8,
   },
   metaLineText: {
     fontSize: 13,
     fontWeight: '500',
     color: BRAND.colors.charcoalInk, // Full charcoal for readability
     letterSpacing: 0.3,
+  },
+
+  // Overdue Pill - Muted coral/red accent, calm but attention-grabbing
+  overduePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(196, 92, 74, 0.12)', // OVERDUE_ACCENT @ 12%
+    borderWidth: 1,
+    borderColor: 'rgba(196, 92, 74, 0.25)', // OVERDUE_ACCENT @ 25%
+  },
+  overduePillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#C45C4A', // OVERDUE_ACCENT - matches OverdueSection
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
 
   // CTA Pill Row - Context-aware action based on item type

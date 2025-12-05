@@ -18,11 +18,11 @@ import {
   Easing,
   ActivityIndicator,
 } from 'react-native';
-import { CompletionCheckIcon } from '../../components/today/CompletionCheckIcon';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
+import { OverdueSection, RecentDropsSection } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
@@ -45,7 +45,9 @@ import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useRepo } from '../../providers/RepoProvider';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
+import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 
 /**
  * Time window priority for sorting
@@ -164,6 +166,9 @@ export default function NowScreenV1() {
     hasAnyTodayWork,
     logsToday,
     sweepCandidateCount,
+    overdueTodos,
+    recentDrops,
+    todayDayString,
     loading,
     reload,
     nowData,
@@ -198,6 +203,7 @@ export default function NowScreenV1() {
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
+  const repo = useRepo();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
@@ -257,6 +263,26 @@ export default function NowScreenV1() {
   const handleAddPress = useCallback(() => {
     setQuickAddVisible(true);
   }, []);
+
+  // Add item to Today's Focus by setting due_day to today
+  // Uses todayDayString from useTodayStats to ensure consistency with Today/Sweep logic
+  const handleAddToToday = useCallback(
+    async (item: SweepCandidate) => {
+      try {
+        // Update the todo's due_day to today (using shared todayDayString)
+        await repo.update({
+          id: item.id,
+          patch: { due_day: todayDayString, carry_forward: false } as any,
+        });
+
+        // Refresh Today stats so the item moves from Recent Drops to Today's Focus
+        await reload();
+      } catch (error) {
+        console.warn('[NowScreenV1] Add to Today failed:', error);
+      }
+    },
+    [repo, reload, todayDayString],
+  );
 
   // Quick add hook - wires to MindDrop pipeline with Today scoping
   // Uses optimistic flow: onStart for immediate feedback, onComplete for final state
@@ -401,6 +427,9 @@ export default function NowScreenV1() {
           sweepStatus={sweepStatus}
           onSweepPress={handleSweepPress}
           onAddPress={handleAddPress}
+          overdueTodos={overdueTodos}
+          recentDrops={recentDrops}
+          onAddToToday={handleAddToToday}
         />
       </View>
 
@@ -625,6 +654,9 @@ type TodayFocusListProps = {
   sweepStatus: SweepStatus;
   onSweepPress: () => void;
   onAddPress: () => void;
+  overdueTodos: SweepCandidate[];
+  recentDrops: SweepCandidate[];
+  onAddToToday: (item: SweepCandidate) => void;
 };
 
 function TodayFocusList({
@@ -641,6 +673,9 @@ function TodayFocusList({
   sweepStatus,
   onSweepPress,
   onAddPress,
+  overdueTodos,
+  recentDrops,
+  onAddToToday,
 }: TodayFocusListProps) {
   // Track leaving card for exit animation
   const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
@@ -738,6 +773,26 @@ function TodayFocusList({
           title={leavingCard.title}
           isLeaving
           onExitComplete={handleExitComplete}
+        />
+      )}
+
+      {/* Overdue section */}
+      {overdueTodos.length > 0 && (
+        <OverdueSection
+          items={overdueTodos}
+          onPressItem={(item) => onPressItem?.(item as unknown as NowActiveItem)}
+          onToggleComplete={(item) => onToggleComplete?.(item as unknown as NowActiveItem)}
+          style={styles.sectionSpacing}
+        />
+      )}
+
+      {/* Recent Drops section */}
+      {recentDrops.length > 0 && (
+        <RecentDropsSection
+          items={recentDrops}
+          onPressItem={(item) => onPressItem?.(item as unknown as NowActiveItem)}
+          onAddToToday={onAddToToday}
+          style={styles.sectionSpacing}
         />
       )}
 
@@ -897,5 +952,9 @@ const styles = StyleSheet.create({
   pillsRowContainer: {
     marginTop: 4, // Tightened spacing after last item
     marginBottom: 0, // listBottomSpacer handles bottom spacing
+  },
+  // Spacing for Overdue and Recent Drops sections
+  sectionSpacing: {
+    marginTop: 16,
   },
 });
