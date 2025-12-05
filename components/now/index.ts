@@ -18,3 +18,4 @@ export { NowSweepBar } from './NowSweepBar';
 export { OverwhelmButton } from './OverwhelmButton';
 export { OverdueSection } from './OverdueSection';
 export { RecentDropsSection } from './RecentDropsSection';
+export { SweepPill } from './SweepPill';

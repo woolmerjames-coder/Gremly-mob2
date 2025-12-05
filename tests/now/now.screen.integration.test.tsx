@@ -4,7 +4,7 @@
  */
 
 import { fireEvent, waitFor } from '@testing-library/react-native';
-import { renderWithProviders, screen } from '../utils/renderWithProviders';
+import { renderWithProviders, screen, mockNavigate } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 
 // Create variables to hold mock data
@@ -287,8 +287,9 @@ describe('NowScreenV1 Integration Tests', () => {
       // Assert: Empty state message appears
       expect(screen.getByText('Nothing scheduled for today.')).toBeTruthy();
 
-      // Assert: Add to Today button still visible
-      expect(screen.getByText('Add to Today')).toBeTruthy();
+      // Assert: Header Add to Today button is visible
+      expect(screen.getByTestId('header-add-to-today')).toBeTruthy();
+      expect(screen.getByText('+ Add to Today')).toBeTruthy();
     });
   });
 
@@ -487,8 +488,8 @@ describe('NowScreenV1 Integration Tests', () => {
       expect(screen.getByText('Pay AMEX bill')).toBeTruthy();
       expect(screen.getByText('Fix bike tire')).toBeTruthy();
 
-      // Assert: Add to Today button is still rendered (the bottom action)
-      expect(screen.getByText('Add to Today')).toBeTruthy();
+      // Assert: Header Add to Today button is rendered
+      expect(screen.getByTestId('header-add-to-today')).toBeTruthy();
     });
 
     it('renders + Today button in Recent Drops section', () => {
@@ -515,6 +516,57 @@ describe('NowScreenV1 Integration Tests', () => {
     beforeEach(() => {
       // Use real timers for interaction tests to avoid waitFor issues
       jest.useRealTimers();
+    });
+
+    it('header Add to Today button is visible with empty Today Focus', () => {
+      mockTodayStats = createMockStats({
+        hasAnyTodayWork: false,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Header Add to Today button exists
+      const headerButton = screen.getByTestId('header-add-to-today');
+      expect(headerButton).toBeTruthy();
+      expect(screen.getByText('+ Add to Today')).toBeTruthy();
+    });
+
+    it('header Add to Today button is visible when Today Focus has items', () => {
+      mockTodayStats = createMockStats({
+        activeItems: [
+          {
+            id: 'todo-1',
+            type: 'todo',
+            name: 'Test Todo',
+            locked: false,
+          },
+        ],
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Assert: Header Add to Today button is visible alongside items
+      const headerButton = screen.getByTestId('header-add-to-today');
+      expect(headerButton).toBeTruthy();
+
+      // Assert: The todo item is also rendered
+      expect(screen.getByText('Test Todo')).toBeTruthy();
+    });
+
+    it('pressing header Add to Today button does not throw', () => {
+      mockTodayStats = createMockStats({
+        hasAnyTodayWork: false,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      const headerButton = screen.getByTestId('header-add-to-today');
+
+      // Act: press the button - should not throw
+      expect(() => {
+        fireEvent.press(headerButton);
+      }).not.toThrow();
     });
 
     // Note: This test is skipped because the animation system uses react-native-reanimated
@@ -610,6 +662,103 @@ describe('NowScreenV1 Integration Tests', () => {
       await waitFor(() => {
         expect(mockOpenEntityOverlay).toHaveBeenCalledWith(testItem);
       });
+    });
+  });
+
+  describe('SweepPill', () => {
+    beforeEach(() => {
+      mockNavigate.mockClear();
+    });
+
+    it('renders SweepPill when screen has items', () => {
+      mockTodayStats = createMockStats({
+        lockedItems: [
+          { id: 'habit-1', type: 'habit', name: 'Morning Routine', locked: true, cadence: 'daily' },
+        ],
+        activeItems: [{ id: 'todo-1', type: 'todo', name: 'Review docs', locked: false }],
+        sweepCandidateCount: 3,
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // SweepPill should be visible with the Sweep label
+      expect(screen.getByTestId('sweep-pill')).toBeTruthy();
+      expect(screen.getByText(/Sweep/)).toBeTruthy();
+    });
+
+    it('displays correct count when sweepCandidateCount is 6', () => {
+      mockTodayStats = createMockStats({
+        sweepCandidateCount: 6,
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Should show "6 items waiting"
+      expect(screen.getByText(/6 items waiting/)).toBeTruthy();
+    });
+
+    it('displays singular "item" when sweepCandidateCount is 1', () => {
+      mockTodayStats = createMockStats({
+        sweepCandidateCount: 1,
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Should show "1 item waiting" (singular)
+      expect(screen.getByText(/1 item waiting/)).toBeTruthy();
+    });
+
+    it('renders with zero-state label when sweepCandidateCount is 0', () => {
+      mockTodayStats = createMockStats({
+        sweepCandidateCount: 0,
+        hasAnyTodayWork: false,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Pill should still render with testID
+      const sweepPill = screen.getByTestId('sweep-pill');
+      expect(sweepPill).toBeTruthy();
+
+      // Accessibility label should reflect zero items
+      expect(sweepPill.props.accessibilityLabel).toMatch(/0 items/i);
+    });
+
+    it('navigates to Sweep screen when pressed', () => {
+      mockTodayStats = createMockStats({
+        sweepCandidateCount: 4,
+        hasAnyTodayWork: true,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Press the SweepPill
+      const sweepPill = screen.getByTestId('sweep-pill');
+      fireEvent.press(sweepPill);
+
+      // Should navigate to Sweep screen
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('Sweep');
+    });
+
+    it('is tappable even when count is zero', () => {
+      mockTodayStats = createMockStats({
+        sweepCandidateCount: 0,
+        hasAnyTodayWork: false,
+      });
+
+      renderWithProviders(<NowScreenV1 />);
+
+      // Press the SweepPill with zero count
+      const sweepPill = screen.getByTestId('sweep-pill');
+      fireEvent.press(sweepPill);
+
+      // Should still navigate to Sweep screen
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('Sweep');
     });
   });
 });
