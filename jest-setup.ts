@@ -292,3 +292,83 @@ jest.mock('./contexts/OverlayContext', () => {
 
 // Note: If RN Animated internals cause issues, prefer local per-test mocks
 // over a global mock of NativeAnimatedHelper, as the module path can vary by RN version.
+
+// Mock react-native-gesture-handler Gesture API for tests
+jest.mock('react-native-gesture-handler', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const RN = require('react-native');
+
+  // Create a mock gesture builder that supports method chaining
+  const createMockGesture = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gesture: any = {
+      activeOffsetX: jest.fn(() => gesture),
+      activeOffsetY: jest.fn(() => gesture),
+      failOffsetX: jest.fn(() => gesture),
+      failOffsetY: jest.fn(() => gesture),
+      onStart: jest.fn(() => gesture),
+      onUpdate: jest.fn(() => gesture),
+      onEnd: jest.fn(() => gesture),
+      onFinalize: jest.fn(() => gesture),
+      withTestId: jest.fn(() => gesture),
+      enabled: jest.fn(() => gesture),
+      shouldCancelWhenOutside: jest.fn(() => gesture),
+      hitSlop: jest.fn(() => gesture),
+      simultaneousWithExternalGesture: jest.fn(() => gesture),
+      requireExternalGestureToFail: jest.fn(() => gesture),
+    };
+    return gesture;
+  };
+
+  return {
+    __esModule: true,
+    // GestureDetector just renders its children
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    GestureDetector: ({ children }: any) => children,
+    // Gesture factory methods
+    Gesture: {
+      Pan: createMockGesture,
+      Tap: createMockGesture,
+      LongPress: createMockGesture,
+      Pinch: createMockGesture,
+      Rotation: createMockGesture,
+      Fling: createMockGesture,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Simultaneous: (..._gestures: any[]) => createMockGesture(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Exclusive: (..._gestures: any[]) => createMockGesture(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Race: (..._gestures: any[]) => createMockGesture(),
+    },
+    // Legacy components (still used in some places)
+    PanGestureHandler: RN.View,
+    TapGestureHandler: RN.View,
+    LongPressGestureHandler: RN.View,
+    PinchGestureHandler: RN.View,
+    RotationGestureHandler: RN.View,
+    FlingGestureHandler: RN.View,
+    ScrollView: RN.ScrollView,
+    FlatList: RN.FlatList,
+    // State enum
+    State: {
+      UNDETERMINED: 0,
+      FAILED: 1,
+      BEGAN: 2,
+      CANCELLED: 3,
+      ACTIVE: 4,
+      END: 5,
+    },
+    // Directions enum
+    Directions: {
+      RIGHT: 1,
+      LEFT: 2,
+      UP: 4,
+      DOWN: 8,
+    },
+    // gestureHandlerRootHOC - just pass through
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    gestureHandlerRootHOC: (Component: any) => Component,
+    // NativeViewGestureHandler
+    NativeViewGestureHandler: RN.View,
+  };
+});

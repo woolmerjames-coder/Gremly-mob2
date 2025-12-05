@@ -46,6 +46,17 @@ interface OpenCreateParams {
   logSubtype?: LogSubtype | null;
   suppressOverlayOpen?: boolean;
   defaultDueToday?: boolean; // When true, todo defaults to due today (used by Now page)
+  conversionMeta?: {
+    origin?: string;
+    ai_placed?: boolean;
+    why_string?: string | null;
+    source_message_id?: string | null;
+    initialTitle?: string;
+    initialNote?: string;
+    initialTags?: string[];
+    sourceNoteId?: string;
+    initialDueDate?: string | null;
+  };
 }
 
 interface OpenEditParams {

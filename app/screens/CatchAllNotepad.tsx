@@ -81,6 +81,7 @@ import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cort
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { Lock } from 'lucide-react-native';
@@ -1630,6 +1631,22 @@ const RecentDrops: React.FC<{
       void notesChannel.unsubscribe();
     };
   }, [userId, load, removePendingItem, mergeDbRecordIntoItems]);
+
+  // Listen for ItemDeleted events from overlay and immediately remove from list
+  useEffect(() => {
+    const unsubscribe = eventBus.on(
+      'ItemDeleted',
+      (event: { id: string; type: 'habit' | 'todo' | 'note' }) => {
+        console.debug('[RecentDrops] ItemDeleted event:', event.id, event.type);
+        // Remove the item immediately from local state
+        setItems((prev) => prev.filter((item) => item.id !== event.id));
+        // Also remove from pending items in case it was still pending
+        setPendingItems((prev) => prev.filter((item) => item.id !== event.id));
+      },
+    );
+
+    return unsubscribe;
+  }, []);
 
   const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
     try {

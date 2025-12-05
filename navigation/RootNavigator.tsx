@@ -5,6 +5,7 @@ import DevLogin from '../app/(dev)/DevLogin';
 import RecentItems from '../app/(dev)/RecentItems';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
+import SweepFlowScreen from '../app/screens/SweepFlowScreen';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
@@ -21,6 +22,7 @@ export type RootStackParamList = {
   SpaceHome: { spaceId: string }; // Phase 8 Spaces v2
   ChatThread: { spaceId: string; chatId: string }; // Phase 10.5 - Updated to include spaceId
   Lists: undefined; // Phase 10.7 Lists UX
+  Sweep: undefined; // Phase Sweep - Evening Sweep ritual
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
@@ -77,6 +79,16 @@ export default function RootNavigator() {
         options={{
           title: 'Lists',
           headerShown: true,
+        }}
+      />
+      {/* Sweep: Evening Sweep ritual flow - full-screen with custom header */}
+      <Stack.Screen
+        name="Sweep"
+        component={SweepFlowScreen}
+        options={{
+          headerShown: false, // Uses custom header in component
+          presentation: 'card',
+          gestureEnabled: false, // Disable swipe-to-dismiss
         }}
       />
       <Stack.Screen

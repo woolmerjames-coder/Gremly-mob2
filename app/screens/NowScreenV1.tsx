@@ -3,6 +3,9 @@
  * Feature flag: EXPO_PUBLIC_NOW_V1
  * Phase 3: Real data wiring
  * Phase 4: Wire interactions
+ *
+ * TODO: Remove legacy SweepDrawer component once Sweep v2 has shipped to prod.
+ *       SweepDrawer.tsx still exists at components/today/v3/SweepDrawer.tsx but is no longer used.
  */
 
 import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react';
@@ -28,9 +31,13 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
 import TodayPillsRow from '../../components/today/TodayPillsRow';
-import SweepDrawer from '../../components/today/v3/SweepDrawer';
+// Legacy SweepDrawer import removed - now using SweepFlowScreen via navigation route 'Sweep'
+// import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useTodayStats } from '../../lib/today/hooks';
 import { getSweepStatus, type SweepStatus } from '../../lib/today/useTodayData';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
@@ -191,9 +198,10 @@ export default function NowScreenV1() {
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
-  const [isSweepVisible, setSweepVisible] = useState(false);
+  // isSweepVisible removed - now using navigation.navigate('Sweep')
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
@@ -237,28 +245,13 @@ export default function NowScreenV1() {
     void overwhelm.requestPlan(selectedItems);
   }, [overwhelm, lockedItems, activeItems]);
 
-  // Handle sweep press
+  // Handle sweep press - navigate to new Sweep flow screen
   const handleSweepPress = useCallback(() => {
-    // Open sweep modal (same for both quick sweep and regular sweep)
-    setSweepVisible(true);
-  }, []);
+    navigation.navigate('Sweep');
+  }, [navigation]);
 
-  // Handle sweep complete - show appropriate toast after modal closes
-  const handleSweepComplete = useCallback(
-    (summary: { archived: number; total: number }) => {
-      // Modal is now closed, safe to show toast
-      if (summary.archived > 0) {
-        // Items were archived
-        showToast({ type: 'success', content: "Everything's where it should be." });
-      } else if (summary.total > 0) {
-        // Items were handled but none archived
-        showToast({ type: 'success', content: "You're all set for today." });
-      }
-      // Reload to reflect any changes
-      void reload();
-    },
-    [showToast, reload],
-  );
+  // handleSweepComplete removed - SweepFlowScreen handles its own completion flow
+  // The new Sweep screen will handle toasts and data refresh internally
 
   // Handle add press - opens quick-add MindDrop modal
   const handleAddPress = useCallback(() => {
@@ -456,15 +449,7 @@ export default function NowScreenV1() {
         onExit={overwhelm.exitFocusMode}
       />
 
-      {/* TODO: In a future branch, replace SweepDrawer with CompletedItemsModal
-          from TodayV3 for parity. The new modal shows completed items (habits + todos)
-          with clearer "Daily Review" / "Evening Review" copy. See TodayV3View.tsx
-          for the updated implementation. */}
-      <SweepDrawer
-        visible={isSweepVisible}
-        onClose={() => setSweepVisible(false)}
-        onSweepComplete={handleSweepComplete}
-      />
+      {/* Legacy SweepDrawer removed - see TODO at top of file */}
 
       <NowQuickAddModal
         visible={isQuickAddVisible}

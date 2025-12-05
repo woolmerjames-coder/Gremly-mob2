@@ -44,6 +44,7 @@ import {
   Trash2,
   Camera,
   Diamond,
+  Maximize2,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -76,6 +77,7 @@ import {
   type V2State,
 } from './overlayV2.state';
 import ToastUndo from './ToastUndo';
+import { OverlayExpandedEditor } from './OverlayExpandedEditor';
 import {
   linkSelectedPerson,
   sanitizeSuggestedTags,
@@ -951,12 +953,15 @@ function formatLogTimestamp(mode: 'create' | 'edit', entity: any | null): string
 }
 
 // Helper to get log subtype chip label
-function getLogSubtypeChipLabel(subtype: 'journal' | 'idea' | 'general'): string {
+// Note: 'list' is legacy for backward compatibility - checklist mode is now separate
+function getLogSubtypeChipLabel(subtype: 'journal' | 'idea' | 'general' | 'list'): string {
   switch (subtype) {
     case 'journal':
       return 'Journal';
     case 'idea':
       return 'Idea';
+    case 'list':
+      return 'Note'; // Legacy 'list' subtype displays as Note; checklist is separate toggle
     case 'general':
     default:
       return 'General';
@@ -995,7 +1000,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
   // Priority order: manual override > tags > entity subtype > fallback
-  const effectiveLogSubtype: 'journal' | 'idea' | 'general' = useMemo(() => {
+  const effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' = useMemo(() => {
     if (!isLog) return 'general';
 
     // 1. Manual override takes HIGHEST precedence (user explicitly chose)
@@ -1004,7 +1009,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // 2. Fallback to entity.subtype if present (from classification system or edit mode)
     const entity = initialEntity as any;
     const rawSubtype = entity?.subtype as string | undefined;
-    if (rawSubtype === 'journal' || rawSubtype === 'idea' || rawSubtype === 'general') {
+    if (
+      rawSubtype === 'journal' ||
+      rawSubtype === 'idea' ||
+      rawSubtype === 'general' ||
+      rawSubtype === 'list'
+    ) {
       return rawSubtype;
     }
 
@@ -1016,6 +1026,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Phase L9: Show Private toggle only for journal logs
   const showLogPrivateToggle = baseType === 'log' && effectiveLogSubtype === 'journal';
+
+  // Derived checklist mode: explicit state OR legacy "list" subtype for logs
+  const isChecklistMode =
+    state.isChecklistMode || (baseType === 'log' && effectiveLogSubtype === 'list');
 
   // Prompt 3: Smart list detection for logs
   const listDetection = useMemo(() => {
@@ -1128,6 +1142,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
+  // Expanded editor mode state
+  const [isExpandedEditor, setIsExpandedEditor] = useState(false);
   const [commitmentFocused, setCommitmentFocused] = useState(false);
   // useAuth may not be available in some test harnesses that mock providers,
   // so guard against the hook throwing by falling back to null.
@@ -1234,14 +1250,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (!visible) {
       openTelemetrySentRef.current = false;
       if (showSaveToast) setShowSaveToast(false);
+      // Reset expanded editor when overlay closes
+      if (isExpandedEditor) setIsExpandedEditor(false);
     }
-  }, [visible, showSaveToast]);
+  }, [visible, showSaveToast, isExpandedEditor]);
+
+  // Auto-expand for journal logs when overlay opens
+  useEffect(() => {
+    if (visible && isLog && effectiveLogSubtype === 'journal' && !isExpandedEditor) {
+      // Small delay to allow overlay animation to complete
+      const timer = setTimeout(() => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setIsExpandedEditor(true);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, isLog, effectiveLogSubtype]);
 
   useEffect(() => {
     if (baseType !== 'todo' && dueToastMessage) {
       setDueToastMessage(null);
     }
   }, [baseType, dueToastMessage]);
+
+  // Reset expanded editor when baseType changes to prevent stale views
+  useEffect(() => {
+    setIsExpandedEditor(false);
+  }, [baseType]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -2532,13 +2567,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
     mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
-    effectiveLogSubtype?: 'journal' | 'idea' | 'general', // Phase L8: Manual log subtype
+    effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
 
     // For logs: if effectiveLogSubtype is 'general', use AI to classify the subtype
     // BUT: Skip AI classification for Mind Drop edits since buildCanonicalFromMindDrop already does it
-    let aiClassifiedSubtype: 'journal' | 'idea' | 'general' | undefined;
+    let aiClassifiedSubtype: 'journal' | 'idea' | 'general' | 'list' | undefined;
 
     if (
       baseType === 'log' &&
@@ -3684,65 +3719,114 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
               {/* Main text field - moved above tags */}
               <Box style={{ marginBottom: 16 }}>
-                <View style={{ position: 'relative' }}>
-                  {/* Standard text input for all log subtypes */}
-                  <TextInput
-                    ref={textInputRef}
-                    value={currentText}
+                {isExpandedEditor ? (
+                  /* Expanded editor mode */
+                  <OverlayExpandedEditor
+                    baseType={baseType}
+                    effectiveLogSubtype={effectiveLogSubtype}
+                    text={currentText}
                     onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                    accessibilityLabel="Overlay content input"
-                    onFocus={() => setBodyFocused(true)}
-                    onBlur={() => setBodyFocused(false)}
-                    placeholder="Add notes..."
-                    placeholderTextColor={lightTokens.colors.subtle}
-                    multiline
-                    scrollEnabled={false}
-                    textAlignVertical="top"
-                    style={[
-                      styles.textArea,
-                      {
-                        color: lightTokens.colors.text,
-                        backgroundColor: colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                        borderWidth: 1,
-                        borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                        shadowColor: '#000',
-                        shadowOpacity: 0.03,
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowRadius: 2,
-                        paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                      },
-                    ]}
+                    colorMode={colorMode}
+                    isLog={isLog}
+                    onCollapse={() => {
+                      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      setIsExpandedEditor(false);
+                    }}
+                    journalDateTime={effectiveLogSubtype === 'journal' ? new Date() : undefined}
+                    isChecklistMode={isChecklistMode}
+                    onToggleChecklistMode={() => dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })}
                   />
-                  {/* Camera button inside text area for logs only */}
-                  {isLog && (
+                ) : (
+                  /* Compact text area mode */
+                  <View style={{ position: 'relative' }}>
+                    {/* Standard text input for all log subtypes */}
+                    <TextInput
+                      ref={textInputRef}
+                      value={currentText}
+                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                      accessibilityLabel="Overlay content input"
+                      onFocus={() => setBodyFocused(true)}
+                      onBlur={() => setBodyFocused(false)}
+                      placeholder="Add notes..."
+                      placeholderTextColor={lightTokens.colors.subtle}
+                      multiline
+                      scrollEnabled={false}
+                      textAlignVertical="top"
+                      style={[
+                        styles.textArea,
+                        {
+                          color: lightTokens.colors.text,
+                          backgroundColor:
+                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                          borderWidth: 1,
+                          borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                          shadowColor: '#000',
+                          shadowOpacity: 0.03,
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowRadius: 2,
+                          paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                        },
+                      ]}
+                    />
+                    {/* Expand button in top-right corner */}
                     <Pressable
-                      onPress={handleOpenMultiPhotoActionSheet}
+                      onPress={() => {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                        setIsExpandedEditor(true);
+                      }}
                       style={({ pressed }) => ({
                         position: 'absolute',
-                        bottom: 14,
-                        right: 14,
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
+                        top: 10,
+                        right: 10,
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor:
+                          colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(46, 85, 64, 0.08)',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        shadowColor: '#000',
-                        shadowOpacity: 0.08,
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowRadius: 4,
                         opacity: pressed ? 0.7 : 1,
                       })}
-                      accessibilityLabel="Add photo"
+                      accessibilityLabel="Expand editor"
                       accessibilityRole="button"
                     >
-                      <Camera
-                        size={24}
-                        color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                      <Maximize2
+                        size={16}
+                        color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
                       />
                     </Pressable>
-                  )}
-                </View>
+                    {/* Camera button inside text area for logs only */}
+                    {isLog && (
+                      <Pressable
+                        onPress={handleOpenMultiPhotoActionSheet}
+                        style={({ pressed }) => ({
+                          position: 'absolute',
+                          bottom: 14,
+                          right: 14,
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor:
+                            colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          shadowColor: '#000',
+                          shadowOpacity: 0.08,
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowRadius: 4,
+                          opacity: pressed ? 0.7 : 1,
+                        })}
+                        accessibilityLabel="Add photo"
+                        accessibilityRole="button"
+                      >
+                        <Camera
+                          size={24}
+                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                        />
+                      </Pressable>
+                    )}
+                  </View>
+                )}
               </Box>
 
               {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
@@ -6020,6 +6104,44 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 }
 
+/**
+ * Heuristic: detect if text looks like a simple comma-separated list.
+ * Used to auto-enable checklist mode for logs like "Eggs, milk, bananas, yoghurt".
+ * Only applied on initial hydration, user overrides always win.
+ */
+function looksLikeSimpleCommaList(text: string | null | undefined): boolean {
+  if (!text) return false;
+  if (text.includes('\n')) return false; // Multi-line, let existing logic handle it
+  const parts = text
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  // Require at least 3 items to reduce false positives (e.g. "A, B" won't trigger)
+  if (parts.length < 3) return false;
+  return true;
+}
+
+/**
+ * Heuristic: detect if text is already formatted as checklist markup.
+ * Matches lines like "[ ] Eggs" or "[x] Milk".
+ * Used to re-enable checklist mode when re-opening a saved checklist.
+ */
+function looksLikeChecklistMarkup(text: string | null | undefined): boolean {
+  if (!text) return false;
+
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return false;
+
+  // Count lines that look like "[ ] something" or "[x] something"
+  const checklistLines = lines.filter((line) => /^\[( |x|X)\]\s+.+/.test(line));
+
+  // Require at least 2 checklist-ish lines to avoid false positives
+  return checklistLines.length >= 2;
+}
+
 export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   if (!entity) return {};
 
@@ -6243,6 +6365,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     spaceId: (entity as any)?.space_id ?? null,
     // Reminder support (for journals and todos)
     reminderAt: reminders?.[0]?.when ?? null, // Map first reminder to reminderAt for backwards compat
+    // Auto-enable checklist mode for comma-separated lists OR existing checklist markup
+    isChecklistMode:
+      baseType === 'log' &&
+      (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)),
   };
 
   return payload;
@@ -6275,175 +6401,6 @@ function MoodPill({
         accessibilityLabel={`Mood ${label}`}
       />
     </Box>
-  );
-}
-
-/**
- * ChecklistInput - Interactive checkbox list for list-type logs
- * Replaces plain TextInput when effectiveLogSubtype === 'list'
- */
-type ChecklistItem = {
-  id: string;
-  text: string;
-  checked: boolean;
-};
-
-function ChecklistInput({
-  text,
-  onChangeText,
-  colorMode,
-  onFocus,
-  onBlur,
-  hasCamera = false,
-}: {
-  text: string;
-  onChangeText: (text: string) => void;
-  colorMode: 'light' | 'dark' | null | undefined;
-  onFocus?: () => void;
-  onBlur?: () => void;
-  hasCamera?: boolean;
-}) {
-  const isDark = colorMode === 'dark';
-
-  // Parse text into checklist items
-  const items = useMemo(() => {
-    const parsed: ChecklistItem[] = [];
-
-    // Try inline format first: "- eggs - milk - cereal"
-    if (text.includes(' - ')) {
-      const parts = text.split(' - ').filter((part) => part.trim().length > 0);
-      if (parts.length >= 2) {
-        return parts.map((part, idx) => ({
-          id: `item-${idx}`,
-          text: part.trim().replace(/^-\s*/, ''), // Remove leading dash if present
-          checked: false,
-        }));
-      }
-    }
-
-    // Try newline format: "- eggs\n- milk\n- cereal"
-    const lines = text.split('\n').filter((line) => line.trim().length > 0);
-    if (lines.length >= 2) {
-      lines.forEach((line, idx) => {
-        const trimmed = line.trim();
-        // Check for checkbox format: [ ] or [x]
-        const checkboxMatch = trimmed.match(/^\[([ xX])\]\s*(.+)$/);
-        if (checkboxMatch) {
-          parsed.push({
-            id: `item-${idx}`,
-            text: checkboxMatch[2],
-            checked: checkboxMatch[1].toLowerCase() === 'x',
-          });
-        }
-        // Check for dash format: - item
-        else if (trimmed.startsWith('- ')) {
-          parsed.push({
-            id: `item-${idx}`,
-            text: trimmed.substring(2),
-            checked: false,
-          });
-        }
-        // Check for bullet format: • item
-        else if (trimmed.startsWith('• ')) {
-          parsed.push({
-            id: `item-${idx}`,
-            text: trimmed.substring(2),
-            checked: false,
-          });
-        }
-      });
-    }
-
-    return parsed.length > 0 ? parsed : [{ id: 'item-0', text: text, checked: false }];
-  }, [text]);
-
-  const handleToggle = useCallback(
-    (itemId: string) => {
-      const itemIndex = parseInt(itemId.split('-')[1], 10);
-      const newItems = [...items];
-      newItems[itemIndex] = { ...newItems[itemIndex], checked: !newItems[itemIndex].checked };
-
-      // Reconstruct text in checkbox format
-      const newText = newItems
-        .map((item) => `[${item.checked ? 'x' : ' '}] ${item.text}`)
-        .join('\n');
-
-      onChangeText(newText);
-    },
-    [items, onChangeText],
-  );
-
-  return (
-    <View
-      style={{
-        backgroundColor: isDark ? darkTokens.colors.deep : '#FAFAFA',
-        borderWidth: 1,
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-        borderRadius: tokenRadius.md,
-        padding: 16,
-        paddingRight: hasCamera ? 56 : 16,
-        minHeight: 120,
-        shadowColor: '#000',
-        shadowOpacity: 0.03,
-        shadowOffset: { width: 0, height: 1 },
-        shadowRadius: 2,
-      }}
-      onTouchStart={() => onFocus?.()}
-      onTouchEnd={() => onBlur?.()}
-    >
-      {items.map((item) => (
-        <Pressable
-          key={item.id}
-          onPress={() => handleToggle(item.id)}
-          style={({ pressed }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginBottom: 12,
-            opacity: pressed ? 0.7 : 1,
-          })}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: item.checked }}
-          accessibilityLabel={item.text}
-        >
-          {/* Checkbox */}
-          <View
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              borderWidth: 2,
-              borderColor: item.checked ? '#7C9885' : isDark ? 'rgba(255,255,255,0.3)' : '#CCCCCC',
-              backgroundColor: item.checked ? '#7C9885' : 'transparent',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 12,
-            }}
-          >
-            {item.checked && (
-              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>✓</Text>
-            )}
-          </View>
-
-          {/* Item text */}
-          <Text
-            style={{
-              flex: 1,
-              fontSize: 16,
-              color: item.checked
-                ? isDark
-                  ? 'rgba(255,255,255,0.5)'
-                  : '#999999'
-                : isDark
-                  ? darkTokens.colors.text
-                  : lightTokens.colors.text,
-              textDecorationLine: item.checked ? 'line-through' : 'none',
-            }}
-          >
-            {item.text}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
   );
 }
 
