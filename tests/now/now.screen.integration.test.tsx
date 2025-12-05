@@ -51,6 +51,7 @@ jest.mock('../../lib/notes/useRecentLogs', () => ({
     journals: [],
     ideas: [],
     general: [],
+    lists: [],
     totalCount: 5,
     loading: false,
     reload: jest.fn(),

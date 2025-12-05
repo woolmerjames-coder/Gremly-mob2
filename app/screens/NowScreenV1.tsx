@@ -19,7 +19,7 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
@@ -174,6 +174,14 @@ export default function NowScreenV1() {
     reload,
     nowData,
   } = stats;
+
+  // Refresh data when screen gains focus (e.g. returning from Mind Drop)
+  // This ensures Recent Drops updates immediately after creating new items
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
 
   // Filter out completed items from the display lists
   // Locked items are always shown first (highest priority)

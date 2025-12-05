@@ -1,13 +1,19 @@
 /**
- * useRecentLogs - Hook for fetching recent logs (journals, ideas, notes)
+ * useRecentLogs - Hook for fetching recent logs (journals, ideas, notes) and lists
  *
  * Fetches notes from the past N days (default 7) to display in the Your Notes hub.
  * Provides filtered views by log subtype and computed stats.
+ *
+ * IMPORTANT: This hook filters out unsorted Mind Drop items (catchall/needs_review)
+ * and only shows proper logs (journal, idea, general) and lists.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase/client';
 import { useAuth } from '../../providers/AuthProvider';
+
+/** Labels that indicate unsorted Mind Drop items */
+const UNSORTED_LABELS = ['catchall', 'needs_review'];
 
 /**
  * Log subtype for display purposes
@@ -60,6 +66,8 @@ export interface UseRecentLogsReturn {
   ideas: LogItem[];
   /** Logs with subtype 'general' (everything else) */
   general: LogItem[];
+  /** All items that are lists (isList === true) */
+  lists: LogItem[];
 
   // Stats
   /** Total number of logs */
@@ -69,6 +77,9 @@ export interface UseRecentLogsReturn {
 /**
  * Map database subtype to display subtype
  * Handles the various subtype values that can exist in the notes table
+ *
+ * Note: 'catchall' items are filtered out earlier, so this function
+ * should not receive catchall subtypes in normal operation.
  */
 function mapToLogSubtype(dbSubtype: string | null, tags?: string[]): LogSubtypeDisplay {
   // Check explicit subtype first
@@ -83,8 +94,34 @@ function mapToLogSubtype(dbSubtype: string | null, tags?: string[]): LogSubtypeD
   }
 
   // Default to general for everything else
-  // This includes: catchall, reference, list, null, etc.
+  // This includes: everything_else, reference, list, null, etc.
   return 'general';
+}
+
+/**
+ * Check if a note is an unsorted Mind Drop item
+ * These should be filtered out from the Your Notes view
+ *
+ * An item is unsorted if:
+ * - subtype is 'catchall'
+ * - labels include 'catchall' or 'needs_review'
+ */
+function isUnsortedMindDropItem(
+  subtype: string | null,
+  labels: string[] | null | undefined,
+): boolean {
+  // Check subtype
+  if (subtype === 'catchall') return true;
+
+  // Check labels
+  if (labels && Array.isArray(labels)) {
+    const labelLower = labels.map((l) => (typeof l === 'string' ? l.toLowerCase() : ''));
+    if (UNSORTED_LABELS.some((unsorted) => labelLower.includes(unsorted))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -187,9 +224,10 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
       // Query notes table for recent logs
       // Notes table stores journals, ideas, and general notes
       // Filter out archived notes (archived = true means deleted/converted)
+      // Also fetch labels to filter out unsorted Mind Drop items
       const { data, error: queryError } = await supabase
         .from('notes')
-        .select('id, title, body, subtype, tags, mood, created_at, updated_at')
+        .select('id, title, body, subtype, tags, labels, mood, created_at, updated_at')
         .eq('owner_id', userId)
         .gte('created_at', thresholdISO)
         .or('archived.is.null,archived.eq.false')
@@ -200,25 +238,53 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
       }
 
       // Transform database rows to LogItem
-      const transformedLogs: LogItem[] = (data || []).map((row) => {
-        const tags = parseTags(row.tags);
-        const logSubtype = mapToLogSubtype(row.subtype, tags);
-        const listItems = parseListItems(row.body);
-        const isList = detectIsList(row.body) || (listItems?.length ?? 0) > 0;
+      // Filter out unsorted Mind Drop items (catchall/needs_review)
+      // Keep items that are:
+      // 1. Proper logs (journal, idea, everything_else with log label)
+      // 2. Lists (detected via body parsing)
+      const transformedLogs: LogItem[] = (data || [])
+        .filter((row) => {
+          const labels = parseTags(row.labels);
+          const isList = detectIsList(row.body);
 
-        return {
-          id: row.id,
-          title: row.title || row.body?.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
-          body: row.body || '',
-          logSubtype,
-          isList,
-          listItems,
-          createdAt: row.created_at || new Date().toISOString(),
-          updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
-          tags,
-          mood: row.mood || undefined,
-        };
-      });
+          // Always include lists
+          if (isList) return true;
+
+          // Filter out unsorted Mind Drop items
+          if (isUnsortedMindDropItem(row.subtype, labels)) return false;
+
+          // Include proper logs (journal, idea, or items with 'log' label)
+          if (row.subtype === 'journal' || row.subtype === 'idea') return true;
+          if (labels?.includes('log')) return true;
+
+          // Include everything_else items (these are converted logs)
+          if (row.subtype === 'everything_else') return true;
+
+          // Exclude catchall items that weren't caught above
+          if (row.subtype === 'catchall') return false;
+
+          // Default: include if no subtype (legacy items)
+          return true;
+        })
+        .map((row) => {
+          const tags = parseTags(row.tags);
+          const logSubtype = mapToLogSubtype(row.subtype, tags);
+          const listItems = parseListItems(row.body);
+          const isList = detectIsList(row.body) || (listItems?.length ?? 0) > 0;
+
+          return {
+            id: row.id,
+            title: row.title || row.body?.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
+            body: row.body || '',
+            logSubtype,
+            isList,
+            listItems,
+            createdAt: row.created_at || new Date().toISOString(),
+            updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+            tags,
+            mood: row.mood || undefined,
+          };
+        });
 
       setLogs(transformedLogs);
     } catch (err) {
@@ -239,7 +305,19 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
 
   const ideas = useMemo(() => logs.filter((log) => log.logSubtype === 'idea'), [logs]);
 
-  const general = useMemo(() => logs.filter((log) => log.logSubtype === 'general'), [logs]);
+  // General includes: general logs + lists that aren't journal/idea
+  const general = useMemo(
+    () =>
+      logs.filter(
+        (log) =>
+          log.logSubtype === 'general' ||
+          (log.isList && log.logSubtype !== 'journal' && log.logSubtype !== 'idea'),
+      ),
+    [logs],
+  );
+
+  // All items that are lists
+  const lists = useMemo(() => logs.filter((log) => log.isList), [logs]);
 
   const totalCount = logs.length;
 
@@ -251,6 +329,7 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
     journals,
     ideas,
     general,
+    lists,
     totalCount,
   };
 }
