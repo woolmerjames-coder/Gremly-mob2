@@ -52,11 +52,11 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Image, Pressable, Alert, Modal, ScrollView } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { Plus, X, ChevronRight } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Plus, X, ChevronRight, Layers, ArrowDown } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
 import BUTTON_HP from '../../assets/buttonforHP.png';
-import GREMLY_WAVING from '../../assets/gremlywaving.png';
 import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import SPACES_TITLE from '../../assets/spacestitle.png';
@@ -170,7 +170,7 @@ function GremlyHomeScreen() {
       style={{ flex: 1, backgroundColor: '#F9F6F1' }}
       entering={isReducedMotion || __DEV__ ? undefined : FadeIn.duration(150)}
     >
-      <Screen scroll padded={false} testID="spaces-screen" style={{ backgroundColor: '#F9F6F1' }}>
+      <Screen padded={false} testID="spaces-screen" style={{ backgroundColor: '#F9F6F1', flex: 1 }}>
         {dsMarker}
 
         {/* Top Navigation Bar */}
@@ -178,16 +178,6 @@ function GremlyHomeScreen() {
           <Image source={GREMLY_WORDMARK} style={styles.topNavWordmark} resizeMode="contain" />
         </View>
         <View style={styles.topNavDivider} />
-
-        {/* Hero Section - Centered Mascot */}
-        <View style={styles.heroSection}>
-          <Image source={GREMLY_WAVING} style={styles.heroMascot} resizeMode="contain" />
-          <View style={styles.heroTextContainer}>
-            <Text style={styles.heroTextHi}>Hi</Text>
-            <Text style={styles.heroTextBody}>So…where do{'\n'}we begin?</Text>
-            <View style={styles.greetingAccent} />
-          </View>
-        </View>
 
         {/* Error state - with padding */}
         {error && (
@@ -212,63 +202,59 @@ function GremlyHomeScreen() {
           </View>
         )}
 
-        {/* Feature Bars */}
-        <View style={styles.featureBarsContainer}>
-          {/* MindDrop Bar */}
-          <Pressable
-            onPress={() => navigation.navigate('CatchAllNotepad')}
-            testID="spaces-catchall-button"
-            accessibilityRole="button"
-            accessibilityLabel="Open Mind Drop"
-            style={({ pressed }) => [
-              styles.featureCard,
-              styles.mindDropBar,
-              pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] },
-            ]}
-          >
-            <Image source={MINDDROP_HEADER} style={styles.featureCardTitle} resizeMode="contain" />
-            <View style={styles.featureCardDivider} />
-            <Text style={styles.featureCardSubtitle}>
-              To-dos, Thoughts, Habits, Anything. I'll capture & organize it here.
-            </Text>
-            <View style={styles.ctaPillMindDrop}>
-              <Image source={BUTTON_HP} style={styles.ctaPillIconMindDrop} resizeMode="contain" />
-              <Text style={styles.ctaPillTextMindDrop}>Drop here</Text>
-            </View>
-          </Pressable>
-
-          {/* Spaces Bar */}
+        {/* Main Home Content */}
+        <View style={styles.homeContent}>
+          {/* Spaces / Deep Mind section */}
           <Pressable
             onPress={() => setSpacesModalVisible(true)}
             testID="spaces-new"
             accessibilityRole="button"
             accessibilityLabel="Open Spaces"
-            style={({ pressed }) => [
-              styles.featureCard,
-              styles.spacesBar,
-              pressed && { opacity: 0.95, transform: [{ scale: 0.99 }] },
-            ]}
+            style={({ pressed }) => [styles.deepMindSection, pressed && styles.sectionPressed]}
           >
-            <Image
-              source={SPACES_TITLE}
-              style={styles.featureCardTitleSpaces}
-              resizeMode="contain"
-            />
-            <View style={styles.featureCardDividerSpaces} />
-            <Text style={styles.featureCardSubtitle}>
-              Where your projects live — notes, schedules, habits, research.
+            {/* title image or text for Spaces */}
+            <Image source={SPACES_TITLE} style={styles.sectionTitleSpaces} resizeMode="contain" />
+            <View style={styles.sectionDividerSpaces} />
+            <Text style={styles.sectionSubtitle}>
+              Where your deeper thinking lives — projects, plans, habits, and research.
             </Text>
             <View style={styles.ctaPillSpaces}>
-              <Image source={BUTTON_HP} style={styles.ctaPillIconSpaces} resizeMode="contain" />
-              <Text style={styles.ctaPillTextSpaces}>Go deep here</Text>
+              <Text style={styles.ctaPillTextSpaces}>Go deeper</Text>
+              <Layers size={18} color="#2E5540" style={{ marginLeft: 8 }} />
             </View>
           </Pressable>
-        </View>
 
-        {/* Philosophy Footer */}
-        <View style={styles.philosophyFooter}>
-          <View style={styles.philosophyDot} />
-          <Text style={styles.philosophyText}>From scattered to unstoppable.</Text>
+          {/* Cortex node with circular Gremly head */}
+          <View style={styles.cortexNode}>
+            <Image source={BUTTON_HP} style={styles.cortexImage} resizeMode="contain" />
+          </View>
+
+          {/* Gradient bridge between Spaces and MindDrop */}
+          <LinearGradient colors={['#F9F6F1', '#D6E4D3']} style={styles.gradientBridge} />
+
+          {/* MindDrop / Surface Mind section */}
+          <Pressable
+            onPress={() => navigation.navigate('CatchAllNotepad')}
+            testID="spaces-catchall-button"
+            accessibilityRole="button"
+            accessibilityLabel="Open MindDrop"
+            style={({ pressed }) => [styles.surfaceMindSection, pressed && styles.sectionPressed]}
+          >
+            <Image
+              source={MINDDROP_HEADER}
+              style={styles.sectionTitleMindDrop}
+              resizeMode="contain"
+            />
+            <View style={styles.sectionDividerMindDrop} />
+            <Text style={styles.sectionSubtitle}>
+              Drop anything on your mind — tasks, thoughts, ideas, reminders. I'll organize it for
+              you.
+            </Text>
+            <View style={styles.ctaPillMindDrop}>
+              <Text style={styles.ctaPillTextMindDrop}>Drop something</Text>
+              <ArrowDown size={18} color="#F9F6F1" style={{ marginLeft: 8 }} />
+            </View>
+          </Pressable>
         </View>
       </Screen>
 
@@ -388,180 +374,139 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(46, 85, 64, 0.10)', // very soft Moss Green line
   },
-  heroSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 32,
-    paddingBottom: 12,
-    paddingHorizontal: 24,
-    paddingLeft: 36,
-    gap: 16,
-  },
-  heroMascot: {
-    height: 150,
-    width: 150,
-  },
-  heroTextContainer: {
-    maxWidth: 140,
-  },
-  heroTextHi: {
-    fontFamily: 'PlusJakartaSans-Bold',
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#2E5540', // Moss Green
-    textAlign: 'left',
-    marginBottom: 6,
-  },
-  heroTextBody: {
-    fontFamily: 'PlusJakartaSans-Regular',
-    fontSize: 14,
-    fontWeight: '400',
-    color: '#2E5540', // Moss Green
-    textAlign: 'left',
-    lineHeight: 20,
-  },
-  greetingAccent: {
-    height: 1,
-    width: '30%',
-    marginTop: 8,
-    backgroundColor: 'rgba(191, 216, 192, 0.25)',
-    borderRadius: 999,
-  },
   paddedContent: {
     paddingHorizontal: 16,
   },
-  // Feature Bars Container
-  featureBarsContainer: {
-    marginTop: 16,
+  // Main Home Content wrapper - fills space and centers vertically
+  homeContent: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  // Spaces / Deep Mind section - top block
+  deepMindSection: {
+    flex: 1,
+    backgroundColor: '#F9F6F1', // Linen Cream for Spaces
     paddingHorizontal: 24,
-    gap: 20,
-  },
-  // Feature Card (shared) - vertical layout
-  featureCard: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderRadius: 30,
-    position: 'relative',
-    overflow: 'visible',
-  },
-  featureCardTitle: {
-    height: 44,
-    maxWidth: 168,
-  },
-  featureCardTitleSpaces: {
-    height: 38,
-    maxWidth: 144,
-  },
-  featureCardDivider: {
-    height: 1,
-    backgroundColor: 'rgba(46, 85, 64, 0.12)', // very soft Moss line
-    marginTop: 8,
-    width: '28%',
-    borderRadius: 999,
-    alignSelf: 'flex-start',
-  },
-  featureCardDividerSpaces: {
-    height: 1,
-    backgroundColor: 'rgba(156, 166, 224, 0.25)', // hint of Periwinkle
-    marginTop: 8,
-    width: '28%',
-    borderRadius: 999,
-    alignSelf: 'flex-start',
-  },
-  featureCardSubtitle: {
-    fontFamily: 'Inter',
-    fontSize: 14,
-    color: 'rgba(34, 34, 34, 0.78)', // Charcoal Ink at 78%
-    marginTop: 4,
-    marginBottom: 0,
-    textAlign: 'left',
-    lineHeight: 20,
-  },
-  // MindDrop Card - primary, grounded
-  mindDropBar: {
-    backgroundColor: 'rgba(46, 85, 64, 0.07)', // very soft Moss tint over linen
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  // Spaces Card - secondary, exploratory
-  spacesBar: {
-    backgroundColor: 'rgba(156, 166, 224, 0.07)', // ultra-light Periwinkle Smoke wash
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  // CTA Pills
-  ctaPillMindDrop: {
-    flexDirection: 'row',
+    paddingTop: 56, // increased for content to sit lower
+    paddingBottom: 32,
     alignItems: 'center',
-    backgroundColor: '#2E5540', // solid Moss Green - strongest CTA
-    height: 42,
-    borderRadius: 9999,
-    paddingHorizontal: 18,
-    alignSelf: 'flex-end',
-    marginRight: 4,
-    marginTop: 16,
+    alignSelf: 'stretch',
   },
+  // MindDrop / Surface Mind section - bottom block
+  surfaceMindSection: {
+    flex: 1,
+    backgroundColor: '#D6E4D3', // slightly richer, warmer than #DCE8D8
+    paddingHorizontal: 24,
+    paddingTop: 80, // increased for content to sit lower
+    paddingBottom: 48,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  // Pressed state for sections
+  sectionPressed: {
+    opacity: 0.95,
+    transform: [{ scale: 0.99 }],
+  },
+  // Section title images
+  sectionTitleSpaces: {
+    height: 44,
+    maxWidth: 166,
+  },
+  sectionTitleMindDrop: {
+    height: 51,
+    maxWidth: 193,
+  },
+  // Section dividers
+  sectionDividerSpaces: {
+    height: 1,
+    backgroundColor: 'rgba(156, 166, 224, 0.3)', // Periwinkle tint
+    marginTop: 9,
+    width: '28%',
+    borderRadius: 999,
+    alignSelf: 'center',
+  },
+  sectionDividerMindDrop: {
+    height: 1,
+    backgroundColor: 'rgba(46, 85, 64, 0.15)', // Moss Green tint
+    marginTop: 9,
+    width: '28%',
+    borderRadius: 999,
+    alignSelf: 'center',
+  },
+  // Shared section subtitle
+  sectionSubtitle: {
+    fontFamily: 'Inter',
+    fontSize: 18,
+    color: 'rgba(34, 34, 34, 0.78)', // Charcoal Ink at 78%
+    marginTop: 12,
+    marginBottom: 18,
+    textAlign: 'center',
+    lineHeight: 25,
+  },
+  // Gradient bridge between Spaces and MindDrop zones
+  gradientBridge: {
+    height: 100,
+    alignSelf: 'stretch',
+    marginTop: -50,
+    marginBottom: -50,
+    backgroundColor: 'transparent',
+    position: 'relative',
+    zIndex: 1,
+  },
+  // Cortex node - floating circular element between sections
+  cortexNode: {
+    alignSelf: 'center',
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -48, // slightly less overlap into cream
+    marginBottom: -64, // slightly more overlap into sage
+    zIndex: 10,
+  },
+  cortexImage: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+  },
+  // CTA Pills (placeholder containers for now)
   ctaPillSpaces: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(156, 166, 224, 0.18)', // slightly stronger Periwinkle wash
-    height: 42,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(156, 166, 224, 0.18)', // Periwinkle wash
+    height: 48,
+    minWidth: 200,
     borderRadius: 9999,
-    paddingHorizontal: 18,
-    alignSelf: 'flex-end',
-    marginRight: 4,
-    marginTop: 16,
-  },
-  ctaPillIconMindDrop: {
-    width: 22,
-    height: 22,
-    marginRight: 8,
-  },
-  ctaPillIconSpaces: {
-    width: 22,
-    height: 22,
-    marginRight: 8,
-  },
-  ctaPillTextMindDrop: {
-    fontFamily: 'Inter',
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#F9F6F1', // Linen Cream
+    paddingHorizontal: 26,
+    alignSelf: 'center',
+    marginTop: 18,
   },
   ctaPillTextSpaces: {
     fontFamily: 'Inter',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: '#2E5540', // Moss Green
   },
-  // Philosophy Footer
-  philosophyFooter: {
+  ctaPillMindDrop: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 80,
-    gap: 8,
+    justifyContent: 'center',
+    backgroundColor: '#2E5540', // solid Moss Green
+    height: 48,
+    minWidth: 200,
+    borderRadius: 9999,
+    paddingHorizontal: 26,
+    alignSelf: 'center',
+    marginTop: 18,
   },
-  philosophyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E0C47A', // Golden Pear
-  },
-  philosophyText: {
+  ctaPillTextMindDrop: {
     fontFamily: 'Inter',
-    fontSize: 14,
-    color: 'rgba(34, 34, 34, 0.5)', // Charcoal Ink at 50%
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#F9F6F1', // Linen Cream
   },
   // Modal Styles
   modalContainer: {

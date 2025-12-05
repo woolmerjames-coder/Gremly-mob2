@@ -2,12 +2,13 @@
  * Gremly Home Screen Tests (formerly Spaces DS Screen)
  *
  * Tests for the Design System version of Gremly Home screen (/app/tabs/SpacesScreen.tsx)
- * Verifies testIDs, mascot greeting, feature bars, and spaces modal functionality
+ * Verifies testIDs, homepage layout, and spaces modal functionality
  *
  * UI REDESIGN (Dec 2025):
- * - Homepage now shows hero greeting + feature bars (Mind Drop / Spaces)
+ * - Homepage now shows two-zone layout: Spaces (cream) and MindDrop (sage)
+ * - Gremly cortex node bridges the two zones
  * - Spaces list moved to a modal (opened via "spaces-new" button)
- * - New copy: "Hi", "So…where do we begin?", "To-dos, Thoughts, Habits, Anything..."
+ * - New copy: "Where your deeper thinking lives", "Drop anything on your mind"
  */
 
 import React from 'react';
@@ -64,48 +65,45 @@ describe('Spaces DS Screen', () => {
     });
   });
 
-  it('displays hero greeting text', async () => {
+  it('displays Spaces section description', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('Hi')).toBeTruthy();
-      expect(screen.getByText(/So…where do/)).toBeTruthy();
+      expect(screen.getByText(/Where your deeper thinking lives/)).toBeTruthy();
     });
   });
 
-  it('displays Mind Drop feature bar description', async () => {
+  it('displays MindDrop section description', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/To-dos, Thoughts, Habits, Anything.*capture.*organize/i),
-      ).toBeTruthy();
+      expect(screen.getByText(/Drop anything on your mind/i)).toBeTruthy();
     });
   });
 
-  it('displays Mind Drop CTA button', async () => {
+  it('displays MindDrop CTA button', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('spaces-catchall-button')).toBeTruthy();
-      expect(screen.getByText('Drop here')).toBeTruthy();
+      expect(screen.getByText('Drop something')).toBeTruthy();
     });
   });
 
-  it('displays Spaces feature bar with CTA', async () => {
+  it('displays Spaces section with CTA', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('spaces-new')).toBeTruthy();
-      expect(screen.getByText('Go deep here')).toBeTruthy();
+      expect(screen.getByText('Go deeper')).toBeTruthy();
     });
   });
 
-  it('displays Spaces feature bar description', async () => {
+  it('displays Spaces section description text', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Where your projects live/)).toBeTruthy();
+      expect(screen.getByText(/projects, plans, habits, and research/)).toBeTruthy();
     });
   });
 
@@ -118,11 +116,11 @@ describe('Spaces DS Screen', () => {
     });
   });
 
-  it('displays philosophy footer', async () => {
+  it('displays MindDrop organization promise', async () => {
     renderWithProviders(<SpacesScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('From scattered to unstoppable.')).toBeTruthy();
+      expect(screen.getByText(/I'll organize it for you/)).toBeTruthy();
     });
   });
 });
