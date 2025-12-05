@@ -272,7 +272,9 @@ export function YourNotesPopup({
 }: YourNotesPopupProps) {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const { logs, journals, ideas, general, loading, totalCount, reload } = useRecentLogs(7);
+  // Note: `lists` is available for future use (e.g., dedicated Lists tab)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { logs, journals, ideas, general, lists, loading, totalCount, reload } = useRecentLogs(7);
 
   // Counts for each tab
   const counts = useMemo(

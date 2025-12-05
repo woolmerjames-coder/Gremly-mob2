@@ -17,12 +17,16 @@ import {
   Animated,
   Easing,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
-import { CompletionCheckIcon } from '../../components/today/CompletionCheckIcon';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
+import { OverdueSection, RecentDropsSection, SweepPill } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
@@ -31,21 +35,17 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
-import TodayPillsRow from '../../components/today/TodayPillsRow';
-// Legacy SweepDrawer import removed - now using SweepFlowScreen via navigation route 'Sweep'
-// import SweepDrawer from '../../components/today/v3/SweepDrawer';
 import { useTodayStats } from '../../lib/today/hooks';
-import { getSweepStatus, type SweepStatus } from '../../lib/today/useTodayData';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useRepo } from '../../providers/RepoProvider';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
+import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 /**
  * Time window priority for sorting
@@ -136,6 +136,9 @@ function sortActiveItems<T extends NowActiveItem>(items: T[]): T[] {
 }
 
 export default function NowScreenV1() {
+  // Safe area insets for proper bottom positioning
+  const insets = useSafeAreaInsets();
+
   // Shared interactions from Today screen
   const interactions = useTodayInteractions({
     celebrationEnabled: false, // Can enable later
@@ -163,17 +166,22 @@ export default function NowScreenV1() {
     progressPercent,
     hasAnyTodayWork,
     logsToday,
+    overdueTodos,
+    recentDrops,
     sweepCandidateCount,
+    todayDayString,
     loading,
     reload,
     nowData,
   } = stats;
 
-  // Compute sweep status based on sweep candidate count
-  // For now, daysSinceSweep defaults to 0 (no lastSweepAt tracking yet)
-  const sweepStatus = useMemo(() => {
-    return getSweepStatus(sweepCandidateCount, 0);
-  }, [sweepCandidateCount]);
+  // Refresh data when screen gains focus (e.g. returning from Mind Drop)
+  // This ensures Recent Drops updates immediately after creating new items
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
 
   // Filter out completed items from the display lists
   // Locked items are always shown first (highest priority)
@@ -198,10 +206,10 @@ export default function NowScreenV1() {
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
+  const repo = useRepo();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
-  // isSweepVisible removed - now using navigation.navigate('Sweep')
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
@@ -245,18 +253,30 @@ export default function NowScreenV1() {
     void overwhelm.requestPlan(selectedItems);
   }, [overwhelm, lockedItems, activeItems]);
 
-  // Handle sweep press - navigate to new Sweep flow screen
-  const handleSweepPress = useCallback(() => {
-    navigation.navigate('Sweep');
-  }, [navigation]);
-
-  // handleSweepComplete removed - SweepFlowScreen handles its own completion flow
-  // The new Sweep screen will handle toasts and data refresh internally
-
   // Handle add press - opens quick-add MindDrop modal
   const handleAddPress = useCallback(() => {
     setQuickAddVisible(true);
   }, []);
+
+  // Add item to Today's Focus by setting due_day to today
+  // Uses todayDayString from useTodayStats to ensure consistency with Today/Sweep logic
+  const handleAddToToday = useCallback(
+    async (item: SweepCandidate) => {
+      try {
+        // Update the todo's due_day to today (using shared todayDayString)
+        await repo.update({
+          id: item.id,
+          patch: { due_day: todayDayString, carry_forward: false } as any,
+        });
+
+        // Refresh Today stats so the item moves from Recent Drops to Today's Focus
+        await reload();
+      } catch (error) {
+        console.warn('[NowScreenV1] Add to Today failed:', error);
+      }
+    },
+    [repo, reload, todayDayString],
+  );
 
   // Quick add hook - wires to MindDrop pipeline with Today scoping
   // Uses optimistic flow: onStart for immediate feedback, onComplete for final state
@@ -384,6 +404,19 @@ export default function NowScreenV1() {
         <View style={styles.focusSectionHeaderLeft}>
           <Text style={styles.focusSectionTitle}>Today's Focus</Text>
         </View>
+        {/* Right: Add to Today header button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.headerAddButton,
+            pressed && styles.headerAddButtonPressed,
+          ]}
+          onPress={handleAddPress}
+          testID="header-add-to-today"
+          accessibilityRole="button"
+          accessibilityLabel="Add to Today"
+        >
+          <Text style={styles.headerAddButtonText}>+ Add to Today</Text>
+        </Pressable>
       </View>
       <View style={styles.focusSectionDivider} />
       <View style={styles.focusSectionWrapper}>
@@ -398,9 +431,23 @@ export default function NowScreenV1() {
           onPressItem={handlePressItem}
           onToggleComplete={handleToggleComplete}
           optimisticQuickAdd={optimisticQuickAdd}
-          sweepStatus={sweepStatus}
-          onSweepPress={handleSweepPress}
-          onAddPress={handleAddPress}
+          overdueTodos={overdueTodos}
+          recentDrops={recentDrops}
+          onAddToToday={handleAddToToday}
+          bottomInset={insets.bottom}
+        />
+      </View>
+
+      {/* Sweep Pill - fixed above tab bar */}
+      <View
+        style={[styles.sweepPillContainer, { bottom: insets.bottom + 16 }]}
+        pointerEvents="box-none"
+      >
+        <SweepPill
+          count={sweepCandidateCount}
+          onPress={() => {
+            navigation.navigate('Sweep');
+          }}
         />
       </View>
 
@@ -622,9 +669,10 @@ type TodayFocusListProps = {
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   optimisticQuickAdd?: { id: string; title: string } | null;
-  sweepStatus: SweepStatus;
-  onSweepPress: () => void;
-  onAddPress: () => void;
+  overdueTodos: SweepCandidate[];
+  recentDrops: SweepCandidate[];
+  onAddToToday: (item: SweepCandidate) => void;
+  bottomInset: number;
 };
 
 function TodayFocusList({
@@ -638,9 +686,10 @@ function TodayFocusList({
   onPressItem,
   onToggleComplete,
   optimisticQuickAdd,
-  sweepStatus,
-  onSweepPress,
-  onAddPress,
+  overdueTodos,
+  recentDrops,
+  onAddToToday,
+  bottomInset,
 }: TodayFocusListProps) {
   // Track leaving card for exit animation
   const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
@@ -741,6 +790,26 @@ function TodayFocusList({
         />
       )}
 
+      {/* Overdue section */}
+      {overdueTodos.length > 0 && (
+        <OverdueSection
+          items={overdueTodos}
+          onPressItem={(item) => onPressItem?.(item as unknown as NowActiveItem)}
+          onToggleComplete={(item) => onToggleComplete?.(item as unknown as NowActiveItem)}
+          style={styles.sectionSpacing}
+        />
+      )}
+
+      {/* Recent Drops section */}
+      {recentDrops.length > 0 && (
+        <RecentDropsSection
+          items={recentDrops}
+          onPressItem={(item) => onPressItem?.(item as unknown as NowActiveItem)}
+          onAddToToday={onAddToToday}
+          style={styles.sectionSpacing}
+        />
+      )}
+
       {futureItems.length > 0 && <NowFutureDivider />}
 
       {futureItems.map((item, index) => (
@@ -756,19 +825,8 @@ function TodayFocusList({
         />
       ))}
 
-      {/* Bottom pills section - Add to Today only */}
-      <View style={styles.pillsRowContainer}>
-        <TodayPillsRow
-          sweepLevel="none"
-          sweepLabel=""
-          sweepCountLabel=""
-          onSweepPress={onSweepPress}
-          onAddPress={onAddPress}
-          showAddOnly
-        />
-      </View>
-
-      <View style={styles.listBottomSpacer} />
+      {/* Extra space for fixed SweepPill above tab bar */}
+      <View style={{ height: bottomInset + 80 }} />
     </ScrollView>
   );
 }
@@ -814,6 +872,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0E1116',
   },
+  // Header Add to Today button - small ghost pill
+  headerAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F0EB', // Very light Sage Mist tint
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  headerAddButtonPressed: {
+    backgroundColor: '#D4E4D6', // Slightly darker on press
+  },
+  headerAddButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#2E5540', // Moss Green
+  },
+  sweepPillContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
   listContainer: {
     flex: 1,
     backgroundColor: LINEN_CREAM, // Match page background
@@ -850,9 +931,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#757575',
     textAlign: 'center',
-  },
-  listBottomSpacer: {
-    height: 120,
   },
   // Optimistic quick-add card styles (processing state)
   optimisticCard: {
@@ -893,9 +971,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // TodayPillsRow container - used below cards
-  pillsRowContainer: {
-    marginTop: 4, // Tightened spacing after last item
-    marginBottom: 0, // listBottomSpacer handles bottom spacing
+  // Spacing for Overdue and Recent Drops sections
+  sectionSpacing: {
+    marginTop: 16,
   },
 });

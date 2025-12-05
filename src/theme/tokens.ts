@@ -15,6 +15,7 @@ export const colors = {
     mossGreen: '#2E5540',
     sageMist: '#BFD8C0',
     goldenPear: '#E0C47A',
+    goldenPearStrong: '#C4A85C', // Darkened ~12% for text contrast
     charcoalInk: '#222222',
     mutedSageText: '#768879',
   },
@@ -34,6 +35,7 @@ export const colors = {
     mossGreen: '#BFD8C0', // Lighter in dark mode
     sageMist: '#2E5540',
     goldenPear: '#E0C47A',
+    goldenPearStrong: '#C4A85C', // Same strong variant for dark mode
     charcoalInk: '#F9F6F1', // Light text in dark mode
     mutedSageText: '#C8D3CE',
   },

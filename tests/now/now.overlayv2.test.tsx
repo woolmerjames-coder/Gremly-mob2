@@ -50,6 +50,7 @@ jest.mock('../../lib/notes/useRecentLogs', () => ({
     journals: [],
     ideas: [],
     general: [],
+    lists: [],
     totalCount: 0,
     loading: false,
     reload: jest.fn(),
@@ -143,6 +144,8 @@ function createMockStats(overrides: Record<string, unknown> = {}) {
     hasAnyTodayWork: true,
     logsToday: [],
     sweepCandidateCount: 0,
+    overdueTodos: [],
+    recentDrops: [],
     loading: false,
     reload: jest.fn().mockResolvedValue(undefined),
     nowData: {

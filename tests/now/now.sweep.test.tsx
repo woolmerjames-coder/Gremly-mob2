@@ -4,8 +4,6 @@
  * These tests verify the sweep-related logic and drawer functionality.
  */
 
-import React from 'react';
-import { fireEvent } from '@testing-library/react-native';
 import { renderWithProviders, screen, mockNavigate } from '../utils/renderWithProviders';
 import NowScreenV1 from '../../app/screens/NowScreenV1';
 
@@ -49,6 +47,7 @@ jest.mock('../../lib/notes/useRecentLogs', () => ({
     journals: [],
     ideas: [],
     general: [],
+    lists: [],
     totalCount: 0,
     loading: false,
     reload: jest.fn(),
@@ -149,6 +148,8 @@ function createMockStats(overrides: Record<string, unknown> = {}) {
     hasAnyTodayWork: false,
     logsToday: [],
     sweepCandidateCount: 0,
+    overdueTodos: [],
+    recentDrops: [],
     loading: false,
     reload: jest.fn().mockResolvedValue(undefined),
     nowData: {
@@ -211,8 +212,8 @@ describe('Sweep Functionality Tests', () => {
 
       renderWithProviders(<NowScreenV1 />);
 
-      // Should show Add to Today button
-      expect(screen.getByText('Add to Today')).toBeTruthy();
+      // Should show Add to Today button (with + prefix in header)
+      expect(screen.getByText('+ Add to Today')).toBeTruthy();
     });
   });
 

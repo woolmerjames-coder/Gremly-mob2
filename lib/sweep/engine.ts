@@ -116,24 +116,34 @@ export async function fetchSweepCandidatesForUser(
     // Query todos that are:
     // - Owned by user
     // - Not archived
+    // - Not completed (status !== 'completed')
     // - Either new (created after cutoff) OR previously skipped
     const { data: todos, error: todoError } = await client
       .from('todos')
       .select('*')
       .eq('owner_id', ownerId)
       .eq('archived', false)
+      .neq('status', 'completed')
       .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
 
     if (todoError) {
       console.error('[Sweep] Failed to fetch todos:', todoError);
     } else if (todos) {
+      // Get today's date string for overdue comparison
+      const todayDay = new Date().toISOString().split('T')[0];
+
       for (const row of todos) {
+        // Compute isOverdue: due_day (or due_date fallback) < today
+        const dueDay = row.due_day ?? (row.due_date ? row.due_date.split('T')[0] : null);
+        const isOverdue = dueDay !== null && dueDay < todayDay;
+
         candidates.push({
           id: row.id,
           kind: 'todo',
           createdAt: row.created_at ?? new Date().toISOString(),
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
+          isOverdue,
           raw: row,
         });
       }
@@ -167,6 +177,7 @@ export async function fetchSweepCandidatesForUser(
           createdAt: row.created_at ?? new Date().toISOString(),
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
+          isOverdue: false, // Habits don't have due dates
           raw: row,
         });
       }
@@ -205,6 +216,7 @@ export async function fetchSweepCandidatesForUser(
           createdAt: row.created_at ?? new Date().toISOString(),
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
+          isOverdue: false, // Notes don't have due dates
           raw: row,
         });
       }

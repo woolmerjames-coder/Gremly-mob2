@@ -46,6 +46,7 @@ function createMockSupabaseClient(options: {
     const returnChain = () => chain;
 
     chain.eq = jest.fn().mockImplementation(returnChain);
+    chain.neq = jest.fn().mockImplementation(returnChain);
     chain.is = jest.fn().mockImplementation(returnChain);
     chain.or = jest.fn().mockImplementation(returnChain);
     chain.maybeSingle = jest.fn().mockReturnValue(result);

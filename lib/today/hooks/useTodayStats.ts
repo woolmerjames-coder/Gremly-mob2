@@ -13,6 +13,7 @@
 import { useMemo } from 'react';
 import { useNowData, type UseNowDataReturn } from '../../now/useNowData';
 import { selectSweepCandidates, type SweepCandidate } from '../sweepSelectors';
+import { getTodayDayString, computeDueDay } from '../../date/computeDueDay';
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -90,6 +91,12 @@ export interface TodayStats {
   sweepCandidates: SweepCandidate[];
   /** Count of sweep-eligible todos */
   sweepCandidateCount: number;
+  /** Overdue todos from sweepCandidates (due_day < today) */
+  overdueTodos: SweepCandidate[];
+  /** Recent drops: items created today, not in Today's Focus, and unscheduled (need triage) */
+  recentDrops: SweepCandidate[];
+  /** Today's date in YYYY-MM-DD format (local timezone) - use this for due_day assignments */
+  todayDayString: string;
   /** Loading state */
   loading: boolean;
   /** Reload the underlying data */
@@ -207,26 +214,95 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
 
     // Compute sweep candidates using shared selector
     // Only todos that are incomplete and due today/overdue/carry-forward
-    const todayDayString = new Date().toISOString().split('T')[0];
+    // Use local date (not UTC) to match user's mental model
+    const todayDayString = getTodayDayString();
 
-    // Build the todos array for sweep selection from todosToday
-    // Filter out optimistically completed items
-    const incompleteTodos = todosToday
-      .filter((item) => !completedTodoIds.has(item.id))
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
+    // Get all todos from nowData for comprehensive sweep/recentDrops filtering
+    const { allTodos = [] } = nowData;
+
+    // Build the todos array for sweep selection from ALL todos (not just todosToday)
+    // This ensures we include overdue items and items without due dates
+    // Filter out optimistically completed items and archived/completed items
+    const incompleteTodos = allTodos
+      .filter((todo) => {
+        // Skip optimistically completed
+        if (completedTodoIds.has(todo.id)) return false;
+        // Skip completed or archived
+        const status = (todo as any).status;
+        if (status === 'completed' || status === 'archived') return false;
+        if (todo.archived === true) return false;
+        return true;
+      })
+      .map((todo) => ({
+        id: todo.id,
+        name: todo.name,
         type: 'todo' as const,
-        due_day: 'dueDay' in item ? (item as any).dueDay : undefined,
-        due_date: 'dueDate' in item ? (item as any).dueDate : undefined,
+        due_day: todo.due_day,
+        due_date: todo.due_date,
         status: 'active' as const,
-        carry_forward: 'carryForward' in item ? (item as any).carryForward : false,
+        carry_forward: (todo as any).carry_forward ?? false,
         completed_at: null,
         archived: false,
+        created_at: todo.created_at,
       }));
 
     const sweepCandidates = selectSweepCandidates(incompleteTodos, todayDayString);
     const sweepCandidateCount = sweepCandidates.length;
+
+    // Derive overdueTodos: todos from sweepCandidates where due_day < today
+    // Use computeDueDay to handle timezone-aware date extraction from due_date
+    const overdueTodos = sweepCandidates.filter((candidate) => {
+      const dueDay = candidate.due_day ?? computeDueDay(candidate.due_date);
+      return dueDay !== null && dueDay < todayDayString;
+    });
+
+    // Derive recentDrops: items captured today that need sorting
+    // These are items that:
+    // 1. Were created today (created_at converted to LOCAL date === todayDayString)
+    // 2. Are NOT already in Today's Focus (locked or active items)
+    // 3. Are unscheduled (no due_day) - need triage
+    // 4. Are not completed/archived (already filtered in incompleteTodos)
+    //
+    // NOTE: We filter from incompleteTodos (not sweepCandidates) because
+    // sweepCandidates excludes items without due dates, but recentDrops
+    // specifically wants items WITHOUT due dates that need triage.
+    const todayFocusIds = new Set([
+      ...todosToday.map((t) => t.id),
+      ...habitsToday.map((h) => h.id),
+    ]);
+
+    const recentDrops: SweepCandidate[] = incompleteTodos
+      .filter((todo) => {
+        // Exclude items already in Today's Focus
+        if (todayFocusIds.has(todo.id)) {
+          return false;
+        }
+
+        // Must be created today (convert UTC created_at to local date)
+        const createdLocalDay = computeDueDay(todo.created_at);
+        if (createdLocalDay !== todayDayString) {
+          return false;
+        }
+
+        // Must be unscheduled (no due date) - these need sorting/triage
+        const dueDay = todo.due_day ?? computeDueDay(todo.due_date);
+        return dueDay === null;
+      })
+      .map((todo) => ({
+        id: todo.id,
+        type: 'todo' as const,
+        name: todo.name,
+        due_day: todo.due_day,
+        due_date: todo.due_date,
+        status: todo.status,
+        carry_forward: todo.carry_forward,
+        completed_at: todo.completed_at,
+        archived: todo.archived,
+        space_id: undefined, // Not available in incompleteTodos map
+        tags: undefined, // Not available in incompleteTodos map
+        created_at: todo.created_at,
+        isOverdue: false, // Items without due date are not overdue
+      }));
 
     // Build completion summary for progress header
     // Includes all items in Today's Focus (locked + active), excluding logs
@@ -277,6 +353,9 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       futureItems,
       sweepCandidates,
       sweepCandidateCount,
+      overdueTodos,
+      recentDrops,
+      todayDayString,
       loading,
       reload,
       nowData,

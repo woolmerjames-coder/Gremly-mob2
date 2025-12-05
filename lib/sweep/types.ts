@@ -41,6 +41,8 @@ export interface SweepCandidateBase {
   dropId?: string | null;
   /** ISO timestamp when this item was last skipped in Sweep */
   skippedInSweepAt?: string | null;
+  /** True if item's due_day (or due_date) is strictly before today */
+  isOverdue: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
