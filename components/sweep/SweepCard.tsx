@@ -378,14 +378,14 @@ export function SweepCard({
             patch: {
               due_day: null,
               due_date: null,
-            },
+            } as any, // Todo-specific fields
           });
         } else if (candidate.kind === 'habit') {
           await repo.update({
             id: candidate.id,
             patch: {
               start_date: null,
-            },
+            } as any, // Habit-specific fields
           });
         }
       } else {
@@ -397,14 +397,14 @@ export function SweepCard({
             patch: {
               due_day: dueDay,
               due_date: dueDay, // Also set due_date for backward compat
-            },
+            } as any, // Todo-specific fields
           });
         } else if (candidate.kind === 'habit') {
           await repo.update({
             id: candidate.id,
             patch: {
               start_date: dueDay,
-            },
+            } as any, // Habit-specific fields
           });
         }
       }

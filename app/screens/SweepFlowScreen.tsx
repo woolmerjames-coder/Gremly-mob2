@@ -845,9 +845,9 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       overlayController.openCreate({
         type: 'todo',
         conversionMeta: {
-          initialTitle: (record as any).title || '',
-          initialNote: (record as any).body || '',
-          initialTags: (record as any).tags || [],
+          initialTitle: ((record as Record<string, unknown>).title as string) || '',
+          initialNote: ((record as Record<string, unknown>).body as string) || '',
+          initialTags: ((record as Record<string, unknown>).tags as string[]) || [],
           sourceNoteId: candidate.id, // Track source for potential archiving
         },
       });
@@ -859,7 +859,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         conversionMeta: {
           initialTitle: candidate.raw.title || '',
           initialNote: candidate.raw.body || '',
-          initialTags: (candidate.raw as any).tags || [],
+          initialTags: ((candidate.raw as Record<string, unknown>).tags as string[]) || [],
           sourceNoteId: candidate.id,
         },
       });
@@ -1217,10 +1217,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   } = overlay;
 
   // Extract full entity for edit mode pre-fill
-  const overlayFullEntity = (overlay.state as Record<string, unknown>).entity ?? null;
+  const overlayFullEntity = (overlay.state as unknown as Record<string, unknown>).entity ?? null;
   const overlayEffectiveInitialEntity = overlayFullEntity || overlayInitialEntity;
   const overlayDefaultDueToday =
-    (overlay.state as Record<string, unknown>)?.defaultDueToday ?? false;
+    ((overlay.state as unknown as Record<string, unknown>)?.defaultDueToday as boolean) ?? false;
 
   const handleOverlayClose = useCallback(() => {
     if (!overlayVisible) return;
@@ -1240,7 +1240,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       try {
         eventBus.emit('OverlaySaved', {
           id: result.id,
-          type: (result as Record<string, unknown>).type,
+          type: (result as unknown as Record<string, unknown>).type as string | undefined,
         });
       } catch (e) {
         // ignore telemetry failures
@@ -1364,12 +1364,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             <OverlayComponent
               visible={overlayVisible}
               mode={overlayMode}
-              initialEntity={overlayEffectiveInitialEntity}
+              initialEntity={overlayEffectiveInitialEntity as any}
               initialSpaceId={overlayInitialSpaceId}
-              conversionMeta={overlayConversionMeta}
+              conversionMeta={overlayConversionMeta as any}
               initialText={overlayInitialText ?? undefined}
               initialLogPhotoUris={overlayInitialLogPhotoUris}
-              defaultDueToday={overlayDefaultDueToday}
+              defaultDueToday={overlayDefaultDueToday as boolean | undefined}
               onClose={handleOverlayClose}
               onSaved={handleOverlaySaved}
             />
@@ -1810,6 +1810,12 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
   },
   wrapUpButtonContainer: {
+    paddingTop: 8,
+    paddingBottom: 16,
+    paddingHorizontal: 12,
+    backgroundColor: BRAND.colors.linenCream,
+  },
+  buttonContainer: {
     paddingTop: 8,
     paddingBottom: 16,
     paddingHorizontal: 12,

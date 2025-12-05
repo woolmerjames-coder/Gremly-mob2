@@ -99,7 +99,7 @@ const mockNavigation = {
   goBack: mockGoBack,
   navigate: jest.fn(),
   setOptions: jest.fn(),
-};
+} as any; // Partial mock - only includes methods used in tests
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Helpers
