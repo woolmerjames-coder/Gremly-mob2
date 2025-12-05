@@ -218,7 +218,6 @@ const defaultProps: Omit<SweepCardProps, 'candidate'> = {
   total: 5,
   onKeep: jest.fn(),
   onClear: jest.fn(),
-  onSkip: jest.fn(),
   onOpenEdit: jest.fn(),
   onConvertToTodo: jest.fn(),
 };
@@ -366,7 +365,7 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
       expect(getByRole('button', { name: 'Keep this item' })).toBeTruthy();
-      expect(getByText('Keep →')).toBeTruthy();
+      expect(getByText('Keep in my world →')).toBeTruthy();
     });
 
     it('renders Clear button with swipe cue text', () => {
@@ -374,15 +373,7 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
       expect(getByRole('button', { name: 'Clear this item' })).toBeTruthy();
-      expect(getByText('← Clear')).toBeTruthy();
-    });
-
-    it('renders Skip button', () => {
-      const { getByText, getByLabelText } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
-      );
-      expect(getByText('Skip')).toBeTruthy();
-      expect(getByLabelText('Skip until next Sweep')).toBeTruthy();
+      expect(getByText('← Done with this')).toBeTruthy();
     });
 
     it('renders Edit button with icon', () => {
@@ -410,15 +401,6 @@ describe('SweepCard', () => {
       );
       // Button should be pressable (animation will trigger and callback happens after)
       expect(() => fireEvent.press(getByRole('button', { name: 'Clear this item' }))).not.toThrow();
-    });
-
-    it('calls onSkip when Skip button is pressed', () => {
-      const onSkip = jest.fn();
-      const { getByLabelText } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} onSkip={onSkip} />,
-      );
-      fireEvent.press(getByLabelText('Skip until next Sweep'));
-      expect(onSkip).toHaveBeenCalledTimes(1);
     });
 
     it('calls onOpenEdit when Edit button is pressed', () => {

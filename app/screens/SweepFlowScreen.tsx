@@ -1,12 +1,12 @@
 /**
  * Sweep Flow Screen - Evening Sweep wizard container
  *
- * This is a full-screen flow that guides users through their Evening Sweep.
- * Currently implements:
- * - Step 0: Mood check-in
- * - Step 1: Wrap up today
- * - Step 2: Decision cards
- * - Step 3: Summary/celebration
+ * Full-screen flow for the Evening Sweep ritual:
+ * - Step 0: Intro ("Ready to Sweep?")
+ * - Step 1: Decision cards
+ * - Step 2: Mood check-in
+ * - Step 3: Wrap up / habits
+ * - Step 4: Summary/celebration
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
@@ -88,9 +88,66 @@ const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Step 0: Mood Check-in
+ * Step 0: Intro ("Ready to Sweep?")
  *
- * Asks the user how they're feeling before starting the sweep.
+ * Welcome screen that introduces the Sweep ritual.
+ * Shows the Gremly mascot and explains what the user will do.
+ */
+function SweepIntroStep({ onStart }: { onStart: () => void }) {
+  return (
+    <View style={styles.moodStepContainer}>
+      <ScrollView
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.introScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Gremly mascot - friendly anchor at top */}
+        <View style={styles.introMascotContainer}>
+          <Image
+            source={GREMLY_MASCOT}
+            style={styles.introMascotImage}
+            resizeMode="contain"
+            testID="sweep-intro-mascot"
+            accessibilityLabel="Gremly mascot"
+          />
+        </View>
+
+        {/* Title */}
+        <View style={styles.introHeaderSection}>
+          <Text variant="title" style={styles.moodStepTitle}>
+            Time to Sweep your day
+          </Text>
+          <Text style={styles.moodStepSubcopy}>
+            We'll review what came into your world today. Clear what's done. Keep what still
+            matters.
+          </Text>
+        </View>
+      </ScrollView>
+
+      {/* Start Button */}
+      <View style={styles.moodButtonContainer}>
+        <TouchableOpacity style={styles.moodContinueButton} onPress={onStart} activeOpacity={0.8}>
+          <View style={styles.moodContinueButtonContent}>
+            <Text style={styles.moodContinueButtonText}>Start Sweeping</Text>
+            <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+          </View>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Step 1: Decision Cards
+ *
+ * Shows items that need decisions (keep, clear, skip).
+ * This is the core of the Sweep experience.
+ */
+
+/**
+ * Step 2: Mood Check-in
+ *
+ * Asks the user how they're feeling during the sweep.
  * Optionally allows a journal entry to reflect on the day.
  *
  * On Continue:
@@ -670,7 +727,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
    * Centralized handler for all sweep card outcomes.
    * Any meaningful action advances the card; "peek and close" stays.
    */
-  type SweepOutcome = 'keep' | 'clear' | 'skip' | 'changed' | 'stay';
+  type SweepOutcome = 'keep' | 'clear' | 'changed' | 'stay';
 
   // Store handleOutcome in a ref so the effect can access the latest version
   const handleOutcomeRef = useRef<(outcome: SweepOutcome) => void>(() => {});
@@ -704,20 +761,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
           } catch (error) {
             console.error('[SweepDecisionStep] handleOutcome clear error:', error);
-          }
-          setCurrentIndex((prev) => prev + 1);
-          break;
-        }
-
-        case 'skip': {
-          try {
-            await applySweepAction(
-              { type: 'skip', id: candidate.id, kind: candidate.kind },
-              supabase,
-            );
-            setStats((prev) => ({ ...prev, skipped: prev.skipped + 1 }));
-          } catch (error) {
-            console.error('[SweepDecisionStep] handleOutcome skip error:', error);
           }
           setCurrentIndex((prev) => prev + 1);
           break;
@@ -789,10 +832,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   const handleClear = useCallback(() => {
     handleOutcome('clear');
-  }, [handleOutcome]);
-
-  const handleSkip = useCallback(() => {
-    handleOutcome('skip');
   }, [handleOutcome]);
 
   const handleOpenEdit = useCallback(async () => {
@@ -1067,7 +1106,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           total={candidates.length}
           onKeep={handleKeep}
           onClear={handleClear}
-          onSkip={handleSkip}
           onOpenEdit={handleOpenEdit}
           onPrimaryAction={async (config, cand) => {
             // Open the appropriate overlay - save detection is handled
@@ -1250,12 +1288,16 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     [overlayClose],
   );
 
+  const handleIntroStart = () => {
+    setStep(1); // go to Decision cards
+  };
+
   const handleMoodContinue = () => {
-    setStep(1);
+    setStep(3); // Mood → Wrap-up / Habits
   };
 
   const handleWrapUpContinue = () => {
-    setStep(2);
+    setStep(4); // Wrap-up → Summary
   };
 
   const handleDecisionFinished = (summary: SweepSummary) => {
@@ -1271,8 +1313,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       });
     }
 
-    // Advance to Summary step
-    setStep(3);
+    // Advance to Mood step
+    setStep(2); // Decision → Mood
   };
 
   const handleSummaryDone = () => {
@@ -1298,11 +1340,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       <Screen
         edges={['top', 'bottom']}
         padded={false}
-        style={step === 2 ? styles.screenBackgroundDecision : styles.screenBackground}
+        style={step === 1 ? styles.screenBackgroundDecision : styles.screenBackground}
       >
         {/* Conditional Header - Different for decision step */}
-        {step !== 2 ? (
-          /* Standard Header for Mood, Wrap-up, Summary steps */
+        {step !== 1 ? (
+          /* Standard Header for Intro, Mood, Wrap-up, Summary steps */
           <View style={styles.header}>
             {/* Left - back chevron */}
             <TouchableOpacity
@@ -1337,13 +1379,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         ) : null}
 
         {/* Step Content - Full-bleed for decision step */}
-        <View style={step === 2 ? styles.contentDecision : styles.content}>
-          {step === 0 && <SweepMoodStep onContinue={handleMoodContinue} />}
-          {step === 1 && <SweepWrapUpStep onContinue={handleWrapUpContinue} />}
-          {step === 2 && (
+        <View style={step === 1 ? styles.contentDecision : styles.content}>
+          {step === 0 && <SweepIntroStep onStart={handleIntroStart} />}
+          {step === 1 && (
             <SweepDecisionStep onFinished={handleDecisionFinished} onClose={handleClose} />
           )}
-          {step === 3 && (
+          {step === 2 && <SweepMoodStep onContinue={handleMoodContinue} />}
+          {step === 3 && <SweepWrapUpStep onContinue={handleWrapUpContinue} />}
+          {step === 4 && (
             <SweepSummaryStep
               keptCount={keptCount}
               clearedCount={clearedCount}
@@ -1459,6 +1502,27 @@ const styles = StyleSheet.create({
   },
   stepDescription: {
     marginBottom: 24,
+  },
+  // ─────────────────────────────────────────────────────────────────────────
+  // SweepIntroStep styles
+  // ─────────────────────────────────────────────────────────────────────────
+  introScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
+    paddingHorizontal: 4,
+  },
+  introMascotContainer: {
+    alignItems: 'center',
+    marginTop: 48,
+    marginBottom: 32,
+  },
+  introMascotImage: {
+    width: 120,
+    height: 120,
+  },
+  introHeaderSection: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
   },
   // ─────────────────────────────────────────────────────────────────────────
   // SweepMoodStep styles - Gremly Brand Reskin

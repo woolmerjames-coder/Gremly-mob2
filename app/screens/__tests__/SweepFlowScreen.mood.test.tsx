@@ -1,18 +1,21 @@
 /**
  * SweepFlowScreen Mood Step Tests
  *
- * Tests the mood check-in step (step 0) of the Sweep flow.
+ * Tests the mood check-in step (step 2) of the Sweep flow.
+ * New flow: Intro (0) → Decision (1) → Mood (2) → Wrap-up (3) → Summary (4)
  * Focuses on rendering and basic interaction, not repo persistence.
  */
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-// Mock sweep engine (we stay on step 0, but need to mock for imports)
+// Mock sweep engine - mock Decision step to immediately call onFinished
 const mockFetchSweepCandidates = jest.fn().mockResolvedValue([]);
 jest.mock('../../../lib/sweep/engine', () => ({
   __esModule: true,
   fetchSweepCandidatesForUser: (...args: any[]) => mockFetchSweepCandidates(...args),
+  applySweepAction: () => Promise.resolve(),
+  markSweepCompleted: () => Promise.resolve(),
 }));
 
 // Mock Supabase client
@@ -27,6 +30,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
   __esModule: true,
   useRepo: () => ({
     create: mockCreate,
+    getById: jest.fn(),
   }),
 }));
 
@@ -36,7 +40,7 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
-// Mock useTodayEntries (used by WrapUpStep, but we stay on step 0)
+// Mock useTodayEntries
 jest.mock('../../../lib/today/hooks/useTodayEntries', () => ({
   __esModule: true,
   useTodayEntries: () => ({
@@ -60,6 +64,18 @@ jest.mock('../../../lib/today/useTodayInteractions', () => ({
   }),
 }));
 
+// Mock useOverlayController
+jest.mock('../../../hooks/useOverlayController', () => ({
+  __esModule: true,
+  useOverlayController: () => ({
+    state: { visible: false, mode: 'create', initialEntity: null, initialSpaceId: null },
+    openEdit: jest.fn(),
+    openCreate: jest.fn(),
+    openView: jest.fn(),
+    close: jest.fn(),
+  }),
+}));
+
 // Mock navigation
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
@@ -74,31 +90,65 @@ jest.mock('@react-navigation/native', () => {
 
 import SweepFlowScreen from '../SweepFlowScreen';
 
+/**
+ * Helper to navigate from Intro → Decision → Mood step
+ * Flow: Intro (0) → Decision (1) → Mood (2)
+ */
+async function renderAtMoodStep() {
+  const result = render(<SweepFlowScreen />);
+
+  // Step 0: Intro - tap "Start Sweeping" to go to Decision
+  await waitFor(() => {
+    expect(result.getByText('Time to Sweep your day')).toBeTruthy();
+  });
+  fireEvent.press(result.getByText('Start Sweeping'));
+
+  // Step 1: Decision - empty state, tap "Done" to go to Mood
+  await waitFor(() => {
+    expect(result.getByText("Nothing to Sweep right now — you're all clear.")).toBeTruthy();
+  });
+  fireEvent.press(result.getByText('Done'));
+
+  // Step 2: Mood - wait for it to appear
+  await waitFor(() => {
+    expect(result.getByText('How did today feel?')).toBeTruthy();
+  });
+
+  return result;
+}
+
 describe('SweepFlowScreen - Mood Step', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders the mood step title', () => {
+  it('renders the intro step first with Start Sweeping button', () => {
     const { getByText } = render(<SweepFlowScreen />);
+
+    expect(getByText('Time to Sweep your day')).toBeTruthy();
+    expect(getByText('Start Sweeping')).toBeTruthy();
+  });
+
+  it('renders the mood step title after navigating through Intro and Decision', async () => {
+    const { getByText } = await renderAtMoodStep();
 
     expect(getByText('How did today feel?')).toBeTruthy();
   });
 
-  it('renders the Continue button', () => {
-    const { getByText } = render(<SweepFlowScreen />);
+  it('renders the Continue button on mood step', async () => {
+    const { getByText } = await renderAtMoodStep();
 
     expect(getByText('Continue')).toBeTruthy();
   });
 
-  it('renders the Skip for now button', () => {
-    const { getByText } = render(<SweepFlowScreen />);
+  it('renders the Skip for now button on mood step', async () => {
+    const { getByText } = await renderAtMoodStep();
 
     expect(getByText('Skip for now')).toBeTruthy();
   });
 
-  it('renders all mood options', () => {
-    const { getByText } = render(<SweepFlowScreen />);
+  it('renders all mood options', async () => {
+    const { getByText } = await renderAtMoodStep();
 
     // Check all mood labels are present (ALL CAPS per brand reskin)
     expect(getByText('GREAT')).toBeTruthy();
@@ -110,7 +160,7 @@ describe('SweepFlowScreen - Mood Step', () => {
   });
 
   it('advances to wrap up step when pressing Continue with mood selected', async () => {
-    const { getByText, queryByText } = render(<SweepFlowScreen />);
+    const { getByText, queryByText } = await renderAtMoodStep();
 
     // Select a mood (ALL CAPS per brand reskin)
     fireEvent.press(getByText('GOOD'));
@@ -118,7 +168,7 @@ describe('SweepFlowScreen - Mood Step', () => {
     // Press Continue
     fireEvent.press(getByText('Continue'));
 
-    // Should advance to step 1 (wrap up)
+    // Should advance to step 3 (wrap up)
     await waitFor(() => {
       expect(getByText('Wrap up today')).toBeTruthy();
     });
@@ -128,12 +178,12 @@ describe('SweepFlowScreen - Mood Step', () => {
   });
 
   it('advances to wrap up step when pressing Skip for now with no input', async () => {
-    const { getByText, queryByText } = render(<SweepFlowScreen />);
+    const { getByText, queryByText } = await renderAtMoodStep();
 
     // Press Skip without selecting anything
     fireEvent.press(getByText('Skip for now'));
 
-    // Should advance to step 1 (wrap up)
+    // Should advance to step 3 (wrap up)
     await waitFor(() => {
       expect(getByText('Wrap up today')).toBeTruthy();
     });
@@ -143,7 +193,7 @@ describe('SweepFlowScreen - Mood Step', () => {
   });
 
   it('advances to wrap up step when pressing Continue with text entered', async () => {
-    const { getByText, getByPlaceholderText, queryByText } = render(<SweepFlowScreen />);
+    const { getByText, getByPlaceholderText, queryByText } = await renderAtMoodStep();
 
     // Enter some text in the journal input
     const input = getByPlaceholderText('Today felt like…');
@@ -152,7 +202,7 @@ describe('SweepFlowScreen - Mood Step', () => {
     // Press Continue
     fireEvent.press(getByText('Continue'));
 
-    // Should advance to step 1 (wrap up)
+    // Should advance to step 3 (wrap up)
     await waitFor(() => {
       expect(getByText('Wrap up today')).toBeTruthy();
     });
@@ -161,14 +211,14 @@ describe('SweepFlowScreen - Mood Step', () => {
     expect(queryByText('How did today feel?')).toBeNull();
   });
 
-  it('renders the journal input placeholder', () => {
-    const { getByPlaceholderText } = render(<SweepFlowScreen />);
+  it('renders the journal input placeholder', async () => {
+    const { getByPlaceholderText } = await renderAtMoodStep();
 
     expect(getByPlaceholderText('Today felt like…')).toBeTruthy();
   });
 
-  it('does not crash when selecting mood and entering text', () => {
-    const { getByText, getByPlaceholderText } = render(<SweepFlowScreen />);
+  it('does not crash when selecting mood and entering text', async () => {
+    const { getByText, getByPlaceholderText } = await renderAtMoodStep();
 
     // Select a mood (ALL CAPS per brand reskin)
     fireEvent.press(getByText('TIRED'));
@@ -182,7 +232,7 @@ describe('SweepFlowScreen - Mood Step', () => {
   });
 
   it('calls repo.create and advances when Continue is pressed with mood selected', async () => {
-    const { getByText } = render(<SweepFlowScreen />);
+    const { getByText } = await renderAtMoodStep();
 
     // Select a mood (ALL CAPS per brand reskin)
     fireEvent.press(getByText('GOOD'));
@@ -209,7 +259,7 @@ describe('SweepFlowScreen - Mood Step', () => {
   });
 
   it('calls repo.create and advances when Continue is pressed with text entered', async () => {
-    const { getByText, getByPlaceholderText } = render(<SweepFlowScreen />);
+    const { getByText, getByPlaceholderText } = await renderAtMoodStep();
 
     // Enter journal text
     const input = getByPlaceholderText('Today felt like…');

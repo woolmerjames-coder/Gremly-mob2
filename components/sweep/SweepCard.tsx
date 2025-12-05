@@ -9,9 +9,9 @@
  * - Title with pencil icon at end of row
  * - Left-aligned underline below title (40% width)
  * - Type chip + timestamp metadata below underline
- * - Action center: date control pill + skip button grouped together
- * - Swipe cues at bottom: "← Not needed anymore" / "Keep for later →"
- * - Swipe gestures with subtle color hint backgrounds
+ * - Primary action pill (context-aware based on item type)
+ * - Swipe cues: "← Done with this" / "Keep in my world →"
+ * - Swipe gestures: left = clear, right = keep
  */
 
 import React, { useCallback, useState, useMemo } from 'react';
@@ -42,7 +42,6 @@ import Animated, {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   Pencil,
-  Clock,
   Archive,
   Check,
   Calendar,
@@ -109,8 +108,6 @@ export interface SweepCardProps {
   onKeep: () => void;
   /** Called when user wants to clear/archive the item */
   onClear: () => void;
-  /** Called when user wants to skip until next sweep */
-  onSkip: () => void;
   /** Called when user wants to edit/fix the item (opens full overlay) */
   onOpenEdit: () => void;
   /** Called when user taps the primary action button (e.g., add date, review habit) */
@@ -273,7 +270,6 @@ export function SweepCard({
   total: _total,
   onKeep,
   onClear,
-  onSkip,
   onOpenEdit,
   onPrimaryAction,
   onConvertToTodo,
@@ -677,10 +673,10 @@ export function SweepCard({
       {/* Swipe Cue Labels - ABOVE the card */}
       <View style={styles.swipeCueRow} pointerEvents="none">
         <Animated.View style={animatedLeftLabelStyle}>
-          <Text style={styles.swipeCueText}>← Clear</Text>
+          <Text style={styles.swipeCueText}>← Done with this</Text>
         </Animated.View>
         <Animated.View style={animatedRightLabelStyle}>
-          <Text style={styles.swipeCueText}>Keep →</Text>
+          <Text style={styles.swipeCueText}>Keep in my world →</Text>
         </Animated.View>
       </View>
 
@@ -797,20 +793,6 @@ export function SweepCard({
                   </TouchableOpacity>
                 </View>
               )}
-
-              {/* 5. SKIP ACTION - Secondary outlined pill */}
-              <View style={styles.cardActionBlock}>
-                <TouchableOpacity
-                  style={styles.skipPill}
-                  onPress={onSkip}
-                  accessibilityLabel="Skip until next Sweep"
-                  accessibilityRole="button"
-                  activeOpacity={0.6}
-                >
-                  <Clock size={14} color="rgba(46, 85, 64, 0.70)" strokeWidth={1.8} />
-                  <Text style={styles.skipPillText}>Skip</Text>
-                </TouchableOpacity>
-              </View>
             </ScrollView>
           </Animated.View>
         </GestureDetector>
@@ -1242,25 +1224,6 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
   },
 
-  // Skip Pill - Outlined, more muted secondary action
-  skipPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.6)', // Sage Mist border
-  },
-  skipPillText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(46, 85, 64, 0.70)', // Moss Green @ 70% - muted
-  },
-
   // Spacer - Pushes action block to bottom of card
   actionSpacer: {
     flex: 1,
@@ -1277,15 +1240,6 @@ const styles = StyleSheet.create({
     width: '90%',
     height: 1,
     backgroundColor: 'rgba(191, 216, 192, 0.5)', // sageMistBorder
-  },
-
-  // Card Action Block - Pill buttons row
-  cardActionBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingBottom: 4,
   },
 
   // Action Pill - Small rounded pill button
@@ -1346,30 +1300,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
     letterSpacing: 1,
-  },
-
-  // Skip Button - Legacy style (replaced by actionButton)
-  skipButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: BRAND.radius.pill,
-    backgroundColor: 'rgba(249, 246, 241, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.25)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  skipButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
   },
 
   // Swipe Scrims - Behind the card, fade in during drag
