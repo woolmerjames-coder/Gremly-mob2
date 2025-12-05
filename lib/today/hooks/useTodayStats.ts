@@ -92,7 +92,7 @@ export interface TodayStats {
   sweepCandidateCount: number;
   /** Overdue todos from sweepCandidates (due_day < today) */
   overdueTodos: SweepCandidate[];
-  /** Recent drops: items captured today that aren't in Today's Focus yet */
+  /** Recent drops: items created today, not in Today's Focus, and unscheduled (need triage) */
   recentDrops: SweepCandidate[];
   /** Loading state */
   loading: boolean;
@@ -213,20 +213,33 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
     // Only todos that are incomplete and due today/overdue/carry-forward
     const todayDayString = new Date().toISOString().split('T')[0];
 
-    // Build the todos array for sweep selection from todosToday
-    // Filter out optimistically completed items
-    const incompleteTodos = todosToday
-      .filter((item) => !completedTodoIds.has(item.id))
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
+    // Get all todos from nowData for comprehensive sweep/recentDrops filtering
+    const { allTodos = [] } = nowData;
+
+    // Build the todos array for sweep selection from ALL todos (not just todosToday)
+    // This ensures we include overdue items and items without due dates
+    // Filter out optimistically completed items and archived/completed items
+    const incompleteTodos = allTodos
+      .filter((todo) => {
+        // Skip optimistically completed
+        if (completedTodoIds.has(todo.id)) return false;
+        // Skip completed or archived
+        const status = (todo as any).status;
+        if (status === 'completed' || status === 'archived') return false;
+        if (todo.archived === true) return false;
+        return true;
+      })
+      .map((todo) => ({
+        id: todo.id,
+        name: todo.name,
         type: 'todo' as const,
-        due_day: 'dueDay' in item ? (item as any).dueDay : undefined,
-        due_date: 'dueDate' in item ? (item as any).dueDate : undefined,
+        due_day: todo.due_day,
+        due_date: todo.due_date,
         status: 'active' as const,
-        carry_forward: 'carryForward' in item ? (item as any).carryForward : false,
+        carry_forward: (todo as any).carry_forward ?? false,
         completed_at: null,
         archived: false,
+        created_at: todo.created_at,
       }));
 
     const sweepCandidates = selectSweepCandidates(incompleteTodos, todayDayString);
@@ -239,8 +252,12 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       return dueDay !== null && dueDay < todayDayString;
     });
 
-    // Derive recentDrops: items captured today that aren't already in Today's Focus
-    // Build a set of IDs already in today's focus lists
+    // Derive recentDrops: items captured today that need sorting
+    // These are items that:
+    // 1. Were created today (created_at date portion === todayDayString)
+    // 2. Are NOT already in Today's Focus (locked or active items)
+    // 3. Are unscheduled (no due_day) - need triage
+    // 4. Are not completed/archived (already filtered in sweepCandidates)
     const todayFocusIds = new Set([
       ...todosToday.map((t) => t.id),
       ...habitsToday.map((h) => h.id),
@@ -251,11 +268,17 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       if (todayFocusIds.has(candidate.id)) {
         return false;
       }
-      // Include items with no due date or unscheduled (these need sorting)
+
+      // Must be created today
+      const createdDay = candidate.created_at?.split('T')[0] ?? null;
+      if (createdDay !== todayDayString) {
+        return false;
+      }
+
+      // Must be unscheduled (no due date) - these need sorting/triage
       const dueDay =
         candidate.due_day ?? (candidate.due_date ? candidate.due_date.split('T')[0] : null);
-      // Items without a due date or items that are carry-forward without explicit due date
-      return dueDay === null || candidate.carry_forward === true;
+      return dueDay === null;
     });
 
     // Build completion summary for progress header

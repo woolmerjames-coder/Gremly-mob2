@@ -1,6 +1,11 @@
 /**
  * Tests for useTodayStats Hook
  * Focus: overdueTodos and recentDrops derived arrays
+ *
+ * recentDrops semantics (updated):
+ * - Items captured TODAY (created_at date === today)
+ * - NOT already in Today's Focus
+ * - Unscheduled (no due_day) - need triage
  */
 
 import { renderHook } from '@testing-library/react-native';
@@ -21,12 +26,24 @@ const mockState = {
     carry_forward?: boolean;
     completed_at?: string | null;
     archived?: boolean;
+    created_at?: string | null;
   }>,
   nowData: {
     lockedItems: [] as Array<{ id: string; type: string; name: string; locked: boolean }>,
     activeItems: [] as Array<{ id: string; type: string; name: string; locked: boolean }>,
     futureItems: [] as Array<{ id: string; type: string; name: string }>,
     completedToday: [] as Array<{ id: string; type: string; name: string; completedAt: string }>,
+    allTodos: [] as Array<{
+      id: string;
+      type: 'todo';
+      name: string;
+      due_day?: string | null;
+      due_date?: string | null;
+      status?: string;
+      carry_forward?: boolean;
+      archived?: boolean;
+      created_at: string;
+    }>,
     capturesCount: 0,
     progressState: {
       mode: 'dots' as const,
@@ -61,6 +78,9 @@ import { selectSweepCandidates } from '../../lib/today/sweepSelectors';
 // Helper Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
+const todayIsoString = new Date().toISOString();
+const todayDayString = todayIsoString.split('T')[0];
+
 function createMockSweepCandidate(overrides: Partial<(typeof mockState.sweepCandidates)[0]> = {}) {
   return {
     id: `todo-${Math.random().toString(36).slice(2, 9)}`,
@@ -72,6 +92,7 @@ function createMockSweepCandidate(overrides: Partial<(typeof mockState.sweepCand
     carry_forward: false,
     completed_at: null,
     archived: false,
+    created_at: todayIsoString, // Default to created today
     ...overrides,
   };
 }
@@ -83,6 +104,7 @@ function resetMocks() {
     activeItems: [],
     futureItems: [],
     completedToday: [],
+    allTodos: [],
     capturesCount: 0,
     progressState: {
       mode: 'dots' as const,
@@ -273,12 +295,13 @@ describe('useTodayStats', () => {
       expect(result.current.recentDrops).toEqual([]);
     });
 
-    it('includes candidates with no due date (need sorting)', () => {
+    it('includes candidates created today with no due date (need sorting)', () => {
       const noDueDateTodo = createMockSweepCandidate({
         id: 'todo-no-due',
         name: 'Unscheduled Task',
         due_day: null,
         due_date: null,
+        created_at: todayIsoString, // Created today
       });
 
       mockState.sweepCandidates = [noDueDateTodo];
@@ -289,20 +312,46 @@ describe('useTodayStats', () => {
       expect(result.current.recentDrops[0].id).toBe('todo-no-due');
     });
 
-    it('includes carry-forward items', () => {
+    it('excludes items NOT created today even if unscheduled', () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayIso = yesterday.toISOString();
+
+      const oldUnscheduledTodo = createMockSweepCandidate({
+        id: 'todo-old-no-due',
+        name: 'Old Unscheduled Task',
+        due_day: null,
+        due_date: null,
+        created_at: yesterdayIso, // NOT created today
+      });
+
+      mockState.sweepCandidates = [oldUnscheduledTodo];
+
+      const { result } = renderHook(() => useTodayStats());
+
+      // Should NOT be in recentDrops because not created today
+      expect(result.current.recentDrops).toHaveLength(0);
+    });
+
+    it('excludes carry-forward items not created today', () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayIso = yesterday.toISOString();
+
       const carryForwardTodo = createMockSweepCandidate({
         id: 'todo-carry-forward',
         name: 'Carried Forward',
         due_day: null,
         carry_forward: true,
+        created_at: yesterdayIso, // NOT created today
       });
 
       mockState.sweepCandidates = [carryForwardTodo];
 
       const { result } = renderHook(() => useTodayStats());
 
-      expect(result.current.recentDrops).toHaveLength(1);
-      expect(result.current.recentDrops[0].id).toBe('todo-carry-forward');
+      // carry_forward alone is not enough - must be created today
+      expect(result.current.recentDrops).toHaveLength(0);
     });
 
     it("excludes items already in Today's Focus (todosToday)", () => {
@@ -322,12 +371,14 @@ describe('useTodayStats', () => {
         id: focusTodoId,
         name: 'Focus Task',
         due_day: null,
+        created_at: todayIsoString,
       });
 
       const notInFocusTodo = createMockSweepCandidate({
         id: 'todo-not-in-focus',
         name: 'Not in Focus',
         due_day: null,
+        created_at: todayIsoString,
       });
 
       mockState.sweepCandidates = [inFocusTodo, notInFocusTodo];
@@ -357,6 +408,7 @@ describe('useTodayStats', () => {
         id: focusHabitId, // Same ID as a habit in focus
         name: 'Task with habit ID',
         due_day: null,
+        created_at: todayIsoString,
       });
 
       mockState.sweepCandidates = [todoWithHabitId];
@@ -367,19 +419,19 @@ describe('useTodayStats', () => {
       expect(result.current.recentDrops).toHaveLength(0);
     });
 
-    it('excludes items with a scheduled due date', () => {
-      const todayString = new Date().toISOString().split('T')[0];
-
+    it('excludes items with a scheduled due date even if created today', () => {
       const scheduledTodo = createMockSweepCandidate({
         id: 'todo-scheduled',
         name: 'Scheduled Task',
-        due_day: todayString,
+        due_day: todayDayString,
+        created_at: todayIsoString,
       });
 
       const unscheduledTodo = createMockSweepCandidate({
         id: 'todo-unscheduled',
         name: 'Unscheduled Task',
         due_day: null,
+        created_at: todayIsoString,
       });
 
       mockState.sweepCandidates = [scheduledTodo, unscheduledTodo];
@@ -390,8 +442,11 @@ describe('useTodayStats', () => {
       expect(result.current.recentDrops[0].id).toBe('todo-unscheduled');
     });
 
-    it('handles combination of focus exclusion and no-due-date filtering', () => {
+    it('handles combination of focus exclusion, created-today, and no-due-date filtering', () => {
       const focusTodoId = 'todo-focus';
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayIso = yesterday.toISOString();
 
       mockState.nowData.activeItems = [
         {
@@ -402,38 +457,57 @@ describe('useTodayStats', () => {
         },
       ];
 
+      // In focus, created today, no due - excluded (in focus)
       const inFocusNoDue = createMockSweepCandidate({
         id: focusTodoId,
         name: 'In Focus, No Due',
         due_day: null,
+        created_at: todayIsoString,
       });
 
-      const notInFocusNoDue = createMockSweepCandidate({
-        id: 'todo-not-focus-no-due',
-        name: 'Not in Focus, No Due',
+      // Not in focus, created today, no due - INCLUDED
+      const notInFocusNoDueToday = createMockSweepCandidate({
+        id: 'todo-not-focus-no-due-today',
+        name: 'Not in Focus, No Due, Today',
         due_day: null,
+        created_at: todayIsoString,
       });
 
-      const todayString = new Date().toISOString().split('T')[0];
+      // Not in focus, created yesterday, no due - excluded (not created today)
+      const notInFocusNoDueYesterday = createMockSweepCandidate({
+        id: 'todo-not-focus-no-due-yesterday',
+        name: 'Not in Focus, No Due, Yesterday',
+        due_day: null,
+        created_at: yesterdayIso,
+      });
+
+      // Not in focus, created today, has due - excluded (has due date)
       const notInFocusWithDue = createMockSweepCandidate({
         id: 'todo-not-focus-with-due',
         name: 'Not in Focus, Has Due',
-        due_day: todayString,
+        due_day: todayDayString,
+        created_at: todayIsoString,
       });
 
-      mockState.sweepCandidates = [inFocusNoDue, notInFocusNoDue, notInFocusWithDue];
+      mockState.sweepCandidates = [
+        inFocusNoDue,
+        notInFocusNoDueToday,
+        notInFocusNoDueYesterday,
+        notInFocusWithDue,
+      ];
 
       const { result } = renderHook(() => useTodayStats());
 
-      // Only the one that's not in focus AND has no due date
+      // Only the one that's not in focus AND created today AND has no due date
       expect(result.current.recentDrops).toHaveLength(1);
-      expect(result.current.recentDrops[0].id).toBe('todo-not-focus-no-due');
+      expect(result.current.recentDrops[0].id).toBe('todo-not-focus-no-due-today');
     });
 
     it('does not mutate the original sweepCandidates array', () => {
       const noDueTodo = createMockSweepCandidate({
         id: 'todo-no-due',
         due_day: null,
+        created_at: todayIsoString,
       });
 
       mockState.sweepCandidates = [noDueTodo];
@@ -443,6 +517,22 @@ describe('useTodayStats', () => {
 
       expect(result.current.recentDrops).toHaveLength(1);
       expect(mockState.sweepCandidates.length).toBe(originalLength);
+    });
+
+    it('excludes items with null created_at', () => {
+      const noCreatedAtTodo = createMockSweepCandidate({
+        id: 'todo-no-created-at',
+        name: 'No created_at',
+        due_day: null,
+        created_at: null,
+      });
+
+      mockState.sweepCandidates = [noCreatedAtTodo];
+
+      const { result } = renderHook(() => useTodayStats());
+
+      // Should NOT be in recentDrops because created_at is null
+      expect(result.current.recentDrops).toHaveLength(0);
     });
   });
 
@@ -466,11 +556,13 @@ describe('useTodayStats', () => {
       const overdue = createMockSweepCandidate({
         id: 'todo-overdue',
         due_day: yesterdayString,
+        created_at: todayIsoString, // Created today
       });
 
       const noDue = createMockSweepCandidate({
         id: 'todo-no-due',
         due_day: null,
+        created_at: todayIsoString, // Created today
       });
 
       mockState.sweepCandidates = [overdue, noDue];

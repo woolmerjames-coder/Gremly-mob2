@@ -51,6 +51,8 @@ export interface SweepCandidate {
   archived?: boolean;
   space_id?: string | null;
   tags?: string[];
+  /** ISO 8601 timestamp when the item was created */
+  created_at?: string | null;
 }
 
 /**
@@ -69,6 +71,8 @@ export interface SweepEligibleTodo {
   archived?: boolean;
   space_id?: string | null;
   tags?: string[];
+  /** ISO 8601 timestamp when the item was created */
+  created_at?: string | null;
 }
 
 /**
@@ -146,6 +150,7 @@ export function selectSweepCandidates(
       archived: todo.archived,
       space_id: todo.space_id,
       tags: todo.tags,
+      created_at: todo.created_at,
     }));
 
   // Log for debugging sweep mismatch
