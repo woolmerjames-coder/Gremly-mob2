@@ -139,9 +139,9 @@ async function navigateToSummaryStep(result: ReturnType<typeof render>) {
 
   // Step 3: Wrap-up - tap "Start Sweep" to go to Summary
   await waitFor(() => {
-    result.getByText('Wrap up today');
+    result.getByText('Habits today');
   });
-  fireEvent.press(result.getByText('Start Sweep'));
+  fireEvent.press(result.getByText('Continue'));
 
   // Step 4: Summary - wait for it to appear
   await waitFor(() => {
@@ -237,9 +237,9 @@ describe('SweepFlowScreen - Summary Step', () => {
 
       // Step 3: Wrap-up - continue
       await waitFor(() => {
-        result.getByText('Wrap up today');
+        result.getByText('Habits today');
       });
-      fireEvent.press(result.getByText('Start Sweep'));
+      fireEvent.press(result.getByText('Continue'));
 
       // Step 4: Summary
       await waitFor(() => {
@@ -271,9 +271,9 @@ describe('SweepFlowScreen - Summary Step', () => {
 
       // Step 3: Wrap-up - continue
       await waitFor(() => {
-        result.getByText('Wrap up today');
+        result.getByText('Habits today');
       });
-      fireEvent.press(result.getByText('Start Sweep'));
+      fireEvent.press(result.getByText('Continue'));
 
       // Step 4: Summary
       await waitFor(() => {
@@ -315,7 +315,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       expect(mockMarkSweepCompleted).toHaveBeenCalledWith(
         'test-user-123',
         { mockSupabase: true },
-        { kept: 0, cleared: 0, skipped: 0 },
+        { kept: 0, cleared: 0 },
       );
     });
 
@@ -402,7 +402,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       expect(mockMarkSweepCompleted).toHaveBeenCalledWith(
         'test-user-123',
         { mockSupabase: true },
-        { kept: 2, cleared: 1, skipped: 0 },
+        { kept: 2, cleared: 1 },
       );
     });
   });

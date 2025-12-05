@@ -340,7 +340,7 @@ export async function applySweepAction(
 export async function markSweepCompleted(
   ownerId: string,
   client: SupabaseClient<Database>,
-  summary: { kept: number; cleared: number; skipped: number },
+  summary: { kept: number; cleared: number },
 ): Promise<void> {
   const now = new Date().toISOString();
 

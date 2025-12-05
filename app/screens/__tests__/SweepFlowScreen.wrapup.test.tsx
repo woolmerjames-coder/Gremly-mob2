@@ -1,15 +1,16 @@
 /**
- * SweepFlowScreen Wrap-Up Step Tests
+ * SweepFlowScreen Habits Today Step Tests
  *
- * Tests the wrap-up step (step 3) of the Sweep flow.
- * New flow: Intro (0) → Decision (1) → Mood (2) → Wrap-up (3) → Summary (4)
+ * Tests the "Habits today" step (step 3) of the Sweep flow.
+ * This step is habits-only - users can mark habits as complete for the day.
+ * New flow: Intro (0) → Decision (1) → Mood (2) → Habits (3) → Summary (4)
  * Mocks lib/today hooks to provide fake data, then verifies rendering and onContinue.
  */
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-// Mock sweep engine (to prevent fetch during wrapup tests)
+// Mock sweep engine (to prevent fetch during habits step tests)
 const mockFetchSweepCandidates = jest.fn().mockResolvedValue([]);
 jest.mock('../../../lib/sweep/engine', () => ({
   __esModule: true,
@@ -45,14 +46,22 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
-// Mock data for useTodayEntries
-const mockHabit = {
+// Mock data for useTodayEntries - only habits are relevant for this step
+const mockHabit1 = {
   id: 'habit-1',
   type: 'habit' as const,
   name: 'Morning meditation',
   due_day: new Date().toISOString().split('T')[0],
 };
 
+const mockHabit2 = {
+  id: 'habit-2',
+  type: 'habit' as const,
+  name: 'Evening journaling',
+  due_day: new Date().toISOString().split('T')[0],
+};
+
+// These todos should NOT appear in the Habits step (filtered out)
 const mockTodo = {
   id: 'todo-1',
   type: 'todo' as const,
@@ -60,24 +69,13 @@ const mockTodo = {
   due_day: new Date().toISOString().split('T')[0],
 };
 
-// Overdue todo (yesterday)
-const yesterday = new Date();
-yesterday.setDate(yesterday.getDate() - 1);
-const mockOverdueTodo = {
-  id: 'todo-overdue-1',
-  type: 'todo' as const,
-  name: 'Submit expense report',
-  due_day: yesterday.toISOString().split('T')[0],
-  overdue: true,
-};
-
 const mockReload = jest.fn();
 
-// Mock useTodayEntries with items
+// Mock useTodayEntries with habits and todos (step should only show habits)
 jest.mock('../../../lib/today/hooks/useTodayEntries', () => ({
   __esModule: true,
   useTodayEntries: () => ({
-    items: [mockHabit, mockTodo, mockOverdueTodo],
+    items: [mockHabit1, mockHabit2, mockTodo],
     doneItems: [],
     loading: false,
     reload: mockReload,
@@ -128,11 +126,11 @@ jest.mock('@react-navigation/native', () => {
 import SweepFlowScreen from '../SweepFlowScreen';
 
 /**
- * Helper to advance to the wrap-up step (step 3)
- * Flow: Intro (0) → Decision (1) → Mood (2) → Wrap-up (3)
+ * Helper to advance to the Habits step (step 3)
+ * Flow: Intro (0) → Decision (1) → Mood (2) → Habits (3)
  * Since SweepWrapUpStep is not exported, we navigate through the flow
  */
-async function renderAtWrapUpStep() {
+async function renderAtHabitsStep() {
   const result = render(<SweepFlowScreen />);
 
   // Step 0: Intro - tap "Start Sweeping" to go to Decision
@@ -147,81 +145,95 @@ async function renderAtWrapUpStep() {
   });
   fireEvent.press(result.getByText('Done'));
 
-  // Step 2: Mood - skip to go to Wrap-up
+  // Step 2: Mood - skip to go to Habits
   await waitFor(() => {
     expect(result.getByText('How did today feel?')).toBeTruthy();
   });
   fireEvent.press(result.getByText('Skip for now'));
 
-  // Step 3: Wrap-up - wait for it to appear
+  // Step 3: Habits - wait for it to appear
   await waitFor(() => {
-    expect(result.getByText('Wrap up today')).toBeTruthy();
+    expect(result.getByText('Habits today')).toBeTruthy();
   });
 
   return result;
 }
 
-describe('SweepFlowScreen - Wrap Up Step', () => {
+describe('SweepFlowScreen - Habits Today Step', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders the wrap up step header', async () => {
-    const { getByText } = await renderAtWrapUpStep();
+  it('renders the Habits today step header', async () => {
+    const { getByText } = await renderAtHabitsStep();
 
-    expect(getByText('Wrap up today')).toBeTruthy();
-    expect(getByText("Let's close out what you planned for today before we Sweep.")).toBeTruthy();
+    expect(getByText('Habits today')).toBeTruthy();
+    expect(getByText('Mark what you managed today. Everything resets tomorrow.')).toBeTruthy();
   });
 
-  it("renders the Today's habits section with items", async () => {
-    const { getByText } = await renderAtWrapUpStep();
+  it('renders habit items in the list', async () => {
+    const { getByText } = await renderAtHabitsStep();
 
-    expect(getByText("Today's Habits")).toBeTruthy();
     expect(getByText('Morning meditation')).toBeTruthy();
+    expect(getByText('Evening journaling')).toBeTruthy();
   });
 
-  it("renders the Today's to-dos section with items", async () => {
-    const { getByText } = await renderAtWrapUpStep();
+  it('does not render todo items (habits only)', async () => {
+    const { queryByText } = await renderAtHabitsStep();
 
-    expect(getByText("Today's To-Dos")).toBeTruthy();
-    expect(getByText('Review pull request')).toBeTruthy();
+    // Todos should NOT appear in the Habits step
+    expect(queryByText('Review pull request')).toBeNull();
   });
 
-  it('renders the Still Waiting section with overdue items', async () => {
-    const { getByText } = await renderAtWrapUpStep();
+  it('renders the Continue button', async () => {
+    const { getByText } = await renderAtHabitsStep();
 
-    expect(getByText('Still Waiting')).toBeTruthy();
-    expect(getByText('Submit expense report')).toBeTruthy();
+    expect(getByText('Continue')).toBeTruthy();
   });
 
-  it('renders the Start Sweep button', async () => {
-    const { getByText } = await renderAtWrapUpStep();
+  it('shows open habits count reminder', async () => {
+    const { getByText } = await renderAtHabitsStep();
 
-    expect(getByText('Start Sweep')).toBeTruthy();
+    // Should show "2 habits still open."
+    expect(getByText('2 habits still open.')).toBeTruthy();
   });
 
-  it('renders overdue action buttons (Today, Tomorrow, Clear)', async () => {
-    const { getByText, getAllByText } = await renderAtWrapUpStep();
+  it('calls toggleHabitComplete when tapping a habit row', async () => {
+    const { getByText } = await renderAtHabitsStep();
 
-    // These buttons appear for each overdue item
-    expect(getAllByText('Today').length).toBeGreaterThan(0);
-    expect(getAllByText('Tomorrow').length).toBeGreaterThan(0);
-    expect(getAllByText('Clear').length).toBeGreaterThan(0);
+    // Tap on a habit row
+    fireEvent.press(getByText('Morning meditation'));
+
+    // Should call toggleHabitComplete with the habit data
+    expect(mockToggleHabitComplete).toHaveBeenCalledWith({
+      id: 'habit-1',
+      name: 'Morning meditation',
+    });
   });
 
-  it('advances to summary step when pressing Start Sweep', async () => {
-    const { getByText, queryByText } = await renderAtWrapUpStep();
+  it('does not call toggleTodoComplete (no todo interactions)', async () => {
+    const { getByText } = await renderAtHabitsStep();
 
-    // Press Start Sweep - should advance to step 4 (Summary)
-    fireEvent.press(getByText('Start Sweep'));
+    // Tap on a habit
+    fireEvent.press(getByText('Evening journaling'));
+
+    // Should NOT have called toggleTodoComplete
+    expect(mockToggleTodoComplete).not.toHaveBeenCalled();
+  });
+
+  it('advances to summary step when pressing Continue', async () => {
+    const { getByText, queryByText } = await renderAtHabitsStep();
+
+    // Press Continue - should advance to step 4 (Summary)
+    fireEvent.press(getByText('Continue'));
 
     // Should now show summary step content
     await waitFor(() => {
       expect(getByText('Sweep complete')).toBeTruthy();
     });
 
-    // Wrap up step should no longer be visible
-    expect(queryByText('Wrap up today')).toBeNull();
+    // Habits step should no longer be visible
+    expect(queryByText('Habits today')).toBeNull();
   });
 });
 

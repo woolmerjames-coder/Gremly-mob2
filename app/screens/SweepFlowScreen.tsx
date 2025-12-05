@@ -39,7 +39,7 @@ import {
   applySweepAction,
   markSweepCompleted,
 } from '../../lib/sweep/engine';
-import type { SweepCandidate, SweepPrimaryActionConfig } from '../../lib/sweep/types';
+import type { SweepCandidate, SweepPrimaryActionConfig, SweepSummary } from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -297,58 +297,35 @@ function SweepMoodStep({ onContinue }: StepProps) {
 }
 
 /**
- * Step 1: Wrap Up Today
+ * Step 3: Habits Today
  *
- * Shows items from today that need review/action.
- * Allows user to complete habits/todos and handle overdue items.
+ * Habits-only step to mark what the user managed today.
+ * Everything resets tomorrow - just a simple checklist.
  */
 function SweepWrapUpStep({ onContinue }: StepProps) {
-  const repo = useRepo();
-  const { items, doneItems, loading, reload } = useTodayEntries();
+  const { items, loading, reload } = useTodayEntries();
   const interactions = useTodayInteractions({
     onReload: reload,
     celebrationEnabled: false,
     showCelebrationToast: false,
   });
 
-  // Separate items into habits, todos, and overdue
-  const { habits, todos, overdue } = useMemo(() => {
-    const todayDay = new Date().toISOString().split('T')[0];
-
+  // Filter to habits only
+  const habits = useMemo(() => {
     const habitsList: TodayMergedEntry[] = [];
-    const todosList: TodayMergedEntry[] = [];
-    const overdueList: TodayMergedEntry[] = [];
 
     for (const item of items) {
       // Skip items that have been optimistically completed
       if (item.type === 'habit' && interactions.completedHabitIds.has(item.id)) continue;
-      if (item.type === 'todo' && interactions.completedTodoIds.has(item.id)) continue;
       if (interactions.deletedItemIds.has(item.id)) continue;
 
       if (item.type === 'habit') {
         habitsList.push(item);
-      } else if (item.type === 'todo') {
-        // Check if overdue
-        const dueDay = item.due_day ?? item.due_date?.split('T')[0];
-        if (dueDay && dueDay < todayDay) {
-          overdueList.push(item);
-        } else {
-          todosList.push(item);
-        }
       }
     }
 
-    return { habits: habitsList, todos: todosList, overdue: overdueList };
-  }, [
-    items,
-    interactions.completedHabitIds,
-    interactions.completedTodoIds,
-    interactions.deletedItemIds,
-  ]);
-
-  // Count completed items for context
-  const completedCount =
-    doneItems.length + interactions.completedHabitIds.size + interactions.completedTodoIds.size;
+    return habitsList;
+  }, [items, interactions.completedHabitIds, interactions.deletedItemIds]);
 
   // Handle habit completion
   const handleHabitToggle = useCallback(
@@ -362,70 +339,21 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
     [interactions],
   );
 
-  // Handle todo completion
-  const handleTodoToggle = useCallback(
-    async (todo: TodayMergedEntry) => {
-      if (todo.type !== 'todo') return;
-      await interactions.toggleTodoComplete({
-        id: todo.id,
-        name: todo.name,
-        overdue: todo.overdue,
-      });
-    },
-    [interactions],
-  );
+  // Check if there are no habits
+  const isEmpty = habits.length === 0;
 
-  // Handle overdue item actions
-  const handleOverdueAction = useCallback(
-    async (todo: TodayMergedEntry, action: 'today' | 'tomorrow' | 'clear') => {
-      if (todo.type !== 'todo') return;
-
-      try {
-        if (action === 'clear') {
-          // Archive the todo
-          // TODO: Tighten typing once sweepApplyAction is added to repo type exports
-          await (repo as any).sweepApplyAction(todo.id, 'todo', 'archive', {
-            archived_reason: 'swept',
-          });
-          interactions.markItemDeleted(todo.id);
-        } else if (action === 'today') {
-          // Set due_day to today
-          const todayDay = new Date().toISOString().split('T')[0];
-          await repo.update({
-            id: todo.id,
-            patch: { due_day: todayDay, carry_forward: false } as any,
-          });
-        } else if (action === 'tomorrow') {
-          // Set due_day to tomorrow
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          const tomorrowDay = tomorrow.toISOString().split('T')[0];
-          await repo.update({
-            id: todo.id,
-            patch: { due_day: tomorrowDay, carry_forward: false } as any,
-          });
-        }
-        await reload();
-      } catch (error) {
-        // TODO: Add error handling UI
-        console.warn('[SweepWrapUpStep] Action failed:', error);
-      }
-    },
-    [repo, reload, interactions],
-  );
-
-  // Check if there's nothing to wrap up
-  const isEmpty = habits.length === 0 && todos.length === 0 && overdue.length === 0;
+  // Count open habits for the reminder message
+  const openHabitsCount = habits.length;
 
   if (loading) {
     return (
       <View style={styles.wrapUpStepContainer}>
         <View style={styles.wrapUpHeaderSection}>
           <Text variant="title" style={styles.wrapUpStepTitle}>
-            Wrap up today
+            Habits today
           </Text>
           <Text style={styles.wrapUpStepSubcopy}>
-            Let's close out what you planned for today before we Sweep.
+            Mark what you managed today. Everything resets tomorrow.
           </Text>
         </View>
         <View style={styles.loadingContainer}>
@@ -434,21 +362,6 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
       </View>
     );
   }
-
-  // Calculate remaining open items
-  const openHabitsCount = habits.length;
-  const openTodosCount = todos.length + overdue.length;
-  const totalOpenCount = openHabitsCount + openTodosCount;
-
-  // Build open items message
-  const getOpenItemsMessage = () => {
-    if (totalOpenCount === 0) return null;
-    const parts = [];
-    if (openHabitsCount > 0)
-      parts.push(`${openHabitsCount} habit${openHabitsCount !== 1 ? 's' : ''}`);
-    if (openTodosCount > 0) parts.push(`${openTodosCount} to-do${openTodosCount !== 1 ? 's' : ''}`);
-    return `${parts.join(' and ')} still open.`;
-  };
 
   return (
     <View style={styles.wrapUpStepContainer}>
@@ -460,164 +373,63 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
         {/* Header Section */}
         <View style={styles.wrapUpHeaderSection}>
           <Text variant="title" style={styles.wrapUpStepTitle}>
-            Wrap up today
+            Habits today
           </Text>
           <Text style={styles.wrapUpStepSubcopy}>
-            Let's close out what you planned for today before we Sweep.
+            Mark what you managed today. Everything resets tomorrow.
           </Text>
-          {/* Progress Summary */}
-          {completedCount > 0 && (
-            <Text style={styles.wrapUpProgressSummary}>
-              So far: {completedCount} {completedCount === 1 ? 'item' : 'items'} completed.
-            </Text>
-          )}
         </View>
 
         {isEmpty ? (
           <View style={styles.wrapUpEmptyContainer}>
             <Text variant="body" style={styles.wrapUpEmptyText}>
-              Nothing to wrap up — you're all set!
+              No habits to check off — you're all set!
             </Text>
-            {completedCount > 0 && (
-              <Text style={styles.wrapUpEmptySubtext}>
-                You completed {completedCount} {completedCount === 1 ? 'item' : 'items'} today.
-              </Text>
-            )}
           </View>
         ) : (
-          <>
-            {/* Today's Habits Section */}
-            {habits.length > 0 && (
-              <View style={styles.wrapUpSection}>
-                <View style={styles.wrapUpSectionHeader}>
-                  <Text style={styles.wrapUpSectionTitle}>Today's Habits</Text>
-                  <View style={styles.wrapUpSectionAccent} />
-                </View>
-                <View style={styles.wrapUpItemsList}>
-                  {habits.map((habit, index) => (
-                    <TouchableOpacity
-                      key={habit.id}
-                      style={[
-                        styles.wrapUpItemRow,
-                        index < habits.length - 1 && styles.wrapUpItemRowBorder,
-                      ]}
-                      onPress={() => handleHabitToggle(habit)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.wrapUpItemName}>{habit.name}</Text>
-                      <View style={styles.wrapUpCheckboxContainer}>
-                        <View
-                          style={[
-                            styles.wrapUpCheckbox,
-                            interactions.completedHabitIds.has(habit.id) &&
-                              styles.wrapUpCheckboxChecked,
-                          ]}
-                        >
-                          {interactions.completedHabitIds.has(habit.id) && (
-                            <Text style={styles.wrapUpCheckmark}>✓</Text>
-                          )}
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Today's Todos Section */}
-            {todos.length > 0 && (
-              <View style={styles.wrapUpSection}>
-                <View style={styles.wrapUpSectionHeader}>
-                  <Text style={styles.wrapUpSectionTitle}>Today's To-Dos</Text>
-                  <View style={styles.wrapUpSectionAccent} />
-                </View>
-                <View style={styles.wrapUpItemsList}>
-                  {todos.map((todo, index) => (
-                    <TouchableOpacity
-                      key={todo.id}
-                      style={[
-                        styles.wrapUpItemRow,
-                        index < todos.length - 1 && styles.wrapUpItemRowBorder,
-                      ]}
-                      onPress={() => handleTodoToggle(todo)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.wrapUpItemName}>{todo.name}</Text>
-                      <View style={styles.wrapUpCheckboxContainer}>
-                        <View
-                          style={[
-                            styles.wrapUpCheckbox,
-                            interactions.completedTodoIds.has(todo.id) &&
-                              styles.wrapUpCheckboxChecked,
-                          ]}
-                        >
-                          {interactions.completedTodoIds.has(todo.id) && (
-                            <Text style={styles.wrapUpCheckmark}>✓</Text>
-                          )}
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Overdue Section */}
-            {overdue.length > 0 && (
-              <View style={styles.wrapUpSection}>
-                <View style={styles.wrapUpSectionHeader}>
-                  <Text style={styles.wrapUpSectionTitle}>Still Waiting</Text>
-                  <View style={styles.wrapUpSectionAccent} />
-                </View>
-                <View style={styles.wrapUpItemsList}>
-                  {overdue.map((item, index) => (
+          <View style={styles.wrapUpSection}>
+            <View style={styles.wrapUpItemsList}>
+              {habits.map((habit, index) => (
+                <TouchableOpacity
+                  key={habit.id}
+                  style={[
+                    styles.wrapUpItemRow,
+                    index < habits.length - 1 && styles.wrapUpItemRowBorder,
+                  ]}
+                  onPress={() => handleHabitToggle(habit)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.wrapUpItemName}>{habit.name}</Text>
+                  <View style={styles.wrapUpCheckboxContainer}>
                     <View
-                      key={item.id}
                       style={[
-                        styles.wrapUpOverdueRow,
-                        index < overdue.length - 1 && styles.wrapUpItemRowBorder,
+                        styles.wrapUpCheckbox,
+                        interactions.completedHabitIds.has(habit.id) &&
+                          styles.wrapUpCheckboxChecked,
                       ]}
                     >
-                      <Text style={styles.wrapUpOverdueItemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <View style={styles.wrapUpOverdueActions}>
-                        <TouchableOpacity
-                          style={styles.wrapUpOverdueButton}
-                          onPress={() => handleOverdueAction(item, 'today')}
-                        >
-                          <Text style={styles.wrapUpOverdueButtonText}>Today</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.wrapUpOverdueButton}
-                          onPress={() => handleOverdueAction(item, 'tomorrow')}
-                        >
-                          <Text style={styles.wrapUpOverdueButtonText}>Tomorrow</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.wrapUpOverdueButton, styles.wrapUpOverdueButtonClear]}
-                          onPress={() => handleOverdueAction(item, 'clear')}
-                        >
-                          <Text style={styles.wrapUpOverdueButtonTextClear}>Clear</Text>
-                        </TouchableOpacity>
-                      </View>
+                      {interactions.completedHabitIds.has(habit.id) && (
+                        <Text style={styles.wrapUpCheckmark}>✓</Text>
+                      )}
                     </View>
-                  ))}
-                </View>
-              </View>
-            )}
-          </>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
         )}
       </ScrollView>
 
       {/* Action Button */}
       <View style={styles.wrapUpButtonContainer}>
-        {/* Open items reminder */}
-        {totalOpenCount > 0 && (
-          <Text style={styles.wrapUpOpenItemsReminder}>{getOpenItemsMessage()}</Text>
+        {/* Open habits reminder */}
+        {openHabitsCount > 0 && (
+          <Text style={styles.wrapUpOpenItemsReminder}>
+            {openHabitsCount} habit{openHabitsCount !== 1 ? 's' : ''} still open.
+          </Text>
         )}
-        {totalOpenCount === 0 && !isEmpty && (
-          <Text style={styles.wrapUpOpenItemsReminder}>All set! Everything is checked off.</Text>
+        {openHabitsCount === 0 && !isEmpty && (
+          <Text style={styles.wrapUpOpenItemsReminder}>All habits checked off!</Text>
         )}
         <TouchableOpacity
           style={styles.wrapUpContinueButton}
@@ -625,7 +437,7 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           activeOpacity={0.8}
         >
           <View style={styles.wrapUpContinueButtonContent}>
-            <Text style={styles.wrapUpContinueButtonText}>Start Sweep</Text>
+            <Text style={styles.wrapUpContinueButtonText}>Continue</Text>
             <Icon name="ArrowRight" size="sm" color="#FFFFFF" strokeWidth={2.5} />
           </View>
         </TouchableOpacity>
@@ -643,11 +455,6 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
  * Fetches candidates from the sweep engine and allows the user
  * to triage each item one at a time.
  */
-interface SweepSummary {
-  kept: number;
-  cleared: number;
-  skipped: number;
-}
 
 interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
@@ -665,7 +472,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   // Track summary stats for the sweep completion screen
-  const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0, skipped: 0 });
+  const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
@@ -1040,7 +847,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           <Button
             title="Done"
             variant="primary"
-            onPress={() => onFinished({ kept: 0, cleared: 0, skipped: 0 })}
+            onPress={() => onFinished({ kept: 0, cleared: 0 })}
           />
         </View>
       </View>
@@ -1124,18 +931,17 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
  * Step 3: Summary/Celebration
  *
  * Shows the user a calm summary of their sweep session.
- * Displays counts of items kept, cleared, and skipped.
+ * Displays counts of items kept and cleared.
  * Non-gamified, gentle "you did it" feel.
  */
 interface SummaryStepProps {
   keptCount: number;
   clearedCount: number;
-  skippedCount: number;
   onDone: () => void;
 }
 
-function SweepSummaryStep({ keptCount, clearedCount, skippedCount, onDone }: SummaryStepProps) {
-  const totalProcessed = keptCount + clearedCount + skippedCount;
+function SweepSummaryStep({ keptCount, clearedCount, onDone }: SummaryStepProps) {
+  const totalProcessed = keptCount + clearedCount;
 
   return (
     <View style={styles.stepContainer}>
@@ -1184,14 +990,6 @@ function SweepSummaryStep({ keptCount, clearedCount, skippedCount, onDone }: Sum
                 {clearedCount}
               </Text>
             </View>
-            <View style={styles.summaryStatRow}>
-              <Text variant="body" style={styles.summaryStatLabel}>
-                Skipped for later
-              </Text>
-              <Text variant="body" style={styles.summaryStatValue}>
-                {skippedCount}
-              </Text>
-            </View>
           </View>
         ) : (
           <View style={styles.summaryEmptyContainer}>
@@ -1235,7 +1033,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track sweep stats across the session
   const [keptCount, setKeptCount] = useState(0);
   const [clearedCount, setClearedCount] = useState(0);
-  const [skippedCount, setSkippedCount] = useState(0);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Global Overlay State - render overlay ON TOP of Sweep modal
@@ -1304,7 +1101,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     // Update local state for Summary step display
     setKeptCount(summary.kept);
     setClearedCount(summary.cleared);
-    setSkippedCount(summary.skipped);
 
     // Record completion in DB (best-effort, non-blocking)
     if (user?.id) {
@@ -1390,7 +1186,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             <SweepSummaryStep
               keptCount={keptCount}
               clearedCount={clearedCount}
-              skippedCount={skippedCount}
               onDone={handleSummaryDone}
             />
           )}
@@ -1830,49 +1625,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
   },
-  wrapUpOverdueRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Sage Mist @ 18%
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.40)',
-  },
-  wrapUpOverdueItemName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
-  },
-  wrapUpOverdueActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  wrapUpOverdueButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: BRAND.radius.md,
-    backgroundColor: 'rgba(191, 216, 192, 0.5)', // Sage Mist @ 50%
-    // Soft shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  wrapUpOverdueButtonClear: {
-    backgroundColor: 'rgba(156, 166, 224, 0.25)', // Periwinkle @ 25%
-  },
-  wrapUpOverdueButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-  wrapUpOverdueButtonTextClear: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-  },
   wrapUpButtonContainer: {
     paddingTop: 8,
     paddingBottom: 16,
@@ -2059,11 +1811,6 @@ const styles = StyleSheet.create({
   decisionActionClear: {
     backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
-  decisionActionSkip: {
-    backgroundColor: BRAND.colors.surface,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-  },
   decisionActionKeep: {
     backgroundColor: BRAND.colors.sageMist,
   },
@@ -2071,11 +1818,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: BRAND.colors.inkSubtle,
-  },
-  decisionActionTextSkip: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
   },
   decisionActionTextKeep: {
     fontSize: 15,

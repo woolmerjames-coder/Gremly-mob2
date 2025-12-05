@@ -75,6 +75,19 @@ export interface SweepCandidateNote extends SweepCandidateBase {
 export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sweep Summary
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Summary of actions taken during a Sweep session.
+ * Note: 'skipped' was removed - we no longer track skipped items in the summary.
+ */
+export interface SweepSummary {
+  kept: number;
+  cleared: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Primary Action Types
 // ─────────────────────────────────────────────────────────────────────────────
 

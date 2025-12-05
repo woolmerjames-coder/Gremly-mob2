@@ -170,7 +170,7 @@ describe('SweepFlowScreen - Mood Step', () => {
 
     // Should advance to step 3 (wrap up)
     await waitFor(() => {
-      expect(getByText('Wrap up today')).toBeTruthy();
+      expect(getByText('Habits today')).toBeTruthy();
     });
 
     // Mood step title should no longer be visible
@@ -185,7 +185,7 @@ describe('SweepFlowScreen - Mood Step', () => {
 
     // Should advance to step 3 (wrap up)
     await waitFor(() => {
-      expect(getByText('Wrap up today')).toBeTruthy();
+      expect(getByText('Habits today')).toBeTruthy();
     });
 
     // Mood step title should no longer be visible
@@ -204,7 +204,7 @@ describe('SweepFlowScreen - Mood Step', () => {
 
     // Should advance to step 3 (wrap up)
     await waitFor(() => {
-      expect(getByText('Wrap up today')).toBeTruthy();
+      expect(getByText('Habits today')).toBeTruthy();
     });
 
     // Mood step title should no longer be visible
@@ -255,7 +255,7 @@ describe('SweepFlowScreen - Mood Step', () => {
     );
 
     // Should have advanced to wrap up step
-    expect(getByText('Wrap up today')).toBeTruthy();
+    expect(getByText('Habits today')).toBeTruthy();
   });
 
   it('calls repo.create and advances when Continue is pressed with text entered', async () => {
@@ -283,6 +283,6 @@ describe('SweepFlowScreen - Mood Step', () => {
     );
 
     // Should have advanced to wrap up step
-    expect(getByText('Wrap up today')).toBeTruthy();
+    expect(getByText('Habits today')).toBeTruthy();
   });
 });
