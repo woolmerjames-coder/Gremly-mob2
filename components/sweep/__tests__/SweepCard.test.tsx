@@ -100,44 +100,6 @@ const mockTodoWithDueDateCandidate: SweepCandidate = {
   } as any,
 };
 
-const mockHabitCandidate: SweepCandidate = {
-  id: 'habit-1',
-  kind: 'habit',
-  createdAt: new Date().toISOString(),
-  dropId: null,
-  skippedInSweepAt: null,
-  isOverdue: false,
-  raw: {
-    id: 'habit-1',
-    name: 'Morning meditation',
-    notes: 'Practice mindfulness for 10 minutes',
-    why_string: 'To reduce stress and improve focus',
-    owner_id: 'user-1',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    start_date: null,
-  } as any,
-};
-
-const mockHabitWithStartDateCandidate: SweepCandidate = {
-  id: 'habit-2',
-  kind: 'habit',
-  createdAt: new Date().toISOString(),
-  dropId: null,
-  skippedInSweepAt: null,
-  isOverdue: false,
-  raw: {
-    id: 'habit-2',
-    name: 'Evening run',
-    notes: 'Run 5k every evening',
-    why_string: 'Stay fit',
-    owner_id: 'user-1',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    start_date: '2024-12-01',
-  } as any,
-};
-
 const mockNoteCandidate: SweepCandidate = {
   id: 'note-1',
   kind: 'note',
@@ -234,11 +196,6 @@ describe('SweepCard', () => {
       expect(getByText(/TO-DO/)).toBeTruthy();
     });
 
-    it('shows "HABIT" chip for habit candidates', () => {
-      const { getByText } = render(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
-      expect(getByText(/HABIT/)).toBeTruthy();
-    });
-
     it('shows "NOTE" chip for note candidates', () => {
       const { getByText } = render(<SweepCard candidate={mockNoteCandidate} {...defaultProps} />);
       expect(getByText(/NOTE/)).toBeTruthy();
@@ -291,16 +248,6 @@ describe('SweepCard', () => {
       expect(getByText('Future task')).toBeTruthy();
     });
 
-    it('does NOT show "Overdue" pill for habits (even with isOverdue: false)', () => {
-      // Habits should never be overdue by design
-      const { queryByText, getByText } = render(
-        <SweepCard candidate={mockHabitCandidate} {...defaultProps} />,
-      );
-
-      expect(queryByText('Overdue')).toBeNull();
-      expect(getByText('Morning meditation')).toBeTruthy();
-    });
-
     it('does NOT show "Overdue" pill for notes (even with isOverdue: false)', () => {
       // Notes should never be overdue by design
       const { queryByText, getByText } = render(
@@ -331,15 +278,145 @@ describe('SweepCard', () => {
     });
   });
 
+  describe('Due Today Badge', () => {
+    it('shows "Due today" badge for todos with isDueToday=true', () => {
+      const dueTodayCandidate: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-due-today',
+        isOverdue: false,
+        isDueToday: true,
+        isCreatedToday: false,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-due-today',
+          name: 'Task due today',
+        } as any,
+      };
+
+      const { getByText } = render(<SweepCard candidate={dueTodayCandidate} {...defaultProps} />);
+
+      expect(getByText('Due today')).toBeTruthy();
+      expect(getByText('Task due today')).toBeTruthy();
+    });
+
+    it('does NOT show "Due today" badge for notes (even with isDueToday=true)', () => {
+      const noteDueToday: SweepCandidate = {
+        ...mockNoteCandidate,
+        id: 'note-due-today',
+        isDueToday: true,
+        isCreatedToday: false,
+      };
+
+      const { queryByText, getByText } = render(
+        <SweepCard candidate={noteDueToday} {...defaultProps} />,
+      );
+
+      expect(queryByText('Due today')).toBeNull();
+      expect(getByText('Meeting notes')).toBeTruthy();
+    });
+
+    it('shows "Overdue" instead of "Due today" when both are true (priority)', () => {
+      const overdueAndDueTodayCandidate: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-overdue-and-due-today',
+        isOverdue: true,
+        isDueToday: true,
+        isCreatedToday: false,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-overdue-and-due-today',
+          name: 'Priority test task',
+        } as any,
+      };
+
+      const { getByText, queryByText } = render(
+        <SweepCard candidate={overdueAndDueTodayCandidate} {...defaultProps} />,
+      );
+
+      expect(getByText('Overdue')).toBeTruthy();
+      expect(queryByText('Due today')).toBeNull();
+    });
+  });
+
+  describe('Entered Today Badge', () => {
+    it('shows "Entered today" badge for items with isCreatedToday=true', () => {
+      const enteredTodayCandidate: SweepCandidate = {
+        ...mockNoteCandidate,
+        id: 'note-entered-today',
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: true,
+      };
+
+      const { getByText } = render(
+        <SweepCard candidate={enteredTodayCandidate} {...defaultProps} />,
+      );
+
+      expect(getByText('Entered today')).toBeTruthy();
+    });
+
+    it('shows "Entered today" for todos when not overdue and not due today', () => {
+      const todoEnteredToday: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-entered-today',
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: true,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-entered-today',
+          name: 'New task entered today',
+        } as any,
+      };
+
+      const { getByText } = render(<SweepCard candidate={todoEnteredToday} {...defaultProps} />);
+
+      expect(getByText('Entered today')).toBeTruthy();
+    });
+
+    it('shows "Due today" instead of "Entered today" when both are true (priority)', () => {
+      const dueTodayAndEnteredToday: SweepCandidate = {
+        ...mockTodoCandidate,
+        id: 'todo-due-and-entered-today',
+        isOverdue: false,
+        isDueToday: true,
+        isCreatedToday: true,
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: 'todo-due-and-entered-today',
+          name: 'Due and entered today',
+        } as any,
+      };
+
+      const { getByText, queryByText } = render(
+        <SweepCard candidate={dueTodayAndEnteredToday} {...defaultProps} />,
+      );
+
+      expect(getByText('Due today')).toBeTruthy();
+      expect(queryByText('Entered today')).toBeNull();
+    });
+
+    it('shows no badge when all flags are false', () => {
+      const noBadgeCandidate: SweepCandidate = {
+        ...mockNoteCandidate,
+        id: 'note-no-badge',
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: false,
+      };
+
+      const { queryByText } = render(<SweepCard candidate={noBadgeCandidate} {...defaultProps} />);
+
+      expect(queryByText('Overdue')).toBeNull();
+      expect(queryByText('Due today')).toBeNull();
+      expect(queryByText('Entered today')).toBeNull();
+    });
+  });
+
   describe('Content Display', () => {
     it('displays the title for todos', () => {
       const { getByText } = render(<SweepCard candidate={mockTodoCandidate} {...defaultProps} />);
       expect(getByText('Buy groceries')).toBeTruthy();
-    });
-
-    it('displays the title for habits', () => {
-      const { getByText } = render(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
-      expect(getByText('Morning meditation')).toBeTruthy();
     });
 
     it('displays the title for notes', () => {
@@ -449,29 +526,6 @@ describe('SweepCard', () => {
     });
   });
 
-  describe('CTA Mapping - Habit Candidates', () => {
-    it('shows "Review habit plan" for habits without start_date', () => {
-      const { getByText } = render(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
-      expect(getByText('Review habit plan')).toBeTruthy();
-    });
-
-    it('shows "Review habit plan" for habits with start_date=null', () => {
-      const habitNoStart = {
-        ...mockHabitCandidate,
-        raw: { ...mockHabitCandidate.raw, start_date: null },
-      };
-      const { getByText } = render(<SweepCard candidate={habitNoStart} {...defaultProps} />);
-      expect(getByText('Review habit plan')).toBeTruthy();
-    });
-
-    it('shows "Review habit plan" for habits with start_date set', () => {
-      const { getByText } = render(
-        <SweepCard candidate={mockHabitWithStartDateCandidate} {...defaultProps} />,
-      );
-      expect(getByText('Review habit plan')).toBeTruthy();
-    });
-  });
-
   describe('CTA Mapping - Note/Log Candidates', () => {
     it('shows "Decide what this is" for notes with subtype=null (general notes)', () => {
       const { getByText } = render(<SweepCard candidate={mockNoteCandidate} {...defaultProps} />);
@@ -542,25 +596,6 @@ describe('SweepCard', () => {
       expect(onPrimaryAction).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'todo_review_due_date', label: 'Review date' }),
         mockTodoWithDueDateCandidate,
-      );
-    });
-
-    it('calls onPrimaryAction when habit CTA is pressed', () => {
-      const onPrimaryAction = jest.fn();
-      const { getByText } = render(
-        <SweepCard
-          candidate={mockHabitCandidate}
-          {...defaultProps}
-          onPrimaryAction={onPrimaryAction}
-        />,
-      );
-
-      fireEvent.press(getByText('Review habit plan'));
-
-      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
-      expect(onPrimaryAction).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'habit_review_plan', label: 'Review habit plan' }),
-        mockHabitCandidate,
       );
     });
 
@@ -651,16 +686,6 @@ describe('SweepCard', () => {
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
 
-    it('calls onOpenEdit for habit candidates', () => {
-      const onOpenEdit = jest.fn();
-      const { getByLabelText } = render(
-        <SweepCard candidate={mockHabitCandidate} {...defaultProps} onOpenEdit={onOpenEdit} />,
-      );
-
-      fireEvent.press(getByLabelText('Edit details'));
-      expect(onOpenEdit).toHaveBeenCalledTimes(1);
-    });
-
     it('calls onOpenEdit for note candidates', () => {
       const onOpenEdit = jest.fn();
       const { getByLabelText } = render(
@@ -705,16 +730,6 @@ describe('SweepCard', () => {
       expect(getByText('Add due date')).toBeTruthy();
     });
 
-    it('handles habit with empty string start_date', () => {
-      const habitEmptyStart = {
-        ...mockHabitCandidate,
-        raw: { ...mockHabitCandidate.raw, start_date: '' },
-      };
-      const { getByText } = render(<SweepCard candidate={habitEmptyStart} {...defaultProps} />);
-      // Habits always show "Review habit plan" regardless of start_date
-      expect(getByText('Review habit plan')).toBeTruthy();
-    });
-
     it('renders correctly when candidate changes', () => {
       const { getByText, rerender } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
@@ -722,10 +737,10 @@ describe('SweepCard', () => {
 
       expect(getByText('Add due date')).toBeTruthy();
 
-      // Re-render with a habit
-      rerender(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
+      // Re-render with a note
+      rerender(<SweepCard candidate={mockNoteCandidate} {...defaultProps} />);
 
-      expect(getByText('Review habit plan')).toBeTruthy();
+      expect(getByText('Decide what this is')).toBeTruthy();
     });
   });
 });

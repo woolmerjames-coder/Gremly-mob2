@@ -281,6 +281,21 @@ export function SweepCard({
   const body = getCandidateBody(candidate);
   const timestamp = formatCreatedTimestamp(candidate.createdAt);
 
+  // Compute metadata badge based on priority: Overdue > Due Today > Entered Today
+  // Note: Overdue and Due Today only apply to todos (kind === 'todo')
+  const metadataBadge = useMemo(() => {
+    if (candidate.kind === 'todo' && candidate.isOverdue) {
+      return { label: 'Overdue', style: 'overdue' as const };
+    }
+    if (candidate.kind === 'todo' && candidate.isDueToday) {
+      return { label: 'Due today', style: 'dueToday' as const };
+    }
+    if (candidate.isCreatedToday) {
+      return { label: 'Entered today', style: 'enteredToday' as const };
+    }
+    return null;
+  }, [candidate.kind, candidate.isOverdue, candidate.isDueToday, candidate.isCreatedToday]);
+
   // Compute primary action config from the new centralized helper
   const primaryConfig = useMemo(() => getPrimaryActionForCandidate(candidate), [candidate]);
 
@@ -744,14 +759,31 @@ export function SweepCard({
                 <View style={styles.cardDivider} />
               </View>
 
-              {/* 3. META ROW - Type, timestamp, and optional overdue pill */}
+              {/* 3. META ROW - Type, timestamp, and optional metadata badge */}
               <View style={styles.metadataRow}>
                 <Text style={styles.metaLineText}>
                   {typeLabel.toUpperCase()} · {timestamp}
                 </Text>
-                {candidate.isOverdue && (
-                  <View style={styles.overduePill}>
-                    <Text style={styles.overduePillText}>Overdue</Text>
+                {metadataBadge && (
+                  <View
+                    style={[
+                      styles.metadataBadge,
+                      metadataBadge.style === 'overdue' && styles.metadataBadgeOverdue,
+                      metadataBadge.style === 'dueToday' && styles.metadataBadgeDueToday,
+                      metadataBadge.style === 'enteredToday' && styles.metadataBadgeEnteredToday,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.metadataBadgeText,
+                        metadataBadge.style === 'overdue' && styles.metadataBadgeTextOverdue,
+                        metadataBadge.style === 'dueToday' && styles.metadataBadgeTextDueToday,
+                        metadataBadge.style === 'enteredToday' &&
+                          styles.metadataBadgeTextEnteredToday,
+                      ]}
+                    >
+                      {metadataBadge.label}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -1152,6 +1184,43 @@ const styles = StyleSheet.create({
   },
 
   // Overdue Pill - Muted coral/red accent, calm but attention-grabbing
+  // Now generalized as metadataBadge with style variants
+  metadataBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  metadataBadgeOverdue: {
+    backgroundColor: 'rgba(196, 92, 74, 0.12)', // OVERDUE_ACCENT @ 12%
+    borderWidth: 1,
+    borderColor: 'rgba(196, 92, 74, 0.25)', // OVERDUE_ACCENT @ 25%
+  },
+  metadataBadgeDueToday: {
+    backgroundColor: 'rgba(46, 85, 64, 0.10)', // Moss Green @ 10%
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.20)', // Moss Green @ 20%
+  },
+  metadataBadgeEnteredToday: {
+    backgroundColor: 'rgba(34, 34, 34, 0.06)', // Charcoal @ 6%
+    borderWidth: 1,
+    borderColor: 'rgba(34, 34, 34, 0.12)', // Charcoal @ 12%
+  },
+  metadataBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  metadataBadgeTextOverdue: {
+    color: '#C45C4A', // OVERDUE_ACCENT - matches OverdueSection
+  },
+  metadataBadgeTextDueToday: {
+    color: BRAND.colors.mossGreen,
+  },
+  metadataBadgeTextEnteredToday: {
+    color: 'rgba(34, 34, 34, 0.65)', // Charcoal @ 65%
+  },
+
+  // Legacy overduePill styles kept for backward compatibility
   overduePill: {
     paddingHorizontal: 8,
     paddingVertical: 3,

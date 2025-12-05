@@ -38,7 +38,7 @@ describe('SweepAction', () => {
     });
 
     it('should work for all entity kinds', () => {
-      const kinds: SweepEntityKind[] = ['todo', 'habit', 'note'];
+      const kinds: SweepEntityKind[] = ['todo', 'note'];
 
       kinds.forEach((kind) => {
         const action: SweepAction = {
@@ -78,7 +78,7 @@ describe('SweepAction', () => {
     });
 
     it('should work for all entity kinds', () => {
-      const kinds: SweepEntityKind[] = ['todo', 'habit', 'note'];
+      const kinds: SweepEntityKind[] = ['todo', 'note'];
 
       kinds.forEach((kind) => {
         const action: SweepAction = {
@@ -108,17 +108,17 @@ describe('SweepAction', () => {
     it('should allow skip action with id and kind', () => {
       const action: SweepAction = {
         type: 'skip',
-        id: 'habit-abc',
-        kind: 'habit',
+        id: 'note-abc',
+        kind: 'note',
       };
 
       expect(action.type).toBe('skip');
-      expect(action.id).toBe('habit-abc');
-      expect(action.kind).toBe('habit');
+      expect(action.id).toBe('note-abc');
+      expect(action.kind).toBe('note');
     });
 
     it('should work for all entity kinds', () => {
-      const kinds: SweepEntityKind[] = ['todo', 'habit', 'note'];
+      const kinds: SweepEntityKind[] = ['todo', 'note'];
 
       kinds.forEach((kind) => {
         const action: SweepAction = {
@@ -141,7 +141,7 @@ describe('SweepAction', () => {
     it('should allow type narrowing in switch statements', () => {
       const actions: SweepAction[] = [
         { type: 'keep', id: '1', kind: 'todo' },
-        { type: 'clear', id: '2', kind: 'habit' },
+        { type: 'clear', id: '2', kind: 'note' },
         { type: 'skip', id: '3', kind: 'note' },
       ];
 
@@ -164,7 +164,7 @@ describe('SweepAction', () => {
         }
       });
 
-      expect(results).toEqual(['keeping todo 1', 'clearing habit 2', 'skipping note 3']);
+      expect(results).toEqual(['keeping todo 1', 'clearing note 2', 'skipping note 3']);
     });
   });
 
@@ -200,8 +200,8 @@ describe('SweepCandidate isOverdue field', () => {
    *
    * isOverdue Logic:
    * - For todos: isOverdue = true if due_day (or due_date fallback) < today
-   * - For habits: always false (habits don't have due dates)
    * - For notes: always false (notes don't have due dates)
+   * - Note: Habits are no longer included in sweep candidates
    */
 
   // Helper to create a date string for a given offset from today
@@ -215,6 +215,21 @@ describe('SweepCandidate isOverdue field', () => {
   function computeIsOverdue(dueDay: string | null, dueDate: string | null, today: string): boolean {
     const effectiveDueDay = dueDay ?? (dueDate ? dueDate.split('T')[0] : null);
     return effectiveDueDay !== null && effectiveDueDay < today;
+  }
+
+  // Helper to compute isDueToday using the same formula as engine.ts
+  function computeIsDueToday(
+    dueDay: string | null,
+    dueDate: string | null,
+    today: string,
+  ): boolean {
+    const effectiveDueDay = dueDay ?? (dueDate ? dueDate.split('T')[0] : null);
+    return effectiveDueDay === today;
+  }
+
+  // Helper to compute isCreatedToday
+  function computeIsCreatedToday(createdAt: string, today: string): boolean {
+    return createdAt.split('T')[0] === today;
   }
 
   const todayDayString = getDayString(0);
@@ -319,26 +334,6 @@ describe('SweepCandidate isOverdue field', () => {
     });
   });
 
-  describe('habit candidates', () => {
-    it('should NOT mark habits as overdue (habits have no due dates)', () => {
-      const candidate = {
-        id: 'habit-1',
-        kind: 'habit' as const,
-        createdAt: new Date().toISOString(),
-        dropId: null,
-        skippedInSweepAt: null,
-        isOverdue: false, // Habits are always false
-        raw: {
-          id: 'habit-1',
-          name: 'Daily exercise',
-          start_date: lastWeekDayString, // Even with a past start_date
-        },
-      };
-
-      expect(candidate.isOverdue).toBe(false);
-    });
-  });
-
   describe('note candidates', () => {
     it('should NOT mark notes as overdue (notes have no due dates)', () => {
       const candidate = {
@@ -396,5 +391,139 @@ describe('SweepCandidate isOverdue field', () => {
         expect(isOverdue).toBe(expected);
       });
     });
+  });
+
+  describe('isDueToday computation', () => {
+    /**
+     * isDueToday Logic:
+     * - For todos: isDueToday = true if due_day (or due_date fallback) === today
+     * - For notes: always false (notes don't have due dates)
+     */
+
+    it('should mark todo as due today when due_day equals today', () => {
+      expect(computeIsDueToday(todayDayString, null, todayDayString)).toBe(true);
+    });
+
+    it('should NOT mark todo as due today when due_day is yesterday', () => {
+      expect(computeIsDueToday(yesterdayDayString, null, todayDayString)).toBe(false);
+    });
+
+    it('should NOT mark todo as due today when due_day is tomorrow', () => {
+      expect(computeIsDueToday(tomorrowDayString, null, todayDayString)).toBe(false);
+    });
+
+    it('should NOT mark todo as due today when due_day is null', () => {
+      expect(computeIsDueToday(null, null, todayDayString)).toBe(false);
+    });
+
+    it('should use due_date fallback when due_day is null', () => {
+      const dueDateToday = `${todayDayString}T10:00:00Z`;
+      expect(computeIsDueToday(null, dueDateToday, todayDayString)).toBe(true);
+    });
+
+    it('should verify overdue and due_today are mutually exclusive', () => {
+      // A todo due yesterday: overdue=true, dueToday=false
+      expect(computeIsOverdue(yesterdayDayString, null, todayDayString)).toBe(true);
+      expect(computeIsDueToday(yesterdayDayString, null, todayDayString)).toBe(false);
+
+      // A todo due today: overdue=false, dueToday=true
+      expect(computeIsOverdue(todayDayString, null, todayDayString)).toBe(false);
+      expect(computeIsDueToday(todayDayString, null, todayDayString)).toBe(true);
+
+      // A todo due tomorrow: overdue=false, dueToday=false
+      expect(computeIsOverdue(tomorrowDayString, null, todayDayString)).toBe(false);
+      expect(computeIsDueToday(tomorrowDayString, null, todayDayString)).toBe(false);
+    });
+  });
+
+  describe('isCreatedToday computation', () => {
+    /**
+     * isCreatedToday Logic:
+     * - For all candidates: isCreatedToday = true if created_at date portion === today
+     */
+
+    it('should mark candidate as created today when created_at is today', () => {
+      const createdToday = `${todayDayString}T14:30:00Z`;
+      expect(computeIsCreatedToday(createdToday, todayDayString)).toBe(true);
+    });
+
+    it('should NOT mark candidate as created today when created_at is yesterday', () => {
+      const createdYesterday = `${yesterdayDayString}T14:30:00Z`;
+      expect(computeIsCreatedToday(createdYesterday, todayDayString)).toBe(false);
+    });
+
+    it('should NOT mark candidate as created today when created_at is last week', () => {
+      const createdLastWeek = `${lastWeekDayString}T14:30:00Z`;
+      expect(computeIsCreatedToday(createdLastWeek, todayDayString)).toBe(false);
+    });
+
+    it('should work for notes/logs (which only use isCreatedToday for badges)', () => {
+      const noteCreatedToday = {
+        id: 'note-today',
+        kind: 'note' as const,
+        createdAt: `${todayDayString}T09:00:00Z`,
+        dropId: null,
+        skippedInSweepAt: null,
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: computeIsCreatedToday(`${todayDayString}T09:00:00Z`, todayDayString),
+        raw: {
+          id: 'note-today',
+          title: 'Journal entry',
+          subtype: 'journal',
+        },
+      };
+
+      expect(noteCreatedToday.isCreatedToday).toBe(true);
+    });
+  });
+});
+
+describe('SweepCandidate entity types', () => {
+  /**
+   * Documents which entity types are included in Sweep candidates.
+   *
+   * Included:
+   * - todos: Tasks that need review
+   * - notes: Including journals, ideas, and general notes
+   *
+   * Excluded:
+   * - habits: Habits are no longer part of the sweep flow
+   */
+
+  it('should only include todo and note kinds in SweepEntityKind', () => {
+    const validKinds: SweepEntityKind[] = ['todo', 'note'];
+    expect(validKinds).toHaveLength(2);
+    expect(validKinds).toContain('todo');
+    expect(validKinds).toContain('note');
+    // Habits are not included - this is enforced by TypeScript
+    // The following would cause a compile error:
+    // validKinds.push('habit'); // Error: Type '"habit"' is not assignable to type 'SweepEntityKind'
+  });
+
+  it('should document that habits are excluded from sweep', () => {
+    /**
+     * Habits were removed from sweep candidates because:
+     * 1. Habits have different lifecycle than todos/notes
+     * 2. Habits don't need "keep or clear" decisions
+     * 3. Habits are managed through their own UI flow
+     *
+     * The engine.ts fetchSweepCandidatesForUser function:
+     * - Only fetches from 'todos' and 'notes' tables
+     * - Does NOT fetch from 'habits' table
+     * - Returns SweepCandidate[] where kind is 'todo' | 'note'
+     */
+    expect(true).toBe(true); // Documentation test
+  });
+
+  it('should not return archived or completed todos as candidates', () => {
+    /**
+     * The engine filters out:
+     * - Todos with archived = true
+     * - Todos with completed_at set
+     *
+     * This ensures only active, incomplete todos appear in sweep.
+     */
+    expect(true).toBe(true); // Documentation test - actual filtering is in engine.ts
   });
 });

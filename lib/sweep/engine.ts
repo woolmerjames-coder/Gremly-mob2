@@ -88,9 +88,14 @@ export async function getLastSweepCompletedAt(
  * even if it was created before the last sweep timestamp.
  *
  * **Entity-specific filters:**
- * - Todos: All non-archived todos (any canonical_type that maps to a task)
- * - Habits: Active habits only (completed_at is null)
+ * - Todos: Non-archived, non-completed todos
  * - Notes: Only logs/journals (subtype = 'log' or canonical_type in ['log', 'journal'])
+ * - Habits: NOT included in sweep candidates
+ *
+ * **Computed metadata:**
+ * - isOverdue: due_day < today (todos only)
+ * - isDueToday: due_day == today (todos only)
+ * - isCreatedToday: createdAt is today (all items)
  *
  * @param ownerId - The user's ID
  * @param client - Supabase client instance
@@ -129,13 +134,18 @@ export async function fetchSweepCandidatesForUser(
     if (todoError) {
       console.error('[Sweep] Failed to fetch todos:', todoError);
     } else if (todos) {
-      // Get today's date string for overdue comparison
+      // Get today's date string for date comparisons
       const todayDay = new Date().toISOString().split('T')[0];
 
       for (const row of todos) {
         // Compute isOverdue: due_day (or due_date fallback) < today
         const dueDay = row.due_day ?? (row.due_date ? row.due_date.split('T')[0] : null);
         const isOverdue = dueDay !== null && dueDay < todayDay;
+        const isDueToday = dueDay !== null && dueDay === todayDay;
+
+        // Compute isCreatedToday: createdAt is on today's date
+        const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
+        const isCreatedToday = createdDay === todayDay;
 
         candidates.push({
           id: row.id,
@@ -144,46 +154,14 @@ export async function fetchSweepCandidatesForUser(
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
           isOverdue,
+          isDueToday,
+          isCreatedToday,
           raw: row,
         });
       }
     }
   } catch (error) {
     console.error('[Sweep] Unexpected error fetching todos:', error);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Fetch HABITS
-  // ─────────────────────────────────────────────────────────────────────────
-  try {
-    // Query habits that are:
-    // - Owned by user
-    // - Not completed (completed_at is null = active habit)
-    // - Either new (created after cutoff) OR previously skipped
-    const { data: habits, error: habitError } = await client
-      .from('habits')
-      .select('*')
-      .eq('owner_id', ownerId)
-      .is('completed_at', null)
-      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
-
-    if (habitError) {
-      console.error('[Sweep] Failed to fetch habits:', habitError);
-    } else if (habits) {
-      for (const row of habits) {
-        candidates.push({
-          id: row.id,
-          kind: 'habit',
-          createdAt: row.created_at ?? new Date().toISOString(),
-          dropId: row.drop_id,
-          skippedInSweepAt: row.skipped_in_sweep_at,
-          isOverdue: false, // Habits don't have due dates
-          raw: row,
-        });
-      }
-    }
-  } catch (error) {
-    console.error('[Sweep] Unexpected error fetching habits:', error);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -209,7 +187,14 @@ export async function fetchSweepCandidatesForUser(
     if (noteError) {
       console.error('[Sweep] Failed to fetch notes:', noteError);
     } else if (notes) {
+      // Get today's date string for isCreatedToday comparison
+      const todayDay = new Date().toISOString().split('T')[0];
+
       for (const row of notes) {
+        // Compute isCreatedToday: createdAt is on today's date
+        const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
+        const isCreatedToday = createdDay === todayDay;
+
         candidates.push({
           id: row.id,
           kind: 'note',
@@ -217,6 +202,8 @@ export async function fetchSweepCandidatesForUser(
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
           isOverdue: false, // Notes don't have due dates
+          isDueToday: false, // Notes don't have due dates
+          isCreatedToday,
           raw: row,
         });
       }
@@ -243,7 +230,6 @@ export async function fetchSweepCandidatesForUser(
     candidateCount: candidates.length,
     breakdown: {
       todos: candidates.filter((c) => c.kind === 'todo').length,
-      habits: candidates.filter((c) => c.kind === 'habit').length,
       notes: candidates.filter((c) => c.kind === 'note').length,
     },
   });
@@ -394,13 +380,12 @@ export async function markSweepCompleted(
 
 /**
  * Map entity kind to database table name.
+ * Note: 'habit' was removed - habits are no longer included in sweep candidates.
  */
-function getTableName(kind: SweepEntityKind): 'todos' | 'habits' | 'notes' {
+function getTableName(kind: SweepEntityKind): 'todos' | 'notes' {
   switch (kind) {
     case 'todo':
       return 'todos';
-    case 'habit':
-      return 'habits';
     case 'note':
       return 'notes';
   }
