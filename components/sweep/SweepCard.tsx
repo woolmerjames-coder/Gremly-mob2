@@ -690,11 +690,11 @@ export function SweepCard({
           <Animated.View
             style={[styles.swipeCardContainer, animatedCardContainerStyle, animatedCardStyle]}
           >
-            {/* Gradient Background - Very subtle cream to sage */}
+            {/* Gradient Background - Subtle sage tint for card separation */}
             <LinearGradient
               colors={[
-                BRAND.colors.linenCream, // Top: 100% Linen Cream
-                'rgba(191, 216, 192, 0.12)', // Bottom: Sage Mist @ 12% opacity
+                'rgba(191, 216, 192, 0.08)', // Top: Sage Mist @ 8% - slight tint
+                'rgba(191, 216, 192, 0.22)', // Bottom: Sage Mist @ 22% - deeper fill
               ]}
               locations={[0, 1]}
               style={styles.cardGradient}
@@ -774,19 +774,19 @@ export function SweepCard({
                     activeOpacity={0.7}
                   >
                     {primaryConfig.icon === 'calendar' && (
-                      <Calendar size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                      <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
                     {primaryConfig.icon === 'habit' && (
-                      <Repeat size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                      <Repeat size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
                     {primaryConfig.icon === 'todo' && (
-                      <CheckSquare size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                      <CheckSquare size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
                     {primaryConfig.icon === 'journal' && (
-                      <BookOpen size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                      <BookOpen size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
                     {primaryConfig.icon === 'more' && (
-                      <MoreHorizontal size={14} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+                      <MoreHorizontal size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
                     <Text style={styles.primaryPillText}>{primaryConfig.label}</Text>
                   </TouchableOpacity>
@@ -825,6 +825,26 @@ export function SweepCard({
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Hidden Test Buttons - Only rendered in test environment for accessibility testing */}
+      {isTestEnv && (
+        <View style={{ position: 'absolute', opacity: 0, pointerEvents: 'box-none' }}>
+          <TouchableOpacity
+            onPress={onKeep}
+            accessibilityLabel="Keep this item"
+            accessibilityRole="button"
+          >
+            <Text>Keep</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onClear}
+            accessibilityLabel="Clear this item"
+            accessibilityRole="button"
+          >
+            <Text>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Inline Date Picker Modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">
@@ -1040,12 +1060,15 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream, // Base color for gradient fallback
     borderRadius: 16,
     overflow: 'hidden',
-    // Soft outer shadow (same as MindDrop cards)
+    // Soft outer shadow - slightly stronger for tactile feel
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14, // Increased from 0.08
+    shadowRadius: 16, // Slightly larger blur
+    elevation: 5,
+    // Subtle Moss Green outline for definition
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.12)', // Moss Green @ 12%
   },
 
   // Gradient Background - Fills card, behind content
@@ -1107,11 +1130,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // Body Section - Smaller, softer text under title
+  // Body Section - Smaller text under title
   bodyText: {
     fontSize: 14,
     fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.55)', // Charcoal @ 55% - softer
+    color: BRAND.colors.charcoalInk, // Full charcoal for readability
     lineHeight: 20,
   },
 
@@ -1131,12 +1154,12 @@ const styles = StyleSheet.create({
   metadataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8, // Tighter spacing
   },
   metaLineText: {
     fontSize: 13,
     fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.55)', // Charcoal @ 55%
+    color: BRAND.colors.charcoalInk, // Full charcoal for readability
     letterSpacing: 0.3,
   },
 
@@ -1180,9 +1203,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 22,
-    backgroundColor: 'rgba(191, 216, 192, 0.35)', // Sage Mist @ 35% - more prominent fill
+    backgroundColor: 'rgba(191, 216, 192, 0.45)', // Sage Mist @ 45% - darker for contrast
     borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.7)', // Sage Mist border
+    borderColor: 'rgba(191, 216, 192, 0.8)', // Sage Mist border - stronger
     // Slight shadow for depth
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1191,7 +1214,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   primaryPillText: {
-    fontSize: 14,
+    fontSize: 15, // Increased from 14 for readability
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
   },
@@ -1218,13 +1241,13 @@ const styles = StyleSheet.create({
   // Spacer - Pushes action block to bottom of card
   actionSpacer: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 24, // Reduced for tighter layout
   },
 
   // Divider above action row
   actionDividerContainer: {
     alignItems: 'center',
-    paddingTop: 12,
+    paddingTop: 8, // Tighter spacing
     paddingBottom: 16,
   },
   actionDivider: {

@@ -21,6 +21,7 @@ import {
   Pressable,
   Animated,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -51,6 +52,10 @@ import {
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 import type { AppRecord } from '../../lib/types';
+
+// Gremly mascot for summary step
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT = require('../../assets/mascot/ACTUAL GREMLY.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -958,6 +963,14 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     [repo, overlayController],
   );
 
+  // Auto-advance to summary when all cards are processed
+  useEffect(() => {
+    if (!isLoading && candidates.length > 0 && currentIndex >= candidates.length) {
+      // All cards processed - auto-finish to show summary
+      onFinished(stats);
+    }
+  }, [isLoading, candidates.length, currentIndex, stats, onFinished]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -995,21 +1008,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     );
   }
 
-  // All cards processed - sweep complete
+  // All cards processed - show brief transition (auto-advances via useEffect above)
   if (currentIndex >= candidates.length) {
-    // Stats are finalized and markSweepCompleted is called in the parent when onFinished is invoked.
     return (
       <View style={styles.stepContainer}>
-        <View style={styles.decisionEmptyContainer}>
-          <Text variant="title" style={styles.decisionEmptyTitle}>
-            🎉
-          </Text>
-          <Text variant="body" style={styles.decisionEmptyText}>
-            Sweep complete!
-          </Text>
-        </View>
-        <View style={styles.buttonContainer}>
-          <Button title="Finish Sweep" variant="primary" onPress={() => onFinished(stats)} />
+        <View style={styles.decisionLoadingContainer}>
+          <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
         </View>
       </View>
     );
@@ -1102,9 +1106,16 @@ function SweepSummaryStep({ keptCount, clearedCount, skippedCount, onDone }: Sum
         contentContainerStyle={styles.summaryScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* TODO: Replace with calm/completed Gremly illustration if available */}
-        {/* For now, using a gentle leaf emoji as placeholder */}
-        <Text style={styles.summaryEmoji}>🌿</Text>
+        {/* Gremly mascot - friendly anchor at top */}
+        <View style={styles.summaryMascotContainer}>
+          <Image
+            source={GREMLY_MASCOT}
+            style={styles.summaryMascotImage}
+            resizeMode="contain"
+            testID="sweep-summary-mascot"
+            accessibilityLabel="Gremly mascot"
+          />
+        </View>
 
         {/* Title */}
         <Text variant="title" style={styles.stepTitle}>
@@ -2006,11 +2017,14 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 24,
   },
-  summaryEmoji: {
-    fontSize: 48,
-    textAlign: 'center',
-    marginBottom: 16,
-    marginTop: 24,
+  summaryMascotContainer: {
+    alignItems: 'center',
+    marginTop: 32,
+    marginBottom: 24,
+  },
+  summaryMascotImage: {
+    width: 112,
+    height: 112,
   },
   summaryStatsContainer: {
     backgroundColor: BRAND.colors.surface,

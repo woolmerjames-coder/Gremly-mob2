@@ -224,22 +224,22 @@ describe('SweepCard', () => {
   describe('Type Chip', () => {
     it('shows "TO-DO" chip for todo candidates', () => {
       const { getByText } = render(<SweepCard candidate={mockTodoCandidate} {...defaultProps} />);
-      expect(getByText('TO-DO')).toBeTruthy();
+      expect(getByText(/TO-DO/)).toBeTruthy();
     });
 
     it('shows "HABIT" chip for habit candidates', () => {
       const { getByText } = render(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
-      expect(getByText('HABIT')).toBeTruthy();
+      expect(getByText(/HABIT/)).toBeTruthy();
     });
 
     it('shows "NOTE" chip for note candidates', () => {
       const { getByText } = render(<SweepCard candidate={mockNoteCandidate} {...defaultProps} />);
-      expect(getByText('NOTE')).toBeTruthy();
+      expect(getByText(/NOTE/)).toBeTruthy();
     });
 
     it('shows "LOG" chip for journal/log candidates', () => {
       const { getByText } = render(<SweepCard candidate={mockLogCandidate} {...defaultProps} />);
-      expect(getByText('LOG')).toBeTruthy();
+      expect(getByText(/LOG/)).toBeTruthy();
     });
   });
 
@@ -277,7 +277,7 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
       expect(getByRole('button', { name: 'Keep this item' })).toBeTruthy();
-      expect(getByText('Keep for later →')).toBeTruthy();
+      expect(getByText('Keep →')).toBeTruthy();
     });
 
     it('renders Clear button with swipe cue text', () => {
@@ -285,7 +285,7 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
       expect(getByRole('button', { name: 'Clear this item' })).toBeTruthy();
-      expect(getByText('← Not needed anymore')).toBeTruthy();
+      expect(getByText('← Clear')).toBeTruthy();
     });
 
     it('renders Skip button', () => {
@@ -293,15 +293,14 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
       expect(getByText('Skip')).toBeTruthy();
-      expect(getByText('until next Sweep')).toBeTruthy();
       expect(getByLabelText('Skip until next Sweep')).toBeTruthy();
     });
 
-    it('renders Fix button with icon', () => {
+    it('renders Edit button with icon', () => {
       const { getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
-      expect(getByLabelText('Fix this item')).toBeTruthy();
+      expect(getByLabelText('Edit details')).toBeTruthy();
     });
   });
 
@@ -333,12 +332,12 @@ describe('SweepCard', () => {
       expect(onSkip).toHaveBeenCalledTimes(1);
     });
 
-    it('calls onOpenEdit when Fix button is pressed', () => {
+    it('calls onOpenEdit when Edit button is pressed', () => {
       const onOpenEdit = jest.fn();
       const { getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} onOpenEdit={onOpenEdit} />,
       );
-      fireEvent.press(getByLabelText('Fix this item'));
+      fireEvent.press(getByLabelText('Edit details'));
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
   });
@@ -362,75 +361,73 @@ describe('SweepCard', () => {
       expect(getByText('Add due date')).toBeTruthy();
     });
 
-    it('shows "Due Dec 25" for todos with due_day set', () => {
+    it('shows "Review date" for todos with due_day set', () => {
       const { getByText } = render(
         <SweepCard candidate={mockTodoWithDueDateCandidate} {...defaultProps} />,
       );
-      expect(getByText('Due Dec 25')).toBeTruthy();
+      expect(getByText('Review date')).toBeTruthy();
     });
 
-    it('shows "Due Dec 25" for todos with only due_date set (legacy)', () => {
+    it('shows "Review date" for todos with only due_date set (legacy)', () => {
       const todoLegacyDueDate = {
         ...mockTodoCandidate,
         raw: { ...mockTodoCandidate.raw, due_day: null, due_date: '2024-12-25' },
       };
       const { getByText } = render(<SweepCard candidate={todoLegacyDueDate} {...defaultProps} />);
-      expect(getByText('Due Dec 25')).toBeTruthy();
+      expect(getByText('Review date')).toBeTruthy();
     });
   });
 
   describe('CTA Mapping - Habit Candidates', () => {
-    it('shows "Add start date" for habits without start_date', () => {
+    it('shows "Review habit plan" for habits without start_date', () => {
       const { getByText } = render(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
-      expect(getByText('Add start date')).toBeTruthy();
+      expect(getByText('Review habit plan')).toBeTruthy();
     });
 
-    it('shows "Add start date" for habits with start_date=null', () => {
+    it('shows "Review habit plan" for habits with start_date=null', () => {
       const habitNoStart = {
         ...mockHabitCandidate,
         raw: { ...mockHabitCandidate.raw, start_date: null },
       };
       const { getByText } = render(<SweepCard candidate={habitNoStart} {...defaultProps} />);
-      expect(getByText('Add start date')).toBeTruthy();
+      expect(getByText('Review habit plan')).toBeTruthy();
     });
 
-    it('shows "Starts Dec 1" for habits with start_date set', () => {
+    it('shows "Review habit plan" for habits with start_date set', () => {
       const { getByText } = render(
         <SweepCard candidate={mockHabitWithStartDateCandidate} {...defaultProps} />,
       );
-      expect(getByText('Starts Dec 1')).toBeTruthy();
+      expect(getByText('Review habit plan')).toBeTruthy();
     });
   });
 
   describe('CTA Mapping - Note/Log Candidates', () => {
-    it('shows "TURN INTO A TO-DO" for notes with subtype=null (general notes)', () => {
+    it('shows "Decide what this is" for notes with subtype=null (general notes)', () => {
       const { getByText } = render(<SweepCard candidate={mockNoteCandidate} {...defaultProps} />);
-      expect(getByText('TURN INTO A TO-DO')).toBeTruthy();
+      expect(getByText('Decide what this is')).toBeTruthy();
     });
 
-    it('shows "TURN INTO A TO-DO" for idea notes', () => {
+    it('shows "Turn into to-do" for idea notes', () => {
       const { getByText } = render(<SweepCard candidate={mockIdeaCandidate} {...defaultProps} />);
-      expect(getByText('TURN INTO A TO-DO')).toBeTruthy();
+      expect(getByText('Turn into to-do')).toBeTruthy();
     });
 
-    it('does NOT show main CTA for journal logs (subtype=journal)', () => {
-      const { queryByText } = render(
+    it('shows "Reflect more" for journal logs (subtype=journal)', () => {
+      const { getByText } = render(
         <SweepCard candidate={mockJournalCandidate} {...defaultProps} />,
       );
-      expect(queryByText('TURN INTO A TO-DO')).toBeNull();
-      expect(queryByText('Add due date')).toBeNull();
-      expect(queryByText('Add start date')).toBeNull();
+      expect(getByText('Reflect more')).toBeTruthy();
     });
 
-    it('does NOT show main CTA for logs with canonical_type=journal', () => {
+    it('shows "Reflect more" for logs with canonical_type=journal', () => {
       const journalByCanonicalType = {
         ...mockNoteCandidate,
         raw: { ...mockNoteCandidate.raw, subtype: null, canonical_type: 'journal' },
       };
-      const { queryByText } = render(
+      const { getByText } = render(
         <SweepCard candidate={journalByCanonicalType} {...defaultProps} />,
       );
-      expect(queryByText('TURN INTO A TO-DO')).toBeNull();
+      expect(getByText('Reflect more')).toBeTruthy();
     });
   });
 
@@ -438,160 +435,134 @@ describe('SweepCard', () => {
   // CTA Interaction Tests
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('CTA Interactions - Date Picker', () => {
-    it('opens date picker modal when date control is pressed for todo without date', async () => {
-      const { getByText, queryByText } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
-      );
-
-      // Modal should not be visible initially (no "Set due date" title)
-      expect(queryByText('Set due date')).toBeNull();
-
-      // Press the date control
-      fireEvent.press(getByText('Add due date'));
-
-      // Modal should now be visible with the title
-      await waitFor(() => {
-        expect(getByText('Set due date')).toBeTruthy();
-      });
-    });
-
-    it('opens date picker modal when date control is pressed for todo with date', async () => {
-      const { getByText, queryByText } = render(
-        <SweepCard candidate={mockTodoWithDueDateCandidate} {...defaultProps} />,
-      );
-
-      expect(queryByText('Set due date')).toBeNull();
-
-      fireEvent.press(getByText('Due Dec 25'));
-
-      await waitFor(() => {
-        expect(getByText('Set due date')).toBeTruthy();
-      });
-    });
-
-    it('opens date picker modal when date control is pressed for habit without date', async () => {
-      const { getByText, queryByText } = render(
-        <SweepCard candidate={mockHabitCandidate} {...defaultProps} />,
-      );
-
-      expect(queryByText('Set start date')).toBeNull();
-
-      fireEvent.press(getByText('Add start date'));
-
-      await waitFor(() => {
-        expect(getByText('Set start date')).toBeTruthy();
-      });
-    });
-
-    it('opens date picker modal when date control is pressed for habit with date', async () => {
-      const { getByText, queryByText } = render(
-        <SweepCard candidate={mockHabitWithStartDateCandidate} {...defaultProps} />,
-      );
-
-      expect(queryByText('Set start date')).toBeNull();
-
-      fireEvent.press(getByText('Starts Dec 1'));
-
-      await waitFor(() => {
-        expect(getByText('Set start date')).toBeTruthy();
-      });
-    });
-
-    it('shows Today and Tomorrow quick date chips in date picker', async () => {
-      const { getByText, getAllByText } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
+  describe('CTA Interactions - Primary Action', () => {
+    it('calls onPrimaryAction when date CTA is pressed for todo', () => {
+      const onPrimaryAction = jest.fn();
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          {...defaultProps}
+          onPrimaryAction={onPrimaryAction}
+        />,
       );
 
       fireEvent.press(getByText('Add due date'));
 
-      await waitFor(() => {
-        expect(getByText('Today')).toBeTruthy();
-        expect(getByText('Tomorrow')).toBeTruthy();
-        // "Clear" appears in the date chip area
-        expect(getAllByText('Clear').length).toBeGreaterThanOrEqual(1);
-      });
+      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'todo_add_due_date', label: 'Add due date' }),
+        mockTodoCandidate,
+      );
     });
 
-    it('closes date picker when Cancel is pressed', async () => {
-      const { getByText, queryByText } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
+    it('calls onPrimaryAction when date CTA is pressed for todo with date', () => {
+      const onPrimaryAction = jest.fn();
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoWithDueDateCandidate}
+          {...defaultProps}
+          onPrimaryAction={onPrimaryAction}
+        />,
       );
 
-      fireEvent.press(getByText('Add due date'));
+      fireEvent.press(getByText('Review date'));
 
-      await waitFor(() => {
-        expect(getByText('Set due date')).toBeTruthy();
-      });
-
-      fireEvent.press(getByText('Cancel'));
-
-      await waitFor(() => {
-        expect(queryByText('Set due date')).toBeNull();
-      });
+      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'todo_review_due_date', label: 'Review date' }),
+        mockTodoWithDueDateCandidate,
+      );
     });
-  });
 
-  describe('CTA Interactions - Convert to Todo', () => {
-    it('calls onConvertToTodo when "TURN INTO A TO-DO" is pressed for general note', () => {
-      const onConvertToTodo = jest.fn();
+    it('calls onPrimaryAction when habit CTA is pressed', () => {
+      const onPrimaryAction = jest.fn();
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockHabitCandidate}
+          {...defaultProps}
+          onPrimaryAction={onPrimaryAction}
+        />,
+      );
+
+      fireEvent.press(getByText('Review habit plan'));
+
+      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'habit_review_plan', label: 'Review habit plan' }),
+        mockHabitCandidate,
+      );
+    });
+
+    it('calls onPrimaryAction when note CTA is pressed for general note', () => {
+      const onPrimaryAction = jest.fn();
       const { getByText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
           {...defaultProps}
-          onConvertToTodo={onConvertToTodo}
+          onPrimaryAction={onPrimaryAction}
         />,
       );
 
-      fireEvent.press(getByText('TURN INTO A TO-DO'));
+      fireEvent.press(getByText('Decide what this is'));
 
-      expect(onConvertToTodo).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'log_general_decide' }),
+        mockNoteCandidate,
+      );
     });
 
-    it('calls onConvertToTodo when "TURN INTO A TO-DO" is pressed for idea note', () => {
-      const onConvertToTodo = jest.fn();
+    it('calls onPrimaryAction when note CTA is pressed for idea note', () => {
+      const onPrimaryAction = jest.fn();
       const { getByText } = render(
         <SweepCard
           candidate={mockIdeaCandidate}
           {...defaultProps}
-          onConvertToTodo={onConvertToTodo}
+          onPrimaryAction={onPrimaryAction}
         />,
       );
 
-      fireEvent.press(getByText('TURN INTO A TO-DO'));
+      fireEvent.press(getByText('Turn into to-do'));
 
-      expect(onConvertToTodo).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'log_idea_to_todo' }),
+        mockIdeaCandidate,
+      );
     });
 
-    it('falls back to onOpenEdit if onConvertToTodo is not provided', () => {
-      const onOpenEdit = jest.fn();
+    it('calls onPrimaryAction when journal CTA is pressed', () => {
+      const onPrimaryAction = jest.fn();
       const { getByText } = render(
         <SweepCard
-          candidate={mockNoteCandidate}
+          candidate={mockJournalCandidate}
           {...defaultProps}
-          onOpenEdit={onOpenEdit}
-          onConvertToTodo={undefined}
+          onPrimaryAction={onPrimaryAction}
         />,
       );
 
-      fireEvent.press(getByText('TURN INTO A TO-DO'));
+      fireEvent.press(getByText('Reflect more'));
 
-      expect(onOpenEdit).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledTimes(1);
+      expect(onPrimaryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'log_journal_followup' }),
+        mockJournalCandidate,
+      );
     });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fix Button Tests (Top-Right Icon)
+  // Edit Button Tests (Top-Right Icon)
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('Fix Button (Top-Right Icon)', () => {
+  describe('Edit Button (Top-Right Icon)', () => {
     it('calls onOpenEdit for todo candidates regardless of due date', () => {
       const onOpenEdit = jest.fn();
       const { getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} onOpenEdit={onOpenEdit} />,
       );
 
-      fireEvent.press(getByLabelText('Fix this item'));
+      fireEvent.press(getByLabelText('Edit details'));
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
 
@@ -605,7 +576,7 @@ describe('SweepCard', () => {
         />,
       );
 
-      fireEvent.press(getByLabelText('Fix this item'));
+      fireEvent.press(getByLabelText('Edit details'));
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
 
@@ -615,7 +586,7 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockHabitCandidate} {...defaultProps} onOpenEdit={onOpenEdit} />,
       );
 
-      fireEvent.press(getByLabelText('Fix this item'));
+      fireEvent.press(getByLabelText('Edit details'));
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
 
@@ -625,30 +596,26 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockNoteCandidate} {...defaultProps} onOpenEdit={onOpenEdit} />,
       );
 
-      fireEvent.press(getByLabelText('Fix this item'));
+      fireEvent.press(getByLabelText('Edit details'));
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
 
-    it('calls onOpenEdit for journal log candidates (no main CTA but Fix works)', () => {
+    it('calls onOpenEdit for journal log candidates', () => {
       const onOpenEdit = jest.fn();
-      const { getByLabelText, queryByText } = render(
+      const { getByLabelText } = render(
         <SweepCard candidate={mockJournalCandidate} {...defaultProps} onOpenEdit={onOpenEdit} />,
       );
 
-      // Verify no main CTA
-      expect(queryByText('TURN INTO A TO-DO')).toBeNull();
-
-      // But Fix button still works
-      fireEvent.press(getByLabelText('Fix this item'));
+      fireEvent.press(getByLabelText('Edit details'));
       expect(onOpenEdit).toHaveBeenCalledTimes(1);
     });
 
-    it('Fix button has accessible label "Fix this item"', () => {
+    it('Edit button has accessible label "Edit details"', () => {
       const { getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
 
-      expect(getByLabelText('Fix this item')).toBeTruthy();
+      expect(getByLabelText('Edit details')).toBeTruthy();
     });
   });
 
@@ -667,14 +634,14 @@ describe('SweepCard', () => {
       expect(getByText('Add due date')).toBeTruthy();
     });
 
-    it('handles habit with empty string start_date as no start date', () => {
+    it('handles habit with empty string start_date', () => {
       const habitEmptyStart = {
         ...mockHabitCandidate,
         raw: { ...mockHabitCandidate.raw, start_date: '' },
       };
       const { getByText } = render(<SweepCard candidate={habitEmptyStart} {...defaultProps} />);
-      // Empty string should be treated as no start date
-      expect(getByText('Add start date')).toBeTruthy();
+      // Habits always show "Review habit plan" regardless of start_date
+      expect(getByText('Review habit plan')).toBeTruthy();
     });
 
     it('renders correctly when candidate changes', () => {
@@ -687,7 +654,7 @@ describe('SweepCard', () => {
       // Re-render with a habit
       rerender(<SweepCard candidate={mockHabitCandidate} {...defaultProps} />);
 
-      expect(getByText('Add start date')).toBeTruthy();
+      expect(getByText('Review habit plan')).toBeTruthy();
     });
   });
 });

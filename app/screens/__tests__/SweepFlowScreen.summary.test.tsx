@@ -221,15 +221,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       // Keep the item
       fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
-      // Wait for completion state
-      await waitFor(() => {
-        result.getByText('Finish Sweep');
-      });
-
-      // Finish the sweep
-      fireEvent.press(result.getByText('Finish Sweep'));
-
-      // Verify summary shows kept count
+      // Auto-advances to summary after last card
       await waitFor(() => {
         expect(result.getByText('Sweep complete')).toBeTruthy();
         expect(result.getByText('Kept')).toBeTruthy();
@@ -251,12 +243,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       // Clear the item
       fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
-      await waitFor(() => {
-        result.getByText('Finish Sweep');
-      });
-
-      fireEvent.press(result.getByText('Finish Sweep'));
-
+      // Auto-advances to summary after last card
       await waitFor(() => {
         expect(result.getByText('Sweep complete')).toBeTruthy();
         expect(result.getByText('Cleared')).toBeTruthy();
@@ -276,14 +263,9 @@ describe('SweepFlowScreen - Summary Step', () => {
       });
 
       // Skip the item
-      fireEvent.press(result.getByText('Skip until next Sweep'));
+      fireEvent.press(result.getByLabelText('Skip until next Sweep'));
 
-      await waitFor(() => {
-        result.getByText('Finish Sweep');
-      });
-
-      fireEvent.press(result.getByText('Finish Sweep'));
-
+      // Auto-advances to summary after last card
       await waitFor(() => {
         expect(result.getByText('Sweep complete')).toBeTruthy();
         expect(result.getByText('Skipped for later')).toBeTruthy();
@@ -386,13 +368,12 @@ describe('SweepFlowScreen - Summary Step', () => {
       await waitFor(() => {
         result.getByText('Task 3');
       });
-      fireEvent.press(result.getByText('Skip until next Sweep'));
+      fireEvent.press(result.getByLabelText('Skip until next Sweep'));
 
-      // Finish the sweep
+      // Auto-advances to summary after last card
       await waitFor(() => {
-        result.getByText('Finish Sweep');
+        result.getByText('Sweep complete');
       });
-      fireEvent.press(result.getByText('Finish Sweep'));
 
       // Verify markSweepCompleted was called with correct summary
       await waitFor(() => {
