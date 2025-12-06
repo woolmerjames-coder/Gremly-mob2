@@ -30,6 +30,23 @@ export type SweepTodoRow = Database['public']['Tables']['todos']['Row'];
 export type SweepNoteRow = Database['public']['Tables']['notes']['Row'];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Attachment Type (matches log_photos table)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Attachment for sweep candidates (photos from log_photos table).
+ * This matches the shape returned by IRepo.listLogPhotos.
+ */
+export interface SweepAttachment {
+  /** Unique identifier for the attachment */
+  id: string;
+  /** URL to the attachment image */
+  url: string;
+  /** Position/order of the attachment */
+  position: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Normalized Base Type
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -66,6 +83,8 @@ export interface SweepCandidateNote extends SweepCandidateBase {
   kind: 'note';
   /** Original database row */
   raw: SweepNoteRow;
+  /** Photo attachments for this note (from log_photos table) */
+  attachments?: SweepAttachment[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

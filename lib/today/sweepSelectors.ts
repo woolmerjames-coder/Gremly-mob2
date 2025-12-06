@@ -162,15 +162,24 @@ export function selectSweepCandidates(
       };
     });
 
-  // Log for debugging sweep mismatch
-  if (candidates.length > 0 || process.env.NODE_ENV === 'development') {
-    console.log('[SweepSelectors] selectSweepCandidates:', {
-      todayDay,
-      inputCount: todos.length,
-      candidateCount: candidates.length,
-      candidateIds: candidates.map((c) => c.id),
-    });
-  }
+  // Enhanced logging for debugging sweep count discrepancy
+  // This logs what the client-side selector sees vs what engine fetches
+  console.log('[SweepSelectors] selectSweepCandidates:', {
+    todayDay,
+    inputCount: todos.length,
+    candidateCount: candidates.length,
+    candidateIds: candidates.map((c) => c.id.slice(0, 8)),
+    candidateDetails: candidates.map((c) => ({
+      id: c.id.slice(0, 8),
+      isOverdue: c.isOverdue,
+      dueDay: c.due_day,
+      carryForward: c.carry_forward,
+    })),
+    // NOTE: This selector only counts TODOS, not notes!
+    // The actual Sweep engine also includes notes from Mind Drop.
+    // A discrepancy between this count and actual sweep cards is expected
+    // if there are notes in the sweep.
+  });
 
   return candidates;
 }

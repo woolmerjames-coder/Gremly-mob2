@@ -10,7 +10,7 @@
  * - Left-aligned underline below title (40% width)
  * - Type chip + timestamp metadata below underline
  * - Primary action pill (context-aware based on item type)
- * - Swipe cues: "← Done with this" / "Keep in my world →"
+ * - Swipe cues: Contextual based on item type (todos vs notes)
  * - Swipe gestures: left = clear, right = keep
  */
 
@@ -25,6 +25,7 @@ import {
   Platform,
   Switch,
   ScrollView,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -49,6 +50,7 @@ import {
   CheckSquare,
   BookOpen,
   MoreHorizontal,
+  Camera,
 } from 'lucide-react-native';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { Text, Button, Box } from '../../ui';
@@ -287,6 +289,19 @@ export function SweepCard({
   // Truncate body preview to ~100 chars
   const bodyPreview = body && body.length > 100 ? `${body.slice(0, 100)}…` : body;
 
+  // Photo attachments for note candidates
+  const hasAttachments = candidate.kind === 'note' && 
+    candidate.attachments && 
+    candidate.attachments.length > 0;
+  const firstAttachment = hasAttachments ? candidate.attachments![0] : null;
+  const attachmentCount = hasAttachments ? candidate.attachments!.length : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Photo Preview State
+  // ─────────────────────────────────────────────────────────────────────────
+  const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false);
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+
   // ─────────────────────────────────────────────────────────────────────────
   // Inline Date Picker State
   // ─────────────────────────────────────────────────────────────────────────
@@ -328,6 +343,19 @@ export function SweepCard({
       onPrimaryAction(primaryConfig, candidate);
     }
   }, [primaryConfig, onPrimaryAction, candidate]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Photo Preview Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleOpenPhotoPreview = useCallback((url: string) => {
+    setPreviewPhotoUrl(url);
+    setIsPhotoPreviewOpen(true);
+  }, []);
+
+  const handleClosePhotoPreview = useCallback(() => {
+    setIsPhotoPreviewOpen(false);
+    setPreviewPhotoUrl(null);
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Date Picker Handlers
@@ -642,13 +670,17 @@ export function SweepCard({
         </Animated.View>
       </Animated.View>
 
-      {/* Swipe Cue Labels - ABOVE the card */}
+      {/* Swipe Cue Labels - ABOVE the card (contextual based on item type) */}
       <View style={styles.swipeCueRow} pointerEvents="none">
         <Animated.View style={animatedLeftLabelStyle}>
-          <Text style={styles.swipeCueText}>← Done with this</Text>
+          <Text style={styles.swipeCueText}>
+            {candidate.kind === 'todo' ? '← Done with this' : '← Remove this'}
+          </Text>
         </Animated.View>
         <Animated.View style={animatedRightLabelStyle}>
-          <Text style={styles.swipeCueText}>Keep in my world →</Text>
+          <Text style={styles.swipeCueText}>
+            {candidate.kind === 'todo' ? 'Still matters →' : 'Save this →'}
+          </Text>
         </Animated.View>
       </View>
 
@@ -697,6 +729,28 @@ export function SweepCard({
                 <Pencil size={16} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
               </TouchableOpacity>
 
+              {/* Photo Preview - Large image at top for note candidates with attachments */}
+              {hasAttachments && firstAttachment && (
+                <TouchableOpacity
+                  style={styles.photoContainer}
+                  onPress={() => handleOpenPhotoPreview(firstAttachment.url)}
+                  activeOpacity={0.9}
+                  accessibilityLabel="Tap to view full photo"
+                  accessibilityRole="imagebutton"
+                >
+                  <Image
+                    source={{ uri: firstAttachment.url }}
+                    style={styles.photoImage}
+                    resizeMode="cover"
+                  />
+                  {attachmentCount > 1 && (
+                    <View style={styles.photoCountBadge}>
+                      <Text style={styles.photoCountText}>+{attachmentCount - 1}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+
               {/* 1. TITLE - Large, with space for edit icon */}
               <View style={styles.titleSection}>
                 <Text style={styles.titleText} numberOfLines={4}>
@@ -741,6 +795,12 @@ export function SweepCard({
                     >
                       {metadataBadge.label}
                     </Text>
+                  </View>
+                )}
+                {/* Camera icon for entries with photo attachments */}
+                {hasAttachments && (
+                  <View style={styles.photoIndicator}>
+                    <Camera size={12} color="rgba(34, 34, 34, 0.5)" strokeWidth={2} />
                   </View>
                 )}
               </View>
@@ -996,6 +1056,27 @@ export function SweepCard({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Photo Preview Modal - Full-screen image viewer */}
+      <Modal
+        visible={isPhotoPreviewOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={handleClosePhotoPreview}
+      >
+        <Pressable style={styles.photoPreviewBackdrop} onPress={handleClosePhotoPreview}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            {previewPhotoUrl && (
+              <Image
+                source={{ uri: previewPhotoUrl }}
+                style={styles.photoPreviewImage}
+                resizeMode="contain"
+                accessibilityLabel="Full size photo"
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1086,6 +1167,51 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: 'rgba(191, 216, 192, 0.25)', // Sage Mist @ 25%
     zIndex: 10,
+  },
+
+  // Photo Preview Container - Large image at top of card
+  photoContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    backgroundColor: 'rgba(191, 216, 192, 0.15)', // Sage Mist placeholder
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoCountBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  photoCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Camera icon indicator in metadata row
+  photoIndicator: {
+    marginLeft: 6,
+    opacity: 0.7,
+  },
+  // Photo Preview Modal
+  photoPreviewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoPreviewImage: {
+    width: Dimensions.get('window').width * 0.9,
+    height: Dimensions.get('window').height * 0.7,
+    borderRadius: 8,
   },
 
   // Title Section - Hero, airy vertical rhythm

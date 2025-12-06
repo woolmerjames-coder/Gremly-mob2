@@ -449,20 +449,24 @@ describe('SweepCard', () => {
   });
 
   describe('Swipe Cues and Action Buttons', () => {
-    it('renders Keep button with swipe cue text', () => {
+    it('renders contextual swipe cues for todos ("Still matters" / "Done with this")', () => {
       const { getByRole, getByText } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
       expect(getByRole('button', { name: 'Keep this item' })).toBeTruthy();
-      expect(getByText('Keep in my world →')).toBeTruthy();
+      expect(getByRole('button', { name: 'Clear this item' })).toBeTruthy();
+      expect(getByText('Still matters →')).toBeTruthy();
+      expect(getByText('← Done with this')).toBeTruthy();
     });
 
-    it('renders Clear button with swipe cue text', () => {
+    it('renders contextual swipe cues for notes ("Save this" / "Remove this")', () => {
       const { getByRole, getByText } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
+        <SweepCard candidate={mockNoteCandidate} {...defaultProps} />,
       );
+      expect(getByRole('button', { name: 'Keep this item' })).toBeTruthy();
       expect(getByRole('button', { name: 'Clear this item' })).toBeTruthy();
-      expect(getByText('← Done with this')).toBeTruthy();
+      expect(getByText('Save this →')).toBeTruthy();
+      expect(getByText('← Remove this')).toBeTruthy();
     });
 
     it('renders Edit button with icon', () => {
@@ -753,6 +757,119 @@ describe('SweepCard', () => {
       rerender(<SweepCard candidate={mockNoteCandidate} {...defaultProps} />);
 
       expect(getByText('Decide what this is')).toBeTruthy();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Photo Attachments
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Photo Attachments', () => {
+    const mockNoteWithAttachments: SweepCandidate = {
+      id: 'note-with-photos',
+      kind: 'note',
+      createdAt: new Date().toISOString(),
+      dropId: null,
+      skippedInSweepAt: null,
+      isOverdue: false,
+      isDueToday: false,
+      isCreatedToday: true,
+      raw: {
+        id: 'note-with-photos',
+        title: 'Photo memory',
+        body: 'A beautiful sunset at the beach',
+        subtype: 'journal',
+        canonical_type: 'log',
+        owner_id: 'user-1',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any,
+      attachments: [
+        { id: 'photo-1', url: 'https://example.com/photo1.jpg', position: 0 },
+        { id: 'photo-2', url: 'https://example.com/photo2.jpg', position: 1 },
+      ],
+    };
+
+    const mockNoteWithSingleAttachment: SweepCandidate = {
+      ...mockNoteWithAttachments,
+      id: 'note-single-photo',
+      attachments: [
+        { id: 'photo-1', url: 'https://example.com/photo1.jpg', position: 0 },
+      ],
+    };
+
+    it('renders photo preview for note with attachments', () => {
+      const { getByLabelText } = render(
+        <SweepCard candidate={mockNoteWithAttachments} {...defaultProps} />,
+      );
+
+      // Should render the tappable photo container with accessibility label
+      expect(getByLabelText('Tap to view full photo')).toBeTruthy();
+    });
+
+    it('shows photo count badge when multiple attachments', () => {
+      const { getByText } = render(
+        <SweepCard candidate={mockNoteWithAttachments} {...defaultProps} />,
+      );
+
+      // Should show +1 for the second photo
+      expect(getByText('+1')).toBeTruthy();
+    });
+
+    it('does NOT show photo count badge for single attachment', () => {
+      const { queryByText } = render(
+        <SweepCard candidate={mockNoteWithSingleAttachment} {...defaultProps} />,
+      );
+
+      // Should not show any +N badge
+      expect(queryByText(/\+\d/)).toBeNull();
+    });
+
+    it('does NOT render photo preview for note without attachments', () => {
+      const { queryByLabelText } = render(
+        <SweepCard candidate={mockNoteCandidate} {...defaultProps} />,
+      );
+
+      // Should not render the photo container
+      expect(queryByLabelText('Tap to view full photo')).toBeNull();
+    });
+
+    it('does NOT render photo preview for todo candidates', () => {
+      const { queryByLabelText } = render(
+        <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
+      );
+
+      // Todos don't have photo attachments
+      expect(queryByLabelText('Tap to view full photo')).toBeNull();
+    });
+
+    it('renders note content alongside photo preview', () => {
+      const { getByText, getByLabelText } = render(
+        <SweepCard candidate={mockNoteWithAttachments} {...defaultProps} />,
+      );
+
+      // Photo preview should be present
+      expect(getByLabelText('Tap to view full photo')).toBeTruthy();
+
+      // Title and body should also be visible
+      expect(getByText('Photo memory')).toBeTruthy();
+      expect(getByText('A beautiful sunset at the beach')).toBeTruthy();
+    });
+
+    it('opens full-screen photo preview modal when tapping photo', () => {
+      const { getByLabelText, queryByLabelText } = render(
+        <SweepCard candidate={mockNoteWithAttachments} {...defaultProps} />,
+      );
+
+      // Initially, the full-size preview should not be visible
+      expect(queryByLabelText('Full size photo')).toBeNull();
+
+      // Tap the photo to open preview
+      const photoContainer = getByLabelText('Tap to view full photo');
+      fireEvent.press(photoContainer);
+
+      // After tapping, the full-size photo should be visible in the modal
+      expect(getByLabelText('Full size photo')).toBeTruthy();
     });
   });
 });

@@ -1267,6 +1267,149 @@ describe('archived item filtering', () => {
       expect(activeItems[0].name).toBe('Active task');
     });
   });
+
+  describe('archived boolean field (sweep clear action)', () => {
+    /**
+     * The sweep "clear" action sets `archived: true` without changing `status`.
+     * These tests verify that items with the archived boolean flag are excluded
+     * from Today page selectors, ensuring cleared items don't reappear.
+     */
+
+    it('excludes todo with archived=true from getActiveTodayItems', () => {
+      const activeTodo = createMockTodo({
+        id: 'todo-active',
+        name: 'Active task',
+        due_day: '2025-11-26',
+      });
+
+      // Simulate sweep "clear" action - sets archived=true but status remains 'active'
+      const sweptTodo = createMockTodo({
+        id: 'todo-swept',
+        name: 'Swept task',
+        due_day: '2025-11-26',
+      } as any);
+      (sweptTodo as any).archived = true;
+      (sweptTodo as any).archived_reason = 'swept';
+
+      const items = getActiveTodayItems([activeTodo, sweptTodo], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('todo-active');
+    });
+
+    it('excludes habit with archived=true from getActiveTodayItems', () => {
+      const activeHabit = createMockHabit({
+        id: 'habit-active',
+        name: 'Active habit',
+        cadence: 'daily',
+      });
+
+      // Simulate sweep "clear" action
+      const sweptHabit = createMockHabit({
+        id: 'habit-swept',
+        name: 'Swept habit',
+        cadence: 'daily',
+      });
+      (sweptHabit as any).archived = true;
+      (sweptHabit as any).archived_reason = 'swept';
+
+      const items = getActiveTodayItems([activeHabit, sweptHabit], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('habit-active');
+    });
+
+    it('excludes locked todo with archived=true from getLockedItems', () => {
+      const activeTodo = createMockTodo({
+        id: 'todo-active',
+        name: 'Active locked task',
+        due_day: '2025-11-26',
+      } as any);
+      (activeTodo as any).commitment = true;
+
+      const sweptTodo = createMockTodo({
+        id: 'todo-swept',
+        name: 'Swept locked task',
+        due_day: '2025-11-26',
+      } as any);
+      (sweptTodo as any).commitment = true;
+      (sweptTodo as any).archived = true;
+      (sweptTodo as any).archived_reason = 'swept';
+
+      const items = getLockedItems([activeTodo, sweptTodo], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('todo-active');
+    });
+
+    it('excludes locked habit with archived=true from getLockedItems', () => {
+      const activeHabit = createMockHabit({
+        id: 'habit-active',
+        name: 'Active locked habit',
+        cadence: 'daily',
+      });
+      (activeHabit as any).commitment = true;
+
+      const sweptHabit = createMockHabit({
+        id: 'habit-swept',
+        name: 'Swept locked habit',
+        cadence: 'daily',
+      });
+      (sweptHabit as any).commitment = true;
+      (sweptHabit as any).archived = true;
+      (sweptHabit as any).archived_reason = 'swept';
+
+      const items = getLockedItems([activeHabit, sweptHabit], completionHistory, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('habit-active');
+    });
+
+    it('excludes flexible habit with archived=true from getFutureItems', () => {
+      const flexibleHabit = createMockHabit({
+        id: 'habit-flexible',
+        name: 'Flexible habit',
+        cadence: 'weekly',
+        target_per_period: 3,
+      });
+
+      const sweptHabit = createMockHabit({
+        id: 'habit-swept',
+        name: 'Swept flexible habit',
+        cadence: 'weekly',
+        target_per_period: 3,
+      });
+      (sweptHabit as any).archived = true;
+      (sweptHabit as any).archived_reason = 'swept';
+
+      // 1 completion makes them "flexible" (not needed today)
+      const history = new Map([
+        ['habit-flexible', 1],
+        ['habit-swept', 1],
+      ]);
+
+      const items = getFutureItems([flexibleHabit, sweptHabit], history, testDate);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('habit-flexible');
+    });
+
+    it('handles item with both status=archived AND archived=true', () => {
+      // Edge case: both fields indicate archived
+      const doubleArchivedTodo = createMockTodo({
+        id: 'todo-double-archived',
+        name: 'Double archived task',
+        due_day: '2025-11-26',
+        status: 'archived',
+      } as any);
+      (doubleArchivedTodo as any).archived = true;
+      (doubleArchivedTodo as any).archived_reason = 'swept';
+
+      const items = getActiveTodayItems([doubleArchivedTodo], completionHistory, testDate);
+
+      expect(items).toHaveLength(0);
+    });
+  });
 });
 
 describe('due_day canonical day logic', () => {

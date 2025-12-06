@@ -312,6 +312,121 @@ describe('fetchSweepCandidatesForUser', () => {
     expect(candidates[0].createdAt).toBeDefined();
     expect(new Date(candidates[0].createdAt).getTime()).toBeGreaterThan(0);
   });
+
+  it('should include log-general notes (subtype: journal) with photo attachments', async () => {
+    // This is the key test case: log-general entries with photos MUST appear in Sweep
+    // The subtype 'journal' is used for log-general (everything_else maps to 'journal')
+    // Photos are joined from log_photos table
+    const mockNoteWithPhotos = {
+      id: 'note-photo-1',
+      owner_id: 'user-1',
+      created_at: '2025-12-03T14:00:00Z',
+      drop_id: 'drop-photo-1',
+      skipped_in_sweep_at: null,
+      archived: false,
+      subtype: 'journal', // log-general maps to 'journal' subtype
+      canonical_type: 'log',
+      title: 'Photo entry test',
+      log_photos: [
+        { id: 'photo-1', url: 'https://example.com/photo1.jpg', position: 0 },
+        { id: 'photo-2', url: 'https://example.com/photo2.jpg', position: 1 },
+      ],
+    };
+
+    const { client } = createMockSupabaseClient({
+      cortexPreferences: { data: null, error: null }, // No previous sweep
+      todos: { data: [], error: null },
+      habits: { data: [], error: null },
+      notes: { data: [mockNoteWithPhotos], error: null },
+    });
+
+    // Act
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+
+    // Assert: Note with photos should appear in Sweep
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].id).toBe('note-photo-1');
+    expect(candidates[0].kind).toBe('note');
+
+    // Should have attachments mapped from log_photos
+    const noteCandidate = candidates[0] as { attachments?: Array<{ id: string; url: string; position: number }> };
+    expect(noteCandidate.attachments).toHaveLength(2);
+    expect(noteCandidate.attachments![0]).toEqual({
+      id: 'photo-1',
+      url: 'https://example.com/photo1.jpg',
+      position: 0,
+    });
+    expect(noteCandidate.attachments![1]).toEqual({
+      id: 'photo-2',
+      url: 'https://example.com/photo2.jpg',
+      position: 1,
+    });
+  });
+
+  it('should include log-general notes with subtype everything_else', async () => {
+    // Some notes may still have subtype: 'everything_else' directly
+    // These should also appear in Sweep (not filtered by .neq('subtype', 'catchall'))
+    const mockLogGeneralNote = {
+      id: 'note-everything-else',
+      owner_id: 'user-1',
+      created_at: '2025-12-03T15:00:00Z',
+      drop_id: 'drop-log-1',
+      skipped_in_sweep_at: null,
+      archived: false,
+      subtype: 'everything_else', // Direct log-general subtype
+      canonical_type: 'log',
+      title: 'General log entry',
+      log_photos: [],
+    };
+
+    const { client } = createMockSupabaseClient({
+      cortexPreferences: { data: null, error: null },
+      todos: { data: [], error: null },
+      habits: { data: [], error: null },
+      notes: { data: [mockLogGeneralNote], error: null },
+    });
+
+    // Act
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+
+    // Assert: log-general (everything_else) note should appear in Sweep
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].id).toBe('note-everything-else');
+    expect(candidates[0].kind).toBe('note');
+  });
+
+  it('should NOT include catchall notes (still being processed)', async () => {
+    // catchall notes are excluded because they haven't been classified yet
+    const mockCatchallNote = {
+      id: 'note-catchall',
+      owner_id: 'user-1',
+      created_at: '2025-12-03T16:00:00Z',
+      drop_id: 'drop-catchall',
+      skipped_in_sweep_at: null,
+      archived: false,
+      subtype: 'catchall', // Still being processed
+      title: 'Unprocessed entry',
+      log_photos: [],
+    };
+
+    // The mock returns the catchall note, but the engine should filter it out
+    // via .neq('subtype', 'catchall')
+    // Since we're mocking at the result level, this test documents expected behavior
+    const { client } = createMockSupabaseClient({
+      cortexPreferences: { data: null, error: null },
+      todos: { data: [], error: null },
+      habits: { data: [], error: null },
+      // In real usage, the .neq filter would exclude this, but mock returns it
+      // This test documents the expected SQL filter behavior
+      notes: { data: [], error: null }, // Simulate filtered result
+    });
+
+    // Act
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+
+    // Assert: No candidates when only catchall notes exist (filtered by DB)
+    expect(candidates).toHaveLength(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

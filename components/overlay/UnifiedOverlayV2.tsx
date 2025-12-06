@@ -1716,13 +1716,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Load existing log photos from database (Phase L5)
   useEffect(() => {
     const loadLogPhotos = async () => {
+      // Check entity type directly to avoid race condition with HYDRATE_EDIT
+      // The entity's type field is 'note' for logs in the database
+      const entityType = (initialEntity as any)?.type;
+      const isNoteEntity = entityType === 'note' || entityType === 'log';
+      
       console.log('[UnifiedOverlayV2] loadLogPhotos effect:', {
         mode,
         hasInitialEntity: !!initialEntity,
-        baseType,
+        entityType,
+        isNoteEntity,
         noteId: (initialEntity as any)?.id,
       });
-      if (mode !== 'edit' || !initialEntity || baseType !== 'log') return;
+      
+      // Only load photos for note/log entities in edit mode
+      if (mode !== 'edit' || !initialEntity || !isNoteEntity) return;
 
       const noteId = (initialEntity as any)?.id;
       if (!noteId) return;
@@ -1749,7 +1757,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
 
     loadLogPhotos();
-  }, [mode, initialEntity, baseType, repo]);
+  }, [mode, initialEntity, repo]);
 
   // Phase 6 Task 4: Fallback prefill retry on overlay open
   // When user manually opens overlay for a Mind Drop with ai_failed=true and minddrop_stage='classified',
