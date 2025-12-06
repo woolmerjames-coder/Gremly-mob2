@@ -12,19 +12,39 @@
 
 import type { Database } from '../../types/supabase';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Entity Kind
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
-export type SweepEntityKind = 'todo' | 'habit' | 'note';
+/**
+ * Entity kinds that can appear in Sweep.
+ * Note: 'habit' was removed - habits are no longer included in sweep candidates.
+ */
+export type SweepEntityKind = 'todo' | 'note';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Raw DB Row Types (from Supabase generated types)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 export type SweepTodoRow = Database['public']['Tables']['todos']['Row'];
-export type SweepHabitRow = Database['public']['Tables']['habits']['Row'];
 export type SweepNoteRow = Database['public']['Tables']['notes']['Row'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attachment Type (matches log_photos table)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Attachment for sweep candidates (photos from log_photos table).
+ * This matches the shape returned by IRepo.listLogPhotos.
+ */
+export interface SweepAttachment {
+  /** Unique identifier for the attachment */
+  id: string;
+  /** URL to the attachment image */
+  url: string;
+  /** Position/order of the attachment */
+  position: number;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalized Base Type
@@ -41,8 +61,12 @@ export interface SweepCandidateBase {
   dropId?: string | null;
   /** ISO timestamp when this item was last skipped in Sweep */
   skippedInSweepAt?: string | null;
-  /** True if item's due_day (or due_date) is strictly before today */
+  /** True if item's due_day (or due_date) is strictly before today (todos only) */
   isOverdue: boolean;
+  /** True if item's due_day (or due_date) is exactly today (todos only) */
+  isDueToday: boolean;
+  /** True if item was created today */
+  isCreatedToday: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,23 +79,32 @@ export interface SweepCandidateTodo extends SweepCandidateBase {
   raw: SweepTodoRow;
 }
 
-export interface SweepCandidateHabit extends SweepCandidateBase {
-  kind: 'habit';
-  /** Original database row */
-  raw: SweepHabitRow;
-}
-
 export interface SweepCandidateNote extends SweepCandidateBase {
   kind: 'note';
   /** Original database row */
   raw: SweepNoteRow;
+  /** Photo attachments for this note (from log_photos table) */
+  attachments?: SweepAttachment[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Union Type
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type SweepCandidate = SweepCandidateTodo | SweepCandidateHabit | SweepCandidateNote;
+export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sweep Summary
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Summary of actions taken during a Sweep session.
+ * Note: 'skipped' was removed - we no longer track skipped items in the summary.
+ */
+export interface SweepSummary {
+  kept: number;
+  cleared: number;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Primary Action Types
@@ -80,11 +113,11 @@ export type SweepCandidate = SweepCandidateTodo | SweepCandidateHabit | SweepCan
 /**
  * Discriminated union for context-aware primary actions on Sweep cards.
  * Each type maps to a specific user intent based on item type and state.
+ * Note: habit_review_plan was removed - habits are no longer in sweep.
  */
 export type SweepPrimaryActionType =
   | 'todo_add_due_date'
   | 'todo_review_due_date'
-  | 'habit_review_plan'
   | 'log_idea_to_todo'
   | 'log_journal_followup'
   | 'log_general_decide';
@@ -95,7 +128,7 @@ export type SweepPrimaryActionType =
 export interface SweepPrimaryActionConfig {
   type: SweepPrimaryActionType;
   label: string;
-  icon: 'calendar' | 'habit' | 'todo' | 'journal' | 'more';
+  icon: 'calendar' | 'todo' | 'journal' | 'more';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,10 +141,11 @@ export interface SweepPrimaryActionConfig {
  * Mapping rules:
  * - To-do with due date → 'todo_review_due_date' ("Review date")
  * - To-do without due date → 'todo_add_due_date' ("Add due date")
- * - Habit (any variant) → 'habit_review_plan' ("Review habit plan")
  * - Log – idea/actionable → 'log_idea_to_todo' ("Turn into to-do")
  * - Log – journal → 'log_journal_followup' ("Reflect more")
  * - Log – general/uncategorized → 'log_general_decide' ("Decide what this is")
+ *
+ * Note: Habits were removed from sweep candidates.
  *
  * @param candidate - The Sweep candidate to analyze
  * @returns Primary action config, or null if no action applies
@@ -134,15 +168,6 @@ export function getPrimaryActionForCandidate(
         type: 'todo_add_due_date',
         label: 'Add due date',
         icon: 'calendar',
-      };
-    }
-
-    case 'habit': {
-      // All habits (start/build or break/reduce) get the same review action
-      return {
-        type: 'habit_review_plan',
-        label: 'Review habit plan',
-        icon: 'habit',
       };
     }
 

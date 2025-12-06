@@ -1,7 +1,8 @@
 /**
  * SweepFlowScreen Summary Step Tests
  *
- * Tests for step 3: Summary/celebration and markSweepCompleted wiring
+ * Tests for step 4: Summary/celebration and markSweepCompleted wiring
+ * New flow: Intro (0) → Decision (1) → Mood (2) → Wrap-up (3) → Summary (4)
  */
 
 import React from 'react';
@@ -106,37 +107,43 @@ const mockNavigation = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Navigate through mood and wrap-up steps to reach decision step
+ * Navigate from Intro to Decision step
+ * Flow: Intro (0) → Decision (1)
  */
 async function navigateToDecisionStep(result: ReturnType<typeof render>) {
-  // Step 0: Mood - skip to step 1
+  // Step 0: Intro - tap "Start Sweeping" to go to Decision
+  await waitFor(() => {
+    result.getByText('Time to Sweep your day');
+  });
+  fireEvent.press(result.getByText('Start Sweeping'));
+}
+
+/**
+ * Navigate through all steps to reach summary step
+ * Flow: Intro (0) → Decision (1) → Mood (2) → Wrap-up (3) → Summary (4)
+ */
+async function navigateToSummaryStep(result: ReturnType<typeof render>) {
+  await navigateToDecisionStep(result);
+
+  // Step 1: Decision - empty state, tap "Done" to go to Mood
+  await waitFor(() => {
+    result.getByText("Nothing to Sweep right now — you're all clear.");
+  });
+  fireEvent.press(result.getByText('Done'));
+
+  // Step 2: Mood - skip to go to Wrap-up
   await waitFor(() => {
     result.getByText('How did today feel?');
   });
   fireEvent.press(result.getByText('Skip for now'));
 
-  // Step 1: Wrap Up (empty state) - advance to step 2
+  // Step 3: Wrap-up - tap "Start Sweep" to go to Summary
   await waitFor(() => {
-    result.getByText('Wrap up today');
+    result.getByText('Habits today');
   });
-  fireEvent.press(result.getByText('Start Sweep'));
-}
+  fireEvent.press(result.getByText('Continue'));
 
-/**
- * Navigate through all steps to reach summary step with mock candidates
- */
-async function navigateToSummaryStep(result: ReturnType<typeof render>) {
-  await navigateToDecisionStep(result);
-
-  // Wait for decision step to load (empty state since no candidates)
-  await waitFor(() => {
-    result.getByText("Nothing to Sweep right now — you're all clear.");
-  });
-
-  // Press Done to go to Summary
-  fireEvent.press(result.getByText('Done'));
-
-  // Wait for Summary step
+  // Step 4: Summary - wait for it to appear
   await waitFor(() => {
     result.getByText('Sweep complete');
   });
@@ -198,6 +205,8 @@ describe('SweepFlowScreen - Summary Step', () => {
       dropId: 'drop-1',
       skippedInSweepAt: null,
       isOverdue: false,
+      isDueToday: false,
+      isCreatedToday: true,
       raw: {
         id: 'todo-1',
         name: 'Test task',
@@ -219,10 +228,22 @@ describe('SweepFlowScreen - Summary Step', () => {
         result.getByText('Test task');
       });
 
-      // Keep the item
+      // Keep the item - auto-advances to Mood step
       fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
-      // Auto-advances to summary after last card
+      // Step 2: Mood - skip
+      await waitFor(() => {
+        result.getByText('How did today feel?');
+      });
+      fireEvent.press(result.getByText('Skip for now'));
+
+      // Step 3: Wrap-up - continue
+      await waitFor(() => {
+        result.getByText('Habits today');
+      });
+      fireEvent.press(result.getByText('Continue'));
+
+      // Step 4: Summary
       await waitFor(() => {
         expect(result.getByText('Sweep complete')).toBeTruthy();
         expect(result.getByText('Kept')).toBeTruthy();
@@ -241,35 +262,25 @@ describe('SweepFlowScreen - Summary Step', () => {
         result.getByText('Test task');
       });
 
-      // Clear the item
+      // Clear the item - auto-advances to Mood step
       fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
-      // Auto-advances to summary after last card
+      // Step 2: Mood - skip
+      await waitFor(() => {
+        result.getByText('How did today feel?');
+      });
+      fireEvent.press(result.getByText('Skip for now'));
+
+      // Step 3: Wrap-up - continue
+      await waitFor(() => {
+        result.getByText('Habits today');
+      });
+      fireEvent.press(result.getByText('Continue'));
+
+      // Step 4: Summary
       await waitFor(() => {
         expect(result.getByText('Sweep complete')).toBeTruthy();
         expect(result.getByText('Cleared')).toBeTruthy();
-        expect(result.getByText('1')).toBeTruthy();
-      });
-    });
-
-    it('shows skipped count after skipping items', async () => {
-      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
-
-      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
-
-      await navigateToDecisionStep(result);
-
-      await waitFor(() => {
-        result.getByText('Test task');
-      });
-
-      // Skip the item
-      fireEvent.press(result.getByLabelText('Skip until next Sweep'));
-
-      // Auto-advances to summary after last card
-      await waitFor(() => {
-        expect(result.getByText('Sweep complete')).toBeTruthy();
-        expect(result.getByText('Skipped for later')).toBeTruthy();
         expect(result.getByText('1')).toBeTruthy();
       });
     });
@@ -288,19 +299,25 @@ describe('SweepFlowScreen - Summary Step', () => {
   });
 
   describe('markSweepCompleted Integration', () => {
-    it('calls markSweepCompleted when finishing from empty state', async () => {
+    it('calls markSweepCompleted when finishing Decision step (empty state)', async () => {
       mockFetchSweepCandidates.mockResolvedValue([]);
 
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      await navigateToSummaryStep(result);
+      await navigateToDecisionStep(result);
 
-      // markSweepCompleted should have been called
+      // Decision empty state - tap Done to go to Mood
+      await waitFor(() => {
+        result.getByText("Nothing to Sweep right now — you're all clear.");
+      });
+      fireEvent.press(result.getByText('Done'));
+
+      // markSweepCompleted should have been called when leaving Decision step
       expect(mockMarkSweepCompleted).toHaveBeenCalledTimes(1);
       expect(mockMarkSweepCompleted).toHaveBeenCalledWith(
         'test-user-123',
         { mockSupabase: true },
-        { kept: 0, cleared: 0, skipped: 0 },
+        { kept: 0, cleared: 0 },
       );
     });
 
@@ -313,6 +330,8 @@ describe('SweepFlowScreen - Summary Step', () => {
           dropId: 'drop-1',
           skippedInSweepAt: null,
           isOverdue: false,
+          isDueToday: false,
+          isCreatedToday: true,
           raw: {
             id: 'todo-1',
             name: 'Task 1',
@@ -328,6 +347,8 @@ describe('SweepFlowScreen - Summary Step', () => {
           dropId: 'drop-2',
           skippedInSweepAt: null,
           isOverdue: false,
+          isDueToday: false,
+          isCreatedToday: true,
           raw: {
             id: 'todo-2',
             name: 'Task 2',
@@ -343,6 +364,8 @@ describe('SweepFlowScreen - Summary Step', () => {
           dropId: 'drop-3',
           skippedInSweepAt: null,
           isOverdue: false,
+          isDueToday: false,
+          isCreatedToday: true,
           raw: {
             id: 'todo-3',
             name: 'Task 3',
@@ -358,7 +381,7 @@ describe('SweepFlowScreen - Summary Step', () => {
 
       await navigateToDecisionStep(result);
 
-      // Process each card: Keep, Clear, Skip
+      // Process each card: Keep, Clear, Keep
       await waitFor(() => {
         result.getByText('Task 1');
       });
@@ -372,11 +395,11 @@ describe('SweepFlowScreen - Summary Step', () => {
       await waitFor(() => {
         result.getByText('Task 3');
       });
-      fireEvent.press(result.getByLabelText('Skip until next Sweep'));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
-      // Auto-advances to summary after last card
+      // Auto-advances to Mood step after last card
       await waitFor(() => {
-        result.getByText('Sweep complete');
+        result.getByText('How did today feel?');
       });
 
       // Verify markSweepCompleted was called with correct summary
@@ -387,7 +410,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       expect(mockMarkSweepCompleted).toHaveBeenCalledWith(
         'test-user-123',
         { mockSupabase: true },
-        { kept: 1, cleared: 1, skipped: 1 },
+        { kept: 2, cleared: 1 },
       );
     });
   });

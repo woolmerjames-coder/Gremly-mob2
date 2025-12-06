@@ -1,7 +1,8 @@
 /**
- * SweepFlowScreen Wrap-Up Step Empty State Tests
+ * SweepFlowScreen Habits Today Step Empty State Tests
  *
- * Tests the empty state of the wrap-up step when there are no items.
+ * Tests the empty state of the "Habits today" step (step 3) when there are no habits.
+ * New flow: Intro (0) → Decision (1) → Mood (2) → Habits (3) → Summary (4)
  * Separate file due to Jest module caching constraints.
  */
 
@@ -13,6 +14,8 @@ const mockFetchSweepCandidates = jest.fn().mockResolvedValue([]);
 jest.mock('../../../lib/sweep/engine', () => ({
   __esModule: true,
   fetchSweepCandidatesForUser: (...args: any[]) => mockFetchSweepCandidates(...args),
+  applySweepAction: () => Promise.resolve(),
+  markSweepCompleted: () => Promise.resolve(),
 }));
 
 // Mock Supabase client
@@ -28,6 +31,7 @@ jest.mock('../../../providers/RepoProvider', () => ({
     create: jest.fn(() => Promise.resolve({ id: 'test-note-id' })),
     update: jest.fn(() => Promise.resolve()),
     sweepApplyAction: jest.fn(() => Promise.resolve()),
+    getById: jest.fn(),
   }),
 }));
 
@@ -37,12 +41,20 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
-// Mock useTodayEntries with EMPTY data for empty state testing
+// Mock useTodayEntries with NO HABITS for empty state testing
+// Include a todo to verify it doesn't appear (habits-only step)
+const mockTodo = {
+  id: 'todo-1',
+  type: 'todo' as const,
+  name: 'Some todo that should not appear',
+  due_day: new Date().toISOString().split('T')[0],
+};
+
 jest.mock('../../../lib/today/hooks/useTodayEntries', () => ({
   __esModule: true,
   useTodayEntries: () => ({
-    items: [], // No items
-    doneItems: [{ id: 'done-1', name: 'Already done task' }], // Some completed items
+    items: [mockTodo], // Only a todo, no habits
+    doneItems: [],
     loading: false,
     reload: jest.fn(),
   }),
@@ -61,6 +73,18 @@ jest.mock('../../../lib/today/useTodayInteractions', () => ({
   }),
 }));
 
+// Mock useOverlayController
+jest.mock('../../../hooks/useOverlayController', () => ({
+  __esModule: true,
+  useOverlayController: () => ({
+    state: { visible: false, mode: 'create', initialEntity: null, initialSpaceId: null },
+    openEdit: jest.fn(),
+    openCreate: jest.fn(),
+    openView: jest.fn(),
+    close: jest.fn(),
+  }),
+}));
+
 // Mock navigation
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
@@ -75,54 +99,79 @@ jest.mock('@react-navigation/native', () => {
 
 import SweepFlowScreen from '../SweepFlowScreen';
 
-describe('SweepFlowScreen - Wrap Up Step (Empty State)', () => {
+/**
+ * Helper to navigate to Habits step (step 3)
+ * Flow: Intro (0) → Decision (1) → Mood (2) → Habits (3)
+ */
+async function navigateToHabitsStep(result: ReturnType<typeof render>) {
+  // Step 0: Intro - tap "Start Sweeping" to go to Decision
+  await waitFor(() => {
+    expect(result.getByText('Time to Sweep your day')).toBeTruthy();
+  });
+  fireEvent.press(result.getByText('Start Sweeping'));
+
+  // Step 1: Decision - empty state, tap "Done" to go to Mood
+  await waitFor(() => {
+    expect(result.getByText("Nothing to Sweep right now — you're all clear.")).toBeTruthy();
+  });
+  fireEvent.press(result.getByText('Done'));
+
+  // Step 2: Mood - skip to go to Habits
+  await waitFor(() => {
+    expect(result.getByText('How did today feel?')).toBeTruthy();
+  });
+  fireEvent.press(result.getByText('Skip for now'));
+
+  // Step 3: Habits - wait for it to appear
+  await waitFor(() => {
+    expect(result.getByText('Habits today')).toBeTruthy();
+  });
+}
+
+describe('SweepFlowScreen - Habits Today Step (Empty State)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders empty state message when there are no items to wrap up', async () => {
-    const { getByText } = render(<SweepFlowScreen />);
+  it('renders empty state message when there are no habits', async () => {
+    const result = render(<SweepFlowScreen />);
 
-    // Skip mood step to get to wrap up
-    fireEvent.press(getByText('Skip for now'));
+    await navigateToHabitsStep(result);
 
-    // Wait for wrap up step to render
-    await waitFor(() => {
-      expect(getByText('Wrap up today')).toBeTruthy();
-    });
-
-    // Should show empty state message
-    expect(getByText(/Nothing to wrap up/)).toBeTruthy();
-    expect(getByText(/you're all set/)).toBeTruthy();
+    // Should show empty state message for habits
+    expect(result.getByText(/No habits to check off/)).toBeTruthy();
+    expect(result.getByText(/you're all set/)).toBeTruthy();
   });
 
-  it('shows completed count in empty state when items were completed', async () => {
-    const { getByText } = render(<SweepFlowScreen />);
+  it('does not show todos in the habits step (habits only)', async () => {
+    const result = render(<SweepFlowScreen />);
 
-    // Skip mood step to get to wrap up
-    fireEvent.press(getByText('Skip for now'));
+    await navigateToHabitsStep(result);
 
-    // Wait for wrap up step to render
-    await waitFor(() => {
-      expect(getByText('Wrap up today')).toBeTruthy();
-    });
-
-    // Should show completed count (1 item from doneItems mock)
-    expect(getByText(/You completed 1 item today/)).toBeTruthy();
+    // The todo should NOT appear - this is a habits-only step
+    expect(result.queryByText('Some todo that should not appear')).toBeNull();
   });
 
-  it('still renders Start Sweep button in empty state', async () => {
-    const { getByText } = render(<SweepFlowScreen />);
+  it('still renders Continue button in empty state', async () => {
+    const result = render(<SweepFlowScreen />);
 
-    // Skip mood step to get to wrap up
-    fireEvent.press(getByText('Skip for now'));
+    await navigateToHabitsStep(result);
 
-    // Wait for wrap up step to render
+    // Continue button should still be visible
+    expect(result.getByText('Continue')).toBeTruthy();
+  });
+
+  it('advances to summary when pressing Continue in empty state', async () => {
+    const result = render(<SweepFlowScreen />);
+
+    await navigateToHabitsStep(result);
+
+    // Press Continue
+    fireEvent.press(result.getByText('Continue'));
+
+    // Should advance to Summary step
     await waitFor(() => {
-      expect(getByText('Wrap up today')).toBeTruthy();
+      expect(result.getByText('Sweep complete')).toBeTruthy();
     });
-
-    // Start Sweep button should still be visible
-    expect(getByText('Start Sweep')).toBeTruthy();
   });
 });

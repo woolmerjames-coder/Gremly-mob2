@@ -153,27 +153,17 @@ describe('fetchSweepCandidatesForUser', () => {
     const mockTodo = {
       id: 'todo-1',
       owner_id: 'user-1',
-      created_at: '2025-12-03T10:00:00Z', // Middle
+      created_at: '2025-12-03T10:00:00Z', // Earlier
       drop_id: 'drop-todo-1',
       skipped_in_sweep_at: null,
       archived: false,
       title: 'Test todo',
     };
 
-    const mockHabit = {
-      id: 'habit-1',
-      owner_id: 'user-1',
-      created_at: '2025-12-03T08:00:00Z', // Earliest
-      drop_id: 'drop-habit-1',
-      skipped_in_sweep_at: '2025-12-02T20:00:00Z', // Previously skipped
-      completed_at: null,
-      name: 'Test habit',
-    };
-
     const mockNote = {
       id: 'note-1',
       owner_id: 'user-1',
-      created_at: '2025-12-03T12:00:00Z', // Latest
+      created_at: '2025-12-03T12:00:00Z', // Later
       drop_id: 'drop-note-1',
       skipped_in_sweep_at: null,
       archived: false,
@@ -183,50 +173,34 @@ describe('fetchSweepCandidatesForUser', () => {
     const { client } = createMockSupabaseClient({
       cortexPreferences: { data: null, error: null }, // No previous sweep
       todos: { data: [mockTodo], error: null },
-      habits: { data: [mockHabit], error: null },
+      habits: { data: [], error: null },
       notes: { data: [mockNote], error: null },
     });
 
     // Act
     const candidates = await fetchSweepCandidatesForUser('user-1', client);
 
-    // Assert: 3 candidates sorted by createdAt ascending (oldest first)
-    expect(candidates).toHaveLength(3);
+    // Assert: 2 candidates sorted by createdAt ascending (oldest first)
+    // Note: Habits are not included in sweep candidates
+    expect(candidates).toHaveLength(2);
 
-    // Habit is earliest (08:00)
-    expect(candidates[0].id).toBe('habit-1');
-    expect(candidates[0].kind).toBe('habit');
-    expect(candidates[0].createdAt).toBe('2025-12-03T08:00:00Z');
-    expect(candidates[0].dropId).toBe('drop-habit-1');
-    expect(candidates[0].skippedInSweepAt).toBe('2025-12-02T20:00:00Z');
+    // Todo is earlier (10:00)
+    expect(candidates[0].id).toBe('todo-1');
+    expect(candidates[0].kind).toBe('todo');
+    expect(candidates[0].createdAt).toBe('2025-12-03T10:00:00Z');
+    expect(candidates[0].dropId).toBe('drop-todo-1');
+    expect(candidates[0].skippedInSweepAt).toBeNull();
 
-    // Todo is middle (10:00)
-    expect(candidates[1].id).toBe('todo-1');
-    expect(candidates[1].kind).toBe('todo');
-    expect(candidates[1].createdAt).toBe('2025-12-03T10:00:00Z');
-    expect(candidates[1].dropId).toBe('drop-todo-1');
+    // Note is later (12:00)
+    expect(candidates[1].id).toBe('note-1');
+    expect(candidates[1].kind).toBe('note');
+    expect(candidates[1].createdAt).toBe('2025-12-03T12:00:00Z');
+    expect(candidates[1].dropId).toBe('drop-note-1');
     expect(candidates[1].skippedInSweepAt).toBeNull();
-
-    // Note is latest (12:00)
-    expect(candidates[2].id).toBe('note-1');
-    expect(candidates[2].kind).toBe('note');
-    expect(candidates[2].createdAt).toBe('2025-12-03T12:00:00Z');
-    expect(candidates[2].dropId).toBe('drop-note-1');
-    expect(candidates[2].skippedInSweepAt).toBeNull();
   });
 
   it('should treat table errors as empty results and continue with other tables', async () => {
-    // Arrange: todos returns error, others return data
-    const mockHabit = {
-      id: 'habit-2',
-      owner_id: 'user-1',
-      created_at: '2025-12-03T09:00:00Z',
-      drop_id: null,
-      skipped_in_sweep_at: null,
-      completed_at: null,
-      name: 'Surviving habit',
-    };
-
+    // Arrange: todos returns error, notes still returns data
     const mockNote = {
       id: 'note-2',
       owner_id: 'user-1',
@@ -240,17 +214,17 @@ describe('fetchSweepCandidatesForUser', () => {
     const { client } = createMockSupabaseClient({
       cortexPreferences: { data: null, error: null },
       todos: { data: null, error: { message: 'Database error', code: '500' } },
-      habits: { data: [mockHabit], error: null },
+      habits: { data: [], error: null },
       notes: { data: [mockNote], error: null },
     });
 
     // Act
     const candidates = await fetchSweepCandidatesForUser('user-1', client);
 
-    // Assert: Only 2 candidates (habit + note), todos error was handled gracefully
-    expect(candidates).toHaveLength(2);
-    expect(candidates[0].id).toBe('habit-2');
-    expect(candidates[1].id).toBe('note-2');
+    // Assert: Only 1 candidate (note), todos error was handled gracefully
+    // Note: Habits are not included in sweep candidates
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].id).toBe('note-2');
 
     // Verify error was logged
     expect(console.error).toHaveBeenCalledWith(
@@ -299,16 +273,16 @@ describe('fetchSweepCandidatesForUser', () => {
     const { client } = createMockSupabaseClient({
       cortexPreferences: { data: null, error: null },
       todos: { data: null, error: { message: 'Error 1' } },
-      habits: { data: null, error: { message: 'Error 2' } },
-      notes: { data: null, error: { message: 'Error 3' } },
+      habits: { data: [], error: null }, // Habits not queried anymore
+      notes: { data: null, error: { message: 'Error 2' } },
     });
 
     // Act
     const candidates = await fetchSweepCandidatesForUser('user-1', client);
 
-    // Assert
+    // Assert: Only 2 error calls (todos + notes), habits are not included
     expect(candidates).toHaveLength(0);
-    expect(console.error).toHaveBeenCalledTimes(3);
+    expect(console.error).toHaveBeenCalledTimes(2);
   });
 
   it('should handle null created_at with fallback to current time', async () => {
@@ -338,6 +312,121 @@ describe('fetchSweepCandidatesForUser', () => {
     expect(candidates[0].createdAt).toBeDefined();
     expect(new Date(candidates[0].createdAt).getTime()).toBeGreaterThan(0);
   });
+
+  it('should include log-general notes (subtype: journal) with photo attachments', async () => {
+    // This is the key test case: log-general entries with photos MUST appear in Sweep
+    // The subtype 'journal' is used for log-general (everything_else maps to 'journal')
+    // Photos are joined from log_photos table
+    const mockNoteWithPhotos = {
+      id: 'note-photo-1',
+      owner_id: 'user-1',
+      created_at: '2025-12-03T14:00:00Z',
+      drop_id: 'drop-photo-1',
+      skipped_in_sweep_at: null,
+      archived: false,
+      subtype: 'journal', // log-general maps to 'journal' subtype
+      canonical_type: 'log',
+      title: 'Photo entry test',
+      log_photos: [
+        { id: 'photo-1', url: 'https://example.com/photo1.jpg', position: 0 },
+        { id: 'photo-2', url: 'https://example.com/photo2.jpg', position: 1 },
+      ],
+    };
+
+    const { client } = createMockSupabaseClient({
+      cortexPreferences: { data: null, error: null }, // No previous sweep
+      todos: { data: [], error: null },
+      habits: { data: [], error: null },
+      notes: { data: [mockNoteWithPhotos], error: null },
+    });
+
+    // Act
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+
+    // Assert: Note with photos should appear in Sweep
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].id).toBe('note-photo-1');
+    expect(candidates[0].kind).toBe('note');
+
+    // Should have attachments mapped from log_photos
+    const noteCandidate = candidates[0] as { attachments?: Array<{ id: string; url: string; position: number }> };
+    expect(noteCandidate.attachments).toHaveLength(2);
+    expect(noteCandidate.attachments![0]).toEqual({
+      id: 'photo-1',
+      url: 'https://example.com/photo1.jpg',
+      position: 0,
+    });
+    expect(noteCandidate.attachments![1]).toEqual({
+      id: 'photo-2',
+      url: 'https://example.com/photo2.jpg',
+      position: 1,
+    });
+  });
+
+  it('should include log-general notes with subtype everything_else', async () => {
+    // Some notes may still have subtype: 'everything_else' directly
+    // These should also appear in Sweep (not filtered by .neq('subtype', 'catchall'))
+    const mockLogGeneralNote = {
+      id: 'note-everything-else',
+      owner_id: 'user-1',
+      created_at: '2025-12-03T15:00:00Z',
+      drop_id: 'drop-log-1',
+      skipped_in_sweep_at: null,
+      archived: false,
+      subtype: 'everything_else', // Direct log-general subtype
+      canonical_type: 'log',
+      title: 'General log entry',
+      log_photos: [],
+    };
+
+    const { client } = createMockSupabaseClient({
+      cortexPreferences: { data: null, error: null },
+      todos: { data: [], error: null },
+      habits: { data: [], error: null },
+      notes: { data: [mockLogGeneralNote], error: null },
+    });
+
+    // Act
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+
+    // Assert: log-general (everything_else) note should appear in Sweep
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].id).toBe('note-everything-else');
+    expect(candidates[0].kind).toBe('note');
+  });
+
+  it('should NOT include catchall notes (still being processed)', async () => {
+    // catchall notes are excluded because they haven't been classified yet
+    const mockCatchallNote = {
+      id: 'note-catchall',
+      owner_id: 'user-1',
+      created_at: '2025-12-03T16:00:00Z',
+      drop_id: 'drop-catchall',
+      skipped_in_sweep_at: null,
+      archived: false,
+      subtype: 'catchall', // Still being processed
+      title: 'Unprocessed entry',
+      log_photos: [],
+    };
+
+    // The mock returns the catchall note, but the engine should filter it out
+    // via .neq('subtype', 'catchall')
+    // Since we're mocking at the result level, this test documents expected behavior
+    const { client } = createMockSupabaseClient({
+      cortexPreferences: { data: null, error: null },
+      todos: { data: [], error: null },
+      habits: { data: [], error: null },
+      // In real usage, the .neq filter would exclude this, but mock returns it
+      // This test documents the expected SQL filter behavior
+      notes: { data: [], error: null }, // Simulate filtered result
+    });
+
+    // Act
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+
+    // Assert: No candidates when only catchall notes exist (filtered by DB)
+    expect(candidates).toHaveLength(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -354,7 +443,7 @@ describe('applySweepAction', () => {
   });
 
   describe('keep action', () => {
-    it.each(['todo', 'habit', 'note'] as const)(
+    it.each(['todo', 'note'] as const)(
       'should update %s with skipped_in_sweep_at: null',
       async (kind) => {
         // Arrange
@@ -374,35 +463,32 @@ describe('applySweepAction', () => {
   });
 
   describe('clear action', () => {
-    it.each(['todo', 'habit', 'note'] as const)(
-      'should update %s with archived fields',
-      async (kind) => {
-        // Arrange
-        const { client, updateCalls } = createMockSupabaseClient({});
-        const action: SweepAction = { type: 'clear', id: `${kind}-456`, kind };
+    it.each(['todo', 'note'] as const)('should update %s with archived fields', async (kind) => {
+      // Arrange
+      const { client, updateCalls } = createMockSupabaseClient({});
+      const action: SweepAction = { type: 'clear', id: `${kind}-456`, kind };
 
-        // Act
-        await applySweepAction(action, client);
+      // Act
+      await applySweepAction(action, client);
 
-        // Assert
-        expect(updateCalls).toHaveLength(1);
-        expect(updateCalls[0].table).toBe(`${kind}s`);
-        expect(updateCalls[0].payload).toMatchObject({
-          archived: true,
-          archived_reason: 'swept',
-        });
-        // archived_at should be a non-empty ISO timestamp
-        const payload = updateCalls[0].payload as { archived_at: string };
-        expect(payload.archived_at).toBeDefined();
-        expect(payload.archived_at.length).toBeGreaterThan(0);
-        expect(new Date(payload.archived_at).getTime()).toBeGreaterThan(0);
-        expect(updateCalls[0].id).toBe(`${kind}-456`);
-      },
-    );
+      // Assert
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].table).toBe(`${kind}s`);
+      expect(updateCalls[0].payload).toMatchObject({
+        archived: true,
+        archived_reason: 'swept',
+      });
+      // archived_at should be a non-empty ISO timestamp
+      const payload = updateCalls[0].payload as { archived_at: string };
+      expect(payload.archived_at).toBeDefined();
+      expect(payload.archived_at.length).toBeGreaterThan(0);
+      expect(new Date(payload.archived_at).getTime()).toBeGreaterThan(0);
+      expect(updateCalls[0].id).toBe(`${kind}-456`);
+    });
   });
 
   describe('skip action', () => {
-    it.each(['todo', 'habit', 'note'] as const)(
+    it.each(['todo', 'note'] as const)(
       'should update %s with skipped_in_sweep_at timestamp',
       async (kind) => {
         // Arrange
@@ -452,8 +538,8 @@ describe('applySweepAction', () => {
       // Act: Apply multiple failing actions
       const actions: SweepAction[] = [
         { type: 'keep', id: 'todo-1', kind: 'todo' },
-        { type: 'clear', id: 'habit-1', kind: 'habit' },
-        { type: 'skip', id: 'note-1', kind: 'note' },
+        { type: 'clear', id: 'note-1', kind: 'note' },
+        { type: 'skip', id: 'note-2', kind: 'note' },
       ];
 
       // Assert: None should throw

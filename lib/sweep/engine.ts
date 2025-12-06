@@ -13,7 +13,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
-import type { SweepCandidate, SweepEntityKind } from './types';
+import type { SweepCandidate, SweepEntityKind, SweepAttachment } from './types';
+import { buildSweepTodoOrClause, getEffectiveDueDay } from './todoFilters';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Action Types
@@ -75,12 +76,28 @@ export async function getLastSweepCompletedAt(
  * Candidates are items that meet ALL of the following criteria:
  * 1. Belong to the user (owner_id matches)
  * 2. Are NOT archived
- * 3. Meet one of these time-based conditions:
- *    - Were created AFTER the last sweep completed, OR
+ * 3. Meet one of these conditions:
+ *    - **Todos:** Are DUE TODAY or OVERDUE (due_day <= today) → ALWAYS included
+ *    - **Notes:** Created AFTER the last sweep completed → ALWAYS included
+ *    - Were created AFTER the last sweep completed (both types), OR
  *    - Were previously skipped (skipped_in_sweep_at is not null)
  *
- * For first-time users (no previous sweep), we use a 48-hour lookback window
- * to avoid overwhelming them with old items.
+ * For first-time users (no previous sweep):
+ * - Todos: Use 48-hour lookback window for creation time filter
+ * - Notes: Include only notes created TODAY
+ *
+ * **Why include due-today and overdue todos unconditionally?**
+ * Todos that are due today or overdue represent commitments that need attention.
+ * They should always appear in Sweep regardless of when they were created,
+ * so users can decide to keep, clear, or reschedule them.
+ *
+ * This logic is ALIGNED with the Today/NOW page's sweep selectors
+ * (see lib/today/sweepSelectors.ts and lib/sweep/todoFilters.ts).
+ *
+ * **Why include all new notes/captures?**
+ * Every Mind Drop capture should be reviewed at least once in Sweep.
+ * This ensures users don't accumulate unreviewed captures. After the first
+ * sweep review (keep or clear), the note won't reappear unless skipped.
  *
  * **Why include skipped items?**
  * When a user clicks "Skip" during a sweep, we set `skipped_in_sweep_at` on that item.
@@ -88,9 +105,14 @@ export async function getLastSweepCompletedAt(
  * even if it was created before the last sweep timestamp.
  *
  * **Entity-specific filters:**
- * - Todos: All non-archived todos (any canonical_type that maps to a task)
- * - Habits: Active habits only (completed_at is null)
- * - Notes: Only logs/journals (subtype = 'log' or canonical_type in ['log', 'journal'])
+ * - Todos: Non-archived, non-completed. Due today OR overdue ALWAYS included.
+ * - Notes: Non-archived, non-catchall. New since last sweep ALWAYS included.
+ * - Habits: NOT included in sweep candidates
+ *
+ * **Computed metadata:**
+ * - isOverdue: due_day < today (todos only)
+ * - isDueToday: due_day == today (todos only)
+ * - isCreatedToday: createdAt is today (all items)
  *
  * @param ownerId - The user's ID
  * @param client - Supabase client instance
@@ -113,29 +135,41 @@ export async function fetchSweepCandidatesForUser(
   // Fetch TODOS
   // ─────────────────────────────────────────────────────────────────────────
   try {
+    // Get today's date string for due date comparison
+    const todayDay = new Date().toISOString().split('T')[0];
+
+    // Build the OR clause using shared filter logic
+    // This aligns with lib/today/sweepSelectors.ts for consistency
+    const todoOrClause = buildSweepTodoOrClause(todayDay, cutoffTimestamp);
+
     // Query todos that are:
     // - Owned by user
     // - Not archived
     // - Not completed (status !== 'completed')
-    // - Either new (created after cutoff) OR previously skipped
+    // - AND one of:
+    //   - Due today or overdue (due_day <= today) → ALWAYS include
+    //   - New (created after cutoff)
+    //   - Previously skipped (skipped_in_sweep_at is set)
     const { data: todos, error: todoError } = await client
       .from('todos')
       .select('*')
       .eq('owner_id', ownerId)
       .eq('archived', false)
       .neq('status', 'completed')
-      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
+      .or(todoOrClause);
 
     if (todoError) {
       console.error('[Sweep] Failed to fetch todos:', todoError);
     } else if (todos) {
-      // Get today's date string for overdue comparison
-      const todayDay = new Date().toISOString().split('T')[0];
-
       for (const row of todos) {
-        // Compute isOverdue: due_day (or due_date fallback) < today
-        const dueDay = row.due_day ?? (row.due_date ? row.due_date.split('T')[0] : null);
+        // Compute isOverdue and isDueToday using shared helper
+        const dueDay = getEffectiveDueDay(row);
         const isOverdue = dueDay !== null && dueDay < todayDay;
+        const isDueToday = dueDay !== null && dueDay === todayDay;
+
+        // Compute isCreatedToday: createdAt is on today's date
+        const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
+        const isCreatedToday = createdDay === todayDay;
 
         candidates.push({
           id: row.id,
@@ -144,6 +178,8 @@ export async function fetchSweepCandidatesForUser(
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
           isOverdue,
+          isDueToday,
+          isCreatedToday,
           raw: row,
         });
       }
@@ -153,63 +189,56 @@ export async function fetchSweepCandidatesForUser(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fetch HABITS
+  // Fetch NOTES (all Mind Drop captures)
   // ─────────────────────────────────────────────────────────────────────────
   try {
-    // Query habits that are:
-    // - Owned by user
-    // - Not completed (completed_at is null = active habit)
-    // - Either new (created after cutoff) OR previously skipped
-    const { data: habits, error: habitError } = await client
-      .from('habits')
-      .select('*')
-      .eq('owner_id', ownerId)
-      .is('completed_at', null)
-      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
+    // Get today's date string for first-time user fallback
+    const todayDay = new Date().toISOString().split('T')[0];
 
-    if (habitError) {
-      console.error('[Sweep] Failed to fetch habits:', habitError);
-    } else if (habits) {
-      for (const row of habits) {
-        candidates.push({
-          id: row.id,
-          kind: 'habit',
-          createdAt: row.created_at ?? new Date().toISOString(),
-          dropId: row.drop_id,
-          skippedInSweepAt: row.skipped_in_sweep_at,
-          isOverdue: false, // Habits don't have due dates
-          raw: row,
-        });
-      }
-    }
-  } catch (error) {
-    console.error('[Sweep] Unexpected error fetching habits:', error);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Fetch NOTES (logs/journals only)
-  // ─────────────────────────────────────────────────────────────────────────
-  try {
-    // Query notes that are:
-    // - Owned by user
-    // - Not archived
-    // - Are logs/journals (subtype = 'log' OR canonical_type in ['log', 'journal'])
-    // - Either new (created after cutoff) OR previously skipped
+    // For notes, we want to include ALL Mind Drop captures that:
+    // 1. Are not archived
+    // 2. Meet one of these conditions:
+    //    - Created after last sweep completed (new captures)
+    //    - Previously skipped (skipped_in_sweep_at is set)
+    //    - For first-time users (no lastSweepAt): created today
     //
-    // We include both subtype and canonical_type checks for compatibility
-    // with both the old and new classification systems.
+    // This ensures every Mind Drop entry gets at least one sweep review.
+    //
+    // Note: We exclude 'catchall' subtype as those are still being processed
+    // and haven't been converted to a canonical type yet.
+    const noteOrClause =
+      lastSweepAt != null
+        ? `created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`
+        : `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
     const { data: notes, error: noteError } = await client
       .from('notes')
-      .select('*')
+      .select('*, log_photos(id, url, position)')
       .eq('owner_id', ownerId)
       .eq('archived', false)
-      .or('subtype.eq.log,canonical_type.eq.log,canonical_type.eq.journal')
-      .or(`created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`);
+      .neq('subtype', 'catchall') // Exclude unprocessed catchall items
+      .or(noteOrClause);
 
     if (noteError) {
       console.error('[Sweep] Failed to fetch notes:', noteError);
     } else if (notes) {
       for (const row of notes) {
+        // Compute isCreatedToday: createdAt is on today's date
+        const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
+        const isCreatedToday = createdDay === todayDay;
+
+        // Extract attachments from the joined log_photos
+        const rawPhotos = (row as any).log_photos;
+        const attachments: SweepAttachment[] | undefined = Array.isArray(rawPhotos) && rawPhotos.length > 0
+          ? rawPhotos
+              .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+              .map((photo: any) => ({
+                id: photo.id,
+                url: photo.url,
+                position: photo.position ?? 0,
+              }))
+          : undefined;
+
         candidates.push({
           id: row.id,
           kind: 'note',
@@ -217,7 +246,10 @@ export async function fetchSweepCandidatesForUser(
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
           isOverdue: false, // Notes don't have due dates
+          isDueToday: false, // Notes don't have due dates
+          isCreatedToday,
           raw: row,
+          attachments,
         });
       }
     }
@@ -236,16 +268,32 @@ export async function fetchSweepCandidatesForUser(
     return dateA - dateB;
   });
 
+  // Enhanced diagnostic logging for debugging count discrepancy
+  const todoCandidates = candidates.filter((c) => c.kind === 'todo');
+  const noteCandidates = candidates.filter((c) => c.kind === 'note');
+
   console.log('[Sweep] fetchSweepCandidatesForUser:', {
     ownerId,
     cutoffTimestamp,
     lastSweepAt,
     candidateCount: candidates.length,
     breakdown: {
-      todos: candidates.filter((c) => c.kind === 'todo').length,
-      habits: candidates.filter((c) => c.kind === 'habit').length,
-      notes: candidates.filter((c) => c.kind === 'note').length,
+      todos: todoCandidates.length,
+      notes: noteCandidates.length,
     },
+    todoDetails: todoCandidates.map((c) => ({
+      id: c.id.slice(0, 8),
+      isOverdue: c.isOverdue,
+      isDueToday: c.isDueToday,
+      isCreatedToday: c.isCreatedToday,
+      dueDay: (c.raw as any)?.due_day,
+    })),
+    noteDetails: noteCandidates.map((c) => ({
+      id: c.id.slice(0, 8),
+      subtype: (c.raw as any)?.subtype,
+      isCreatedToday: c.isCreatedToday,
+      hasPhotos: ((c as any).attachments?.length ?? 0) > 0,
+    })),
   });
 
   return candidates;
@@ -354,7 +402,7 @@ export async function applySweepAction(
 export async function markSweepCompleted(
   ownerId: string,
   client: SupabaseClient<Database>,
-  summary: { kept: number; cleared: number; skipped: number },
+  summary: { kept: number; cleared: number },
 ): Promise<void> {
   const now = new Date().toISOString();
 
@@ -394,13 +442,12 @@ export async function markSweepCompleted(
 
 /**
  * Map entity kind to database table name.
+ * Note: 'habit' was removed - habits are no longer included in sweep candidates.
  */
-function getTableName(kind: SweepEntityKind): 'todos' | 'habits' | 'notes' {
+function getTableName(kind: SweepEntityKind): 'todos' | 'notes' {
   switch (kind) {
     case 'todo':
       return 'todos';
-    case 'habit':
-      return 'habits';
     case 'note':
       return 'notes';
   }

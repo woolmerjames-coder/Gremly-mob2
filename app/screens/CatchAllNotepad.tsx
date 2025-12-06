@@ -575,6 +575,81 @@ export async function saveToUnsortedTray(
   }
 }
 
+/**
+ * uploadPhotosToNote - Upload photo attachments to a note via Supabase storage
+ *
+ * This function handles the full photo upload flow:
+ * 1. Fetch the file from local URI
+ * 2. Upload to Supabase storage (log-photos bucket)
+ * 3. Insert record into log_photos table
+ *
+ * Called after a note is created via Mind Drop pipeline when photos are attached.
+ */
+export async function uploadPhotosToNote(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  repo: any,
+  noteId: string,
+  userId: string,
+  photoUris: string[],
+): Promise<void> {
+  if (!photoUris || photoUris.length === 0) return;
+  if (!noteId || !userId) {
+    console.warn('[uploadPhotosToNote] Missing noteId or userId');
+    return;
+  }
+
+  console.log('[MindDrop][Photos] Uploading', photoUris.length, 'photos for note:', noteId);
+
+  for (let i = 0; i < photoUris.length; i++) {
+    const photoUri = photoUris[i];
+    if (!photoUri.startsWith('file://')) {
+      console.warn('[MindDrop][Photos] Skipping non-local URI:', photoUri.substring(0, 50));
+      continue;
+    }
+
+    try {
+      // Generate unique storage path
+      const fileExt = photoUri.split('.').pop() || 'jpg';
+      const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
+
+      // Fetch file from local URI
+      const response = await fetch(photoUri);
+      const arrayBuffer = await response.arrayBuffer();
+
+      // Upload to Supabase storage
+      const { error: uploadError } = await supabase.storage
+        .from('log-photos')
+        .upload(storagePath, arrayBuffer, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error('[MindDrop][Photos] Failed to upload photo:', uploadError);
+        continue;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage.from('log-photos').getPublicUrl(storagePath);
+
+      const publicUrl = urlData?.publicUrl || storagePath;
+
+      // Insert into log_photos table
+      await repo.insertLogPhoto({
+        noteId,
+        url: publicUrl,
+        position: i,
+      });
+
+      console.log('[MindDrop][Photos] Successfully uploaded photo', i + 1, 'of', photoUris.length);
+    } catch (err) {
+      console.error('[MindDrop][Photos] Error uploading photo:', err);
+      // Continue with remaining photos
+    }
+  }
+}
+
 type UpdateFromChipParams = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   repo: any;
@@ -2107,6 +2182,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
+  // Photo drop: Track if current submission has photos (for classification default to log-general)
+  const currentSubmissionHasPhotosRef = useRef(false);
 
   // Auto-dismiss photo text nudge after 5 seconds
   useEffect(() => {
@@ -2765,7 +2842,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           uiSurface: 'overlay',
           lane: 'catchall',
         };
-        decision = await decideWithContext({ text: cleanedText }, ctx);
+        // Photo drop rule: Pass hasAttachments to force log-general for uncertain classifications
+        decision = await decideWithContext(
+          { text: cleanedText, hasAttachments: currentSubmissionHasPhotosRef.current },
+          ctx,
+        );
         step(trace, 'decide:result', {
           mode: decision.mode,
           confidence: decision.confidence,
@@ -3516,6 +3597,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     dropId: string;
     validSourceMessageId: string | null | undefined;
     textHash: string;
+    photoUris?: string[]; // Optional photo attachments to upload after note creation
   };
 
   async function runMindDropPipeline(params: MindDropPipelineParams): Promise<{
@@ -3523,7 +3605,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     result: SaveResult | null;
     error?: any;
   }> {
-    const { trimmed, dropId, validSourceMessageId, textHash } = params;
+    const { trimmed, dropId, validSourceMessageId, textHash, photoUris } = params;
 
     try {
       // We'll attempt performSave() up to 2 times total.
@@ -3724,6 +3806,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } catch (err) {
         // Non-critical: log but don't fail the pipeline
         console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flags:', err);
+      }
+
+      // Upload photos to created notes (if any)
+      // Photos are only attached to notes (logs), not todos or habits
+      if (photoUris && photoUris.length > 0) {
+        const createdNotes = finalResult.created.notes ?? [];
+        if (createdNotes.length > 0) {
+          // Upload photos to the first created note
+          const noteId = createdNotes[0];
+          const currentUserId = user?.id ?? userId;
+          if (noteId && currentUserId) {
+            try {
+              await uploadPhotosToNote(repo, noteId, currentUserId, photoUris);
+              console.log('[MindDrop][Pipeline] Photos uploaded successfully for note:', noteId);
+            } catch (err) {
+              // Non-critical: note is created, photos just failed to upload
+              console.warn('[MindDrop][Pipeline] Failed to upload photos:', err);
+            }
+          }
+        } else {
+          console.warn('[MindDrop][Pipeline] Photos provided but no note was created');
+        }
       }
 
       return { success: true, result: finalResult };
@@ -4160,22 +4264,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const now = Date.now();
     const trimmed = note.trim();
 
-    // Photos with text now flow through the same pipeline as text-only submissions
-    // The photo text requirement guard (in handleSubmit) ensures trimmed.length > 0 when photos exist
-    // Photos will be attached to the created note via the normal pipeline flow
+    // Photos go through the normal Mind Drop pipeline (no overlay shortcut)
+    // They will be uploaded after the note is created via uploadPhotosToNote
+    const hasPhotos = pendingPhotoUris.length > 0;
 
-    if (!trimmed) {
+    // Track if current submission has photos for classification default to log-general
+    currentSubmissionHasPhotosRef.current = hasPhotos;
+
+    // For photo-only drops (no text), create a minimal placeholder text
+    // This ensures the note has some content for display in lists
+    const effectiveText = trimmed || (hasPhotos ? '📷 Photo capture' : '');
+
+    if (!effectiveText) {
       setIsSubmitting(false);
       submitLockRef.current = false;
+      currentSubmissionHasPhotosRef.current = false;
       return;
     }
 
     // Phase 1B: Text-hash-based mutex to prevent rapid duplicate submissions
-    const textHash = hashString(trimmed);
+    const textHash = hashString(effectiveText);
     if (submissionMutex.current.get(textHash)) {
       console.log('[MindDrop] Duplicate submission blocked', textHash);
       setIsSubmitting(false);
       submitLockRef.current = false;
+      currentSubmissionHasPhotosRef.current = false;
       return;
     }
 
@@ -4186,7 +4299,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const MIN_SUBMIT_INTERVAL_MS = 2000;
     if (
       now - lastSubmitAt.current < MIN_SUBMIT_INTERVAL_MS &&
-      trimmed === lastSubmittedTextRef.current
+      effectiveText === lastSubmittedTextRef.current
     ) {
       setIsSubmitting(false);
       submitLockRef.current = false;
@@ -4200,7 +4313,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     // Duplicate prevention: if same text as last submission and we cleared state but unsorted note exists
     if (
-      trimmed === lastSubmittedTextRef.current &&
+      effectiveText === lastSubmittedTextRef.current &&
       unsortedIdRef.current == null &&
       lastUnsortedIdRef.current != null
     ) {
@@ -4238,7 +4351,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           });
         } else {
           // Create new unsorted note
-          offlineId = await saveToUnsortedTray(repo, trimmed, {
+          offlineId = await saveToUnsortedTray(repo, effectiveText, {
             sourceMessageId: validSourceMessageId,
             dropId,
           });
@@ -4292,34 +4405,39 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
         // OPTIMISTIC UI: Add pending item immediately for instant feedback
         // Use simple heuristic to predict kind (will be replaced when real entity appears)
-        const lowerText = trimmed.toLowerCase();
+        // For photo drops, default to note (log) kind
+        const lowerText = effectiveText.toLowerCase();
         const seemsLikeTodo =
-          /\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
-          /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText);
-        const seemsLikeHabit = /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(
-          lowerText,
-        );
+          !hasPhotos &&
+          (/\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
+            /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText));
+        const seemsLikeHabit =
+          !hasPhotos && /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
         const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
 
         addPendingItemRef.current?.({
           dropId,
-          text: trimmed,
+          text: effectiveText,
           kind: probableKind,
           noteSubtype: probableKind === 'note' ? 'everything_else' : undefined,
         });
 
+        // Capture photos for background upload (they will be cleared from state)
+        const photosToUpload = hasPhotos ? [...pendingPhotoUris] : undefined;
+
         void runMindDropPipeline({
-          trimmed,
+          trimmed: effectiveText,
           dropId,
           validSourceMessageId,
           textHash,
+          photoUris: photosToUpload,
         });
 
         // Immediately reset UI state
         resetState();
         setIsSubmitting(false);
         submitLockRef.current = false;
-        lastSubmittedTextRef.current = trimmed;
+        lastSubmittedTextRef.current = effectiveText;
 
         // Keep submission mutex behavior: prevent duplicate submissions for same text
         setTimeout(() => {
@@ -4330,12 +4448,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
+      // Capture photos for background upload (they will be cleared from state)
+      const photosToUpload = hasPhotos ? [...pendingPhotoUris] : undefined;
+
       // V2 BLOCKING MODE: Await the full pipeline before returning
       const pipelineResult = await runMindDropPipeline({
-        trimmed,
+        trimmed: effectiveText,
         dropId,
         validSourceMessageId,
         textHash,
+        photoUris: photosToUpload,
       });
 
       if (!pipelineResult.success) {
@@ -4388,6 +4510,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } finally {
       setIsSubmitting(false);
       submitLockRef.current = false;
+      currentSubmissionHasPhotosRef.current = false; // Reset photo tracking
       // Clear mutex after 2 second window
       setTimeout(() => {
         submissionMutex.current.delete(textHash);
@@ -4397,7 +4520,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     note,
     isSubmitting,
     pendingPhotoUris,
-    overlay,
     performSave,
     repo,
     showActionToast,
@@ -4407,6 +4529,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     triggerRecentRefresh,
     TOASTS_ON,
     ensureSubmissionAndDropIds,
+    user,
+    userId,
   ]);
 
   // Photo Drop handlers
@@ -4487,12 +4611,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
-    // Guard: require text when photos are attached
-    const trimmed = note.trim();
-    if (pendingPhotoUris.length > 0 && trimmed.length === 0) {
-      setShowPhotoTextNudge(true);
-      return;
-    }
+    // Photo-only or photo+text submissions go through the normal Mind Drop pipeline
+    // Photos are uploaded after the note is created via uploadPhotosToNote
 
     const needsDelay = uiMode === 'guided';
 
@@ -4509,7 +4629,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } else {
       void onSubmit();
     }
-  }, [isSubmitting, isThinking, uiMode, note, onSubmit]);
+  }, [isSubmitting, isThinking, uiMode, note, onSubmit, pendingPhotoUris.length]);
 
   const legacyUI = React.useMemo(() => {
     const statsVisible = organizedToday > 0;

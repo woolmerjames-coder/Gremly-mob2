@@ -173,10 +173,11 @@ export interface CortexResponse {
 
 /**
  * Input for cortexDecide - either free text or structured data
+ * hasAttachments: When true, forces log-general classification for photo drops
  */
 export type DecideInput =
-  | { text: string; structured?: undefined }
-  | { text?: undefined; structured: Record<string, any> };
+  | { text: string; structured?: undefined; hasAttachments?: boolean }
+  | { text?: undefined; structured: Record<string, any>; hasAttachments?: boolean };
 
 /**
  * Build MindDropDecision from cortexDecide analysis
@@ -195,6 +196,7 @@ export type DecideInput =
  * @param canonicalSubtype - Log subtype if kind is 'log'
  * @param tags - AI-derived tags
  * @param aiConfidence - AI confidence score 0-100 (optional)
+ * @param hasAttachments - When true, forces log-general for uncertain classifications (photo drops)
  * @returns MindDropDecision object for unified pipeline
  */
 function buildMindDropDecision(
@@ -205,6 +207,7 @@ function buildMindDropDecision(
   tags?: string[],
   aiConfidence?: number,
   canonicalIntent?: CanonicalIntentResult,
+  hasAttachments?: boolean,
 ): MindDropDecision {
   // Map 'unknown' to 'none' for probableKind
   let probableKind: MindDropDecision['probableKind'] = probable === 'unknown' ? 'none' : probable;
@@ -214,12 +217,32 @@ function buildMindDropDecision(
     probableKind = canonicalIntent.probableKind;
   }
 
+  // Photo drop rule: When attachments are present and classification is uncertain,
+  // default to log-general as a safe baseline. This ensures photo drops always have
+  // a valid type even before AI refinement or if AI is unsure.
+  // Only override for uncertain cases - keep AI's answer if it's confident (>= 0.8).
+  // Check BEFORE any overrides: uncertain means low confidence OR unknown type
+  const isUncertainForPhotoRule =
+    confidence < 0.8 || probable === 'unknown' || probableKind === 'none';
+  const shouldForceLogForPhotoDrop = hasAttachments && isUncertainForPhotoRule;
+
+  let effectiveSubtype = canonicalSubtype;
+  if (shouldForceLogForPhotoDrop) {
+    probableKind = 'log';
+    effectiveSubtype = 'everything_else'; // log-general
+    console.log(
+      '[buildMindDropDecision] Photo drop defaulting to log-general due to uncertain classification',
+    );
+  }
+
   // needsClarification = true when mode is 'ask' OR when canonicalIntent explicitly requires clarification
+  // For photo drops with forced log-general, don't require clarification (auto-create as log)
   const needsClarification =
-    mode === 'ask' || canonicalIntent?.chipDecision?.needsClarification || false;
+    (mode === 'ask' || canonicalIntent?.chipDecision?.needsClarification || false) &&
+    !shouldForceLogForPhotoDrop;
 
   // Extract logSubtype only if probableKind is 'log'
-  const logSubtype = probableKind === 'log' ? canonicalSubtype : undefined;
+  const logSubtype = probableKind === 'log' ? effectiveSubtype : undefined;
 
   return {
     probableKind,
@@ -1004,6 +1027,7 @@ export async function cortexDecide(
     // Build unified Mind Drop decision for new pipeline
     // Phase 11.8: Pass through AI confidence from intent detection (normalized to 0-1 scale)
     // Pass canonicalIntent to ensure probableKind and needsClarification are correctly set
+    // Pass hasAttachments to enable photo drop default to log-general
     const mindDropDecision = buildMindDropDecision(
       probable,
       confidence,
@@ -1012,15 +1036,48 @@ export async function cortexDecide(
       engineTags,
       detected.aiConfidence, // Phase 11.8: AI confidence 0-1 scale
       canonicalIntent, // Pass canonicalIntent for probableKind and needsClarification
+      input.hasAttachments, // Photo drop rule: default to log-general when uncertain
     );
+
+    // Photo drop rule: When hasAttachments is true and we forced log-general,
+    // override mode to 'auto' and add create.note action to ensure auto-creation
+    let finalMode = mode;
+    let finalActions = mode === 'auto' ? effectiveCandidateActions : [];
+    let finalCanonicalType = effectiveCanonicalType;
+    let finalCanonicalSubtype = effectiveCanonicalSubtype;
+
+    if (
+      input.hasAttachments &&
+      mindDropDecision.probableKind === 'log' &&
+      !mindDropDecision.needsClarification
+    ) {
+      // Force auto mode for photo drops that were defaulted to log-general
+      finalMode = 'auto';
+      finalCanonicalType = 'log';
+      finalCanonicalSubtype = 'everything_else';
+      // Ensure we have a create.note action
+      if (!finalActions.some((a) => a.type === 'create.note')) {
+        finalActions = [
+          {
+            type: 'create.note' as const,
+            payload: {
+              text: userText,
+              subtype: 'everything_else' as any,
+              spaceId: null,
+            },
+          },
+        ];
+      }
+      console.log('[cortexDecide] Photo drop forced to auto mode with log-general');
+    }
 
     const result: CortexResponse = {
       ...safeResult,
-      actions: mode === 'auto' ? effectiveCandidateActions : [],
+      actions: finalActions,
       explanation,
       suggestions,
       confidence,
-      mode,
+      mode: finalMode,
       mindDropDecision, // New unified decision structure
       rawSentence: userText, // Phase 2A: Original user input for background prefill
       meta: {
@@ -1029,8 +1086,8 @@ export async function cortexDecide(
           (chipSuggestions.length > 0 || inMidConfidenceBand) &&
           suggestions.some((suggestion) => typeof suggestion !== 'string'),
         candidateActions: effectiveCandidateActions,
-        canonicalType: effectiveCanonicalType,
-        canonicalSubtype: effectiveCanonicalSubtype,
+        canonicalType: finalCanonicalType,
+        canonicalSubtype: finalCanonicalSubtype,
         listHeuristicTriggered: listHeuristicApplied,
         ideaHeuristicTriggered: ideaHeuristicApplied,
         heuristics: heuristicsMeta,

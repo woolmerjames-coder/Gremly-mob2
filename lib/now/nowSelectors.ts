@@ -433,8 +433,10 @@ export function getLockedItems(
     if (!isLocked) continue;
 
     // Skip completed or archived items
+    // Check both status field and archived boolean (sweep sets archived=true without status change)
     const status = (entity as any).status;
-    if (status === 'completed' || status === 'archived') continue;
+    const isArchived = (entity as any).archived === true;
+    if (status === 'completed' || status === 'archived' || isArchived) continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;
@@ -497,8 +499,10 @@ export function getActiveTodayItems(
     if (lockedIds.has(entity.id)) continue;
 
     // Skip completed or archived items
+    // Check both status field and archived boolean (sweep sets archived=true without status change)
     const status = (entity as any).status;
-    if (status === 'completed' || status === 'archived') continue;
+    const isArchived = (entity as any).archived === true;
+    if (status === 'completed' || status === 'archived' || isArchived) continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;
@@ -566,8 +570,10 @@ export function getFutureItems(
     if (todayIds.has(entity.id)) continue;
 
     // Skip completed or archived items
+    // Check both status field and archived boolean (sweep sets archived=true without status change)
     const status = (entity as any).status;
-    if (status === 'completed' || status === 'archived') continue;
+    const isArchived = (entity as any).archived === true;
+    if (status === 'completed' || status === 'archived' || isArchived) continue;
 
     if (entity.type === 'habit') {
       const habit = entity as Habit;

@@ -9,9 +9,9 @@
  * - Title with pencil icon at end of row
  * - Left-aligned underline below title (40% width)
  * - Type chip + timestamp metadata below underline
- * - Action center: date control pill + skip button grouped together
- * - Swipe cues at bottom: "← Not needed anymore" / "Keep for later →"
- * - Swipe gestures with subtle color hint backgrounds
+ * - Primary action pill (context-aware based on item type)
+ * - Swipe cues: Contextual based on item type (todos vs notes)
+ * - Swipe gestures: left = clear, right = keep
  */
 
 import React, { useCallback, useState, useMemo } from 'react';
@@ -25,6 +25,7 @@ import {
   Platform,
   Switch,
   ScrollView,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -42,15 +43,14 @@ import Animated, {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   Pencil,
-  Clock,
   Archive,
   Check,
   Calendar,
   ArrowRight,
-  Repeat,
   CheckSquare,
   BookOpen,
   MoreHorizontal,
+  Camera,
 } from 'lucide-react-native';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { Text, Button, Box } from '../../ui';
@@ -67,8 +67,6 @@ import { getPrimaryActionForCandidate } from '../../lib/sweep/types';
 export type SweepCtaKind =
   | 'todo_add_due_date'
   | 'todo_adjust_due_date'
-  | 'habit_add_start_date'
-  | 'habit_adjust_start_date'
   | 'log_convert_to_todo'
   | 'none';
 
@@ -109,11 +107,9 @@ export interface SweepCardProps {
   onKeep: () => void;
   /** Called when user wants to clear/archive the item */
   onClear: () => void;
-  /** Called when user wants to skip until next sweep */
-  onSkip: () => void;
   /** Called when user wants to edit/fix the item (opens full overlay) */
   onOpenEdit: () => void;
-  /** Called when user taps the primary action button (e.g., add date, review habit) */
+  /** Called when user taps the primary action button (e.g., add date, convert to todo) */
   onPrimaryAction?: (config: SweepPrimaryActionConfig, candidate: SweepCandidate) => void;
   /** Called when user wants to convert log to todo (opens overlay in convert mode) */
   onConvertToTodo?: () => void;
@@ -137,15 +133,6 @@ function computeCtaInfo(candidate: SweepCandidate): { kind: SweepCtaKind; label:
         return { kind: 'todo_add_due_date', label: 'Add date' };
       }
       return { kind: 'todo_adjust_due_date', label: 'Review date' };
-    }
-
-    case 'habit': {
-      // Check if habit has a start_date
-      const hasStartDate = !!candidate.raw.start_date;
-      if (!hasStartDate) {
-        return { kind: 'habit_add_start_date', label: 'Review habit' };
-      }
-      return { kind: 'habit_adjust_start_date', label: 'Review habit' };
     }
 
     case 'note': {
@@ -179,8 +166,6 @@ function getTypeChipLabel(candidate: SweepCandidate): string {
   switch (candidate.kind) {
     case 'todo':
       return 'To-Do';
-    case 'habit':
-      return 'Habit';
     case 'note': {
       // Check if it's a log/journal type from the raw data
       const noteRaw = candidate.raw;
@@ -199,8 +184,6 @@ function getCandidateTitle(candidate: SweepCandidate): string {
   switch (candidate.kind) {
     case 'todo':
       return candidate.raw.name || 'Untitled task';
-    case 'habit':
-      return candidate.raw.name || 'Untitled habit';
     case 'note':
       return candidate.raw.title || 'Untitled note';
   }
@@ -213,8 +196,6 @@ function getCandidateBody(candidate: SweepCandidate): string | null {
   switch (candidate.kind) {
     case 'todo':
       return candidate.raw.notes || null;
-    case 'habit':
-      return candidate.raw.notes || candidate.raw.why_string || null;
     case 'note':
       return candidate.raw.body || null;
   }
@@ -273,7 +254,6 @@ export function SweepCard({
   total: _total,
   onKeep,
   onClear,
-  onSkip,
   onOpenEdit,
   onPrimaryAction,
   onConvertToTodo,
@@ -285,6 +265,21 @@ export function SweepCard({
   const body = getCandidateBody(candidate);
   const timestamp = formatCreatedTimestamp(candidate.createdAt);
 
+  // Compute metadata badge based on priority: Overdue > Due Today > Entered Today
+  // Note: Overdue and Due Today only apply to todos (kind === 'todo')
+  const metadataBadge = useMemo(() => {
+    if (candidate.kind === 'todo' && candidate.isOverdue) {
+      return { label: 'Overdue', style: 'overdue' as const };
+    }
+    if (candidate.kind === 'todo' && candidate.isDueToday) {
+      return { label: 'Due today', style: 'dueToday' as const };
+    }
+    if (candidate.isCreatedToday) {
+      return { label: 'Entered today', style: 'enteredToday' as const };
+    }
+    return null;
+  }, [candidate.kind, candidate.isOverdue, candidate.isDueToday, candidate.isCreatedToday]);
+
   // Compute primary action config from the new centralized helper
   const primaryConfig = useMemo(() => getPrimaryActionForCandidate(candidate), [candidate]);
 
@@ -294,6 +289,19 @@ export function SweepCard({
   // Truncate body preview to ~100 chars
   const bodyPreview = body && body.length > 100 ? `${body.slice(0, 100)}…` : body;
 
+  // Photo attachments for note candidates
+  const hasAttachments = candidate.kind === 'note' && 
+    candidate.attachments && 
+    candidate.attachments.length > 0;
+  const firstAttachment = hasAttachments ? candidate.attachments![0] : null;
+  const attachmentCount = hasAttachments ? candidate.attachments!.length : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Photo Preview State
+  // ─────────────────────────────────────────────────────────────────────────
+  const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false);
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+
   // ─────────────────────────────────────────────────────────────────────────
   // Inline Date Picker State
   // ─────────────────────────────────────────────────────────────────────────
@@ -302,10 +310,6 @@ export function SweepCard({
     // Pre-fill with existing date if adjusting
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
-      return parsed || new Date();
-    }
-    if (candidate.kind === 'habit' && candidate.raw.start_date) {
-      const parsed = parseDayString(candidate.raw.start_date);
       return parsed || new Date();
     }
     return new Date();
@@ -326,9 +330,6 @@ export function SweepCard({
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
       setSelectedDate(parsed || new Date());
-    } else if (candidate.kind === 'habit' && candidate.raw.start_date) {
-      const parsed = parseDayString(candidate.raw.start_date);
-      setSelectedDate(parsed || new Date());
     } else {
       setSelectedDate(new Date());
     }
@@ -344,6 +345,19 @@ export function SweepCard({
   }, [primaryConfig, onPrimaryAction, candidate]);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Photo Preview Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleOpenPhotoPreview = useCallback((url: string) => {
+    setPreviewPhotoUrl(url);
+    setIsPhotoPreviewOpen(true);
+  }, []);
+
+  const handleClosePhotoPreview = useCallback(() => {
+    setIsPhotoPreviewOpen(false);
+    setPreviewPhotoUrl(null);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Date Picker Handlers
   // ─────────────────────────────────────────────────────────────────────────
   const handleMainCtaPress = useCallback(() => {
@@ -355,12 +369,7 @@ export function SweepCard({
         // Fallback to regular edit if no convert handler
         onOpenEdit();
       }
-    } else if (
-      ctaKind === 'todo_add_due_date' ||
-      ctaKind === 'todo_adjust_due_date' ||
-      ctaKind === 'habit_add_start_date' ||
-      ctaKind === 'habit_adjust_start_date'
-    ) {
+    } else if (ctaKind === 'todo_add_due_date' || ctaKind === 'todo_adjust_due_date') {
       setShowDatePicker(true);
     }
   }, [ctaKind, onConvertToTodo, onOpenEdit]);
@@ -370,43 +379,30 @@ export function SweepCard({
     setIsSaving(true);
 
     try {
+      if (candidate.kind !== 'todo') {
+        // Only todos have date pickers in Sweep
+        return;
+      }
+
       if (clearDateFlag) {
         // Clear the date
-        if (candidate.kind === 'todo') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              due_day: null,
-              due_date: null,
-            } as any, // Todo-specific fields
-          });
-        } else if (candidate.kind === 'habit') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              start_date: null,
-            } as any, // Habit-specific fields
-          });
-        }
+        await repo.update({
+          id: candidate.id,
+          patch: {
+            due_day: null,
+            due_date: null,
+          } as any, // Todo-specific fields
+        });
       } else {
         // Set the date
         const dueDay = toDayString(selectedDate);
-        if (candidate.kind === 'todo') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              due_day: dueDay,
-              due_date: dueDay, // Also set due_date for backward compat
-            } as any, // Todo-specific fields
-          });
-        } else if (candidate.kind === 'habit') {
-          await repo.update({
-            id: candidate.id,
-            patch: {
-              start_date: dueDay,
-            } as any, // Habit-specific fields
-          });
-        }
+        await repo.update({
+          id: candidate.id,
+          patch: {
+            due_day: dueDay,
+            due_date: dueDay, // Also set due_date for backward compat
+          } as any, // Todo-specific fields
+        });
       }
     } catch (error) {
       console.error('[SweepCard] Failed to update date:', error);
@@ -674,13 +670,17 @@ export function SweepCard({
         </Animated.View>
       </Animated.View>
 
-      {/* Swipe Cue Labels - ABOVE the card */}
+      {/* Swipe Cue Labels - ABOVE the card (contextual based on item type) */}
       <View style={styles.swipeCueRow} pointerEvents="none">
         <Animated.View style={animatedLeftLabelStyle}>
-          <Text style={styles.swipeCueText}>← Clear</Text>
+          <Text style={styles.swipeCueText}>
+            {candidate.kind === 'todo' ? '← Done with this' : '← Remove this'}
+          </Text>
         </Animated.View>
         <Animated.View style={animatedRightLabelStyle}>
-          <Text style={styles.swipeCueText}>Keep →</Text>
+          <Text style={styles.swipeCueText}>
+            {candidate.kind === 'todo' ? 'Still matters →' : 'Save this →'}
+          </Text>
         </Animated.View>
       </View>
 
@@ -729,6 +729,28 @@ export function SweepCard({
                 <Pencil size={16} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
               </TouchableOpacity>
 
+              {/* Photo Preview - Large image at top for note candidates with attachments */}
+              {hasAttachments && firstAttachment && (
+                <TouchableOpacity
+                  style={styles.photoContainer}
+                  onPress={() => handleOpenPhotoPreview(firstAttachment.url)}
+                  activeOpacity={0.9}
+                  accessibilityLabel="Tap to view full photo"
+                  accessibilityRole="imagebutton"
+                >
+                  <Image
+                    source={{ uri: firstAttachment.url }}
+                    style={styles.photoImage}
+                    resizeMode="cover"
+                  />
+                  {attachmentCount > 1 && (
+                    <View style={styles.photoCountBadge}>
+                      <Text style={styles.photoCountText}>+{attachmentCount - 1}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+
               {/* 1. TITLE - Large, with space for edit icon */}
               <View style={styles.titleSection}>
                 <Text style={styles.titleText} numberOfLines={4}>
@@ -748,14 +770,37 @@ export function SweepCard({
                 <View style={styles.cardDivider} />
               </View>
 
-              {/* 3. META ROW - Type, timestamp, and optional overdue pill */}
+              {/* 3. META ROW - Type, timestamp, and optional metadata badge */}
               <View style={styles.metadataRow}>
                 <Text style={styles.metaLineText}>
                   {typeLabel.toUpperCase()} · {timestamp}
                 </Text>
-                {candidate.isOverdue && (
-                  <View style={styles.overduePill}>
-                    <Text style={styles.overduePillText}>Overdue</Text>
+                {metadataBadge && (
+                  <View
+                    style={[
+                      styles.metadataBadge,
+                      metadataBadge.style === 'overdue' && styles.metadataBadgeOverdue,
+                      metadataBadge.style === 'dueToday' && styles.metadataBadgeDueToday,
+                      metadataBadge.style === 'enteredToday' && styles.metadataBadgeEnteredToday,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.metadataBadgeText,
+                        metadataBadge.style === 'overdue' && styles.metadataBadgeTextOverdue,
+                        metadataBadge.style === 'dueToday' && styles.metadataBadgeTextDueToday,
+                        metadataBadge.style === 'enteredToday' &&
+                          styles.metadataBadgeTextEnteredToday,
+                      ]}
+                    >
+                      {metadataBadge.label}
+                    </Text>
+                  </View>
+                )}
+                {/* Camera icon for entries with photo attachments */}
+                {hasAttachments && (
+                  <View style={styles.photoIndicator}>
+                    <Camera size={12} color="rgba(34, 34, 34, 0.5)" strokeWidth={2} />
                   </View>
                 )}
               </View>
@@ -781,9 +826,6 @@ export function SweepCard({
                     {primaryConfig.icon === 'calendar' && (
                       <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
-                    {primaryConfig.icon === 'habit' && (
-                      <Repeat size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                    )}
                     {primaryConfig.icon === 'todo' && (
                       <CheckSquare size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                     )}
@@ -797,20 +839,6 @@ export function SweepCard({
                   </TouchableOpacity>
                 </View>
               )}
-
-              {/* 5. SKIP ACTION - Secondary outlined pill */}
-              <View style={styles.cardActionBlock}>
-                <TouchableOpacity
-                  style={styles.skipPill}
-                  onPress={onSkip}
-                  accessibilityLabel="Skip until next Sweep"
-                  accessibilityRole="button"
-                  activeOpacity={0.6}
-                >
-                  <Clock size={14} color="rgba(46, 85, 64, 0.70)" strokeWidth={1.8} />
-                  <Text style={styles.skipPillText}>Skip</Text>
-                </TouchableOpacity>
-              </View>
             </ScrollView>
           </Animated.View>
         </GestureDetector>
@@ -1028,6 +1056,27 @@ export function SweepCard({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Photo Preview Modal - Full-screen image viewer */}
+      <Modal
+        visible={isPhotoPreviewOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={handleClosePhotoPreview}
+      >
+        <Pressable style={styles.photoPreviewBackdrop} onPress={handleClosePhotoPreview}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            {previewPhotoUrl && (
+              <Image
+                source={{ uri: previewPhotoUrl }}
+                style={styles.photoPreviewImage}
+                resizeMode="contain"
+                accessibilityLabel="Full size photo"
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1120,6 +1169,51 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
+  // Photo Preview Container - Large image at top of card
+  photoContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    backgroundColor: 'rgba(191, 216, 192, 0.15)', // Sage Mist placeholder
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoCountBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  photoCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Camera icon indicator in metadata row
+  photoIndicator: {
+    marginLeft: 6,
+    opacity: 0.7,
+  },
+  // Photo Preview Modal
+  photoPreviewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoPreviewImage: {
+    width: Dimensions.get('window').width * 0.9,
+    height: Dimensions.get('window').height * 0.7,
+    borderRadius: 8,
+  },
+
   // Title Section - Hero, airy vertical rhythm
   titleSection: {
     paddingTop: 0,
@@ -1170,6 +1264,43 @@ const styles = StyleSheet.create({
   },
 
   // Overdue Pill - Muted coral/red accent, calm but attention-grabbing
+  // Now generalized as metadataBadge with style variants
+  metadataBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  metadataBadgeOverdue: {
+    backgroundColor: 'rgba(196, 92, 74, 0.12)', // OVERDUE_ACCENT @ 12%
+    borderWidth: 1,
+    borderColor: 'rgba(196, 92, 74, 0.25)', // OVERDUE_ACCENT @ 25%
+  },
+  metadataBadgeDueToday: {
+    backgroundColor: 'rgba(46, 85, 64, 0.10)', // Moss Green @ 10%
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.20)', // Moss Green @ 20%
+  },
+  metadataBadgeEnteredToday: {
+    backgroundColor: 'rgba(34, 34, 34, 0.06)', // Charcoal @ 6%
+    borderWidth: 1,
+    borderColor: 'rgba(34, 34, 34, 0.12)', // Charcoal @ 12%
+  },
+  metadataBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  metadataBadgeTextOverdue: {
+    color: '#C45C4A', // OVERDUE_ACCENT - matches OverdueSection
+  },
+  metadataBadgeTextDueToday: {
+    color: BRAND.colors.mossGreen,
+  },
+  metadataBadgeTextEnteredToday: {
+    color: 'rgba(34, 34, 34, 0.65)', // Charcoal @ 65%
+  },
+
+  // Legacy overduePill styles kept for backward compatibility
   overduePill: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1242,25 +1373,6 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
   },
 
-  // Skip Pill - Outlined, more muted secondary action
-  skipPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.6)', // Sage Mist border
-  },
-  skipPillText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(46, 85, 64, 0.70)', // Moss Green @ 70% - muted
-  },
-
   // Spacer - Pushes action block to bottom of card
   actionSpacer: {
     flex: 1,
@@ -1277,15 +1389,6 @@ const styles = StyleSheet.create({
     width: '90%',
     height: 1,
     backgroundColor: 'rgba(191, 216, 192, 0.5)', // sageMistBorder
-  },
-
-  // Card Action Block - Pill buttons row
-  cardActionBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingBottom: 4,
   },
 
   // Action Pill - Small rounded pill button
@@ -1346,30 +1449,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
     letterSpacing: 1,
-  },
-
-  // Skip Button - Legacy style (replaced by actionButton)
-  skipButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: BRAND.radius.pill,
-    backgroundColor: 'rgba(249, 246, 241, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.25)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  skipButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
   },
 
   // Swipe Scrims - Behind the card, fade in during drag
